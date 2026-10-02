@@ -53,7 +53,6 @@ budget. Nested budgets both count; other threads have independent budgets.
 | `imports-inventory` | Validated destination native inventory |
 | `transcript-index` | Provider project and engine journal index |
 | `transcript-search` | Uncached wildcard search across transcript projects |
-| `workspace-tree` | Organization workspace/scratch storage measurement |
 
 When adding a fleet walker, label its actual traversal and set a budget in the
 calling pass's regression fixture. Assertions must exercise real eligible nodes

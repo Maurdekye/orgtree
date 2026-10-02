@@ -426,7 +426,7 @@ class LazyRows(unittest.TestCase):
     def test_runtime_node_projection_excludes_work_and_preserves_legacy_fallback(self):
         seen,watch=self.watch()
         with watch:
-            row=store.read_runtime_node(self.slug,'a',('spend_frozen','storage_blocked'))
+            row=store.read_runtime_node(self.slug,'a',('storage_blocked',))
         self.assertEqual(row['node']['id'],'a')
         self.assertEqual(len(seen),1,seen)
         self.assertIn('UNION ALL',seen[0][0])

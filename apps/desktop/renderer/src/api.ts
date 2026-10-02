@@ -1,8 +1,5 @@
 import type { EventReplyWire } from './eventReply'
 import type { ReplyTarget } from './generated/events'
-// kiosk v2: when the SPA is served from a preauthenticated public URL
-// (/k/<token>/…), every API call and the WS must carry the token prefix —
-// the public listener serves nothing outside it.
 import { forgetNodeDetail, hydrateTree } from './archived'
 import type { NodeDetail } from './archived'
 import { bumpLive } from './livebus'
@@ -21,7 +18,7 @@ import type {
   AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
-  InboxPayload, KioskCfgRequest, KioskSaveResult, MailEntry,
+  InboxPayload, MailEntry,
   McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
@@ -35,10 +32,6 @@ import type {
   WorkItemsPayload, WorkItemPayload, WorkItemReplyResult, DismissAttentionResult,
   WorkItemAttachment,
 } from './types'
-
-// Desktop uses the private engine origin; public token routes are excluded.
-export const BASE: string = ''
-const u = (p: string) => BASE + p
 
 /** THE RESTART DETECTOR.
  *
@@ -171,7 +164,7 @@ const failure = async (r: Response): Promise<Error> => {
 // T infers from that declared return at every call site - no `any` escapes.
 export const req = <T,>(path: string, init?: RequestInit,
                  timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<T> =>
-  fetch(u(path), init?.signal || !timeoutMs
+  fetch(path, init?.signal || !timeoutMs
     ? init
     : { ...init, signal: timeoutSignal(timeoutMs) }).then((r) => {
     // before the ok/not-ok split: a restart is worth noticing even when the
@@ -283,7 +276,7 @@ export const patchedTreeCache = (slug: string): void => {
 export const getTree = (slug: string): Promise<TreePayload | null> => {
   const gen = treeCacheGen.get(slug) ?? 0
   const hit = treeCache.get(slug)
-  return fetch(u(`/api/orgs/${slug}?view=delta`), {
+  return fetch(`/api/orgs/${slug}?view=delta`, {
     signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
   }).then((r) => {
@@ -326,7 +319,7 @@ export const getCompleteTree = async (slug: string): Promise<TreePayload> => {
   } finally { treeCache.delete(slug) }
 }
 const foregroundTreeReader = new ForegroundTreeReader(async (path, etag) => {
-  const response = await fetch(u(path), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+  const response = await fetch(path, { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     ...(etag ? { headers: { 'If-None-Match': etag } } : {}) })
   noteInstance(response)
   return response
@@ -595,7 +588,7 @@ export const getDocument = (slug: string, did: string):
   req(`/api/orgs/${slug}/documents/${did}`)
 /** A stable operator-only HTML preview; content isolation is server-enforced. */
 export const mockupUrl = (slug: string, did: string): string =>
-  u(`/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(did)}/mockup`)
+  `/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(did)}/mockup`
 // the gallery (user request 2026-09-03): every card, org-wide, newest first —
 // metadata only (no body; the reader fetches that on open). `evicted` rows
 // are cards the retention prune dropped whose log line survives — no body to
@@ -647,7 +640,7 @@ export const getWorkItems = (slug: string, archived = false,
   if (pending) return pending
   const hit = workCache.get(path)
   const generation = workGeneration
-  const p: Promise<WorkItemsPayload> = fetch(u(path), {
+  const p: Promise<WorkItemsPayload> = fetch(path, {
     signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
   }).then((r) => {
@@ -673,7 +666,7 @@ export const getWorkItems = (slug: string, archived = false,
   return p
 }
 const readWorkResponse = async (path: string, etag?: string): Promise<Response> => {
-  const response = await fetch(u(path), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+  const response = await fetch(path, { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     ...(etag ? { headers: { 'If-None-Match': etag } } : {}) })
   noteInstance(response)
   return response
@@ -723,14 +716,14 @@ export const uploadWorkItemAttachment = (slug: string, id: string, file: File):
   Promise<{ attachment: WorkItemAttachment }> =>
   req(`/api/orgs/${slug}/work-items/${id}/attachments?name=${encodeURIComponent(file.name)}`,
     { method: 'POST', body: file }, SLOW_TIMEOUT_MS)
-// direct <img>/<a href> target — BASE-aware like fileUrl
+// direct <img>/<a href> target
 export const workItemAttachmentUrl = (slug: string, id: string, aid: string): string =>
-  u(`/api/orgs/${slug}/work-items/${id}/attachments/${encodeURIComponent(aid)}`)
+  `/api/orgs/${slug}/work-items/${id}/attachments/${encodeURIComponent(aid)}`
 // W08 artifacts: immutable evidence recorded by an agent. Download only — the
 // UI never uploads one, because an artifact's provenance is the agent's own
 // (the recorder is who a `named` grant authorizes against).
 export const workItemArtifactUrl = (slug: string, id: string, aid: string): string =>
-  u(`/api/orgs/${slug}/work-items/${id}/artifacts/${encodeURIComponent(aid)}`)
+  `/api/orgs/${slug}/work-items/${id}/artifacts/${encodeURIComponent(aid)}`
 // ⚠ permanent: the record and the stored bytes both go; there is no undelete
 export const deleteWorkItemAttachment = (slug: string, id: string, aid: string):
   Promise<{ removed: string }> =>
@@ -1066,10 +1059,9 @@ export const uploadFile = (slug: string, nid: string, file: File): Promise<Uploa
   req<UploadResult>(`/api/orgs/${slug}/nodes/${nid}/upload?name=${encodeURIComponent(file.name)}`, {
     method: 'POST', body: file,
   }, SLOW_TIMEOUT_MS)
-// direct <a href> download target (browser handles the transfer) — BASE-aware
-// so kiosk visitors download through their token prefix
+// direct <a href> download target (browser handles the transfer)
 export const fileBase = (slug: string, nid: string): string =>
-  u(`/api/orgs/${slug}/nodes/${nid}/file?path=`)
+  `/api/orgs/${slug}/nodes/${nid}/file?path=`
 export const fileUrl = (slug: string, nid: string, path: string): string =>
   fileBase(slug, nid) + encodeURIComponent(path)
 export const sendMessage = (
@@ -1115,12 +1107,6 @@ export const saveHireDefaults = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(opts),
   })
-export const saveKiosk = (slug: string, opts: KioskCfgRequest = {}): Promise<KioskSaveResult> =>
-  req(`/api/orgs/${slug}/kiosk`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(opts),
-  })
 
 // the org-disk recovery browser (its own surface, deliberately not /api/fs)
 export const getDisk = (slug: string, offset = 0, limit = 200): Promise<DiskPayload> =>
@@ -1160,7 +1146,7 @@ export const getSweepPreview = (slug: string): Promise<SweepPreview> =>
 export const sweepLegacy = (slug: string): Promise<SweepResult> =>
   req(`/api/orgs/${slug}/sweep-legacy`, { method: 'POST' })
 export const diskFileUrl = (slug: string, path: string): string =>
-  u(`/api/orgs/${slug}/disk/file?path=${encodeURIComponent(path)}`)
+  `/api/orgs/${slug}/disk/file?path=${encodeURIComponent(path)}`
 
 /* This window's id on the org websocket (`?win=`), so the engine can count one
    window's reconnects across its sockets for the Developer › engine debug
@@ -1183,7 +1169,7 @@ export function openWs(
 ): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(
-    `${proto}://${location.host}${BASE}/api/orgs/${slug}/ws?win=${encodeURIComponent(WINDOW_ID)}`)
+    `${proto}://${location.host}/api/orgs/${slug}/ws?win=${encodeURIComponent(WINDOW_ID)}`)
   ws.onmessage = onChanged
   const ping = setInterval(() => { if (ws.readyState === 1) ws.send('ping') }, 25000)
   ws.onclose = () => { clearInterval(ping); onClose?.() }
@@ -1193,7 +1179,7 @@ export function openWs(
 /* Developer › engine debug view: one cheap read of counters the engine keeps
    (api.py `engine_stats`), polled about once a second while the view is on. */
 export interface EngineSocketStats {
-  org: string; window: string; public: boolean
+  org: string; window: string
   pending: number; pending_bytes: number; sent: number; sent_bytes: number
   age_s: number; window_connects: number; window_drops: number
 }
@@ -1220,4 +1206,4 @@ export const getEngineStats = (): Promise<EngineStats> =>
   req('/api/diagnostics/engine-stats', undefined, 5000)
 
 export const documentDownloadUrl = (slug: string, id: string): string =>
-  u(`/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/download`)
+  `/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/download`

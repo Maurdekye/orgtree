@@ -194,7 +194,6 @@ def start_backend() -> None:
         "ORGTREE_CLAUDE": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })
-    env.pop("ORGTREE_PUBLIC_PORT", None)
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
     with open(CFG, "w", encoding="utf-8") as f:
         json.dump({"default": {"replyText": "ack."}}, f)

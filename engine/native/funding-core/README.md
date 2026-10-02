@@ -90,8 +90,7 @@ string `max_top_grant` is `Outside`, as `int()` of it is not modelled); node
 ids and actors that `repr()` prints without escapes.
 
 Assumed of every snapshot (the oracle builds them this way): every node's
-`successor` is `null` (so no own-bearer rehire), no `fable_lock`, no kiosk
-ceiling, no per-org `max_depth`/`max_children`, hires carry a complete and
+`successor` is `null` (so no own-bearer rehire), no `fable_lock`, no per-org `max_depth`/`max_children`, hires carry a complete and
 permitted scope, and the new hire's name is valid.
 
 `Outside` (refused, never guessed): a parent cycle that Python's chain walk
@@ -102,8 +101,8 @@ rehire of an unrecoverable node (a re-seed); hire of a tier with no price
 
 ## Exclusions
 
-`move`/`switch_model`, tier/visibility/tool/name/account clamps and kiosk
-ceilings, `request_credits`, API kiosk caps, the hire's node minting and
+`move`/`switch_model`, tier/visibility/tool/name/account clamps,
+`request_credits`, the hire's node minting and
 everything after the funding step (notification delivery, logging, harness
 and account stamping), and any transaction, locking or persistence behaviour.
 
@@ -121,10 +120,10 @@ and the `state`/`grant` writes that make the target and each superior live.
 Only these are left out, and each is listed in the oracle
 (`NON_FUNDING_CALLS`, `NON_FUNDING_FIELDS`, `NON_FUNDING_SETTINGS`):
 
-* reads inside `_check_tier_ceiling`, `depth`, `org_children`,
+* reads inside `depth`, `org_children`,
   `effective_dirs`, `_clamp_dirs`, `_clamp_tools`, `_clamp_vis`,
-  `_apply_ceiling`, `clear_fable_lock`, `_new_node`, `_peers_of` and
-  `waking_mail` (tier ceiling, depth/width caps, dirs, tools, visibility,
+  `clear_fable_lock`, `_new_node`, `_peers_of` and
+  `waking_mail` (depth/width caps, dirs, tools, visibility,
   Fable lock, node minting, peers, pending mail), and inside the effect
   builders `_notify`, `_notify_ev`, `_log` and `node_ref`;
 * the node fields `scope` (dirs/tools/visibility) and `archived_at` (a

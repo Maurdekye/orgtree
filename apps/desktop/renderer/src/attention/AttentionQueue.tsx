@@ -55,7 +55,6 @@ import type { TypedRef } from '../canvas/workrefs'
 import { decodeEventRow } from '../events/decode'
 import { projectEvent } from '../events/project'
 import { eventSurface } from '../events/card'
-import { BASE } from '../api'
 import {
   attentionNodes, buildAttentionRows, isRetained, retainSelected,
 } from './feed'
@@ -107,12 +106,6 @@ export interface AttentionQueueProps {
 export function AttentionQueue({
   slug, tree, toast, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail, treeStatus, onNotificationFocus,
 }: AttentionQueueProps) {
-  // read-only visitor: a public organization is served to someone who is not
-  // the operator, so every resolution control is withheld. The rows still
-  // render — what is waiting is not a secret from a reader who can already
-  // see the docket — but nothing here can write.
-  const readOnly = !!tree.public || !!BASE
-
   // ⚠ BOTH FEEDS ARE POLLED, and both are the SAME calls their own panels
   // make, so a dismissal or a read performed in the Docket or the inbox
   // reaches this list on the next tick without either surface knowing the
@@ -214,7 +207,7 @@ export function AttentionQueue({
 
   // ---- the three resolutions, each through the surface that already owns it
   const dismiss = useCallback((item: WorkItem) => {
-    if (readOnly || !item.manual_attention) return
+    if (!item.manual_attention) return
     const key = item.slug
     setDismissing((s) => new Set([...s, key]))
     dismissAttention(slug, { slug: item.slug, manual_attention: item.manual_attention,
@@ -228,7 +221,7 @@ export function AttentionQueue({
         setDismissing((s) => { const n = new Set(s); n.delete(key); return n })
         toast([`error: ${e.message}`])
       })
-  }, [readOnly, slug, toast, refetch])
+  }, [slug, toast, refetch])
 
   const read = (m: MailEntry) =>
     markReadNow(slug, m, () => markRead(slug, [m.id])).then(refetch)
@@ -255,7 +248,7 @@ export function AttentionQueue({
   const openRow = (row: AttentionRow) => {
     if (row.kind === 'ticket' && row.key !== selected) bottomFor.current = row.key
     setSelected(row.key)
-    if (readOnly || row.kind !== 'mail' || !row.mail) return
+    if (row.kind !== 'mail' || !row.mail) return
     // only a mail the server still calls unread is marked — re-selecting a
     // retained row must not post a second read for the same message
     if ((box?.pending ?? []).some((p) => p.id === row.mail!.id)) setToRead(row.mail)
@@ -371,7 +364,7 @@ export function AttentionQueue({
     isRetained(row, live) ? { ...row.mailRow!, _wait: false } : row.mailRow!
 
   const current = rows.find((r) => r.key === selected) ?? null
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   const typed = (m: MailRow) => {
     const d = decodeEventRow(m, profile)
     return d.kind === 'known' ? projectEvent(d.event) : null
@@ -475,7 +468,7 @@ export function AttentionQueue({
                         ? <InboxAskCard ask={current.ask} slug={slug} tree={tree}
                             node={nodeMap.get(current.ask.node)} toast={toast} />
                         : null}
-                      onReply={readOnly || current.kind !== 'mail' || !current.mail ? undefined
+                      onReply={current.kind !== 'mail' || !current.mail ? undefined
                         : (text, attachments, notice) => {
                           const mail = current.mail!
                           return sendLinkedReply(slug, mail.from, text,

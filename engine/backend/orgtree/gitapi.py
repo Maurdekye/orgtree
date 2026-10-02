@@ -1,4 +1,4 @@
-"""Operator-only Git workspace routes. Public projection is no data, uniformly 403."""
+"""Operator-only Git workspace routes."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -15,7 +15,7 @@ from .ledger import LedgerError
 
 
 def operator(request: Request) -> None:
-    if getattr(request.state, "public_slug", None) or getattr(request.state, "bridge_slug", None):
+    if getattr(request.state, "bridge_slug", None):
         raise HTTPException(403, "Git workspace is available only to the host operator")
 
 

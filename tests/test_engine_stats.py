@@ -221,14 +221,14 @@ class EngineStats(unittest.TestCase):
         self.assertGreaterEqual(after["cached_bytes"], len(body))
         self.assertEqual(after["window_s"], 60)
 
-    def test_public_callers_are_refused(self) -> None:
+    def test_bridge_callers_are_refused(self) -> None:
         from fastapi.testclient import TestClient
 
-        async def as_public(scope, receive, send):
+        async def as_bridge(scope, receive, send):
             scope = dict(scope)
-            scope["state"] = {**(scope.get("state") or {}), "public_slug": "kiosk"}
+            scope["state"] = {**(scope.get("state") or {}), "bridge_slug": "agent-org"}
             await api.app(scope, receive, send)
-        r = TestClient(as_public).get("/api/diagnostics/engine-stats")
+        r = TestClient(as_bridge).get("/api/diagnostics/engine-stats")
         self.assertEqual(r.status_code, 403)
 
 

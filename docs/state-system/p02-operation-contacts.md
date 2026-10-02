@@ -38,9 +38,6 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   orgs), cold and warm. Rows: `org.tree` and its `migration:*` rows, as
   declared `statement:data:org-db:foreign` statements. See the
   `org-view.reads` row of the S3 F1b hand-off table.
-- The public kiosk gateway rebuilds its token map by reading every org
-  before any census attempt: `kiosk_token_scan`. A public request whose
-  token cache has expired carries this read, outside its census record.
 - `mail.message:bare-unknown-name` looks the name up in every org.
 - A human send to a name that is no node here does the same before its 422
   (`mail.human-send` `refusal:human-unknown-node`).
@@ -55,8 +52,7 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   F4, below). The external-chat scans (`GET /api/extern/{peer}/messages`
   and `/wait`) did the same, even with an `?org=` filter, until they were
   retired on 2026-09-25.
-- **An `@org:` send from the org inbox writes the other org's store**; to a
-  sealed kiosk it reads the other store and only warns.
+- **An `@org:` send from the org inbox writes the other org's store**.
 
 ## Reads that start a process (recorded, not fixed)
 
@@ -412,8 +408,7 @@ F1b, F2 (agent and human mail, inbox routes), F3 (funding), F3b (staffing),
 F3c (operator ops), F3d (quick-staff) and F4 (work-read, receipt-lookup)
 follow below. With F4, every P02-owned `reads` and `instrumentation` facet in
 the registry at v3 b4a702b has probe rows, several of them only partly
-covered (for example `material.reads`, disk-backed placement, and
-`org-view.instrumentation`, the kiosk token scan). That is NOT complete
+covered (for example `material.reads`, disk-backed placement). That is NOT complete
 coverage: see each hand-off table's status, "NOT covered" and "Owned
 elsewhere" entries, and Limits.
 
@@ -421,46 +416,18 @@ elsewhere" entries, and Limits.
 
 These are not `/api/agent` tools. The runner's `call` option drives the real
 route through the same window, census baseline and collector: an HTTP GET
-with the desktop token (admin), the public kiosk gateway (`/k/<token>/…`),
-or a websocket. The fixture follows `tests/test_state_org_view_boundary.py`:
+with the desktop token (admin), or a websocket. The fixture follows `tests/test_state_org_view_boundary.py`:
 `ov-boss`, `ov-worker`, and a retired `ov-gone`.
 
-- **Admin** (kiosk off): `org.tree`, `org.node-detail` (`ov-worker`) and
+- **Admin**: `org.tree`, `org.node-detail` (`ov-worker`) and
   `org.node-detail:archived` (`ov-gone`), each cold and warm, with
   `disclosed`. Refusals: `refusal:tree-no-token` (401) and
   `refusal:detail-unknown-node` (404).
-- **Public** (kiosk on): `org.tree:public` and `org.node-detail:public`,
-  cold and warm. Refusal: `refusal:tree-bad-kiosk-token` (404, answered by
-  the gateway, with no census record).
-- **The desktop-mode kiosk 500** (`refusal:tree-admin-on-kiosk-org`): the
-  admin tree of a kiosk-enabled org answers 500 "Not available in desktop MVP:
-  kiosk". This is the legacy defect P01 pinned at f2d71a1; it is recorded, not
-  fixed. That is why the admin rows run before the kiosk is enabled.
-- **The kiosk token scan** (`kiosk_token_scan`, top level, NOT a row): the
-  public gateway resolves `/k/<token>` through `api._kiosk_token_map`. That
-  map is rebuilt, on a 5-second cache, by reading every org's document, and
-  the rebuild runs in the ASGI wrapper before the app, so before any census
-  attempt exists.
-  - Measured on its own with the cache forced stale: every statement is
-    unattributable (`statements_unbound` equals `statements`, census
-    `db_unattributed` grows), no census record, and every org store is read
-    to map one kiosk org.
-  - The public rows (tree, detail and feed) run with the map PINNED fresh:
-    its cache timestamp is set far ahead, so the real lookup answers from
-    the built map however long a row takes. They therefore carry only their
-    own request's contacts, independent of the 5-second cache, and per-row
-    loss stays zero.
-  - In the product, any public request that arrives after the cache has
-    expired carries this every-org read as well, outside its census record.
-  - This is a census coverage gap for P02 runtime instrumentation and a
-    cross-org read for the native design; it is not fixed here.
-- **Feed** (`org.feed`, a websocket): `org.feed` (admin) and `org.feed:public`,
-  each cold and warm; `org.feed:fanout` (admin and public together, two
-  broadcasts); `refusal:feed-no-token` (close 4401). Each row's `feed`
-  records:
+- **Feed** (`org.feed`, a websocket): `org.feed` (admin), cold and warm;
+  `org.feed:fanout` (two admin subscribers, two broadcasts);
+  `refusal:feed-no-token` (close 4401). Each row's `feed` records:
   - subscribers in the slug's room;
-  - frames received per subscriber after `hub.changed`;
-  - how many subscribers the hub holds as public.
+  - frames received per subscriber after `hub.changed`.
 
   The census records no websocket attempt, and a subscription runs no
   statement.
@@ -478,15 +445,14 @@ Clauses from the Owner lines at v3 f2d71a1.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `org-view.reads` | observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, admin and public, cold and warm, with archived nodes present | covered | `org.tree`, `org.tree:public`, `org.node-detail`, `org.node-detail:archived`, `org.node-detail:public`, each cold and warm (the archived node is in every tree's `disclosed`); refusals. The admin tree also reads one `doc` row of EVERY other org on each build (`store.local_net_slugs`), visible cold and warm as declared foreign statements. The gateway's token-map rebuild is in `kiosk_token_scan` (not attributable to a row), and a real public request whose token cache has expired carries it as well |
+| `org-view.reads` | observed per-operation contacts for GET /api/orgs/{slug} and the node detail route, cold and warm, with archived nodes present | covered | `org.tree`, `org.node-detail`, `org.node-detail:archived`, each cold and warm (the archived node is in every tree's `disclosed`); refusals. The admin tree also reads one `doc` row of EVERY other org on each build (`store.local_net_slugs`), visible cold and warm as declared foreign statements |
 | `org-view.writes` | observed writes on the cold and migration paths reached through cached_org | covered | cold path: every cold tree/detail row (no table written); migration: `org.tree` `migration:refused`, `migration:legacy-json` cold (the migration's writes) and warm |
-| `org-view.instrumentation` | an observed, loss-accounted contact record for the tree and detail routes, admin and public, cold and warm | partly | covered: the rows above, per-row loss zero. NOT covered: the public gateway's token-map rebuild, which the census cannot attribute to any attempt (`kiosk_token_scan`). Closing it needs product instrumentation (P02 runtime stage); P03 native controls are separate |
-| `org-feed.instrumentation` | an observed record of feed subscriptions and frame fan-out (per slug, admin and public) | covered by the harness, not by the census | `org.feed`, `org.feed:public` (cold/warm), `org.feed:fanout`, `refusal:feed-no-token`, each with `feed` (subscribers, frames per subscriber, public count). The product's census records no websocket attempt; a census record of subscriptions needs product instrumentation (P02 runtime stage) |
+| `org-view.instrumentation` | an observed, loss-accounted contact record for the tree and detail routes, cold and warm | covered | the rows above, per-row loss zero. P03 native controls are separate |
+| `org-feed.instrumentation` | an observed record of feed subscriptions and frame fan-out (per slug) | covered by the harness, not by the census | `org.feed` (cold/warm), `org.feed:fanout`, `refusal:feed-no-token`, each with `feed` (subscribers, frames per subscriber). The product's census records no websocket attempt; a census record of subscriptions needs product instrumentation (P02 runtime stage) |
 
 Owned elsewhere, with no rows added:
 - `org-view.conflicts` and `org-feed.conflicts`: the native design, then P03;
-- `org-view.wire` and `org-feed.wire`: the native/Rust conversion. The
-  desktop-mode kiosk 500 is recorded above, for them to decide.
+- `org-view.wire` and `org-feed.wire`: the native/Rust conversion.
 
 ## P01 S3 F2: `mail.message`, `mail.notice`
 
@@ -845,7 +811,6 @@ Observed and recorded:
 - The OpenRouter harness choice (`new_hire_harness`, a provider read before
   DOC_LOCK) is not exercised: the fixture uses `haiku`, and the gate is
   stubbed.
-- The kiosk visitor path to the same door (pinned by P01) has no rows here.
 
 ## Hand-off to P01 (S3 F3c, operator ops): facet → clause → rows
 
@@ -853,7 +818,7 @@ Clauses from the Owner lines at v3 56a9c22 (unchanged from b84131f).
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `operator-ops.reads` | observed per-operation contacts for operator hire (top level, under a parent, above) and reallocate (up, down, top level), cold and warm | covered | `operator.hire`, `:under`, `:above`; `operator.reallocate`, `:down`, `:top-level`; each cold and warm; plus `:fractional` and the refusal rows. The OpenRouter harness choice (a provider read) is not exercised, and the kiosk visitor path has no rows |
+| `operator-ops.reads` | observed per-operation contacts for operator hire (top level, under a parent, above) and reallocate (up, down, top level), cold and warm | covered | `operator.hire`, `:under`, `:above`; `operator.reallocate`, `:down`, `:top-level`; each cold and warm; plus `:fractional` and the refusal rows. The OpenRouter harness choice (a provider read) is not exercised |
 | `operator-ops.instrumentation` | an observed, loss-accounted contact record for operator hire and reallocate with agent-level locality (the target, its chain and the new seat's parent and peers only) | partly | covered: the rows above, per-row loss zero; locality within the clause's set, where "chain" is every ancestor (a raise writes them all) and an above-hire's set includes the anchor's reports, which the clause does not name; `control:operator-third-agent` flagged. NOT covered: P03 native negative controls |
 
 Owned elsewhere, with no rows added:
@@ -1205,7 +1170,7 @@ parenthetical is the facet's first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `operator-ops.variant-instrumentation` | a loss-accounted P02 record per variant row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each) | partly | covered: all 13 operations and the preview, cold and warm, per-row loss zero, with the preview variants, the waiting-mail rehire, the no-op reseed and 16 refusals; org-level locality (every statement on this org's store); agent-level locality within the declared set, which for promote includes the old chain that the pinned `told` does not name; `control:op-variants-third-agent` flagged. NOT covered: P03 native negative controls; the kiosk visitor path |
+| `operator-ops.variant-instrumentation` | a loss-accounted P02 record per variant row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each) | partly | covered: all 13 operations and the preview, cold and warm, per-row loss zero, with the preview variants, the waiting-mail rehire, the no-op reseed and 16 refusals; org-level locality (every statement on this org's store); agent-level locality within the declared set, which for promote includes the old chain that the pinned `told` does not name; `control:op-variants-third-agent` flagged. NOT covered: P03 native negative controls |
 
 Owned elsewhere, with no rows added:
 - `operator-ops.variant-conflicts`: the native design, then P03;
@@ -1303,32 +1268,21 @@ non-desktop profile is probed by clearing that flag for the one call (row
 `env`):
 - `orgtree_self_restart` and all three `orgtree_prime_restart` actions have
   a `:desktop` row (refused as renamed, no effect) and a `:non-desktop` row
-  (the launch, arm or cancel spy fires), each cold and warm;
-- the kiosk route is stripped from the desktop-built app
-  (`desktop_policy.install_routes` drops every route with `/kiosk` in its
-  path): `control.kiosk:desktop-stripped`, cold and warm, answers 404
-  (P01 pins 405; reported). For the non-desktop profile the real handler
-  (`api.org_kiosk`) is mounted at its own path for these rows only, as a
-  non-desktop build mounts it, and the flag is cleared for the call:
-  `control.kiosk:non-desktop` configures a kiosk org of its own (`kx-*`)
-  cold and warm, and `refusal:kiosk-not-a-kiosk-org` is the handler's 422
-  on an ordinary org. Mounting the route rather than calling the function
-  keeps each call a census-recorded, loss-accounted attempt; the route is
-  removed afterwards.
+  (the launch, arm or cancel spy fires), each cold and warm.
 
-- **Each contract, cold and warm** (26 in all):
+- **Each contract, cold and warm** (25 in all):
   - on the agent door: `control.interrupt`, `.unstick`, `.continue-on`,
     `.halt`, `.unhalt`, `.restart-wake-arm`, `-status` and `-cancel`,
     `.self-restart`, `.prime-restart-arm`, `-status` and `-cancel`;
   - on the operator routes: `control.op-interrupt`, `.op-unstick`,
     `.op-continue-on`, `.op-halt`, `.op-unhalt`, `.op-process`,
     `.remote-control`, `.steer-claim`, `.steer-ack`, `.steer-state`,
-    `.kiosk`, `.killswitch`, `.killswitch-release` and `.resume`.
+    `.killswitch`, `.killswitch-release` and `.resume`.
 - **Variants** (warm): an unstick of a node that is not frozen; a batch
   halt; an operator interrupt of a halted node; an operator unhalt of a node
   that is not halted; a restart wake armed for a subordinate; a release of a
   killswitch that is not latched.
-- **Refusals** (warm; no primary write, nothing logical): 18 of them:
+- **Refusals** (warm; no primary write, nothing logical): 17 of them:
   - authority (interrupt self or up, unstick up, continue-on up, halt up);
   - a batch halt with one target out of reach (nothing is cut);
   - choosing one's own account (403);
@@ -1339,7 +1293,6 @@ non-desktop profile is probed by clearing that flag for the one call (row
   - an unknown node for the process route (404), a bad remote-control
     action;
   - resume while the killswitch is latched (409);
-  - the non-desktop kiosk handler on an org that is not a kiosk (422);
   - an agent credential on a route (401).
 - **Agent-level locality:** the pinned notices are asserted exactly (an
   unstick tells the unfrozen node), and `ct-third` is never touched. The
@@ -1388,7 +1341,7 @@ facet's first open question, not the Owner line.
 | `asks.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included) | partly | covered: the seven asks contracts cold and warm, the routed, top-level, no-open-ask and dismiss variants, and their refusals, per-row loss zero; locality within the pinned mail and notices; `control:requests-third-agent` flagged. NOT covered: P03 native negative controls |
 | `watchdogs.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included) | partly | covered: the seven watchdog contracts cold and warm, the ancestor list, the keyed list fresh and replayed, and their refusals; the smoke run is a spy. NOT covered: a real smoke run; P03 native negative controls |
 | `audiences.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included) | partly | covered: the seven audience contracts cold and warm, the already-reachable request and the refusals; locality within the pinned mail and notices. NOT covered: P03 native negative controls |
-| `control.instrumentation` | a loss-accounted P02 record per row (open question: every run-control operation, including the process effects the P01 test replaces with spies) | partly | covered: all 26 contracts cold and warm, both profiles for self-restart, prime-restart and the kiosk route (the non-desktop handler through its mounted route), the variants and 18 refusals, per-row loss zero; the unhalt carry-over recorded. NOT covered, by design: the PROCESS EFFECTS themselves, which stay spies here as the ticket requires (never a real halt, restart or kill); P03 native negative controls |
+| `control.instrumentation` | a loss-accounted P02 record per row (open question: every run-control operation, including the process effects the P01 test replaces with spies) | partly | covered: all 25 contracts cold and warm, both profiles for self-restart and prime-restart, the variants and 17 refusals, per-row loss zero; the unhalt carry-over recorded. NOT covered, by design: the PROCESS EFFECTS themselves, which stay spies here as the ticket requires (never a real halt, restart or kill); P03 native negative controls |
 | `lifecycle.instrumentation` (operator-scope only) | as in the F1 row | covered for `lifecycle.operator-scope` | `lifecycle.operator-scope` cold and warm, and `refusal:op-scope-bad-visibility` |
 
 Owned elsewhere, with no rows added: `asks.*`, `watchdogs.*`, `audiences.*`
@@ -1410,10 +1363,8 @@ and as agent mail (`refusal:mail-message-mcp-retired`, P01 S3 F2).
 The fixture follows `tests/test_state_exchange_boundary.py` with
 distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
 `ex-mid` under `ex-top`, `ex-leaf` under `ex-mid`, and `ex-third` under
-`ex-top`, never named. Three more orgs exist:
+`ex-top`, never named. Two more orgs exist:
 - the OTHER org an `@org:` send reaches;
-- a sealed KIOSK org, with a ceiling set as in P01's fixture, so a cold load
-  mints no ceiling notice;
 - a STORAGE-BLOCKED org, because the flag is org-wide.
 
 The org inbox's peer entries (a question in, an answer out) are written
@@ -1425,7 +1376,6 @@ writes `extern-peers.json`, and the test asserts it.
 - the mail spark;
 - `supervisor.notify`;
 - the storage check;
-- the workspace usage read;
 - the mail-hub kick.
 
 `hub_changed` is real and counted.
@@ -1439,8 +1389,7 @@ writes `extern-peers.json`, and the test asserts it.
   no mail hub for `@net:`, that is the only delivered send.
 - **Variants** (warm):
   - mail items from the node, org and user boxes, including a missing one;
-  - `@org:` sends: delivered, to a sealed kiosk, to a missing org, with an
-    attachment;
+  - `@org:` sends: delivered, to a missing org, with an attachment;
   - a duplicate node upload;
   - send_file with a delivery id, its replay, `send_file_once`, and a keyed
     call.
@@ -1465,8 +1414,7 @@ writes `extern-peers.json`, and the test asserts it.
     other orgs the list reads stay warm from earlier rows, so its counts are
     not a cold-machine figure;
   - an `@org:` send (the main send row, cold and warm, and its `:org`
-    variants) writes the other org's store; to a sealed kiosk it only reads
-    it;
+    variants) writes the other org's store;
   - no other row leaves its org.
 - **Agent-level locality:** nothing outside the actor and its targets is
   written, `ex-third` is never touched, and a third agent's row is only ever
@@ -1475,7 +1423,6 @@ writes `extern-peers.json`, and the test asserts it.
 
 Observed and recorded. These pinned legacy behaviours are measured, not
 fixed, and each is confirmed by the rows:
-- a sealed kiosk `@org:` send only reads the other org, and sparks nobody;
 - the reply-event routes answer a raw 500 for an unknown org or node;
 - send_file never writes the org's store, and a keyed call files no
   receipt.
@@ -1506,7 +1453,7 @@ The fixture follows `tests/test_state_org_read_boundary.py` with distinctive
 - the main org has a workspace with a `CLAUDE.md`.
 
 Separate orgs: two for the `/net` identity backfill (it writes on an org's
-first reveal), a kiosk, a bare org without a workspace, and one with an
+first reveal), a bare org without a workspace, and one with an
 unmounted disk.
 
 As in the P01 fixture, a node's transcript resolves through
@@ -1532,7 +1479,7 @@ after a garbage collection.
   - a chat read refused 422 for a bad cursor still writes the node's row,
     because the mint runs before the cursor check; its repeat
     (`refusal:chat-bad-cursor:repeat`) is 422 again and writes nothing.
-- **Variants** (warm): chat of a node with no transcript, a kiosk's `/net`,
+- **Variants** (warm): chat of a node with no transcript,
   a scratch file, the last N events, one aggregate collection, and the orgmd
   of an org with no workspace and of a 70000-character one.
 - **Refusals** (warm; no primary write, nothing logical, except the chat

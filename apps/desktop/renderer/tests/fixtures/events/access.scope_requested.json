@@ -40,37 +40,5 @@
       "org_visibility": "access.scope_requested·wanted.org_visibility"
     }
   },
-  "public": {
-    "v": 1,
-    "variant": "access.scope_requested",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "access.scope_requested·actor"
-    },
-    "object": {
-      "kind": "node",
-      "id": "access.scope_requested·object.id",
-      "name": "access.scope_requested·object.name",
-      "generation": 3
-    },
-    "items": [
-      "access.scope_requested·items[0]"
-    ],
-    "reason": "access.scope_requested·reason",
-    "wanted": {
-      "folders": [
-        {
-          "mode": "ro"
-        }
-      ],
-      "tools": {
-        "bash": false,
-        "web": false,
-        "edit": false,
-        "subagents": false
-      }
-    }
-  },
   "body": "[SCOPE REQUEST — needs a grant or an escalation]\n- access.scope_requested·items[0]\nReason: access.scope_requested·reason\nIf you hold these, grant them directly with orgtree_retool; otherwise escalate up your chain — only the user can grant past your own scope."
 }

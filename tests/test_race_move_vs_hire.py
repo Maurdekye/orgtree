@@ -54,7 +54,7 @@ WAIT = 5.0
 HIRE_SETTINGS = ("tiers", "max_depth", "max_children", "max_top_grant",
                  "default_top_grant", "cascade_hire", "dirs", "default_tools",
                  "default_visibility", "permission_mode", "default_effort",
-                 "kiosk", "default_account", "slug", "fable_lock")
+                 "default_account", "slug", "fable_lock")
 HIRE_LOGS = ("events", "notice_log", "mail_log", "lifecycle")
 HIRE_SECTIONS = ("notices", "mail", "audiences")
 

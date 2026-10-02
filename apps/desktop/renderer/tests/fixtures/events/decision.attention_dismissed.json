@@ -19,21 +19,5 @@
     "pending_questions": 3,
     "dismissed_by": "decision.attention_dismissed·dismissed_by"
   },
-  "public": {
-    "v": 1,
-    "variant": "decision.attention_dismissed",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "decision.attention_dismissed·actor"
-    },
-    "object": {
-      "kind": "work_item",
-      "slug": "decision.attention_dismissed·object.slug",
-      "title": "decision.attention_dismissed·object.title"
-    },
-    "reason": "decision.attention_dismissed·reason",
-    "pending_questions": 3
-  },
   "body": "[DOCKET · decision.attention_dismissed·object.slug] The user saw your attention flag (\"decision.attention_dismissed·reason\") and chose to say nothing. This is not approval, rejection, or substantive feedback. Do not re-raise that same reason without material new information."
 }

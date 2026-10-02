@@ -59,7 +59,7 @@ test('DiskBrowser renders normalized Sentence Case heading, PinFrame title, and 
   try {
     const view = await mountView(
       <CurrentOrg.Provider value="test-org">
-        <DiskBrowser slug="test-org" isPublic={false} toast={noop} close={noop} />
+        <DiskBrowser slug="test-org" toast={noop} close={noop} />
       </CurrentOrg.Provider>,
       (el) => el
     )

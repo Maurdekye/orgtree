@@ -166,7 +166,7 @@ let setForecast: ((n: number) => void) | null = null
 
 function Desk({ node = NODE }: { node?: CanvasNode }) {
   return <div style={{ width: 900, height: 700 }}>
-    <OwnedDeskChat node={node} map={MAP} slug={SLUG} pub={false}
+    <OwnedDeskChat node={node} map={MAP} slug={SLUG}
       op={(() => Promise.resolve({ ok: true })) as never}
       toast={(() => {}) as never} />
   </div>

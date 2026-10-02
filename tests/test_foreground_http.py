@@ -48,26 +48,13 @@ class ForegroundHTTP(unittest.TestCase):
         self.assertEqual(response.headers['content-encoding'], 'gzip')
         self.assertEqual(read.call_args.kwargs['include'], ['old', 'other'])
         self.assertTrue(read.call_args.kwargs['compressed'])
-        self.assertFalse(read.call_args.args[1])
+        self.assertEqual(read.call_args.args, ('example', ''))
         with patch.object(routes.foreground_cache, 'read', return_value=('W/"foreground-one"', None, marks)):
             unchanged = self.get(**{'If-None-Match': 'W/"foreground-one"'})
         self.assertEqual(unchanged.status_code, 304)
         self.assertEqual(unchanged.content, b'')
         self.assertEqual(unchanged.headers['x-orgtree-sync-rev'], '13')
         self.assertIn('private', unchanged.headers['cache-control'])
-
-    def test_public_gateway_scopes_org_and_selects_public_partition(self):
-        public = TestClient(api.PublicGateway(api.app))
-        with patch.object(api, '_kiosk_token_map', return_value={'validtoken': 'example'}), \
-             patch.object(routes.foreground_cache, 'read', return_value=('W/"foreground-public"', b'{}', {})) as read:
-            response = public.get('/k/validtoken' + self.url, headers={'Accept-Encoding': 'identity'})
-            self.assertEqual(response.status_code, 200)
-            self.assertTrue(read.call_args.args[1])
-            read.reset_mock()
-            wrong = public.get('/k/validtoken/api/orgs/secret/foreground-tree')
-            self.assertEqual(wrong.status_code, 404)
-            read.assert_not_called()
-            self.assertEqual(public.get('/k/badtoken' + self.url).status_code, 404)
 
     def test_backend_or_context_incompatibility_is_not_an_empty_tree(self):
         with patch.object(store, 'STORE_BACKEND', 'sqlite'), \

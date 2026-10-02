@@ -227,7 +227,7 @@ def rehire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
     sections, ssecs = set(REHIRE_SECTIONS), set(REHIRE_SHARE)
     kw = {f: a.get(f) for f in _REHIRE_SCOPE if a.get(f) is not None}
     if kw:
-        u, s2, sec, ssec, _logs = lt._scope_plan(org, actor, nid, kw, False)
+        u, s2, sec, ssec, _logs = lt._scope_plan(org, actor, nid, kw)
         upd |= u
         share |= s2
         sections |= set(sec)
@@ -284,8 +284,8 @@ def rename_stands(e: LedgerError, renamed_to: "str | None") -> LedgerError:
     cannot share the rehire's transaction): the refusal must say the rename
     stands and name the id to retry against, word for word as the DOC_LOCK
     cycle does. Applied ONCE, by api._agent_door's refusal handler, to any
-    refusal of a door call whose pre carries `renamed_to` (the rehire body,
-    the kiosk cap, the account binding alike) - so a family body must NOT
+    refusal of a door call whose pre carries `renamed_to` (the rehire body
+    and the account binding alike) - so a family body must NOT
     wrap it again (orgtree_staff's rehire mode included)."""
     if not renamed_to:
         return e
@@ -319,8 +319,7 @@ def rehire_body(tx: pgdoor.AgentTx) -> Any:
 
 
 # ---------------------------------------------------------------- retool
-# `api._retool_seat`: `Org.set_scope` on the target (rows = `_scope_plan`;
-# an agent never raises the kiosk ceiling, so `may_raise` is False), and —
+# `api._retool_seat`: `Org.set_scope` on the target (rows = `_scope_plan`), and —
 # when `account` rides the call — the door's generic `_account_selection`
 # step, `supervisor.assign_account` in THIS transaction. A rebind that owes a
 # session boundary splits the seat in place: the new bearer `nid@gen`, the
@@ -335,7 +334,7 @@ RETOOL_FIELDS = ("add_dirs", "tools", "org_visibility", "permission_mode",
 def retool_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
     nid = str(a.get("node") or "")
     kw = {f: a.get(f) for f in RETOOL_FIELDS if a.get(f) is not None}
-    upd, share, secs, ssecs, logs = lt._scope_plan(org, actor, nid, kw, False)
+    upd, share, secs, ssecs, logs = lt._scope_plan(org, actor, nid, kw)
     secs, logs = set(secs), set(logs)
     ssecs = set(ssecs)
     if a.get("account") is not None and nid in org.nodes:
@@ -433,7 +432,7 @@ pgdoor.declare("orgtree_cheap_compact", _spec("cheap_compact", _split_rows),
 
 # ================================================================ operator ops
 # fence-off S3: the lifecycle ops of `POST /api/orgs/{slug}/ops` on
-# `pgdoor.op_tx` (WS3a's `_op_door` runs them, with the kiosk cap and the
+# `pgdoor.op_tx` (WS3a's `_op_door` runs them, with the
 # shared tail; org_op's archive pre-step and remote_reap stay where they
 # are). Declaring an op name routes it (`pgdoor.routed(op)`). Each spec is
 # `lifecycle_tx`'s plan for the same ledger method, computed from the
@@ -594,8 +593,7 @@ def _rehire_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
     else:
         api.provider_hire_gate(tx.org, str(tx.org.node(nid).get("model") or ""),
                                user_choice_only=True)
-    return tx.org.rehire(actor, nid, b.grant, tier=b.tier,
-                         raise_ceiling=bool(tx.pre.get("rc")))
+    return tx.org.rehire(actor, nid, b.grant, tier=b.tier)
 
 
 pgdoor.declare("rehire",
@@ -638,9 +636,7 @@ pgdoor.declare("revoke_dir", _revoke_dir_spec, body=_op_body(_revoke_dir_op))
 # `supervisor.switch_rows` (pg-supervisor-a, S6 C2-A) — the same rows as the
 # queued switch applied at the turn boundary. The PROVIDER GATE runs BEFORE
 # the transaction, once per call, with no row held: it can make HTTP
-# requests (an OpenRouter tier's key check). It reads the org's kiosk flag
-# from the lock-free snapshot, so the body re-reads that flag under a share
-# lock and refuses if it changed. The account rule runs on the locked
+# requests (an OpenRouter tier's key check). The account rule runs on the locked
 # document, as the cycle ran it under DOC_LOCK; the busy flag (D-234: a
 # mid-turn seat QUEUES the switch) is the in-memory runtime, read on every
 # attempt. An account riding the switch is bound in this transaction
@@ -661,25 +657,23 @@ def _switch_gate_first(call: Any, a: dict[str, Any]) -> dict[str, Any]:
         return {}
     snap = pgdoor._snapshot(slug)
     api.provider_hire_gate(snap, tier)
-    return {"switch_gated_kiosk": bool(snap.d.get("kiosk"))}
+    return {}
 
 
 def switch_spec(org: Any, actor: str, nid: str,
                 account: "str | None") -> pgdoor.TxSpec:
     from . import supervisor
     spec = supervisor.switch_rows(org, actor, nid, rebind=bool(account))
-    # + `kiosk` FOR SHARE: the body re-checks the flag the gate read
     return pgdoor.TxSpec(nodes=spec.nodes, sections=spec.sections,
                          share_nodes=spec.share_nodes,
                          share_sections=tuple(sorted(
-                             {*spec.share_sections, "kiosk"}
-                             - set(spec.sections))),
+                             set(spec.share_sections) - set(spec.sections))),
                          logs=spec.logs)
 
 
 def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
                 actor: str, nid: str, tier: str,
-                account: "str | None", gated_kiosk: bool) -> dict[str, Any]:
+                account: "str | None") -> dict[str, Any]:
     """The cycle's switch_model branch on the locked rows (a gap in the
     re-derived plan widens first); file IO and wake-ups go to `after`."""
     from . import supervisor
@@ -688,13 +682,6 @@ def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
         raise pgdoor.Widen(nodes=need.nodes, sections=need.sections,
                            share_nodes=need.share_nodes,
                            share_sections=need.share_sections, logs=need.logs)
-    # the gate ran before the transaction on the snapshot's kiosk flag; the
-    # kiosk holdouts are the only part of it that reads the org, so hold the
-    # flag and refuse if it moved since (the gate is not re-run in here)
-    with pgdoor.join(slug, share_sections=["kiosk"]):
-        if bool(org.d.get("kiosk")) != bool(gated_kiosk):
-            raise LedgerError("the org's kiosk setting changed while this "
-                              "switch was being checked - try again")
     try:
         supervisor.check_switch_account(org, slug, nid, tier, account)
     except ValueError as e:
@@ -740,8 +727,7 @@ def _switch_tool(tx: pgdoor.AgentTx) -> Any:
     slug, nid = tx.call.org, str(tx.args.get("node") or "")
     result = switch_body(tx.org, slug, tx.spec, tx.after, tx.node, nid,
                          str(tx.args.get("tier") or ""),
-                         _switch_account(tx.args),
-                         bool(tx.pre.get("switch_gated_kiosk")))
+                         _switch_account(tx.args))
     # a crossing that cleared a stale provider freeze leaves the seat live
     # but idle: wake it with the accurate message (the cycle's tail step)
     stale = [str(x) for x in result.pop("resume_stale_freeze", [])]
@@ -769,8 +755,7 @@ def _switch_op(tx: pgdoor.OpTx) -> Any:
     # those seats for every op
     return switch_body(tx.org, tx.slug, tx.spec, tx.after, str(b.actor),
                        str(b.node or ""), b.tier,
-                       str(getattr(b, "account", "") or "") or None,
-                       bool(tx.pre.get("switch_gated_kiosk")))
+                       str(getattr(b, "account", "") or "") or None)
 
 
 pgdoor.declare("switch_model", _switch_op_spec, body=_switch_op,

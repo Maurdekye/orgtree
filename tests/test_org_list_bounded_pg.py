@@ -2,15 +2,13 @@
 
 org-list-api-orgs-reads-grow-with-agent-count: the listing used to fetch the
 full document of every active node per org on every 3 s poll. It must now read
-a fixed number of rows per org (plus the top-level seats of a kiosk org) and
-return exactly what the full-org computation returns.
+a fixed number of rows per org and return exactly what the full-org computation returns.
 """
 import os
 import tempfile
 import unittest
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 from urllib.parse import urlsplit, urlunsplit
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
@@ -47,11 +45,10 @@ class OrgList(unittest.TestCase):
         from orgtree import pgstore
         pgstore.migrate(os.environ['ORGTREE_PG_URL'])
 
-    def make_org(self, agents, *, kiosk=False, shapes=False, retired_leads=0):
+    def make_org(self, agents, *, shapes=False):
         """An org with `agents` live workers under two top-level seats; with
         `shapes`, also a retired seat, a compacted predecessor and a reseeded
-        (lost) predecessor, and a top-level seat left unrecoverable; plus
-        `retired_leads` retired top-level seats."""
+        (lost) predecessor, and a top-level seat left unrecoverable."""
         slug = 'list-' + uuid.uuid4().hex[:8]
         slugs.append(slug)
         org = store.create_org(slug)
@@ -61,12 +58,6 @@ class OrgList(unittest.TestCase):
             lead = 'lead-a' if i % 2 else 'lead-b'
             org.hire(lead, lead, 'haiku', 0, f'w{i:03d}', add_dirs=[], tools=NO_TOOLS,
                      org_visibility='self', charter='fixture worker')
-        if kiosk:
-            # a real kiosk carries its ceiling; without one the listing takes
-            # the (unchanged) whole-org compatibility path by design
-            org.d['kiosk'] = {'enabled': True, 'token': 'kiosk-test-' + slug, 'credits': 5,
-                              'spend_limit': 1.5, 'storage_limit_mb': 10,
-                              'max_scope': org.default_kiosk_ceiling()}
         if shapes:
             org.hire(ledger.USER, None, 'haiku', 0, 'gone')
             org.retire(ledger.USER, 'gone')
@@ -74,9 +65,6 @@ class OrgList(unittest.TestCase):
             org.node('w001')['state'] = 'unrecoverable'
             org.reseed(ledger.USER, 'w001', str(uuid.uuid4()))
             org.node('lead-b')['state'] = 'unrecoverable'
-        for i in range(retired_leads):
-            org.hire(ledger.USER, None, 'haiku', 0, f'old{i:03d}')
-            org.retire(ledger.USER, f'old{i:03d}')
         store.save_org(org)
         return slug
 
@@ -84,27 +72,17 @@ class OrgList(unittest.TestCase):
         """The full-org answer the listing must equal."""
         org = store.load_org(slug)
         active = {k: n for k, n in org.nodes.items() if n['state'] != 'archived'}
-        held = org.audit()['top_level_holds'] if org.d.get('kiosk') else None
-        return sum(n['state'] == 'live' for n in active.values()), held
+        return sum(n['state'] == 'live' for n in active.values())
 
-    def listed(self, slug, public=False):
-        request = SimpleNamespace(state=SimpleNamespace(public_slug=slug)) if public else None
-        return next(row for row in api.orgs_list(request) if row['slug'] == slug)
+    def listed(self, slug):
+        return next(row for row in api.orgs_list(None) if row['slug'] == slug)
 
     def test_rows_equal_the_full_org_answer_for_every_node_shape(self):
-        for kiosk in (False, True):
-            with self.subTest(kiosk=kiosk):
-                slug = self.make_org(6, kiosk=kiosk, shapes=True)
-                live, held = self.reference(slug)
-                row = self.listed(slug)
-                self.assertEqual(row['live'], live)
-                self.assertGreater(live, 0, 'control: live nodes exist')
-                if kiosk:
-                    self.assertEqual(row['kiosk_cfg']['held'], held)
-                    self.assertGreater(held, 0, 'control: top-level seats hold credits')
-                else:
-                    self.assertNotIn('kiosk_cfg', row)
-                self.assertEqual(self.listed(slug, public=True)['live'], live)
+        slug = self.make_org(6, shapes=True)
+        live = self.reference(slug)
+        row = self.listed(slug)
+        self.assertEqual(row['live'], live)
+        self.assertGreater(live, 0, 'control: live nodes exist')
 
     def test_every_node_creation_path_writes_a_state(self):
         """Ruling (b): node_index counts a node without `state` as live, so no
@@ -119,7 +97,7 @@ class OrgList(unittest.TestCase):
         self.assertTrue({'live', 'archived', 'unrecoverable'} <= kinds, kinds)
         missing = [nid for nid, n in org.nodes.items() if 'state' not in n]
         self.assertEqual(missing, [])
-        self.assertEqual(self.listed(slug)['live'], self.reference(slug)[0])
+        self.assertEqual(self.listed(slug)['live'], self.reference(slug))
 
     def counted_reads(self, slug):
         """Rows and value bytes the listing request itself fetched for this
@@ -153,27 +131,11 @@ class OrgList(unittest.TestCase):
         return seen
 
     def test_listing_reads_do_not_grow_with_agents(self):
-        for kiosk in (False, True):
-            with self.subTest(kiosk=kiosk):
-                small = self.counted_reads(self.make_org(5, kiosk=kiosk))
-                large = self.counted_reads(self.make_org(50, kiosk=kiosk))
-                self.assertGreater(small['rows'], 0, 'control: the listing read rows')
-                self.assertEqual(large['rows'], small['rows'], (small, large))
-                self.assertLess(large['bytes'], small['bytes'] * 1.5, (small, large))
-
-    def test_kiosk_read_skips_retired_top_level_seats(self):
-        """Retired top-level seats grow with history; the kiosk's held read
-        must not fetch their documents (Org.children would drop them anyway,
-        so only the read count can see this)."""
-        few = self.make_org(5, kiosk=True, retired_leads=1)
-        many = self.make_org(5, kiosk=True, retired_leads=20)
-        archived = sum(n['state'] == 'archived' and n.get('parent') is None
-                       for n in store.load_org(many).nodes.values())
-        self.assertGreaterEqual(archived, 20, 'control: retired top-level seats exist')
-        small, large = self.counted_reads(few), self.counted_reads(many)
+        small = self.counted_reads(self.make_org(5))
+        large = self.counted_reads(self.make_org(50))
         self.assertGreater(small['rows'], 0, 'control: the listing read rows')
         self.assertEqual(large['rows'], small['rows'], (small, large))
-        self.assertEqual(self.listed(many)['kiosk_cfg']['held'], self.reference(many)[1])
+        self.assertLess(large['bytes'], small['bytes'] * 1.5, (small, large))
 
 
 def tearDownModule():

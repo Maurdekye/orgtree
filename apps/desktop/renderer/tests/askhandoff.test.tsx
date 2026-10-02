@@ -127,7 +127,7 @@ function domTest(name: string, body: (k: { ND: string; s: FakeServer; t: Transpo
 
 const deskEl = (nd: CanvasNode) =>
   <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={SL}
-    toast={noop} pub={false} bare />
+    toast={noop} bare />
 
 const click = (el: Element | null | undefined) => inAct(async () => {
   assert.ok(el, 'the control exists');

@@ -18,8 +18,7 @@ class IdentityContext:
     _read_only_projection = True
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
         'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for',
-        'effective_effort', 'is_kiosk', 'kiosk_ceiling', '_has_audience',
-        'account_fallback_for'))
+        'effective_effort', '_has_audience', 'account_fallback_for'))
 
     def __init__(self, settings, rows, nid):
         nodes = {key: copy.deepcopy(value) for key, _ordinal, value in rows}
@@ -38,12 +37,6 @@ class IdentityContext:
         Org._normalize_display_basics(self)
         Org._normalize_display_models(self)
         self.d['dirs'] = norm_dirs(self.d.get('dirs'))
-        kiosk = self.d.get('kiosk')
-        if kiosk is not None:
-            kiosk.setdefault('auto_raise', False)
-            cap = int(kiosk.get('credits') or 0)
-            if cap and int(self.d.get('default_top_grant') or 0) >= cap:
-                self.d['default_top_grant'] = 0
         for n in nodes.values():
             retag_legacy_spend_freeze(n.get('frozen'))
             if not self.d.get('fable_lock'):

@@ -28,7 +28,7 @@ async function desk(me: CanvasNode, dogs: Watchdog[], opened: string[], onJump?:
   return mountView(
     <DeskDogsProvider value={{ dogs, open: (id) => opened.push(id) }}>
       <DeskChat node={me} map={map} op={() => Promise.resolve({} as OpResult)}
-        slug="org" toast={() => {}} pub={false} bare onJump={onJump} />
+        slug="org" toast={() => {}} bare onJump={onJump} />
     </DeskDogsProvider>, (el) => el)
 }
 

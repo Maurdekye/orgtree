@@ -26,7 +26,7 @@
  * §6b two tabs write their own rings: neither can drop the other's entry; merge is by time; legacy key cleared
  * §6c retention: stale rings and rings beyond the 10 most recent are pruned at install
  * §7 the page: newest first, the empty state, Clear empties storage
- * §8 the path test: /debug/freezes with and without the kiosk prefix
+ * §8 the path test: /debug/freezes
  * §9 a denied localStorage getter (SecurityError) does not make install/read/clear/page throw (recorder only)
  *
  * Run:  cd frontend && node tests/run.mjs freezelog
@@ -401,10 +401,9 @@ test('§9 a denied storage getter does not make the recorder throw: install, rea
   }
 })
 
-test('§8 the debug path is recognised with and without the kiosk prefix, and nowhere else', () => {
+test('§8 the debug path is recognised, and nowhere else', () => {
   assert.equal(isFreezeLogPath('/debug/freezes'), true)
   assert.equal(isFreezeLogPath('/debug/freezes/'), true)
-  assert.equal(isFreezeLogPath('/k/abc123/debug/freezes'), true)
   assert.equal(isFreezeLogPath('/o/orgtree'), false)
   assert.equal(isFreezeLogPath('/debug/freezes-not'), false)
   assert.equal(isFreezeLogPath('/'), false)

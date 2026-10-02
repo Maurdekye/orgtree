@@ -101,9 +101,9 @@ def aggregate_document(document: Mapping[str, Any],
 
 
 def _operator_only(request: Request) -> None:
-    """Reject kiosk and bridge callers; desktop-token callers are operators."""
+    """Reject bridge callers; desktop-token callers are operators."""
     state = request.scope.get("state") or {}
-    if state.get("public_slug") or state.get("bridge_slug"):
+    if state.get("bridge_slug"):
         raise HTTPException(403, "diagnostics are available only to the host operator")
 
 

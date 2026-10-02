@@ -38,7 +38,7 @@ const writer: CanvasNode = {
 }
 const desk = (node: CanvasNode = writer) => <DeskChat node={node}
   map={new Map([[node.id, node]])} slug="org"
-  op={async () => ({})} toast={() => {}} pub={false} bare />
+  op={async () => ({})} toast={() => {}} bare />
 
 /** Seed the stored history directly. Entries are OLDEST FIRST, so the last
  *  element is what a single Up must reach. */
@@ -301,7 +301,7 @@ test('§7 text left in the box when the agent compacts is still in the box, not 
   installFetch(new FakeServer())
   const node = { ...writer, generation: 3 }
   const view = await mountView(<DeskChat node={node} map={new Map([[node.id, node]])} slug="org"
-    op={async (o) => { ops.push(o); return {} }} toast={() => {}} pub={false} bare />, el => el)
+    op={async (o) => { ops.push(o); return {} }} toast={() => {}} bare />, el => el)
   await inAct(async () => { await flush(3) })
   try {
     assert.equal(box(view.el).value, 'half-written when it compacted', 'the text is in the box, unchanged')

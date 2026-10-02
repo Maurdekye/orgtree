@@ -33,9 +33,8 @@
 // carries no completeness marker, so an absent organization is not evidence
 // that it is gone. There is no collection revision, no as-of and no coverage
 // token to ask for. So the honest claim is FRESH PER RETURNED OBSERVATION —
-// never "complete", never "coherent" in the stronger sense — and a public or
-// kiosk row deliberately omits `working`, whose absence must never be rendered
-// as a zero.
+// never "complete", never "coherent" in the stronger sense — and a row
+// without `working` must never render its absence as a zero.
 //
 // What the renderer can therefore fix, and does: ask AFTER the list opens;
 // stamp every snapshot with the time its request was ISSUED; report loading

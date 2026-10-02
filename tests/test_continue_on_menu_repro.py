@@ -154,8 +154,7 @@ class ContinueOnMenuRepro(unittest.TestCase):
     def _tree(self):
         request = SimpleNamespace(state=SimpleNamespace(), headers={},
                                   url=SimpleNamespace(path=f"/api/orgs/{self.slug}"))
-        with patch.object(api, "_public_slug", return_value=None):
-            tree = api.org_tree(self.slug, request)
+        tree = api.org_tree(self.slug, request)
 
         def walk(nodes):
             for n in nodes:

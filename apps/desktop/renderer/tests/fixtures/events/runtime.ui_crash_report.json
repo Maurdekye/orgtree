@@ -22,18 +22,5 @@
       "at": "runtime.ui_crash_report·report.at"
     }
   },
-  "public": {
-    "v": 1,
-    "variant": "runtime.ui_crash_report",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "org"
-    },
-    "summary": "runtime.ui_crash_report·summary"
-  },
   "body": "runtime.ui_crash_report·summary"
 }

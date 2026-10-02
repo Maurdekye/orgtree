@@ -283,26 +283,6 @@
         "send_message": 1
       }
     },
-    "org_send_org_kiosk": {
-      "status": 200,
-      "keys": [
-        "id",
-        "warnings"
-      ],
-      "detail": null,
-      "sections": [
-        "org_inbox"
-      ],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": false,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {
-        "hub_changed": 1,
-        "mail_notify": 1
-      }
-    },
     "org_send_org_missing": {
       "status": 200,
       "keys": [

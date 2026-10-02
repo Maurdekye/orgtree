@@ -360,7 +360,8 @@ def b():
         # timer and GET /api/diagnostics/engine-stats, and six unresolved tool entries for rcdoor.TOOLS (PG-3c's
         # door tool tuple); unresolved_tool_refs 0 -> 2 since the last anchor is recorded here, not
         # triaged
-        self.assertEqual(summary["registration_sites"], 351)
+        # 351 -> 349: a removed product feature takes its operator route and the workspace-usage worker
+        self.assertEqual(summary["registration_sites"], 349)
         self.assertEqual(summary["registration_kinds"]["task"], 15)
         self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
                           summary["unresolved_tool_refs"]), (53, 7, 2))
@@ -373,7 +374,8 @@ def b():
         self.assertEqual(summary["dispatch_selector_sites"], 236)
         # 15 -> 18: engine/mailhub_runtime.py's hub store migration opens three connections
         # 18 -> 25 (P01 re-anchor after PYPG): pgstore's five connects, pgfeed's listener, store.claim_data_root
-        self.assertEqual(summary["connection_sites"], 25)
+        # 25 -> 24: the removed feature's LAN-address socket goes with it
+        self.assertEqual(summary["connection_sites"], 24)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
                           for r in baseline["registrations"]
                           if r.get("mechanism") == "asyncio.to_thread"],

@@ -40,7 +40,7 @@ def identity() -> tuple[str | None, str | None, str | None, str | None]:
     SUCCESSOR and was handed (and confirmed away) the successor's steered
     mail. argv names the exact node the backend launched.
 
-    Sandboxed kiosk containers mirror the host layout at ~/orgtree, so the
+    Sandbox containers mirror the host layout at ~/orgtree, so the
     cwd derivation is identical there; a `.bridge` file in the data root
     (written by the host into the mounted sandbox home) carries the
     off-container backend URL. Standard mode also keeps the legacy org-wide

@@ -136,7 +136,7 @@ async function desk(t: TestContext, opts: {
   const calls: Calls = { item: [], agent: [], doc: [], mail: [] }
   const on = opts.routes ?? { item: true, agent: true, doc: true, mailbox: true }
   const v = await mountView(
-    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop} pub={false} bare
+    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop} bare
       onWorkLink={on.item ? (...a: unknown[]) => { calls.item.push(a) } : undefined}
       onJump={on.agent ? (...a: unknown[]) => { calls.agent.push(a) } : undefined}
       onOpenDoc={on.doc ? (...a: unknown[]) => { calls.doc.push(a) } : undefined}

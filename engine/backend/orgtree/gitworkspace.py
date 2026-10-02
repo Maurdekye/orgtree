@@ -100,10 +100,8 @@ def roots(slug: str, facts: dict[str, Any] | None = None) -> list[str]:
     values = [facts.get("workspace")]
     values.extend(d.get("path") for d in facts.get("dirs", []) if isinstance(d, dict))
     values.extend(r["root"] for r in settings.load()["repositories"].values() if slug in r["orgs"])
-    # Host discovery never crosses into a sandbox's container namespace.
-    if not (facts.get("kiosk") or {}).get("sandbox"):
-        values.extend(os.path.join(store.scratch_root(slug), n)
-                      for n in facts.get("nodes", {}) if "@" not in n)
+    values.extend(os.path.join(store.scratch_root(slug), n)
+                  for n in facts.get("nodes", {}) if "@" not in n)
     return list(dict.fromkeys(canonical(p) for p in values if p and os.path.isdir(p)))
 
 

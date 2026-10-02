@@ -330,7 +330,7 @@ def configured_row(account: Any, rows_by_id: dict[str, dict[str, Any]],
     return row
 
 
-def serving_card(ran_as: Any, *, busy: bool, public: bool,
+def serving_card(ran_as: Any, *, busy: bool,
                  rows_by_id: dict[str, dict[str, Any]], counts: dict[str, int],
                  primary: str,
                  ambient_paths: dict[str, str | None],
@@ -347,7 +347,6 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
     active turn with an unresolved runtime identity remains hidden.
     Only the legacy direct-helper path — a call that supplies no provider —
     retains the historical active-turn-only, available-count contract.
-    Public/kiosk views never receive the card.
 
     The active-turn gates are:
       · `busy`      — only while inference is actually running. The same gate
@@ -359,22 +358,12 @@ def serving_card(ran_as: Any, *, busy: bool, public: bool,
       · plurality   — more than one available signed-in account on THAT
                       provider. With one account there is nothing to
                       disambiguate and the card would be noise.
-      · `public`    — ⚠ A KIOSK VISITOR IS TOLD NOTHING. D-145 keeps account
-                      identity off the public side, and this payload is
-                      reachable from a kiosk while `/api/accounts` is frozen
-                      whole. `ran_as_label` drops only its uuid there because
-                      the rest of it is a positional ordinal that names
-                      nobody; this card is nothing BUT identity — an id, a
-                      label, an address — so the whole of it is withheld
-                      rather than trimmed.
 
     NEVER A CREDENTIAL. Every field is registry metadata that already reaches
     the accounts UI: the canonical selector, the provider, the display label,
     the observed address, and the standing's two words. No token, no key, no
     profile path, no auth material of any kind passes through here.
     """
-    if public:
-        return None
     provider = str(provider or "")
     row: dict[str, Any] | None = None
     active = False

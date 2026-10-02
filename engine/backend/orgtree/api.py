@@ -129,8 +129,7 @@ if TYPE_CHECKING:
     # aliased: `Scope` is taken by the pydantic body model of the same name
     from starlette.types import ASGIApp, Receive, Scope as ASGIScope, Send
 
-    # aliased: `KioskCfg` is taken by the pydantic body model of the same name
-    from .schema import DirGrant, KioskCfg as KioskDoc, MailEntry, UserMailEntry
+    from .schema import DirGrant, MailEntry, UserMailEntry
 
 app = FastAPI(title="orgtree", version="1.0.0")
 
@@ -139,8 +138,7 @@ app = FastAPI(title="orgtree", version="1.0.0")
 #: loopback, where permessage-deflate buys nothing: the N1000 engprof measured
 #: it at 0.083 cores on the event-loop thread, which was already starved.
 #: Chromium always offers the extension, so switching it off here is enough;
-#: the server then does not accept it. The public listener keeps uvicorn's
-#: default, since remote clients may benefit from compression.
+#: the server then does not accept it.
 #: timeout_keep_alive: uvicorn closes an idle keep-alive connection after 5 s
 #: by default, the same moment a client that also expires idle connections at
 #: 5 s reuses it, so the request lands on a closing socket (WinError 10054,
@@ -707,7 +705,7 @@ def _slow_alarm(route: str, method: str, handler_ms: float,
              f"{_SLOW_REPEAT_S:.0f}s" if held else ""), flush=True)
 
 
-# on the APP, so all three listeners (admin, kiosk, bridge) inherit it — they
+# on the APP, so both listeners (admin, bridge) inherit it — they
 # are gateways wrapped around this same object
 app.add_middleware(InstanceStamp)
 app.add_middleware(FrozenAdminBoundary)
@@ -775,7 +773,7 @@ def _census_agent_payload(a: "dict[str, Any]") -> dict[str, Any]:
 
 def _profile_operator_only(request: Request) -> None:
     state = request.scope.get("state") or {}
-    if state.get("public_slug") or state.get("bridge_slug"):
+    if state.get("bridge_slug"):
         raise HTTPException(403, "profiling is available only to the host operator")
 
 
@@ -1007,7 +1005,7 @@ def _encodable(v: Any) -> Any:
     contain `"\\ud800"`; Python's decoder accepts it into a str; `json.dump`
     writes it straight back out as an escape (ensure_ascii, so the SAVE
     succeeds); and every response that later includes that string dies in
-    pydantic's UTF-8 serializer. One kiosk message body was enough to make
+    pydantic's UTF-8 serializer. One message body was enough to make
     GET /api/orgs/<slug>, /events, /chat and /inbox answer 500 for that org
     FOREVER — the poison is on disk and nothing removes it.
 
@@ -1037,184 +1035,6 @@ class Body(BaseModel):
         return _encodable(data)
 
 
-# ---- kiosk v2 (user vision): preauthenticated public URLs. Each kiosk-enabled
-# org carries a secret token; the PUBLIC listener serves nothing but
-# /k/<token>/… — the token IS the authentication and maps to exactly one org.
-# The admin app binds 127.0.0.1 only, so root access never leaves this machine.
-# The gate is SERVER-SIDE — hiding UI buttons is not enforcement.
-_TOKEN_RE = re.compile(r"^/k/([A-Za-z0-9_-]{8,64})(/.*)?$")
-_PUBLIC_STATIC = ("/assets/", "/favicon", "/vite.svg")   # index.html's absolute refs
-_token_cache: dict[str, Any] = {"at": 0.0, "map": {}}
-
-
-def _kiosk_token_map() -> dict[str, str]:
-    """token → slug for every kiosk-enabled org. Rebuilt on a short TTL and
-    invalidated on any kiosk-config write, so rotation revokes instantly."""
-    if time.time() - _token_cache["at"] > 5:
-        m: dict[str, str] = {}
-        # ONE parse per org, not two (see `store.list_orgs_with_docs`). An org
-        # whose document will not read is still absent from the map — it is
-        # dropped by the scan instead of by a `LedgerError` here — so an
-        # unreadable org still fails CLOSED.
-        for o, org in store.list_orgs_with_docs():
-            k = org.d.get("kiosk") or {}
-            if k.get("enabled") and k.get("token"):
-                m[k["token"]] = o["slug"]  # type: ignore[typeddict-item]  # guard proves the key
-        _token_cache.update(at=time.time(), map=m)
-    return _token_cache["map"]
-
-
-def _public_denied(method: str, rest: str, slug: str) -> tuple[int, str] | None:
-    """The public restriction matrix, applied to the post-token path. Config
-    surfaces are admin-only; all access is scoped to the token's own org."""
-    # FastAPI's own routes sit OUTSIDE /api, so the "not /api ⇒ it's the SPA"
-    # rule handed them to visitors: /k/<token>/openapi.json served the
-    # complete 51 KB schema of every frozen admin endpoint and body model,
-    # and /docs + /redoc served a working console for firing at them.
-    if rest.rstrip("/") in ("/openapi.json", "/docs", "/redoc",
-                            "/docs/oauth2-redirect"):
-        return 404, "not found"
-    if not rest.startswith("/api"):
-        return None                              # the SPA itself
-    if rest == "/api/orgs" and method == "GET":
-        return None                              # handler filters to this org
-    frozen_config = (
-        (method == "POST" and rest == "/api/orgs")           # create org
-        # ⚠ NOT a blanket `startswith("/api/orgs/")`: that also froze
-        # DELETE …/nodes/…/mail/<id>, the mail-retraction button the visitor
-        # UI renders unconditionally (desk.tsx) — a control that could only
-        # ever 403. Freeze the org-delete route itself, which is the one this
-        # clause was ever about.
-        or (method == "DELETE"
-            and re.fullmatch(r"/api/orgs/[^/]+", rest) is not None)
-        or rest.endswith("/settings")                        # org settings
-        # ⚠ the user's per-node override (ruling 2026-08-06). `node_unstick`
-        # passes USER as the actor UNCONDITIONALLY, so this route IS the
-        # authority boundary — `Org.unstick`'s user-only check can say
-        # nothing about a request that arrives already wearing the user's
-        # name. Unfrozen, a share-token holder could clear a fable halt and a
-        # usage-limit freeze on any node of the org and re-drive it. (The
-        # org-level spend_frozen flag is checked separately at turn start and
-        # unstick does not touch it, so this was never a way past the spend
-        # cap — only past every other lock the owner relies on.)
-        or rest.endswith("/unstick")                         # user-only override
-        # ⚠ THE SAME BOUNDARY, for the same reason. This ROUTE passes USER
-        # unconditionally — to `assign_account` AND to the `unstick` it
-        # performs — so it is every power `/unstick` has plus the power to
-        # move an agent's billing onto another of the operator's accounts.
-        # Frozen here or a share-token holder could spend an account the
-        # kiosk was never meant to reach; it also names account ids, which
-        # D-145 keeps off the public side entirely. (The agent verb
-        # `orgtree_continue_on` shares this route's implementation but passes
-        # the CALLING AGENT as the actor and never arrives here — it comes in
-        # over the tool dispatch, which has its own authority check.)
-        or rest.endswith("/continue-on")                     # user-only override
-        # /scope is OPEN (ceiling spec §2): visitors retool freely WITHIN the
-        # kiosk permission ceiling — the ledger clamps, never a 403 here
-        or rest.endswith("/kiosk")                           # kiosk caps/token/ceiling
-        # the PostToolUse steer fetch: an agent-process path, authorised by
-        # loopback or the bridge secret, never by a browser (the frontend has
-        # no call site for it). Reachable from the kiosk it POPPED the node's
-        # pending mid-task mail — reading it AND destroying the delivery.
-        or rest.endswith("/steer")
-        or rest.endswith("/steer/ack")                       # its receipt door (D1)
-        # The warm-process toggle kills/spawns host CLI processes and is an
-        # admin-only control. Public desks still receive passive lifecycle
-        # status, but a kiosk token must never be able to use it as a DoS or
-        # process-spawn surface.
-        or rest.endswith("/process")
-        # The rename repair takes the ACTOR off the wire (that is how the
-        # renamed agent, not only the user, can put its own stranded records
-        # back), so the ledger's authority check is the whole bound and this
-        # matrix is what keeps a share-token holder from simply claiming to
-        # be the user. It rewrites ownership of documents and work items:
-        # admin-only, like every other repair surface.
-        or rest.endswith("/repair-rename")
-        or rest == "/api/fs"                                 # filesystem browse
-        or re.match(r"^/api/orgs/[^/]+/git(?:/|$)", rest) is not None
-        or (method == "PUT" and rest.endswith("/orgmd"))     # org.md edits
-        # rewrites the whole docket and writes a JSON export to disk — an
-        # operator control, frozen explicitly like `/settings` beside it
-        or rest.endswith("/migrate-work-identity")
-        or rest == "/api/agent"                              # node MCP gateway
-        or rest == "/api/mcp-servers"
-        # machine-local account routing (2026-08-25): which accounts this
-        # machine may bill — and their usage standings — is machine-global
-        # admin config, none of a visitor's business. The trailing
-        # `parts[2] == "orgs"` test below would 404 these anyway — frozen
-        # EXPLICITLY because an incidental 404 is not an access rule, and the
-        # next person to touch that test would not know they were holding
-        # this up.
-        or rest.startswith("/api/accounts")
-        or rest.startswith("/api/providers")
-        or rest.startswith("/api/app-settings")
-        # Frozen bridge rotation/attestation is an operator control. A kiosk
-        # bearer must never rotate the sandbox's own bridge identity or read
-        # its generation/fingerprint receipt.
-        or re.fullmatch(
-            r"/api/orgs/[^/]+/bridge-credential(?:/rotate)?", rest) is not None
-    )
-    if frozen_config:
-        return 403, "kiosk: configuration is managed from the admin side"
-    parts = rest.split("/")
-    if not (len(parts) > 3 and parts[2] == "orgs" and parts[3] == slug):
-        return 404, "not found"                  # other orgs, other surfaces
-    return None
-
-
-class PublicGateway:
-    """ASGI wrapper served ONLY on the public port: resolves /k/<token>,
-    rewrites the path so the normal routes handle it, stamps the request state
-    with the org slug, and 404s everything else — no org list, no discovery."""
-
-    def __init__(self, inner: ASGIApp) -> None:
-        self.inner = inner
-
-    async def __call__(self, scope: ASGIScope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "lifespan":
-            # the admin server owns the app's lifespan — running FastAPI
-            # startup twice would double-wire notify + reconcile
-            while True:
-                msg = await receive()
-                if msg["type"] == "lifespan.startup":
-                    await send({"type": "lifespan.startup.complete"})
-                elif msg["type"] == "lifespan.shutdown":
-                    await send({"type": "lifespan.shutdown.complete"})
-                    return
-        if scope["type"] not in ("http", "websocket"):
-            return await self.inner(scope, receive, send)
-        path = scope.get("path", "")
-        if scope["type"] == "http" and path.startswith(_PUBLIC_STATIC):
-            return await self.inner(scope, receive, send)
-        m = _TOKEN_RE.match(path)
-        slug = _kiosk_token_map().get(m.group(1)) if m else None
-        if not slug:
-            return await self._reject(scope, send, 404, "not found")
-        rest = m.group(2) or "/"  # type: ignore[union-attr]  # slug non-None ⇒ m matched
-        deny = _public_denied(scope.get("method", "GET"), rest, slug)
-        if deny:
-            return await self._reject(scope, send, deny[0], deny[1])
-        scope = dict(scope)
-        scope["path"] = rest
-        scope["raw_path"] = rest.encode()
-        scope["state"] = {**(scope.get("state") or {}), "public_slug": slug}
-        await self.inner(scope, receive, send)
-
-    async def _reject(self, scope: ASGIScope, send: Send, code: int, detail: str) -> None:
-        if scope["type"] == "websocket":
-            await send({"type": "websocket.close", "code": 4000 + code})
-            return
-        body = json.dumps({"detail": detail}).encode()
-        await send({"type": "http.response.start", "status": code,
-                    "headers": [(b"content-type", b"application/json"),
-                                (b"content-length", str(len(body)).encode())]})
-        await send({"type": "http.response.body", "body": body})
-
-
-def _public_slug(request: Request | None) -> str | None:
-    return getattr(request.state, "public_slug", None) if request is not None else None
-
-
 # A free-form `dict[str, Any]` off the wire (max_scope, tools, add_dirs) hits
 # ledger normalizers that assume the documented SHAPE — `{"tools": 5}` came
 # back out as an AttributeError, i.e. a 500 rather than a 422. Pydantic can't
@@ -1236,7 +1056,7 @@ def _no_nul(path: str) -> str:
     return path
 
 
-# ---- the sandbox bridge: the ONE door out of a kiosk container. Serves only
+# ---- the sandbox bridge: the ONE door out of an org container. Serves only
 # the agent gateway + the steering fetch, gated by either the standard
 # deployment's legacy org secret or a frozen deployment's rotatable org token.
 _bridge_cache: dict[str, Any] = {"at": 0.0, "map": {}}
@@ -1246,15 +1066,13 @@ _STEER_RE = re.compile(r"^/api/orgs/([a-z0-9@-]+)/nodes/([^/]+)/steer$")
 def _bridge_secret_map() -> dict[str, str]:
     if time.time() - _bridge_cache["at"] > 5:
         m: dict[str, str] = {}
-        # ONE parse per org, not two — and fails closed on an unreadable org
-        # for the same reason as `_kiosk_token_map` above.
+        # ONE parse per org, not two (see `store.list_orgs_with_docs`). An org
+        # whose document will not read is dropped by the scan, so an
+        # unreadable org still fails CLOSED.
         for o, org in store.list_orgs_with_docs():
-            d = org.d
-            # kiosk sandboxes and normal-org sandboxes alike (user ruling)
-            for s in ((d.get("kiosk") or {}).get("sandbox_secret"),
-                      (d.get("sandbox") or {}).get("secret")):
-                if s:
-                    m[s] = o["slug"]
+            s = (org.d.get("sandbox") or {}).get("secret")
+            if s:
+                m[s] = o["slug"]
         _bridge_cache.update(at=time.time(), map=m)
     return _bridge_cache["map"]
 
@@ -1336,63 +1154,6 @@ class BridgeGateway:
         await self.inner(scope, receive, send)
 
 
-_LAN_IP: str | None = None
-_origin_cache: dict[str, Any] = {"at": 0.0, "val": ""}
-
-
-def _public_origin() -> str:
-    """ORGTREE_PUBLIC_ORIGIN wins; otherwise the live tunnel hostname that
-    expose.ps1 drops into <data>/.public_origin (TryCloudflare quick-tunnel
-    URLs change per run, so this is re-read on a short TTL)."""
-    if PUBLIC_ORIGIN:
-        return PUBLIC_ORIGIN
-    if time.time() - _origin_cache["at"] > 5:
-        _origin_cache["at"] = time.time()
-        try:
-            _origin_cache["val"] = open(
-                os.path.join(store.DATA_ROOT, ".public_origin"),
-                encoding="utf-8").read().strip()
-        except OSError:
-            _origin_cache["val"] = ""
-    return _origin_cache["val"]
-
-
-def _share_url(token: str | None) -> str | None:
-    """The preauthenticated URL for a kiosk token: explicit origin, else the
-    running tunnel's hostname, else best-guess this machine's LAN address."""
-    global _LAN_IP
-    if (not deployment.current_policy().allow_public_listener
-            or not token or not PUBLIC_PORT):
-        return None
-    origin = _public_origin()
-    if origin:
-        return f"{origin.rstrip('/')}/k/{token}"
-    if _LAN_IP is None:
-        import socket
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            _LAN_IP = s.getsockname()[0]  # type: ignore[constant-redefinition]  # lazily-computed cache, not a constant
-            s.close()
-        except OSError:
-            _LAN_IP = "127.0.0.1"  # type: ignore[constant-redefinition]  # lazily-computed cache, not a constant
-    return f"http://{_LAN_IP}:{PUBLIC_PORT}/k/{token}"
-
-
-def _kiosk_cap_check(org: Org) -> None:
-    """Kiosk credit cap: NO operation may push total top-level holdings past
-    the cap — covers hires, §4.6 cascades, rehires, reallocations and
-    credit-request approvals in one invariant (checked before save). Applies
-    to admin actions too: one invariant, and the admin can raise the cap."""
-    k = supervisor.kiosk_cfg(org)
-    if k and int(k.get("credits") or 0) > 0:
-        held = org.audit()["top_level_holds"]
-        if held > int(k["credits"]):  # type: ignore[typeddict-item]  # guard above proves the key
-            raise LedgerError(
-                f"kiosk credit cap: the org may hold at most "
-                f"{int(k['credits'])} credits (this would make it {held:g})")  # type: ignore[typeddict-item]
-
-
 mail_notify: Callable[[str, str, str], None] = \
     lambda slug, frm, to: None   # wired at startup (thread-safe fanout)
 
@@ -1400,8 +1161,7 @@ mail_notify: Callable[[str, str, str], None] = \
 def _external_candidates(name: str) -> dict[str, list[str]]:
     """Bare-name transport resolution (user ruling 2026-08-05, relayed via
     the redteam): the outside knowledge the hermetic ledger cannot hold.
-    `org` = local orgs whose slug matches exactly (sealed kiosks answer like
-    nonexistent orgs, same as interorg_send); `net` = hub peers whose full
+    `org` = local orgs whose slug matches exactly; `net` = hub peers whose full
     slug OR leading name segment matches. (There is no @mcp: tier any more:
     retired 2026-09-25 with the external-chat MCP server.)"""
     out: dict[str, list[str]] = {"org": [], "net": []}
@@ -1534,25 +1294,6 @@ def _recover_startup() -> None:
     # own any of these files yet. Network delivery starts after recovery too.
     net.notify_changed = hub_changed
     _prune_stage(max_age_s=0.0)
-    # one-time migration of the retired v1 env-var kiosk mode into the org doc
-    legacy = os.environ.get("ORGTREE_KIOSK")
-    if legacy:
-        try:
-            # PG-3f: the kiosk section alone, never DOC_LOCK
-            from . import orgtx
-            with orgtx.org_tx(legacy, sections=["kiosk"]) as tx:
-                if not tx.d.get("kiosk"):
-                    tx.d["kiosk"] = {
-                        "enabled": True, "token": secrets.token_hex(16),
-                        "credits": int(os.environ.get("ORGTREE_KIOSK_CREDITS", "0") or 0),
-                        "spend_limit": float(os.environ.get("ORGTREE_KIOSK_SPEND_LIMIT", "0") or 0),
-                        "storage_limit_mb": 0,
-                    }
-            print(f"[orgtree] ORGTREE_KIOSK is retired — {legacy!r} is now a kiosk "
-                  f"org (secret URL on the admin dashboard); set "
-                  f"ORGTREE_PUBLIC_PORT to expose it")
-        except LedgerError:
-            print(f"[orgtree] ORGTREE_KIOSK={legacy!r}: no such org — ignored")
     # D-219 one-shot heal: an old 'plan' org default left 'plan' stamped in
     # node scopes, and a headless plan-mode agent is mute — every bare rehire
     # of a stamped expert stalled (user incident 2026-09-01). Runs before
@@ -1606,8 +1347,6 @@ async def _cancel_startup() -> None:
 
 
 PORT = int(os.environ.get("ORGTREE_PORT", "7360"))
-PUBLIC_PORT = int(os.environ.get("ORGTREE_PUBLIC_PORT", "0") or 0)
-PUBLIC_ORIGIN = (os.environ.get("ORGTREE_PUBLIC_ORIGIN") or "").strip()
 FRONTEND_DIST = os.path.normpath(os.environ.get("ORGTREE_V2_UI_DIR") or
     os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
 
@@ -1704,10 +1443,6 @@ class Hub:
 
     def __init__(self) -> None:
         self.rooms: dict[str, set[WebSocket]] = {}
-        # sockets that joined through the PublicGateway (kiosk visitors): a live
-        # payload carrying typed segments is projected for them (design §6) —
-        # the room is shared, the projection is not
-        self.public: set[WebSocket] = set()
         self._boxes: dict[WebSocket, _Outbox] = {}
         #: sockets dropped for not reading, by reason — diagnostics and tests
         self.drops: dict[str, int] = {"overflow": 0, "stuck": 0, "abort_failed": 0}
@@ -1723,19 +1458,16 @@ class Hub:
         self.windows.move_to_end(win)
         return rec
 
-    async def join(self, slug: str, ws: WebSocket, *, public: bool = False) -> None:
+    async def join(self, slug: str, ws: WebSocket) -> None:
         await ws.accept()
         box = _Outbox(slug, _ws_window_id(ws))
         self._window(box.win)["connects"] += 1
         self._boxes[ws] = box
         box.task = asyncio.get_running_loop().create_task(self._writer(slug, ws, box))
         self.rooms.setdefault(slug, set()).add(ws)
-        if public:
-            self.public.add(ws)
 
     def leave(self, slug: str, ws: WebSocket) -> None:
         self.rooms.get(slug, set()).discard(ws)
-        self.public.discard(ws)
         box = self._boxes.pop(ws, None)
         if box is not None:
             box.frames.clear()
@@ -1802,7 +1534,6 @@ class Hub:
         for ws, box in list(self._boxes.items()):
             win = self.windows.get(box.win) or {"connects": 0, "drops": 0}
             rows.append({"org": box.slug, "window": box.win,
-                         "public": ws in self.public,
                          "pending": len(box.frames), "pending_bytes": box.bytes,
                          "sent": box.sent, "sent_bytes": box.sent_bytes,
                          "age_s": round(now - box.joined, 1),
@@ -1814,36 +1545,33 @@ class Hub:
         """Queue `payload` for every socket in the room; never waits on one."""
         raw_segments = payload.get("segments_raw")
         admin_payload = payload
-        public_payload = payload
         if raw_segments is not None:
-            # journal-form segments never leave the process: each socket gets its
-            # profile's wire projection (operator: full events; visitor: PublicEvent)
+            # journal-form segments never leave the process: the socket gets
+            # the wire projection (full events)
             base = {k: v for k, v in payload.items() if k != "segments_raw"}
-            admin_payload = {**base, "segments": events.wire_segments(raw_segments, public=False)}
-            public_payload = {**base, "segments": events.wire_segments(raw_segments, public=True)}
+            admin_payload = {**base, "segments": events.wire_segments(raw_segments)}
         raw_row = payload.get("committed_row_raw")
         if isinstance(raw_row, dict):
-            def row_payload(base, public):
+            def row_payload(base):
                 result = {k: v for k, v in base.items() if k != "committed_row_raw"}
                 row = dict(raw_row)
                 if isinstance(row.get("segments"), list):
-                    row["segments"] = events.wire_segments(row["segments"], public=public)
+                    row["segments"] = events.wire_segments(row["segments"])
                 result["committed_row"] = row
                 return result
-            admin_payload = row_payload(admin_payload, False)
-            public_payload = row_payload(public_payload, True)
+            admin_payload = row_payload(admin_payload)
         room = list(self.rooms.get(slug, set()))
         if not room:
             return
         # encoded ONCE per broadcast, exactly as starlette's send_json would
-        encoded: dict[bool, tuple[str, int]] = {}
+        encoded: list[tuple[str, int]] = []
 
-        def text(public: bool) -> tuple[str, int]:
-            if public not in encoded:
-                t = json.dumps(public_payload if public else admin_payload,
+        def text() -> tuple[str, int]:
+            if not encoded:
+                t = json.dumps(admin_payload,
                                separators=(",", ":"), ensure_ascii=False)
-                encoded[public] = (t, len(t.encode("utf-8")))
-            return encoded[public]
+                encoded.append((t, len(t.encode("utf-8"))))
+            return encoded[0]
         for ws in room:
             box = self._boxes.get(ws)
             if box is None:
@@ -1851,7 +1579,7 @@ class Hub:
             if len(box.frames) >= _WS_QUEUE_MAX:
                 self._drop(slug, ws, "overflow")
                 continue
-            frame = text(ws in self.public)
+            frame = text()
             box.frames.append(frame)
             box.bytes += frame[1]
             box.ready.set()
@@ -1994,29 +1722,12 @@ def hub_changed(slug: str) -> None:
 
 
 # ---------------------------------------------------------------------- orgs
-class KioskSpec(Body):
-    credits: int = 30                 # top-level holdings cap (user ruling)
-    spend_limit: float = 50.0         # USD hard limit (user ruling 2026-07-31)
-    storage_limit_mb: int = 4096      # sandboxed: the org DISK size (4096 MB
-                                      # floor, user ruling 2026-08-01);
-                                      # unsandboxed: loose workspace+scratch cap
-    sandbox: bool = True              # run agent turns in a Docker container
-    # ceiling spec §3: the permission ceiling is visible/editable AT CREATION —
-    # the default is permissive (mcp "*", user ruling), so narrowing it must
-    # be a conscious act rather than something discovered later
-    max_scope: dict[str, Any] | None = None   # None = the default ceiling
-    auto_raise: bool = False          # admin over-ceiling grants auto-raise it
-    # auth is NOT configurable (user ruling): every sandbox uses the proxied
-    # subscription — the host attaches the token, the sandbox never sees it
-
-
 class OrgCreate(Body):
     name: str
     dirs: list[str] = []
     permission_mode: str = "acceptEdits"
-    kiosk: KioskSpec | None = None    # present = the org is BORN a kiosk
-    sandbox: bool = False             # normal orgs may sandbox too (user ruling)
-    disk_mb: int | None = None        # sandboxed non-kiosk orgs: virtual-disk
+    sandbox: bool = False             # run agent turns in a Docker container
+    disk_mb: int | None = None        # sandboxed orgs: virtual-disk
                                       # size (≥4096; None = DISK_MB fallback)
     net_autoconnect: bool = True      # F-06: join the LOCAL mail hub (creation
                                       # checkbox; not gated on hub detection)
@@ -2031,49 +1742,19 @@ async def _orgs_list_route(request: Request) -> list[dict[str, Any]]:
 
 def orgs_list(request: Request) -> list[dict[str, Any]]:
     from . import org_summary
-    pub = _public_slug(request)
-    if pub:
-        # public visitors see exactly their token's org — nothing to discover,
-        # and no document body needed, so this branch keeps the cheap listing
-        return org_summary.public_rows(pub)
-    # admin: attach the kiosk dashboard summary (incl. the secret token —
-    # this listener is loopback-only).
-    #
     # Current-format orgs use coherent totals and active funding rows; legacy
     # settings or exceptional cost shapes use the complete per-org reader.
     out: list[dict[str, Any]] = []
     for o, org in org_summary.admin_rows():
         row = {**o, "cost_usd_total": org.cost_total(),
-               # F-09: agents with a running turn. Deliberately absent from the
-               # public/kiosk branch above — visitors don't see how busy an org is.
+               # F-09: agents with a running turn
                "working": supervisor.working_count(o["slug"])}
-        k = org.d.get("kiosk")
-        if k:
-            row["kiosk_cfg"] = {
-                "enabled": bool(k.get("enabled")),
-                "token": k.get("token"),
-                "credits": int(k.get("credits") or 0),
-                "spend_limit": float(k.get("spend_limit") or 0),
-                "storage_limit_mb": int(k.get("storage_limit_mb") or 0),
-                "spend_frozen": bool(org.d.get("spend_frozen")),
-                "storage_blocked": bool(org.d.get("storage_blocked")),
-                "sandbox": bool(k.get("sandbox")),
-                "held": org_summary.top_level_holds(org),
-                # stale-served + background-refreshed: the walk never runs on
-                # the request path (arti's took ~7 s and stalled every load)
-                "storage_mb": (round(u / 1048576, 2)
-                               if (u := supervisor.workspace_usage_cached(org))
-                               is not None else None),
-                "share_url": _share_url(k.get("token")),
-            }
         out.append(row)
     return out
 
 
 def _bridge_credential_attestation(slug: str, request: Request) -> dict[str, Any]:
     """Admin-only, secret-free state for the frozen per-org bridge bearer."""
-    if _public_slug(request):
-        raise HTTPException(403, "bridge credentials are operator-managed")
     if deployment.current_policy().allow_legacy_sandbox_credentials:
         raise HTTPException(
             409, "rotatable bridge credentials are active only in the frozen "
@@ -2126,19 +1807,13 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
     policy = deployment.current_policy()
     # Validate global defaults before create_org writes a workspace or doc.
     dflt = load_org_defaults()
-    default_kiosk = (dflt.get("kiosk")
-                      if isinstance(dflt.get("kiosk"), dict) else {})
     if not policy.allow_legacy_sandbox_credentials and (
-            str(dflt.get("api_key") or "").strip().lower() == "subscription"
-            or str(default_kiosk.get("api_key") or "").strip().lower()
-            == "subscription"):
+            str(dflt.get("api_key") or "").strip().lower() == "subscription"):
         raise HTTPException(
             422, "the frozen deployment profile forbids the 'subscription' "
                  "sandbox auth value in org defaults; use proxied auth or an "
                  "explicit API key")
-    requested_sandbox = (bool(body.kiosk.sandbox)
-                         if body.kiosk is not None else bool(body.sandbox))
-    if policy.require_sandboxed_orgs and not requested_sandbox:
+    if policy.require_sandboxed_orgs and not body.sandbox:
         raise HTTPException(
             422, "the frozen deployment profile requires every org to be "
                  "sandboxed — create this org with sandbox enabled")
@@ -2146,12 +1821,7 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
     # (the system seed and transcripts count inside the cap) — refuse smaller
     # limits at creation instead of silently flooring them at migration
     # (user ruling 2026-08-01)
-    if body.kiosk is not None and body.kiosk.sandbox \
-            and int(body.kiosk.storage_limit_mb) < 4096:
-        raise HTTPException(422, "sandboxed orgs ride a fixed-size disk with "
-                                 "a 4096 MB minimum — set storage to at "
-                                 "least 4096 MB")
-    if body.kiosk is None and body.sandbox and body.disk_mb is not None \
+    if body.sandbox and body.disk_mb is not None \
             and int(body.disk_mb) < 4096:
         raise HTTPException(422, "sandboxed orgs ride a fixed-size disk with "
                                  "a 4096 MB minimum — set disk_mb to at "
@@ -2181,60 +1851,23 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
     # creating save (store.create_org's `prepare`), so the org is born whole
     # in a single atomic write. It used to be up to three more
     # load-modify-save cycles under DOC_LOCK after the create — defaults,
-    # then kiosk/sandbox, then the network identity — and a kiosk whose
-    # ceiling failed validation was unwound by deleting an org that had
-    # already been saved as a NON-kiosk one (a window in which the net
-    # poller could register it). Now a failure raises before anything is
-    # saved, so there is nothing to unwind.
+    # then sandbox, then the network identity. Now a failure raises before
+    # anything is saved, so there is nothing to unwind.
     def prepare(o: Org) -> None:
         if dflt:
             o.d.update(dflt)  # type: ignore[arg-type]  # defaults.json holds org-doc-shaped keys
-        if body.kiosk is not None:
-            # kiosk orgs are a DISTINCT TYPE, born as kiosks with their limits
-            # defined at creation (user ruling) — never converted from a normal
-            # org. Token + sandbox secret are minted with the org.
-            o.d["kiosk"] = {
-                "enabled": True,
-                "token": secrets.token_hex(16),
-                "credits": max(0, int(body.kiosk.credits)),
-                "spend_limit": max(0.0, float(body.kiosk.spend_limit)),
-                "storage_limit_mb": max(0, int(body.kiosk.storage_limit_mb)),
-                "sandbox": bool(body.kiosk.sandbox),
-                "sandbox_secret": secrets.token_hex(16),
-                "auto_raise": bool(body.kiosk.auto_raise),
-                "max_scope": None,     # set via the normalizer just below
-            }
-            try:
-                prov = body.kiosk.max_scope
-                if prov is not None and "add_dirs" not in prov:
-                    # the create dialog edits tools/vis/pm; dir bounds default
-                    # to the org's own folders unless explicitly stated
-                    prov = {**prov,
-                            "add_dirs": o.default_kiosk_ceiling()["add_dirs"]}
-                o.d["kiosk"]["max_scope"] = o._norm_ceiling(
-                    prov if prov is not None else o.default_kiosk_ceiling())
-            except (LedgerError, *_BAD_SHAPE) as e:
-                # nothing has been saved yet: refusing here leaves no org
-                raise HTTPException(422, str(e)) from e
-            # a capped org never inherits the 50-credit hire pre-fill (user
-            # report: the first hire swallowed the whole pool) — grants in a
-            # kiosk are deliberate drags; the admin can set a sub-cap default
-            o.d["default_top_grant"] = 0
-        elif body.sandbox:
-            # a sandboxed NORMAL org (user ruling): same container isolation,
-            # no kiosk limits or public URL
+        if body.sandbox:
+            # a sandboxed org (user ruling): container isolation
             o.d["sandbox"] = {"enabled": True, "secret": secrets.token_hex(16),
                               **({"limit_mb": int(body.disk_mb)}
                                  if body.disk_mb is not None else {})}
-        if body.kiosk is None:
-            # F-06: non-kiosk orgs mint their permanent network identity at
-            # birth (kiosks are sealed and mint none). The hub list starts
-            # with the local entry (unless opted out) plus any typed remote
-            # addresses.
-            net.mint_identity(o)
-            o.d["net_autoconnect"] = bool(body.net_autoconnect)
-            o.d["net_hubs"] = net.hub_entries(
-                body.net_autoconnect, body.net_hubs, local_hub_addr)
+        # F-06: orgs mint their permanent network identity at birth. The hub
+        # list starts with the local entry (unless opted out) plus any typed
+        # remote addresses.
+        net.mint_identity(o)
+        o.d["net_autoconnect"] = bool(body.net_autoconnect)
+        o.d["net_hubs"] = net.hub_entries(
+            body.net_autoconnect, body.net_hubs, local_hub_addr)
 
     try:
         org = store.create_org(body.name, body.dirs, body.permission_mode,
@@ -2246,13 +1879,8 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
         # name; a name the host filesystem refuses (too long, a reserved
         # device name, an unwritable data root) surfaced as a bare 500
         raise HTTPException(422, f"could not create the org's workspace: {e}")
-    if body.kiosk is not None:
-        if org.d["kiosk"]["sandbox"]:
-            sandbox.warm(org)      # prebuild image+container in background
-        _token_cache["at"] = 0.0
-        _bridge_cache["at"] = 0.0
-    elif body.sandbox:
-        sandbox.warm(org)
+    if body.sandbox:
+        sandbox.warm(org)      # prebuild image+container in background
         _bridge_cache["at"] = 0.0
     return {"slug": org.d["slug"]}
 
@@ -2303,8 +1931,6 @@ def net_probe(request: Request, address: str = "") -> dict[str, Any]:
     """F-06: is a hub reachable at this address RIGHT NOW? A creation-form
     HINT only — the auto-connect checkbox never gates on it (a hub that is
     down at config time still gets configured; the daemon retries forever)."""
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
     addr = address.strip() or net.DEFAULT_HUB_ADDRESS
     try:
         import httpx
@@ -2320,28 +1946,22 @@ def net_probe(request: Request, address: str = "") -> dict[str, Any]:
 @app.get("/api/orgs/{slug}/net")
 def org_net(slug: str, request: Request) -> dict[str, Any]:
     """F-06: the org's network identity — the ONE place the secret is
-    returned (loopback admin listener only, like the kiosk token). The
-    settings panel's reveal/export reads this; the public gateway never
-    reaches it. Kiosks have no identity by design."""
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
+    returned (loopback admin listener only). The settings panel's
+    reveal/export reads this."""
     try:
         org = store.load_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    if org.d.get("kiosk"):
-        return {"identity": None, "hubs": [], "autoconnect": False}
     if not org.d.get("net_identity") or "net_hubs" not in org.d:
         # existing (pre-F-06) orgs backfill lazily on first reveal — the FULL
         # default config, not just the identity: identity without a hub list
         # is an org that silently never joins while the panel says autoconnect
         # is on (researcher finding 2026-08-05). Mirrors the chatq precedent
         # (existing orgs register automatically; opt-out lives in settings).
-        # PG-3f: org_tx on the three net rows; kiosk is the decision input
+        # PG-3f: org_tx on the three net rows
         from . import orgtx
         with orgtx.org_tx(slug, sections=["net_identity", "net_hubs",
-                                          "net_autoconnect"],
-                          share_sections=["kiosk"]) as tx:
+                                          "net_autoconnect"]) as tx:
             org = tx.org
             net.mint_identity(org)
             if "net_hubs" not in org.d:
@@ -2771,7 +2391,7 @@ def _summarise_archived(node: dict[str, Any]) -> None:
 # *reconciliation*, and the bucket bounds that reconciliation lag at 30 s
 # instead of forcing a rebuild per poll to track them precisely.
 #
-# One cached body per (slug, public) — the newest build only. Every client
+# One cached body per slug — the newest build only. Every client
 # polling an unchanged org shares one build and usually just gets a 304.
 _TREE_STALE_BUCKET_S = 30.0
 _tree_cache_lock = threading.Lock()
@@ -2783,8 +2403,8 @@ _tree_cache_lock = threading.Lock()
 #: archived-summary suite calls the route function directly and reads the
 #: payload as a mapping, and because node-detail and future delta patching
 #: work on the dict.
-_tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any], bytes]] = {}
-#: one build at a time per (slug, public): concurrent misses on the SAME
+_tree_cache: dict[str, tuple[str, dict[str, Any], bytes]] = {}
+#: one build at a time per slug: concurrent misses on the SAME
 #: etag must share one build, not race two (perf-review reproduction #4 —
 #: a barrier probe produced two builds). The dict of locks is tiny and
 #: append-only per org; the whole point of the cache is that builds are
@@ -2794,10 +2414,10 @@ _tree_cache: dict[tuple[str, bool], tuple[str, dict[str, Any], bytes]] = {}
 #: returning a dict keeps the handler's in-process contract — the
 #: archived-summary suite calls the route function directly and reads the
 #: payload as a mapping.
-_tree_build_locks: dict[tuple[str, bool], threading.Lock] = {}
+_tree_build_locks: dict[str, threading.Lock] = {}
 
 
-def _tree_build_lock(key: tuple[str, bool]) -> threading.Lock:
+def _tree_build_lock(key: str) -> threading.Lock:
     with _tree_cache_lock:
         lock = _tree_build_locks.get(key)
         if lock is None:
@@ -2821,8 +2441,7 @@ def _tree_cache_drop(slug: str) -> None:
     serve stale values for up to the bucket)."""
     with _tree_cache_lock:
         _tree_inval_rev[slug] = _tree_inval_rev.get(slug, 0) + 1
-        _tree_cache.pop((slug, True), None)
-        _tree_cache.pop((slug, False), None)
+        _tree_cache.pop(slug, None)
 
 
 def _tree_runtime_stamp(slug: str) -> tuple:
@@ -2853,7 +2472,7 @@ def _org_tree_transport(slug: str, request: Request) -> Response:
     compressed = tree_ui.accepts_gzip(request.headers.get("accept-encoding", ""))
     try:
         etag, body, watermarks = tree_ui.read(
-            slug, _public_slug(request) is not None,
+            slug,
             request.headers.get("if-none-match", ""),
             stamp=lambda: _tree_etag(slug),
             build=lambda: _org_view(slug, request, None), feed=_REV_FEED,
@@ -2906,13 +2525,12 @@ def org_tree(slug: str, request: Request,
     # `response` is FastAPI's header-injection seam on the dict-returning
     # paths; a DIRECT in-process caller (test_archived_summary drives the
     # route function itself) omits it and gets the plain payload dict
-    pub = _public_slug(request) is not None
     etag = _tree_etag(slug)
     if request.headers.get("if-none-match") == etag:
         # nothing the payload derives from has moved — no load, no tree(),
         # no annotate, no serialize; the client keeps what it has
         return Response(status_code=304, headers={"ETag": etag})
-    key = (slug, pub)
+    key = slug
     with _tree_cache_lock:
         hit = _tree_cache.get(key)
     if hit is not None and hit[0] == etag:
@@ -2999,11 +2617,9 @@ def _org_view(slug: str, request: Request,
         #
         # ⚠ THE VIEW MUST NOT MUTATE THE SHARED DOCUMENT. Projection rows
         # are fresh dicts, but they REFERENCE document structures (scope,
-        # denial lists, kiosk config); every downstream mutator writes
-        # row-level fields or fresh copies — `_scrub_public` was converted
-        # to copy-on-scrub for exactly this change, and
-        # `test_latency_tier1.SharedSnapshotTreeView` pins the whole
-        # private+public build leaving the document byte-identical.
+        # denial lists); every downstream mutator writes row-level fields
+        # or fresh copies, and `test_latency_tier1.SharedSnapshotTreeView`
+        # pins the build leaving the document byte-identical.
         org = store.cached_org(slug)
         if profile is not None: profile["load_snapshot_ms"] = (time.perf_counter() - _stage) * 1000.0
     except LedgerError as e:
@@ -3070,7 +2686,7 @@ def _detail_tree_node(org: Org, nid: str) -> dict[str, Any]:
 def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
                        detail_node: str | None = None, *,
                        profile: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Shared runtime annotations and public scrubbing for tree projections."""
+    """Shared runtime annotations for tree projections."""
     slug = org.d["slug"]
     # one roster read per TIER per render, not per frozen node
     _cap_cache: dict[str, dict[str, Any]] = {}
@@ -3095,9 +2711,6 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
     # documents having fallen into once already.
     available = accountusage.available_counts(list(card_rows.values()))
     registered = accountusage.registered_counts(list(card_rows.values()))
-    # ⚠ a KIOSK visitor is told nothing about which account serves a turn
-    # (D-145). Resolved once here, beside the other per-request facts.
-    public_view = _public_slug(request) is not None
 
     def annotate(node: dict[str, Any], *, full: bool = False) -> None:
         account_row = account_rows.get(node.get("account"))
@@ -3166,10 +2779,8 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
         # provider read, and the registry rows are the ones already loaded for
         # this whole render rather than re-read per node (D-239).
         #
-        # ⚠ A KIOSK VISITOR IS TOLD NOTHING. This names accounts, so it sits
-        # behind the same D-145 bound as `serving_account`; and it is only
-        # ever a candidate list, never a promise — `/continue-on` re-decides
-        # it against a forced read before it moves a binding.
+        # It is only ever a candidate list, never a promise — `/continue-on`
+        # re-decides it against a forced read before it moves a binding.
         #
         # ⚠ `offered`, NOT `alternatives` (docket
         # `restore-continue-on-in-agent-context-menus`). The strict rule is
@@ -3184,7 +2795,7 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
         # automatic scheduler keeps the strict rule, because it moves agents
         # with nobody watching.
         node["continue_accounts"] = []
-        if node.get("frozen") and not public_view and node["state"] == "live":
+        if node.get("frozen") and node["state"] == "live":
             try:
                 if accountfallback.manual_only(org, node["id"]):
                     node["continue_accounts"] = accountfallback.offered(
@@ -3215,12 +2826,8 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
         # fallback, None otherwise. Composed in the backend because it owns
         # the registry — the desk cannot count key rows it never fetched, and
         # a second count is a second thing to disagree.
-        # ⚠ the uuid is dropped for kiosk visitors: `/api/accounts` is frozen
-        # whole on the public side, and this payload is NOT, so composing the
-        # label without that guard would route account identity straight
-        # around D-145's bound.
         node["ran_as_label"] = accounts.serving_label(
-            str(st.get("ran_as") or ""), with_uuid=_public_slug(request) is None)
+            str(st.get("ran_as") or ""))
         # ⚠ WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW — the
         # same `ran_as` fact above, resolved to the account it names and shown
         # only where a reader could not otherwise tell. Composed HERE, beside
@@ -3235,7 +2842,7 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
         # stale-state failure `codex_route.live` exists to prevent, which is
         # why this uses the very same `st["busy"]` that gate does.
         node["serving_account"] = accountusage.serving_card(
-            st.get("ran_as"), busy=bool(st.get("busy")), public=public_view,
+            st.get("ran_as"), busy=bool(st.get("busy")),
             rows_by_id=card_rows, counts=available,
             primary=primary, ambient_paths=ambient_paths,
             provider=providers.provider_of(str(node.get("tier") or "")),
@@ -3295,8 +2902,7 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
         node["proc_relaunch_reason"] = (
             str(st.get("proc_relaunch_reason"))
             if st.get("proc_relaunch_reason") else None)
-        control = warmpool.process_control_status(
-            org, node["id"], public=_public_slug(request) is not None)
+        control = warmpool.process_control_status(org, node["id"])
         node["proc_paused"] = bool(control.get("paused"))
         node["proc_control_enabled"] = bool(control.get("enabled"))
         node["proc_control_action"] = control.get("action")
@@ -3441,38 +3047,10 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
             found["detail_rev"] = _archived_detail_rev(found)
         if profile is not None:
             profile["annotate_ms"] = (time.perf_counter() - _stage) * 1000.0
-        if _public_slug(request):
-            _scrub_public({"roots": [found]})
         return found
     for r in tree["roots"]:
         annotate(r)
     if profile is not None: profile["annotate_ms"] = (time.perf_counter() - _stage) * 1000.0
-    k = supervisor.kiosk_cfg(org)
-    if k:
-        tree["kiosk"] = {
-            "credits": int(k.get("credits") or 0) or None,
-            "spend_limit": float(k.get("spend_limit") or 0) or None,
-            "storage_limit_mb": int(k.get("storage_limit_mb") or 0) or None,
-            "spend_frozen": bool(tree.get("spend_frozen")),
-            "storage_blocked": bool(tree.get("storage_blocked")),
-            # the permission ceiling — the admin gear edits it; _scrub_public
-            # drops it (host paths) for visitors
-            "max_scope": k.get("max_scope"),
-            "auto_raise": bool(k.get("auto_raise")),
-            # the tier cap rides OUTSIDE max_scope too: it's public-safe (a
-            # tier name) and the visitor UI needs it to hide spawn tokens
-            "max_tier": (k.get("max_scope") or {}).get("max_tier"),
-            # per-kiosk admin controls live in the org's own settings panel
-            # (user ruling 2026-07-31 — the all-kiosks dashboard is gone);
-            # share_url is admin-only, _scrub_public pops it
-            "enabled": bool(k.get("enabled")),
-            "sandbox": bool(k.get("sandbox")),
-            "share_url": _share_url(k.get("token")),
-        }
-        if k.get("storage_limit_mb"):
-            u = supervisor.workspace_usage_cached(org)
-            if u is not None:
-                tree["kiosk"]["storage_mb"] = round(u / 1048576, 2)
     if sandbox.is_sandboxed(org) and sandbox.on_disk(slug):
         # the org disk's headline numbers ride every tree payload: the
         # persistent hard-full alert is STATE (survives reload), and the
@@ -3488,7 +3066,7 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
             "pending_mb": (org.d.get("disk") or {}).get("pending_size_mb"),
         }
     # F-06: hub config + live connectivity for the status surfaces — never
-    # the secret (status_block guarantees it); None for kiosks
+    # the secret (status_block guarantees it)
     tree["net"] = net.status_block(cast("dict[str, Any]", org.d))
     if tree["net"]:
         # transport sets (user spec 2026-08-05): every roster peer names
@@ -3510,107 +3088,7 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
     # §4.8: what an archived seat's omitted runtime fields are worth, sent once
     # per payload instead of 242 times inside it. The client refills from this.
     tree["archived_defaults"] = _ARCHIVED_RUNTIME_DEFAULTS
-    if _public_slug(request):
-        # tells the UI to lock itself down; the SERVER gate is the enforcement
-        tree["public"] = True
-        _scrub_public(tree)
     return tree
-
-
-_WINPATH = re.compile(r"(?:[A-Za-z]:[\\/]|/(?:home|Users|opt|mnt|tmp)/)[^\s'\"]*")
-
-
-def _scrub_public(tree: dict[str, Any]) -> None:
-    """№18: a kiosk share link served the operator's ABSOLUTE host paths and
-    username in every tree payload (workspace, every dir grant, session ids,
-    raw error strings). Public visitors get basenames and scrubbed errors —
-    they interact with the org, not the operator's filesystem."""
-    def base(p: Any) -> str:
-        return os.path.basename(str(p).rstrip("/\\")) or "folder"
-    # F-06: hub addresses + rosters are the operator's network topology —
-    # visitors get none of it (kiosks carry no identity anyway, belt+braces)
-    tree.pop("net", None)
-    if tree.get("workspace"):
-        tree["workspace"] = base(tree["workspace"])
-    dirs: list[dict[str, Any]] = tree.get("dirs") or []
-    tree["dirs"] = [{**d, "path": base(d.get("path", ""))} for d in dirs]
-    if isinstance(tree.get("kiosk"), dict):
-        # the ceiling's add_dirs are host paths; visitors see clamp warnings
-        # naming the ceiling, never the ceiling itself.
-        # ⚠ REPLACED, NEVER POPPED IN PLACE: `tree["kiosk"]` can be the
-        # document's own dict, and the tree is now built over the SHARED
-        # refreshed snapshot (2026-09-19) — an in-place pop here would strip
-        # the operator's ceiling from every subsequent private serve until
-        # the next section refresh. Same rule for every nested value below:
-        # the projection may reference document structures, so the scrub
-        # writes fresh copies onto the ROW and mutates nothing it reached
-        # through one.
-        tree["kiosk"] = {k: v for k, v in tree["kiosk"].items()
-                         if k not in ("max_scope", "auto_raise", "share_url")}
-
-    def walk(n: dict[str, Any]) -> None:
-        n.pop("session_id", None)              # row-level field: safe to pop
-        # an @mcp: peer id was a bearer credential, not a label: anyone
-        # holding it could read that channel through the (now retired)
-        # external-chat routes. Kiosk visitors get the org, never its
-        # outside channels.
-        n.pop("external_handles", None)
-        sc: dict[str, Any] = n.get("scope") or {}
-        if sc.get("add_dirs"):
-            n["scope"] = {**sc, "add_dirs": [
-                {**d, "path": base(d.get("path", ""))} for d in sc["add_dirs"]]}
-        if n.get("last_error"):
-            n["last_error"] = _WINPATH.sub("<path>", str(n["last_error"]))
-        # the other two ENGINE-generated strings on a node. `frozen.error` is
-        # a raw CLI/limit error and `last_denials[].arg` is the argument of a
-        # headless auto-denied tool call — i.e. routinely a host file path.
-        # Both rode the tree payload unscrubbed while last_error beside them
-        # was cleaned (measured: a denial arg leaked E:\… and a freeze error
-        # leaked the operator's username).
-        fz: dict[str, Any] = n.get("frozen") or {}
-        if fz.get("error"):
-            # `frozen` is a filtered copy built per row — mutable safely
-            fz["error"] = _WINPATH.sub("<path>", str(fz["error"]))
-        # …and `last_approvals` (2026-09-05) rides the same row shape with
-        # the same host-path exposure, plus a `cwd` that is ALWAYS a host
-        # path — scrub both lists, both fields, or the new one leaks exactly
-        # the way the old one was measured to. Fresh lists and dicts: the
-        # row's value is the document's own list.
-        for key in ("last_denials", "last_approvals"):
-            rows: list[Any] = n.get(key) or []
-            if rows:
-                n[key] = [
-                    ({**cast("dict[str, Any]", dn),
-                      **{fld: _WINPATH.sub("<path>", str(cast("dict[str, Any]", dn)[fld]))
-                         for fld in ("arg", "cwd")
-                         if cast("dict[str, Any]", dn).get(fld)}}
-                     if isinstance(dn, dict) else dn)
-                    for dn in rows]
-        children: list[dict[str, Any]] = n.get("children") or []
-        for c in children:
-            walk(c)
-        lineage: list[Any] = n.get("lineage") or []
-        for ln in lineage:
-            if isinstance(ln, dict):
-                cast("dict[str, Any]", ln).pop("session_id", None)
-    roots: list[dict[str, Any]] = tree.get("roots") or []
-    for r in roots:
-        walk(r)
-
-
-def _scrub_events(evts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Public callers (audit 2026-08-01): event details and warnings can embed
-    host paths — dir revokes, scope dumps, clamp warnings — so every string
-    leaf is regex-scrubbed. Returns scrubbed COPIES; the doc is untouched."""
-    def scrub(v: Any) -> Any:
-        if isinstance(v, str):
-            return _WINPATH.sub("<path>", v)
-        if isinstance(v, list):
-            return [scrub(x) for x in cast("list[Any]", v)]
-        if isinstance(v, dict):
-            return {k: scrub(x) for k, x in cast("dict[str, Any]", v).items()}
-        return v
-    return [cast("dict[str, Any]", scrub(e)) for e in evts]
 
 
 class Settings(Body):
@@ -3691,6 +3169,9 @@ def load_org_defaults() -> dict[str, Any]:
         # cannot become an app-wide default when an old file is reopened.
         d.pop("org_inbox_multi_holder", None)
         d.pop("external_inbox_multi_holder", None)
+        # legacy fields from a removed feature: never copied into a new org
+        for k in ledger_mod.IGNORED_LEGACY_KEYS:
+            d.pop(k, None)
         return cast("dict[str, Any]", d)
     except (OSError, json.JSONDecodeError):
         return {}
@@ -3876,22 +3357,17 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
             or body.permission_mode is not None or body.default_account is not None):
         # agent defaults: applied to unspecified hires — top level directly,
         # deeper as ∩ with the superior's capability (clamped at hire time).
-        # Routed through the ledger so the kiosk ceiling clamps stored
-        # defaults too (admin surface → auto_raise applies)
         r = org.set_hire_defaults(
             default_tools=body.default_tools,
             default_visibility=(body.default_visibility
                                 if body.default_visibility in VIS_LEVELS
                                 else None),
-            # admin surface only — /settings is frozen for kiosk visitors, so
-            # a share-token holder can never raise the born-with mode
             permission_mode=body.permission_mode,
-            default_account=body.default_account,
-            raise_ceiling=bool((org.d.get("kiosk") or {}).get("auto_raise")))
+            default_account=body.default_account)
         warnings.extend(r.get("warnings") or [])
     if body.default_effort is not None \
             and body.default_effort in ("", *Org.EFFORTS):
-        # deliberately outside the ceiling (user cost-dial ruling): no clamp;
+        # a cost dial (user ruling): no clamp;
         # "" = CLI default; unset-node efforts inherit this LIVE at turn time
         org.d["default_effort"] = body.default_effort
     if body.account_fallback_default is not None:
@@ -3925,10 +3401,6 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
     # machine-level ACCOUNTS now, so headless is purely "no user present")
     if body.headless is not None:
         if body.headless and not org.d.get("headless"):
-            if org.d.get("kiosk") is not None:
-                raise HTTPException(422, "a kiosk cannot run headless — it "
-                                         "is sealed from the org mail that "
-                                         "headless depends on")
             halted = [k for k in ("fable_limit_policy", "fable_filter_policy")
                       if org.d.get(k, "halt") == "halt"]
             if halted:
@@ -3945,8 +3417,8 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
             org.d["headless"] = False
             warnings.append("headless off — review the user inbox for what "
                             "accumulated while nobody was watching")
-    # ---- F-06: mail-hub config (non-kiosk orgs only; kiosks are sealed) ----
-    if body.net_autoconnect is not None and org.d.get("kiosk") is None:
+    # ---- F-06: mail-hub config ----
+    if body.net_autoconnect is not None:
         org.d["net_autoconnect"] = bool(body.net_autoconnect)
         hubs = list(org.d.get("net_hubs") or [])
         has_local = any(h.get("id") == net.LOCAL_HUB_ID for h in hubs)
@@ -3960,7 +3432,7 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
             warnings.append("local hub entry removed — the org no longer "
                             "auto-connects")
         org.d["net_hubs"] = hubs
-    if body.net_hubs is not None and org.d.get("kiosk") is None:
+    if body.net_hubs is not None:
         # authoritative replacement of the hub LIST. Ids (and discovered
         # names) survive by id OR BY ADDRESS (redteam ②: minting a fresh id
         # for an identical address orphaned every spooled entry — net_spool
@@ -4006,8 +3478,7 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
                 warnings.append(f"{len(entries)} queued message(s) have no "
                                 f"mailserver to leave through — enable one")
         org.d["net_spool"] = spool
-    if (body.net_hubs is not None or body.net_autoconnect is not None) \
-            and org.d.get("kiosk") is None:
+    if body.net_hubs is not None or body.net_autoconnect is not None:
         # per-hub STATE dies with the configuration it described (redteam
         # second wave): a removed id keeps no registration (a re-added local
         # entry must start hidden until it answers again), and a changed
@@ -4026,165 +3497,30 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
     return {"dirs": org.d["dirs"], "warnings": warnings}
 
 
-class KioskCfg(Body):
-    enabled: bool | None = None
-    credits: int | None = None            # top-level holdings cap (0 = uncapped)
-    spend_limit: float | None = None      # USD hard limit (0 = unlimited)
-    storage_limit_mb: int | None = None   # workspace-dir size cap (0 = unlimited)
-    rotate_token: bool = False            # mint a new secret URL (revokes the old)
-    max_scope: dict[str, Any] | None = None   # the permission ceiling; setting it SWEEPS
-    auto_raise: bool | None = None        # admin over-ceiling grants auto-raise it
-
-
-@app.post("/api/orgs/{slug}/kiosk")
-def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
-    """Admin-only (the public gateway 403s the path): enable/disable an org as
-    a kiosk, adjust its caps, rotate its secret URL. Raising a breached limit
-    clears the matching hard freeze — ▶ resume then replays halted turns."""
-    # PG-3f: one org_tx over the kiosk rows and EVERY node row (the
-    # ceiling sweep and the freeze clear touch them all); never DOC_LOCK
-    from . import settingstx
-
-    def _body(tx: Any) -> tuple[Any, list[str], list[str], list[str], bool]:
-        org = tx.org
-        if not org.d.get("kiosk"):
-            # kiosk is a creation-time TYPE (user ruling) — no conversion
-            raise HTTPException(
-                422, "not a kiosk org — kiosks are created as kiosks (from "
-                     "the dashboard's new-kiosk form), never converted")
-        # the raise-guard above proves the key; declared so the None arm
-        # doesn't cascade through every touch below
-        k: KioskDoc = org.d["kiosk"]  # type: ignore[typeddict-item, assignment]
-        if body.enabled is not None:
-            k["enabled"] = bool(body.enabled)
-        if body.credits is not None:
-            k["credits"] = max(0, int(body.credits))
-        if body.spend_limit is not None:
-            k["spend_limit"] = max(0.0, float(body.spend_limit))
-        if body.storage_limit_mb is not None:
-            # sandboxed kiosks: the limit IS the disk size — same 4096 MB
-            # floor as creation, or the migration would silently re-floor it
-            if k.get("sandbox") and int(body.storage_limit_mb) < 4096:
-                raise HTTPException(
-                    422, "sandboxed orgs ride a fixed-size disk with a "
-                         "4096 MB minimum — set storage to at least 4096 MB")
-            k["storage_limit_mb"] = max(0, int(body.storage_limit_mb))
-        # security review 2026-08-01: subscription-auth (copied host OAuth
-        # credentials ON the org disk) and a public kiosk URL are mutually
-        # exclusive — structurally, not by filename filter (root-in-container
-        # can copy the token anywhere the recovery browser serves)
-        if k.get("enabled") and k.get("sandbox") \
-                and sandbox.uses_subscription_auth(dict(k)):
-            raise HTTPException(
-                422, "this org's sandbox runs on COPIED host credentials "
-                     "(subscription auth) — a public kiosk URL would let "
-                     "visitors reach them. Switch to proxied auth first.")
-        if (k.get("enabled") and not k.get("token")) or body.rotate_token:
-            k["token"] = secrets.token_hex(16)
-        # the permission ceiling (consensus spec): setting it SWEEPS every
-        # node's stored scope to fit — determinate, so it automates; affected
-        # live agents are notified with what they lost
-        ceiling_warnings: list[str] = []
-        if body.max_scope is not None:
-            try:
-                r = org.set_kiosk_ceiling(body.max_scope,
-                                          auto_raise=body.auto_raise)
-            except LedgerError as e:
-                raise HTTPException(422, str(e))
-            except _BAD_SHAPE as e:
-                raise HTTPException(422, f"malformed max_scope: {e}")
-            ceiling_warnings = r.get("warnings") or []
-            k = org.d["kiosk"]  # type: ignore[typeddict-item, assignment]  # set_kiosk_ceiling keeps the key
-        elif body.auto_raise is not None:
-            k["auto_raise"] = bool(body.auto_raise)
-        # user ruling: the cap can never go BELOW what the org already holds —
-        # retire/dissolve agents first, then lower it
-        if k.get("enabled") and int(k.get("credits") or 0):
-            held = org.audit()["top_level_holds"]
-            if int(k["credits"]) < held:  # type: ignore[typeddict-item]  # guard above proves the key
-                raise HTTPException(
-                    422, f"cap below current holdings: the org holds {held:g} "
-                         f"credits — retire or dissolve agents first, then lower it")
-        org.d["kiosk"] = k
-        cleared: list[str] = []
-        spent = org.cost_total()            # incl. deleted agents' burn
-        lim = float(k.get("spend_limit") or 0)
-        over = k.get("enabled") and lim and spent >= lim
-        drive_after: list[str] = []
-        if org.d.get("spend_frozen") and not over:
-            supervisor.clear_hard_freeze(org, "spend")
-            cleared.append("spend")
-            # review C7: nodes whose freeze dropped entirely (no interrupted
-            # turn to replay via ▶) but whose mailbox filled during the freeze
-            # would sit idle until a restart's revive scan — drive them now
-            drive_after = [k for k, v in org.nodes.items()
-                           if v["state"] == "live" and not v.get("frozen")
-                           and (org.d.get("mail") or {}).get(k)]
-        need_freeze = over and not org.d.get("spend_frozen")
-        return k, cleared, ceiling_warnings, drive_after, need_freeze
-    try:
-        k, cleared, ceiling_warnings, drive_after, need_freeze = \
-            settingstx.whole_org_tx(
-                slug, _body, sections=settingstx.KIOSK_SECTIONS,
-                share_sections=settingstx.KIOSK_SHARE,
-                logs=settingstx.KIOSK_LOGS)
-    except LedgerError as e:
-        raise HTTPException(404, str(e))
-    # limits apply in REAL TIME (user ruling), both directions: lowering the
-    # spend limit below what's already spent freezes now, not at the next
-    # turn's end; the storage recheck applies/lifts the write block likewise
-    if need_freeze:
-        supervisor.hard_freeze(slug, "spend", "kiosk spend limit reached")
-    for t in drive_after:
-        supervisor.send_message(
-            slug, t, "(orgtree) The spend freeze was lifted — you have mail "
-                     "above that arrived while frozen; handle it now.",
-            mail_ping=True, ping_reason="freeze_lifted")
-    if supervisor.storage_check(slug) == "cleared":
-        cleared.append("storage")
-    _token_cache["at"] = 0.0             # rotation/enable takes effect now
-    hub_changed(slug)
-    safe = {kk: v for kk, v in k.items()
-            if kk not in ("api_key", "sandbox_secret")}
-    return {"kiosk": safe, "share_url": _share_url(k.get("token")),
-            "freezes_cleared": cleared,
-            **({"warnings": ceiling_warnings} if ceiling_warnings else {})}
-
-
 class HireDefaults(Body):
     default_tools: dict[str, Any] | None = None  # {bash, web, edit, subagents, mcp}
     default_visibility: str | None = None   # self|team|subtree|full
     default_account: str | None = None      # default provider account ID (admin only)
-    raise_ceiling: bool = False             # admin bridge (ignored for visitors)
 
 
 @app.post("/api/orgs/{slug}/defaults")
 def org_hire_defaults(slug: str, body: HireDefaults,
                       request: Request) -> dict[str, Any]:
-    """Agent-hire defaults — OPEN to kiosk visitors (user ruling 2026-07-31):
-    a default is a pre-filled grant, so the ceiling clamps it like any grant.
-    The rest of /settings (org folders, caps, policies) stays admin-only."""
-    pub = bool(_public_slug(request))
-    # PG-3f: the default sections FOR UPDATE (hire holds them FOR SHARE), the
-    # kiosk ceiling FOR SHARE; never DOC_LOCK
+    """Agent-hire defaults."""
+    # PG-3f: the default sections FOR UPDATE (hire holds them FOR SHARE);
+    # never DOC_LOCK
     from . import orgtx, settingstx
     with _entry_ledger_422(cast("AbstractContextManager[Any]", orgtx.org_tx(
             slug, sections=settingstx.DEFAULTS_SECTIONS,
-            share_sections=["kiosk"],
             logs=settingstx.SETTINGS_LOGS))) as tx:
         org = tx.org
         try:
-            rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
-                                or body.raise_ceiling)
             result = org.set_hire_defaults(
                 default_tools=body.default_tools,
                 default_visibility=body.default_visibility,
-                default_account=body.default_account if not pub else None,
-                raise_ceiling=rc)
+                default_account=body.default_account)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-    if pub and isinstance(result, dict):
-        result.pop("bridge", None)
     hub_changed(slug)
     return result
 
@@ -4193,7 +3529,7 @@ class Scope(Body):
     add_dirs: list[dict[str, Any]] | None = None  # [{path, mode: rw|ro}]
     tools: dict[str, Any] | None = None     # {bash, web, edit, subagents, mcp: []}
     org_visibility: str | None = None
-    permission_mode: str | None = None      # rides the ceiling (spec §2)
+    permission_mode: str | None = None
     charter: str | None = None              # §15: this node's role card
     team_charter: str | None = None         # §15: binds this node's whole subtree
     effort: str | None = None               # thinking effort: low|medium|high|"" clears
@@ -4211,7 +3547,6 @@ class Scope(Body):
     # 2026-09-25: any entry is refused (ledger.HANDLES_RETIRED); [] still
     # clears what a node stored before the retirement.
     external_handles: list[str] | None = None
-    raise_ceiling: bool = False             # the one-action bridge (spec §1)
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/scope")
@@ -4225,11 +3560,9 @@ class Scope(Body):
 # docket, deliberately not swept here.
 def node_scope(slug: str, nid: str, body: Scope,
                request: Request) -> dict[str, Any]:
-    pub = bool(_public_slug(request))
     # S4 (fence-off): one row transaction over WS3b's `_scope_plan` rows, not
-    # the DOC_LOCK cycle. The kiosk ceiling is still decided on the locked
-    # kiosk row (`may_raise` is only the permission: not a public slug), and
-    # the effort level before the write is read on the locked document too.
+    # the DOC_LOCK cycle. The effort level before the write is read on the
+    # locked document.
     kw = dict(add_dirs=body.add_dirs, tools=body.tools,
               org_visibility=body.org_visibility,
               permission_mode=body.permission_mode,
@@ -4239,14 +3572,13 @@ def node_scope(slug: str, nid: str, body: Scope,
               model_version=body.model_version,
               auto_cheap_compact=body.auto_cheap_compact,
               external_handles=body.external_handles,
-              raise_ceiling=body.raise_ceiling,
               account_fallback=body.account_fallback,
               clear_account_fallback=body.clear_account_fallback,
               clear_prefer_reserve=body.clear_prefer_reserve,
               prefer_reserve=body.prefer_reserve)
     try:
         result, effort_before, org = lifecycle_tx.set_scope_observed(
-            slug, USER, nid, kw, not pub,
+            slug, USER, nid, kw,
             before=((lambda o: o.effective_effort(nid))
                     if body.effort is not None else None))
     except lifecycle_tx.WidenExhausted as e:
@@ -4265,8 +3597,6 @@ def node_scope(slug: str, nid: str, body: Scope,
                                        org, nid, previous=effort_before)
         if delivery is not None:
             result["effort_delivery"] = delivery
-    if pub and isinstance(result, dict):
-        result.pop("bridge", None)
     # (the explicit broadcast is gone: store.save_org announces every write
     # now -- G2 -- so this was a second, uncoalesced copy of one signal)
     return result
@@ -4765,8 +4095,7 @@ def mcp_servers() -> dict[str, Any]:
 
 
 # the host subscription's rate-limit standing — the same bars Claude Code
-# shows under /usage. Admin-only by construction: the public gateway 404s any
-# /api path outside /api/orgs/<own>.
+# shows under /usage.
 @app.get("/api/usage")
 async def claude_usage(force: bool = False) -> dict[str, Any]:
     """The bars the header usage modal renders. The fetch, the 30 s cache and
@@ -4860,10 +4189,6 @@ async def openrouter_usage_peek() -> dict[str, Any]:      # async: see claude_us
 # ------------------------------------------ machine-local account routing
 # (user redesign 2026-08-25.) Machine-global config, NOT org-scoped: which
 # accounts this machine may bill and where each model tier's prompts route.
-# Admin-only -- `_public_denied` freezes the whole `/api/accounts` prefix
-# explicitly rather than relying on its trailing 404, because "it happens to
-# fall through" is not an access rule anyone can safely edit around later.
-#
 # NO TOKEN MATERIAL IN ANY PAYLOAD HERE: a pasted key crosses the wire once,
 # inward, at registration -- after that every response speaks in row ids.
 class AccountKey(BaseModel):
@@ -5118,7 +4443,7 @@ def _tier_discovery_payload() -> dict[str, Any]:
     return {
         "advisory": (
             "Machine availability only. A hire or switch rechecks fresh "
-            "provider evidence plus caller scope, credits and kiosk/headless "
+            "provider evidence plus caller scope, credits and headless "
             "rules, and can still refuse a listed tier."),
         "providers": out,
     }
@@ -5997,11 +5322,11 @@ class Message(Body):
 
 
 
-def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
-                  public: str | None) -> dict[str, Any]:
+def _send_receipt(org: Org, slug: str, nid: str,
+                  r: Mapping[str, Any]) -> dict[str, Any]:
     """The durable receipt of a mail-producing send (TypedReplyReceipt): the
-    delivered id, its `@mail:` ref and the minted event in the CALLER's
-    projection (`ev` for the operator, `ev_public` for a visitor — never both).
+    delivered id, its `@mail:` ref and the minted event in its wire
+    projection (`ev`).
     The event is read back from the stored row, so what the receipt says is
     exactly what the websocket row for the same id will say."""
     mid = str(r.get("id") or "")
@@ -6019,10 +5344,9 @@ def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
     if row is not None:
         if row.get("operation_id") and "operation_id" not in out:
             out["operation_id"] = str(row["operation_id"])
-        w = events.wire_row(row, public=bool(public))
-        for k in ("ev", "ev_public"):
-            if k in w:
-                out[k] = w[k]
+        w = events.wire_row(row)
+        if "ev" in w:
+            out["ev"] = w["ev"]
     return out
 
 
@@ -6271,7 +5595,7 @@ def node_message(slug: str, nid: str, body: Message,
                                   attachments=metas or None,
                                   reply_to=reply_meta, missing=missing or None,
                                   typed=True, client_op=client_op or None)
-            receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
+            receipt = _send_receipt(org, slug, nid, r)
             # 80 chars truncated most instructions mid-clause; the notice is a
             # gist, but it has to survive being read on its own
             org.user_deep_reach(nid, body.text.strip().splitlines()[0][:160])
@@ -6506,11 +5830,6 @@ def node_process(slug: str, nid: str, body: ProcessControl,
     ``warmpool.process_control``. The browser's tree copy is only a hint; the
     backend rechecks every turn/lifecycle gate while reserving the seat.
     """
-    if _public_slug(request):
-        # PublicGateway denies this path before FastAPI, but keep the route
-        # safe when called through a mounted app or directly in a test.
-        raise HTTPException(
-            403, "kiosk: process controls are managed from the admin side")
     try:
         org = store.load_org(slug)
         org.node(nid)
@@ -6651,8 +5970,7 @@ async def org_killswitch(slug: str) -> dict[str, Any]:
     release below. Interrupting alone was only a turn boundary — agents
     sailed straight back over it on the next queued mail or checkup.
 
-    ⚠ the kiosk spend-limit freeze still calls plain `interrupt_all` and
-    recovers by itself; only THIS route latches. Nothing un-pauses the dogs
+    Only THIS route latches. Nothing un-pauses the dogs
     automatically — resume is per-watchdog and manual."""
     try:
         store.load_org(slug)
@@ -6735,7 +6053,6 @@ def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
         rcdoor.hold(slug, rcdoor.decide_rows(org, body.id))
         req = org.credit_request_action(body.id, body.action,
                                         granted=body.granted)
-        _kiosk_cap_check(org)
         notice = req.get("notice")
         st["drive"] = False
         if notice and req["node"] in org.nodes:
@@ -6775,9 +6092,7 @@ def remote_control(slug: str, nid: str, body: RemoteControl,
     """FR-01: hand the agent's real session to the user's claude.ai / mobile
     app (`claude remote-control --session-id`). Strictly user-triggered —
     starting the server enrolls THIS device on the user's account — and
-    loopback-only (never the kiosk gateway)."""
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
+    loopback-only."""
     if body.action == "start":
         r = supervisor.remote_control_start(slug, nid)
     elif body.action == "stop":
@@ -6806,8 +6121,7 @@ def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "",
     Reads `documents` directly (not the tree walk) so a retired, rehired or
     deleted presenter still has its cards. Evicted bodies surface as rows
     with `evicted: true` from the `present_evicted` log. Metadata only —
-    the reader still fetches the body by id. Kiosk visitors are the user
-    of their org — readable."""
+    the reader still fetches the body by id."""
     try:
         gallery = store.read_document_gallery(slug)
     except LedgerError as e:
@@ -6832,9 +6146,8 @@ def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "",
 @app.get("/api/orgs/{slug}/documents/{did}")
 def document_get(slug: str, did: str) -> dict[str, Any]:
     """FR-03: the reader fetches the BODY on open (the tree payload carries
-    metadata only). Kiosk visitors are the user of their org — readable.
-    On PostgreSQL the one document row and its presenter's node are read
-    (store.read_document), not the whole org."""
+    metadata only). On PostgreSQL the one document row and its presenter's
+    node are read (store.read_document), not the whole org."""
     try:
         found = store.read_document(slug, did)
         if found is store.DOCUMENT_READ_FALLBACK:
@@ -6903,7 +6216,7 @@ def _no_document(did: str) -> HTTPException:
 
 # present-html-mockups-in-a-new-browser-tab (2026-09-06). The mockup's bytes
 # are AGENT-AUTHORED, EXECUTABLE HTML. The admin app authenticates by loopback
-# alone and the kiosk by the token in the URL path, and there is no CORS layer
+# alone, and there is no CORS layer
 # — so a page of that kind rendered at the app origin with script would act
 # as the user against every /api route. It is therefore never served as a
 # document of its own. The ONLY route is this trusted wrapper: a page the
@@ -6912,13 +6225,12 @@ def _no_document(did: str) -> HTTPException:
 # access, no top navigation, no popups), under a response CSP that forbids
 # frame navigation and form submission while allowing resource loads, and
 # with `<base href="about:blank">` + no-referrer so the child cannot learn
-# this page's URL (and on a kiosk, the token in it) through baseURI,
+# this page's URL through baseURI,
 # referrer or location — measured by feature-astra in Chromium 2026-09-06:
 # location=about:srcdoc, baseURI=about:blank, referrer="". `frame-src 'none'`
 # is what stops the child navigating ITSELF to an arbitrary URL: about:srcdoc
 # is exempt, everything else is a frame navigation the wrapper's policy
-# refuses. Root scope ruling: the preview is OPERATOR-ONLY — a kiosk visitor
-# gets 403, not a script-disabled substitute.
+# refuses.
 # V2 retained decision: remote resources are permitted. The dedicated native
 # artifact session authenticates only the initial wrapper GET and denies all
 # subsequent engine destinations; the opaque child never receives app auth.
@@ -6961,12 +6273,9 @@ def _mockup_wrapper(title: str, payload: str) -> str:
 @app.get("/api/orgs/{slug}/documents/{did}/mockup")
 def document_mockup(slug: str, did: str, request: Request) -> Response:
     """The new-tab URL behind an HTML mockup card: the sandboxed wrapper
-    described above, and nothing else. 403 on the public gateway (root
-    ruling), 404 for a markdown document or one that is gone, 410 when the
-    record stands but its outbox snapshot was deleted from disk."""
-    if _public_slug(request):
-        raise HTTPException(403, "mockup previews are operator-only — the "
-                                 "card's metadata is still readable")
+    described above, and nothing else. 404 for a markdown document or one
+    that is gone, 410 when the record stands but its outbox snapshot was
+    deleted from disk."""
     try:
         org = store.load_org(slug)
     except LedgerError as e:
@@ -8038,7 +7347,6 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
     if not text:
         raise HTTPException(422, "empty reply")
     to = str(body.to or "").strip()
-    public = _public_slug(request)
 
     # PG-3w: one `org_tx` (the reply mail, the deep-reach note and the
     # attention clear commit together, as they saved together under
@@ -8105,7 +7413,7 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
                 org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
                 owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
                 attachments=metas or None, missing=missing or None)
-            receipt = _send_receipt(org, slug, nid, r, public=public)
+            receipt = _send_receipt(org, slug, nid, r)
             org.user_deep_reach(nid, text.splitlines()[0][:160])
             # A successful user reply acknowledges manual attention without
             # taking the explicit-dismissal path (which blocks the item).
@@ -8574,18 +7882,18 @@ def work_item_detach(slug: str, wid: str, aid: str) -> dict[str, Any]:
     return {"removed": aid}
 
 
-def _row_out(row: Mapping[str, Any], *, public: bool) -> dict[str, Any]:
+def _row_out(row: Mapping[str, Any]) -> dict[str, Any]:
     """The WIRE projection of one stored row — events.wire_row (design §6): full
-    `ev` for the operator, `ev_public` for a visitor, never the row-encoded form."""
-    return events.wire_row(row, public=public)
+    `ev`, never the row-encoded form."""
+    return events.wire_row(row)
 
 
-def _rows_out(rows: list[Any], *, public: bool) -> list[Any]:
-    return [_row_out(r, public=public) if isinstance(r, dict) else r for r in rows]
+def _rows_out(rows: list[Any]) -> list[Any]:
+    return [_row_out(r) if isinstance(r, dict) else r for r in rows]
 
 
 def _mail_refs(org_slug: str, box: str, rows: list[Any],
-               node: str | None = None, *, public: bool = False) -> list[Any]:
+               node: str | None = None) -> list[Any]:
     """Stamp each mail row with its own reference, so a reader can link to a
     message that already exists rather than only to one it just sent.
 
@@ -8593,7 +7901,7 @@ def _mail_refs(org_slug: str, box: str, rows: list[Any],
     the three box families mint ids independently."""
     delivered = ("user_inbox" if box == "user"
                  else "@org" if box == "org" else str(node or ""))
-    rows = _rows_out(rows, public=public)
+    rows = _rows_out(rows)
     for r in rows:
         if isinstance(r, dict) and r.get("id"):
             ref = refs.mail(org_slug, delivered, str(r["id"]))
@@ -8602,7 +7910,7 @@ def _mail_refs(org_slug: str, box: str, rows: list[Any],
     return rows
 
 
-def _sent_refs(org_slug: str, rows: list[Any], *, public: bool = False) -> list[Any]:
+def _sent_refs(org_slug: str, rows: list[Any]) -> list[Any]:
     """Stamp SENT rows, which are a different question from delivered ones.
 
     ⚠ A SENT ROW IS A COPY OF A MAIL THAT LIVES IN SOMEBODY ELSE'S BOX, so it
@@ -8610,7 +7918,7 @@ def _sent_refs(org_slug: str, rows: list[Any], *, public: bool = False) -> list[
     a message that is not there — and on a colliding id, a different one that
     is. A `to` with no local box gets no reference rather than an invented one.
     """
-    rows = _rows_out(rows, public=public)
+    rows = _rows_out(rows)
     for r in rows:
         if isinstance(r, dict) and r.get("id"):
             to = str(r.get("to") or "")
@@ -9727,8 +9035,7 @@ def _batch_rows(org: Org, nid: str) -> pgdoor.TxSpec:
     `nid`; for a pending CREDIT request the operator decision's rows
     (`rcdoor.decide_rows`: the approval's chain and funding settings); for a
     pending SCOPE request `set_scope(USER, nid, <capabilities>)`'s plan
-    (`lifecycle_tx._scope_plan`, the ceiling not raised — resolve_batch
-    never raises it). Derived once from a lock-free read to open the
+    (`lifecycle_tx._scope_plan`). Derived once from a lock-free read to open the
     transaction and AGAIN from the locked Org inside it (`rcdoor.hold`), so
     a batch that changed in between widens and re-runs, never guesses."""
     from . import lifecycle_tx
@@ -9747,7 +9054,7 @@ def _batch_rows(org: Org, nid: str) -> pgdoor.TxSpec:
         # any capability field makes the plan the capability-grant one; the
         # superset is taken whatever the per-item decisions turn out to be
         upd, share, secs, ssecs, logs = lifecycle_tx._scope_plan(
-            org, USER, nid, {"add_dirs": []}, False)
+            org, USER, nid, {"add_dirs": []})
         parts.append(pgdoor.TxSpec(nodes=tuple(sorted(upd)),
                                    share_nodes=tuple(sorted(share)),
                                    sections=secs, share_sections=ssecs, logs=logs))
@@ -9774,7 +9081,6 @@ def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
         rcdoor.hold(slug, _batch_rows(org, nid))
         r = org.resolve_batch(nid, body.revs, answers=body.answers,
                               credits=body.credits, scope=body.scope)
-        _kiosk_cap_check(org)
         posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
         # message-visibility invariant: see ask_answer — the composed
         # batch answer is ONE mail; whichever resolved record node_ask
@@ -9887,7 +9193,7 @@ def unstick_rows(slug: str, nid: str) -> dict[str, Any]:
     the decision. Reused by any door that unsticks (node_unstick's owner)."""
     others = [k for k in orgtx.org_read(slug).nodes if k != nid]
     return {"nodes": [nid], "share_nodes": others,
-            "sections": ["fable_lock", "notices"], "share_sections": ["spend_frozen"],
+            "sections": ["fable_lock", "notices"],
             "logs": ["notice_log", "events"]}
 
 
@@ -10068,11 +9374,10 @@ def user_inbox(slug: str, request: Request = cast(Request, None)) -> dict[str, A
         d = store.read_user_inbox(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    pub = _public_slug(request) is not None
-    return {"pending": _mail_refs(slug, "user", d["pending"], public=pub),
+    return {"pending": _mail_refs(slug, "user", d["pending"]),
             "delivered": _mail_refs(slug, "user",
-                                    d["delivered"], public=pub),
-            "sent": _sent_refs(slug, d["sent"], public=pub)}
+                                    d["delivered"]),
+            "sent": _sent_refs(slug, d["sent"])}
 
 
 class InboxRead(Body):
@@ -10121,8 +9426,7 @@ def org_inbox_entries(slug: str, request: Request = cast(Request, None)) -> dict
     log = cast("list[dict[str, Any]]", org.d.get("org_inbox") or [])
     # the rows carry their own references, like every other box: without this
     # the org inbox is the one mailbox whose mail cannot be linked to
-    return {"entries": _mail_refs(slug, "org", log[-100:],
-                                  public=_public_slug(request) is not None),
+    return {"entries": _mail_refs(slug, "org", log[-100:]),
             "total": len(log),
             "unread": max(0, len(log) - int(org.d.get("org_inbox_read", 0)))}
 
@@ -10147,15 +9451,14 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
     except LedgerError as e:
         raise HTTPException(404, str(e))
     mid = str(mid or "")
-    pub = _public_slug(request) is not None
     rows: list[Any] = []
     if box == "user":
         rows = (list(org.d.get("user_inbox") or [])
                 + list(org.d.get("user_mail_log") or []))
-        rows = _mail_refs(slug, "user", rows, public=pub)
+        rows = _mail_refs(slug, "user", rows)
     elif box == "org":
         rows = list(org.d.get("org_inbox") or [])
-        rows = _mail_refs(slug, "org", rows, public=pub)
+        rows = _mail_refs(slug, "org", rows)
     elif box == "node":
         nid = str(node or "")
         try:
@@ -10164,7 +9467,7 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
             raise HTTPException(404, str(e))
         rows = (list((org.d.get("mail") or {}).get(nid, []))
                 + list((org.d.get("mail_log") or {}).get(nid, [])))
-        rows = _mail_refs(slug, "node", rows, nid, public=pub)
+        rows = _mail_refs(slug, "node", rows, nid)
     else:
         raise HTTPException(404, f"no mailbox family named {box!r}")
     for r in rows:
@@ -10224,8 +9527,6 @@ class OrgInboxSend(Body):
 @app.post("/api/orgs/{slug}/org_inbox/upload")
 async def org_inbox_upload(slug: str, request: Request,
                            name: str = "file") -> dict[str, Any]:
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
     # refuse oversize BEFORE buffering when the client says how big it is
     try:
         clen = int(request.headers.get("content-length") or 0)
@@ -10260,17 +9561,16 @@ def _org_inbox_send_org(slug: str, dst: str, body: OrgInboxSend,
     to = f"@org:{dst}"
     key = body.op_key or uuid.uuid4().hex
     try:
-        src = orgtx.org_read(slug)
+        orgtx.org_read(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    if src.d.get("kiosk") is not None:
-        raise HTTPException(422, "a sealed kiosk org has no outside face")
     try:
-        sealed = orgtx.org_read(dst).d.get("kiosk") is not None
+        orgtx.org_read(dst)
+        missing = False
     except LedgerError:
-        sealed = True
+        missing = True
     try:
-        if sealed:
+        if missing:
             # same anti-enumeration answer as interorg_send
             warnings.append(f"not delivered: no organization named {dst!r} "
                             f"is reachable")
@@ -10298,8 +9598,6 @@ def _org_inbox_send_org(slug: str, dst: str, body: OrgInboxSend,
 @app.post("/api/orgs/{slug}/org_inbox/send")
 def org_inbox_send(slug: str, body: OrgInboxSend,
                    request: Request) -> dict[str, Any]:
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
     to = body.to.strip()
     if to.startswith("@ext:"):
         # user ruling 2026-08-05: @ext: retired with chatq — refuse loudly
@@ -10326,8 +9624,6 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
         return {"id": oid, "warnings": warnings}
     # PG-3d: the outbound org-inbox row and the hub spool, not DOC_LOCK
     with _entry_ledger_422(mailtx.org_of(slug, **mailtx.OUTSIDE_SEND_ROWS), 404) as org:
-        if org.d.get("kiosk") is not None:
-            raise HTTPException(422, "a sealed kiosk org has no outside face")
         if to.startswith("@net:") and to[5:] == (
                 (org.d.get("net_identity") or {}).get("slug")):
             raise HTTPException(422, "that address is this organization")
@@ -10354,11 +9650,11 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
     elif to.startswith("@org:"):
         dst = to[5:]
         try:
-            dst_org = store.load_org(dst)
-            sealed = dst_org.d.get("kiosk") is not None
+            store.load_org(dst)
+            missing = False
         except LedgerError:
-            sealed = True
-        if sealed:
+            missing = True
+        if missing:
             # same anti-enumeration answer as interorg_send
             warnings.append(f"not delivered: no organization named {dst!r} "
                             f"is reachable")
@@ -10439,12 +9735,9 @@ def crash_report(body: CrashReportBody, request: Request) -> dict[str, Any]:
     path = crashreports.save_report(org_slug, report)
     # Delivery is a bonus on top of the save above, never a condition of it —
     # any failure here (bad org, node missing, node not live, mail refused)
-    # must not turn an already-durable report into a 500. Kiosk/public
-    # visitors are save-only: their crash is still real and still recorded,
-    # but a public link is not a channel that should be able to page an
-    # internal agent on demand.
+    # must not turn an already-durable report into a 500.
     delivered = False
-    if org_slug and not _public_slug(request):
+    if org_slug:
         try:
             # PG-3d: the crash-reporting seat's mail rows, not DOC_LOCK
             with mailtx.org_of(org_slug, **mailtx.send_rows("crash-reporting")) as org:
@@ -10470,8 +9763,6 @@ def crash_reports_list(request: Request, org: str | None = None,
                        limit: int = 50) -> dict[str, Any]:
     """Retrieval after the fact — "the UI died ten minutes ago, get me that
     report" answered without needing the tab that crashed."""
-    if _public_slug(request):
-        raise HTTPException(404, "not found")
     reports = crashreports.list_reports(limit=min(max(limit, 1), 200))
     if org:
         reports = [rep for rep in reports if rep.get("org") == org]
@@ -10523,20 +9814,17 @@ def node_history(slug: str, nid: str, request: Request,
                                  if isinstance(v, (str, int, float, list))},
                       "warnings": [str(w) for w
                                    in cast("list[Any]", ev.get("warnings") or [])]})
-    _pub = _public_slug(request) is not None
     for n in notice_rows:
-        row = _row_out(n, public=_pub)
+        row = _row_out(n)
         items.append({"at": n["at"], "kind": "notice", "actor": "system",
                       "detail": {"text": n["text"]},
-                      **{k: row[k] for k in ("ev", "ev_public", "ev_raw", "ev_error")
+                      **{k: row[k] for k in ("ev", "ev_raw", "ev_error")
                          if k in row}})
     items.sort(key=lambda x: x["at"])
     # clamped like /chat's `last`: `?last=0` is `items[-0:]`, i.e. the WHOLE
     # log — the one value of `last` that means "no limit" (bounded now by the
     # reader's own 1000-row per-source tail)
     out = items[-max(1, min(last, 1000)):]
-    if _public_slug(request):
-        out = _scrub_events(out)     # e.g. revoke_dir carries the host path
     return {"items": out}
 
 
@@ -10547,9 +9835,7 @@ def node_scratch(slug: str, nid: str, path: str = "") -> dict[str, Any]:
     # joined straight into a path by supervisor.scratch_dir: `nid` =
     # `..\..\..\..\Users` walked out of the data root, mkdir'd the target,
     # and then anchored the containment check TO THE ESCAPED BASE — so the
-    # listing and the 60 KB file read both succeeded. Reachable through the
-    # kiosk gateway (the path is org-scoped, so the public matrix allows it),
-    # which made it an internet-facing read of the operator's filesystem.
+    # listing and the 60 KB file read both succeeded.
     try:
         store.load_org(slug).node(nid)
     except LedgerError as e:
@@ -10604,8 +9890,6 @@ def orgmd_get(slug: str, request: Request) -> dict[str, Any]:
         chars = len(raw)
         read_cut = chars > ORGMD_EDIT_MAX
         content = raw[:ORGMD_EDIT_MAX]
-    if _public_slug(request) and p:
-        p = os.path.basename(p)      # the host path is the operator's, not the org's
     return {"path": p, "content": content, "chars": chars,
             "read_truncated": read_cut, "edit_max": ORGMD_EDIT_MAX,
             "prompt_max": supervisor.ORG_CHARTER_MAX}
@@ -11526,7 +10810,7 @@ def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     result["node"] = _rid
     if _acct_want is not None:
         # Applied at the dispatch tail, after scope, audiences, placement,
-        # staff's docket write and the kiosk cap all passed. No account
+        # and staff's docket write all passed. No account
         # notification or session export may escape a refused composite.
         result["_account_selection"] = (_rid, _acct_want, "rehire")
     _seat_finish(org, slug, actor, _rid, a, result, drive,
@@ -11573,10 +10857,9 @@ def _retool_seat(org: Org, slug: str, actor: str, a: dict[str, Any]
     so the DOC_LOCK cycle and PG-3a's door run the same code. Returns the
     result and, when the call set `effort`, `(node, level before)` for the
     live-effort send that runs after the save."""
-    # effort joins retool (ceiling spec §6): a cost dial, so a
+    # effort joins retool: a cost dial, so a
     # superior may set it on REPORTS — never on itself (set_scope's
-    # authority check refuses self). raise_ceiling is deliberately
-    # NOT plumbed: an agent can never raise a kiosk ceiling.
+    # authority check refuses self).
     #
     # THE PROVIDER ACCOUNT JOINS RETOOL TOO (user decision
     # 2026-09-12: "the agent hire / rehire / retool tools should be
@@ -11885,10 +11168,10 @@ def _forced_self_restart(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     reason = str(a.get("reason") or "")
     if target not in ("org", "mailhub", "both"):
         raise HTTPException(422, "target must be org|mailhub|both")
-    # PG-3r: the gate reads the caller's row and the audience/kiosk sections
+    # PG-3r: the gate reads the caller's row and the audience sections
     # for its authority decision and appends its `self_restart` event.
     try:
-        with orgtx.org_tx(slug, share_nodes=[nid], share_sections=["audiences", "kiosk"],
+        with orgtx.org_tx(slug, share_nodes=[nid], share_sections=["audiences"],
                           logs=["events"]) as tx:
             tx.org.node(nid)
             tx.org.self_restart_gate(nid, force=True, reason=reason)
@@ -12535,7 +11818,7 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False,
 
 
 def _list_orgs_payload(body: AgentCall) -> dict[str, Any]:
-    """`orgtree_list_orgs`: the local orgs (kiosks hidden) and the hub's
+    """`orgtree_list_orgs`: the local orgs and the hub's
     remote peers. A READ (fence-off S5): it once ran inside the agent_call
     write cycle for no reason but history."""
     # №43 (user-approved): the @org: channel was advertised but
@@ -12569,8 +11852,8 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
                 pre: dict[str, Any]) -> Any:
     """Run a DECLARED tool on the row-transaction door (pgdoor.agent_tx):
     the family body, then the in-transaction steps the resident cycle runs
-    for every tool (a routed verb drives its recipient, the kiosk credit cap,
-    an `_account_selection` left by the body), then — after the commit — the
+    for every tool (a routed verb drives its recipient, an
+    `_account_selection` left by the body), then — after the commit — the
     family's own `after.then` callables and the generic tail."""
     after = pgdoor.After()
     fam = pgdoor.BODIES[body.tool]
@@ -12583,12 +11866,6 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
             routed = result.get("routed")
             if routed and not result.get("deferred"):
                 tx.after.drive.append(str(routed))
-        k = supervisor.kiosk_cfg(tx.org)
-        if k and int(k.get("credits") or 0) > 0 \
-                and body.tool not in pgdoor.KIOSK_EXEMPT:
-            # the cap is a decision on the kiosk section: hold it
-            with pgdoor.join(body.org, share_sections=["kiosk"]):
-                _kiosk_cap_check(tx.org)
         selection = (result.pop("_account_selection", None)
                      if isinstance(result, dict) else None)
         if selection is not None:
@@ -12628,8 +11905,8 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
                                      on_commit=witness)
     except LedgerError as e:
         # a rehire's rename committed BEFORE the door, in its own
-        # transaction: ANY refusal after it (the family body, the kiosk cap,
-        # the account binding) must say so and name the id to retry against,
+        # transaction: ANY refusal after it (the family body, the account
+        # binding) must say so and name the id to retry against,
         # exactly as the cycle's handler does (review f4)
         raise HTTPException(422, str(lifecycle_door.rename_stands(
             e, pre.get("renamed_to"))))
@@ -14463,13 +13740,6 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 routed = result.get("routed")
                 if routed and not result.get("deferred"):
                     drive.append(str(routed))
-            # PG-3c (lead decision 18.8): the kiosk cap reads EVERY live node
-            # (Org.audit), which no row lock covers. Tools proven unable to
-            # change top-level holdings skip it (pgdoor.KIOSK_EXEMPT, the ONE
-            # list the door reads too, filled by pgdoor.declare(kiosk_exempt=);
-            # proof: tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
-            if body.tool not in pgdoor.KIOSK_EXEMPT:
-                _kiosk_cap_check(org)
             selection = result.pop("_account_selection", None)
             if selection is not None:
                 target, account, via = selection
@@ -14676,16 +13946,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 "queued for the mail hub — delivery states (sent/delivered/"
                 "read) appear on the org inbox entry")
     if isinstance(result, dict):
-        # the bridge is an ADMIN affordance (ceiling spec §1) — an agent has
-        # no path to raise the ceiling, so the offer never reaches one
-        result.pop("bridge", None)
         _attach_ref(body.org, body.tool, result)
     hub_changed(body.org)
     return result
 
 
 _UPLOAD_MAX = 25 * 1048576          # per file
-_UPLOAD_KIOSK_TOTAL = 256 * 1048576  # per node uploads dir, kiosk orgs
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/upload")
@@ -14693,9 +13959,8 @@ async def node_upload(slug: str, nid: str, request: Request,
                       name: str = "") -> dict[str, Any]:
     """Attach a file to a chat (user spec 2026-07-31): the raw request body
     lands in the node's scratch under uploads/ — the one folder every agent,
-    sandboxed or not, reaches at the same RELATIVE path (its cwd). Reachable
-    through the public kiosk gateway too: outside-internet visitors can hand
-    files to a kiosk org's agents. No multipart dependency — body is the file."""
+    sandboxed or not, reaches at the same RELATIVE path (its cwd). No
+    multipart dependency — body is the file."""
     try:
         org = store.load_org(slug)
         org.node(nid)
@@ -14715,16 +13980,6 @@ async def node_upload(slug: str, nid: str, request: Request,
                                  f"upload cap")
     updir = os.path.join(supervisor.scratch_dir(slug, nid), "uploads")
     os.makedirs(updir, exist_ok=True)
-    if supervisor.kiosk_cfg(org):
-        total = 0
-        for f in os.listdir(updir):
-            try:
-                total += os.path.getsize(os.path.join(updir, f))
-            except OSError:
-                pass
-        if total + len(data) > _UPLOAD_KIOSK_TOTAL:
-            raise HTTPException(413, "this agent's upload space is full — ask "
-                                     "it to clean up uploads/ first")
     stem, ext = os.path.splitext(safe)
     # a filename the host refuses is an OSError from the write below, i.e. a
     # 500: Windows caps one path COMPONENT at 255 chars, and `?name=` is
@@ -14845,7 +14100,7 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
     containment boundary (`_node_reachable_file`). Returns (outbox-relative
     posix name, byte size). Copy, not reference: the card keeps working after
     the agent edits or deletes the original (re-sending an updated file yields
-    report-2.pdf — both cards stay honest). Outbox lives in scratch, so kiosk
+    report-2.pdf — both cards stay honest). Outbox lives in scratch, so
     storage metering already counts it and org deletion sweeps it.
 
     A source ALREADY in outbox/ is referenced as-is for send_file (its
@@ -14885,7 +14140,7 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
         if new_outdir:
             # backend-minted = root-owned inside a sandbox — the agent is then
             # TOLD its file is in outbox/ and finds a dir it cannot write
-            # (live bug 2026-08-04, kiosk `vnuser`)
+            # (live bug 2026-08-04, org `vnuser`)
             sandbox.chown_agent(org, nid)
         if not always_copy and src.startswith(os.path.realpath(outdir) + os.sep):
             final = os.path.relpath(src, outdir).replace("\\", "/")
@@ -15091,8 +14346,7 @@ def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *,
 @app.get("/api/orgs/{slug}/nodes/{nid}/file")
 def node_file(slug: str, nid: str, path: str = "") -> FileResponse:
     """Raw download of a file in the node's scratch — outbox/ cards, uploads/,
-    anything the files tab lists. Org-scoped GET, so the kiosk public gateway
-    passes it through: visitors download what agents send back."""
+    anything the files tab lists."""
     try:
         org = store.load_org(slug)
         org.node(nid)
@@ -15109,26 +14363,17 @@ def node_file(slug: str, nid: str, path: str = "") -> FileResponse:
 
 # ------------------------------------------------ the org disk (recovery browser)
 # The user verdict's built-in file browser over the org's virtual disk — its
-# OWN surface, deliberately NOT /api/fs (that is the HOST browser and stays in
-# the public deny list). Org-scoped routes, so the kiosk gateway's slug check
-# scopes visitors to their own org's disk for free. Reads and deletes go over
+# OWN surface, deliberately NOT /api/fs (that is the HOST browser). Reads and
+# deletes go over
 # \\wsl.localhost and work with the container STOPPED and the disk 100% FULL
 # (drilled, not assumed); enumeration runs INSIDE the distro (9p is too slow).
 
 # engine credential/state files on the disk (subscription auth copies the
-# HOST's OAuth credentials into the sandbox home) — never served to visitors
-# ⚠ `.bridge` is not an engine file — orgtree writes it itself
-# (sandbox.py: `{home}/orgtree/.bridge` = {"url", "secret"}), and it holds the
-# org's SANDBOX BRIDGE SECRET. The bridge listener binds 0.0.0.0, so a visitor
-# who downloads this file gets: the /api/agent gateway this very matrix
-# freezes for the public (acting as ANY node of the org), the node steer
-# fetch, and the /anthropic proxy — which attaches the HOST's subscription
-# token. Verified reachable at GET …/disk/file?path=home/orgtree/.bridge.
-_PUBLIC_DISK_DENY = (".credentials.json", ".claude.json", ".bridge")
-#: how much of a file a visitor download scans for this org's bridge secret.
-#: 256 KiB covers any plausible copy of a credential file while costing one
-#: read; see disk_file for why the name check alone is not a boundary.
-_SECRET_SCAN_BYTES = 262144
+# HOST's OAuth credentials into the sandbox home). ⚠ `.bridge` is not an
+# engine file — orgtree writes it itself (sandbox.py:
+# `{home}/orgtree/.bridge` = {"url", "secret"}), and it holds the org's
+# SANDBOX BRIDGE SECRET.
+_DISK_SECRET_NAMES = (".credentials.json", ".claude.json", ".bridge")
 _SID_FILE = re.compile(r"^home/\.claude/projects/[^/]+/([0-9a-f-]{36})\.jsonl$")
 
 
@@ -15146,8 +14391,8 @@ def _disk_org(slug: str) -> Org:
 def _disk_rel(slug: str, path: str) -> tuple[str, str]:
     """(relative posix path, absolute windows path) — canonicalized, with
     containment ASSERTED before any read/download/unlink. A traversal here
-    would reach the host filesystem from a kiosk URL: the worst outcome
-    available in this feature, so both a lexical and a realpath check."""
+    would reach the host filesystem: the worst outcome available in this
+    feature, so both a lexical and a realpath check."""
     rel = posixpath.normpath(_no_nul(path or "").replace("\\", "/").strip("/"))
     if not rel or rel == "." or rel == ".." or rel.startswith("../") \
             or rel.startswith("/") or ":" in rel:
@@ -15164,7 +14409,7 @@ def _disk_rel(slug: str, path: str) -> tuple[str, str]:
 _SEED_ROOTS = ("usr", "var", "etc", "opt", "root", "srv")
 
 
-def _disk_classify(org: Org, rel: str, public: bool) -> tuple[str, str | None]:
+def _disk_classify(org: Org, rel: str) -> tuple[str, str | None]:
     """The verdict's deletion policy. reclaimable = freely deletable and
     POSITIVELY dead weight; blocked = shown, delete refused, with the reason;
     content = ordinary agent output. System-seed paths are blocked in BOTH
@@ -15190,9 +14435,7 @@ def _disk_classify(org: Org, rel: str, public: bool) -> tuple[str, str | None]:
                 return "blocked", (f"archived node {nid} — deleting breaks "
                                    f"its rehire")
         return "reclaimable", "no node owns this session"
-    if rel.rsplit("/", 1)[-1] in _PUBLIC_DISK_DENY:
-        if public:
-            return "blocked", "credential/secret file"
+    if rel.rsplit("/", 1)[-1] in _DISK_SECRET_NAMES:
         return "content", "credential/secret file — admin-side only"
     return "content", None
 
@@ -15203,7 +14446,6 @@ def disk_list(slug: str, request: Request, offset: int = 0,
     """Files by size DESCENDING (the sort that matters when freeing space
     fast) + the live usage readout. Paginated — never the whole tree."""
     org = _disk_org(slug)
-    public = bool(_public_slug(request))
     from . import disk as dsk
     try:
         du = dsk.usage(slug, max_age=5.0)
@@ -15212,25 +14454,23 @@ def disk_list(slug: str, request: Request, offset: int = 0,
     except dsk.DiskError as e:
         raise HTTPException(503, str(e))
     for f in files:
-        cls, why = _disk_classify(org, str(f["path"]), public)
+        cls, why = _disk_classify(org, str(f["path"]))
         f["class"] = cls
         if why:
             f["reason"] = why
     return {"used": du[0] if du else None, "total": du[1] if du else None,
             "blocked": bool(org.d.get("storage_blocked")),
             "full": bool(org.d.get("storage_full")),
-            # admin-only nudge: org disks are SPARSE, the VM cap is the
-            # aggregate wall — None = unset on the host
-            **({} if public else {
-                "vm_cap_mib": sandbox.vm_disk_cap_mib(),
-                "size_mb": int((org.d.get("disk") or {}).get("size_mb") or 0),
-                "pending_mb": (org.d.get("disk") or {}).get("pending_size_mb"),
-            }),
+            # org disks are SPARSE, the VM cap is the aggregate wall —
+            # None = unset on the host
+            "vm_cap_mib": sandbox.vm_disk_cap_mib(),
+            "size_mb": int((org.d.get("disk") or {}).get("size_mb") or 0),
+            "pending_mb": (org.d.get("disk") or {}).get("pending_size_mb"),
             "files": files, "offset": max(0, offset),
             "limit": max(1, min(limit, 500))}
 
 
-def _disk_classify_dir(org: Org, rel: str, public: bool,
+def _disk_classify_dir(org: Org, rel: str,
                        protected: list[str]) -> tuple[str, str | None]:
     """Directory classes for the explorer: seed dirs blocked; a dir whose
     subtree holds protected transcripts is blocked WHOLE (half-deleting a
@@ -15243,13 +14483,13 @@ def _disk_classify_dir(org: Org, rel: str, public: bool,
     return "content", None
 
 
-def _protected_transcripts(org: Org, slug: str, public: bool) -> list[str]:
+def _protected_transcripts(org: Org, slug: str) -> list[str]:
     """Transcript files whose deletion is refused — from the cached walk, so
     this costs nothing beyond the walk both views already share."""
     from . import disk as dsk
     return [p for p, _sz in dsk.subtree_files(slug, "home")
             if _SID_FILE.match(p)
-            and _disk_classify(org, p, public)[0] == "blocked"]
+            and _disk_classify(org, p)[0] == "blocked"]
 
 
 @app.get("/api/orgs/{slug}/disk/dir")
@@ -15259,21 +14499,20 @@ def disk_dir(slug: str, request: Request, path: str = "") -> dict[str, Any]:
     for size triage). Served from the cached single walk; works with the
     container stopped, same as everything on this surface."""
     org = _disk_org(slug)
-    public = bool(_public_slug(request))
     rel = ""
     if path.strip("/"):
         rel, _full = _disk_rel(slug, path)
     from . import disk as dsk
     try:
         entries = dsk.list_dir(slug, rel)
-        protected = _protected_transcripts(org, slug, public)
+        protected = _protected_transcripts(org, slug)
         du = dsk.usage(slug, max_age=5.0)
     except dsk.DiskError as e:
         raise HTTPException(503, str(e))
     for e in entries:
         p = str(e["path"])
-        cls, why = (_disk_classify_dir(org, p, public, protected)
-                    if e["dir"] else _disk_classify(org, p, public))
+        cls, why = (_disk_classify_dir(org, p, protected)
+                    if e["dir"] else _disk_classify(org, p))
         e["class"] = cls
         if why:
             e["reason"] = why
@@ -15281,48 +14520,22 @@ def disk_dir(slug: str, request: Request, path: str = "") -> dict[str, Any]:
             "used": du[0] if du else None, "total": du[1] if du else None,
             "blocked": bool(org.d.get("storage_blocked")),
             "full": bool(org.d.get("storage_full")),
-            **({} if public else {
-                "vm_cap_mib": sandbox.vm_disk_cap_mib(),
-                "size_mb": int((org.d.get("disk") or {}).get("size_mb") or 0),
-                "pending_mb": (org.d.get("disk") or {}).get("pending_size_mb"),
-            })}
+            "vm_cap_mib": sandbox.vm_disk_cap_mib(),
+            "size_mb": int((org.d.get("disk") or {}).get("size_mb") or 0),
+            "pending_mb": (org.d.get("disk") or {}).get("pending_size_mb")}
 
 
 @app.get("/api/orgs/{slug}/disk/file")
 def disk_file(slug: str, request: Request, path: str = "") -> FileResponse:
     """Streaming download (FileResponse streams — a multi-GB file is never
-    buffered). Visitors get everything except the engine credential files."""
+    buffered)."""
     org = _disk_org(slug)
     rel, full = _disk_rel(slug, path)
-    public = bool(_public_slug(request))
-    cls, why = _disk_classify(org, rel, public)
-    if cls == "blocked" and rel.rsplit("/", 1)[-1] in _PUBLIC_DISK_DENY:
-        raise HTTPException(403, why or "not served publicly")
+    cls, why = _disk_classify(org, rel)
+    if cls == "blocked" and rel.rsplit("/", 1)[-1] in _DISK_SECRET_NAMES:
+        raise HTTPException(403, why or "credential/secret file")
     if not os.path.isfile(full):
         raise HTTPException(404, f"no such file: {rel!r}")
-    # ☠ A FILENAME denylist is not a boundary here, and the sandbox suite
-    # proved it end to end: every sandboxed agent has passwordless root on the
-    # org disk, so `cp ~/orgtree/.bridge workspace/notes.txt` renames the
-    # secret out of the deny tuple and a kiosk visitor downloads it with a 200.
-    # That secret opens /api/agent as ANY node of the org and the /anthropic
-    # proxy, which attaches the HOST's subscription OAuth token — so this is
-    # the whole sandbox boundary, defeated by a copy.
-    #
-    # Content is therefore checked as well as name, for visitors only: any file
-    # carrying this org's bridge secret is refused whatever it is called. The
-    # scan is bounded and cheap (both the 32-hex legacy root and the longer
-    # frozen org token are small; a copied credential file is what this defends
-    # against, not a token buried beyond 256 KiB in a multi-GB artifact).
-    if public:
-        credentials = bridgeauth.accepted_credentials(org)
-        if credentials:
-            try:
-                with open(full, "rb") as f:
-                    head = f.read(_SECRET_SCAN_BYTES)
-                if any(secret.encode() in head for secret in credentials):
-                    raise HTTPException(403, "credential/secret file")
-            except OSError:
-                pass          # unreadable: the FileResponse below reports it
     return FileResponse(full, filename=os.path.basename(full))
 
 
@@ -15337,7 +14550,6 @@ def disk_delete(slug: str, body: DiskDelete, request: Request) -> dict[str, Any]
     free space on ext4 — drilled). Ends with the recovery loop: re-measure,
     and the existing storage_check clear path lifts the block/alert."""
     org = _disk_org(slug)
-    public = bool(_public_slug(request))
     from . import disk as dsk
     results: list[dict[str, Any]] = []
     for p in body.paths[:500]:
@@ -15350,13 +14562,13 @@ def disk_delete(slug: str, body: DiskDelete, request: Request) -> dict[str, Any]
             # directory delete (explorer mode): the class rules apply to the
             # WHOLE subtree and the operation is all-or-nothing — a protected
             # file anywhere in it refuses everything, never a partial delete
-            seed_cls, seed_why = _disk_classify_dir(org, rel, public, [])
+            seed_cls, seed_why = _disk_classify_dir(org, rel, [])
             if seed_cls == "blocked":
                 results.append({"path": rel, "ok": False, "error": seed_why})
                 continue
             subs = dsk.subtree_files(slug, rel, max_age=0.0)
-            bad = [(sp, _disk_classify(org, sp, public)[1]) for sp, _s in subs
-                   if _disk_classify(org, sp, public)[0] == "blocked"]
+            bad = [(sp, _disk_classify(org, sp)[1]) for sp, _s in subs
+                   if _disk_classify(org, sp)[0] == "blocked"]
             if bad:
                 results.append({"path": rel, "ok": False,
                                 "error": f"subtree holds {len(bad)} protected "
@@ -15379,7 +14591,7 @@ def disk_delete(slug: str, body: DiskDelete, request: Request) -> dict[str, Any]
                             "files": n_files, "bytes": n_bytes,
                             **({"error": err} if err else {})})
             continue
-        cls, why = _disk_classify(org, rel, public)
+        cls, why = _disk_classify(org, rel)
         if cls == "blocked":
             results.append({"path": rel, "ok": False, "error": why})
             continue
@@ -15425,8 +14637,6 @@ def disk_resize(slug: str, body: DiskResize, request: Request) -> dict[str, Any]
     down (or via /disk/resize/apply), and the UI shows requested vs actual
     until then. A shrink below current usage is refused HERE with the MB to
     free — the same refuse-not-guess rule the apply path enforces."""
-    if _public_slug(request):
-        raise HTTPException(403, "admin side only")
     org = _disk_org(slug)
     from . import disk as dsk
     d = dict(org.d.get("disk") or {})
@@ -15472,8 +14682,6 @@ def disk_resize_apply(slug: str, request: Request) -> dict[str, Any]:
     wall with a legal sequence behind it): briefly stops THIS org's agents,
     applies the pending shrink, and lets the container restart on the next
     turn. Never touches the backend or other orgs."""
-    if _public_slug(request):
-        raise HTTPException(403, "admin side only")
     org = _disk_org(slug)
     if not int((org.d.get("disk") or {}).get("pending_size_mb") or 0):
         raise HTTPException(422, "no pending resize")
@@ -15536,8 +14744,6 @@ def sweep_legacy_preview(slug: str, request: Request) -> dict[str, Any]:
     """What the pre-migration backup still costs — admin decides whether to
     drop the rollback. Refuses unless the org's disk is mounted and healthy
     (never delete the backup of a disk that can't prove it's alive)."""
-    if _public_slug(request):
-        raise HTTPException(403, "admin side only")
     org = _disk_org(slug)
     from . import disk as dsk
     if not dsk.is_mounted(org.d["slug"]):
@@ -15556,8 +14762,6 @@ def sweep_legacy(slug: str, request: Request) -> dict[str, Any]:
     """Drop the rollback: legacy volumes + host-dir copies. Explicit admin
     action behind a preview + armed click in the UI — the data lives ON the
     org disk now; this deletes only the pre-migration copies."""
-    if _public_slug(request):
-        raise HTTPException(403, "admin side only")
     org = _disk_org(slug)
     from . import disk as dsk
     if not dsk.is_mounted(org.d["slug"]):
@@ -15616,7 +14820,7 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
             raise HTTPException(422, 'Invalid transcript cursor') from error
         for row in page.get('messages') or []:
             if row.get('segments') is not None:
-                row['segments'] = events.wire_segments(row['segments'], public=_public_slug(request) is not None)
+                row['segments'] = events.wire_segments(row['segments'])
         page["conversation_id"] = conversation
         return page
     out = supervisor.read_chat(org, nid, last=max(1, min(last, 1_000_000)))
@@ -15730,10 +14934,9 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
     n_pending = len(pending)
     body_cap = 2000 if n_pending <= 20 else 800 if n_pending <= 100 else 250
     pending = pending[-800:]
-    _pub = _public_slug(request) is not None
     for msg in out.get("messages") or []:
         if isinstance(msg, dict) and msg.get("segments") is not None:
-            msg["segments"] = events.wire_segments(msg["segments"], public=_pub)
+            msg["segments"] = events.wire_segments(msg["segments"])
     out["pending_mail"] = [{"id": m.get("id"), "from": m["from"],
                             "kind": m.get("kind") or "message",
                             **({"reply_to": m["reply_to"]} if m.get("reply_to") else {}),
@@ -15746,8 +14949,8 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
                             **({"client_op": m["client_op"]}
                                if m.get("client_op") else {}),
                             "body": m["body"][:body_cap], "at": m["at"],
-                            **{k: v for k, v in _row_out(m, public=_pub).items()
-                               if k in ("ev", "ev_public", "ev_raw", "ev_error")},
+                            **{k: v for k, v in _row_out(m).items()
+                               if k in ("ev", "ev_raw", "ev_error")},
                             **({"delivery": m["delivery"]} if m.get("delivery")
                                else {}),
                             **({"delivering": True} if m.get("delivering")
@@ -15917,10 +15120,9 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     # the RECIPIENT's box, not this node's — a reference built from `nid` here
     # would name a mail that is not there. Each sent row carries its own `to`,
     # so it addresses its own box.
-    pub = _public_slug(request) is not None
-    sent = _sent_refs(slug, sent, public=pub)
-    return {"pending": _mail_refs(slug, "node", waiting, nid, public=pub),
-            "delivered": _mail_refs(slug, "node", delivered[-50:], nid, public=pub),
+    sent = _sent_refs(slug, sent)
+    return {"pending": _mail_refs(slug, "node", waiting, nid),
+            "delivered": _mail_refs(slug, "node", delivered[-50:], nid),
             "sent": sent[-50:]}
 
 
@@ -15944,8 +15146,6 @@ def org_events(slug: str, request: Request, since: int = 0,
             total, out = page
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    if _public_slug(request):
-        out = _scrub_events(out)     # host paths ride event details/warnings
     return {"total": total, "events": out, "offset": total - len(out)}
 
 
@@ -16002,10 +15202,6 @@ class Op(Body):
     # multi-account D2d: the account chosen WITH a cross-provider
     # switch_model (required when the node is bound; validated at the door)
     account: str | None = None
-    # ceiling spec §1: the one-action bridge — re-send the same op with this
-    # set and an over-ceiling admin grant raises the ceiling to fit (logged,
-    # named, never silent). Ignored for visitors: no legal raise path exists.
-    raise_ceiling: bool = False
 
 
 def provider_hire_gate(
@@ -16048,11 +15244,10 @@ def provider_hire_gate(
     rehire paths remained open. A named list makes the next missing call site
     visible without trusting arithmetic prose.
 
-    One provider-specific ruling rides along (user, 2026-08-28): kiosks hold
-    codex out until its sandbox story is settled. (The old companion rule —
-    a HEADLESS org may only hire tiers from KEYED providers — was retired by
-    the 2026-09-12 redesign: inference credentials are machine-level
-    ACCOUNTS now, so headless carries no credential coupling at all.)
+    (The old companion rule — a HEADLESS org may only hire tiers from KEYED
+    providers — was retired by the 2026-09-12 redesign: inference credentials
+    are machine-level ACCOUNTS now, so headless carries no credential
+    coupling at all.)
     """
     if not tier:
         return
@@ -16093,12 +15288,6 @@ def provider_hire_gate(
             raise LedgerError(
                 f"tier '{shown}' is not among the OpenRouter favorites — "
                 "select the model in App settings → Providers first")
-        if org.d.get("kiosk"):
-            raise LedgerError(
-                "kiosk orgs cannot hire OpenRouter tiers yet — the lane is "
-                "held out of kiosks until its sandboxing is settled (the "
-                "same holdout as codex and antigravity, user ruling "
-                "2026-08-28)")
         return
     if tier in providers.ANTIGRAVITY_TIERS:
         ast = providers.antigravity_status()
@@ -16131,11 +15320,6 @@ def provider_hire_gate(
                     f"tier '{tier}' is a conditional Antigravity tier and is "
                     f"not available to this account right now: "
                     f"{availability['reason']}")
-        if org.d.get("kiosk"):
-            raise LedgerError(
-                "kiosk orgs cannot hire Antigravity tiers yet — antigravity "
-                "is held out of kiosks until its sandboxing is settled (the "
-                "same holdout as codex, user ruling 2026-08-28)")
         return
     if tier not in providers.CODEX_TIERS:
         # D-199: the CLAUDE branch, and it is the last one because Claude is
@@ -16171,10 +15355,6 @@ def provider_hire_gate(
         raise LedgerError(
             f"tier '{tier}' is a Codex tier and Codex is not signed in — "
             f"run `codex login` on this machine (accounts panel → Codex)")
-    if org.d.get("kiosk"):
-        raise LedgerError(
-            "kiosk orgs cannot hire Codex tiers yet — codex is held out of "
-            "kiosks until its sandboxing is settled (user ruling 2026-08-28)")
     # ⚠ NO USAGE-WINDOW CHECK HERE — user ruling 2026-09-02, and 65273fa had
     # one. Hiring prepares an agent; the TURN is what needs capacity, and the
     # Codex CLI already refuses that loudly. See the note above
@@ -16212,11 +15392,7 @@ def provider_hire_gate(
 
 @app.post("/api/orgs/{slug}/ops")
 def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
-    pub = bool(_public_slug(request))
     if body.preview:
-        if pub:
-            raise HTTPException(
-                403, "kiosk: operator previews are available from the admin side")
         # Preview is an operator-authenticated variant of the existing ops
         # surface, not a new unauthenticated REST route.  It loads once and
         # never calls the interrupt, supervisor, or save paths below.
@@ -16232,7 +15408,7 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
             # fence-off S5: a preview only reads — the committed document,
             # lock-free, never the write lock
             org = orgtx.org_read(slug)
-            actor = USER if pub else body.actor
+            actor = body.actor
             if actor != USER:
                 org.node(actor)
                 org._require_live(actor)
@@ -16257,12 +15433,6 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
                 switch_busy=switch_busy)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-    # Visitor delete is deliberately OPEN (user ruling 2026-08-01, twice
-    # confirmed): visitors act as @user for everything inside the ceiling,
-    # permanent deletion included — the ceiling is the only wall, and a
-    # kiosk org is disposable by design. See DECISIONS.md D-001 (incl. why
-    # the cost-is-history tombstone makes this budget-safe). An interim 403
-    # lived here for ~25 min while the ruling was pending (2c5af3e).
     if body.op == "rename":
         if not body.node or not body.name:
             raise HTTPException(422, "rename needs node and name")
@@ -16316,8 +15486,7 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     if pgdoor.routed(body.op):
         # PYPG: a family converted this op off DOC_LOCK (pgdoor.declare) —
         # ONE row transaction, never under DOC_LOCK; the tail below is shared
-        result = _op_door(slug, body, allow_raise=not pub,
-                          harness=_hire_harness)
+        result = _op_door(slug, body, harness=_hire_harness)
         if _archive_warnings and isinstance(result, dict):
             result.setdefault("warnings", []).extend(_archive_warnings)
     elif pgdoor.enabled() and body.op not in pgdoor.LOCKS:
@@ -16332,18 +15501,13 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
         raise HTTPException(422, f"unknown op {body.op!r}")
     else:
         with store.DOC_LOCK:
-            result = _org_op_locked(slug, body, allow_raise=not pub,
-                                    harness=_hire_harness)
+            result = _org_op_locked(slug, body, harness=_hire_harness)
             if _archive_warnings and isinstance(result, dict):
                 result.setdefault("warnings", []).extend(_archive_warnings)
     # FR-01 (redteam): retire/dissolve/delete must not orphan a running
     # remote-control server — reap any whose seat is gone or no longer live
     if body.op in ("retire", "dissolve", "delete", "rescind", "cheap_compact"):
         supervisor.remote_reap(slug)
-    if pub and isinstance(result, dict):
-        # the bridge is the ADMIN affordance — a visitor has no legal path to
-        # raise the ceiling, so the offer must not dangle
-        result.pop("bridge", None)
     # rehire with a waiting mailbox: the mail queued while archived finally
     # gets acted on (user ruling) — drive outside the doc lock
     drive: list[str] = result.pop("drive", []) if isinstance(result, dict) else []
@@ -16364,26 +15528,14 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     return result
 
 
-def _op_door(slug: str, body: "Op", allow_raise: bool,
+def _op_door(slug: str, body: "Op",
              harness: str | None) -> dict[str, Any]:
     """A DECLARED operator op on the row-transaction door (pgdoor.op_tx):
-    the family body, then the step `_org_op_locked` runs for every op inside
-    its lock (the kiosk credit cap, holding `kiosk` FOR SHARE), then the
-    fan-out. The raise-ceiling decision reads the kiosk section, so it is
-    taken inside the transaction too."""
+    the family body, then the fan-out."""
     fam = pgdoor.BODIES[body.op]
 
     def fn(tx: pgdoor.OpTx) -> Any:
-        k = tx.org.d.get("kiosk") or {}
-        tx.pre["rc"] = allow_raise and (bool(k.get("auto_raise"))
-                                        or body.raise_ceiling)
-        result = fam(tx)
-        kc = supervisor.kiosk_cfg(tx.org)
-        if kc and int(kc.get("credits") or 0) > 0 \
-                and body.op not in pgdoor.KIOSK_EXEMPT:
-            with pgdoor.join(slug, share_sections=["kiosk"]):
-                _kiosk_cap_check(tx.org)
-        return result
+        return fam(tx)
 
     try:
         result = pgdoor.op_tx(slug, body.op, body,
@@ -16396,7 +15548,7 @@ def _op_door(slug: str, body: "Op", allow_raise: bool,
     return cast("dict[str, Any]", result)
 
 
-def _op_hire(org: Org, body: "Op", rc: bool,
+def _op_hire(org: Org, body: "Op",
              harness: str | None) -> dict[str, Any]:
     """The operator hire (`POST /ops` op="hire"), lifted out of
     `_org_op_locked` WHOLE so the DOC_LOCK cycle and the row-transaction
@@ -16459,13 +15611,10 @@ def _op_hire(org: Org, body: "Op", rc: bool,
                       tools=_hire_tools, org_visibility=_hire_vis,
                       charter=body.charter,
                       external_handles=body.external_handles,
-                      raise_ceiling=rc,
                       account=body.account,
                       harness=harness)
     if body.effort:
-        # applied WITH the hire, atomically (same save): the draft
-        # gear's effort used to ride a separate /scope call that the
-        # kiosk gateway 403s — a control that could never succeed
+        # applied WITH the hire, atomically (same save)
         org.set_scope(body.actor, result["node"], effort=body.effort)
     if body.prefer_reserve is not None:
         # same atomic application for the pool order (item 12)
@@ -16501,20 +15650,16 @@ def _op_hire(org: Org, body: "Op", rc: bool,
     return result
 
 
-def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
+def _org_op_locked(slug: str, body: Op,
                    harness: str | None = None) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    # ceiling spec §1, computed in exactly one place:
-    # raise_ceiling = not public and (kiosk.auto_raise or the explicit ask)
-    rc = allow_raise and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
-                          or body.raise_ceiling)
     _op_unpark: str | None = None   # a node the switch's account choice un-parked (C)
     try:
         if body.op == "hire":
-            result = _op_hire(org, body, rc, harness)
+            result = _op_hire(org, body, harness)
         # body.node is Optional on the wire (hire has none); the target ops
         # take str because Org.node(None) already raises LedgerError → 422,
         # hence the arg-type ignores below rather than a behavior-changing check
@@ -16522,8 +15667,7 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
             result = org.retire(body.actor, body.node)  # type: ignore[arg-type]
         elif body.op == "rescind":
             # FR-22: user-only in the LEDGER (agents have no mcptool verb and
-            # the actor field is honest for them); visitors act as @user
-            # inside the ceiling per D-001, same as delete
+            # the actor field is honest for them)
             result = org.rescind(body.actor, body.node)  # type: ignore[arg-type]
         elif body.op == "cheap_compact":
             if body.if_idle:
@@ -16559,8 +15703,7 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
                     org.node(body.node).get("model") or "")  # type: ignore[arg-type]
                 provider_hire_gate(
                     org, stored_tier, user_choice_only=True)
-            result = org.rehire(body.actor, body.node, body.grant, tier=body.tier,  # type: ignore[arg-type]
-                                raise_ceiling=rc)
+            result = org.rehire(body.actor, body.node, body.grant, tier=body.tier)  # type: ignore[arg-type]
         elif body.op == "dissolve":
             result = org.dissolve(body.actor, body.node)  # type: ignore[arg-type]
         elif body.op == "delete":
@@ -16620,7 +15763,6 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
             result = org.revoke_dir(body.actor, body.node, body.dir)  # type: ignore[arg-type]
         else:
             raise LedgerError(f"unknown op {body.op!r}")
-        _kiosk_cap_check(org)
     except LedgerError as e:
         raise HTTPException(422, str(e))
     store.save_org(org)
@@ -16634,9 +15776,7 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
 
 @app.websocket("/api/orgs/{slug}/ws")
 async def org_ws(ws: WebSocket, slug: str) -> None:
-    # a socket that arrived through the PublicGateway carries the kiosk slug in its
-    # scope state — that is what marks it a visitor for live-payload projection
-    await hub.join(slug, ws, public=bool((ws.scope.get("state") or {}).get("public_slug")))
+    await hub.join(slug, ws)
     try:
         while True:
             await ws.receive_text()   # client pings keep it alive; content ignored
@@ -16720,10 +15860,6 @@ def _deployment_preflight() -> deployment.DeploymentPolicy:
     # A conflicting exposure request is a configuration error, not an option
     # to silently ignore.
     _admin_host()
-    if not policy.allow_public_listener and PUBLIC_PORT:
-        raise deployment.DeploymentConfigError(
-            "the frozen deployment profile forbids the public kiosk listener; "
-            "unset ORGTREE_PUBLIC_PORT (or set it to 0)")
     sandbox.validate_deployment_network(policy=policy)
     legacy_auth = os.environ.get("ORGTREE_SANDBOX_API_KEY", "").strip().lower()
     if not policy.allow_legacy_sandbox_credentials \
@@ -16733,12 +15869,8 @@ def _deployment_preflight() -> deployment.DeploymentPolicy:
             "copying; ORGTREE_SANDBOX_API_KEY='subscription' is forbidden — "
             "use proxied auth or an explicit API key")
     defaults = load_org_defaults()
-    default_kiosk = (defaults.get("kiosk")
-                      if isinstance(defaults.get("kiosk"), dict) else {})
     if not policy.allow_legacy_sandbox_credentials and (
             str(defaults.get("api_key") or "").strip().lower()
-            == "subscription"
-            or str(default_kiosk.get("api_key") or "").strip().lower()
             == "subscription"):
         raise deployment.DeploymentConfigError(
             "the frozen deployment profile disables legacy sandbox credential "
@@ -16760,11 +15892,8 @@ def _deployment_preflight() -> deployment.DeploymentPolicy:
             continue
         if not sandbox.is_sandboxed(org):
             unsandboxed.append(slug)
-        kiosk = org.d.get("kiosk") or {}
         persisted_subscription = (
-            str(org.d.get("api_key") or "").strip().lower() == "subscription"
-            or str(kiosk.get("api_key") or "").strip().lower()
-            == "subscription")
+            str(org.d.get("api_key") or "").strip().lower() == "subscription")
         try:
             effective_subscription = sandbox.uses_legacy_credential_copy(org)
             copied_credentials = sandbox.copied_subscription_credentials(org)
@@ -16860,11 +15989,8 @@ def main() -> None:
             # listener plan. A direct ``uvicorn orgtree.api:app`` launch never
             # reaches this call and is refused at ASGI startup.
             host = _admin_host()
-            raw_public_port = os.environ.get("ORGTREE_PUBLIC_PORT")
             frozen_install.register_official_launch(
                 admin_host=host,
-                public_port=(0 if raw_public_port == "0"
-                             else raw_public_port),
                 expose_admin=os.environ.get(EXPOSE_ENV),
                 admin_port=PORT,
                 bridge_port=sandbox.BRIDGE_PORT,
@@ -16906,8 +16032,7 @@ def main() -> None:
               f"  agents run commands on this machine.\n"
               f"\n"
               f"  Only do this behind a VPN, an SSH tunnel or an authenticating\n"
-              f"  reverse proxy. To share an org with someone instead, make it\n"
-              f"  a kiosk: that serves one org over a secret URL with limits.\n"
+              f"  reverse proxy.\n"
               f"{bar}\n", flush=True)
 
     # ⚠ The CLI this backend resolved, announced ONCE at startup — and LOUDLY
@@ -16931,16 +16056,12 @@ def main() -> None:
               f"{' (pinned)' if _r['is_pin'] else ' (NOT the pin)'}",
               flush=True)
 
-    # three listeners, three trust levels: the admin app is LOOPBACK-ONLY
+    # two listeners, two trust levels: the admin app is LOOPBACK-ONLY
     # unless the operator typed the flag above (user vision: root access never
-    # reaches the wider web); the public listener serves nothing but
-    # preauthenticated /k/<token> URLs; the bridge listener serves nothing but
+    # reaches the wider web); the bridge listener serves nothing but
     # secret-gated sandbox traffic
     servers = [uvicorn.Server(uvicorn.Config(app, host=host, port=PORT,
                                              **LOCAL_UVICORN_OPTIONS))]
-    if PUBLIC_PORT and policy.allow_public_listener:
-        servers.append(uvicorn.Server(uvicorn.Config(
-            PublicGateway(app), host="0.0.0.0", port=PUBLIC_PORT)))
     if sandbox.BRIDGE_PORT:
         # The frozen org credential rides in the Anthropic URL because the
         # CLI cannot attach a private header. Uvicorn logs request paths by

@@ -39,7 +39,7 @@ test('literal human marker text remains byte-for-byte visible', async (t) => {
   await refreshConvo(slug, nid)
   const view = await mountView(
     <DeskChat node={node(nid)} map={new Map([[nid, node(nid)]])}
-      op={op} slug={slug} toast={noop} pub={false} bare />,
+      op={op} slug={slug} toast={noop} bare />,
     (el) => el,
   )
   t.after(async () => { await view.unmount(); resetConvos() })

@@ -16,17 +16,17 @@ fn committed_vectors_match_the_python_oracle() {
     for (name, n) in &report.checked {
         assert!(*n > 0, "section {name} is empty");
     }
-    assert!(report.total() > 10_000);
+    assert!(report.total() > 9_000);
 }
 
 #[test]
 fn a_missing_section_fails() {
-    let cut = COMMITTED.replacen("\"tier_ceiling\"", "\"tier_ceiling_gone\"", 1);
+    let cut = COMMITTED.replacen("\"clamp_vis\"", "\"clamp_vis_gone\"", 1);
     let report = run(&cut, &Rules::LEGACY);
     assert!(report
         .failures
         .iter()
-        .any(|f| f == "tier_ceiling: missing section"));
+        .any(|f| f == "clamp_vis: missing section"));
 }
 
 #[test]

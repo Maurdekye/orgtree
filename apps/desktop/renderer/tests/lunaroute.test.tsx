@@ -62,7 +62,7 @@ function desk(n: CanvasNode) {
     children: [n], seat: 2, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
   }
   return <DeskChat node={n} map={new Map([[n.id, n], ['superior', superior]])}
-    op={op} slug="lunaroute" toast={noop} pub={false} bare onJump={noop} />
+    op={op} slug="lunaroute" toast={noop} bare onJump={noop} />
 }
 
 const routeBadge = (el: HTMLElement) =>

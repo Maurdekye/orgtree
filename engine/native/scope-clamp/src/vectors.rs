@@ -5,8 +5,7 @@
 //! as outside its domain.
 
 use crate::clamp::{
-    apply_ceiling, check_tier_ceiling, clamp_dirs, clamp_tools, clamp_vis, expand_mcp, norm_dirs,
-    norm_tools, DirGrant, Fail, Rules,
+    clamp_dirs, clamp_tools, clamp_vis, expand_mcp, norm_dirs, norm_tools, DirGrant, Fail, Rules,
 };
 use crate::ntpath::{normcase, normpath};
 use crate::pystr::{py_repr, PyStr};
@@ -16,7 +15,7 @@ use std::collections::BTreeSet;
 
 pub const COMMITTED: &str = include_str!("../vectors/scope-clamp-vectors.json");
 
-pub const SECTIONS: [&str; 12] = [
+pub const SECTIONS: [&str; 10] = [
     "normpath",
     "normcase",
     "repr",
@@ -27,8 +26,6 @@ pub const SECTIONS: [&str; 12] = [
     "clamp_tools",
     "clamp_dirs",
     "clamp_vis",
-    "apply_ceiling",
-    "tier_ceiling",
 ];
 
 #[derive(Debug, Default)]
@@ -183,9 +180,9 @@ fn check_row(section: &str, row: &Value, r: &Rules) -> Check {
         }
         "expand_mcp" => {
             let a = items(row)?;
-            let (g, c, reg) = (opt_list(&a[0])?, opt_list(&a[1])?, opt_list(&a[2])?);
-            let got = expand_mcp(g.as_deref(), c.as_deref(), reg.as_deref());
-            outcome(&a[3], Ok(strs_val(&got)))
+            let (g, reg) = (opt_list(&a[0])?, opt_list(&a[1])?);
+            let got = expand_mcp(g.as_deref(), reg.as_deref());
+            outcome(&a[2], Ok(strs_val(&got)))
         }
         "clamp_tools" => {
             let a = items(row)?;
@@ -232,99 +229,8 @@ fn check_row(section: &str, row: &Value, r: &Rules) -> Check {
                 clamp_vis(&req, parent, strict, r).map(|(v, c)| Val::List(vec![v, Val::Bool(c)]));
             outcome(last(row)?, got)
         }
-        "apply_ceiling" => {
-            let get = |k: &str| member(row, k).ok_or_else(|| format!("row without {k}"));
-            let ms = val(get("max_scope")?)?;
-            let ms = match ms.as_str().and_then(PyStr::to_rust) {
-                Some(m) if m == "absent" => None,
-                _ => Some(ms),
-            };
-            let tools = val(get("tools")?)?;
-            let dirs = match val(get("dirs")?)? {
-                Val::Null => None,
-                d => Some(dirs_of(&d)?),
-            };
-            let vis = val(get("vis")?)?;
-            let pm = val(get("pm")?)?;
-            let raise = matches!(get("raise")?, Value::Bool(true));
-            let opt = |v: &Val| {
-                if *v == Val::Null {
-                    None
-                } else {
-                    Some(v.clone())
-                }
-            };
-            let (tools, vis, pm) = (opt(&tools), opt(&vis), opt(&pm));
-            let got = apply_ceiling(
-                ms.as_ref(),
-                tools.as_ref(),
-                dirs.as_deref(),
-                vis.as_ref(),
-                pm.as_ref(),
-                raise,
-                r,
-            )
-            .map(|c| {
-                let o = |v: Option<Val>| v.unwrap_or(Val::Null);
-                let (raised, logged) = match c.raised {
-                    Some((ms, logged)) => (ms, logged),
-                    None => (Val::Null, false),
-                };
-                let s = PyStr::from;
-                Val::Obj(vec![
-                    (s("tools"), o(c.tools)),
-                    (s("dirs"), c.dirs.map_or(Val::Null, |d| dirs_val(&d))),
-                    (s("vis"), o(c.vis)),
-                    (s("pm"), o(c.pm)),
-                    (s("bridged"), Val::Bool(c.bridged)),
-                    (s("warnings"), strs_val(&c.warnings)),
-                    (s("raised"), raised),
-                    (
-                        s("logged"),
-                        Val::List(if logged {
-                            vec![Val::Str(s("ceiling_raise"))]
-                        } else {
-                            vec![]
-                        }),
-                    ),
-                ])
-            });
-            outcome(row, got)
-        }
-        "tier_ceiling" => {
-            let a = items(row)?;
-            let mt = val(&a[0])?;
-            let tier = pystr(&a[1])?;
-            let mt = match mt.as_str().and_then(PyStr::to_rust) {
-                Some(m) if m == "absent" => None,
-                _ => Some(mt),
-            };
-            let doc = doc_tiers();
-            let mt = match &mt {
-                None | Some(Val::Null) => None,
-                Some(v) => Some(v),
-            };
-            let got = check_tier_ceiling(mt, &tier, &doc, r).map(|()| Val::Null);
-            outcome(last(row)?, got)
-        }
         _ => Err(format!("unknown section {section}")),
     }
-}
-
-/// The per-org tier table every `tier_ceiling` row runs against (the oracle
-/// builds the same one).
-pub fn doc_tiers() -> Vec<(PyStr, Val)> {
-    let s = PyStr::from;
-    vec![
-        (s("haiku"), Val::Int(1)),
-        (s("or-a-b"), Val::Int(3)),
-        (s("or-cheap"), Val::Float(0.1)),
-        (s("or-bool"), Val::Bool(true)),
-        (s("or-str"), Val::Str(s("3"))),
-        (s("or-big"), Val::Int(10i128.pow(30))),
-        (s("or-eq"), Val::Float(1.0)),
-        (s("or-zero"), Val::Int(0)),
-    ]
 }
 
 pub fn run(text: &str, rules: &Rules) -> Report {

@@ -50,7 +50,6 @@ def fixture_text(variant: str) -> str:
         "variant": variant,
         "family": events.FAMILY_OF[variant],
         "private": events.encode_ev(event),
-        "public": events.public_event(event),
         "body": events.render_agent(event),
     }
     return json.dumps(fixture, indent=2, ensure_ascii=False) + "\n"

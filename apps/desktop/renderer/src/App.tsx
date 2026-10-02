@@ -15,7 +15,7 @@ import type { NativePreferences } from './desktop'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import {
-  audienceAction, BASE, clearInbox, createOrg, deleteOrg,
+  audienceAction, clearInbox, createOrg, deleteOrg,
   fileBase, fileUrl, getAudiences, getDefaults, getEvents, getHost, getInbox,
   getMailById, getOrgMd,
   getAccountRegistry, getRegisteredAccountUsage,
@@ -118,7 +118,7 @@ import type {
   AccountUsage, AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
   DirGrant, MailEntry, OpRequest, OpResult, OrgEvent, OrgListEntry,
   OrgMdPayload, ToastFn,
-  ProvidersPayload, ToolGrant,
+  ToolGrant,
   AccountRegistryRow,
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
@@ -358,8 +358,7 @@ const bootProviders = afterBootGate(getProviders)
 const bootHost = afterBootGate(getHost)
 
 const slugFromPath = () => {
-  // BASE is the /k/<token> prefix when served from a public kiosk URL
-  const m = location.pathname.slice(BASE.length).match(/^\/o\/([a-z0-9@-]+)/)
+  const m = location.pathname.match(/^\/o\/([a-z0-9@-]+)/)
   return m ? m[1]! : null // nUIA: group 1 is unconditional in the regex
 }
 
@@ -388,7 +387,7 @@ export default function App() {
   const treeRef = useRef<TreePayload | null>(null)
   treeRef.current = tree
   useAskPrimer(slug, treeRef, setTree)
-  const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug, BASE)
+  const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [error, setError] = useState<string | null>(null)
   // G4: `pulses` used to live here — a per-node record of the last turn event,
@@ -521,15 +520,15 @@ export default function App() {
   // able to add an upstream request; the server's warm loop is what keeps
   // that cache worth reading. usePolled also wakes on the livebus, so the
   // interval is only the floor.
-  const usagePeek = usePolled(BASE ? noUsagePeek : bootUsagePeek, [], 60000)
-  const codexUsagePeek = usePolled(BASE ? noUsagePeek : bootCodexUsagePeek, [], 60000)
+  const usagePeek = usePolled(bootUsagePeek, [], 60000)
+  const codexUsagePeek = usePolled(bootCodexUsagePeek, [], 60000)
   // the Antigravity standing is observed from turns (a wall + its reset),
   // never fetched — the same cache-only contract, so it may ride the glow
-  const agyUsagePeek = usePolled(BASE ? noUsagePeek : bootAntigravityUsagePeek, [], 60000)
+  const agyUsagePeek = usePolled(bootAntigravityUsagePeek, [], 60000)
   // OpenRouter: a prepaid credit balance, cache-only here too — see
   // openrouter_limits's module docstring for why a plain key never earns a
   // percentage without a spend cap, which is also why this lane rarely glows
-  const orrUsagePeek = usePolled(BASE ? noUsagePeek : bootOpenRouterUsagePeek, [], 60000)
+  const orrUsagePeek = usePolled(bootOpenRouterUsagePeek, [], 60000)
   const usageAlert = useMemo(
     () => usagePeak(usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek),
     [usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek])
@@ -537,7 +536,7 @@ export default function App() {
   // label. Polled rather than fetched once so installing a CLI mid-session is
   // picked up; unresolved is ALL_PRESENT, i.e. exactly today's wording.
   const provPresence = presenceOfPayload(
-    usePolled(BASE ? noProviders : bootProviders, [], 60000))
+    usePolled(bootProviders, [], 60000))
   // mobile compact orgbar (D-125 ruling 2026-08-14, 'one row, banner→chip'):
   // the detail chips + resume banner collapse behind a ⋯ toggle
   const [barMore, setBarMore] = useState(false)
@@ -929,15 +928,8 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [slug, refreshTree])
-  // the org list/dashboard stays LIVE while visible — kiosk spend/storage/caps
-  // move under it (agent turns, admin edits). That interval is `useOrgStatus`'s
+  // the org list stays LIVE while visible. That interval is `useOrgStatus`'s
   // now, along with the leading call it used to be missing.
-  useEffect(() => {          // kiosk: the single org IS the app — PUBLIC
-    // builds only (BASE = /k/<token>). On the admin side orgs[0] can be a
-    // kiosk org too (list_orgs carries the flag now), and a kiosk sorting
-    // first hijacked the whole welcome screen into it
-    if (BASE && !slug && orgs.length) setSlug(orgs[0]!.slug)
-  }, [orgs, slug])
 
   useEffect(() => {                    // back/forward keep working
     const onPop = () => setSlug(slugFromPath())
@@ -951,7 +943,7 @@ export default function App() {
   }, [])
   useEffect(() => {                    // the active org lives in the path
     const routeOrg = v3 ? identityOrg(identity) : slug
-    const want = BASE + (routeOrg ? `/o/${routeOrg}` : '/')
+    const want = routeOrg ? `/o/${routeOrg}` : '/'
     if (location.pathname !== want) history.pushState(null, '', want)
   }, [slug, v3, identity])
   useEffect(() => {                    // №38: the tab title carries the unread
@@ -1071,9 +1063,6 @@ export default function App() {
         if (data.event === 'frozen') {   // usage-limit / network popup
           toast([`${data.node} is FROZEN (usage limit or network interruption) — the resume button in the top bar releases it once the wait passes; auto-resume handles it for you if enabled`])
         }
-        if (data.event === 'spend_frozen') {
-          toast(['SPEND LIMIT REACHED — every agent is frozen; raise the limit in the org’s settings (⚙) to resume'])
-        }
         if (data.event === 'storage_blocked') {
           toast(['WORKSPACE STORAGE LIMIT reached — file writes are blocked until enough files are deleted (agents keep running)'])
         }
@@ -1100,19 +1089,7 @@ export default function App() {
             was?: unknown; node?: unknown; renamed?: unknown
           })
         }
-        // op-specific result field (OpResult is open in types.ts) — the
-        // ceiling-bridge marker, stated at the wire boundary
-        const bridge = (r as { bridge?: { raise_ceiling?: boolean } } | null)?.bridge
-        if (bridge?.raise_ceiling) {
-          // the one-action bridge (ceiling spec §1): the same op, re-sent
-          // with the flag — auto_raise OFF never means "go navigate"
-          toast(r.warnings?.length ? r.warnings
-            : ['clamped to the kiosk permission ceiling'],
-          { label: 'raise ceiling & apply',
-            fn: () => runOp(slug!, { ...body, raise_ceiling: true })
-              .then((r2) => { toast(r2.warnings); refreshTree(slug); refreshOrgs() })
-              .catch((e: Error) => toast([`error: ${e.message}`])) })
-        } else toast(r.warnings)
+        toast(r.warnings)
         // urgent: the user just changed something and is looking for it, so
         // this read skips the pacer's gap (it still waits for one in flight)
         refreshTree(slug, { urgent: true }); refreshOrgs(); return r
@@ -1206,20 +1183,18 @@ export default function App() {
         <a className="gh-link h1-gh" href="https://github.com/Maurdekye/orgtree"
           target="_blank" rel="noreferrer" title="Orgtree on GitHub">
           <GitHubIcon fontSize="inherit" /></a>
-        {!BASE &&
-          <button className={'h1-usage' + (usageAlert ? ' u-' + usageAlert.sev : '')}
-            title={usageAlert?.title ?? usageTitle(provPresence)}
-            onClick={toggleUsage}>
-            <DataUsageIcon fontSize="inherit" /></button>}
+        <button className={'h1-usage' + (usageAlert ? ' u-' + usageAlert.sev : '')}
+          title={usageAlert?.title ?? usageTitle(provPresence)}
+          onClick={toggleUsage}>
+          <DataUsageIcon fontSize="inherit" /></button>
         {/* the accounts panel (machine-local routing, 2026-08-25). Beside
             the usage bars deliberately — they answer the same question
             ("which account is paying, and how close is it to a wall?") and
             are read together. */}
-        {!BASE &&
-          <button className="h1-usage" title="App settings"
-            onClick={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}>
-            <SettingsIcon fontSize="inherit" />
-          </button>}
+        <button className="h1-usage" title="App settings"
+          onClick={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}>
+          <SettingsIcon fontSize="inherit" />
+        </button>
         {showControls && <UpdateNotice />}
         {showControls && <WindowControls />}</h1>
       {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> All organizations</button>}
@@ -1234,16 +1209,14 @@ export default function App() {
           freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
           onDelete={(o) => setDoomedOrg(o)} />
       </nav>
-      {!BASE && <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
+      <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
         createOrg(name, dirs, netAuto, netHubs)
           .then((r) => { refreshOrgs(); pick(r.slug) })
-          .catch((e: Error) => toast([`error: ${e.message}`]))} />}
+          .catch((e: Error) => toast([`error: ${e.message}`]))} />
       {/* global default org settings (user spec): every NEW org is born with
-          these — admin only */}
-      {!BASE && <button className="home" onClick={() => setShowDefaults(v => isModalPinned('defaults') ? !v : true)}>
-        <SettingsIcon fontSize="inherit" /> Default org settings</button>}
-      {/* kiosk dashboard: admin only — a public visitor never sees this panel
-          (and the server refuses the endpoints regardless) */}
+          these */}
+      <button className="home" onClick={() => setShowDefaults(v => isModalPinned('defaults') ? !v : true)}>
+        <SettingsIcon fontSize="inherit" /> Default org settings</button>
     </>
   )
 
@@ -1251,7 +1224,7 @@ export default function App() {
     <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
       <RestartNotice />
       {/* Developer › engine debug view: off by default; while off nothing polls */}
-      {!BASE && engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
+      {engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
       {orgTransitionPrompt}
       {/* ------------------------------------------------- the v3 four views
           Homepage and Create are WINDOWS, not states of one window: which of
@@ -1265,7 +1238,7 @@ export default function App() {
             onOpenOrg={openOrgFromShell} onCreateOrg={createWindow}
             isOpenElsewhere={openElsewhere}
             onDelete={(o) => setDoomedOrg(o)}
-            onboarding={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
+            onboarding={showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
               /* FIRST RUN OPENS THE DEDICATED CREATION WINDOW. The setup card
                  used to embed the creation form inline; in v3 creation has its
                  own window and its own identity, and an inline form here would
@@ -1283,7 +1256,7 @@ export default function App() {
         <main className="shell-window">
           <ShellHeader menu={shellMenu} title="New organization" version={appVersion} />
           <CreateOrgView
-            wrapCreate={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown)
+            wrapCreate={showOnboarding(deskPrefs, orgs.length, orgsKnown)
               ? ((create) => onboardingCreate(create,
                 (m) => toast([`setup: charter documents were not populated — ${m}`])))
               : undefined}
@@ -1314,7 +1287,7 @@ export default function App() {
             <UpdateNotice />
             <WindowControls />
           </header>}
-          {!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
+          {showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
             <Onboarding>
               {/* completion runs INSIDE onboardingCreate, before refreshOrgs
                   unmounts this card — a child effect would never see it */}
@@ -1374,9 +1347,9 @@ export default function App() {
                         the whole app, not this organization, so it opens only
                         from the Orgtree menu's "Usage…", with no near-limit
                         warning anywhere ("we can do without the warning") */}
-                    {!tree.public && <ShellAction label="Org settings"
+                    <ShellAction label="Org settings"
                       icon={<SettingsIcon fontSize="inherit" />}
-                      onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)} />}
+                      onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)} />
                   </>}
                   /* LEFT of the action row (user 2026-09-29): arming STOP ALL
                      grows into the gap and never moves the buttons above */
@@ -1385,8 +1358,7 @@ export default function App() {
               ) : (
               <header className={'orgbar' + (desktop() ? ' native-header' : '')}>
                 <div className="native-header-main">
-                {!tree.public &&
-                  <button className="iconbtn" onClick={() => setDrawer(true)}><MenuIcon fontSize="inherit" /></button>}
+                <button className="iconbtn" onClick={() => setDrawer(true)}><MenuIcon fontSize="inherit" /></button>
                 <span className="orgname-wrap">
                   <h2>{tree.name}</h2>
                   {/* connectivity/save-error banner, relocated into the header
@@ -1431,22 +1403,11 @@ export default function App() {
                 {!tree.audit.no_overdraft &&
                   <span className="chip bad"><WarnIcon fontSize="inherit" /> {tree.audit.problems.join(', ')}</span>}
                 <ActiveAgentSummary tree={tree} orgs={orgs} />
-                {/* the bare cost chip is redundant when the kiosk spend chip
-                    already shows the same figure against its limit (user
-                    spec 2026-07-31) — limitless orgs keep it */}
-                {showCost(tree) && !tree.kiosk?.spend_limit &&
+                {showCost(tree) &&
                   <span className="chip" title={costTitle(tree)}>
                     {costLabel(tree)}</span>}
                 {tree.fable_lock &&
                   <span className="chip bad" title={tree.fable_lock.at as string | undefined}><BlockIcon fontSize="inherit" /> fable limit</span>}
-                {tree.kiosk?.spend_limit && (
-                  tree.spend_frozen
-                    ? <span className="chip bad"><BlockIcon fontSize="inherit" /> spend limit reached — agents frozen</span>
-                    : <span className={'chip' + (tree.cost_usd_total >= tree.kiosk.spend_limit * 0.9 ? ' bad' : '')}
-                        title={costTitle(tree, true)}>
-                        {costLabel(tree)} / ${tree.kiosk.spend_limit.toFixed(2)}
-                      </span>
-                )}
 
                 {tree.headless && (
                   <span className="chip"
@@ -1509,10 +1470,9 @@ export default function App() {
                 {/* compact ⋯ panel extras — desktop hides these (.mob-only);
                     the real settings/kill controls sit right of the spacer
                     and are display:none at compact */}
-                {!tree.public &&
-                  <button className="mob-only bar-row"
-                    onClick={() => { setBarMore(false); toggleSurface('org-settings', showSettings, setShowSettings) }}>
-                    <SettingsIcon fontSize="inherit" /> settings</button>}
+                <button className="mob-only bar-row"
+                  onClick={() => { setBarMore(false); toggleSurface('org-settings', showSettings, setShowSettings) }}>
+                  <SettingsIcon fontSize="inherit" /> settings</button>
                 <KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
                   latched={!!tree.killswitch}
                   onKilled={() => setBarMore(false)} className="mob-only" />
@@ -1572,20 +1532,16 @@ export default function App() {
                 <button className="iconbtn barmore mob-only" title="more"
                   onClick={() => setBarMore((v) => !v)}>⋯</button>
                 {/* host subscription usage (the Claude Code /usage bars) —
-                    the host account's own standing, so admin only: a kiosk
-                    visitor neither sees the button nor could call the
-                    endpoint (the public gateway 404s it) */}
-                {!tree.public &&
-                  <button className={'iconbtn' + (usageAlert ? ' u-' + usageAlert.sev : '')}
-                    title={usageAlert?.title ?? usageTitle(provPresence)}
-                    onClick={toggleUsage}>
-                    <DataUsageIcon fontSize="inherit" /></button>}
+                    the host account's own standing */}
+                <button className={'iconbtn' + (usageAlert ? ' u-' + usageAlert.sev : '')}
+                  title={usageAlert?.title ?? usageTitle(provPresence)}
+                  onClick={toggleUsage}>
+                  <DataUsageIcon fontSize="inherit" /></button>
                 {/* gear-only (user 2026-09-10 header cleanup): Settings is
                     the door to Connections, History and Autonomy now, so it
                     keeps just the icon */}
-                {!tree.public &&
-                  <button className="iconbtn" title="Settings" aria-label="Settings"
-                    onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)}><SettingsIcon fontSize="inherit" /></button>}
+                <button className="iconbtn" title="Settings" aria-label="Settings"
+                  onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)}><SettingsIcon fontSize="inherit" /></button>
                 </div>
                 {/* Native WindowControls owns refresh in the desktop shell; keep
                     the renderer-only action available when running in a browser. */}
@@ -1650,15 +1606,12 @@ export default function App() {
                   setAgentGalleryId(id)
                   raisePinnedModal('agent-gallery', slug)
                 }}
-                onAccounts={BASE ? undefined : () => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
+                onAccounts={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)}
                 /* the eye's ⚙ and its context menu open the WHOLE settings
                    modal (user ruling 2026-09-11), not the Hire defaults tab
                    directly — so it is the same call the chrome's gear makes,
-                   and lands on whichever tab was last open. Withheld on a
-                   public org for the same reason the chrome gear is hidden
-                   there: the endpoint 404s for a visitor. */
-                onOrgSettings={tree.public ? undefined
-                  : () => toggleSurface('org-settings', showSettings, setShowSettings)}
+                   and lands on whichever tab was last open. */
+                onOrgSettings={() => toggleSurface('org-settings', showSettings, setShowSettings)}
                 onInbox={(jump: unknown) => {
                   if (typeof jump === 'string') {
                     // a targeted jump opens AND surfaces a pinned window —
@@ -1800,10 +1753,7 @@ export default function App() {
       )}
       {doomedOrg && (
         <ConfirmModal title={`permanently delete ${doomedOrg.name}?`}
-          body={`Erases the organization and its ${doomedOrg.nodes} node(s) — ledger, mail, lineage, audiences.${
-            doomedOrg.kiosk_cfg || doomedOrg.kiosk
-              ? ' The public kiosk link dies with it, and its sandbox container is removed.'
-              : ''} Workspace and scratch folders remain on disk. This cannot be undone.`}
+          body={`Erases the organization and its ${doomedOrg.nodes} node(s) — ledger, mail, lineage, audiences. Workspace and scratch folders remain on disk. This cannot be undone.`}
           confirmLabel="delete organization"
           onConfirm={() => deleteOrg(doomedOrg.slug)
             .then(() => { if (slug === doomedOrg.slug) setSlug(null); refreshOrgs() })
@@ -1921,21 +1871,6 @@ export const usagePeak = (...readouts: (UsagePeek | null)[]):
       + (r ? ` · ${r}` : '') + ` — ${source}`,
   }
 }
-
-/** a kiosk visitor has no usage button and no claim on the host account's
- *  standing: the poll is not merely hidden, it is never issued. One frozen
- *  object, not a fresh literal per tick — `usePolled` stores what it is
- *  handed, and a new object every 60 s would re-render the whole app to say
- *  the same nothing. */
-const NO_PEEK: UsagePeek = Object.freeze({ available: false })
-const noUsagePeek = (): Promise<UsagePeek> => Promise.resolve(NO_PEEK)
-// D-202: same shape for /api/providers — a kiosk gateway does not serve it,
-// so don't poll a 404 every minute. An EMPTY provider list, not a rejection:
-// `presenceOfPayload` reads that as all-present, which is the right answer
-// for a kiosk (it hires from the host's own harnesses, and the surfaces this
-// gates are admin-only and unrendered there anyway).
-const noProviders = (): Promise<ProvidersPayload> =>
-  Promise.resolve({ providers: [] })
 
 type UsageReadout = UsagePayload | AccountUsage
 const readoutObservedAt = (readout: UsageReadout): number => {
@@ -2303,7 +2238,7 @@ export function NewOrg({ onCreate }: {
             ) },
             { label: 'Mail hub', content: (
               <>
-                <label className="row kiosk-sbx"
+                <label className="row org-sbx"
                   title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
                   <input type="checkbox" checked={netAuto}
                     onChange={(e) => setNetAuto(e.target.checked)} />
@@ -2859,7 +2794,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   // which opens it from an inline form rather than from another modal.)
   const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>(initialTab ?? 'basic')
   useEffect(() => { if (initialTab) setTab(initialTab) }, [initialTab])  // eslint-disable-line react-hooks/exhaustive-deps
-  // the strip is built from live org shape: a kiosk has no autonomy, an org
+  // the strip is built from live org shape: an org
   // with no mail identity has no mailserver tab. Same conditionals the
   // advanced modal's tab array used — moved out here so the tab strip and
   // the panels below cannot disagree about which tabs exist.
@@ -3211,7 +3146,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
           </SettingsTabPanel>
         )}
 
-        {/* ── Autonomy — kiosks have none, so the tab is absent for them ── */}
+        {/* ── Autonomy ── */}
         <SettingsTabPanel id="autonomy" idBase="org-settings"
             active={tab === 'autonomy'}>
             {visited('autonomy') && <AutonomyTab tree={tree} toast={toast}
@@ -3232,8 +3167,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
             with the panel's own save button" notes the nested modal needed. */}
         <div className="row">
           <button className="primary" onClick={() => {
-            const jobs: Promise<{ warnings?: string[]
-                                  freezes_cleared?: string[] }>[] = [
+            const jobs: Promise<{ warnings?: string[] }>[] = [
               saveSettings(tree.slug,
                 { max_top_grant: +maxTop || undefined,
                   default_top_grant: Number.isFinite(+defTop) ? +defTop : undefined,
@@ -3250,7 +3184,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                     occ: (+accOcc || 50) / 100 },
                   // Hire defaults' ADMIN half, unchanged from the ⚙ panel:
                   // the org's folder holdings and the born-with permission
-                  // mode ride /settings, which is frozen for visitors. Only
+                  // mode ride /settings. Only
                   // when that tab was actually edited — an unchanged
                   // `org_dirs` still makes the server sweep every node.
                   org_dirs: hireEdited ? hireDirs : undefined,
@@ -3263,7 +3197,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                 ? putOrgMd(tree.slug, orgMd).then((r) => ({ warnings: r.warnings }))
                 : Promise.resolve({}),
             ]
-            // ...and its OPEN half stays on the separate, ceiling-clamped
+            // ...and its OPEN half stays on the separate
             // /defaults endpoint rather than being folded into /settings.
             // That split is the whole reason the ⚙ panel made two calls, and
             // it survives the move (see `HireDefaultsTab`).
@@ -3273,28 +3207,11 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                                               default_account: hireAccount })
               : Promise.resolve({})
             Promise.all([Promise.all(jobs), hireJob]).then(([rs, hire]) => {
-              const cleared = rs.flatMap((r) => r.freezes_cleared ?? [])
               const lines = [
-                ...(cleared.length
-                  ? [`limit raised — cleared: ${cleared.join(', ')}`] : []),
                 ...rs.flatMap((r) => r.warnings ?? []),
                 ...(hire.warnings ?? []),
               ]
-              // the one-action ceiling bridge, carried over verbatim from the
-              // ⚙ panel: when the defaults were clamped, the toast itself
-              // offers to raise the ceiling and re-send.
-              if (hire.bridge?.raise_ceiling) {
-                toast(lines.length ? lines
-                  : ['clamped to the kiosk permission ceiling'],
-                { label: 'raise ceiling & apply',
-                  fn: () => saveHireDefaults(tree.slug,
-                    { default_tools: hireTools, default_visibility: hireVis,
-                      default_account: hireAccount,
-                      raise_ceiling: true })
-                    .then((r3) => toast(r3.warnings?.length ? r3.warnings
-                      : ['ceiling raised — defaults applied']))
-                    .catch((e: Error) => toast([`error: ${e.message}`])) })
-              } else toast(lines.length ? lines : ['settings saved'])
+              toast(lines.length ? lines : ['settings saved'])
               // the edits are the server's now — drop the buffer so the panel
               // reads from the tree again rather than from what was typed
               clearEdits()

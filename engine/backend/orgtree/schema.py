@@ -56,7 +56,7 @@ class ToolGrant(TypedDict):
 
 class NodeScope(TypedDict):
     """The per-node ⚙ configuration (set_scope), clamped against the parent
-    chain and the kiosk ceiling."""
+    chain."""
     account_fallback: NotRequired[bool]
     permission_mode: str
     add_dirs: list[DirGrant]
@@ -143,7 +143,7 @@ class FrozenInfo(TypedDict, total=False):
     """№41 freeze marker. Kinds are commutative — `error` and `spend_error`
     coexist without overwriting each other. Kind FLAGS (e.g. `spend`) are
     `True` when that freeze kind is active (Org.__init__ retags pre-№41
-    spend freezes; supervisor.hard_freeze writes them)."""
+    spend freezes; `spend` is a legacy flag, ledger.IGNORED_LEGACY_FREEZE_FLAGS)."""
     at: str
     until: str | None
     until_ts: float | None
@@ -1140,21 +1140,6 @@ class WorkItem(TypedDict):
     superseded_by: str | None
 
 
-class KioskCfg(TypedDict, total=False):
-    """Kiosk is a TYPE (user ruling): limits bind whether or not the public
-    URL is enabled — `enabled` only gates the token gateway."""
-    enabled: bool
-    token: str
-    credits: int
-    spend_limit: float
-    storage_limit_mb: int
-    sandbox: bool
-    sandbox_secret: str
-    api_key: str                        # per-kiosk key (creation form / dashboard)
-    auto_raise: bool
-    max_scope: dict[str, Any] | None    # the permission ceiling (ceiling spec)
-
-
 class OrgDoc(TypedDict):
     """The whole persisted document — Org.d. Org.create() writes the required
     keys; everything later code `setdefault`s is NotRequired."""
@@ -1270,7 +1255,6 @@ class OrgDoc(TypedDict):
     reservations: NotRequired[list[dict[str, Any]]]
     org_inbox: NotRequired[list[OrgInboxEntry]]
     org_inbox_read: NotRequired[int]
-    kiosk: NotRequired[KioskCfg | None]
     sandbox: NotRequired[dict[str, Any]]    # api: {enabled, secret, limit_mb?}
     # Frozen per-org bridge credential rotation state. Both are non-secret;
     # the host-only signing key is a separate install file.
@@ -1286,7 +1270,6 @@ class OrgDoc(TypedDict):
                                         # is non-runnable regardless of its own
                                         # `halt`; cleared only by explicit
                                         # release (halt.killswitch_release)
-    spend_frozen: NotRequired[bool]
     storage_frozen: NotRequired[bool]   # HISTORICAL (pre-disk legacy breach) —
                                         # never set since D-063; cleared at
                                         # disk migration

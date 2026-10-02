@@ -50,9 +50,7 @@
   --org-accent-hover: var(--accent-hover);
   --org-accent-soft: var(--accent-soft);
   --sandbox: #7ea8cc;       /* sandboxed-org canvas border (light steel blue) */
-  --kiosk: #4ba3c7;         /* "exposed to the public" teal */
-  --kiosk-soft: rgba(75, 163, 199, .09);
-  --kiosk-hover: rgba(75, 163, 199, .16);
+  --teal: #4ba3c7;
   --ok: #6fd377;            /* == the done status green (one green, one meaning) */
   --bad: #f14c4c;
   /* the caution band (compacting, one-shot dogs, pending tags, ask warnings).
@@ -2299,7 +2297,7 @@ button.cc-name:hover {
      band is full. The ChatGPT green #10a37f collides with claude's terracotta
      under PROTANOPIA at ΔE 6.8 — orange-vs-green, in a palette anchored on
      orange. #22c4bd is that green lifted and cooled just clear of both.
-     It replaced #159acd, which sat ΔE 4.3 from --kiosk #4ba3c7 and ΔE 12.6
+     It replaced #159acd, which sat ΔE 4.3 from --teal #4ba3c7 and ΔE 12.6
      from --prov-google — both under the 15 normal-vision floor, i.e. the two
      provider blues were not reliably tellable apart at chip size. */
   --prov-openai: #22c4bd;
@@ -4941,13 +4939,11 @@ button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.kill-latch
   display: flex; flex-direction: column; gap: 6px; padding: 10px;
   background: var(--bg); border: 1px solid var(--line-soft); border-radius: 4px;
 }
-/* kiosk/sandbox moved in under the folder grants — a rule keeps the two
-   halves of the panel from reading as one list */
+/* a rule keeps the two halves of the panel from reading as one list */
 .advanced .adv-sep {
   margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line-soft);
 }
-/* the collapsed disclosure still names what is switched on inside it: a kiosk
-   must never be created with the evidence folded away */
+/* the collapsed disclosure still names what is switched on inside it */
 .adv-sum { font-size: 11.5px; }
 
 .dirlist { display: flex; flex-direction: column; gap: 6px; }
@@ -5144,47 +5140,6 @@ svg.MuiSvgIcon-root {
 .picker-sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .picker-err { color: var(--bad); font-size: 12px; }
 
-/* ---- kiosk dashboard (admin org list) -------------------------------- */
-/* teal = "exposed to the public" — deliberately NOT the accent, so a kiosk
-   row reads differently from the selected row at a glance */
-.kiosk-badge { color: var(--kiosk); display: inline-flex; margin-left: 6px; font-size: 12px; }
-.org.kiosk-org { border-left-color: var(--kiosk); background: var(--kiosk-soft); }
-.org.kiosk-org:hover { background: var(--kiosk-hover); }
-.org.current.kiosk-org { background: var(--accent-soft); }
-/* (the all-kiosks dashboard was retired 2026-07-31 — per-kiosk controls
-   live in each org's settings panel; .kiosk-caps/.kiosk-url serve there
-   and in the create dialog) */
-/* three tidy columns, label OVER input */
-.kiosk-caps {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px; align-items: end;
-}
-.kiosk-caps label {
-  display: flex; flex-direction: column; gap: 3px;
-  color: var(--dim); font-size: 11px; min-width: 0; white-space: nowrap;
-}
-.kiosk-caps input { width: 100%; min-width: 0; }
-/* the ceiling's visibility/mode/tier selects share the caps presentation
-   (user spec 2026-07-31) */
-.kiosk-caps select { width: 100%; min-width: 0; font-size: 12px; }
-.kiosk-url input {
-  flex: 1; min-width: 0; font-size: 11px;
-  color: var(--dim); text-overflow: ellipsis;
-}
-/* the kiosk permission ceiling (create dialog + settings) */
-.kiosk-ceil {
-  border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;
-  display: flex; flex-direction: column; gap: 5px;
-}
-.ceil-tools {
-  display: flex; flex-wrap: wrap; gap: 4px 14px;
-  color: var(--dim); font-size: 11.5px;
-}
-.ceil-tools label { display: inline-flex; align-items: center; gap: 5px; }
-.ceil-tools select { font-size: 11px; }
-.kiosk-new { display: flex; gap: 6px; margin-top: 4px; }
-.kiosk-new select { flex: 1; min-width: 0; }
-
 /* ---- the eye switchboard ---------------------------------------------- */
 /* the eye is the ONE cell that expands in width (screen aspect) at focus */
 .sq.user { transition: width .35s ease, margin-left .35s ease; }
@@ -5296,10 +5251,8 @@ svg.MuiSvgIcon-root {
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 80%, transparent));
 }
 .ctxbtn:hover { background: none; }
-.kiosk-sbx { font-size: 11px; color: var(--dim); gap: 6px; align-items: center; }
-.kiosk-sbx input { width: auto; }
-.kiosk-warn { font-size: 10.5px; line-height: 1.45; }
-.kiosk-warn svg { color: var(--bad); vertical-align: -2px; }
+.org-sbx { font-size: 11px; color: var(--dim); gap: 6px; align-items: center; }
+.org-sbx input { width: auto; }
 /* the token-streamed growing reply: a typing caret at its end */
 .msg.draft::after {
   content: "\258D"; color: var(--agent-accent-text, var(--accent)); margin-left: 2px;
@@ -7470,7 +7423,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-answer_decision { --event-color: var(--backlog); }
 .event-access_resources { --event-color: var(--warn); }
 .event-lifecycle { --event-color: var(--sandbox); }
-.event-monitor { --event-color: var(--kiosk); }
+.event-monitor { --event-color: var(--teal); }
 .event-runtime_recovery { --event-color: var(--bad); }
 .event-reminder { --event-color: var(--warn); }
 .event-context_change { --event-color: var(--dim); }

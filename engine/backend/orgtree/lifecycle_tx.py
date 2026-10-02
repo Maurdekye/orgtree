@@ -86,7 +86,7 @@ SPECS: dict[str, Spec] = {
                    share_sections=("cascade_hire", "default_account",
                                    "default_effort", "default_tools",
                                    "default_top_grant", "default_visibility",
-                                   "dirs", "kiosk", "max_children", "max_depth",
+                                   "dirs", "max_children", "max_depth",
                                    "max_top_grant", "permission_mode", "slug",
                                    "tiers"),
                    logs=("events", "notice_log"),
@@ -411,18 +411,17 @@ def _rehire_rows(org, actor: str, nid: str) -> tuple[set[str], set[str]]:
 
 
 def rehire_body(org, held_nodes, held_share, actor: str, nid: str,
-                grant: float | None = None, tier: str | None = None,
-                raise_ceiling: bool = False) -> dict[str, Any]:
+                grant: float | None = None, tier: str | None = None
+                ) -> dict[str, Any]:
     _need(org, lambda o: _rehire_rows(o, actor, nid), held_nodes, held_share)
-    return org.rehire(actor, nid, grant=grant, tier=tier,
-                      raise_ceiling=raise_ceiling)
+    return org.rehire(actor, nid, grant=grant, tier=tier)
 
 
 def rehire(slug: str, actor: str, nid: str, grant: float | None = None,
-           tier: str | None = None, raise_ceiling: bool = False) -> dict[str, Any]:
+           tier: str | None = None) -> dict[str, Any]:
     return _run("rehire", slug, lambda o: _rehire_rows(o, actor, nid),
                 lambda org, hn, hs: rehire_body(org, hn, hs, actor, nid, grant,
-                                                tier, raise_ceiling))
+                                                tier))
 
 
 # ---------------------------------------------------------------- delete
@@ -533,14 +532,12 @@ def swap_seats(slug: str, actor: str, a: str, b: str) -> dict[str, Any]:
 #   sections: notices always. With a capability field: for a user/system
 #     actor the four org grant sections FOR UPDATE (a top-level seat's grant
 #     is absorbed into them), for an agent FOR SHARE (decided on only);
-#     `kiosk` FOR UPDATE when the ceiling may be raised (its max_scope is
-#     rewritten), else FOR SHARE (the ceiling clamps every grant);
 #   logs: events, notice_log.
 _SCOPE_CAPS = ("add_dirs", "tools", "org_visibility", "permission_mode")
 _ORG_GRANTS = ("default_tools", "default_visibility", "dirs", "permission_mode")
 
 
-def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any], may_raise: bool
+def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any]
                 ) -> tuple[set[str], set[str], tuple[str, ...], tuple[str, ...],
                            tuple[Any, ...]]:
     from .ledger import actor_kind
@@ -557,34 +554,25 @@ def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any], may_raise: bool
             sections |= set(_ORG_GRANTS)
         else:
             share_sections |= set(_ORG_GRANTS)
-        (sections if may_raise else share_sections).add("kiosk")
     if actor in org.nodes:
         share.add(actor)
     return (upd, share - upd, tuple(sorted(sections)),
             tuple(sorted(share_sections - sections)), ("events", "notice_log"))
 
 
-def set_scope_body(tx, actor: str, nid: str, kw: dict[str, Any],
-                   may_raise: bool) -> dict[str, Any]:
-    """The door body. `may_raise` is the route's permission to raise the
-    kiosk ceiling (not a public slug); whether it IS raised is decided here on
-    the locked kiosk row, exactly as `node_scope` did on its loaded document."""
-    upd, share, secs, ssecs, logs = _scope_plan(tx.org, actor, nid, kw, may_raise)
+def set_scope_body(tx, actor: str, nid: str, kw: dict[str, Any]) -> dict[str, Any]:
+    """The door body."""
+    upd, share, secs, ssecs, logs = _scope_plan(tx.org, actor, nid, kw)
     _plan_gap(tx, upd, share, secs, ssecs, logs)
-    org = tx.org
-    rc = may_raise and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
-                        or bool(kw.get("raise_ceiling")))
-    return org.set_scope(actor, nid, **{**kw, "raise_ceiling": rc})
+    return tx.org.set_scope(actor, nid, **kw)
 
 
-def set_scope(slug: str, actor: str, nid: str, may_raise: bool = True,
-              **kw: Any) -> dict[str, Any]:
+def set_scope(slug: str, actor: str, nid: str, **kw: Any) -> dict[str, Any]:
     """Standalone runner for `Org.set_scope` (the `node_scope` route's body)."""
-    return set_scope_observed(slug, actor, nid, kw, may_raise)[0]
+    return set_scope_observed(slug, actor, nid, kw)[0]
 
 
 def set_scope_observed(slug: str, actor: str, nid: str, kw: dict[str, Any],
-                       may_raise: bool = True,
                        before: Callable[[Any], Any] | None = None
                        ) -> tuple[dict[str, Any], Any, Any]:
     """`set_scope`, plus what a caller must read around the write: `before`
@@ -593,7 +581,7 @@ def set_scope_observed(slug: str, actor: str, nid: str, kw: dict[str, Any],
     (the live-effort delivery). Returns (result, before's value or None, the
     committed document)."""
     upd, share, sections, share_sections, logs = _scope_plan(
-        store.cached_org(slug), actor, nid, kw, may_raise)
+        store.cached_org(slug), actor, nid, kw)
     for _ in range(MAX_WIDEN + 1):
         try:
             with halt.txn(slug, nodes=upd, share_nodes=share - upd,
@@ -601,9 +589,9 @@ def set_scope_observed(slug: str, actor: str, nid: str, kw: dict[str, Any],
                           logs=logs) as tx:
                 seen = None
                 if before is not None:
-                    _plan_gap(tx, *_scope_plan(tx.org, actor, nid, kw, may_raise))
+                    _plan_gap(tx, *_scope_plan(tx.org, actor, nid, kw))
                     seen = before(tx.org)
-                return set_scope_body(tx, actor, nid, kw, may_raise), seen, tx.org
+                return set_scope_body(tx, actor, nid, kw), seen, tx.org
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes

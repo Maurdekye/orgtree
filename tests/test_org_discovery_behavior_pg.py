@@ -42,24 +42,12 @@ class DiscoveryBehavior(unittest.TestCase):
         self.assertEqual(self.resolve(peers=[{'slug': '@net:' + self.slug + '.remote'}]),
                          {'org': [self.slug], 'net': [self.slug + '.remote']})
 
-    def test_even_empty_or_disabled_kiosks_are_hidden_from_both_entry_points(self):
-        for kiosk in ({}, {'enabled': False, 'token': 'PRIVATE-TOKEN'},
-                      {'enabled': True, 'token': 'PRIVATE-TOKEN'}):
-            with self.subTest(kiosk=kiosk):
-                self.setting('kiosk', kiosk)
-                self.assertFalse(any(r['slug'] == self.slug for r in self.listing()['orgs']))
-                self.assertEqual(self.resolve(), {'org': [], 'net': []})
-                self.assertNotIn('PRIVATE-TOKEN', json.dumps(self.listing()))
-
     def test_current_metadata_changes_are_visible_without_snapshot_cache(self):
         self.setting('name', 'Before')
         self.listing()
         self.setting('name', 'After')
         rows = self.listing()['orgs']
         self.assertEqual(next(r for r in rows if r['slug'] == self.slug)['name'], 'After')
-        self.setting('kiosk', {})
-        self.assertEqual(self.resolve(), {'org': [], 'net': []})
-        self.setting('kiosk', None)
         self.assertEqual(self.resolve(), {'org': [self.slug], 'net': []})
 
     def test_unknown_or_invalid_local_name_still_resolves_remote_peers(self):

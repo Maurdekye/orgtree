@@ -34,10 +34,10 @@ const tree = {
     ? [agent('worker-a',1),agent('worker-g'),agent('worker-r')]
     : [agent('worker-a', 1)])],
   cost_usd_total: 0, audit: { live_nodes: 2, top_level_holds: 0, no_overdraft: true, problems: [] },
-  user_inbox_count: 4, user_inbox_newest: null, fable_lock: null, spend_frozen: false,
+  user_inbox_count: 4, user_inbox_newest: null, fable_lock: null,
   storage_blocked: false, auto_resume: false, fable_limit_policy: 'freeze',
   fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true, sandboxed: false,
-  audience_requests: [], org_inbox: null, net: null, public: false, epoch: 1, rev: 1,
+  audience_requests: [], org_inbox: null, net: null, epoch: 1, rev: 1,
   work_items_summary: { attention: 0, active: 7 }, asks: [], asks_open: 0, watchdogs: [],
   killswitch: latched ? { at: Date.now() / 1000 } : null,
 }

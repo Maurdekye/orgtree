@@ -240,7 +240,7 @@ def _plan_org(slug: str, org: Any, aid: str, removed: dict[str, Any],
 #: unioned in below when present so the two can never drift apart).
 _SECTIONS = ("default_account", "asks", "credit_requests", "scope_requests",
              "notices", "work_items")
-_SHARE = ("kiosk", "sandbox")
+_SHARE = ("sandbox",)
 _LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
 #: how many times a plan that moved under the transaction is re-made
 _ATTEMPTS = 4

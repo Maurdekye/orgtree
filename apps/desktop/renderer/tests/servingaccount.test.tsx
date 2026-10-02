@@ -11,7 +11,7 @@
 // ⚠ WHERE THE RULE LIVES, AND WHY THESE TESTS LOOK THE WAY THEY DO. Every
 // gate is applied SERVER-SIDE, where the registry is: is the node busy, is
 // the account authoritative, does this provider even have a second signed-in
-// account, is the viewer a kiosk visitor. The renderer's whole contract is
+// account. The renderer's whole contract is
 // "render `serving_account` if it is there". So the tests split in two:
 //
 //   §1  the BACKEND gates — backend/tests/test_serving_account.py
@@ -65,8 +65,8 @@ function card(n: CanvasNode, lod: 'mini' | 'norm', mapMode = false) {
     <NodeSquare node={n} pos={{ x: 0, y: 0 }} lod={lod} focused={false}
       dragging={false} isDrop={false} seats={seats}
       map={new Map([[n.id, n]])} op={op} slug="org" toast={noop}
-      pxc={1} zoom={lod === 'mini' ? 0.4 : 1} compactAt={0.8} pub={false}
-      maxTop={0} kioskRemaining={null} cascadeAlloc mapMode={mapMode}
+      pxc={1} zoom={lod === 'mini' ? 0.4 : 1} compactAt={0.8}
+      maxTop={0} cascadeAlloc mapMode={mapMode}
       onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
       onInbox={noop} onLineage={noop} onOpenDoc={noop}
       onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}
@@ -311,7 +311,7 @@ function desk(n: CanvasNode) {
     children: [n], seat: 2, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] },
   } as unknown as CanvasNode
   return <DeskChat node={n} map={new Map([[n.id, n], ['superior', superior]])}
-    op={op} slug="org" toast={noop} pub={false} bare onJump={noop} />
+    op={op} slug="org" toast={noop} bare onJump={noop} />
 }
 
 const onDesk = (el: HTMLElement) =>
@@ -523,8 +523,8 @@ test('§2n the card does not swallow the press that focuses the agent',
       <NodeSquare node={n} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
         dragging={false} isDrop={false} seats={seats}
         map={new Map([[n.id, n]])} op={op} slug="org" toast={noop}
-        pxc={1} zoom={1} compactAt={0.8} pub={false}
-        maxTop={0} kioskRemaining={null} cascadeAlloc
+        pxc={1} zoom={1} compactAt={0.8}
+        maxTop={0} cascadeAlloc
         onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
         onInbox={noop} onLineage={noop} onOpenDoc={noop}
         onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}

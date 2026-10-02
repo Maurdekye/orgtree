@@ -27,7 +27,7 @@ for (const [viewport, rowHeight, expected] of [[600,40,30],[300,200,8],[800,100,
     const node={id:'a',state:'live',tier:'haiku',model_id:'haiku',children:[],seat:1,grant:0,free:0,
       scope:{tools:{},add_dirs:[]}} as CanvasNode
     const view=await mountView(<DeskChat node={node} map={new Map([['a',node]])} slug="viewport"
-      op={()=>Promise.resolve({} as OpResult)} toast={()=>{}} pub={false} bare onJump={()=>{}}/>, el=>el)
+      op={()=>Promise.resolve({} as OpResult)} toast={()=>{}} bare onJump={()=>{}}/>, el=>el)
     t.after(async()=>{await view.unmount();resetConvos();realClock();properties.forEach((key,i)=>{
       const d=saved[i];if(d)Object.defineProperty(proto,key,d);else delete (proto as any)[key]
     })})

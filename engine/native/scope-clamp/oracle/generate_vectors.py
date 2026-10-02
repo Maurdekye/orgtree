@@ -2,8 +2,7 @@
 
 Every expected value comes from calling the current `orgtree.ledger`
 functions (`norm_tools`, `norm_dirs`, `expand_mcp`, `Org._clamp_tools`,
-`Org._clamp_dirs`, `Org._clamp_vis`, `Org._apply_ceiling` with and without
-`raise_ceiling`, `Org._check_tier_ceiling`) and the runtime's own
+`Org._clamp_dirs`, `Org._clamp_vis`) and the runtime's own
 `ntpath.normpath` / `ntpath.normcase`, on synthetic inputs. Nothing here
 reimplements a clamp.
 
@@ -11,7 +10,7 @@ It also writes `src/tables.rs`: the host's Windows NLS invariant lowercase
 table exactly as `ntpath.normcase` applies it (CPython 3.13 on Windows calls
 `LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE)`, not `str.lower()`),
 the set of code points `str.isprintable()` rejects (for `repr()` in refusal
-texts), `str.isspace()`, and the static tier table. The table is stamped
+texts) and `str.isspace()`. The table is stamped
 with the Windows build and its own sha256: on a host whose NLS data differs,
 `--check` fails instead of drifting.
 
@@ -51,7 +50,6 @@ MAXCP = 0x110000
 KNOWN_PREFIXES = (
     "cannot grant dirs ",
     "org_visibility ",
-    "the kiosk ceiling caps agent tier at ",
 )
 KNOWN_INFIXES = (
     " does not hold ",
@@ -119,9 +117,8 @@ def capture_tables(ledger) -> tuple[str, dict, list]:
             nonprint.append((start, c - 1))
             start = None
     space = [c for c in range(MAXCP) if chr(c).isspace()]
-    tiers = sorted(ledger.TIERS.items())
-    blob = json.dumps({"lower": lower, "nonprint": nonprint, "space": space,
-                       "tiers": tiers}, separators=(",", ":")).encode()
+    blob = json.dumps({"lower": lower, "nonprint": nonprint, "space": space},
+                      separators=(",", ":")).encode()
     stamp = {
         "windows": ".".join(map(str, sys.getwindowsversion()[:3])),
         "python": ".".join(map(str, sys.version_info[:3])),
@@ -151,10 +148,6 @@ def capture_tables(ledger) -> tuple[str, dict, list]:
             "/// `str.isspace()`, sorted.",
             f"pub static PY_WHITESPACE: [u32; {len(space)}] = ["]
     out += [f"    0x{c:04x}," for c in space]
-    out += ["];", "",
-            "/// `ledger.TIERS`: the static seat of each built-in tier.",
-            "pub static TIERS: &[(&str, f64)] = &["]
-    out += [f"    ({json.dumps(k)}, {float(v)!r})," for k, v in tiers]
     out += ["];", ""]
     return "\n".join(out), stamp, lower
 
@@ -272,8 +265,8 @@ def section_norm(ledger, rng: random.Random, pool: list[str]) -> tuple[list, lis
             if r < 0.15:
                 return None
             return [rng.choice(names) for _ in range(rng.randint(0, 4))]
-        g, c, reg = lst(), lst(), lst()
-        em.append([enc(g), enc(c), enc(reg), outcome(lambda g=g, c=c, reg=reg: ledger.expand_mcp(g, c, reg))])
+        g, reg = lst(), lst()
+        em.append([enc(g), enc(reg), outcome(lambda g=g, reg=reg: ledger.expand_mcp(g, reg))])
     return nt, nd, em
 
 
@@ -344,41 +337,25 @@ def section_clamps(ledger, rng: random.Random, pool: list[str]) -> tuple[list, l
 
 
 class Scratch:
-    """A synthetic Org whose kiosk ceiling, tier table and one parent node
-    are exactly what a row asks for."""
+    """A synthetic Org whose one parent node is exactly what a row asks for."""
 
     def __init__(self, ledger):
         self.ledger = ledger
         base = ledger.Org.create("oracle-scope")
         self.doc = base.d
 
-    def org(self, *, max_scope: Any = "absent", tiers: dict | None = None, parent_scope: dict | None = None):
+    def org(self, *, parent_scope: dict | None = None):
         d = copy.deepcopy(self.doc)
         org = self.ledger.Org(d)
-        if max_scope == "absent":
-            org.d.pop("kiosk", None)
-        else:
-            org.d["kiosk"] = {"max_scope": max_scope}
-        if tiers is not None:
-            org.d["tiers"] = tiers
         # in place: the Org may hold a reference to the node table
         org.d["nodes"].clear()
         if parent_scope is not None:
             org.d["nodes"]["par"] = {"scope": parent_scope}
-        self.logs: list = []
-        orig = org._log
-
-        def log(*a, **k):
-            self.logs.append(a[0])
-            return None
-        org._log = log
-        _ = orig
         return org
 
 
-def section_ceiling(ledger, sc: Scratch, rng: random.Random, pool: list[str]) -> tuple[list, list, list]:
-    VIS, PM = list(ledger.VIS_LEVELS), list(ledger.PM_LEVELS)
-    roots = ["C:" + BS + "work", "c:/WORK/x", "C:" + BS + "\u0130", "C:" + BS + "i", BS + BS + "srv" + BS + "sh", "D:" + BS]
+def section_vis(ledger, sc: Scratch) -> list:
+    VIS = list(ledger.VIS_LEVELS)
     cv = []
     for req in VIS + ["weird", None, 3]:
         for pv in VIS + ["absent", "odd", None]:
@@ -388,79 +365,7 @@ def section_ceiling(ledger, sc: Scratch, rng: random.Random, pool: list[str]) ->
                 cv.append([enc(req), enc(pv), strict, outcome(lambda org=org, req=req, strict=strict: list(org._clamp_vis(req, "par", strict)))])
         org = sc.org()
         cv.append([enc(req), "no-parent", True, outcome(lambda org=org, req=req: list(org._clamp_vis(req, None, True)))])
-
-    ac = []
-    for i in range(700):
-        ms: Any
-        r = rng.random()
-        if r < 0.1:
-            ms = rng.choice(["absent", None, {}])
-        else:
-            ms = {"tools": {k: rng.choice([True, False, 0, 1]) for k in ledger.TOOL_KEYS if rng.random() < 0.7}}
-            ms["tools"]["mcp"] = rng.choice([["a"], ["*"], [], ["a", "b"], ["\u0130"]])
-            if rng.random() < 0.8:
-                ms["add_dirs"] = dirs_list(rng, pool, rng.randint(0, 3), roots)
-                for d in ms["add_dirs"]:
-                    d["mode"] = rng.choice(["rw", "ro"])
-            if rng.random() < 0.8:
-                ms["org_visibility"] = rng.choice(VIS + ["odd"])
-            if rng.random() < 0.8:
-                ms["permission_mode"] = rng.choice(PM + ["odd"])
-            if rng.random() < 0.05:
-                del ms["tools"]["mcp"]
-            if rng.random() < 0.05:
-                del ms["tools"]
-        tools = None if rng.random() < 0.2 else {k: rng.choice([True, False]) for k in ledger.TOOL_KEYS if rng.random() < 0.7} | (
-            {"mcp": rng.choice([["a"], ["*"], ["b", "c"], [], ["\u0130", "a"]])} if rng.random() < 0.9 else {})
-        dirs = None if rng.random() < 0.25 else [{"path": d["path"], "mode": rng.choice(["rw", "ro"])}
-                                                  for d in dirs_list(rng, pool, rng.randint(0, 3), roots)]
-        if dirs and rng.random() < 0.2:
-            dirs.append(copy.deepcopy(dirs[0]))
-        vis = rng.choice([None] + VIS + ["odd"])
-        pm = rng.choice([None] + PM + ["odd"])
-        raise_c = rng.random() < 0.35
-        org = sc.org(max_scope=copy.deepcopy(ms))
-        warnings: list = []
-
-        def call(org=org, tools=tools, dirs=dirs, vis=vis, pm=pm, raise_c=raise_c, warnings=warnings):
-            t, d, v, p, b = org._apply_ceiling(tools=copy.deepcopy(tools), dirs=copy.deepcopy(dirs), vis=vis, pm=pm,
-                                               raise_ceiling=raise_c, warnings=warnings)
-            # the ceiling a raise wrote back; only when a ceiling was in force
-            after = org.kiosk_ceiling() if raise_c and ms not in ("absent", None) and ms else None
-            return {"tools": t, "dirs": d, "vis": v, "pm": p, "bridged": b, "warnings": list(warnings),
-                    "raised": None if not raise_c or after is None else after, "logged": list(sc.logs)}
-        ac.append({"max_scope": enc(ms), "tools": enc(tools), "dirs": enc(dirs), "vis": enc(vis), "pm": enc(pm),
-                   "raise": raise_c, **outcome(call)})
-
-    # a ceiling listing one folder twice: the clamp's {path: mode} map keeps
-    # the LAST mode, and a raise upgrades the LAST entry in place
-    dup = [{"path": "C:" + BS + "w", "mode": "ro"}, {"path": "C:" + BS + "w", "mode": "rw"}]
-    dup2 = [{"path": "C:" + BS + "w", "mode": "ro"}, {"path": "C:" + BS + "w", "mode": "ro"}]
-    for dirs_ceiling, req_mode, raise_c in [(dup, "rw", False), (list(reversed(dup)), "rw", False),
-                                            (dup2, "rw", True), (dup, "rw", True)]:
-        ms = {"tools": {"mcp": ["*"]}, "add_dirs": copy.deepcopy(dirs_ceiling)}
-        dirs = [{"path": "c:/W/x", "mode": req_mode}, {"path": "C:" + BS + "w", "mode": req_mode}]
-        org = sc.org(max_scope=copy.deepcopy(ms))
-        warnings = []
-
-        def call(org=org, dirs=dirs, raise_c=raise_c, warnings=warnings):
-            t, d, v, p, b = org._apply_ceiling(dirs=copy.deepcopy(dirs), raise_ceiling=raise_c, warnings=warnings)
-            return {"tools": t, "dirs": d, "vis": v, "pm": p, "bridged": b, "warnings": list(warnings),
-                    "raised": org.kiosk_ceiling() if raise_c else None, "logged": list(sc.logs)}
-        ac.append({"max_scope": enc(ms), "tools": None, "dirs": enc(dirs), "vis": None, "pm": None,
-                   "raise": raise_c, **outcome(call)})
-
-    tc = []
-    tiers_doc = {"haiku": 1, "or-a-b": 3, "or-cheap": 0.1, "or-bool": True, "or-str": "3", "or-big": 10**30, "or-eq": 1.0,
-                 "or-zero": 0}
-    tier_names = list(ledger.TIERS) + ["or-a-b", "or-cheap", "or-bool", "or-str", "or-big", "or-eq", "or-zero", "or-missing",
-                                       "nope", "\u0130", "\ud800"]
-    for mt in list(ledger.TIERS) + [None, "absent", "or-a-b", "bogus", 5, "HAIKU"]:
-        for tier in tier_names:
-            ms: Any = "absent" if mt == "absent" else {"max_tier": mt}
-            org = sc.org(max_scope=ms, tiers=copy.deepcopy(tiers_doc))
-            tc.append([enc(mt), enc(tier), outcome(lambda org=org, tier=tier: org._check_tier_ceiling(tier))])
-    return cv, ac, tc
+    return cv
 
 
 # ---------------------------------------------------------------- driver
@@ -487,7 +392,7 @@ def build(repo: Path) -> tuple[dict, str]:
     nt, nd, em = section_norm(ledger, rng, pool)
     ct, cd = section_clamps(ledger, rng, pool)
     sc = Scratch(ledger)
-    cv, ac, tc = section_ceiling(ledger, sc, rng, pool)
+    cv = section_vis(ledger, sc)
     doc: dict[str, Any] = {
         "schema": SCHEMA,
         "oracle": {"python": stamp["python"], "windows": stamp["windows"], "tables_sha256": stamp["sha256"],
@@ -497,7 +402,6 @@ def build(repo: Path) -> tuple[dict, str]:
         "normpath": normp, "normcase": normc, "repr": reprs, "strip": strips,
         "norm_tools": nt, "norm_dirs": nd, "expand_mcp": em,
         "clamp_tools": ct, "clamp_dirs": cd, "clamp_vis": cv,
-        "apply_ceiling": ac, "tier_ceiling": tc,
     }
     return doc, tables
 

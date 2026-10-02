@@ -73,7 +73,7 @@ async function desk(messages: ChatMessage[] = [], pending_mail: PendingMail[] = 
   installFetch(server)
   const view = await mountView(
     <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug={SLUG}
-      op={async () => ({})} toast={() => {}} pub={false} bare />,
+      op={async () => ({})} toast={() => {}} bare />,
     (el) => el,
   )
   await inAct(async () => {

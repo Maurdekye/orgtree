@@ -34,9 +34,8 @@ const costUnknownTitle = (tree: TreePayload): string => tree.cost_usd_unknown
   ? 'recorded numeric estimate; unresolved amounts are not accounted for' : ''
 export const showCost = (tree: Pick<TreePayload, 'cost_usd_total' | 'cost_usd_unknown'>): boolean =>
   tree.cost_usd_total > 0 || Boolean(tree.cost_usd_unknown)
-export const costTitle = (tree: TreePayload, kiosk = false): string => [
-  kiosk ? 'spend / limit' : (costSplitTitle(tree) || 'total spend'),
-  kiosk ? costSplitTitle(tree) : '', costUnknownTitle(tree),
+export const costTitle = (tree: TreePayload): string => [
+  costSplitTitle(tree) || 'total spend', costUnknownTitle(tree),
 ].filter(Boolean).join(' — ')
 
 type OrgActivity = Pick<OrgListEntry, 'name' | 'working'> & { slug?: string }

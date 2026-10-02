@@ -212,8 +212,8 @@ function card(n: CanvasNode, lod: 'mini' | 'norm', orgDefault = ORG_DEFAULT, map
       <NodeSquare node={n} pos={{ x: 0, y: 0 }} lod={lod} focused={false}
         dragging={false} isDrop={false} seats={seats}
         map={new Map([[n.id, n]])} op={op} slug="org" toast={noop}
-        pxc={1} zoom={lod === 'mini' ? 0.4 : 1} compactAt={0.8} pub={false}
-        maxTop={0} kioskRemaining={null} cascadeAlloc mapMode={mapMode}
+        pxc={1} zoom={lod === 'mini' ? 0.4 : 1} compactAt={0.8}
+        maxTop={0} cascadeAlloc mapMode={mapMode}
         onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
         onInbox={noop} onLineage={noop} onOpenDoc={noop}
         onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}
@@ -296,7 +296,7 @@ function desk(n: CanvasNode, orgDefault = ORG_DEFAULT) {
   return (
     <OrgDefaultEffort.Provider value={orgDefault}>
       <DeskChat node={n} map={new Map([[n.id, n], ['superior', superior]])}
-        op={op} slug="org" toast={noop} pub={false} bare onJump={noop} />
+        op={op} slug="org" toast={noop} bare onJump={noop} />
     </OrgDefaultEffort.Provider>
   )
 }
@@ -381,8 +381,8 @@ test('§4b changing the agent\'s effort changes BOTH surfaces, live',
         <NodeSquare node={bumped} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
           dragging={false} isDrop={false} seats={seats}
           map={new Map([[bumped.id, bumped]])} op={op} slug="org" toast={noop}
-          pxc={1} zoom={1} compactAt={0.8} pub={false}
-          maxTop={0} kioskRemaining={null} cascadeAlloc
+          pxc={1} zoom={1} compactAt={0.8}
+          maxTop={0} cascadeAlloc
           onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
           onInbox={noop} onLineage={noop} onOpenDoc={noop}
           onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}
@@ -427,8 +427,8 @@ test('§4c changing the INHERITED org default changes both surfaces too',
         <NodeSquare node={n} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
           dragging={false} isDrop={false} seats={seats}
           map={new Map([[n.id, n]])} op={op} slug="org" toast={noop}
-          pxc={1} zoom={1} compactAt={0.8} pub={false}
-          maxTop={0} kioskRemaining={null} cascadeAlloc
+          pxc={1} zoom={1} compactAt={0.8}
+          maxTop={0} cascadeAlloc
           onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
           onInbox={noop} onLineage={noop} onOpenDoc={noop}
           onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}

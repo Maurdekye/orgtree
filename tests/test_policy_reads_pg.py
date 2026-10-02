@@ -57,10 +57,10 @@ class PolicyReads(unittest.TestCase):
 
     def test_storage_fields_and_unknown_node_blob_fallback(self):
         org = self.configure()
-        org.d.update(kiosk={'enabled': False, 'storage_limit_mb': 3}, storage_blocked={'at': 'x'})
+        org.d.update(sandbox={'enabled': False, 'limit_mb': 3}, storage_blocked={'at': 'x'})
         store.save_org(org)
         got = policy_reads.storage_org(self.slug)
-        self.assertEqual(got.d['kiosk'], org.d['kiosk'])
+        self.assertEqual(got.d['sandbox'], org.d['sandbox'])
         self.assertEqual(got.d['storage_blocked'], org.d['storage_blocked'])
         self.assertEqual(got.nodes, {})
         with store._POOL.acquire(self.slug) as conn:

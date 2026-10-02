@@ -6783,7 +6783,6 @@ def _summary_row(stem: str, doc: dict[str, Any]) -> dict[str, Any]:
         total = len(doc.get("nodes", {}))
     return {"slug": doc.get("slug", stem), "name": doc.get("name", stem),
             "nodes": total, "live": live,
-            "kiosk": doc.get("kiosk") is not None,
             # the PUBLIC half of the org's hub identity (never the
             # secret) — lets listings mark a local org as also
             # hub-reachable (transport sets, user spec 2026-08-05)
@@ -6811,7 +6810,7 @@ def list_orgs() -> list[dict[str, Any]]:
 
 
 def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
-    """Every non-kiosk org's `net_slug` on this instance.
+    """Every org's `net_slug` on this instance.
 
     ⚠ WHY THIS IS NOT `list_orgs()`. `org_tree` needs this set to mark which
     hub-roster peers are also local orgs, and it used to get it by calling
@@ -6828,8 +6827,8 @@ def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
 
     ⚠ ONE DEFINITION OF THE ROW. Both branches go through `_summary_row`, so
     the already-parsed org is filtered by exactly the rule the scanned ones
-    are. Reading `net_identity` and `kiosk` directly here would be a second
-    expression of it, and it would drift the moment either key moves.
+    are. Reading `net_identity` directly here would be a second expression
+    of it, and it would drift the moment the key moves.
 
     Portability note (agreed with `sqlite-review`, 2026-09-03): kept as its own
     small function rather than reshaping `_scan_orgs`'s contract, because under
@@ -6845,7 +6844,7 @@ def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
 
     def take(f: str, doc: dict[str, Any]) -> None:
         row = _summary_row(f, doc)
-        if row["net_slug"] and not row["kiosk"]:
+        if row["net_slug"]:
             out.add(str(row["net_slug"]))
 
     if row_store():
@@ -6863,12 +6862,11 @@ def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
                 with _POOL.acquire(slug) as conn:
                     rows = {cast(str, k): cast(str, v) for k, v in conn.execute(
                         "SELECT key, val FROM doc WHERE key IN "
-                        "('slug','net_identity','kiosk')")}
+                        "('slug','net_identity')")}
             except (LedgerError, sqlite3.Error, OSError):
                 continue
-            # ⚠ still ONE definition of the row: hand `_summary_row` the three
-            # keys it reads rather than re-deriving "non-kiosk with a net_slug"
-            # here. `nodes` is deliberately absent — the row's node counts are
+            # ⚠ still ONE definition of the row: hand `_summary_row` the two
+            # keys it reads rather than re-deriving "has a net_slug" here. `nodes` is deliberately absent — the row's node counts are
             # not read by `take`, and loading them is the cost this exists to
             # avoid.
             take(slug, {k: json.loads(v) for k, v in rows.items()})
@@ -7757,7 +7755,7 @@ def read_runtime_node(slug: str, nid: str, sections: Iterable[str] = ()) -> dict
     mutations on their locked rows. The fixed allowlist excludes large docs.
     """
     selected = tuple(sections)
-    if isinstance(sections, str) or not set(selected) <= {"killswitch", "spend_frozen", "storage_blocked"}:
+    if isinstance(sections, str) or not set(selected) <= {"killswitch", "storage_blocked"}:
         raise ValueError("unsupported runtime node section")
     def body(conn: sqlite3.Connection) -> dict[str, Any] | None:
         keys = ("nodes", *selected)
@@ -7863,7 +7861,7 @@ def read_transcript_source(slug: str, nid: str) -> dict[str, Any] | None:
                if STORE_BACKEND == 'postgres' else
                "CASE WHEN json_type(val,'$.desktop_import') IS NOT NULL THEN '1' ELSE '0' END ")
             + "FROM nodes WHERE id=? UNION ALL SELECT key,val FROM doc "
-            "WHERE key IN ('nodes','reply_incarnation','sandbox','kiosk')"
+            "WHERE key IN ('nodes','reply_incarnation','sandbox')"
             + (" UNION ALL SELECT '__source_revision',revision::text FROM public.orgs WHERE org_id=?"
                if cache_key is not None else ""),
             (nid, nid, cast(Any, conn).org_id) if cache_key is not None else (nid, nid)).fetchall())
@@ -8031,8 +8029,8 @@ REVISION: int = 0   # bumped on every save — cheap change detection for poller
 # save_org found 14 of 30 with no broadcast, so a second viewer never learned
 # about a scope edit, an audience grant, a mail retraction or an inbox read.
 # That was invisible in testing because the acting client refetches in its own
-# callback — only a SECOND view (another tab, the kiosk, the switchboard beside
-# a desk) ever saw the stale copy.
+# callback — only a SECOND view (another tab, the switchboard beside a desk)
+# ever saw the stale copy.
 #
 # Fixing the 14 by hand would have recreated the very shape this refactor is
 # about: N writers each responsible for remembering the same side effect. A
@@ -8247,7 +8245,7 @@ def _bump_org_seq(slug: str) -> None:
 # that will. Write passes keep their own fresh `load_org` under DOC_LOCK —
 # the cycle rule (№22 / the DOC_LOCK comment above) is untouched. Lazy
 # sections materialize onto the shared instance if touched; the loops this
-# exists for read only eager fields (nodes, watchdogs, kiosk, workspace).
+# exists for read only eager fields (nodes, watchdogs, workspace).
 _doc_cache_lock = threading.Lock()
 _doc_cache: dict[str, tuple[int, "Org"]] = {}
 
@@ -9150,7 +9148,7 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
     in the org's default capability set.
 
     PG-3f: `prepare(org)` runs on the new Org BEFORE its one creating save,
-    so everything the caller adds (defaults, kiosk, sandbox, net identity) is
+    so everything the caller adds (defaults, sandbox, net identity) is
     born in that same atomic write — no later load-modify-save, no DOC_LOCK,
     and no window where another reader sees a half-made org. If it raises,
     nothing is saved."""

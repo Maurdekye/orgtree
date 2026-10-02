@@ -74,7 +74,7 @@ function node(id: string): CanvasNode {
 
 const deskEl = (nd: CanvasNode) =>
   <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={SL}
-    toast={noop} pub={false} bare />
+    toast={noop} bare />
 
 /** the store, beside the desk — so a test can assert what the VIEW shows
  *  against what the MODEL holds, which is what makes the suppression legs

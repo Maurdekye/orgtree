@@ -194,7 +194,7 @@ class AgentTxTest(unittest.TestCase):
         # an HTTP 500 on every mail-sending door call).
         pgdoor.declare('orgtree_mailer', pgdoor.TxSpec(
             nodes=(P,), sections=('work_items', ('mail', P)),
-            share_sections=(('mail', W), 'kiosk')))
+            share_sections=(('mail', W), 'tiers')))
         tries = []
 
         def fn(tx):
@@ -208,8 +208,8 @@ class AgentTxTest(unittest.TestCase):
         first, last = self.fs.specs[0], self.fs.specs[-1]
         self.assertIn(('mail', P), first[1])
         self.assertIn('work_items', first[1])
-        self.assertEqual(set(first[3]) & {('mail', W), 'kiosk'},
-                         {('mail', W), 'kiosk'})
+        self.assertEqual(set(first[3]) & {('mail', W), 'tiers'},
+                         {('mail', W), 'tiers'})
         self.assertIn(('mail', 'x'), last[1])
 
     def test_rows_caller_first_killswitch_shared_receipts_when_keyed(self):

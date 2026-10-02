@@ -9,7 +9,7 @@ const writer: CanvasNode = { id: 'writer', generation: 2, state: 'live', tier: '
   children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] } }
 const desk = (bare: boolean, compact: boolean) => <DeskChat node={writer}
   map={new Map([[writer.id, writer]])} slug="autosize" op={async () => ({})}
-  toast={() => {}} pub={false} bare={bare} compact={compact} />
+  toast={() => {}} bare={bare} compact={compact} />
 
 async function type(el: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!

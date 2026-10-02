@@ -78,7 +78,7 @@ for (const kind of ['docket', 'agent', 'team', 'desk'] as const) test(`${kind} u
     : kind === 'agent' ? <AgentDocketModal {...common} nid="boss" refs={f.refs} />
       : kind === 'team' ? <TeamDocketModal {...common} nid="boss" refs={f.refs} />
         : <OwnedDeskChat slug={f.slug} node={f.node} map={new Map([['boss', f.node]])}
-            op={async () => ({ ok: true }) as never} toast={noop} pub={false} />
+            op={async () => ({ ok: true }) as never} toast={noop} />
   const m = await mountView(view, el => el)
   t.after(async () => { await m.unmount(); resetConvos() })
   await settle()

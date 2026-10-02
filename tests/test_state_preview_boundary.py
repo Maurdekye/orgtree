@@ -482,12 +482,6 @@ class PreviewBoundary(PreviewFixture,unittest.TestCase):
             response = self.client.post(path,json=dict(body,op=op),headers=headers)
             self.refused(response,'preview does not support operator operation')
 
-    def test_public_operator_preview_is_refused_even_with_admin_credential(self):
-        with patch.object(api,'_public_slug',return_value=self.slug):
-            response = self.client.post(f'/api/orgs/{self.slug}/ops',json={'op':'reallocate','preview':True,'node':'b','delta':1},
-                                       headers={'X-Orgtree-Desktop-Token':'preview-operator'})
-        self.refused(response,'operator previews',403)
-
     def assert_detached_input(self):
         org = store.load_org(self.slug)
         original = json.loads(json.dumps(org.d))

@@ -76,7 +76,6 @@ def start_backend() -> None:
         "ORGTREE_CLAUDE_CLI": os.path.join(REPO, "backend", "tests", "fakecli.js"),
         "FAKECLI_CONFIG": CFG, "PYTHONPATH": os.path.join(REPO, "backend"),
         "PYTHONIOENCODING": "utf-8", "ORGTREE_STEER_HOOK": "0",
-        "ORGTREE_PUBLIC_PORT": "0",
     })
     log = open(LOG, "a", encoding="utf-8")
     PROC = subprocess.Popen([sys.executable, "-m", "orgtree.api"],

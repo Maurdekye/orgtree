@@ -61,7 +61,7 @@ function tree(kids: Kid[]): TreePayload {
     roots: kids.map(mk), cost_usd_total: 0,
     audit: { live_nodes: 2, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null,
@@ -299,7 +299,7 @@ test('zoomed desk replaces retired jumps with a picker and hides retired audienc
   const map = new Map([boss, ...boss.children].map(n => [n.id, n]))
   const jumps: string[] = []
   const v = await mountView(<><DeskChat node={boss} map={map} slug="hr"
-    op={async () => ({})} toast={noop} pub={false} bare onJump={id => { jumps.push(id) }} />
+    op={async () => ({})} toast={noop} bare onJump={id => { jumps.push(id) }} />
     <RetiredFold ids={['ret-audience']} render={id => <span key={id} className="test-retired-audience">{id}</span>} /></>, el => el)
   try {
     const old = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'show 2 retired')!
@@ -567,7 +567,7 @@ test('zoomed desk of a revealed retired agent offers dismiss button when onDismi
   let dismissed = false
   const v = await mountView(
     <DeskChat node={ret} map={map} slug="hr"
-      op={async () => ({})} toast={noop} pub={false} bare
+      op={async () => ({})} toast={noop} bare
       onDismiss={() => { dismissed = true }} />,
     (el) => el
   )

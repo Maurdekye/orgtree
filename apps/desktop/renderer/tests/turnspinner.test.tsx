@@ -71,9 +71,7 @@ function renderCard(node: CanvasNode, mapMode = false) {
       pxc={1}
       zoom={1}
       compactAt={0.8}
-      pub={false}
       maxTop={0}
-      kioskRemaining={null}
       cascadeAlloc
       onSpawn={noop}
       onSpawnSide={noop}
@@ -150,7 +148,6 @@ function makeTree(nodes: CanvasNode[]): TreePayload {
     user_inbox_count: 0,
     user_inbox_newest: null,
     fable_lock: null,
-    spend_frozen: false,
     storage_blocked: false,
     auto_resume: false,
     fable_limit_policy: 'freeze',

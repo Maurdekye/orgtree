@@ -53,7 +53,7 @@ const seats = { haiku: 1, sonnet: 2, opus: 5 }
 const eye = (over: Partial<Parameters<typeof UserNode>[0]> = {}) => (
   <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
     stats={{ circ: 0, seats: 0, free: 0 }} pip={null} seats={seats}
-    pub={false} kiosk={undefined} kioskRemaining={null} pxc={1} zoom={1}
+    pxc={1} zoom={1}
     onSpawn={noop} onMailLink={noop} focused={false} eyeW={124}
     posX={() => 0} map={new Map()} op={op} slug="org" toast={noop} {...over} />
 )
@@ -337,7 +337,7 @@ test('§2 the switchboard head — the zoomed-in view with the desks — carries
   + 'no ✉ and no ⚙ either', async (t) => {
   const map = new Map([['alpha', agent('alpha')]])
   const view = await mountView(
-    <EyeDesk map={map} op={op} slug="swbicons" toast={noop} pub={false}
+    <EyeDesk map={map} op={op} slug="swbicons" toast={noop}
       eyeW={1200} posX={() => 0} onMailLink={noop} />, (el) => el)
   t.after(() => view.unmount())
   await flush()
@@ -378,7 +378,7 @@ function tree(over: Record<string, unknown> = {}): TreePayload {
     fable_limit_policy: 'halt', fable_filter_policy: 'halt',
     auto_cheap_compact: { enabled: false, occ: 0.5 },
     auto_resume_compact: false,
-    kiosk: null, sandboxed: false, disk: null, net: { hubs: [] },
+    sandboxed: false, disk: null, net: { hubs: [] },
     workspace: 'C:\\ws',
     dirs: [{ path: 'C:\\ws', mode: 'rw' }, { path: 'C:\\shared', mode: 'ro' }],
     default_tools: { bash: false, web: true, edit: true, subagents: false,

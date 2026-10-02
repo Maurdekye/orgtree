@@ -248,7 +248,7 @@ async function desk(count: number) {
   const transport = installFetch(server)
   const view = await mountView(
     <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
-      op={async () => ({})} toast={() => {}} pub={false} bare />, el => el)
+      op={async () => ({})} toast={() => {}} bare />, el => el)
   await inAct(async () => { await refreshConvo('org', 'writer'); await flush(10) })
   const s = view.el.querySelector('.msgs') as HTMLElement
   return {

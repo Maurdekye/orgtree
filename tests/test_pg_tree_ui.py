@@ -27,7 +27,7 @@ class CommittedTree(unittest.TestCase):
         self.before, _, _ = self.read()
 
     def read(self, since=''):
-        return tree_ui.read(self.slug, False, since,
+        return tree_ui.read(self.slug, since,
             stamp=lambda:str(store.org_seq(self.slug)),
             build=lambda:store.cached_org(self.slug).tree(),
             fast=tree_fast.StatusProjection(self.slug, lambda:0, lambda:{}))

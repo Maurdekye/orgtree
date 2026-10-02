@@ -84,7 +84,7 @@ test('a sticky ↑-you chip keeps its target at the flow boundary',
 
     open = await mountView(
       <DeskChat node={node(nid)} map={new Map([[nid, node(nid)]])} op={op}
-        slug={slug} toast={noop} pub={false} bare />,
+        slug={slug} toast={noop} bare />,
       (host) => host,
     )
     await flush() // lets the harness deliver the observer's initial callback

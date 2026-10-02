@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
-  BASE, audienceAction, fileBase, fileUrl, getMailById, getNodeInbox, getOrgInbox, orgInboxRead,
+  audienceAction, fileBase, fileUrl, getMailById, getNodeInbox, getOrgInbox, orgInboxRead,
   orgInboxSend, orgInboxUpload, uploadFile,
 } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
@@ -166,7 +166,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // `pending` and `delivered` still arrive as separate lists because they are
   // different server-side facts (undelivered vs delivered); `_wait` carries
   // that distinction into the row's styling, which is now all it drives.
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   const views = new WeakMap<MailRow, EventView | null>()
   const typedView = (m: MailRow) => {
     if (views.has(m)) return views.get(m)!
@@ -732,7 +732,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
   toast?: ToastFn
 }) {
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   const typed = (m: MailRow) => {
     const result = decodeEventRow(m, profile)
     return result.kind === 'known' ? projectEvent(result.event) : null

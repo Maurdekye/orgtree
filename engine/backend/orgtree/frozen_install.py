@@ -588,8 +588,7 @@ def _org_key_inventory() -> dict[str, Any]:
         try:
             # Exactly the value api.anthropic_proxy would attach as x-api-key.
             # Checking the real thing, not a stand-in for it: reading
-            # org.d["api_key"] alone would miss the kiosk-level key and the
-            # install default, and would pass an org that the proxy will
+            # org.d["api_key"] alone would miss the install default, and would pass an org that the proxy will
             # nonetheless send to the subscription branch.
             rows[slug] = {"present": bool(
                 sandbox.anthropic_proxy_api_key(org).strip())}
@@ -638,7 +637,7 @@ def _verify_org_provider_keys(rec: _Recorder,
                 "frozen mode requires every org to carry its own provider "
                 "key; the host subscription is not a supported frozen "
                 "credential and there is no account pool behind it. Set this "
-                "org's api_key (org, kiosk, or install default) before "
+                "org's api_key (org or install default) before "
                 "starting a frozen install.")
 
 
@@ -817,7 +816,6 @@ def _verify_containers(manifest: Mapping[str, Any], config_sha256: str,
 
 
 def register_official_launch(*, admin_host: str,
-                             public_port: int | str | None,
                              expose_admin: str | None,
                              admin_port: int | None = None,
                              bridge_port: int | None = None) -> None:
@@ -839,7 +837,6 @@ def register_official_launch(*, admin_host: str,
         "command": "python -m orgtree.api",
         "deployment_profile": "frozen",
         "admin_hosts": [admin_host],
-        "public_port": public_port,
         "expose_admin": expose_admin,
         "admin_port": admin_port,
         "bridge_port": bridge_port,
@@ -876,7 +873,7 @@ def _live_launch_inventory() -> dict[str, Any]:
         import psutil
     except ImportError as e:
         return {"mode": "live", "supported": False, "admin_hosts": [],
-                "public_port": None, "expose_admin": None,
+                "expose_admin": None,
                 "error": f"psutil unavailable: {e}"}
     port = _admin_port()
     candidates: dict[int, dict[str, Any]] = {}
@@ -896,8 +893,7 @@ def _live_launch_inventory() -> dict[str, Any]:
         # Every listening socket of each candidate, not only the admin port.
         # Since the frozen network work landed, the backend opens a SECOND
         # listener (the sandbox bridge) whose approved bind address is not
-        # loopback on Linux, and a third (public kiosk) that frozen mode must
-        # never open at all.  Checking one port could not see either.
+        # loopback on Linux.  Checking one port could not see it.
         all_listeners: dict[int, list[tuple[str, int]]] = {}
         listeners: dict[int, list[str]] = {}
         for conn in psutil.net_connections(kind="tcp"):
@@ -912,14 +908,14 @@ def _live_launch_inventory() -> dict[str, Any]:
                 listeners.setdefault(pid, []).append(ip)
     except (psutil.AccessDenied, OSError) as e:
         return {"mode": "live", "supported": False, "admin_hosts": [],
-                "public_port": None, "expose_admin": None,
+                "expose_admin": None,
                 "error": f"could not inspect listener table: {e}"}
 
     active = [(pid, row, listeners[pid]) for pid, row in candidates.items()
               if pid in listeners]
     if len(active) != 1:
         return {"mode": "live", "supported": False, "admin_hosts": [],
-                "public_port": None, "expose_admin": None,
+                "expose_admin": None,
                 "error": f"expected one orgtree backend listening on :{port}; "
                          f"observed {len(active)}"}
     pid, row, hosts = active[0]
@@ -930,13 +926,8 @@ def _live_launch_inventory() -> dict[str, Any]:
         env = row["process"].environ()
     except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
         # Environment is part of the exact launch contract. Inability to read
-        # it means the verifier cannot prove PUBLIC_PORT=0 / exposure unset.
+        # it means the verifier cannot prove exposure unset.
         pass
-    raw_public = env.get("ORGTREE_PUBLIC_PORT")
-    # The supported frozen launch contract is intentionally exact: the
-    # variable must be present with value ``0``. Unset/blank is unsafe for the
-    # update scripts because they otherwise supply their standard-mode 7361.
-    public_port: int | str | None = 0 if raw_public == "0" else raw_public
     # Read the bridge port from the OBSERVED process, not from this verifier's
     # own environment: they are different processes and only the backend's
     # value describes the listener actually open.
@@ -950,7 +941,6 @@ def _live_launch_inventory() -> dict[str, Any]:
         "command": " ".join(row["cmd"]),
         "deployment_profile": env.get(deployment.PROFILE_ENV),
         "admin_hosts": hosts,
-        "public_port": public_port,
         "expose_admin": env.get("ORGTREE_EXPOSE_ADMIN"),
         "admin_port": port,
         "bridge_port": bridge_port,
@@ -1000,10 +990,6 @@ def _verify_launch(rec: _Recorder,
             bool(hosts) and all(v in loopback for v in hosts),
             "127.0.0.1 or ::1 only", ", ".join(hosts) if hosts else "unobserved",
             f"{mode} evidence; ASGI preflight alone cannot observe Uvicorn --host")
-    rec.add("PUBLIC_LISTENER_DISABLED", "ORGTREE_PUBLIC_PORT",
-            obs.get("public_port") == 0, "0", obs.get("public_port"),
-            "frozen startup requires an explicit 0 because update scripts "
-            "otherwise default this listener to 7361")
     expose = obs.get("expose_admin")
     rec.add("ADMIN_EXPOSURE_UNSET", "ORGTREE_EXPOSE_ADMIN",
             expose is None, "unset", expose,
@@ -1016,8 +1002,8 @@ def _verify_listener_table(rec: _Recorder, obs: Mapping[str, Any],
     """Assert the WHOLE listener table of the running backend.
 
     Before the frozen network landed there was effectively one listener worth
-    checking.  There are now up to three trust levels in one process — admin,
-    public kiosk, sandbox bridge — so "the admin port is loopback" no longer
+    checking.  There are now two trust levels in one process — admin and
+    sandbox bridge — so "the admin port is loopback" no longer
     describes a correct install.  A frozen backend must hold exactly the admin
     listener plus the bridge listener, and no wildcard bind anywhere.
     """
@@ -1056,8 +1042,7 @@ def _verify_listener_table(rec: _Recorder, obs: Mapping[str, Any],
             ", ".join(str(v) for v in sorted(observed_ports)) or "none",
             ("unapproved listeners: "
              + ", ".join(str(v) for v in unexpected)) if unexpected else
-            "admin and sandbox bridge only; the public kiosk listener must "
-            "not be open in frozen mode")
+            "admin and sandbox bridge only")
 
     if isinstance(bridge_port, int) and bridge_port > 0:
         bridge_hosts = sorted({str(r.get("ip")) for r in rows
@@ -1151,7 +1136,7 @@ def require_approved_install(*, policy: deployment.DeploymentPolicy) -> None:
         return
     launch = _official_launch_plan or {
         "mode": "planned", "supported": False, "command": "direct ASGI/unknown",
-        "admin_hosts": [], "public_port": None, "expose_admin": None,
+        "admin_hosts": [], "expose_admin": None,
         "error": "frozen ASGI startup was not entered through orgtree.api.main",
     }
     report = verify_approved_install(

@@ -533,21 +533,6 @@ def _r_scope_changed(ev: _R) -> str:
             f'system prompt each turn.')
 
 
-@renderer("access.kiosk_clamped")
-def _r_kiosk_clamped(ev: _R) -> str:
-    return (f"The kiosk permission ceiling was adjusted; your grants were clamped "
-            f"to fit: {', '.join(ev['lost'])}.")
-
-
-@renderer("access.kiosk_ceiling")
-def _r_kiosk_ceiling(ev: _R) -> str:
-    return ("This kiosk now carries a PERMISSION CEILING — the maximum layer "
-            "grantable to any agent in it. It was minted from what the org already "
-            "does, so nothing changed today; review and tighten it in the kiosk "
-            "panel. Retooling within the ceiling is now open to visitors (the /scope "
-            "freeze is lifted).")
-
-
 # ========================================================================= lifecycle
 @renderer("lifecycle.hired")
 def _r_hired(ev: _R) -> str:

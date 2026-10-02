@@ -67,8 +67,7 @@ export function segmentsCopyText(segments: unknown, profile: EventProfile): stri
       case 'text': parts.push(segment.text); break
       case 'state': case 'drive': {
         const row = 'event' in segment ? { ev: segment.event, text: segment.text }
-          : 'event_public' in segment ? { ev_public: segment.event_public, text: segment.text }
-            : { text: segment.text }
+          : { text: segment.text }
         const decoded = decodeEventRow(row, profile)
         // the renderer's own gate, imported rather than restated
         if (decoded.kind === 'known' && !humanSegmentEvent(decoded.event)) break

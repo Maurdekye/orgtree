@@ -62,14 +62,15 @@ class AggregateFixtureTests(unittest.TestCase):
 
 
 class DiagnosticsAuthorizationTests(unittest.TestCase):
-    def test_public_and_bridge_scopes_are_not_operator_authority(self):
+    def test_bridge_scope_is_not_operator_authority(self):
         from orgtree.diagnostics import _operator_only
 
-        for key in ("public_slug", "bridge_slug"):
-            request = type("Request", (), {"scope": {"state": {key: "org"}}})()
-            with self.assertRaises(HTTPException) as caught:
-                _operator_only(request)  # type: ignore[arg-type]
-            self.assertEqual(caught.exception.status_code, 403)
+        request = type("Request", (), {"scope": {"state": {"bridge_slug": "org"}}})()
+        with self.assertRaises(HTTPException) as caught:
+            _operator_only(request)  # type: ignore[arg-type]
+        self.assertEqual(caught.exception.status_code, 403)
+        # CONTROL: the host operator (no bridge scope) is let through
+        _operator_only(type("Request", (), {"scope": {"state": {}}})())  # type: ignore[arg-type]
 
 
 class LiveTimingControlTests(unittest.TestCase):

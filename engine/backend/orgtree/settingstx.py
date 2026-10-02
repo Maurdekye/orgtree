@@ -1,10 +1,9 @@
 """PG-3f: whole-org settings writers on org_tx.
 
-THE PROBLEM. `org_settings` and `org_kiosk` change one or more settings
-sections AND sweep every node (a folder revoke, an rw→ro downgrade, the kiosk
-ceiling clamp, a freeze clear). Under DOC_LOCK the sweep saw every node that
-existed. Under row locks a node inserted after we listed the node rows is a
-PHANTOM: the sweep would miss it.
+THE PROBLEM. `org_settings` changes one or more settings sections AND
+sweeps every node (a folder revoke, an rw→ro downgrade). Under DOC_LOCK the
+sweep saw every node that existed. Under row locks a node inserted after we
+listed the node rows is a PHANTOM: the sweep would miss it.
 
 THE RULE (PYPG decision 12). Every writer that DECIDES from an org setting
 (hire, staffing: `staffdoor.HIRE_SETTINGS`) holds that settings section FOR
@@ -26,13 +25,6 @@ from .ledger import LedgerError
 
 T = TypeVar("T")
 
-#: the kiosk writer's rows: the kiosk section and the spend-freeze flag it
-#: clears, the mailbox sections the ceiling sweep notifies through, and the
-#: logs the sweep and the freeze clear append to
-KIOSK_SECTIONS = ("kiosk", "spend_frozen", "notices")
-KIOSK_SHARE = ("tiers", "deleted_cost_usd", "mail")
-KIOSK_LOGS = ("events", "notice_log")
-
 #: every doc section POST /settings may write (api._org_settings_apply and
 #: the ledger methods it calls: set_hire_defaults, clear_fable_lock,
 #: revoke_dir's notices). Locked FOR UPDATE on every call: a settings save is
@@ -47,9 +39,9 @@ SETTINGS_SECTIONS = (
     "external_inbox_multi_holder", "cascade_hire", "cascade_alloc",
     "auto_cheap_compact", "headless", "net_autoconnect", "net_hubs",
     "net_spool", "net_state", "notices")
-#: read for a decision, never written: the kiosk (ceiling, headless refusal,
-#: net sealing) and the audiences the multi-holder refusal counts
-SETTINGS_SHARE = ("kiosk", "audiences")
+#: read for a decision, never written: the audiences the multi-holder
+#: refusal counts
+SETTINGS_SHARE = ("audiences",)
 SETTINGS_LOGS = ("events", "notice_log")
 #: Org.heal_plan_stamps (the startup one-shot): its migration mark and the
 #: org default it heals (plus every node row)

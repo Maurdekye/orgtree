@@ -96,7 +96,7 @@ test('§1b the desk composer renders the paperclip — the control that changed'
   }
   const view = await mountView(
     <DeskChat node={node} map={new Map([[node.id, node]])} slug="org"
-      op={async () => ({})} toast={() => {}} pub={false} bare />, el => el)
+      op={async () => ({})} toast={() => {}} bare />, el => el)
   try {
     const attach = view.el.querySelector('.cc-composer .cc-attach')
     assert.ok(attach, 'positive control: the composer has an attach button')
@@ -121,7 +121,7 @@ test('§1c the reply composer renders the SAME paperclip — compared as DRAWN '
   }
   const desk = await mountView(
     <DeskChat node={node} map={new Map([[node.id, node]])} slug="org"
-      op={async () => ({})} toast={() => {}} pub={false} bare />, el => el)
+      op={async () => ({})} toast={() => {}} bare />, el => el)
   const reply = await mountView(
     <MailReplyBox target="agent-b" slug="org" onSend={() => {}} />, el => el)
   try {

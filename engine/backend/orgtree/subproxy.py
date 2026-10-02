@@ -1,5 +1,5 @@
 # pyright: strict
-"""Proxied-subscription auth for sandboxed kiosks (user spec).
+"""Proxied-subscription auth for sandboxed orgs (user spec).
 
 The sandbox never holds a credential: the in-container CLI points its
 ANTHROPIC_BASE_URL at the bridge, and the HOST attaches the subscription

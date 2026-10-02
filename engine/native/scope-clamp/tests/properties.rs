@@ -85,9 +85,9 @@ fn normcase_and_normpath_are_idempotent() {
 fn expand_mcp_is_within_the_registry() {
     let s = PyStr::from;
     let reg = [s("a"), s("b")];
-    let got = expand_mcp(Some(&[s("*")]), Some(&[s("b"), s("z")]), Some(&reg));
-    assert_eq!(got, vec![s("b")]);
-    assert!(expand_mcp(Some(&[s("z")]), None, Some(&reg)).is_empty());
+    let got = expand_mcp(Some(&[s("*")]), Some(&reg));
+    assert_eq!(got, vec![s("a"), s("b")]);
+    assert!(expand_mcp(Some(&[s("z")]), Some(&reg)).is_empty());
 }
 
 #[test]

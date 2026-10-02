@@ -25,9 +25,7 @@ best-effort and never block correspondence.
 ⚠ Secret hygiene: the secret lives in the org doc (`net_identity`) and is
 returned by exactly one loopback-admin endpoint (`GET /api/orgs/{slug}/net`).
 It must never enter a tree payload, an agent's context, a log line, or a URL —
-on the wire it rides headers only. Kiosk orgs mint NO identity at all: they are
-sealed from the outside world, and an identity that does not exist cannot leak
-(stronger than filtering rosters).
+on the wire it rides headers only.
 
 ⚠ Lock discipline: DOC_LOCK is never held across an HTTP call. The daemon
 threads take it only to read/mutate docs, in the same order as everyone else.
@@ -96,11 +94,8 @@ def _sanitize_user(user: str) -> str:
 def mint_identity(org: "Org") -> dict[str, Any] | None:
     """Mint the org's permanent network identity. Idempotent — an existing
     identity is returned untouched (the slug is IMMUTABLE for the org's
-    lifetime, user ruling). Returns None for kiosk orgs, which have no
-    identity by design. The caller owns the Org and saves it: an org_tx
+    lifetime, user ruling). The caller owns the Org and saves it: an org_tx
     that locks `net_identity`, or create_org's `prepare` (PG-3f)."""
-    if org.d.get("kiosk"):
-        return None
     ident = org.d.get("net_identity")
     if isinstance(ident, dict) and ident.get("secret"):
         return ident
@@ -290,8 +285,6 @@ def status_block(org_d: dict[str, Any]) -> dict[str, Any] | None:
     """The tree payload's `net` block — config + live status, NEVER the
     secret (or the full fingerprint; the slug's baked-in 6-char suffix is the
     only identity material a payload carries)."""
-    if org_d.get("kiosk") is not None:
-        return None
     ident = cast("dict[str, Any]", org_d.get("net_identity") or {})
     hubs_out: list[dict[str, Any]] = []
     slug = str(org_d.get("slug") or "")
@@ -432,9 +425,8 @@ class _NetDoc:
         self.d = d
 
 
-#: every top-level key `_participants` reads. `kiosk` is only tested for
-#: None, which Org.__init__'s kiosk normalization never changes.
-_PARTICIPANT_KEYS = ("kiosk", "net_identity", "net_hubs", "net_autoconnect",
+#: every top-level key `_participants` reads.
+_PARTICIPANT_KEYS = ("net_identity", "net_hubs", "net_autoconnect",
                      "net_state", "net_spool", "name")
 
 
@@ -447,23 +439,20 @@ def _participants() -> dict[str, dict[str, Any]]:
     hot-paths-off-full-org-reads; was a full load_org per org per save)."""
     from . import orgtx, store
     out: dict[str, dict[str, Any]] = {}
-    # the slugs only: `kiosk` is re-checked from the rows read below, and
-    # list_orgs() would read every node row of every org to build its rows
+    # the slugs only: list_orgs() would read every node row of every org to
+    # build its rows
     for slug in store.org_slugs():
         try:
             doc = store.read_doc_sections(slug, _PARTICIPANT_KEYS)
             org: Any = _NetDoc(doc) if doc is not None else store.load_org(slug)
         except Exception:                                        # noqa: BLE001
             continue
-        if org.d.get("kiosk") is not None:
-            continue
         if not org.d.get("net_identity") or "net_hubs" not in org.d:
             try:
-                # PG-3f: org_tx on the net rows (kiosk is the decision
-                # input); never DOC_LOCK. Same for every write below.
+                # PG-3f: org_tx on the net rows; never DOC_LOCK. Same for
+                # every write below.
                 with orgtx.org_tx(slug, sections=["net_identity", "net_hubs",
-                                                  "net_autoconnect"],
-                                  share_sections=["kiosk"]) as tx:
+                                                  "net_autoconnect"]) as tx:
                     org = tx.org
                     mint_identity(org)
                     if "net_hubs" not in org.d:

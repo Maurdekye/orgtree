@@ -277,7 +277,7 @@ class StoragePrecheckTests(unittest.TestCase):
         org = store.create_org(f"spc-st-{next(_SERIAL)}")
         slug = org.d["slug"]
         SLUGS.append(slug)
-        org.d["kiosk"] = {"storage_limit_mb": 5}
+        org.d["sandbox"] = {"enabled": True}
         store.save_org(org)
 
         class Now:                          # run the background walk inline

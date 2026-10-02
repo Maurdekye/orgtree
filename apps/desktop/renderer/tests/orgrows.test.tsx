@@ -19,13 +19,13 @@ import type { OrgListEntry } from '../src/types'
 declare const __SRC_DIR__: string   // injected by run.mjs (see agentstray.test.tsx)
 
 const entry = (slug: string, patch: Partial<OrgListEntry> = {}): OrgListEntry => ({
-  slug, name: slug, nodes: 9, live: 4, kiosk: false, created: null, ...patch,
+  slug, name: slug, nodes: 9, live: 4, created: null, ...patch,
 })
 
 const ORGS: OrgListEntry[] = [
   entry('busy', { name: 'Busy Org', working: 3, live: 5 }),
   entry('quiet', { name: 'Quiet Org', working: 0, live: 2 }),
-  entry('public-row', { name: 'Public', live: 4 }),   // kiosk listing: no working
+  entry('unknown-row', { name: 'Unknown', live: 4 }),   // no working count
 ]
 
 async function mountRows(t: TestContext, orgs: OrgListEntry[],
@@ -49,7 +49,7 @@ test('every row renders the three cells in column order; n/m stays when idle', a
   }
   const counts = rows.map((r) => r.querySelector('.org-counts')!.textContent)
   assert.deepEqual(counts, ['3/5', '0/2', '4'],
-    'n/m is active/hired, visible when idle; a working-less public row does not invent a 0')
+    'n/m is active/hired, visible when idle; a working-less row does not invent a 0')
   assert.equal(rows[1]!.querySelector('.org-counts')!.getAttribute('title'), 'active / hired agents')
 })
 

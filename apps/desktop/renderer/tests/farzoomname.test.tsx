@@ -91,9 +91,7 @@ function renderCard(
       pxc={1}
       zoom={opts.zoom ?? (lod === 'mini' ? 0.35 : 1)}
       compactAt={0.8}
-      pub={false}
       maxTop={100}
-      kioskRemaining={null}
       cascadeAlloc
       onSpawn={noop}
       onSpawnSide={noop}

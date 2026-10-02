@@ -83,7 +83,7 @@ function Rig() {
         <div className="space" />
         <PinLayer slug={ORG} map={map} viewportRef={viewportRef}
           targetOf={() => ({ x: 20, y: 20, w: 120, h: 120 })}
-          op={() => Promise.resolve({} as never)} toast={noop} pub={false}
+          op={() => Promise.resolve({} as never)} toast={noop}
           maxTop={1000} pxc={1} onMailLink={noop} onWorkLink={noop} onOpenDoc={noop}
           onLineage={noop} onConfig={noop} onJump={noop} onShowOnCanvas={noop} />
       </div>

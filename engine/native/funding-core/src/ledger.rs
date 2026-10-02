@@ -1029,9 +1029,6 @@ impl<'r> Ledger<'r> {
         if state == "live" {
             return Ok(None);
         }
-        // the tier-ceiling argument: `n["model"] if n["state"] ==
-        // "unrecoverable" or tier is None else tier`
-        self.field(i, "model");
         if state == "unrecoverable" {
             return Err(Outside("rehire of an unrecoverable node is a re-seed").into());
         }

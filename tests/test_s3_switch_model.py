@@ -280,22 +280,6 @@ class SwitchDoor(unittest.TestCase):
                 self.assertEqual(store.load_org(self.slug).nodes["x"]["model"],
                                  SAME)
 
-    def test_a_kiosk_flag_that_moved_after_the_gate_refuses(self):
-        # the gate read the snapshot's kiosk flag; the body holds `kiosk`
-        # and refuses when it no longer matches (the gate is not re-run)
-        slug = self.slug
-
-        def flip(org, tier, **k):
-            o = store.load_org(slug)
-            o.d["kiosk"] = {"credits": 0}
-            store.save_org(o)
-        with patch.object(api, "provider_hire_gate", flip):
-            with self.assertRaises(HTTPException) as e:
-                self.door("tool", "a", node="x", tier=SAME)
-        self.assertEqual(e.exception.status_code, 422)
-        self.assertIn("kiosk setting changed", str(e.exception.detail))
-        self.assertEqual(store.load_org(self.slug).nodes["x"]["model"], "luna")
-
     def test_an_account_rebind_exports_before_the_unpark_wake(self):
         # f2 (review-astra's probe): a used, account-parked seat rebound
         # with the switch; the successor is woken only after its

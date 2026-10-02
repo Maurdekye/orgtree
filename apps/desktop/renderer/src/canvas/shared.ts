@@ -1536,8 +1536,6 @@ export const fmtCredits = (n: number): string =>
  *  credit-ask card (user ruling 2026-08-05: the ask bar must look identical
  *  to the agent's existing bar, same scale included) */
 export function orgPxc(tree: TreePayload): number {
-  // kiosk: the cap is the scale — the overseer bar is a fixed size (user spec)
-  if (tree.kiosk?.credits) return (NODE_H * 1.6) / tree.kiosk.credits
   const holds = tree.roots
     .filter((n) => n.state === 'live')
     .map((n) => n.seat + n.grant)
@@ -1768,14 +1766,11 @@ export const INBOX_CLEAR = 48
  *  out of, so each blocks one interval of the line, and the answer is the
  *  first point at or past the usual place that no interval covers. */
 /** The grant a hire draft opens with: a top-level draft pre-fills the org's
- *  default grant (50 unless configured), clamped only by a kiosk's remaining
- *  headroom; a report starts at 0. DraftNode's initial value, and what the
- *  canvas sizes the draft's credit bar from until the draft reports a change. */
-export function draftOpeningGrant(draft: DraftState, defaultTop: number | null | undefined,
-  kioskRemaining: number | null, seats: Record<string, number>): number {
-  const g = draft.parent == null ? (defaultTop ?? 50) : 0
-  return kioskRemaining != null
-    ? Math.max(0, Math.min(g, kioskRemaining - (seats[draft.tier] ?? 0))) : g
+ *  default grant (50 unless configured); a report starts at 0. DraftNode's
+ *  initial value, and what the canvas sizes the draft's credit bar from until
+ *  the draft reports a change. */
+export function draftOpeningGrant(draft: DraftState, defaultTop: number | null | undefined): number {
+  return draft.parent == null ? (defaultTop ?? 50) : 0
 }
 
 export interface Box { x: number; y: number; w: number; h: number }
@@ -1851,32 +1846,26 @@ export function placeOrgInbox(t: Map<string, Pt>,
 //     "usage limit hit", telling the operator to wait for capacity when the
 //     fix is to replace a credential. ▶ really does resume it, so it is
 //     counted; only the words were wrong.
-//   · a SPEND freeze read as "usage limit" on the node badge. The org banner
-//     was right about it only because it returns early on the org-level
-//     `spend_frozen` flag — a badge has no org flag to consult.
-// Both were invisible until `ledger.tree()`'s frozen projection was taught to
-// carry `cause` and `spend`; it rebuilds the record key by key and silently
-// drops whatever it does not name.
+// It was invisible until `ledger.tree()`'s frozen projection was taught to
+// carry `cause`; it rebuilds the record key by key and silently drops
+// whatever it does not name.
 //
 // ⚠ ORDER IS MEANING, not style. `limit_locked` outranks everything: a fable
 // lock's clock can never fire, so naming any other kind there would promise a
-// reset that nobody performs. `spend` outranks `limit` because a spend freeze
-// also carries limit-ish shape but is released by raising the limit, not by
-// waiting. `auth` outranks `limit` for the same reason — same shape, different
-// remedy. `balance` (an OpenRouter 402, 2026-09-05) likewise: limit-shaped, but
+// reset that nobody performs. `auth` outranks `limit` because it has the
+// same shape but a different remedy. `balance` (an OpenRouter 402, 2026-09-05) likewise: limit-shaped, but
 // the remedy is the key's credit or its in-flight requests, and after its
 // bounded probes it parks until a person resumes it. `connection` is last of
 // the real kinds because it is the only one that retries itself.
-export type FreezeKind = 'halted' | 'spend' | 'auth' | 'balance' | 'connection' | 'limit'
+export type FreezeKind = 'halted' | 'auth' | 'balance' | 'connection' | 'limit'
 
 export function freezeKind(
   fz: { connection?: boolean | null; limit?: boolean | null
-        cause?: string | null; spend?: boolean | null } | null | undefined,
+        cause?: string | null } | null | undefined,
   limitLocked?: boolean,
 ): FreezeKind | null {
   if (limitLocked) return 'halted'
   if (!fz) return null
-  if (fz.spend) return 'spend'
   if (fz.cause === 'auth') return 'auth'
   if (fz.cause === 'balance') return 'balance'
   // a PURE connection freeze only — a record carrying both flags is a limit
@@ -1967,7 +1956,6 @@ export function primedRestartChip(
 
 export const FREEZE_LABEL: Record<FreezeKind, string> = {
   halted: 'HALTED — fable lock',
-  spend: 'spend limit',
   auth: 'credential rejected',
   balance: 'balance refused',
   connection: 'network',
@@ -1977,7 +1965,6 @@ export const FREEZE_LABEL: Record<FreezeKind, string> = {
 /** the 124px card's register — same kinds, shorter words */
 export const FREEZE_LABEL_SHORT: Record<FreezeKind, string> = {
   halted: 'halted',
-  spend: 'spend',
   auth: 'credential',
   balance: 'balance',
   connection: 'net',
@@ -2517,7 +2504,7 @@ export function revealFileFromEvent(e: {
   if (!a) return false
   e.preventDefault?.()
   const path = a.getAttribute('data-local-path')
-  // no bridge (browser/kiosk, or a portal that never received one) → nothing
+  // no bridge (browser, or a portal that never received one) → nothing
   // happens, rather than a thrown error taking the click handler down
   if (path) void desktop()?.revealFile?.(path)?.catch?.(() => {})
   return true

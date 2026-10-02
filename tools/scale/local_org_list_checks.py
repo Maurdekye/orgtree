@@ -73,28 +73,10 @@ try:
         run('base', EXISTING)
         target.write_bytes(saved)
     for label, old, new, expected in (
-        ('mut-load-all-active-nodes',
-         "        if settings.get('kiosk'):\n"
-         "            for nid, ordinal, value in raw.execute(\n"
-         "                    \"SELECT n.id,n.ord,n.val FROM node_index i JOIN nodes n ON n.id=i.id \"\n"
-         "                    \"WHERE i.meta->>'state'<>'archived' AND i.meta->>'parent'='' \"\n",
-         "        if True:\n"
-         "            for nid, ordinal, value in raw.execute(\n"
-         "                    \"SELECT n.id,n.ord,n.val FROM node_index i JOIN nodes n ON n.id=i.id \"\n"
-         "                    \"WHERE i.meta->>'state'<>'archived' \"\n",
-         ['test_listing_reads_do_not_grow_with_agents']),
-        ('mut-no-top-level-filter',
-         "\"WHERE i.meta->>'state'<>'archived' AND i.meta->>'parent'='' \"",
-         "\"WHERE i.meta->>'state'<>'archived' \"",
-         ['test_listing_reads_do_not_grow_with_agents']),
         ('mut-live-counts-unrecoverable',
          "\"SELECT count(*) FROM node_index i WHERE i.meta->>'state'='live'\"",
          "\"SELECT count(*) FROM node_index i WHERE i.meta->>'state'<>'archived'\"",
          ['test_rows_equal_the_full_org_answer_for_every_node_shape']),
-        ('mut-kiosk-reads-archived-top-level',
-         "\"WHERE i.meta->>'state'<>'archived' AND i.meta->>'parent'='' \"",
-         "\"WHERE i.meta->>'parent'='' \"",
-         ['test_kiosk_read_skips_retired_top_level_seats']),
     ):
         mutate(old, new)
         run(label, NEW, expected)

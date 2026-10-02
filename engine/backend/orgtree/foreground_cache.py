@@ -226,7 +226,7 @@ def _patch_saved(saved, changes):
         saved['context'].nodes[nid].update(change)
 
 
-def read(slug, public, since, *, include=(), runtime, sync_revision, build,
+def read(slug, since, *, include=(), runtime, sync_revision, build,
          compressed=False, feed=None, reproject=None, advance=None, piles=None):
     """build(raw, graph) returns an annotated/scrubbed foreground snapshot, or
     (snapshot, saved) when reproject(saved) can repeat its in-memory
@@ -239,7 +239,7 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
     already rebuilds (`_changes`), so the delta paths below stay exact."""
     selected = tuple(sorted(storage._wanted(include)))
     fronts = None if piles is None else storage._fronts(dict(piles))
-    key = (str(store.DATA_ROOT), slug, public, selected, fronts)
+    key = (str(store.DATA_ROOT), slug, selected, fronts)
     with _lock:
         builder = _builders.setdefault(key, threading.RLock())
     with builder:

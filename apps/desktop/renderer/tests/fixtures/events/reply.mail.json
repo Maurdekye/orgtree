@@ -25,28 +25,5 @@
       "gist": "reply.mail·quote.gist"
     }
   },
-  "public": {
-    "v": 1,
-    "variant": "reply.mail",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "reply.mail·actor"
-    },
-    "object": {
-      "kind": "mail",
-      "box": "user",
-      "node": "reply.mail·object.node",
-      "id": "reply.mail·object.id",
-      "sender": "reply.mail·object.sender",
-      "at": "reply.mail·object.at"
-    },
-    "body": "reply.mail·body",
-    "quote": {
-      "from": "reply.mail·quote.from",
-      "at": "reply.mail·quote.at",
-      "gist": "reply.mail·quote.gist"
-    }
-  },
   "body": "reply.mail·body"
 }

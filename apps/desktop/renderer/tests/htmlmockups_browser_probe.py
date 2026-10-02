@@ -103,7 +103,7 @@ def run(out: Path) -> None:
                 route.fulfill(body=bundle.read_text(encoding="utf-8"), content_type="text/javascript")
             elif path == "/unsafe-control":
                 route.fulfill(body=PAYLOAD, content_type="text/html")
-            elif path in {"/", "/k/visitor/"}:
+            elif path == "/":
                 route.fulfill(body=f'<style>{css}</style><div id="app"></div><script type="module" src="/probe.js"></script>', content_type="text/html")
             else:
                 forbidden.append(request.url)
@@ -169,10 +169,6 @@ def run(out: Path) -> None:
         assert Path(received.value.path()).read_text(encoding="utf-8") == PAYLOAD
         assert app.evaluate("typeof window.MOCKUP_SCRIPT_RAN") == "undefined"
         assert forbidden == [], forbidden
-        # Unsupported visitor context never offers an active mockup URL.
-        app.goto(f"{ORIGIN}/k/visitor/?id={did}&org=mockup-browser")
-        app.locator(".doc-badge[aria-disabled=true]").wait_for()
-        assert app.locator('a[href$="/mockup"]').count() == 0
         # Positive control: same hostile payload without protection must reach
         # the same request counter, and can read the same stored cookie.
         control = context.new_page()
@@ -182,10 +178,10 @@ def run(out: Path) -> None:
         assert "operator-secret=private" in control.evaluate("document.cookie")
         browser.close()
     (out / "probe-results.json").write_text(json.dumps({"new_tab": True, "direct_entry": True,
-        "interactions": True, "isolated": True, "visitor_unavailable": True,
+        "interactions": True, "isolated": True,
         "alternate_artifact_download_only": True,
         "positive_control_requests": forbidden, "transport": transport}, indent=2), encoding="utf-8")
-    print("PASS: real card new tab, inline interactions, direct access, isolation, visitor UI and outgoing-request positive control")
+    print("PASS: real card new tab, inline interactions, direct access, isolation and outgoing-request positive control")
 
 
 if __name__ == "__main__":

@@ -66,8 +66,8 @@ function card(n: CanvasNode, pos: { x: number; y: number }) {
   return <NodeSquare key={n.id} node={n} pos={pos} lod={lod} focused={false}
     dragging={false} isDrop={false} seats={seats} codexHire={hire}
     antigravityHire={hire} claudeHire={hire} map={map} op={op} slug="probe"
-    toast={noop} pxc={1} zoom={z} compactAt={0.8} pub={false} maxTop={100}
-    kioskRemaining={null} cascadeAlloc
+    toast={noop} pxc={1} zoom={z} compactAt={0.8} maxTop={100}
+    cascadeAlloc
     onSpawn={(t) => { spawned.push(`${n.id}:b:${t}`) }}
     onSpawnSide={(t, side) => { spawned.push(`${n.id}:${side}:${t}`) }}
     onSpawnTop={(t) => { spawned.push(`${n.id}:t:${t}`) }}

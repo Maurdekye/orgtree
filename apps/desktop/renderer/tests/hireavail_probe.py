@@ -139,7 +139,7 @@ def start_backend(tmp: str, *, claude: bool, codex: bool, antigravity: bool):
         "ORGTREE_CLAUDE": (os.path.join(REPO, "backend", "tests", "fakecli.js")
                            if claude else os.path.join(data, "no", "claude.exe")),
         "ORGTREE_PORT": str(PORT), "ORGTREE_BRIDGE_PORT": "0",
-        "ORGTREE_PUBLIC_PORT": "0", "ORGTREE_EXPOSE_ADMIN": "0",
+        "ORGTREE_EXPOSE_ADMIN": "0",
         "PYTHONPATH": os.path.join(REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",
         "ORGTREE_CLAUDE_CLI": os.path.join(REPO, "backend", "tests", "fakecli.js"),

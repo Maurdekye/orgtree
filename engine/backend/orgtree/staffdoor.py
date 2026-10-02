@@ -57,7 +57,7 @@ def _archive_deferred(org: Any) -> Iterator[None]:
 HIRE_SETTINGS = (
     "tiers", "max_depth", "max_children", "max_top_grant", "default_top_grant",
     "cascade_hire", "dirs", "default_tools", "default_visibility",
-    "permission_mode", "default_effort", "kiosk", "default_account", "slug",
+    "permission_mode", "default_effort", "default_account", "slug",
     "fable_lock",
 )  # agreed with pg-settings (PG-3f), whose writers take these FOR UPDATE
 # What a full agent hire (api._hire_seat, incl. _seat_finish and a kickoff)
@@ -240,8 +240,7 @@ def op_hire_body(tx: pgdoor.OpTx) -> Any:
     missing = [n for n in need.nodes if n not in tx.spec.nodes]
     if missing:
         raise pgdoor.Widen(nodes=missing)
-    result = api._op_hire(tx.org, tx.body, bool(tx.pre.get("rc")),
-                          tx.pre.get("harness"))
+    result = api._op_hire(tx.org, tx.body, tx.pre.get("harness"))
     check_created(tx.spec, str(result.get("node") or ""))
     return result
 

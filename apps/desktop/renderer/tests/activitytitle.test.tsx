@@ -40,7 +40,7 @@ test('the current organization is never listed again from the separately polled 
     { slug: 'orgtree', name: 'Orgtree', working: 7 },
     { slug: 'beta', name: 'Beta', working: 1 },
     { slug: 'idle', name: 'Idle', working: 0 },
-    { slug: 'pub', name: 'Public row' },
+    { slug: 'unknown', name: 'Unknown row' },
   ])
   assert.equal(title, 'Orgtree: 4 live agents — 1 Sonnet · 3 Opus\n'
     + '2 active now (a turn running)\n'

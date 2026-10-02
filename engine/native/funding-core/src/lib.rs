@@ -189,7 +189,7 @@ pub fn reallocate(
 /// node's grant. Reads and writes are those of the whole Python call except
 /// the non-funding helpers, fields and settings the README lists under "Hire
 /// and rehire read sets" (scopes, tools, dirs, visibility, caps on depth and
-/// width, the tier ceiling, the Fable lock, and the new node itself).
+/// width, the Fable lock, and the new node itself).
 pub fn hire(
     snap: &Snapshot,
     actor: &str,

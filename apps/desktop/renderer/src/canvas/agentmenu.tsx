@@ -93,13 +93,6 @@ export interface AgentMenuHandlers {
   onHire?: () => void
   /** open the confirm for `kind`; render `AgentRetireConfirm` from it */
   onRetireAsk?: (kind: RetireKind) => void
-  /** presentation-layer authority gate for bulk retirement. The backend still
-   *  rechecks authority for every normal retire operation. */
-  canRetireAll?: boolean
-  /** presentation-layer gate for the bulk cheap-compaction entry, the same
-   *  shape as `canRetireAll` (a kiosk viewer passes false). Every target still
-   *  goes through the normal `cheap_compact` op and its backend checks. */
-  canBulkCompact?: boolean
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
   /** ⭐ continue this FROZEN agent on another account (user requirement
@@ -223,7 +216,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // with live reports — without them it is the single action, which already
   // has its door on the desk's context wheel. Not `danger`: it retires no one
   // and interrupts nothing; the confirm names every target and every skip.
-  if (canRetire && ask && liveKids && h.canBulkCompact !== false) {
+  if (canRetire && ask && liveKids) {
     entries.push({
       label: 'Cheap-compact subtree…',
       title: `give ${node.id} and every agent below it a fresh session; `
@@ -232,7 +225,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   if (canRetire && ask) {
-    if (liveKids && h.canRetireAll !== false) entries.push({
+    if (liveKids) entries.push({
       label: 'Retire all subordinates…', danger: true,
       title: 'retires every live direct report; nested subtrees are included',
       onSelect: () => ask('retire-all'),

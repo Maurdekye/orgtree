@@ -175,7 +175,6 @@ def start_backend() -> None:
         "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })
-    env.pop("ORGTREE_PUBLIC_PORT", None)
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
     with open(CFG, "w", encoding="utf-8") as f:
         json.dump({"default": {"replyText": "ack."}}, f)
@@ -208,9 +207,7 @@ def stop_backend() -> None:
 
 
 def make_org() -> str:
-    """A PLAIN org — deliberately not a kiosk. The autonomy tab is rendered
-    only `{!kk && ...}`, so a kiosk org has no subject to test and the probe
-    would pass by having nothing to look at.
+    """A PLAIN org.
 
     ⚠ NO AGENT IS HIRED, deliberately. The subject is a settings modal, which
     is reachable from the orgbar on an empty org — and hiring would drag in
@@ -321,7 +318,7 @@ def run(pg) -> None:
     labels = tab_labels(pg)
     check("§1b the advanced modal opens with a tab strip",
           len(labels) >= 2, f"tabs: {labels}")
-    check("§1c an 'autonomy' tab exists (org is not a kiosk)",
+    check("§1c an 'autonomy' tab exists",
           any("autonomy" in t for t in labels), f"tabs: {labels}")
     if not any("autonomy" in t for t in labels):
         check("§1 RIG — refusing to report §3-§5", False,

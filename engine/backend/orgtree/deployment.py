@@ -29,7 +29,6 @@ class DeploymentPolicy:
     name: DeploymentProfileName
     require_sandboxed_orgs: bool
     allow_agent_restart: bool
-    allow_public_listener: bool
     allow_admin_exposure: bool
     allow_legacy_sandbox_credentials: bool
     allow_sandbox_internet: bool
@@ -40,7 +39,6 @@ STANDARD = DeploymentPolicy(
     name="standard",
     require_sandboxed_orgs=False,
     allow_agent_restart=True,
-    allow_public_listener=True,
     allow_admin_exposure=True,
     allow_legacy_sandbox_credentials=True,
     allow_sandbox_internet=True,
@@ -51,7 +49,6 @@ FROZEN = DeploymentPolicy(
     name="frozen",
     require_sandboxed_orgs=True,
     allow_agent_restart=False,
-    allow_public_listener=False,
     allow_admin_exposure=False,
     allow_legacy_sandbox_credentials=False,
     allow_sandbox_internet=False,

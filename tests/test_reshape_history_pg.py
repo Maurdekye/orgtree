@@ -129,7 +129,7 @@ def _no_gate(*a, **k):
 
 def op(slug, **fields):
     with patch.object(api, 'provider_hire_gate', _no_gate):
-        return api._op_door(slug, api.Op(**fields), True, None)
+        return api._op_door(slug, api.Op(**fields), None)
 
 
 def tool(slug, actor, tool_name, **args):

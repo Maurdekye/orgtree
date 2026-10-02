@@ -60,8 +60,8 @@ createRoot(document.getElementById('root')!).render(
         <NodeSquare key={n.id} node={n} pos={at(n.id)} lod={lod} focused={false}
           dragging={false} isDrop={false} seats={seats} codexHire={hire} antigravityHire={hire}
           claudeHire={hire} map={new Map([[n.id, n]])} op={op} slug="probe" toast={noop}
-          pxc={1} zoom={lod === 'mini' ? .4 : .8} compactAt={.8} pub={false} maxTop={100}
-          kioskRemaining={null} cascadeAlloc onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
+          pxc={1} zoom={lod === 'mini' ? .4 : .8} compactAt={.8} maxTop={100}
+          cascadeAlloc onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
           onConfig={noop} onInbox={noop} onDocket={noop} onLineage={noop} onOpenDoc={noop}
           onRecenter={noop} onOpenAgentGallery={noop} onJump={noop} onMailLink={noop}
           onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop}

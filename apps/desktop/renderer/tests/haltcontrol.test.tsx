@@ -117,7 +117,7 @@ for (const action of ['retire', 'dissolve'] as const) {
     const view = await mountView(<DeskChat node={node}
       map={new Map([[node.id, node], [child.id, child]])} slug={`halt-${action}`}
       op={async (o) => { calls.push(o); return {} as OpResult }}
-      toast={noop} pub={false} bare />, el => el)
+      toast={noop} bare />, el => el)
     t.after(() => view.unmount())
     await flush()
     const group = view.el.querySelector('.cc-head-top .cc-actions')!
@@ -145,7 +145,7 @@ test('Unhalt stays neutral and available in the top group for live and archived 
   for (const state of ['live', 'archived'] as const) {
     const node = deskNode({ state, halt: halted })
     const view = await mountView(<DeskChat node={node} map={new Map([[node.id, node]])}
-      slug={`unhalt-${state}`} op={op} toast={noop} pub={false} bare />, el => el)
+      slug={`unhalt-${state}`} op={op} toast={noop} bare />, el => el)
     try {
       await flush()
       const button = view.el.querySelector<HTMLButtonElement>('.cc-actions .halt-control')!
@@ -160,18 +160,16 @@ test('Unhalt stays neutral and available in the top group for live and archived 
   }
 })
 
-test('moving Halt keeps public visibility and stale-identity disabled gates', async () => {
+test('moving Halt keeps the stale-identity disabled gate', async () => {
   installFetch(new FakeServer())
   for (const scenario of [
-    { state: 'live', pub: true, halt: undefined, staleIdentity: false, visible: false },
-    { state: 'archived', pub: true, halt: halted, staleIdentity: false, visible: false },
-    { state: 'archived', pub: false, halt: undefined, staleIdentity: false, visible: false },
-    { state: 'live', pub: false, halt: undefined, staleIdentity: true, visible: true },
-    { state: 'live', pub: false, halt: halted, staleIdentity: true, visible: true },
+    { state: 'archived', halt: undefined, staleIdentity: false, visible: false },
+    { state: 'live', halt: undefined, staleIdentity: true, visible: true },
+    { state: 'live', halt: halted, staleIdentity: true, visible: true },
   ] as const) {
     const node = deskNode({ state: scenario.state, halt: scenario.halt })
     const view = await mountView(<DeskChat node={node} map={new Map([[node.id, node]])}
-      slug={`halt-gates-${scenario.state}`} op={op} toast={noop} pub={scenario.pub}
+      slug={`halt-gates-${scenario.state}`} op={op} toast={noop}
       staleIdentity={scenario.staleIdentity} bare />, el => el)
     try {
       await flush()
@@ -196,7 +194,7 @@ test('the moved header control retains pending, settlement and unhalt receipts',
   const node = deskNode()
   const notices: string[] = []
   const view = await mountView(<DeskChat node={node} map={new Map([[node.id, node]])}
-    slug="halt-header" op={op} toast={xs => notices.push(...xs)} pub={false} bare />, el => el)
+    slug="halt-header" op={op} toast={xs => notices.push(...xs)} bare />, el => el)
   const reply = (body: unknown) => inAct(() => finish({
     ok: true, headers: new Headers(), json: async () => body,
   } as Response))

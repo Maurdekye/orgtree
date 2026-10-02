@@ -19,22 +19,5 @@
     "state": "done",
     "summary": "status.report·summary"
   },
-  "public": {
-    "v": 1,
-    "variant": "status.report",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "status.report·actor"
-    },
-    "object": {
-      "kind": "node",
-      "id": "status.report·object.id",
-      "name": "status.report·object.name",
-      "generation": 3
-    },
-    "state": "done",
-    "summary": "status.report·summary"
-  },
   "body": "[DONE] status.report·summary"
 }

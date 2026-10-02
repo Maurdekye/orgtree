@@ -80,7 +80,7 @@ test('§1b it sits above Settings — recovery before configuration', () => {
 test('§1c absent unless the backend offered an account', () => {
   // ⚠ EVERY eligibility gate is the backend's, so the renderer's whole rule is
   // "is the list non-empty" — these are the shapes that produce an empty one:
-  // not frozen, automatic fallback on, no eligible alternative, kiosk viewer.
+  // not frozen, automatic fallback on, no eligible alternative.
   for (const node of [
     agent({ continue_accounts: [] }),
     agent({ continue_accounts: undefined }),
@@ -89,8 +89,8 @@ test('§1c absent unless the backend offered an account', () => {
     const labels = labelsOf(node, handlers({ onContinueOn: noop }))
     assert.equal(labels.filter((l) => l.startsWith('Continue on ')).length, 0)
   }
-  // …and a surface that cannot offer the action at all (a public/kiosk card
-  // passes no handler) drops the entries even with accounts present
+  // …and a surface that cannot offer the action at all (it passes no
+  // handler) drops the entries even with accounts present
   const offered = agent({
     frozen: { error: 'x' } as CanvasNode['frozen'],
     continue_accounts: ['claude-4'],
@@ -234,8 +234,8 @@ test('§3 the frozen card carries the entry into its own context menu',
       <NodeSquare node={node} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
         dragging={false} isDrop={false} seats={seats}
         map={new Map([[node.id, node]])} op={op} slug="mine" toast={noop}
-        pxc={1} zoom={1} compactAt={0.8} pub={false}
-        maxTop={0} kioskRemaining={null} cascadeAlloc mapMode={false}
+        pxc={1} zoom={1} compactAt={0.8}
+        maxTop={0} cascadeAlloc mapMode={false}
         onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
         onInbox={noop} onLineage={noop} onOpenDoc={noop}
         onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}

@@ -1,6 +1,6 @@
 //! A pure, non-authoritative Rust model of the permission-scope clamps of
 //! the Python ledger (`engine/backend/orgtree/ledger.py`): what a hire,
-//! rehire, retool or kiosk ceiling lets an agent hold in tools, MCP servers,
+//! rehire or retool lets an agent hold in tools, MCP servers,
 //! folders, organization visibility and permission mode.
 //!
 //! Given explicit inputs (never an organization document) it returns what
@@ -25,8 +25,8 @@ pub mod val;
 pub mod vectors;
 
 pub use clamp::{
-    apply_ceiling, check_tier_ceiling, clamp_dirs, clamp_tools, clamp_vis, expand_mcp, norm_dirs,
-    norm_tools, raise_ceiling_for, Ceiled, DirGrant, Fail, Rules, ToolGrant,
+    clamp_dirs, clamp_tools, clamp_vis, expand_mcp, norm_dirs, norm_tools, DirGrant, Fail, Rules,
+    ToolGrant,
 };
 pub use ntpath::{normcase, normpath, PathRules};
 pub use pystr::PyStr;

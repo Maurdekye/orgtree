@@ -24,9 +24,9 @@ function sample(n: number): EngineStats {
       queue_max: 256, send_timeout_s: 15,
       drops: { overflow: 1, stuck: 0, abort_failed: 0 },
       sockets: [
-        { org: 'orgtree', window: WINDOW_ID, public: false, pending: 0, pending_bytes: 0,
+        { org: 'orgtree', window: WINDOW_ID, pending: 0, pending_bytes: 0,
           sent: 900, sent_bytes: 400_000, age_s: 120, window_connects: 1, window_drops: 0 },
-        { org: 'orgtree', window: 'stuckwin', public: false, pending: 200 + n, pending_bytes: 3_276_800,
+        { org: 'orgtree', window: 'stuckwin', pending: 200 + n, pending_bytes: 3_276_800,
           sent: 50, sent_bytes: 20_000, age_s: 30.4, window_connects: 3, window_drops: 2 },
       ],
     },

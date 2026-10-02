@@ -64,12 +64,6 @@ class ScopeClampVectors(unittest.TestCase):
         with patch.object(ledger.Org, "_clamp_tools", staticmethod(_keep_all_tools)):
             self.assertNotEqual(regenerate()[0], COMMITTED)
 
-    def test_oracle_uses_the_real_tier_table(self):
-        with patch.dict(ledger.TIERS, {"haiku": 3}):
-            text, tables = regenerate()
-        self.assertNotEqual(text, COMMITTED)
-        self.assertNotEqual(tables, TABLES)
-
     def test_oracle_refuses_a_normcase_that_is_not_the_windows_table(self):
         with patch.object(ntpath, "normcase", lambda s: s.lower()):
             with self.assertRaises(SystemExit):

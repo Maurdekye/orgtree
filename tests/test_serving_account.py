@@ -65,11 +65,11 @@ class ServingAccountTests(unittest.TestCase):
         rows = self.registry.list_accounts()
         return rows, {r["id"]: r for r in rows}
 
-    def _card(self, ran_as, *, busy=True, public=False, primary="primary",
+    def _card(self, ran_as, *, busy=True, primary="primary",
               ambient=None, configured=None, provider=None):
         rows, by_id = self._rows()
         return self.au.serving_card(
-            ran_as, busy=busy, public=public, rows_by_id=by_id,
+            ran_as, busy=busy, rows_by_id=by_id,
             counts=self.au.available_counts(rows), primary=primary,
             ambient_paths=ambient or {"claude": None, "openai": None, "google": None},
             configured_account=configured,
@@ -153,7 +153,7 @@ class ServingAccountTests(unittest.TestCase):
                    "google": None}
         rows, by_id = self._rows()
         card = self.au.serving_card(
-            "primary", busy=True, public=False, rows_by_id=by_id,
+            "primary", busy=True, rows_by_id=by_id,
             counts=self.au.available_counts(rows), primary="not-the-host",
             ambient_paths=ambient, provider="openai")
         self.assertIsNotNone(card, "Codex primary turn lost its serving card")
@@ -187,7 +187,7 @@ class ServingAccountTests(unittest.TestCase):
             rows, "primary", ambient, host_metadata={"openai": {"email": None}})
         self.assertEqual(set(by_id), {managed["id"], "openai/primary"})
         card = self.au.serving_card(
-            None, busy=False, public=False, rows_by_id=by_id,
+            None, busy=False, rows_by_id=by_id,
             counts=self.au.available_counts(list(by_id.values())),
             registered=self.au.registered_counts(list(by_id.values())),
             configured_account="primary", primary="primary",
@@ -262,7 +262,7 @@ class ServingAccountTests(unittest.TestCase):
                    "google": None}
         rows, by_id = self._rows()
         card = self.au.serving_card(
-            "primary", busy=True, public=False, rows_by_id=by_id,
+            "primary", busy=True, rows_by_id=by_id,
             counts=self.au.available_counts(rows), primary="not-the-host",
             ambient_paths=ambient, provider="claude")
         self.assertIsNotNone(card, "Claude primary turn lost its serving card")
@@ -340,7 +340,7 @@ class ServingAccountTests(unittest.TestCase):
             rows, "primary", ambient, host_metadata={"claude": {"email": None}})
         self.assertEqual(set(by_id), {managed["id"], "claude/primary"})
         card = self.au.serving_card(
-            None, busy=False, public=False, rows_by_id=by_id,
+            None, busy=False, rows_by_id=by_id,
             counts=self.au.available_counts(list(by_id.values())),
             registered=self.au.registered_counts(list(by_id.values())),
             configured_account="primary", primary="primary",
@@ -671,16 +671,6 @@ class ServingAccountTests(unittest.TestCase):
         assert card is not None
         self.assertEqual(card["provider"], "claude")
 
-    # ------------------------------------------------------- the kiosk gate
-    def test_a_kiosk_visitor_is_told_nothing(self):
-        # D-145 keeps account identity off the public side. `ran_as_label`
-        # drops only its uuid there because the rest is a positional ordinal
-        # naming nobody; this card is nothing BUT identity, so all of it goes.
-        a = self._row("claude", "one", email="who@example.test")
-        self._row("claude", "two")
-        self.assertIsNotNone(self._card(a["id"], public=False))
-        self.assertIsNone(self._card(a["id"], public=True))
-
     # ------------------------------------------------------------- no secrets
     def test_the_card_carries_no_credential_material(self):
         a = self._row("claude", "one", email="one@example.test")
@@ -705,7 +695,7 @@ class ServingAccountTests(unittest.TestCase):
         ambient = {"claude": None, "openai": None, "google": None}
         rows, by_id = self._rows()
         card = self.au.serving_card(
-            host["id"], busy=True, public=False, rows_by_id=by_id,
+            host["id"], busy=True, rows_by_id=by_id,
             counts=self.au.available_counts(rows), primary=host["id"],
             ambient_paths=ambient)
         assert card is not None
@@ -736,7 +726,7 @@ class ServingAccountTests(unittest.TestCase):
         try:
             for _ in range(40):
                 self.au.serving_card(
-                    a["id"], busy=True, public=False, rows_by_id=by_id,
+                    a["id"], busy=True, rows_by_id=by_id,
                     counts=counts, primary="primary",
                     ambient_paths={"claude": None, "openai": None, "google": None})
         finally:

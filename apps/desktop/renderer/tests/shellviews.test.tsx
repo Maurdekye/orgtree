@@ -34,7 +34,7 @@ import { installBridge, removeBridge, typeInto } from './shellbridge'
 import type { OrgListEntry, TreePayload } from '../src/types'
 
 const entry = (slug: string, patch: Partial<OrgListEntry> = {}): OrgListEntry => ({
-  slug, name: slug, nodes: 3, live: 2, kiosk: false, created: null, ...patch,
+  slug, name: slug, nodes: 3, live: 2, created: null, ...patch,
 })
 const ORGS = [entry('studio', { name: 'Studio', working: 2, live: 5 }),
   entry('workshop', { name: 'Workshop', working: 0, live: 1 })]

@@ -10,7 +10,7 @@ import { DocumentDownload, downloadDocument } from './download'
 import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ToastFn } from '../types'
-import { BASE, dismissDocument, fileBase, getDocument, mockupUrl } from '../api'
+import { dismissDocument, fileBase, getDocument, mockupUrl } from '../api'
 import { md } from './shared'
 import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
@@ -59,8 +59,6 @@ export function presentationMenu(el: Element | null, slug: string,
   if (html && !gone) {
     entries.push({
       label: 'Open HTML mockup in a new tab',
-      disabled: Boolean(BASE),
-      title: BASE ? 'Mockup previews are available in the operator view' : undefined,
       onSelect: () => {
         const win = el?.ownerDocument.defaultView ?? window
         win.open(mockupUrl(slug, doc.id), '_blank', 'noopener,noreferrer')
@@ -125,11 +123,9 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
 /** Reference and gallery readers never put HTML into the app's own DOM. */
 export function MockupOpen({ slug, docId }: { slug: string; docId: string }) {
   return <div className="mockup-open">
-    {BASE
-      ? <p className="dim">Mockup previews are available in the operator view.</p>
-      : <a href={mockupUrl(slug, docId)} target="_blank" rel="noopener noreferrer">
-          Open interactive mockup in a new tab
-        </a>}
+    <a href={mockupUrl(slug, docId)} target="_blank" rel="noopener noreferrer">
+      Open interactive mockup in a new tab
+    </a>
   </div>
 }
 

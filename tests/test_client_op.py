@@ -125,11 +125,10 @@ class ClientOp(unittest.TestCase):
         rows = [row for s in segs if s.get('kind') == 'mail' for row in s['rows']]
         self.assertEqual(rows[0].get('client_op'), 'op-seg-9',
                          'journal_row must keep the name the composer read')
-        for public in (False, True):
-            wire = events.wire_segments(segs, public=public)
-            wrows = [row for s in wire if s.get('kind') == 'mail' for row in s['rows']]
-            self.assertEqual(wrows[0].get('client_op'), 'op-seg-9',
-                             f'wire projection (public={public}) must keep it')
+        wire = events.wire_segments(segs)
+        wrows = [row for s in wire if s.get('kind') == 'mail' for row in s['rows']]
+        self.assertEqual(wrows[0].get('client_op'), 'op-seg-9',
+                         'wire projection must keep it')
 
     def test_node_message_end_to_end_and_the_length_refusal(self):
         sent = {'accepted': True, 'queued': 0}

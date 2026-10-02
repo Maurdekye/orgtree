@@ -58,12 +58,11 @@ class AccountFallbackSettingsTests(unittest.TestCase):
         self.store.save_org(self.org)
         self.api.org_settings("fallback-settings", self.api.Settings(account_fallback_default=True))
         self.assertTrue(self.store.load_org("fallback-settings").account_fallback_for("worker"))
-        with patch.object(self.api, "_public_slug", return_value=None):
-            self.api.node_scope("fallback-settings", "worker",
-                self.api.Scope(account_fallback=False), None)
-            self.assertFalse(self.store.load_org("fallback-settings").account_fallback_for("worker"))
-            self.api.node_scope("fallback-settings", "worker",
-                self.api.Scope(clear_account_fallback=True), None)
+        self.api.node_scope("fallback-settings", "worker",
+            self.api.Scope(account_fallback=False), None)
+        self.assertFalse(self.store.load_org("fallback-settings").account_fallback_for("worker"))
+        self.api.node_scope("fallback-settings", "worker",
+            self.api.Scope(clear_account_fallback=True), None)
         self.assertTrue(self.store.load_org("fallback-settings").account_fallback_for("worker"))
         self.api.org_settings("fallback-settings", self.api.Settings(account_fallback_default=False))
         self.assertFalse(self.store.load_org("fallback-settings").account_fallback_for("worker"))

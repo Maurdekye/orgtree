@@ -69,7 +69,7 @@ function wheelTest(name: string, body: (k: Kit) => Promise<void>): void {
         await inAct(async () => { await refreshConvo(slug, nd.id) })
         return mount(
           <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={slug}
-            toast={noop} pub={false} bare />)
+            toast={noop} bare />)
       },
     })
   })
@@ -170,8 +170,8 @@ wheelTest('the CARD wheel carries the estimate too — it is the surface an '
       <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
         dragging={false} isDrop={false} seats={{ used: 1, total: 4 }}
         map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
-        pxc={1} zoom={1} compactAt={0.8} pub={false} maxTop={0}
-        kioskRemaining={null} cascadeAlloc={true}
+        pxc={1} zoom={1} compactAt={0.8} maxTop={0}
+        cascadeAlloc={true}
         onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
         onInbox={noop} onLineage={noop} onOpenDoc={noop} onRecenter={noop}
         onJump={noop} onMailLink={noop} onDragStart={noop} onDragMove={noop}

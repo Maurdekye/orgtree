@@ -123,12 +123,14 @@ class RuntimeDoor(unittest.TestCase):
         self.assertEqual(self.effects, [])
 
     def test_a_rolled_back_interrupt_signals_nothing(self):
-        # the door's own in-transaction step after the body refuses: the
-        # transaction rolls back, and the queued effect must not run
-        with patch.object(supervisor, 'kiosk_cfg',
-                          lambda org: {'credits': 1}), \
-                patch.object(api, '_kiosk_cap_check',
-                             side_effect=ledger.LedgerError('cap')):
+        # an in-transaction refusal after the body has queued its effect:
+        # the transaction rolls back, and the queued effect must not run
+        body = pgdoor.BODIES['orgtree_interrupt']
+
+        def refusing(tx):
+            body(tx)
+            raise ledger.LedgerError('refused after the body')
+        with patch.dict(pgdoor.BODIES, {'orgtree_interrupt': refusing}):
             with self.assertRaises(HTTPException):
                 self.call('boss', 'orgtree_interrupt', node='worker')
         self.assertEqual(self.effects, [])

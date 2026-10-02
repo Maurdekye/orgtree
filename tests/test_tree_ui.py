@@ -32,8 +32,8 @@ class TreeCache(unittest.TestCase):
         self.calls += 1
         return copy.deepcopy(self.tree)
 
-    def read(self, since='', public=False, compressed=False):
-        return tree_ui.read('cache', public, since, stamp=lambda:str(self.input), build=self.build,
+    def read(self, since='', compressed=False):
+        return tree_ui.read('cache', since, stamp=lambda:str(self.input), build=self.build,
                             compressed=compressed)
 
     def test_unchanged_content_304_after_unrelated_stamp_and_new_watermark(self):
@@ -63,16 +63,11 @@ class TreeCache(unittest.TestCase):
         _, body, _ = self.read(first)
         self.assertEqual(json.loads(body)['tree'], self.tree)
 
-    def test_public_and_private_partition_and_compression_are_lossless(self):
+    def test_compression_is_lossless(self):
         _, plain, _ = self.read()
         _, zipped, _ = self.read(compressed=True)
         self.assertEqual(gzip.decompress(zipped), plain)
         self.assertLess(len(zipped), len(plain)/2)
-        self.tree['roots'][0]['charter'] = 'scrubbed public'
-        _, public, _ = self.read(public=True)
-        self.assertEqual(json.loads(public)['tree']['roots'][0]['charter'], 'scrubbed public')
-        _, private, _ = self.read()
-        self.assertEqual(private, plain)
 
     def test_stamp_captured_before_build_cannot_pin_old_view_to_new_save(self):
         original = self.build

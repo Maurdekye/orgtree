@@ -86,7 +86,7 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        self.assertEqual(len(spec['contracts']), 26)
+        self.assertEqual(len(spec['contracts']), 25)
         for d in contracts.DIMENSIONS:
             self.assertEqual(registry['facets']['control.' + d]['status'],
                              'unresolved' if d in ('conflicts', 'wire', 'instrumentation') else 'specified', d)
@@ -462,33 +462,6 @@ class ControlBoundary(unittest.TestCase):
         self.refused(self.route('POST', '/api/orgs/{slug}/killswitch',
                                 headers={'X-Orgtree-Agent-Token': self.tokens['top']}),
                      'agent credential is invalid or expired', code=401)
-
-    # -- kiosk, per profile ---------------------------------------------------------------------------------------
-    def test_kiosk_route_is_stripped_in_the_desktop_profile_and_served_otherwise(self):
-        # stripped: no route carries /kiosk, so no handler runs. The POST then answers 405 when the packaged UI's
-        # GET catch-all is mounted (it matches the path; api mounts it only when FRONTEND_DIST exists, which on a
-        # dev machine depends on ORGTREE_V2_UI_DIR) and 404 when it is not (P01 follow-up; P02 saw 404)
-        self.assertEqual([p for p in (getattr(route, 'path', '') for route in api.app.routes) if '/kiosk' in p], [])
-        spa = any(getattr(route, 'path', None) == '/{path:path}' for route in api.app.routes)
-        r, changed, _, _ = self.act(self.route('POST', '/api/orgs/{slug}/kiosk', {'enabled': True}))
-        self.assertEqual((r.status_code, changed), (405 if spa else 404, []))
-        self.assertIn('POST /api/orgs/{slug}/kiosk', self.spec['profiles']['desktop_stripped_routes'])
-        # the handler itself (non-desktop profile): a non-kiosk org is refused; a kiosk org is configured
-        with self.assertRaises(api.HTTPException) as ctx:
-            api.org_kiosk(self.slug, api.KioskCfg(enabled=True))
-        self.assertEqual(ctx.exception.status_code, 422)
-        self.assertIn('not a kiosk org', ctx.exception.detail)
-        org = store.load_org(self.slug)
-        org.d['kiosk'] = {'enabled': False, 'credits': 0, 'spend_limit': 0.0, 'storage_limit_mb': 0}
-        store.save_org(org)
-        before = self.durable()
-        out = api.org_kiosk(self.slug, api.KioskCfg(enabled=True))
-        after = self.durable()
-        self.assertEqual((sorted(out), after['kiosk']['enabled'], 'kiosk' in self.changed(before, after)),
-                         (['freezes_cleared', 'kiosk', 'share_url'], True, True))
-        with self.assertRaises(api.HTTPException) as ctx:
-            api.org_kiosk(self.slug, api.KioskCfg(credits=1))
-        self.assertIn('cap below current holdings', ctx.exception.detail)
 
 
 if __name__ == '__main__':

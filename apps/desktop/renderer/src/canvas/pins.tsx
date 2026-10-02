@@ -323,7 +323,6 @@ export interface PinLayerProps {
   targetOf: (id: string) => PinRect | null
   op: OpFn
   toast: ToastFn
-  pub: boolean
   compactAt?: number
   maxTop: number
   pxc: number
@@ -444,7 +443,7 @@ type Gesture = GestureShape & { pointerId: number; moved: boolean; capture: HTML
 
 const EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
-function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
+function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
   compactAt, maxTop, pxc, onMailLink, onWorkLink, onOpenDoc, onLineage, onConfig, onJump, onShowOnCanvas, map, viewportRef, onDismiss }:
   PinLayerProps & { pin: Pin; node: CanvasNode; vp: { w: number; h: number } | null
     onUnpin: (id: string, from: PinRect) => void }) {
@@ -665,7 +664,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
       </div>
       <div className="pinwin-body">
         <DeskChat bare node={node} map={map} op={op} slug={slug} toast={toast}
-          pub={pub} compactAt={compactAt} maxTop={maxTop} pxc={pxc}
+          compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onLineage={() => onLineage(pin.id)} onConfig={() => onConfig(pin.id)}
           onJump={onJump}

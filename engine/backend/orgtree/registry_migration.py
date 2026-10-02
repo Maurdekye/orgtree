@@ -198,10 +198,8 @@ _CUTOVER_FIELDS = ("api_key", "api_fallback", "fable_api_fallback",
 
 
 def _sandboxed(doc: dict[str, Any]) -> bool:
-    # sandbox._cfg's fields, readable off the raw doc (kiosk sandbox or a
-    # top-level sandbox config); no Org construction needed here.
-    if (doc.get("kiosk") or {}).get("sandbox"):
-        return True
+    # sandbox._cfg's fields, readable off the raw doc (a top-level sandbox
+    # config); no Org construction needed here.
     return bool(doc.get("sandbox") or {})
 
 

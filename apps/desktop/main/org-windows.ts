@@ -724,9 +724,8 @@ export interface RestorePlan {
  *  ⚠ THE REASON IS THAT NOTHING CAN TELL THE TWO APART. Data-architecture's
  *  read-only check established that no existing API positively distinguishes
  *  deleted from temporarily unreadable: a per-organization GET maps any
- *  cached_org LedgerError to 404, cannot-open included, and public gateways
- *  use 404 for authorization as well. Absence from the catalog and a 404 are
- *  both silence, not evidence — and skipping on silence throws away a window
+ *  cached_org LedgerError to 404, cannot-open included. Absence from the
+ *  catalog and a 404 are both silence, not evidence — and skipping on silence throws away a window
  *  the user arranged, on exactly the launch where something was already wrong.
  *  This function therefore asks no such question, which is why it no longer
  *  takes a predicate at all: an argument nobody can answer correctly is worse

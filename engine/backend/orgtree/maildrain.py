@@ -127,7 +127,7 @@ def discard(org, nid: str, ids) -> None:
 
 #: The org-level sections the gate reads. The reclaim transaction holds them
 #: FOR SHARE, so the gate it re-decides on the locked Org holds until commit.
-GATE_SECTIONS = ('killswitch', 'spend_frozen', 'storage_blocked')
+GATE_SECTIONS = ('killswitch', 'storage_blocked')
 
 
 def _gated(org, nid: str, slug: str) -> bool:
@@ -143,7 +143,6 @@ def _gated(org, nid: str, slug: str) -> bool:
     return bool(n is None or n['state'] != 'live' or n.get('halt')
                 or org.d.get('killswitch') or n.get('frozen')
                 or n.get('limit_locked') or n.get('remote_controlled')
-                or org.d.get('spend_frozen')
                 or (org.d.get('storage_blocked') and sup.sbx.on_disk(slug)))
 
 

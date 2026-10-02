@@ -116,8 +116,7 @@ def staff_args(org: Org, item: dict[str, Any], ctx: dict[str, Any],
     return args
 
 
-def request_models(*, kiosk: bool = False,
-                   snap: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def request_models(*, snap: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Offer existing models, independently of the actor's ability to hire.
 
     Provider discovery owns machine-wide configuration/sign-in and offered
@@ -141,8 +140,6 @@ def request_models(*, kiosk: bool = False,
                 or not isinstance(provider.get("hire_enabled"), bool)
                 or not isinstance(provider.get("tiers"), list)):
             raise LedgerError("Provider discovery returned invalid model data. Retry the menu.")
-        if kiosk and provider["id"] in ("openai", "google", openrouter.PROVIDER_ID):
-            continue  # These providers are not admitted in kiosk organizations.
         if not provider["hire_enabled"]:
             continue
         for model in provider["tiers"]:
@@ -171,10 +168,9 @@ def tier_block(org: Org, item: dict[str, Any], ctx: dict[str, Any],
 
     Split out of `check_choice` so the account question can be asked separately
     — the user's rule is that a tier is offered when ANY eligible account can
-    run it, which is not a question this half can answer. These four are the
+    run it, which is not a question this half can answer. These three are the
     refusals no account can rescue: the tier is not in the organization, its
-    provider is not usable, the tier ceiling is reached, or the hire itself
-    would be refused.
+    provider is not usable, or the hire itself would be refused.
 
     `probe` is where the trial organization comes from (see `HireProbe`). A
     caller asking about MANY tiers builds ONE and hands it to every call — that
@@ -187,7 +183,6 @@ def tier_block(org: Org, item: dict[str, Any], ctx: dict[str, Any],
         if tier not in org.d["tiers"]:
             return "That model is not available in this organization. Reopen Staff…."
         provider_hire_gate(org, tier)
-        org._check_tier_ceiling(tier)
         args = staff_args(org, item, ctx, tier)
         trial = (probe or HireProbe(org)).org()
         # ⚠ THE TRIAL NAMES A HARNESS SO IT NEVER ASKS FOR ONE. Left to
@@ -323,7 +318,7 @@ def check_choice(org: Org, item: dict[str, Any], ctx: dict[str, Any], tier: str,
     """
     if ctx["mode"] == "request":
         offers = request_offers if request_offers is not None else request_models(
-            kiosk=bool(org.d.get("kiosk")), snap=snap)
+            snap=snap)
         for model in offers:
             if model["tier"] == tier:
                 if account:
@@ -385,7 +380,7 @@ def preview(org: Org, wid: str,
                               "errors": list(snap["errors"])}
     if result["mode"] == "request":
         offers = (request_offers if request_offers is not None
-                  else request_models(kiosk=bool(org.d.get("kiosk")), snap=snap))
+                  else request_models(snap=snap))
         if appsettings.quick_staff_request_accounts():
             # "Include account selection when requesting staffing" (user
             # 2026-09-20, default off): each offer carries the accounts that
@@ -482,14 +477,13 @@ def _provider_block(org: Org, tier: str) -> str | None:
     `availability` cannot run the trial hire that `tier_block` does — that one
     needs a ticket and a parent, and this document has neither. It runs the
     checks that do not: the tier belongs to the organization, its provider can
-    be hired from, and the tier ceiling is not already reached.
+    be hired from.
     """
     from .api import provider_hire_gate
     try:
         if tier not in org.d["tiers"]:
             return "not in this organization"
         provider_hire_gate(org, tier)
-        org._check_tier_ceiling(tier)
     except (LedgerError, ValueError) as e:
         return str(e)
     return None

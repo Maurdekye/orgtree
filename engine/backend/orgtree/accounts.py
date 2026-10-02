@@ -881,17 +881,11 @@ def fallback_ordinal(doc: dict[str, Any], account: str) -> int | None:
     return None
 
 
-def serving_label(account: str, *, with_uuid: bool = True) -> str | None:
+def serving_label(account: str) -> str | None:
     """"fallback 2 · <account uuid>" for a turn served by a key row, else None
     (user ruling 2026-08-25: cite the fallback's NUMBER alongside its uuid,
     and only when an agent is actually running off a fallback — the primary
     login and the api-key lane say nothing here).
-
-    ⚠ `with_uuid=False` for anything a KIOSK visitor can reach. D-145 keeps
-    account identity off the public side by freezing `/api/accounts` whole,
-    but the node payload this label rides on is reachable from a kiosk, so
-    the uuid is dropped there rather than the whole label. The ordinal is
-    positional and says nothing about who the account is.
 
     Degrades to the bare ordinal when identity has not resolved yet: "fallback
     2" is still true, and a row whose profile lookup failed must not vanish
@@ -916,8 +910,6 @@ def serving_label(account: str, *, with_uuid: bool = True) -> str | None:
     n = fallback_ordinal(doc, account)
     if n is None:
         return None
-    if not with_uuid:
-        return f"fallback {n}"
     row = next((k for k in doc["keys"] if k["id"] == account), None)
     uuid = str((row or {}).get("account_uuid") or "")
     return f"fallback {n} · {uuid}" if uuid else f"fallback {n}"
@@ -940,9 +932,8 @@ def readout() -> dict[str, Any]:
         "primary": {"signed_in": bool(live["uuid"]),
                     "email": live["email"] or None},
         # `account_uuid` is IDENTITY, never credential (user ruling
-        # 2026-08-25: render each registered key's uuid in the list), and
-        # `/api/accounts` is frozen whole for kiosk visitors, so this adds no
-        # public surface. `ordinal` rides along so the panel's "fallback N"
+        # 2026-08-25: render each registered key's uuid in the list).
+        # `ordinal` rides along so the panel's "fallback N"
         # and the desk's serving label come from ONE count rather than two.
         # (No `duplicate` flag: that feature is retired — module docstring.)
         "keys": [{

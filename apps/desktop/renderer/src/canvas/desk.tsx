@@ -36,7 +36,7 @@ import type {
 } from '../types'
 import { openAppSettings } from './settingskit'
 import {
-  audienceAction, BASE, compactNode, fileBase, fileUrl, getChat, getHistory,
+  audienceAction, compactNode, fileBase, fileUrl, getChat, getHistory,
   getScratch, interruptNode, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
@@ -252,8 +252,8 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *  word it differently or disagree about when it appears.
  *
  *  ⚠ THIS COMPONENT DECIDES NOTHING. Every gate — is inference running, is
- *  the account authoritative, does this provider even have a second account,
- *  is the viewer a kiosk visitor — is applied server-side, where the registry
+ *  the account authoritative, does this provider even have a second account —
+ *  is applied server-side, where the registry
  *  lives (see `ServingAccount`). A null field is the backend saying "do not
  *  show this", so the whole rule here is one guard — plus one more: the
  *  provider's PRIMARY account wears no badge (`servedByPrimary`). Re-deriving any of it
@@ -1606,7 +1606,7 @@ const toolKey = (id: unknown): string | undefined =>
 export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
-  && p.staleIdentity === n.staleIdentity && p.pub === n.pub && p.bare === n.bare && p.compact === n.compact
+  && p.staleIdentity === n.staleIdentity && p.bare === n.bare && p.compact === n.compact
   && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc
   && p.onDismiss === n.onDismiss)
 
@@ -1627,7 +1627,6 @@ export interface DeskChatProps {
   maxTop?: number
   /** the org's px-per-credit (orgPxc) — the ask bar's scale */
   pxc?: number
-  pub: boolean
   /** IS THIS SLOT'S DESTINATION ON SCREEN AND REACHABLE RIGHT NOW? Default
    *  true, so every existing call site is unaffected.
    *
@@ -1842,7 +1841,7 @@ function ctxTargetElement(root: Element | null,
 }
 
 function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineageProp, onConfig: configProp,
-  onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
+  onRecenter, onJump, maxTop, pxc, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
   staleIdentity = false, onDismiss, hidePopout = false }: DeskChatProps) {
   const node = useNodeMetadata(slug, baseNode)
@@ -2088,7 +2087,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // right-click targets, and a Copy on the message that swept up a 4000-char
   // tool result would be a surprise, not a convenience.
   const copyTextOf = useMemo(() => {
-    const profile = BASE ? 'public' : 'operator'
+    const profile = 'operator'
     const out = new Map<string, string>()
     // the same emptiness rule `copytext`'s join uses, and the same refusal to
     // alter what survives it: a row with nothing but whitespace in it has
@@ -2462,7 +2461,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     const out: { seq: number, label: string }[] = []
     for (const m of chat?.messages ?? []) {
       if (m.role !== 'user' || m.seq == null) continue
-      const label = authoredUserLabel(m.segments, BASE ? 'public' : 'operator')
+      const label = authoredUserLabel(m.segments, 'operator')
       if (label !== null) out.push({ seq: m.seq, label })
     }
     return out
@@ -2649,7 +2648,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const rawPendMail = chat?.pending_mail ?? []
   // the server's own row for an answer: an answer-decision event naming the ask
   const answersAsk = (row: unknown, askId: string): boolean => {
-    const d = decodeEventRow(row, BASE ? 'public' : 'operator')
+    const d = decodeEventRow(row, 'operator')
     if (d.kind !== 'known') return false
     const ev = d.event as { variant: string; object?: { kind?: string; id?: string } | null }
     return (ev.variant === 'answer.ask' || ev.variant === 'answer.batch')
@@ -2668,7 +2667,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       ...live_feed.filter(row => row.kind === 'steered')]
     for (const row of rows) {
       const segs = row.segments
-      if (!isSegments(segs, BASE ? 'public' : 'operator')) continue
+      if (!isSegments(segs, 'operator')) continue
       for (const seg of segs) if (seg.kind === 'mail') out.push(...seg.rows)
     }
     return out
@@ -2684,7 +2683,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     for (const id of shownKey ? shownKey.split('\n') : []) markAnswerSeen(slug, id)
   }, [slug, shownKey])
   const queuedAnswerRows = submittedHere.filter(e => !answerShown(e.askId))
-    .map(e => queuedAnswerRow(e, !!BASE))
+    .map(e => queuedAnswerRow(e))
   const pendMail = rawPendMail.filter((m) => !askAnswerRow(m))
   const pendNow = pendMail.filter((m) => m.delivering && m.via === 'turn')
   const pendLater = [...pendMail.filter((m) => !(m.delivering && m.via === 'turn')),
@@ -2915,8 +2914,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
 
   // file uploads (user spec 2026-07-31): the file lands in the agent's own
-  // uploads/ scratch folder — same relative path sandboxed or not, and it
-  // works through the public kiosk gateway from the outside internet
+  // uploads/ scratch folder — same relative path sandboxed or not
   const fileRef = useRef<HTMLInputElement | null>(null)
   // attachments STAGE onto the next message (user spec 2026-07-31: mail
   // carries files) — the bytes upload immediately, the mail links them
@@ -3032,7 +3030,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const processAction = node.proc_control_action
   const toggleProcess = useCallback(() => {
     const action = processAction
-    if (pub || !live || !action || !node.proc_control_enabled
+    if (!live || !action || !node.proc_control_enabled
         || processToggleBusy) return
     setProcessToggleBusy(true)
     processControl(slug, node.id, action)
@@ -3046,7 +3044,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setProcessToggleBusy(false))
   }, [live, node.id, node.proc_control_enabled, processAction,
-    processToggleBusy, pub, slug, toast])
+    processToggleBusy, slug, toast])
   // A fresh/empty seat now keeps its truthful hollow wheel, but it must not
   // acquire a dead compact button: the endpoint still requires real context.
   const canCompactContext = live && !node.bearer_state && !node.compacted_unrun
@@ -3144,7 +3142,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const resolveReplySource = useCallback((r: ReplyContext) => {
     const source = sameReplyIdentity(r) ? replySources.get(r.eventId) : undefined
     return source ? <ReplySourceContent key={r.eventId} source={source} slug={slug} nid={node.id}
-      profile={BASE ? 'public' : 'operator'} refs={deskRefs} actor={id => <MailFrom from={id} />} /> : null
+      profile={'operator'} refs={deskRefs} actor={id => <MailFrom from={id} />} /> : null
   }, [sameReplyIdentity, replySources, slug, node.id, deskRefs])
   const content = (
     <AgentDirectoryProvider value={agentDir}>
@@ -3201,7 +3199,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               controlReason={processToggleBusy
                 ? 'process control is in progress'
                 : node.proc_control_reason}
-              onToggle={!pub && live && processAction ? toggleProcess : undefined} />
+              onToggle={live && processAction ? toggleProcess : undefined} />
           </span>
           <TurnStatusBanner state={turnBannerState} turn={lastTurn}
             frozen={isUsageFrozen(node) ? node.frozen : null}
@@ -3213,7 +3211,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <span className="spacer" aria-hidden="true" />
         <span className="cc-head-right">
           <span className="cc-actions">
-            {!pub && (live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
+            {(live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
               halt={node.halt} toast={toast} />}
             {live && !liveKids &&
               <button className="danger" onClick={() => setAsking('retire')}>
@@ -3314,9 +3312,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         {node.limit_locked &&
           <span className="badge dim"><LockIcon fontSize="inherit" /> limit</span>}
         {/* ⭐ the user's per-node override (ruling 2026-08-06): one click
-            releases EVERY lock holding this agent and re-drives it —
-            pub (visitor) views never get it */}
-        {!pub && (node.frozen || node.limit_locked) &&
+            releases EVERY lock holding this agent and re-drives it */}
+        {(node.frozen || node.limit_locked) &&
           <button className="badge unstick"
             title="release every lock holding this agent (user override) and resume it"
             onClick={() => unstickNode(slug, node.id)
@@ -4021,13 +4018,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             // gesture recovers the newline — send is the button's job there
             if (e.key === 'Enter' && !e.shiftKey && !isMobile) { e.preventDefault(); send() }
           }} />
-        {!pub && (
-          <EffortButton value={node.scope?.effort ?? ''}
-            effective={node.effort_effective ?? ''}
-            onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
-              .then((r) => toast([effortChangeToast(node.id, lvl, r)]))
-              .catch((e: Error) => toast([`error: ${e.message}`]))} />
-        )}
+        <EffortButton value={node.scope?.effort ?? ''}
+          effective={node.effort_effective ?? ''}
+          onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
+            .then((r) => toast([effortChangeToast(node.id, lvl, r)]))
+            .catch((e: Error) => toast([`error: ${e.message}`]))} />
         {/* №3: STOP renders only when an interrupt can actually land —
             pressing the one red control must never error. Gate on the CHAT
             payload's responding (refreshed every pulse + 5 s poll): the tree
@@ -4093,7 +4088,7 @@ export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; re
   // G5: the agent keeps acting while this tab is open — a fetch-once list is
   // a photograph of the moment the tab was clicked
   const items = usePolled(() => getHistory(slug, nid).then((r) => r.items), [slug, nid])
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   return (
     <div className="msgs">
       {items == null && <div className="dim pad">loading…</div>}
@@ -4434,7 +4429,7 @@ export function PendingMailRow({ m, slug, nid, world, onOpen, replyAvailable,
   return (
     <div data-reply-event={m.event_id} data-reply-quote={m.body}
       onContextMenu={onContext} className="pending pendrow">
-      <MailMessage row={m} profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
+      <MailMessage row={m} profile={'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
         meta={!m.delivering && m.id && onRetract
@@ -4495,7 +4490,7 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
           attachments: p.attachments,
           ...(p.reply ? { reply_to: replyWire(p.reply) } : {}),
         }}
-        profile={BASE ? 'public' : 'operator'} slug={slug} nid={nid}
+        profile={'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
         replyAvailable={replyAvailable} onLocateReply={onLocateReply}
         meta={<span className="ghost-acts">
@@ -4556,7 +4551,7 @@ function MailFrom({ from, nameClass }: { from: string; nameClass?: string }) {
 /** Live and settled inputs use the same validated composition. */
 function LiveSteerRow({ text, segments, slug, nid, truncated, refs }:
   { text: string; segments?: unknown; slug: string; nid: string; truncated?: boolean; refs?: RefRoutes }) {
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   return <div className={isSegments(segments, profile) ? "typed-input live" : "msg user live"}>
     {isSegments(segments, profile)
       ? <SegmentList segments={segments} profile={profile} slug={slug} nid={nid}
@@ -4672,7 +4667,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
         </pre></CopyablePre>)}
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
         <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} alt="tool result"
-          src={`${BASE}/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
+          src={`/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
     </div>
   )
 }
@@ -4692,7 +4687,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   onLocateReply?: (r: ReplyContext) => void
 }) {
   if (m.role === 'system') return <SysLine m={m} />
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
     <SegmentList segments={m.segments} profile={profile} slug={slug} nid={nid}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />}

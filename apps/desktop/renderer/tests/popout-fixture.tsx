@@ -53,7 +53,7 @@ Object.assign(window, { probe: { mounts: () => mounts, surfaces: openSurfaces, r
   api: () => getChat('fixture', 'builder'), apiRestart: () => { serverInstance = 'second'; return getChat('fixture', 'builder') }, requests } })
 function TransitionFixture() {
   const [slug, setSlug] = useState<string | null>('fixture')
-  const transition = useOrgTransition(slug, setSlug, '')
+  const transition = useOrgTransition(slug, setSlug)
   useEffect(() => {
     const pop = () => transition.request(location.pathname.split('/o/')[1] ?? null)
     window.addEventListener('popstate', pop)
@@ -82,7 +82,7 @@ function DeskFixture() {
   // on a genuinely LATER, separate action bringing a real anchor back, not
   // the app's own automatic recenter racing ahead of it.
   return <DeskHosts map={map} slug="fixture"><div style={{ height: 700, width: 850 }}>
-    {shown && <DeskChat bare node={node} map={map} slug="fixture" pub={location.search.includes('public')}
+    {shown && <DeskChat bare node={node} map={map} slug="fixture"
       toast={() => {}} op={async () => ({})}
       onJump={location.search.includes('nojump') ? undefined : () => setShown(true)} />}
   </div></DeskHosts>

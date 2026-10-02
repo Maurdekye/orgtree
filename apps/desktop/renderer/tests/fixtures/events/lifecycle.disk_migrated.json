@@ -15,18 +15,5 @@
     "engine_authored": false,
     "floored_from": "lifecycle.disk_migrated·floored_from"
   },
-  "public": {
-    "v": 1,
-    "variant": "lifecycle.disk_migrated",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "lifecycle.disk_migrated·actor"
-    },
-    "object": {
-      "kind": "org"
-    },
-    "floored_from": "lifecycle.disk_migrated·floored_from"
-  },
   "body": "Storage migration: this org's lifecycle.disk_migrated·floored_from MB limit was raised to the 4096 MB one-disk minimum (system seed + transcripts now count inside the cap). Its agents may consume up to 4 GB; the disk can be grown online or shrunk (staged) from the storage browser."
 }

@@ -116,10 +116,10 @@ const scene = (modalOpen: boolean, withCanvas = true) =>
   <DeskHosts map={map} slug={ORG}>
     <Popper />
     {withCanvas && <div className="probe-canvas" style={{ width: 420, height: 320 }}>
-      <DeskSlot node={node} map={map} op={op} slug={ORG} toast={noop} pub={false} bare />
+      <DeskSlot node={node} map={map} op={op} slug={ORG} toast={noop} bare />
     </div>}
     {modalOpen && <TempDeskModal node={node} close={noop}
-      desk={{ map, op, slug: ORG, toast: noop, pub: false }} />}
+      desk={{ map, op, slug: ORG, toast: noop }} />}
   </DeskHosts>
 
 const inModal = () => {

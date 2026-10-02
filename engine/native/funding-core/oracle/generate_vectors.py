@@ -406,11 +406,11 @@ def reallocate_row(b: Builder, spec, actor, nid, delta) -> dict:
 # left out of their read/write sets, and every one of these is named in the
 # README ("Hire and rehire read sets"):
 # - reads made inside these helpers, which decide scopes, tools, dirs,
-#   visibility, the kiosk tier ceiling, the depth and width caps, the Fable
+#   visibility, the depth and width caps, the Fable
 #   lock, peers, pending mail and the new node's identity (set aside, not
 #   dropped: see `unaccounted`);
-NON_FUNDING_CALLS = ("_check_tier_ceiling", "depth", "org_children", "effective_dirs",
-                     "_clamp_dirs", "_clamp_tools", "_clamp_vis", "_apply_ceiling",
+NON_FUNDING_CALLS = ("depth", "org_children", "effective_dirs",
+                     "_clamp_dirs", "_clamp_tools", "_clamp_vis",
                      "clear_fable_lock", "_new_node", "_peers_of", "waking_mail")
 # - these node fields, read or written in the method bodies for the same
 #   purposes (`scope` holds dirs/tools/visibility; `archived_at` is a

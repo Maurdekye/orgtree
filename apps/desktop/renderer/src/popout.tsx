@@ -60,8 +60,8 @@ export function WindowMirrors({ children }: { children: ReactNode }) {
     createPortal(<div onClick={stop} onPointerDown={stop}>{children}</div>, doc.body, String(i)))}</>
 }
 
-export function useOrgTransition(slug: string | null, commit: (slug: string | null) => void, base: string) {
-  const current = useRef({ slug, commit, base }); current.current = { slug, commit, base }
+export function useOrgTransition(slug: string | null, commit: (slug: string | null) => void) {
+  const current = useRef({ slug, commit }); current.current = { slug, commit }
   const [pending, setPending] = useState<{ target: string | null } | null>(null)
   const [request] = useState(() => (target: string | null) => {
     const c = current.current
@@ -69,7 +69,7 @@ export function useOrgTransition(slug: string | null, commit: (slug: string | nu
     if (openSurfaces().some((s) => s.org === c.slug)) {
       // popstate has already changed the URL; keep URL and callbacks on the
       // current org until the user explicitly commits the transition.
-      window.history.replaceState(null, '', c.base + (c.slug ? `/o/${c.slug}` : '/'))
+      window.history.replaceState(null, '', c.slug ? `/o/${c.slug}` : '/')
       setPending({ target }); return
     }
     c.commit(target)

@@ -18,21 +18,5 @@
     "engine_authored": false,
     "text": "context.command·text"
   },
-  "public": {
-    "v": 1,
-    "variant": "context.command",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "context.command·actor"
-    },
-    "object": {
-      "kind": "node",
-      "id": "context.command·object.id",
-      "name": "context.command·object.name",
-      "generation": 3
-    },
-    "text": "context.command·text"
-  },
   "body": "context.command·text"
 }

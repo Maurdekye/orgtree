@@ -61,8 +61,7 @@ class StartupBudgetTests(unittest.TestCase):
         folder.mkdir(exist_ok=True)
         transcript = folder / "control.jsonl"
         transcript.write_bytes(b"real content")
-        for name, walk in [("transcript-search", lambda: supervisor._project_transcripts(str(folder / "*.jsonl"))),
-                           ("workspace-tree", lambda: supervisor._workspace_tree_bytes([str(folder)]))]:
+        for name, walk in [("transcript-search", lambda: supervisor._project_transcripts(str(folder / "*.jsonl")))]:
             with fleet_walk_budget(name, 1) as budget:
                 self.assertTrue(walk())
             self.assertEqual(budget.calls, 1)

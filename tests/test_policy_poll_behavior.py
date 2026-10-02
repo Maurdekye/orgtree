@@ -97,9 +97,8 @@ class PollBehavior(unittest.TestCase):
 
     def test_storage_idle_blocked_busy_and_sandbox_decisions(self):
         cases = [({}, False, False), ({'storage_blocked': {'at': 'x'}}, False, True),
-                 ({'kiosk': {'enabled': False, 'storage_limit_mb': 5}}, True, True),
                  ({'sandbox': {'enabled': True}}, True, True),
-                 ({'kiosk': {'sandbox': True}}, True, True),
+                 ({'sandbox': {'enabled': True}, 'storage_blocked': {'at': 'x'}}, False, True),
                  ({'sandbox': {'enabled': True}}, False, False), ({}, True, False)]
         for settings, busy, expected in cases:
             with self.subTest(settings=settings, busy=busy), ExitStack() as stack:

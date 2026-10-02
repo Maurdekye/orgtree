@@ -53,7 +53,7 @@ function card(n: CanvasNode, lod: 'mini' | 'norm', onPin: () => void,
     dragging={false} isDrop={false} seats={seats} codexHire={hire}
     antigravityHire={hire} claudeHire={hire} map={new Map([[n.id, n]])}
     op={op} slug="render" toast={noop} pxc={1} zoom={lod === 'mini' ? .4 : .8}
-    compactAt={.8} pub={false} maxTop={100} kioskRemaining={null}
+    compactAt={.8} maxTop={100}
     cascadeAlloc onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
     onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
     onOpenAgentGallery={onOpenAgentGallery}

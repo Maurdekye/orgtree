@@ -57,9 +57,7 @@ function renderCard(node: CanvasNode, mapMode = false) {
       pxc={1}
       zoom={1}
       compactAt={0.8}
-      pub={false}
       maxTop={0}
-      kioskRemaining={null}
       cascadeAlloc
       onSpawn={noop}
       onSpawnSide={noop}
@@ -89,7 +87,7 @@ test('usage freeze takes presentation precedence; execution and recorded status 
  const v=await renderCard(n)
  try{assert.equal(v.el.querySelector('.sq-workstate .sq-idle')?.textContent,'Frozen');assert.equal(v.el.querySelectorAll('.sq-workstate .cc-spin').length,0)}finally{await v.unmount()}
  assert.equal(JSON.stringify(n),before)
- for(const f of [{...freeze(12),connection:true,limit:false},{...freeze(12),cause:'auth'},{...freeze(12),cause:'balance'},{...freeze(12),spend:true}])assert.equal(isUsageFrozen({...n,frozen:f}),false)
+ for(const f of [{...freeze(12),connection:true,limit:false},{...freeze(12),cause:'auth'},{...freeze(12),cause:'balance'}])assert.equal(isUsageFrozen({...n,frozen:f}),false)
  assert.equal(isUsageFrozen({...n,limit_locked:true}),false)
  assert.equal(isUsageFrozen({...n,state:'retired'}),false)
 })

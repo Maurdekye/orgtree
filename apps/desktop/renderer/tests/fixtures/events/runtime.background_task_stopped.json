@@ -19,21 +19,5 @@
     "summary": "runtime.background_task_stopped·summary",
     "output_file": "runtime.background_task_stopped·output_file"
   },
-  "public": {
-    "v": 1,
-    "variant": "runtime.background_task_stopped",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "task",
-      "id": "runtime.background_task_stopped·object.id",
-      "node": "runtime.background_task_stopped·object.node",
-      "description": "runtime.background_task_stopped·object.description"
-    },
-    "summary": "runtime.background_task_stopped·summary"
-  },
   "body": "[BACKGROUND TASK STOPPED — \"runtime.background_task_stopped·object.description\" did not complete]\ntask id: runtime.background_task_stopped·object.id\nCLI summary: runtime.background_task_stopped·summary\npartial output: runtime.background_task_stopped·output_file\n\nThe CLI reported that this background task stopped while your agent process was still alive. Check the exit code, output and actual state before continuing."
 }

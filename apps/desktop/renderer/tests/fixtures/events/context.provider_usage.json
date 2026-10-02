@@ -28,17 +28,5 @@
     ],
     "seq": 3
   },
-  "public": {
-    "v": 1,
-    "variant": "context.provider_usage",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "org"
-    }
-  },
   "body": "context.provider_usage·text"
 }

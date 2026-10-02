@@ -80,7 +80,7 @@ function domTest(name: string,
       mount: async () => {
         const v = await mountView(
           <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={SL}
-            toast={noop} pub={false} bare />,
+            toast={noop} bare />,
           (host) => host)
         open.push(v)
         return v.el

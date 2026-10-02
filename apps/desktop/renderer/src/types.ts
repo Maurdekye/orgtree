@@ -165,9 +165,8 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
-  /** Raw wire data is decoded against the generated operator/public schema. */
+  /** Raw wire data is decoded against the generated schema. */
   ev?: unknown
-  ev_public?: unknown
   ev_raw?: unknown
   ev_error?: unknown
   id: string
@@ -299,12 +298,6 @@ export interface TreeFrozen {
    *  the N has `cause === "auth"`: the COUNT is right and the WORDS are not.
    *  This field is what a label branch needs to say so. */
   cause?: string | null
-  /** the kiosk SPEND kind (2026-08-26). `hard_freeze` writes this flag and the
-   *  org-level `spend_frozen` in the same locked block, so they always coexist
-   *  — which is why the org banner was right (it returns early on the org
-   *  flag) while the NODE BADGE was wrong: a badge has no org flag to consult,
-   *  so a spend-frozen agent wore the words "usage limit". */
-  spend?: boolean | null
 }
 
 // ledger.py tree(): one entry of the node's lineage stack (§8)
@@ -317,8 +310,7 @@ export interface LineageEntry {
 }
 
 // ---------------------------------------------------------------- tree view
-// ledger.py Org.tree() build() + api.py org_tree annotate(); _scrub_public
-// pops session_id for kiosk visitors, hence optional
+// ledger.py Org.tree() build() + api.py org_tree annotate()
 // D-234: a model switch asked for while the node was mid-turn, waiting for
 // the turn boundary — `switch_model`'s `pending_switch` record, verbatim
 export interface PendingSwitch {
@@ -419,8 +411,8 @@ export interface TreeNode {
    *  second reading of them here would be a second answer.
    *  ⚠ A CANDIDATE LIST, NOT A PROMISE: it is composed from cache-only
    *  evidence, and `/continue-on` re-decides it against a forced provider
-   *  read before it moves anything. Empty for every ordinary agent, for a
-   *  node whose automatic fallback is on, and for a kiosk visitor. */
+   *  read before it moves anything. Empty for every ordinary agent and for a
+   *  node whose automatic fallback is on. */
   continue_accounts?: string[]
   last_status: NodeStatus | null
   prev_status: NodeStatus | null
@@ -501,7 +493,7 @@ export interface TreeNode {
   /** the same fact, reader-shaped: "fallback 2 · <uuid>" when this turn is
    *  running off a fallback account, null otherwise (the primary login and
    *  the api-key lane say nothing here). Composed server-side — it owns the
-   *  registry, and the uuid is omitted for kiosk visitors. User ruling
+   *  registry. User ruling
    *  2026-08-25; this is what the desk badge renders. */
   ran_as_label?: string | null
   /** WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW — `ran_as`
@@ -516,8 +508,7 @@ export interface TreeNode {
    *  ⚠ COMPOSED SERVER-SIDE, like `ran_as_label` and `codex_route.label`, and
    *  for the same reason: the backend owns the registry, so a renderer that
    *  counted available accounts itself would be a second definition of
-   *  "available" to disagree with. It is also withheld entirely from kiosk
-   *  visitors (D-145) — the renderer never has to know that.
+   *  "available" to disagree with.
    *
    *  ⚠ NEVER A CREDENTIAL. Registry metadata only; no token, key, profile
    *  path or auth material reaches this field. */
@@ -694,24 +685,6 @@ export interface Watchdog {
 }
 
 export type AudienceRequest = Record<string, unknown>
-
-// api.py org_tree: the kiosk block (admin fields scrubbed for visitors)
-export interface TreeKiosk {
-  credits: number | null
-  spend_limit: number | null
-  storage_limit_mb: number | null
-  spend_frozen: boolean
-  storage_blocked: boolean
-  max_scope?: Record<string, unknown> | null
-  auto_raise?: boolean
-  /** (max_scope or {}).get("max_tier") (api.py:593) — writes are validated
-   *  against TIERS or None (ledger.py:495-502) */
-  max_tier: string | null
-  enabled: boolean
-  sandbox: boolean
-  share_url?: string | null
-  storage_mb?: number
-}
 
 // ledger.py audit()
 export interface AuditReport {
@@ -899,7 +872,6 @@ export interface TreePayload {
    *  chat banner and the release control all read THIS key — per-node `halt`
    *  never implies it. Absent from an older engine, which only interrupted. */
   killswitch?: { at: string; by: string } | null
-  spend_frozen: boolean
   storage_blocked: boolean
   /** the org's virtual disk (sandboxed, migrated orgs only) — the persistent
    *  hard-full alert and the storage chip render from this state */
@@ -933,9 +905,7 @@ export interface TreePayload {
     multi_holder_enabled: boolean
     visible: boolean
   }
-  kiosk?: TreeKiosk            // only when the org is a kiosk
-  public?: boolean             // only through the public gateway
-  net?: NetBlock | null        // F-06 (null for kiosks; absent for visitors)
+  net?: NetBlock | null        // F-06
   headless?: boolean           // §9.6
   /** A persisted restart/relaunch record projected by the backend. Standard
    *  profiles use it for machine-wide deployment; desktop-managed V2 uses the
@@ -961,33 +931,16 @@ export interface PrimedRestart {
 }
 
 // ----------------------------------------------------------------- org list
-// api.py orgs_list admin branch attaches kiosk_cfg
-export interface KioskDashboard {
-  enabled: boolean
-  token: string | null
-  credits: number
-  spend_limit: number
-  storage_limit_mb: number
-  spend_frozen: boolean
-  storage_blocked: boolean
-  sandbox: boolean
-  held: number
-  storage_mb: number | null
-  share_url: string | null
-}
-
 // GET /api/orgs — store.list_orgs() rows + api.py orgs_list decoration.
-// cost_usd_total/kiosk_cfg are admin-only and skipped on a LedgerError row.
+// cost_usd_total is admin-only and skipped on a LedgerError row.
 export interface OrgListEntry {
   slug: string
   name: string
   nodes: number
   live: number
-  kiosk: boolean
   created: string | null
   cost_usd_total?: number
   working?: number             // F-09: agents with a running turn (admin list only)
-  kiosk_cfg?: KioskDashboard
 }
 
 // --------------------------------------------------------------------- chat
@@ -1119,7 +1072,6 @@ export interface PendingMail {
   event_id?: string
   reply_to?: EventReplyWire
   ev?: unknown
-  ev_public?: unknown
   ev_raw?: unknown
   ev_error?: unknown
   delivery?: unknown
@@ -1279,7 +1231,6 @@ export interface EventsPayload {
 // GET /api/orgs/{slug}/nodes/{nid}/history — api.py node_history items
 export interface HistoryItem {
   ev?: unknown
-  ev_public?: unknown
   ev_raw?: unknown
   ev_error?: unknown
   at: string
@@ -2086,16 +2037,6 @@ export interface AudiencesPayload {
 }
 
 // ---------------------------------------------------------------- requests
-// api.py KioskSpec (all fields have server defaults → optional here)
-export interface KioskSpecRequest {
-  credits?: number
-  spend_limit?: number
-  storage_limit_mb?: number
-  sandbox?: boolean
-  max_scope?: Record<string, unknown> | null
-  auto_raise?: boolean
-}
-
 // api.py Op — the ledger op envelope (POST /api/orgs/{slug}/ops)
 export interface OpRequest {
   op: string
@@ -2122,7 +2063,6 @@ export interface OpRequest {
   delta?: number | null
   new_parent?: string | null
   dir?: string | null
-  raise_ceiling?: boolean
   /** cheap_compact — refuse (409) instead of acting when the target is
    *  mid-turn. Sent by the bulk actions only (canvas/bulkcompact.tsx); the
    *  single action keeps its existing behaviour. */
@@ -2147,7 +2087,6 @@ export interface ScopeRequest {
   clear_account_fallback?: boolean
   /** per-node cache-protection override; {} clears back to org inherit */
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
-  raise_ceiling?: boolean
 }
 
 // api.py Settings — shared by /api/defaults and /api/orgs/{slug}/settings
@@ -2164,8 +2103,7 @@ export interface SettingsRequest {
   default_tools?: Partial<ToolGrant> | null
   default_visibility?: string | null
   default_account?: string | null
-  /** D-101 — the mode NEW hires are born with; admin-only (this endpoint is
-   *  frozen for kiosk visitors, unlike /defaults) */
+  /** D-101 — the mode NEW hires are born with */
   permission_mode?: string | null
   default_effort?: string | null
   /** app-wide Luna default; not copied into individual org settings */
@@ -2202,18 +2140,6 @@ export interface HireDefaultsRequest {
   default_visibility?: string | null
   default_effort?: string | null
   default_account?: string | null
-  raise_ceiling?: boolean
-}
-
-// api.py KioskCfg (POST /api/orgs/{slug}/kiosk)
-export interface KioskCfgRequest {
-  enabled?: boolean | null
-  credits?: number | null
-  spend_limit?: number | null
-  storage_limit_mb?: number | null
-  rotate_token?: boolean
-  max_scope?: Record<string, unknown> | null
-  auto_raise?: boolean | null
 }
 
 // api.py Reorder (POST .../nodes/{nid}/reorder)
@@ -2233,9 +2159,6 @@ export interface OpResult {
    *  when non-empty. `modals.tsx savePopups` is the choke point that reads
    *  `warnings` and deliberately not this: see the ruling on CHARTER_LONG. */
   advisories?: string[]
-  /** the one-action kiosk-ceiling bridge (ledger.py:714-715): present when
-   *  something was clamped and re-sending with raise_ceiling would fit it */
-  bridge?: { raise_ceiling?: boolean }
   /** D-106: agents whose permissions this grant raised on its way down the
    *  chain (ledger.set_scope). The ledger is the authority — the panel's
    *  pre-save preview is a courtesy, this is what actually happened. */
@@ -2247,14 +2170,6 @@ export interface OpResult {
 export interface SettingsResult {
   dirs: DirGrant[]
   warnings: string[]
-}
-
-// POST .../kiosk
-export interface KioskSaveResult {
-  kiosk: Record<string, unknown>
-  share_url: string | null
-  freezes_cleared: string[]
-  warnings?: string[]
 }
 
 // POST .../nodes/{nid}/message — several branches (api.py node_message):

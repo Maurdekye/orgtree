@@ -49,7 +49,7 @@ test('starting appears once before activity, not between durable events',
     const nd = node(nid)
     const view = await mountView(
       <DeskChat node={nd} map={new Map([[nid, nd]])} op={op} slug={slug}
-        toast={noop} pub={false} bare />,
+        toast={noop} bare />,
       (host) => host)
     t.after(async () => {
       try { await view.unmount() } catch { /* gone */ }

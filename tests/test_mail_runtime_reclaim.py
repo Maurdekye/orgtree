@@ -989,7 +989,7 @@ class ReclaimTransactionTests(unittest.TestCase):
     def test_reclaim_respects_existing_node_and_org_gates(self):
         for where, key in [('node', 'halt'), ('node', 'frozen'), ('node', 'limit_locked'),
                            ('node', 'remote_controlled'), ('org', 'killswitch'),
-                           ('org', 'spend_frozen'), ('org', 'storage_blocked')]:
+                           ('org', 'storage_blocked')]:
             with self.subTest(key=key):
                 org = self.load(self.slug)
                 target = org.nodes['worker'] if where == 'node' else org.d

@@ -13,7 +13,7 @@ type Seen = { path: string; method: string }
 
 function tree(slug = 'acme'): TreePayload {
   return { slug, name: slug, nodes: [], edges: [],
-    cascade_hire: true, cascade_alloc: true, net: { hubs: [] }, kiosk: null,
+    cascade_hire: true, cascade_alloc: true, net: { hubs: [] },
   } as unknown as TreePayload
 }
 
@@ -196,7 +196,7 @@ test('preset failure has retry while manual charter remains usable', async () =>
   const draft: DraftState = { parent: null, tier: 'haiku' }
   const view = await mountView(
     <DraftNode pos={{ x: 0, y: 0 }} draft={draft} map={new Map()}
-      seats={{ haiku: 1 }} maxTop={100} defaultTop={0} kioskRemaining={null}
+      seats={{ haiku: 1 }} maxTop={100} defaultTop={0}
       tree={tree()} zoom={1} pxc={1}
       onConfirm={(_name, _grant, charter) => { confirmed = charter }}
       onCancel={() => {}} />, (el) => el)
@@ -246,7 +246,7 @@ test('uninitialized hire keeps long manual charter without an advisory warning',
   const view = await mountView(
     <DraftNode pos={{ x: 0, y: 0 }} draft={{ parent: null, tier: 'haiku' }}
       map={new Map()} seats={{ haiku: 1 }} maxTop={100} defaultTop={0}
-      kioskRemaining={null} tree={tree()} zoom={1} pxc={1}
+      tree={tree()} zoom={1} pxc={1}
       onConfirm={(_name, _grant, charter) => { confirmed = charter }}
       onCancel={() => {}} />, (el) => el)
   try {

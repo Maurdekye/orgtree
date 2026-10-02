@@ -15,7 +15,7 @@ import { OrgtreeMenu } from '../src/shell/menu'
 import type { OrgListEntry } from '../src/types'
 
 const entry = (slug: string, name: string, working: number, live: number): OrgListEntry => ({
-  slug, name, nodes: live, live, working, kiosk: false, created: null,
+  slug, name, nodes: live, live, working, created: null,
 } as OrgListEntry)
 const ORGS = [
   entry('maurdekye-works', 'Maurdekye Works', 0, 3),

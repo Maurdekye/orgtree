@@ -322,8 +322,7 @@ class ContactFacets(unittest.TestCase):
 
     def test_org_view_reads_and_the_admin_tree_cross_org_read(self):
         admin = ("org.tree", "org.node-detail", "org.node-detail:archived")
-        public = ("org.tree:public", "org.node-detail:public")
-        for variant in admin + public:
+        for variant in admin:
             contract = "org.tree" if variant.startswith("org.tree") else "org.node-detail"
             for condition in ("cold", "warm"):
                 with self.subTest(variant=variant, condition=condition):
@@ -345,22 +344,15 @@ class ContactFacets(unittest.TestCase):
                         self.assertEqual(self.foreign(r), 0)
                         if condition == "warm":
                             self.assertEqual(r["census"]["statements"], 0)
-                    if variant in admin:
-                        self.assertIn("file_read:home:provider", r["contact_classes"])
+                    self.assertIn("file_read:home:provider", r["contact_classes"])
         cold, warm = self.exact("org.tree", "org.tree", "cold"), self.exact("org.tree", "org.tree", "warm")
         self.assertEqual(self.foreign(cold), self.foreign(warm))
-        for variant, status, records in (("refusal:tree-no-token", 401, 0), ("refusal:tree-bad-kiosk-token", 404, 0),
-                                         ("refusal:tree-admin-on-kiosk-org", 500, 1)):
+        for variant, status, records in (("refusal:tree-no-token", 401, 0),):
             with self.subTest(variant=variant):
                 r = self.exact("org.tree", variant, "warm")
                 self.assertEqual((r["http_status"], r["census"]["statements"], r["census"]["records"]), (status, 0, records))
         r = self.exact("org.node-detail", "refusal:detail-unknown-node", "warm")
         self.assertEqual((r["http_status"], r["census"]["statements"]), (404, 0))
-        scan = self.doc["kiosk_token_scan"]
-        self.assertEqual(scan["statements_unbound"], scan["statements"])
-        self.assertGreater(scan["statements"], 0)
-        self.assertEqual(scan["recorded_delta"], 0)
-        self.assertGreater(scan["db_unattributed_delta"], 0)
 
     def test_migration_rows_write_and_one_write_is_outside_a_transaction(self):
         routes = ("org.tree", "mail.user-inbox", "mail.user-inbox-read", "mail.node-inbox")
@@ -369,8 +361,9 @@ class ContactFacets(unittest.TestCase):
                 cold = self.exact(contract, "migration:legacy-json", "cold")
                 h = cold["harness"]
                 # 73 since PG-3d's per-owner split of mail/delivering/notices (4408075);
-                # 77 since b40ea3e added the lazy work_scope_log table
-                self.assertEqual((h["writes"], h["writes"] - h["writes_in_transaction"]), (77, 1))
+                # 77 since b40ea3e added the lazy work_scope_log table; 76 since a
+                # new organization no longer stores the removed public-link block
+                self.assertEqual((h["writes"], h["writes"] - h["writes_in_transaction"]), (76, 1))
         for contract in routes:
             with self.subTest(contract=contract):
                 refused = self.exact(contract, "migration:refused", "cold")
@@ -383,15 +376,14 @@ class ContactFacets(unittest.TestCase):
                 self.assertEqual(self.written(self.exact(contract, "migration:legacy-json", "warm")), [])
 
     def test_org_feed_records_subscriptions_and_fanout(self):
-        for variant, public in (("org.feed", 0), ("org.feed:public", 1)):
-            kind = "public" if public else "admin"
+        for variant in ("org.feed",):
             for condition in ("cold", "warm"):
                 with self.subTest(variant=variant, condition=condition):
                     r = self.exact("org.feed", variant, condition)
-                    self.assertEqual(r["feed"], {"frames": {kind: 1}, "public_in_room": public, "subscribers": 1})
+                    self.assertEqual(r["feed"], {"frames": {"admin": 1}, "subscribers": 1})
                     self.assertEqual((r["census"].get("statements", 0), r["census"].get("records", 0)), (0, 0))
         fan = self.exact("org.feed", "org.feed:fanout", "warm")["feed"]
-        self.assertEqual(fan, {"frames": {"admin": 2, "public": 2}, "public_in_room": 1, "subscribers": 2})
+        self.assertEqual(fan, {"frames": {"admin": 2, "admin-2": 2}, "subscribers": 2})
         refused = self.exact("org.feed", "refusal:feed-no-token", "warm")
         self.assertEqual((refused["http_status"], refused["feed"]), (4401, {"close_code": 4401, "refused": True}))
 
@@ -923,7 +915,7 @@ class ContactFacets(unittest.TestCase):
         self.assertGreater(control["agents"]["third_agent_mail"], 0)
 
     def test_f2_control_contacts_and_the_unhalt_carry_over(self):
-        rows = self.assert_family("control.instrumentation", 18, ("refusal:route-agent-token",))
+        rows = self.assert_family("control.instrumentation", 17, ("refusal:route-agent-token",))
         # apart from the locality control, the only third agent a row MAY write is the node unhalted earlier in
         # the warm run: its steer_attempts log_d rows, re-written by every later save (control.writes' legacy
         # defect). PG-3e-A 6e41514 fixed that defect (scan_steer_records no longer writes the shared document),
@@ -942,15 +934,11 @@ class ContactFacets(unittest.TestCase):
                 self.assertTrue(writes and all(site.startswith("log_d:write@") for site in writes),
                                 r["agents"]["third_sites"])
         self.assertEqual(carried, 0)
-        # the stripped kiosk route: this probe's app mounts no UI catch-all, so 404 (405 where one is mounted)
-        for condition in ("cold", "warm"):
-            kiosk = self.exact("control.kiosk", "control.kiosk:desktop-stripped", condition)
-            self.assertEqual((kiosk["http_status"], self.written(kiosk)), (404, []))
 
     # the rows that touch another org's store, and the refusals answered before any census attempt
     # (the extern scans left with the external-chat retirement; the main send row is now an @org: send)
     EXCHANGE_CROSS_ORG = {"exchange.orgs-list", "exchange.org-inbox-send", "exchange.org-inbox-send:org",
-                          "exchange.org-inbox-send:org-attachment", "exchange.org-inbox-send:org-kiosk"}
+                          "exchange.org-inbox-send:org-attachment"}
     EXCHANGE_PRE_CENSUS = {"refusal:route-no-token", "refusal:route-agent-token"}
     FOREIGN_WRITE_SITES = ("orgtree.store:_write_doc", "orgtree.store:_write_log_rows", "orgtree.store:_save_sqlite")
 
@@ -977,10 +965,9 @@ class ContactFacets(unittest.TestCase):
                                      (0, 0))
         [control] = [r for r in rows if r["variant"] == "control:exchange-third-agent"]
         self.assertGreater(control["agents"]["third_agent_mail"], 0)
-        # a delivered @org: send WRITES the other org; one to a kiosk org only reads it, one to a missing org neither
+        # a delivered @org: send WRITES the other org; one to a missing org neither reads nor writes it
         for variant, writes in (("exchange.org-inbox-send", True), ("exchange.org-inbox-send:org", True),
-                                ("exchange.org-inbox-send:org-attachment", True),
-                                ("exchange.org-inbox-send:org-kiosk", False)):
+                                ("exchange.org-inbox-send:org-attachment", True)):
             sites = self.exact("exchange.org-inbox-send", variant, "warm")["harness"]["foreign_statement_sites"]
             self.assertEqual(any(s in sites for s in self.FOREIGN_WRITE_SITES), writes, variant)
         missing = self.exact("exchange.org-inbox-send", "exchange.org-inbox-send:org-missing", "warm")
@@ -1178,7 +1165,7 @@ class ContactFacets(unittest.TestCase):
 
     def test_no_token_rows_are_the_only_rows_without_a_census_record(self):
         # a loss-accounted record for every S2e row but the ones refused before any attempt
-        unrecorded = {"refusal:tree-no-token", "refusal:tree-bad-kiosk-token", "refusal:inbox-no-token",
+        unrecorded = {"refusal:tree-no-token", "refusal:inbox-no-token",
                       "json:refusal:inbox-no-token"}
         for r in self.doc["rows"]:
             if not r["contract"].startswith(("org.tree", "org.node-detail", "mail.")):

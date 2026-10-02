@@ -60,7 +60,7 @@ function oneDesk(extra: Record<string, unknown>) {
   const map = new Map([[n.id, n]])
   return <CurrentOrg.Provider value={SLUG}>
     <DeskHosts map={map} slug={SLUG}>
-      <DeskSlot node={n} map={map} op={op} slug={SLUG} toast={noop} pub={false}
+      <DeskSlot node={n} map={map} op={op} slug={SLUG} toast={noop}
         bare {...extra} />
     </DeskHosts>
   </CurrentOrg.Provider>

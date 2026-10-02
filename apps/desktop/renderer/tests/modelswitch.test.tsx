@@ -315,24 +315,6 @@ configTest('disconnected Codex tiers stay visible and explain why disabled',
     assert.equal(option(el, 'haiku').disabled, false)
   })
 
-configTest('kiosk policy and seat cap disable options instead of hiding them',
-  async (mount) => {
-    const { el } = await mount({ tree: tree({
-      kiosk: { max_tier: 'sonnet' } as TreePayload['kiosk'],
-    }) })
-    // Astra is always offered (user 2026-09-24, 9e640fb)
-    // 4 claude + 3 codex (terra is hidden legacy) + 1 antigravity (pro is too)
-    assert.equal(options(el).length, 8)
-    for (const tier of ['luna', 'sol', 'astra', 'flash']) {
-      assert.equal(option(el, tier).disabled, true)
-      assert.match(option(el, tier).textContent ?? '', /unavailable in kiosk orgs/)
-    }
-    assert.match(option(el, 'opus').textContent ?? '', /above kiosk cap \(sonnet\)/)
-    assert.match(option(el, 'fable').textContent ?? '', /above kiosk cap \(sonnet\)/)
-    assert.equal(option(el, 'haiku').disabled, false)
-    assert.equal(option(el, 'sonnet').disabled, false)
-  })
-
 configTest('headless Codex requires an API-key login', async (mount) => {
   const blocked = await mount({ tree: tree({ headless: true }) })
   assert.equal(option(blocked.el, 'sol').disabled, true)

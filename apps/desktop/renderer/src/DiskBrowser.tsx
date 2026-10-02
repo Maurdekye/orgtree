@@ -9,8 +9,8 @@
 // turn can run so no agent can delete anything. It therefore depends on
 // NOTHING but the backend (reads/deletes go over \\wsl.localhost — the
 // container can be stopped, the disk 100% full; both modes read the same
-// cached single walk). Kiosk visitors get the full tool (ruled); the server
-// enforces the deletion policy, this UI only mirrors it. The system seed is
+// cached single walk). The server enforces the deletion policy, this UI only
+// mirrors it. The system seed is
 // SHOWN, marked non-deletable — "4 GB cap, 1.2 GB of it /usr" answers
 // "where did my space go" better than any text.
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -39,9 +39,8 @@ const MODE_KEY = 'orgtree-diskmode'   // last-used mode (header button entry)
 // what the delete footer needs to know about a selected path
 interface SelMeta { bytes: number; dir: boolean; files: number }
 
-export function DiskBrowser({ slug, isPublic, toast, close, initialMode }: {
+export function DiskBrowser({ slug, toast, close, initialMode }: {
   slug: string
-  isPublic: boolean
   toast: ToastFn
   close: () => void
   /** the hard-full alert always opens 'largest' — the triage view is the
@@ -188,7 +187,7 @@ export function DiskBrowser({ slug, isPublic, toast, close, initialMode }: {
         {/* in-product backstop nudge (review suggestion): org disks are
             sparse, so their per-org caps don't bound the HOST — only Docker
             Desktop's own disk limit does, and it ships unset (~1 TB) */}
-        {live && live.vm_cap_mib == null && !isPublic && (
+        {live && live.vm_cap_mib == null && (
           <div className="dim disk-vmcap">
             host backstop unset: Docker Desktop has no disk usage limit
             (defaults to ~1 TB) — org disks are sparse, so their caps bound
@@ -243,8 +242,7 @@ export function DiskBrowser({ slug, isPublic, toast, close, initialMode }: {
             </button>
           )}
           <span className="spacer" />
-          {!isPublic && (
-            <>
+          <>
               {/* pending-shrink divergence (user's design): the amber chip
                   shows requested vs actual until the org's container is
                   next down — or the bridge applies it now */}
@@ -295,8 +293,7 @@ export function DiskBrowser({ slug, isPublic, toast, close, initialMode }: {
                     .catch((e: Error) => toast([`error: ${e.message}`]))
                     .finally(() => setBusy(false))
                 }}>resize</button>
-            </>
-          )}
+          </>
         </div>
     </PinFrame>
   )

@@ -28,7 +28,7 @@ class ForegroundView(unittest.TestCase):
                 'lineage_count': 2 if nid == 'boss' else 0,
                 'consultable_predecessor': {'id': 'past', 'generation': 2} if nid == 'boss' else None}
 
-    def render(self, *, kind='snapshot', requested=None, public=False):
+    def render(self, *, kind='snapshot', requested=None):
         with patch.object(self.org, 'org_children', side_effect=AssertionError('full descendant walk')):
             with patch.object(self.org, 'lineage_stack', side_effect=AssertionError('full lineage walk')):
                 prepared = view.prepare(self.org, self.graph, detail_token=api._archived_detail_rev,
@@ -37,8 +37,6 @@ class ForegroundView(unittest.TestCase):
         for node in annotated['roots']:
             if node['state'] == 'archived':
                 api._summarise_archived(node)
-        if public:
-            api._scrub_public(annotated)
         return view.finish(prepared, annotated, kind=kind, requested=requested)
 
     def test_selected_fields_and_ancestor_topology_survive_without_lineage_walk(self):
@@ -99,16 +97,6 @@ class ForegroundView(unittest.TestCase):
         for nid in ('past', 'old'):
             self.graph['rows'][nid]['meta'].update(order=0, created='same')
         self.assertEqual(self.render()['nodes']['boss']['children'], ['old', 'past'])
-
-    def test_public_scrubbing_is_not_undone_by_packing_flat_nodes(self):
-        self.org.nodes['boss']['session_id'] = 'private-session'
-        self.org.nodes['boss']['external_handles'] = ['private-peer']
-        self.org.nodes['boss']['scope']['add_dirs'] = [{'path': 'C:/secret/folder', 'mode': 'rw'}]
-        result = self.render(public=True)['nodes']['boss']
-        self.assertNotIn('session_id', result)
-        self.assertNotIn('external_handles', result)
-        self.assertEqual(result['scope']['add_dirs'][0]['path'], 'folder')
-        self.assertEqual(self.org.nodes['boss']['scope']['add_dirs'][0]['path'], 'C:/secret/folder')
 
     def test_detail_token_tracks_local_detail_and_committed_lineage_dependency(self):
         before = self.render()['nodes']['old']['detail_rev']

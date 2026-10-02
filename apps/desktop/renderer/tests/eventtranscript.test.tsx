@@ -36,25 +36,16 @@ test('untyped and unsupported transcript keep exact marker-looking content witho
   }
 })
 
-test('public transcript uses permitted typed fields, retains allowed content and refuses private rows',async t=>{
-  const fixture=f('reply.document');const row={id:'r',from:'agent',kind:'message',body:'compatibility',at:'now',ev_public:{...fixture.public,body:'Allowed C in public transcript'}}
-  const segments=[{kind:'mail',rows:[row]}];assert.ok(isSegments(segments,'public'))
-  const v=await mountView(<SegmentList segments={segments} profile="public" slug="org" nid="worker"/>,h=>h);t.after(()=>v.unmount())
-  assert.match(v.el.querySelector('.event-linked_reply')!.textContent!,/Allowed C in public transcript/)
-  assert.equal(isSegments([{kind:'mail',rows:[mail('reply.document')]}],'public'),false)
-})
-
-
-test('machine-only segments leave no empty card and preserve mixed readable composition in both profiles',async t=>{
+test('machine-only segments leave no empty card and preserve mixed readable composition',async t=>{
   // DERIVED, not hand-listed. A leaf is hidden by declaring every own field
   // model_only, so the set moves when a leaf gains a human field — which is
   // exactly what happened to `context.drive_restart_interrupted` on
   // 2026-09-16, and a hand-written copy of the list said it was still hidden
   // while the desk had started drawing it.
   const hidden=[...HUMAN_HIDDEN_VARIANTS]
-  for(const profile of ['operator','public'] as const) {
-    const eventKey=profile==='operator'?'event':'event_public', rowKey=profile==='operator'?'ev':'ev_public'
-    const fixtureKey=profile==='operator'?'private':'public'
+  for(const profile of ['operator'] as const) {
+    const eventKey='event', rowKey='ev'
+    const fixtureKey='private'
     const segments=[{kind:'text',text:'Readable first'},
       ...hidden.map(variant=>({kind:'state',text:'HIDDEN MACHINE FALLBACK',[eventKey]:f(variant)[fixtureKey]})),
       {kind:'mail',rows:[{from:'alpha',kind:'status',at:'now',body:'compatibility',[rowKey]:{...f('status.report')[fixtureKey],summary:'Exact done summary C'}}]},
@@ -73,12 +64,12 @@ test('machine-only segments leave no empty card and preserve mixed readable comp
   }
 })
 
-test('each typed transcript message owns its header, body and family styling in both profiles', async t => {
-  for (const profile of ['operator', 'public'] as const) {
-    const fixture = f('status.report')[profile === 'operator' ? 'private' : 'public']
+test('each typed transcript message owns its header, body and family styling', async t => {
+  for (const profile of ['operator'] as const) {
+    const fixture = f('status.report')['private']
     const event = {...fixture, actor: {kind:'agent',id:'alpha'}, summary:'Meaningful summary C'}
     const row = {id:'single',from:'@user',at:'now',kind:'status',body:'Stored compatibility copy',
-      ...(profile==='operator' ? {ev:event} : {ev_public:event})}
+      ...({ev:event})}
     const v=await mountView(<SegmentList slug="org" nid="worker" profile={profile}
       segments={[{kind:'mail',rows:[row]}]}
       actor={id=><><span className="tier">M</span><span className="cc-name">{id}</span></>}/>, h=>h)
@@ -121,14 +112,13 @@ test('chat message and notice segments share ordinary styling and sender navigat
 
 test('only typed mail-pointer instructions are hidden; identical authored and legacy text remains', async t => {
   const text='(orgtree) You have new mail above — handle it as appropriate.'
-  for (const profile of ['operator','public'] as const) {
-    const key=profile==='operator'?'private':'public'
+  for (const profile of ['operator'] as const) {
+    const key='private'
     const pointer=f('context.drive_mail_pointer')[key]
-    const drive={kind:'drive',text,...(profile==='operator'
-      ? {event:{...pointer,text,reason:null}} : {event_public:pointer})}
+    const drive={kind:'drive',text,event:{...pointer,text,reason:null}}
     const ordinary={...f('ordinary.message')[key],body:text}
     const segments=[drive,{kind:'mail',rows:[{from:'@user',kind:'message',at:'now',body:text,
-      ...(profile==='operator'?{ev:ordinary}:{ev_public:ordinary})}]},{kind:'text',text}]
+      ...({ev:ordinary})}]},{kind:'text',text}]
     assert.ok(isSegments(segments,profile),'nullable unstated reason validates')
     const v=await mountView(<SegmentList segments={segments} profile={profile} slug="org" nid="worker"/>,h=>h)
     t.after(()=>v.unmount())

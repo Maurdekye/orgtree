@@ -344,7 +344,7 @@ function tree(roots: unknown[]): TreePayload {
     roots, cost_usd_total: 0,
     audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null,
@@ -827,7 +827,7 @@ uiTest('§B6 agent pin window title: Show on canvas jumps; Unpin removes the pin
   const v = await mountView(
     <div ref={(el) => { vp.current = el }}>
       <PinLayer slug="mine" map={map} viewportRef={vp} targetOf={() => null}
-        op={() => Promise.resolve({} as never)} toast={noop} pub={false} maxTop={100} pxc={1}
+        op={() => Promise.resolve({} as never)} toast={noop} maxTop={100} pxc={1}
         onMailLink={noop} onWorkLink={noop} onOpenDoc={noop} onLineage={noop} onConfig={noop}
         onJump={(id) => { jumped.push(id) }}
         onShowOnCanvas={(id) => { shown.push(id) }} />

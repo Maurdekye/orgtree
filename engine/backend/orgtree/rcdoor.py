@@ -24,8 +24,7 @@ pg3c-inventory.md):
     node, `cr<n>` ids minted from its length); the node and its chain FOR
     SHARE (the headroom check). The headroom check only decides whether a
     request is FILED — no credit moves until a decision, which re-checks
-    everything through reallocate — so the kiosk-pool branch's scan of the
-    top-level nodes is read unlocked.
+    everything through reallocate.
   · credit decide (operator) — `credit_requests` FOR UPDATE; on approve the
     reallocate rows above with actor USER; the decision mail's send rows.
 
@@ -40,11 +39,6 @@ pg3c-inventory.md):
 
   WATCHDOGS · `watchdogs`, `watchdog_tombs`, `lifecycle` FOR UPDATE (caps:
     8 per agent, 32 per org, counted on that row).
-
-The kiosk credit cap (`api._kiosk_cap_check`) reads every live node
-(`Org.audit`), which no row lock can cover; it runs on the transaction's
-document, unlocked, for the grant-changing operations only (pending the
-lead's ruling, asked 2026-09-25 16:50Z).
 """
 from __future__ import annotations
 
@@ -55,8 +49,8 @@ from .ledger import USER, actor_kind
 
 # org settings the funding decisions read (FOR SHARE: the phantom rule — a
 # settings writer takes them FOR UPDATE)
-FUNDING_SETTINGS = ("tiers", "cascade_alloc", "max_top_grant", "kiosk",
-                    "slug", "headless")
+FUNDING_SETTINGS = ("tiers", "cascade_alloc", "max_top_grant", "slug",
+                    "headless")
 FUNDING_LOGS = ("events", "notice_log")
 # `_notify_ev` / `_stranding_warnings` rewrite the org-wide notices row
 FUNDING_SECTIONS = ("notices",)
@@ -65,20 +59,6 @@ REQUESTS = "credit_requests"
 RESERVATIONS = "reservations"
 WATCHDOG_SECTIONS = ("watchdogs", "watchdog_tombs")
 WATCHDOG_SETTINGS = ("sandbox", "workspace", "slug")
-
-# Tools that skip `api._kiosk_cap_check` (lead decision 18.8). The cap bounds
-# `Org.audit()["top_level_holds"]` = the sum of seat_cost(model) + grant over
-# the live top-level nodes, so only a write to a node's parent, state, model
-# or grant, a new node, or the `tiers` prices can move it. None of these
-# tools writes any of those (status: last_status/working_activity_at and the
-# parent's mail_seq/mailbox_id; reservations: the reservations row; watchdogs:
-# the watchdog rows; a credit REQUEST: credit_requests — the grant moves only
-# at the decision, which keeps the check). Proven end to end, on an org
-# already over its cap, by tests/test_pg3c_kiosk_exempt.py.
-KIOSK_EXEMPT = frozenset({"orgtree_status", "orgtree_reservation",
-                          "orgtree_resource_reservation", "orgtree_watchdog",
-                          "orgtree_request_credits"})
-HOLDS_FIELDS = ("parent", "state", "model", "grant")
 
 TOOLS = ("orgtree_reallocate", "orgtree_request_credits", "orgtree_status",
          "orgtree_reservation", "orgtree_resource_reservation",
@@ -520,7 +500,6 @@ def declare_all() -> None:
              _reservation_body),
             ("orgtree_watchdog", watchdog_spec, _watchdog_body)):
         pgdoor.declare(name, spec, body=body,
-                       kiosk_exempt=name in KIOSK_EXEMPT,
                        needs_snapshot=spec is not reservation_spec,
                        runtime_snapshot=spec is status_spec)
 

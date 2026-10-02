@@ -163,28 +163,23 @@ class WindowTests(unittest.TestCase):
             async def accept(self): pass
             async def send_json(self, row): self.frames.append(row)
             async def send_text(self, text): self.frames.append(json.loads(text))
-        admin=Socket();visitor=Socket();hub=Hub()
+        admin=Socket();hub=Hub()
         row={'role':'user','text':'visible','row_id':'same-id','segments':[
             {'kind':'mail','rows':[{'id':'mail-one','body':'visible',
                 'ev_raw':{'private':'must stay internal'},
                 'ev_error':{'code':'bad_structure','private':'details'}}]}]}
         async def run():
-            await hub.join('room',admin);await hub.join('room',visitor,public=True)
+            await hub.join('room',admin)
             await hub._send('room',{'kind':'steered','committed_row_raw':row})
             for _ in range(20):
-                if admin.frames and visitor.frames: break
+                if admin.frames: break
                 await asyncio.sleep(0.01)
-            hub.leave('room',admin);hub.leave('room',visitor)
+            hub.leave('room',admin)
         asyncio.run(run())
         self.assertNotIn('committed_row_raw',admin.frames[0])
-        self.assertNotIn('committed_row_raw',visitor.frames[0])
         self.assertEqual(admin.frames[0]['committed_row']['row_id'],'same-id')
-        self.assertEqual(visitor.frames[0]['committed_row']['row_id'],'same-id')
         ar=admin.frames[0]['committed_row']['segments'][0]['rows'][0]
-        vr=visitor.frames[0]['committed_row']['segments'][0]['rows'][0]
         self.assertIn('ev_raw',ar,'operator control retains diagnostic provenance')
-        self.assertNotIn('ev_raw',vr)
-        self.assertEqual(vr['ev_error'],{'code':'bad_structure'})
         self.assertIn('ev_raw',row['segments'][0]['rows'][0],'projection does not mutate the stored record')
 
     def test_clearing_reply_quotes_keeps_durable_transcript_history(self):

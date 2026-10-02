@@ -94,8 +94,8 @@ function card(focused: boolean, sink: Sink) {
     <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod="norm" focused={focused}
       dragging={false} isDrop={false} seats={seats}
       map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
-      pxc={1} zoom={1} compactAt={0.8} pub={false}
-      maxTop={0} kioskRemaining={null} cascadeAlloc
+      pxc={1} zoom={1} compactAt={0.8}
+      maxTop={0} cascadeAlloc
       onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
       onInbox={noop} onLineage={() => { sink.lineage++ }} onOpenDoc={noop}
       onRecenter={noop} onJump={noop} onMailLink={noop}

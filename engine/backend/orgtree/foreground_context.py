@@ -23,9 +23,9 @@ class CompatibilityRequired(RuntimeError):
 SETTINGS = tuple('''slug name workspace dirs max_top_grant default_top_grant compact_at
  default_tools default_visibility default_account permission_mode default_effort
  tiers models deleted_cost_usd deleted_cost_usd_unknown api_cost_usd fable_lock
- killswitch spend_frozen storage_blocked storage_frozen storage_full disk
+ killswitch storage_blocked storage_frozen storage_full disk
  fable_limit_policy fable_filter_policy fable_filter_model cascade_hire cascade_alloc
- sandbox kiosk auto_resume auto_resume_compact auto_resume_last auto_cheap_compact
+ sandbox auto_resume auto_resume_compact auto_resume_last auto_cheap_compact
  account_fallback_default net_hubs net_state org_inbox_multi_holder
  external_inbox_multi_holder _migrations _actors_typed whole_grants_v1
  headless max_children max_depth created version'''.split())
@@ -43,9 +43,6 @@ def _compatible(settings, nodes):
                 Org.EXTERN_MULTI_HOLDER_MIGRATION, Org.SEAT_ID_MIGRATION):
         if key not in migrations:
             raise CompatibilityRequired('legacy migration marker missing: ' + key)
-    kiosk = settings.get('kiosk')
-    if kiosk is not None and not kiosk.get('max_scope'):
-        raise CompatibilityRequired('kiosk ceiling must be derived from the whole org')
     lock = settings.get('fable_lock') or {}
     if lock and not lock.get('no_reset') and (
             not lock.get('until_ts') or time.time() >= float(lock['until_ts'])):
@@ -85,7 +82,7 @@ class ForegroundContext:
     # Only composed display/query methods, never mutation or persistence methods.
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
         'children_index', 'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
-        'seat_cost', 'free', 'is_kiosk', 'kiosk_ceiling', '_has_audience', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
+        'seat_cost', 'free', '_has_audience', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
     def __init__(self, *, settings, graph, funding, windows, inbox, work_counts, reuse=None,
                  work_raises=None):
@@ -118,12 +115,6 @@ class ForegroundContext:
         Org._normalize_display_basics(self)
         Org._normalize_display_models(self)
         self.d['dirs'] = norm_dirs(self.d.get('dirs'))
-        kiosk = self.d.get('kiosk')
-        if kiosk is not None:
-            kiosk.setdefault('auto_raise', False)
-            cap = int(kiosk.get('credits') or 0)
-            if cap and int(self.d.get('default_top_grant') or 0) >= cap:
-                self.d['default_top_grant'] = 0
         for node in fresh.values():
             retag_legacy_spend_freeze(node.get('frozen'))
             if not self.d.get('fable_lock'):

@@ -120,7 +120,7 @@ def norm(c, cur):
 
 
 # ---- harness (verbatim from the P01 F6 probe) --------------------------------------------------------------------
-def fresh(kiosk=False):
+def fresh():
     SEQ[0] += 1
     org = store.create_org(f"p01-f6-{SEQ[0]}")
     slug = str(org.d["slug"])
@@ -128,11 +128,6 @@ def fresh(kiosk=False):
     org.hire("top", "top", "haiku", 6, "mid", **SCOPE)
     org.hire("top", "mid", "haiku", 2, "leaf", **SCOPE)
     org.d["mail"] = {}
-    if kiosk:
-        org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0, "storage_limit_mb": 0,
-                          "token": "kiosk-token-fixture", "auto_raise": False,
-                          "max_scope": {"tools": NO_TOOLS, "add_dirs": [], "org_visibility": "team",
-                                        "permission_mode": "acceptEdits"}}
     store.save_org(org)
     CUR["slug"] = slug
     CUR["tokens"] = {n: agentauth.child_env(slug, n)["ORGTREE_AGENT_TOKEN"] for n in ("top", "mid", "leaf")}
@@ -273,81 +268,80 @@ def twice(req):
 
 CASES = [
     # chat
-    ("chat_no_transcript", op("GET", "/api/orgs/{slug}/nodes/mid/chat"), None, False),
-    ("chat_cold", op("GET", "/api/orgs/{slug}/nodes/mid/chat"), transcript(), False),
+    ("chat_no_transcript", op("GET", "/api/orgs/{slug}/nodes/mid/chat"), None),
+    ("chat_cold", op("GET", "/api/orgs/{slug}/nodes/mid/chat"), transcript()),
     ("chat_warm", op("GET", "/api/orgs/{slug}/nodes/mid/chat"),
-     then(transcript(), op("GET", "/api/orgs/{slug}/nodes/mid/chat")), False),
-    ("chat_bad_cursor", op("GET", "/api/orgs/{slug}/nodes/mid/chat", params={"before": "garbage"}), transcript(), False),
-    ("chat_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/chat"), None, False),
+     then(transcript(), op("GET", "/api/orgs/{slug}/nodes/mid/chat"))),
+    ("chat_bad_cursor", op("GET", "/api/orgs/{slug}/nodes/mid/chat", params={"before": "garbage"}), transcript()),
+    ("chat_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/chat"), None),
     # files
-    ("file", op("GET", "/api/orgs/{slug}/nodes/mid/file", params={"path": "notes.txt"}), scratch, False),
-    ("file_missing", op("GET", "/api/orgs/{slug}/nodes/mid/file", params={"path": "nope.txt"}), scratch, False),
-    ("file_escape", op("GET", "/api/orgs/{slug}/nodes/mid/file", params={"path": "../../x"}), scratch, False),
-    ("file_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/file", params={"path": "x"}), None, False),
-    ("scratch_dir", op("GET", "/api/orgs/{slug}/nodes/mid/scratch"), scratch, False),
-    ("scratch_file", op("GET", "/api/orgs/{slug}/nodes/mid/scratch", params={"path": "sub/deep.txt"}), scratch, False),
-    ("scratch_missing", op("GET", "/api/orgs/{slug}/nodes/mid/scratch", params={"path": "nope"}), scratch, False),
-    ("scratch_escape", op("GET", "/api/orgs/{slug}/nodes/mid/scratch", params={"path": "../.."}), scratch, False),
-    ("scratch_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/scratch"), None, False),
-    ("toolimg", op("GET", "/api/orgs/{slug}/nodes/mid/toolimg/toolu_1"), transcript(), False),
-    ("toolimg_no_image", op("GET", "/api/orgs/{slug}/nodes/mid/toolimg/toolu_1"), transcript(image=False), False),
-    ("toolimg_no_transcript", op("GET", "/api/orgs/{slug}/nodes/mid/toolimg/toolu_1"), None, False),
-    ("toolimg_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/toolimg/toolu_1"), None, False),
+    ("file", op("GET", "/api/orgs/{slug}/nodes/mid/file", params={"path": "notes.txt"}), scratch),
+    ("file_missing", op("GET", "/api/orgs/{slug}/nodes/mid/file", params={"path": "nope.txt"}), scratch),
+    ("file_escape", op("GET", "/api/orgs/{slug}/nodes/mid/file", params={"path": "../../x"}), scratch),
+    ("file_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/file", params={"path": "x"}), None),
+    ("scratch_dir", op("GET", "/api/orgs/{slug}/nodes/mid/scratch"), scratch),
+    ("scratch_file", op("GET", "/api/orgs/{slug}/nodes/mid/scratch", params={"path": "sub/deep.txt"}), scratch),
+    ("scratch_missing", op("GET", "/api/orgs/{slug}/nodes/mid/scratch", params={"path": "nope"}), scratch),
+    ("scratch_escape", op("GET", "/api/orgs/{slug}/nodes/mid/scratch", params={"path": "../.."}), scratch),
+    ("scratch_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/scratch"), None),
+    ("toolimg", op("GET", "/api/orgs/{slug}/nodes/mid/toolimg/toolu_1"), transcript()),
+    ("toolimg_no_image", op("GET", "/api/orgs/{slug}/nodes/mid/toolimg/toolu_1"), transcript(image=False)),
+    ("toolimg_no_transcript", op("GET", "/api/orgs/{slug}/nodes/mid/toolimg/toolu_1"), None),
+    ("toolimg_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/toolimg/toolu_1"), None),
     # history and events
-    ("node_history", op("GET", "/api/orgs/{slug}/nodes/mid/history"), None, False),
-    ("node_history_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/history"), None, False),
-    ("node_history_no_org", op("GET", "/api/orgs/nope-org/nodes/mid/history"), None, False),
-    ("history_sources", op("GET", "/api/orgs/{slug}/history"), None, False),
-    ("history_sources_no_org", op("GET", "/api/orgs/nope-org/history"), None, False),
-    ("history_events", op("GET", "/api/orgs/{slug}/history/events"), None, False),
-    ("history_chat", op("GET", "/api/orgs/{slug}/history/chat", params={"node": "mid"}), transcript(), False),
+    ("node_history", op("GET", "/api/orgs/{slug}/nodes/mid/history"), None),
+    ("node_history_ghost", op("GET", "/api/orgs/{slug}/nodes/ghost/history"), None),
+    ("node_history_no_org", op("GET", "/api/orgs/nope-org/nodes/mid/history"), None),
+    ("history_sources", op("GET", "/api/orgs/{slug}/history"), None),
+    ("history_sources_no_org", op("GET", "/api/orgs/nope-org/history"), None),
+    ("history_events", op("GET", "/api/orgs/{slug}/history/events"), None),
+    ("history_chat", op("GET", "/api/orgs/{slug}/history/chat", params={"node": "mid"}), transcript()),
     ("history_chat_warm", op("GET", "/api/orgs/{slug}/history/chat", params={"node": "mid"}),
-     then(transcript(), op("GET", "/api/orgs/{slug}/history/chat", params={"node": "mid"})), False),
-    ("history_node_missing", op("GET", "/api/orgs/{slug}/history/node-mail"), None, False),
-    ("history_unknown", op("GET", "/api/orgs/{slug}/history/bogus"), None, False),
-    ("history_bad_cursor", op("GET", "/api/orgs/{slug}/history/events", params={"cursor": "garbage"}), None, False),
-    ("events", op("GET", "/api/orgs/{slug}/events"), None, False),
-    ("events_last", op("GET", "/api/orgs/{slug}/events", params={"last": 2}), None, False),
-    ("events_no_org", op("GET", "/api/orgs/nope-org/events"), None, False),
+     then(transcript(), op("GET", "/api/orgs/{slug}/history/chat", params={"node": "mid"}))),
+    ("history_node_missing", op("GET", "/api/orgs/{slug}/history/node-mail"), None),
+    ("history_unknown", op("GET", "/api/orgs/{slug}/history/bogus"), None),
+    ("history_bad_cursor", op("GET", "/api/orgs/{slug}/history/events", params={"cursor": "garbage"}), None),
+    ("events", op("GET", "/api/orgs/{slug}/events"), None),
+    ("events_last", op("GET", "/api/orgs/{slug}/events", params={"last": 2}), None),
+    ("events_no_org", op("GET", "/api/orgs/nope-org/events"), None),
     # org reads
-    ("orgmd_none", op("GET", "/api/orgs/{slug}/orgmd"), None, False),
-    ("orgmd", op("GET", "/api/orgs/{slug}/orgmd"), workspace(), False),
-    ("orgmd_long", op("GET", "/api/orgs/{slug}/orgmd"), workspace(70000), False),
-    ("orgmd_no_org", op("GET", "/api/orgs/nope-org/orgmd"), None, False),
-    ("net_first", op("GET", "/api/orgs/{slug}/net"), None, False),
-    ("net_second", op("GET", "/api/orgs/{slug}/net"), op("GET", "/api/orgs/{slug}/net"), False),
-    ("net_kiosk", op("GET", "/api/orgs/{slug}/net"), None, True),
-    ("net_no_org", op("GET", "/api/orgs/nope-org/net"), None, False),
-    ("bridge_standard", op("GET", "/api/orgs/{slug}/bridge-credential"), None, False),
-    ("bridge_frozen", frozen(op("GET", "/api/orgs/{slug}/bridge-credential")), None, False),
-    ("bridge_frozen_no_org", frozen(op("GET", "/api/orgs/nope-org/bridge-credential")), None, False),
-    ("aggregates", op("GET", "/api/orgs/{slug}/diagnostics/aggregates"), None, False),
+    ("orgmd_none", op("GET", "/api/orgs/{slug}/orgmd"), None),
+    ("orgmd", op("GET", "/api/orgs/{slug}/orgmd"), workspace()),
+    ("orgmd_long", op("GET", "/api/orgs/{slug}/orgmd"), workspace(70000)),
+    ("orgmd_no_org", op("GET", "/api/orgs/nope-org/orgmd"), None),
+    ("net_first", op("GET", "/api/orgs/{slug}/net"), None),
+    ("net_second", op("GET", "/api/orgs/{slug}/net"), op("GET", "/api/orgs/{slug}/net")),
+    ("net_no_org", op("GET", "/api/orgs/nope-org/net"), None),
+    ("bridge_standard", op("GET", "/api/orgs/{slug}/bridge-credential"), None),
+    ("bridge_frozen", frozen(op("GET", "/api/orgs/{slug}/bridge-credential")), None),
+    ("bridge_frozen_no_org", frozen(op("GET", "/api/orgs/nope-org/bridge-credential")), None),
+    ("aggregates", op("GET", "/api/orgs/{slug}/diagnostics/aggregates"), None),
     ("aggregates_one", op("GET", "/api/orgs/{slug}/diagnostics/aggregates", params={"collections": "events"}),
-     None, False),
+     None),
     ("aggregates_bad", op("GET", "/api/orgs/{slug}/diagnostics/aggregates", params={"collections": "bogus"}),
-     None, False),
-    ("aggregates_no_org", op("GET", "/api/orgs/nope-org/diagnostics/aggregates"), None, False),
+     None),
+    ("aggregates_no_org", op("GET", "/api/orgs/nope-org/diagnostics/aggregates"), None),
     # the org disk
-    ("disk_none", op("GET", "/api/orgs/{slug}/disk"), None, False),
-    ("disk_dir_none", op("GET", "/api/orgs/{slug}/disk/dir"), None, False),
-    ("disk_file_none", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "home/x"}), None, False),
-    ("disk_fake", op("GET", "/api/orgs/{slug}/disk"), fake_disk, False),
-    ("disk_dir_fake", op("GET", "/api/orgs/{slug}/disk/dir"), fake_disk, False),
-    ("disk_dir_escape", op("GET", "/api/orgs/{slug}/disk/dir", params={"path": "../x"}), fake_disk, False),
-    ("disk_file_escape", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "../x"}), fake_disk, False),
-    ("disk_file_missing", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "home/none.txt"}), fake_disk, False),
-    ("disk_no_org", op("GET", "/api/orgs/nope-org/disk"), None, False),
+    ("disk_none", op("GET", "/api/orgs/{slug}/disk"), None),
+    ("disk_dir_none", op("GET", "/api/orgs/{slug}/disk/dir"), None),
+    ("disk_file_none", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "home/x"}), None),
+    ("disk_fake", op("GET", "/api/orgs/{slug}/disk"), fake_disk),
+    ("disk_dir_fake", op("GET", "/api/orgs/{slug}/disk/dir"), fake_disk),
+    ("disk_dir_escape", op("GET", "/api/orgs/{slug}/disk/dir", params={"path": "../x"}), fake_disk),
+    ("disk_file_escape", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "../x"}), fake_disk),
+    ("disk_file_missing", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "home/none.txt"}), fake_disk),
+    ("disk_no_org", op("GET", "/api/orgs/nope-org/disk"), None),
     # the gate
     ("agent_token", lambda c: c.get(f"/api/orgs/{CUR['slug']}/events",
-                                    headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None, False),
+                                    headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None),
 ]
 
 
 
 def observe(name):
     """Run one fixtured case on a fresh org and return its normalized observation."""
-    request, pre, kiosk = CASES[name]
-    fresh(kiosk)
+    request, pre = CASES[name]
+    fresh()
     client = TestClient(app, raise_server_exceptions=False)
     with Spies() as sp:
         if pre:
@@ -367,7 +361,7 @@ def observe(name):
         return norm(raw, CUR), (body if body is not None else r.content), (b, a), dict(CUR)
 
 
-CASES = {n: (r, p, k) for n, r, p, k in CASES}
+CASES = {n: (r, p) for n, r, p in CASES}
 
 
 class BoundaryBinding(unittest.TestCase):
@@ -455,7 +449,7 @@ class OrgReadBoundary(unittest.TestCase):
         self.assertEqual(got['events_last'][1]['offset'], got['events_last'][1]['total'] - 2)
 
     def test_org_reads_and_the_network_identity_backfill(self):
-        got = self.check('orgmd_none', 'orgmd', 'orgmd_long', 'orgmd_no_org', 'net_first', 'net_second', 'net_kiosk',
+        got = self.check('orgmd_none', 'orgmd', 'orgmd_long', 'orgmd_no_org', 'net_first', 'net_second',
                          'net_no_org', 'aggregates', 'aggregates_one', 'aggregates_bad', 'aggregates_no_org')
         self.assertEqual((got['orgmd_long'][1]['read_truncated'], got['orgmd_long'][1]['chars'],
                           len(got['orgmd_long'][1]['content'])), (True, 70000, 60000))
@@ -463,7 +457,6 @@ class OrgReadBoundary(unittest.TestCase):
         # a GET that writes: the first reveal backfills the identity and hub list, later ones write nothing
         self.assertEqual(got['net_first'][0]['sections'], ['net_autoconnect', 'net_hubs', 'net_identity'])
         self.assertEqual(got['net_second'][0]['sections'], [])
-        self.assertEqual(got['net_kiosk'][1], {'identity': None, 'hubs': [], 'autoconnect': False})
 
     def test_the_disk_routes_ask_wsl_exactly_this_and_no_case_launches_a_process(self):
         test_f = 'test -f /mnt/host/wsl/orgtree-disk/{slug}/.orgtree-disk'

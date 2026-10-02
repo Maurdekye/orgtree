@@ -13,7 +13,7 @@ import { SettingsIcon } from '../icons'
 /** F-07 (user ruling 2026-08-04: "both, one modal"): the ONE advanced-org
  *  modal shell. The create form's advanced disclosure and the ⚙ settings
  *  panel both open this same surface; each pours in its own sections, and
- *  creation-only facts (kiosk, sandbox, disk type) render as LOCKED chips
+ *  creation-only facts (sandbox, disk type) render as LOCKED chips
  *  outside creation — visible, never editable, so the modal can't offer to
  *  change what cannot change after birth. No save button of its own: the
  *  create form submits, and the settings panel keeps its ONE bottom save

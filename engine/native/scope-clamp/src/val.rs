@@ -1,5 +1,5 @@
-//! The raw Python values the clamps receive (tool maps, dir lists, ceiling
-//! documents), as JSON would carry them but with Python strings that may
+//! The raw Python values the clamps receive (tool maps, dir lists, parent
+//! scopes), as JSON would carry them but with Python strings that may
 //! hold lone surrogates.
 //!
 //! In the vector files a string that is not valid Unicode text is written

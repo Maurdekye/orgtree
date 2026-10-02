@@ -21,24 +21,5 @@
     "relation": "report",
     "grant": 2.5
   },
-  "public": {
-    "v": 1,
-    "variant": "lifecycle.rehired",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "lifecycle.rehired·actor"
-    },
-    "object": {
-      "kind": "node",
-      "id": "lifecycle.rehired·object.id",
-      "name": "lifecycle.rehired·object.name",
-      "generation": 3
-    },
-    "node": "lifecycle.rehired·node",
-    "by": "lifecycle.rehired·by",
-    "relation": "report",
-    "grant": 2.5
-  },
   "body": "Your report \"lifecycle.rehired·node\" was rehired by \"lifecycle.rehired·by\" (grant 2.5)."
 }

@@ -1,4 +1,4 @@
-"""Bounded exact agent identities on actual PG and the real HTTP gateways."""
+"""Bounded exact agent identities on actual PG and the real HTTP gateway."""
 from contextlib import contextmanager
 import copy
 import json
@@ -10,10 +10,8 @@ from urllib.parse import urlencode
 import test_pgstore as fixture
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import TokenGate
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from starlette.requests import Request
-from orgtree import api, foreground_api, foreground_store as fg, ledger, store
+from orgtree import api, foreground_store as fg, ledger, store
 
 
 def tearDownModule():
@@ -78,27 +76,9 @@ class ForegroundReferencesPG(unittest.TestCase):
         self.assertEqual(self.get(['']).status_code, 400)
         self.assertEqual(self.get(['bad\x00id']).status_code, 400)
 
-    def test_public_kiosk_and_operator_authority_keep_private_fields_out(self):
+    def test_operator_authority_is_required_before_storage(self):
         with patch.object(fg, 'read_references', side_effect=AssertionError('unauthorized storage')):
             self.assertEqual(self.client.get(self.path).status_code, 401)
-        public = TestClient(api.PublicGateway(api.app))
-        with patch.object(api, '_kiosk_token_map', return_value={'validtoken': self.slug}):
-            result = public.get('/k/validtoken' + self.path + '?include=old&include=gone')
-            self.assertEqual(result.status_code, 200, result.text)
-            self.assertEqual(set(result.json()['references']['old']),
-                             {'id', 'tier', 'state', 'generation', 'axis', 'successor'})
-            self.assertNotIn('PRIVATE', result.text)
-            self.assertEqual(public.get('/k/invalidtoken' + self.path).status_code, 404)
-            self.assertEqual(public.get('/k/validtoken/api/orgs/another/foreground-tree/references?include=old').status_code, 404)
-        # Exercise the route's own defense too, rather than letting the outer
-        # gateway mask a broken cross-org check in foreground_api.read.
-        request = Request({'type': 'http', 'method': 'GET', 'path': self.path,
-                           'headers': [], 'query_string': b'include=old',
-                           'state': {'public_slug': 'another'}})
-        with patch.object(fg, 'read_references', side_effect=AssertionError('cross-org storage')):
-            with self.assertRaises(HTTPException) as caught:
-                foreground_api.read(self.slug, request, mode='references')
-        self.assertEqual(caught.exception.status_code, 404)
 
     def test_same_names_and_missing_are_scoped_to_the_requested_org(self):
         other = store.create_org('other-reference-org')

@@ -56,9 +56,6 @@ def legacy_credentials_allowed() -> bool:
 def root_secret(org: Org) -> str:
     """Return the existing persisted sandbox root (standard mode only)."""
 
-    kiosk = org.d.get("kiosk") or {}
-    if kiosk.get("sandbox"):
-        return str(kiosk.get("sandbox_secret") or "")
     sandbox = org.d.get("sandbox") or {}
     if sandbox.get("enabled"):
         return str(sandbox.get("secret") or "")
@@ -66,9 +63,8 @@ def root_secret(org: Org) -> str:
 
 
 def _is_sandboxed(org: Org) -> bool:
-    kiosk = org.d.get("kiosk") or {}
     sandbox = org.d.get("sandbox") or {}
-    return bool(kiosk.get("sandbox") or sandbox.get("enabled"))
+    return bool(sandbox.get("enabled"))
 
 
 def credential_key_path() -> str:
@@ -253,20 +249,6 @@ def resolve_org_credential(secret: str) -> str | None:
         return None
     expected = _credential_for_generation(slug, _generation(org), key)
     return slug if hmac.compare_digest(secret, expected) else None
-
-
-def accepted_credentials(org: Org) -> tuple[str, ...]:
-    """Every bridge credential currently accepted for this org."""
-
-    out: list[str] = []
-    if legacy_credentials_allowed():
-        if root := root_secret(org):
-            out.append(root)
-    key = install_key(create=not legacy_credentials_allowed())
-    if key is not None and _is_sandboxed(org):
-        out.append(_credential_for_generation(
-            org.d["slug"], _generation(org), key))
-    return tuple(out)
 
 
 def _fingerprint(secret: str) -> str:

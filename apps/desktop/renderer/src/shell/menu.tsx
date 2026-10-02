@@ -17,8 +17,8 @@
 //
 // A DEDICATED DROPDOWN RATHER THAN `useContextMenu`. The canonical object menu
 // takes plain string labels, and the organization list here is not a list of
-// labels: each row carries a live activity spinner, an active/hired count, a
-// kiosk badge, an "already open" mark and the freshness of the snapshot behind
+// labels: each row carries a live activity spinner, an active/hired count, an
+// "already open" mark and the freshness of the snapshot behind
 // all of them. Rendering that through a label API would mean flattening it to
 // text and losing the thing the list is for.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'

@@ -10,7 +10,7 @@ takes `_state_lock` only. What the old lock guaranteed has to hold anyway:
   2. the admission gate is re-decided on the LOCKED Org: a seat frozen after
      the lock-free read is not admitted, and stays tracked for the retry
      (p01's review condition b);
-  3. the reclaim transaction holds the gate sections FOR SHARE, so a spend
+  3. the reclaim transaction holds the gate sections FOR SHARE, so a storage
      stop cannot commit while it decides (racekit, lock-manager proof);
   4. a send that queues its carrier in RAM while its demand is still
      uncommitted, racing the worker's release and a recovery pass, is
@@ -145,16 +145,16 @@ class LockedGate(Base):
         self.assertTrue(self.tracked(), 'a refused seat was dropped from the index')
 
     def test_the_gate_sections_are_held_while_the_reclaim_decides(self):
-        """A spend stop cannot commit while the reclaim transaction holds
+        """A storage stop cannot commit while the reclaim transaction holds
         its locks: the lock manager shows it waiting, and it lands after."""
         self.post()
 
-        def spend_stop():
-            with orgtx.org_tx(self.slug, sections=['spend_frozen']) as tx:
-                tx.d['spend_frozen'] = True
+        def storage_stop():
+            with orgtx.org_tx(self.slug, sections=['storage_blocked']) as tx:
+                tx.d['storage_blocked'] = True
         with racekit.Race(pair='converted') as race:
             a = race.actor('A', maildrain.recover, self.slug, 'worker')
-            b = race.actor('B', spend_stop)
+            b = race.actor('B', storage_stop)
             ga = race.hold(a, 'after_lock')
             race.start(a)
             race.reached(ga)

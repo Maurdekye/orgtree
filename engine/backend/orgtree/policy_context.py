@@ -46,7 +46,7 @@ class PolicyContext:
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
         'children_index', 'model_for', 'versions_for', 'harness_for',
         'prefer_reserve_for', 'effective_effort', 'account_fallback_for',
-        'is_kiosk', 'kiosk_ceiling', '_has_audience', 'multi_holder_enabled',
+        '_has_audience', 'multi_holder_enabled',
         'waking_mail', '_work_actor_node', '_work_status', '_work_counts_active',
         '_work_attention', '_work_identity_state', '_work_next_recipient',
         '_work_deploy_recipient', '_work_owed_active', '_work_nonterminal_org',
@@ -75,12 +75,6 @@ class PolicyContext:
         Org._normalize_display_basics(self)
         Org._normalize_display_models(self)
         self.d['dirs'] = norm_dirs(self.d.get('dirs'))
-        kiosk = self.d.get('kiosk')
-        if kiosk is not None:
-            kiosk.setdefault('auto_raise', False)
-            cap = int(kiosk.get('credits') or 0)
-            if cap and int(self.d.get('default_top_grant') or 0) >= cap:
-                self.d['default_top_grant'] = 0
         for node in nodes.values():
             retag_legacy_spend_freeze(node.get('frozen'))
             if not self.d.get('fable_lock'):

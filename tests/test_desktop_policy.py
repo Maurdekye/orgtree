@@ -105,7 +105,7 @@ class DesktopPolicyTests(unittest.TestCase):
         client = TestClient(app)
         headers = {'X-Orgtree-Desktop-Token':'operator'}
         with patch.object(store,'create_org',side_effect=AssertionError('must reject before write')):
-            for extra in ({'sandbox':True},{'kiosk':{}},{'disk_mb':4096}):
+            for extra in ({'sandbox':True},{'disk_mb':4096}):
                 response = client.post('/api/orgs',json={'name':'forbidden',**extra},headers=headers)
                 self.assertEqual(response.status_code,422,response.text)
         # The excluded routes are REMOVED from the router (desktop_policy
@@ -131,7 +131,7 @@ class DesktopPolicyTests(unittest.TestCase):
         # the V1 org-key window is gone outright in every build (user
         # redesign 2026-09-12), so desktop no longer needs a guard for it
         self.assertFalse(hasattr(supervisor, 'api_fallback_active'))
-        org.d.update(sandbox={'flavor': 'kiosk'})
+        org.d.update(sandbox={'enabled': True})
         with self.assertRaises(ValueError): supervisor._deployment_org_gate(org)
         org.d.pop('sandbox', None)
         supervisor._deployment_org_gate(org)

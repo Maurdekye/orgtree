@@ -12,16 +12,5 @@
     "engine_authored": false,
     "body": "ordinary.message·body"
   },
-  "public": {
-    "v": 1,
-    "variant": "ordinary.message",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "ordinary.message·actor"
-    },
-    "object": null,
-    "body": "ordinary.message·body"
-  },
   "body": "ordinary.message·body"
 }

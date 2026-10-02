@@ -181,7 +181,7 @@ test('§4 a desk outside any frame still copies', async () => {
   const writer = node('writer', null)
   const view = await mountView(
     <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
-      op={async () => ({})} toast={() => {}} pub={false} bare />, el => el)
+      op={async () => ({})} toast={() => {}} bare />, el => el)
   try {
     await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
     const btns = buttons(view.el)

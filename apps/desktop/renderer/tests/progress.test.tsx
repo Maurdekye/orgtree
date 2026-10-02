@@ -560,7 +560,7 @@ test('§4 DeskChat: the fifth tab is the agent\'s OWN DOCKET, and the chip count
   ]
   const n = node({ id: 'agent', busy: true, inflight_at: new Date().toISOString(), proc_live: true })
   const view = await mountView(
-    <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="prog" toast={noop} pub={false} bare onJump={noop} />,
+    <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="prog" toast={noop} bare onJump={noop} />,
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
@@ -623,7 +623,7 @@ test('§4b DeskChat: the tab is what the agent is ANSWERABLE for — reviews inc
   ]
   const n = node({ id: 'agent', tier: 'luna' })
   const view = await mountView(
-    <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="prog" toast={noop} pub={false} bare onJump={noop} />,
+    <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="prog" toast={noop} bare onJump={noop} />,
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
@@ -816,7 +816,7 @@ test('§5c the REAL desk hands its docket card a reference world', async (t) => 
   const n = node({ id: 'agent' })
   const view = await mountView(
     <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="org" toast={noop}
-      pub={false} bare onJump={noop}
+      bare onJump={noop}
       onWorkLink={(w) => { opened.push(String(w?.slug)) }} />,
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
@@ -877,7 +877,7 @@ test('§5d the docket tab reaches the DESK\'S OWN doc, mail and agent handlers',
   const other = node({ id: 'other', tier: 'opus' })
   const view = await mountView(
     <DeskChat node={me} map={new Map([['agent', me], ['other', other]])} op={op}
-      slug="org" toast={noop} pub={false} bare
+      slug="org" toast={noop} bare
       onJump={(id) => { jumps.push(id) }}
       onOpenDoc={(id) => { docs.push(id) }}
       onMailLink={(m) => { mails.push(m) }}
@@ -946,7 +946,7 @@ test('§5d CONTROL: a desk with no doc or mail route renders those same '
   const other = node({ id: 'other', tier: 'opus' })
   const view = await mountView(
     <DeskChat node={me} map={new Map([['agent', me], ['other', other]])} op={op}
-      slug="org" toast={noop} pub={false} bare onJump={noop}
+      slug="org" toast={noop} bare onJump={noop}
       onWorkLink={noop} />,
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
@@ -986,7 +986,7 @@ test('agent docket hides archived rows/count by default, reveals selected detail
     const me = node({ id: 'agent' })
     const view = await mountView(
       <DeskChat node={me} map={new Map([['agent', me]])} op={op}
-        slug="org" toast={noop} pub={false} bare onJump={noop} />,
+        slug="org" toast={noop} bare onJump={noop} />,
       (el) => el)
     t.after(async () => { await view.unmount(); resetConvos(); realClock() })
     await flush()
@@ -1039,7 +1039,7 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
     node_state: 'live', tier: n.tier ?? null }))
   const view = await mountView(
     <DeskChat node={n} map={new Map([['agent', n]])} op={op} slug="prog" toast={noop}
-      pub={false} bare onJump={noop} onOpenDoc={(id) => { opened.push(id) }} />,
+      bare onJump={noop} onOpenDoc={(id) => { opened.push(id) }} />,
     (el) => el)
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
@@ -1075,7 +1075,7 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
   await view.render(
     <DeskChat node={node({ id: 'agent-empty', documents: [] })}
       map={new Map([['agent-empty', node({ id: 'agent-empty', documents: [] })]])}
-      op={op} slug="prog" toast={noop} pub={false} bare onJump={noop}
+      op={op} slug="prog" toast={noop} bare onJump={noop}
       onOpenDoc={(id) => { opened.push(id) }} />)
   await flush()
   await act(async () => {

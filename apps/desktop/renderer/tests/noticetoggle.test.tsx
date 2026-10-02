@@ -67,7 +67,7 @@ test('desk composer renders notice toggle ABOVE attach, toggles on click and Alt
   installFetch(server)
 
   const desk = () => <DeskChat node={agentA} map={map} slug="org"
-    op={async () => ({})} toast={() => {}} pub={false} bare />
+    op={async () => ({})} toast={() => {}} bare />
 
   const view = await mountView(desk(), el => el)
   try {
@@ -143,7 +143,7 @@ test('notice toggle disarms on SEND ONLY — does not disarm on Escape, text cle
 
   // 2. Desk with agentA: clearing text does NOT disarm
   const deskA = () => <DeskChat node={agentA} map={map} slug="org"
-    op={async () => ({})} toast={() => {}} pub={false} bare />
+    op={async () => ({})} toast={() => {}} bare />
   const viewA = await mountView(deskA(), el => el)
 
   try {
@@ -168,7 +168,7 @@ test('notice toggle disarms on SEND ONLY — does not disarm on Escape, text cle
   // 3. Switching to agentB: agentB is NOT armed, isolating per-chat state
   assert.equal(isNoticeArmed('org/agent-a'), true, 'unmounting agentA leaves agentA armed in store')
   const deskB = () => <DeskChat node={agentB} map={map} slug="org"
-    op={async () => ({})} toast={() => {}} pub={false} bare />
+    op={async () => ({})} toast={() => {}} bare />
   const viewB = await mountView(deskB(), el => el)
   try {
     const composerB = viewB.el.querySelector('.cc-composer') as HTMLElement
@@ -219,7 +219,7 @@ test('sending when armed sends notice: true, disarms toggle, marks ghost as noti
   }
 
   const desk = () => <DeskChat node={agentA} map={map} slug="org"
-    op={async () => ({})} toast={() => {}} pub={false} bare />
+    op={async () => ({})} toast={() => {}} bare />
   const view = await mountView(desk(), el => el)
 
   try {
@@ -372,7 +372,7 @@ test('switchboard: with multiple chat windows open, toggling send-as-notice in o
       {openNodes.map((a) => (
         <div className="eye-panel" key={a.id}>
           <DeskChat node={a} map={map} slug="org"
-            op={async () => ({})} toast={() => {}} pub={false} bare compact />
+            op={async () => ({})} toast={() => {}} bare compact />
         </div>
       ))}
     </div>
@@ -463,7 +463,7 @@ test('switchboard: message sent from each window uses that window’s own send-a
       {openNodes.map((a) => (
         <div className="eye-panel" key={a.id}>
           <DeskChat node={a} map={map} slug="org"
-            op={async () => ({})} toast={() => {}} pub={false} bare compact />
+            op={async () => ({})} toast={() => {}} bare compact />
         </div>
       ))}
     </div>
@@ -554,7 +554,7 @@ test('switchboard: independent states survive focus changes, Alt+N keyboard scop
         {openNodes.map((a) => (
           <div className="eye-panel" key={a.id}>
             <DeskChat node={a} map={map} slug="org"
-              op={async () => ({})} toast={() => {}} pub={false} bare compact />
+              op={async () => ({})} toast={() => {}} bare compact />
           </div>
         ))}
       </div>

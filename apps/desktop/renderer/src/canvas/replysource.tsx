@@ -4,7 +4,7 @@ import type { LiveRow } from './shared'
 import type { EventProfile } from '../events/decode'
 import type { RefRoutes } from './reflinks'
 import { isSegments, MailMessage, SegmentAttachments, SegmentList } from '../events/segments'
-import { BASE, fileBase } from '../api'
+import { fileBase } from '../api'
 import { DotIcon, MailIcon, PsychologyIcon, SparkIcon } from '../icons'
 import { fmtFull } from '../timefmt'
 import { md } from './shared'
@@ -108,7 +108,7 @@ export function ReplySourceContent({ source, slug, nid, profile, refs, actor }: 
         {t.file && <><SegmentAttachments {...props} values={[t.file]} />{t.file.note && prose(t.file.note)}</>}
         {t.presentation && <div>Document: <strong>{t.presentation.title}</strong></div>}
         {(t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }, (_, i) =>
-          <img key={i} className="toolimg" alt="tool result" src={`${BASE}/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />)}
+          <img key={i} className="toolimg" alt="tool result" src={`/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />)}
       </>
     }
     case 'live': {

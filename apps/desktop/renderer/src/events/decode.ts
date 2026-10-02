@@ -1,11 +1,11 @@
 ﻿import schema from '../generated/events.schema.json'
-import type { Event, PublicEvent } from '../generated/events'
+import type { Event } from '../generated/events'
 
-export type EventProfile = 'operator' | 'public'
+export type EventProfile = 'operator'
 export type DecodeResult<T> =
   | { kind: 'known'; event: T; fallback: string }
   | { kind: 'legacy'; fallback: string }
-  | { kind: 'unsupported'; fallback: string; code: 'profile' | 'version' | 'variant' | 'invalid' }
+  | { kind: 'unsupported'; fallback: string; code: 'version' | 'variant' | 'invalid' }
 
 type Shape = {
   $ref?: string; type?: string; const?: unknown; enum?: readonly unknown[]
@@ -52,7 +52,7 @@ function matches(value: unknown, shape: Shape | undefined, budget: { left: numbe
   }
 }
 
-function indexLeaves(name: 'Event' | 'PublicEvent') {
+function indexLeaves(name: 'Event') {
   const leaves = new Map<string, Shape>()
   for (const branch of defs[name]?.oneOf ?? []) {
     const leaf = branch.$ref && defs[branch.$ref.slice(8)]
@@ -62,40 +62,26 @@ function indexLeaves(name: 'Event' | 'PublicEvent') {
   return leaves
 }
 const privateLeaves = indexLeaves('Event')
-const publicLeaves = indexLeaves('PublicEvent')
 export function isEvent(value: unknown): value is Event {
   return record(value) && typeof value.variant === 'string'
     && matches(value, privateLeaves.get(value.variant), { left: 200000 })
 }
-export function isPublicEvent(value: unknown): value is PublicEvent {
-  return record(value) && typeof value.variant === 'string'
-    && matches(value, publicLeaves.get(value.variant), { left: 200000 })
-}
-
-export function decodeEventRow(row: unknown, profile: 'operator'): DecodeResult<Event>
-export function decodeEventRow(row: unknown, profile: 'public'): DecodeResult<PublicEvent>
-export function decodeEventRow(row: unknown, profile: EventProfile): DecodeResult<Event | PublicEvent>
-export function decodeEventRow(row: unknown, profile: EventProfile): DecodeResult<Event | PublicEvent> {
+export function decodeEventRow(row: unknown, _profile: EventProfile): DecodeResult<Event> {
   const fallback = record(row)
     ? typeof row.body === 'string' ? row.body : typeof row.text === 'string' ? row.text : '' : ''
   if (!record(row)) return { kind: 'unsupported', fallback, code: 'invalid' }
-  const key = profile === 'public' ? 'ev_public' : 'ev'
-  const wrongKey = profile === 'public' ? 'ev' : 'ev_public'
-  if (own(row, wrongKey)) return { kind: 'unsupported', fallback, code: 'profile' }
-  if (!own(row, key)) return own(row, 'ev_error') || own(row, 'ev_raw')
+  if (!own(row, 'ev')) return own(row, 'ev_error') || own(row, 'ev_raw')
     ? { kind: 'unsupported', fallback, code: 'invalid' } : { kind: 'legacy', fallback }
-  const value = row[key]
+  const value = row.ev
   if (!record(value)) return { kind: 'unsupported', fallback, code: 'invalid' }
   if (value.v !== 1) return { kind: 'unsupported', fallback, code: 'version' }
-  const leaves = profile === 'public' ? publicLeaves : privateLeaves
-  if (typeof value.variant !== 'string' || !leaves.has(value.variant))
+  if (typeof value.variant !== 'string' || !privateLeaves.has(value.variant))
     return { kind: 'unsupported', fallback, code: 'variant' }
-  if (profile === 'operator' && isEvent(value)) return { kind: 'known', event: value, fallback }
-  if (profile === 'public' && isPublicEvent(value)) return { kind: 'known', event: value, fallback }
+  if (isEvent(value)) return { kind: 'known', event: value, fallback }
   return { kind: 'unsupported', fallback, code: 'invalid' }
 }
 
 /** Transport sender USER also carries engine work; only explicit origin is authorship. */
-export function isAuthoredUser(event: Event | PublicEvent): boolean {
+export function isAuthoredUser(event: Event): boolean {
   return event.actor.kind === 'user'
 }

@@ -44,7 +44,7 @@ class StartupReadinessTests(unittest.TestCase):
                    "USERPROFILE": str(cls.profile), "ORGTREE_V2_TOKEN": "ab" * 32,
                    "ORGTREE_V2_UI_DIR": str(cls.root / "ui"), "PYTHONUNBUFFERED": "1",
                    "ORGTREE_V2_PARENT_PID": str(os.getpid())}
-        for name in ("ORGTREE_PORT", "ORGTREE_V2_PORT", "ORGTREE_ACCOUNTS_CUTOVER", "ORGTREE_BASE", "ORGTREE_KIOSK"):
+        for name in ("ORGTREE_PORT", "ORGTREE_V2_PORT", "ORGTREE_ACCOUNTS_CUTOVER", "ORGTREE_BASE"):
             cls.env.pop(name, None)
         hub_isolation.scrub_inherited_hub(cls.env)
         result = subprocess.run([sys.executable, "tests/startup_engine_probe.py", "seed"], cwd=REPO,

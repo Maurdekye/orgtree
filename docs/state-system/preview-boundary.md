@@ -34,7 +34,7 @@ folding case. Container-valued operation names fail the shared text validator
 first. Its move batches use `operation=move` with `moves`; direct `move_batch`
 is refused even though the helper supports it. Hire, rehire and rename are
 also refused. Audience preview supports only grant and revoke. Selected HTTP
-tests assert the operator credential, public-org refusal and surface allowlist.
+tests assert the operator credential and surface allowlist.
 The general operator route remains pending because ordinary operations on the
 same route are not qualified by these preview-only tests.
 

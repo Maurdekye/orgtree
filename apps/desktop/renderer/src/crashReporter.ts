@@ -15,7 +15,6 @@
 // page is dying or has already started unloading; fetch(keepalive) is the
 // fallback for browsers without it.
 
-const BASE = (location.pathname.match(/^\/k\/[A-Za-z0-9_-]+/) || [''])[0]
 const REPORTS_KEY = 'orgtree.crashReports'
 const MAX_REPORTS = 20
 const MAX_BREADCRUMBS = 25
@@ -157,13 +156,13 @@ function markAcked(id: string): void {
 }
 
 function currentOrgSlug(): string | null {
-  const m = location.pathname.slice(BASE.length).match(/^\/o\/([a-z0-9@-]+)/)
+  const m = location.pathname.match(/^\/o\/([a-z0-9@-]+)/)
   return m ? m[1]! : null
 }
 
 function deliver(report: CrashReport): void {
   const payload = JSON.stringify({ org: currentOrgSlug(), report })
-  const url = BASE + '/api/crash-report'
+  const url = '/api/crash-report'
   let sent = false
   try {
     if (navigator.sendBeacon) {
@@ -185,7 +184,7 @@ export function flushPendingReports(): void {
   const list = loadReports()
   const stale = list.filter((r) => !r.acked)
   for (const r of stale) {
-    fetch(BASE + '/api/crash-report', {
+    fetch('/api/crash-report', {
       method: 'POST',
       body: JSON.stringify({ org: currentOrgSlug(), report: r }),
       headers: { 'Content-Type': 'application/json' },

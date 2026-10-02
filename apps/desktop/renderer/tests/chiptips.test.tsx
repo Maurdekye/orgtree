@@ -51,7 +51,7 @@ function tree(nodeIds: string[]): TreePayload {
     roots: nodeIds.map(mk), cost_usd_total: 0,
     audit: { live_nodes: nodeIds.length, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null,
@@ -413,9 +413,9 @@ uiTest('§6 the overseer’s lone badge drops the role word and keeps the cost',
 // through the hire badges would be VACUOUS — every downstream reader of
 // `seats` (cards.tsx `fam(...)`, the HireSheet `seatOf`) falls back through
 // its own family table with `seats[t] ?? CODEX_TIER_SEAT[t] ?? 0`, so a
-// fallback that was `{}` would still render every correct price. The readers
-// that use `seats` RAW are the kiosk cap and the draft credit bar
-// (cards.tsx `seats[draft.tier] ?? 0`), and reaching those needs a fixture
+// fallback that was `{}` would still render every correct price. The reader
+// that uses `seats` RAW is the draft credit bar
+// (cards.tsx `seats[draft.tier] ?? 0`), and reaching it needs a fixture
 // that is mostly fixture. The agreement is a property of the code, so the
 // code is what gets read.
 

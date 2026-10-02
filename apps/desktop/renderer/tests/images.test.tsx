@@ -43,7 +43,7 @@ function node(id: string, extra: Partial<CanvasNode> = {}): CanvasNode {
 function deskEl(nd: CanvasNode, slug: string) {
   return (
     <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={slug}
-      toast={noop} pub={false} bare />
+      toast={noop} bare />
   )
 }
 

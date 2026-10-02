@@ -1,7 +1,7 @@
 """Opt-in HTTP transport for selected foreground nodes.
 
-The API's normal operator/public gateway remains the authority boundary. All
-field production and public scrubbing use the shared tree projection, while
+The API's normal operator gateway remains the authority boundary. All
+field production and scrubbing use the shared tree projection, while
 the context is assembled inside the graph's committed storage snapshot.
 """
 from __future__ import annotations
@@ -186,7 +186,7 @@ def _page_keep(key, page):
             _pages.popitem(last=False)
 
 
-def _read_page(slug, request, *, mode, nid, public):
+def _read_page(slug, request, *, mode, nid):
     """children / search / lookup: the remembered answer when nothing it was
     built from has moved, else a fresh build (which is then remembered)."""
     from . import api
@@ -206,7 +206,7 @@ def _read_page(slug, request, *, mode, nid, public):
         return payload
 
     if mode == 'lookup':
-        key = (str(store.DATA_ROOT), slug, public, mode, nid)
+        key = (str(store.DATA_ROOT), slug, mode, nid)
         memo = lambda stamp: _page_hit(key, stamp, runtime, sync_rev)
         payload = foreground_store.read_exact(slug, nid, project=project, memo=memo)
     else:
@@ -217,7 +217,7 @@ def _read_page(slug, request, *, mode, nid, public):
             params = (query.get('parent', ''), limit, options['cursor'], options['edge'])
         else:
             params = (query.get('q', ''), query.get('state'), limit, options['cursor'])
-        key = (str(store.DATA_ROOT), slug, public, mode, params)
+        key = (str(store.DATA_ROOT), slug, mode, params)
         options['memo'] = lambda stamp: _page_hit(key, stamp, runtime, sync_rev)
         if mode == 'children':
             payload = foreground_store.read_retired_children(slug, params[0], **options)
@@ -292,9 +292,6 @@ def _piles(query):
 
 def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
     from . import api
-    public_slug = api._public_slug(request)
-    if public_slug is not None and public_slug != slug:
-        raise HTTPException(404, 'not found')
     if store.STORE_BACKEND != 'postgres':
         return _unavailable(slug)
     compressed = tree_ui.accepts_gzip(request.headers.get('accept-encoding', ''))
@@ -302,7 +299,7 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
     try:
         if mode == 'snapshot':
             etag, body, watermarks = foreground_cache.read(
-                slug, public_slug is not None, request.headers.get('if-none-match', ''),
+                slug, request.headers.get('if-none-match', ''),
                 include=query.getlist('include'), piles=_piles(query), compressed=compressed,
                 runtime=lambda: api._tree_runtime_stamp(slug),
                 sync_revision=lambda: api._current_sync_rev(slug), feed=api._REV_FEED,
@@ -312,7 +309,7 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
                     sync_rev=api._current_sync_rev(slug)),
                 advance=lambda raw, saved, stamp, rows: _advance(raw, slug, saved, stamp, rows))
         elif mode == 'references':
-            # The store projects only the same public identity facts the
+            # The store projects only the same identity facts the
             # normal tree exposes. No runtime/history context is needed.
             sync_rev = api._current_sync_rev(slug)
             def references(raw, result):
@@ -331,7 +328,7 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
             if body is not None and compressed:
                 body = gzip.compress(body, compresslevel=1, mtime=0)
         elif mode in ('lookup', 'children', 'search'):
-            page = _read_page(slug, request, mode=mode, nid=nid, public=public_slug is not None)
+            page = _read_page(slug, request, mode=mode, nid=nid)
             etag, watermarks = page.etag, dict(page.watermarks)
             body = None if request.headers.get('if-none-match') == etag else page.wire(compressed)
         else:

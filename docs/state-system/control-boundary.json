@@ -11,7 +11,6 @@
     "control.interrupt": "orgtree_interrupt",
     "control.killswitch": "POST /api/orgs/{slug}/killswitch",
     "control.killswitch-release": "POST /api/orgs/{slug}/killswitch/release",
-    "control.kiosk": "POST /api/orgs/{slug}/kiosk",
     "control.op-continue-on": "POST /api/orgs/{slug}/nodes/{nid}/continue-on",
     "control.op-halt": "POST /api/orgs/{slug}/nodes/{nid}/halt",
     "control.op-interrupt": "POST /api/orgs/{slug}/nodes/{nid}/interrupt",
@@ -385,10 +384,7 @@
       "orgtree_self_restart": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
       "orgtree_self_update": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
       "orgtree_prime_restart": "desktop-managed V2 renamed orgtree_prime_restart to orgtree_prime_relaunch; use orgtree_prime_relaunch for an installed-app relaunch"
-    },
-    "desktop_stripped_routes": [
-      "POST /api/orgs/{slug}/kiosk"
-    ]
+    }
   },
   "legacy_defects": [
     "unstick's receipt keeps nothing: its allowlist (released, warnings) names lists",

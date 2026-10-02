@@ -1,6 +1,6 @@
 import { HUMAN_HIDDEN_VARIANTS } from '../generated/events'
 import type { ReactNode } from 'react'
-import type { Event, PublicEvent, Segment, PublicSegment } from '../generated/events'
+import type { Event, Segment } from '../generated/events'
 import { decodeEventRow, isAuthoredUser, record } from './decode'
 import type { EventProfile } from './decode'
 import { EventCard, eventSurface } from './card'
@@ -21,10 +21,10 @@ import type { ReplyContext } from '../eventReply'
 /** Approved machine-only composition is retained for agents and storage,
  * but contributes no empty heading to the human transcript. */
 const hiddenSegments = new Set<string>(HUMAN_HIDDEN_VARIANTS)
-export function humanSegmentEvent(event: Event | PublicEvent): boolean {
+export function humanSegmentEvent(event: Event): boolean {
   return !hiddenSegments.has(event.variant)
 }
-type AnySegment = Segment | PublicSegment
+type AnySegment = Segment
 export { isSegments } from './wire'
 import { isSegments } from './wire'
 export function authoredUserLabel(segments: unknown, profile: EventProfile): string | null {
@@ -78,7 +78,6 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
       case 'text': return <RefMdBody key={i} className="msg user msgtext md" html={md(segment.text, base)} world={world} onOpen={onOpen} />
       case 'state': case 'drive': {
         const row = 'event' in segment ? { ev: segment.event, text: segment.text }
-          : 'event_public' in segment ? { ev_public: segment.event_public, text: segment.text }
           : { text: segment.text, ...(segment.ev_error ? { ev_error: segment.ev_error } : {}) }
         const decoded = decodeEventRow(row, profile)
         if (decoded.kind === 'known' && !humanSegmentEvent(decoded.event)) return null
@@ -113,7 +112,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
   replyAvailable, onLocateReply, meta, annotation, foldKey }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; foldKey?: string | readonly string[]; row: {
     id?: string | null; from: string; kind?: string; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
-    reply_to?: unknown; ev?: unknown; ev_public?: unknown; ev_raw?: unknown; ev_error?: unknown;
+    reply_to?: unknown; ev?: unknown; ev_raw?: unknown; ev_error?: unknown;
     client_op?: string | null; ghost_id?: number | string | null; message_id?: string | null;
   } }) {
   // Unenveloped mail shares the visual card without inventing a typed event

@@ -4,7 +4,6 @@
 
 use crate::ntpath::{normcase, normpath, PathRules};
 use crate::pystr::{py_repr, PyStr};
-use crate::tables::TIERS;
 use crate::val::{Outside, Val};
 
 pub const TOOL_KEYS: [&str; 4] = ["bash", "web", "edit", "subagents"];
@@ -26,12 +25,6 @@ pub struct Rules {
     pub last_duplicate_wins: bool,
     /// `"*"` among MCP names is not collapsed to `["*"]`.
     pub no_star_collapse: bool,
-    /// The ceiling pass omits the `mcp:*` materialization note.
-    pub skip_ceiling_note: bool,
-    /// The tier cap refuses a seat EQUAL to the cap.
-    pub tier_cap_ge: bool,
-    /// `or-*` seats are looked up in the static table (where they are not).
-    pub or_price_static: bool,
     /// Strict clamps clamp instead of refusing.
     pub strict_demoted: bool,
 }
@@ -44,9 +37,6 @@ impl Rules {
         keep_request_order: false,
         last_duplicate_wins: false,
         no_star_collapse: false,
-        skip_ceiling_note: false,
-        tier_cap_ge: false,
-        or_price_static: false,
         strict_demoted: false,
     };
 }
@@ -230,12 +220,8 @@ pub fn norm_dirs(dirs: Option<&Val>, r: &Rules) -> Result<Vec<DirGrant>, Outside
     Ok(out)
 }
 
-/// `expand_mcp(granted, ceiling_mcp, registry)`; `None` is Python `None`.
-pub fn expand_mcp(
-    granted: Option<&[PyStr]>,
-    ceiling: Option<&[PyStr]>,
-    registry: Option<&[PyStr]>,
-) -> Vec<PyStr> {
+/// `expand_mcp(granted, registry)`; `None` is Python `None`.
+pub fn expand_mcp(granted: Option<&[PyStr]>, registry: Option<&[PyStr]>) -> Vec<PyStr> {
     let star = s("*");
     let reg: Vec<PyStr> = registry.unwrap_or(&[]).to_vec();
     let g_in = granted.unwrap_or(&[]);
@@ -244,14 +230,6 @@ pub fn expand_mcp(
     } else {
         g_in.iter().filter(|x| reg.contains(x)).cloned().collect()
     };
-    if let Some(c_in) = ceiling {
-        let c: Vec<PyStr> = if c_in.contains(&star) {
-            reg.clone()
-        } else {
-            c_in.iter().filter(|x| reg.contains(x)).cloned().collect()
-        };
-        g.retain(|x| c.contains(x));
-    }
     g.sort();
     g.dedup();
     g
@@ -462,315 +440,4 @@ pub fn clamp_vis(
         }
     }
     Ok((requested.clone(), false))
-}
-
-/// What `Org._apply_ceiling` returns, plus the warning it appends.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Ceiled {
-    pub tools: Option<Val>,
-    pub dirs: Option<Vec<DirGrant>>,
-    pub vis: Option<Val>,
-    pub pm: Option<Val>,
-    pub bridged: bool,
-    pub warnings: Vec<PyStr>,
-    /// `raise_ceiling`: the ceiling Python would write back, and whether it
-    /// logs a `ceiling_raise` event. Nothing is written here.
-    pub raised: Option<(Val, bool)>,
-}
-
-fn ceiling_dirs_map(ceil: &Val) -> Result<Vec<(PyStr, Val)>, Outside> {
-    let empty = Val::List(Vec::new());
-    let mut cmap: Vec<(PyStr, Val)> = Vec::new();
-    for d in py_iter(ceil.get("add_dirs").unwrap_or(&empty))? {
-        let (Some(p), Some(m)) = (d.get("path"), d.get("mode")) else {
-            return Err(Outside("ceiling folder without path/mode"));
-        };
-        let Val::Str(p) = p else {
-            return Err(Outside("non-str ceiling folder path"));
-        };
-        match cmap.iter_mut().find(|(k, _)| k == p) {
-            Some(e) => e.1 = m.clone(),
-            None => cmap.push((p.clone(), m.clone())),
-        }
-    }
-    Ok(cmap)
-}
-
-/// `Org._apply_ceiling(tools, dirs, vis, pm, raise_ceiling, warnings)`.
-/// `max_scope` is the kiosk's `max_scope` value (`None` = no ceiling).
-pub fn apply_ceiling(
-    max_scope: Option<&Val>,
-    tools: Option<&Val>,
-    dirs: Option<&[DirGrant]>,
-    vis: Option<&Val>,
-    pm: Option<&Val>,
-    raise_ceiling: bool,
-    r: &Rules,
-) -> F<Ceiled> {
-    let mut out = Ceiled {
-        tools: tools.cloned(),
-        dirs: dirs.map(<[DirGrant]>::to_vec),
-        vis: vis.cloned(),
-        pm: pm.cloned(),
-        bridged: false,
-        warnings: Vec::new(),
-        raised: None,
-    };
-    let ceil = match max_scope {
-        Some(v) if v.truthy() => v,
-        _ => return Ok(out),
-    };
-    if !matches!(ceil, Val::Obj(_)) {
-        return Err(Outside("ceiling is not a dict").into());
-    }
-    if raise_ceiling {
-        let (ms, rose) = raise_ceiling_for(ceil, tools, dirs, vis, pm, r)?;
-        if !rose.is_empty() {
-            let mut w = s("kiosk ceiling RAISED to fit: ");
-            w = w.concat(&join(&rose));
-            out.warnings.push(w);
-        }
-        out.raised = Some((ms, !rose.is_empty()));
-        return Ok(out);
-    }
-    let mut lost_all: Vec<PyStr> = Vec::new();
-    if let Some(t) = tools {
-        let had_star = norm_tools(Some(t), r)?.mcp.contains(&s("*"));
-        let Some(ct) = ceil.get("tools") else {
-            return Err(Outside("ceiling without tools (KeyError)").into());
-        };
-        let (nt, tl) = clamp_tools(Some(t), Some(ct), false, &s("parent"), r)?;
-        lost_all.extend(tl);
-        if had_star && !nt.mcp.contains(&s("*")) && !r.skip_ceiling_note {
-            lost_all.push(s("mcp:* (materialized to the ceiling's list)"));
-        }
-        out.tools = Some(nt.to_val());
-    }
-    if let Some(ds) = dirs {
-        let cmap = ceiling_dirs_map(ceil)?;
-        let (nd, dl) = clamp_dirs(ds, Some(&cmap), false, &s("the parent"), r)?;
-        lost_all.extend(dl);
-        out.dirs = Some(nd);
-    }
-    for (arg, key, levels, dflt, slot) in [
-        (vis, "org_visibility", &VIS_LEVELS, "full", 0usize),
-        (pm, "permission_mode", &PM_LEVELS, "acceptEdits", 1),
-    ] {
-        let Some(v) = arg else { continue };
-        let Some(vi) = level(levels, v) else { continue };
-        let dv = Val::Str(s(dflt));
-        let cv = ceil.get(key).unwrap_or(&dv);
-        if let Some(ci) = level(levels, cv) {
-            if vi > ci {
-                let mut note = s(key).concat(&s(" ")).concat(&s(levels[vi]));
-                note = note.concat(&s("\u{2192}")).concat(&s(levels[ci]));
-                lost_all.push(note);
-                let nv = Some(Val::Str(s(levels[ci])));
-                if slot == 0 {
-                    out.vis = nv;
-                } else {
-                    out.pm = nv;
-                }
-            }
-        }
-    }
-    if !lost_all.is_empty() {
-        out.warnings
-            .push(s("clamped to the kiosk permission ceiling: ").concat(&join(&lost_all)));
-        out.bridged = true;
-    }
-    Ok(out)
-}
-
-fn join(parts: &[PyStr]) -> PyStr {
-    let mut v = Vec::new();
-    for (i, p) in parts.iter().enumerate() {
-        if i > 0 {
-            v.extend(", ".chars().map(u32::from));
-        }
-        v.extend_from_slice(&p.0);
-    }
-    PyStr(v)
-}
-
-fn obj_set(o: &mut Val, key: &str, v: Val) -> Result<(), Outside> {
-    let Val::Obj(m) = o else {
-        return Err(Outside("assignment into a non-dict"));
-    };
-    let k = s(key);
-    match m.iter_mut().find(|(x, _)| *x == k) {
-        Some(e) => e.1 = v,
-        None => m.push((k, v)),
-    }
-    Ok(())
-}
-
-fn obj_get_mut<'a>(o: &'a mut Val, key: &str) -> Option<&'a mut Val> {
-    let Val::Obj(m) = o else { return None };
-    let k = s(key);
-    m.iter_mut().find(|(x, _)| *x == k).map(|(_, v)| v)
-}
-
-/// `Org._raise_ceiling_for`: the grown ceiling and what rose, as a plan.
-pub fn raise_ceiling_for(
-    ceil: &Val,
-    tools: Option<&Val>,
-    dirs: Option<&[DirGrant]>,
-    vis: Option<&Val>,
-    pm: Option<&Val>,
-    r: &Rules,
-) -> Result<(Val, Vec<PyStr>), Fail> {
-    let mut ms = ceil.clone();
-    let mut rose: Vec<PyStr> = Vec::new();
-    if let Some(tv) = tools {
-        let t = norm_tools(Some(tv), r)?;
-        let Some(ct) = obj_get_mut(&mut ms, "tools") else {
-            return Err(Outside("ceiling without tools (KeyError)").into());
-        };
-        if !matches!(ct, Val::Obj(_)) {
-            return Err(Outside("ceiling tools is not a dict").into());
-        }
-        for (i, k) in TOOL_KEYS.iter().enumerate() {
-            if t.flags[i] && !ct.get(k).is_none_or(Val::truthy) {
-                obj_set(ct, k, Val::Bool(true))?;
-                rose.push(s(k));
-            }
-        }
-        let star = s("*");
-        let Some(cm) = ct.get("mcp").cloned() else {
-            return Err(Outside("ceiling tools without mcp (KeyError)").into());
-        };
-        let c_star = py_contains_str(&cm, &star)?;
-        if t.mcp.contains(&star) && !c_star {
-            obj_set(ct, "mcp", Val::List(vec![Val::Str(star)]))?;
-            rose.push(s("mcp:*"));
-        } else if !c_star {
-            let mut extra = Vec::new();
-            for x in &t.mcp {
-                if !py_contains_str(&cm, x)? {
-                    extra.push(x.clone());
-                }
-            }
-            if !extra.is_empty() {
-                let mut all = str_set(&cm)?;
-                all.extend(extra.iter().cloned());
-                all.sort();
-                all.dedup();
-                obj_set(
-                    ct,
-                    "mcp",
-                    Val::List(all.into_iter().map(Val::Str).collect()),
-                )?;
-                for x in extra {
-                    rose.push(s("mcp:").concat(&x));
-                }
-            }
-        }
-    }
-    if let Some(ds) = dirs {
-        let Some(Val::List(list)) = obj_get_mut(&mut ms, "add_dirs") else {
-            return Err(Outside("ceiling add_dirs missing or not a list").into());
-        };
-        // held maps each path to its LAST entry; entries appended below are
-        // not added to it
-        let mut held: Vec<(PyStr, usize)> = Vec::new();
-        for (i, e) in list.iter().enumerate() {
-            let Some(Val::Str(p)) = e.get("path") else {
-                return Err(Outside("ceiling folder without str path").into());
-            };
-            match held.iter_mut().find(|(k, _)| k == p) {
-                Some(h) => h.1 = i,
-                None => held.push((p.clone(), i)),
-            }
-        }
-        for d in ds {
-            match held.iter().find(|(k, _)| *k == d.path).map(|h| h.1) {
-                None => {
-                    list.push(d.to_val());
-                    rose.push(d.path.clone());
-                }
-                Some(i) => {
-                    let cur = list[i].get("mode").cloned();
-                    let Some(cur) = cur else {
-                        return Err(Outside("ceiling folder without mode (KeyError)").into());
-                    };
-                    if cur.eq_str(&s("ro")) && d.mode.eq_str(&s("rw")) {
-                        obj_set(&mut list[i], "mode", Val::Str(s("rw")))?;
-                        rose.push(d.path.concat(&s(" (rw)")));
-                    }
-                }
-            }
-        }
-    }
-    for (arg, key, levels, dflt) in [
-        (vis, "org_visibility", &VIS_LEVELS, "full"),
-        (pm, "permission_mode", &PM_LEVELS, "acceptEdits"),
-    ] {
-        let Some(v) = arg else { continue };
-        let Some(vi) = level(levels, v) else { continue };
-        let dv = Val::Str(s(dflt));
-        let cv = ms.get(key).cloned().unwrap_or(dv);
-        if let Some(ci) = level(levels, &cv) {
-            if vi > ci {
-                obj_set(&mut ms, key, Val::Str(s(levels[vi])))?;
-                rose.push(s(key).concat(&s(" ")).concat(&s(levels[vi])));
-            }
-        }
-    }
-    Ok((ms, rose))
-}
-
-/// `Org._ceiling_seat(tier)`.
-pub fn ceiling_seat(tier: &PyStr, doc_tiers: &[(PyStr, Val)], r: &Rules) -> Option<f64> {
-    if let Some((_, p)) = TIERS.iter().find(|(k, _)| s(k) == *tier) {
-        return Some(*p);
-    }
-    if r.or_price_static {
-        return None;
-    }
-    if tier.starts_with(&s("or-")) {
-        match doc_tiers.iter().find(|(k, _)| k == tier).map(|(_, v)| v) {
-            Some(Val::Int(i)) => return Some(*i as f64),
-            Some(Val::Float(f)) => return Some(*f),
-            _ => {}
-        }
-    }
-    None
-}
-
-/// `Org._check_tier_ceiling(tier)`. `max_tier` is the ceiling's
-/// `max_tier` value (`None` when there is no ceiling or no cap).
-pub fn check_tier_ceiling(
-    max_tier: Option<&Val>,
-    tier: &PyStr,
-    doc_tiers: &[(PyStr, Val)],
-    r: &Rules,
-) -> F<()> {
-    let (cap, mt) = match max_tier {
-        None => (None, None),
-        Some(Val::List(_) | Val::Obj(_)) => return Err(Outside("unhashable max_tier").into()),
-        Some(Val::Str(m)) => match TIERS.iter().find(|(k, _)| s(k) == *m) {
-            Some((k, p)) => (Some(*p), Some(*k)),
-            None => (None, None),
-        },
-        Some(_) => (None, None),
-    };
-    let seat = ceiling_seat(tier, doc_tiers, r);
-    if let (Some(cap), Some(seat), Some(mt)) = (cap, seat, mt) {
-        let over = if r.tier_cap_ge {
-            seat >= cap
-        } else {
-            seat > cap
-        };
-        if over {
-            return refuse(&[
-                &s("the kiosk ceiling caps agent tier at "),
-                &s(mt),
-                &s(" \u{2014} "),
-                tier,
-                &s(" agents cannot be hired, rehired or switched to in this org (admins change this in kiosk settings)"),
-            ]);
-        }
-    }
-    Ok(())
 }

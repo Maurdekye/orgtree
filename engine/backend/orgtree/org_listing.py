@@ -17,7 +17,7 @@ class _CompatibilityRequired(Exception):
 
 
 def _legacy_rows():
-    return [{key: row[key] for key in ('slug', 'name', 'kiosk', 'net_slug')}
+    return [{key: row[key] for key in ('slug', 'name', 'net_slug')}
             for row in store.list_orgs()]
 
 
@@ -35,10 +35,9 @@ def _metadata(slug):
     def body(conn):
         rows = conn.execute(
             "SELECT key,CASE key "
-            "WHEN 'kiosk' THEN CASE WHEN val::jsonb='null'::jsonb THEN 'false' ELSE 'true' END "
             "WHEN 'net_identity' THEN coalesce((val::jsonb->'slug')::text,'null') "
             "ELSE val END,jsonb_typeof(val::jsonb) "
-            "FROM doc WHERE key IN ('slug','name','kiosk','net_identity')").fetchall()
+            "FROM doc WHERE key IN ('slug','name','net_identity')").fetchall()
         doc = {}
         for key, value, kind in rows:
             if key == 'net_identity' and kind not in ('object', 'null'):
@@ -49,7 +48,7 @@ def _metadata(slug):
         # Explicit allowlist: no token, credentials, node counts or admin
         # settings are available to discovery's callers, even accidentally.
         return {'slug': doc.get('slug', slug), 'name': doc.get('name', slug),
-                'kiosk': doc.get('kiosk', False), 'net_slug': doc.get('net_identity')}
+                'net_slug': doc.get('net_identity')}
     return store._bounded_read(slug, body)
 
 
@@ -66,15 +65,15 @@ def discovery_rows():
                     continue  # same per-org unreadable/deleted isolation as _scan_orgs
         except _CompatibilityRequired:
             rows = _legacy_rows()
-    return [row for row in rows if not row['kiosk']]
+    return rows
 
 
 def local_candidates(name):
-    """Exact local destination lookup; sealed kiosks appear nonexistent."""
+    """Exact local destination lookup."""
     if _native():
         try:
-            row = _metadata(name)
-            return [name] if not row['kiosk'] else []
+            _metadata(name)
+            return [name]
         except (LedgerError, sqlite3.Error, ValueError, OSError):
             return []
         except _CompatibilityRequired:
@@ -85,8 +84,8 @@ def local_candidates(name):
     for row in store.list_orgs():
         if row.get('slug') == name:
             try:
-                if store.load_org(name).d.get('kiosk') is None:
-                    out.append(name)
+                store.load_org(name)
+                out.append(name)
             except LedgerError:
                 continue
     return out

@@ -51,7 +51,7 @@ function card(n: CanvasNode, lod: 'mini' | 'norm' = 'norm') {
     dragging={false} isDrop={false} seats={seats} codexHire={hire}
     antigravityHire={hire} claudeHire={hire} map={new Map([[n.id, n]])}
     op={op} slug="redalert" toast={noop} pxc={1} zoom={lod === 'mini' ? .4 : .8}
-    compactAt={.8} pub={false} maxTop={100} kioskRemaining={null}
+    compactAt={.8} maxTop={100}
     cascadeAlloc onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
     onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
     onRecenter={noop} onJump={noop} onMailLink={noop}
@@ -100,7 +100,7 @@ test('§3 the desk banner reads the org latch from context (the popout-safe path
   const view = await mountView(
     <OrgKillswitchContext.Provider value={true}>
       <DeskChat node={n} map={new Map([[n.id, n]])} slug="latched-org"
-        op={op} toast={noop} pub={false} bare />
+        op={op} toast={noop} bare />
     </OrgKillswitchContext.Provider>, (el) => el)
   try {
     await flush()
@@ -116,7 +116,7 @@ test('§4 the un-latched desk banner follows the per-agent halt alone', async ()
   const view = await mountView(
     <OrgKillswitchContext.Provider value={false}>
       <DeskChat node={n} map={new Map([[n.id, n]])} slug="halted-agent"
-        op={op} toast={noop} pub={false} bare />
+        op={op} toast={noop} bare />
     </OrgKillswitchContext.Provider>, (el) => el)
   try {
     await flush()
@@ -142,7 +142,7 @@ function tree(roots: CanvasNode[], killswitch: { at: string; by: string } | null
     audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
     killswitch,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null,

@@ -235,11 +235,6 @@ class StaffingMenuCostTests(unittest.TestCase):
         new = quickstaff.tier_block(self.org, item, ctx, "nonesuch", probe)
         self.assertEqual(new, self._old_tier_block(item, ctx, "nonesuch"))
         self.assertIsNotNone(new)
-        # and a ceiling refusal, which the trial hire is what discovers
-        with patch.object(ledger.Org, "_check_tier_ceiling",
-                          side_effect=ledger.LedgerError("tier ceiling reached")):
-            self.assertEqual(quickstaff.tier_block(self.org, item, ctx, "haiku", probe),
-                             "tier ceiling reached")
 
     def _old_tier_block(self, item, ctx, tier):
         """`tier_block` exactly as it stood at ba65ad7 — the whole-document
@@ -249,7 +244,6 @@ class StaffingMenuCostTests(unittest.TestCase):
             if tier not in self.org.d["tiers"]:
                 return "That model is not available in this organization. Reopen Staff…."
             api.provider_hire_gate(self.org, tier)
-            self.org._check_tier_ceiling(tier)
             args = quickstaff.staff_args(self.org, item, ctx, tier)
             trial = ledger.Org(copy.deepcopy(self.org.d))
             made = trial.hire(ledger.USER, args.get("target"), tier, args["grant"],

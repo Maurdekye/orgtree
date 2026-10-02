@@ -16,8 +16,7 @@
 // Attention, docket) agrees without passing anything down. It is kept in memory
 // only: after a reload the tree payload is the truth again.
 import { useSyncExternalStore } from 'react'
-import type { AnswerAsk, AnswerBatch, AnsweredQ, PublicAnswerAsk, PublicAnswerBatch, Section,
-  PublicSection } from './generated/events'
+import type { AnswerAsk, AnswerBatch, AnsweredQ, Section } from './generated/events'
 import type { AskInfo, AskQuestion, PendingMail } from './types'
 
 export interface SubmittedAsk {
@@ -215,33 +214,19 @@ export function resetSubmittedAsks() {
  *  card, answer.ask (ledger.ask_answer / ask_dismiss) for a single-question
  *  card. It has no mail id: nothing is filed yet, so there is nothing to
  *  retract. */
-export function queuedAnswerRow(e: SubmittedAsk, publicProfile: boolean): PendingMail {
+export function queuedAnswerRow(e: SubmittedAsk): PendingMail {
   const actor = { kind: 'user' as const, id: '@user' }
   if (e.answer) {
     const row: PendingMail = { id: null, from: '@user', kind: 'message', body: '', at: e.at }
     const fields = { questions: e.answer.questions, text: e.answer.text,
       dismissed: e.answer.dismissed, single: e.answer.single }
-    if (!publicProfile) {
-      const ev: AnswerAsk = { v: 1, variant: 'answer.ask', actor, engine_authored: false,
-        object: { kind: 'ask', org: e.slug, id: e.askId, node: e.nid }, ...fields }
-      return { ...row, ev }
-    }
-    const pub: PublicAnswerAsk = { v: 1, variant: 'answer.ask', projection: 'public', actor,
-      object: { kind: 'ask', id: e.askId, node: e.nid }, ...fields }
-    return { ...row, ev_public: pub }
+    const ev: AnswerAsk = { v: 1, variant: 'answer.ask', actor, engine_authored: false,
+      object: { kind: 'ask', org: e.slug, id: e.askId, node: e.nid }, ...fields }
+    return { ...row, ev }
   }
   const sections = e.sections ?? []
   const ev: AnswerBatch = { v: 1, variant: 'answer.batch', actor, engine_authored: false,
     object: { kind: 'batch', org: e.slug, id: e.askId, node: e.nid }, sections }
   const row: PendingMail = { id: null, from: '@user', kind: 'message', body: '', at: e.at }
-  if (!publicProfile) return { ...row, ev }
-  const pub: PublicAnswerBatch = { v: 1, variant: 'answer.batch', projection: 'public',
-    actor, object: { kind: 'batch', id: e.askId, node: e.nid },
-    sections: sections.map((s): PublicSection =>
-      s.kind === 'ask' ? { kind: 'ask', questions: s.questions }
-        : s.kind === 'skipped' ? { kind: 'skipped', question: s.question }
-        : s.kind === 'scope' ? { kind: 'scope', lines: s.lines,
-            decisions: s.decisions.map(d => ({ decision: d.decision })) }
-        : s) }
-  return { ...row, ev_public: pub }
+  return { ...row, ev }
 }

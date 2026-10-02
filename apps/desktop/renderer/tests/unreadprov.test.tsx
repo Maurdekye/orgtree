@@ -54,7 +54,7 @@ test('switchboard tabs: each unread count wears ITS agent\'s provider, like its 
   localStorage.removeItem('orgtree-eyeseen-swb')
   const map = new Map<string, CanvasNode>(MIX.map((a) => [a.id, a]))
   const view = await mountView(
-    <EyeDesk map={map} op={op} slug="swb" toast={noop} pub={false}
+    <EyeDesk map={map} op={op} slug="swb" toast={noop}
       eyeW={1200} posX={() => 0} onMailLink={noop} />, (el) => el)
   t.after(() => view.unmount())
   const tabs = [...view.el.querySelectorAll('.eye-tab')]
@@ -124,8 +124,8 @@ test('an agent card\'s own mail count is themed by that agent\'s provider', asyn
       <NodeSquare node={n} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
         dragging={false} isDrop={false} seats={seats} codexHire={hire}
         antigravityHire={hire} claudeHire={hire} map={new Map([[n.id, n]])} op={op}
-        slug="org" toast={noop} pxc={1} zoom={1} compactAt={.8} pub={false}
-        maxTop={0} kioskRemaining={null} cascadeAlloc onSpawn={noop}
+        slug="org" toast={noop} pxc={1} zoom={1} compactAt={.8}
+        maxTop={0} cascadeAlloc onSpawn={noop}
         onSpawnSide={noop} onSpawnTop={noop} onConfig={noop} onInbox={noop}
         onLineage={noop} onOpenDoc={noop} onRecenter={noop} onJump={noop}
         onMailLink={noop} onDragStart={noop} onDragMove={noop}

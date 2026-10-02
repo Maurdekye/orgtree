@@ -240,9 +240,10 @@ each), `org-feed.instrumentation`, `agent-mail.reads` and
 `inbox.instrumentation` (three each). The instrumentation facets close under S2d
 decision 1: their "Closes with" clauses are legacy-only. Three facets gain observed
 facts but stay open, each with an owner line narrowed to what remains:
-`org-view.instrumentation` (the public gateway's token-map rebuild reads every org
-before any census attempt exists, so it cannot be attributed; its question is
-rewritten to that), `agent-mail.effects` (P07) and `human-mail.effects` (P08).
+`org-view.instrumentation` (an ASGI-wrapper read of every org made before any census
+attempt exists, so it cannot be attributed; its question was rewritten to that, and the
+facet closed when that wrapper was removed with its feature), `agent-mail.effects` (P07)
+and `human-mail.effects` (P08).
 `tests/test_state_p02_contact_facets.py` re-runs the probe and asserts each new fact.
 See "P03-prototype surface" below.
 606 is six fewer than that 612 (P01 S2f): P02's funding rows (v3 b78c6ca, re-observed at
@@ -278,12 +279,12 @@ resident. A lookup's warm reads depend on the resident's state, and the only row
 the caller's own fence.
 584 is two fewer than that 586 (P01 S2j): the coordinator ruled that P02's reviewed probe-level
 record meets `diagnostic.instrumentation`'s clause, so it is specified. Three P02 facets are
-narrowed to what the probe cannot reach: `org-view.instrumentation` to the gateway's token-map
-rebuild, `material.reads` to a disk-backed sandboxed org, and `material.effects` to a successful
+narrowed to what the probe cannot reach: `org-view.instrumentation` to the ASGI wrapper's
+every-org read (since removed with its feature, which closed the facet), `material.reads` to a disk-backed sandboxed org, and `material.effects` to a successful
 chown. The lookup's warm reload is now measured, not inferred (the reviewer's mutant on S2i).
 580 is four fewer than that 584 (P01 S2k): of the 15 storage candidates, source reading excludes
-the four that are not org state, each with a covering source reference: the kiosk share URL's
-LAN-address socket, the liveness port probe, and the two read-only opens of the Antigravity CLI's
+the four that are not org state, each with a covering source reference: a share URL's
+LAN-address socket (since removed with its feature, leaving three), the liveness port probe, and the two read-only opens of the Antigravity CLI's
 own conversation database. None is mapped. The org store and every sidecar the probe observes are
 shared with uncontracted operations, so under the shared-selector rule they stay pending, and
 every pending candidate now says why.
@@ -389,9 +390,9 @@ p01-f2-contracts-for-the-run-control-entry-point). F2 contracts the run-control 
 action, and fourteen operator routes) on the new `control.*` facets, pinned by
 `tests/test_state_control_boundary.py` against `docs/state-system/control-boundary.json` with every process
 effect replaced by a spy. Each contract states its behaviour per product profile where `desktop_policy` changes
-it (decision 1 on the F2 item): under the desktop-managed profile the standard restart tools are refused and
-the kiosk route is stripped (`desktop_policy.install_routes` also strips `/git/` and two account-key routes,
-which F8 and F10 will state). The branches the desktop relaunch verbs reach stay pending until their tool
+it (decision 1 on the F2 item): under the desktop-managed profile the standard restart tools are refused
+(`desktop_policy.install_routes` strips `/git/` and two account-key routes, which F8 and F10 will state). A
+23rd route and its contract were later removed with the feature they served, leaving 25 `control.*` contracts. The branches the desktop relaunch verbs reach stay pending until their tool
 cards are inventoried (p01-inventory-misses-the-desktop-relaunch-tool-c), and three branches stay pending on
 the card-less `orgtree_self_update` alias.
 
@@ -434,8 +435,6 @@ lineage-recover and lineage-drop-phantom (refusal rows only). Both are asserted 
   later save on the org writes it until a later unhalt. This is a recorded legacy defect, docketed as
   unhalting-an-agent-leaves-an-unsaved-empty-steer; it was found by P02's write trace and reproduced by P01 with a
   warm sequence, which a reload between calls hides.
-- `control.authority`: the stripped kiosk route answers 405 when the packaged UI's GET catch-all is mounted, and
-  404 otherwise. The earlier pin of 405 depended on the machine's `ORGTREE_V2_UI_DIR`.
 
 645 is fourteen fewer than that 659 (P01 F3/F2 instrumentation follow-up). P02's rows at v3 bfbc4ae close
 `asks.instrumentation` and `audiences.instrumentation`. They narrow `watchdogs.instrumentation` to the create's
@@ -517,8 +516,8 @@ expected: 11 entries are mapped and each new contract opens conflicts, wire and 
 
 They are pinned by `tests/test_state_org_admin_boundary.py` against `docs/state-system/org-admin-boundary.json`
 (67 cases). The WSL command runner is a recorded fake, a mounted org disk is a temp folder, and hub, net,
-sandbox, container and docker calls are spies. The desktop-managed profile refuses a kiosk or sandboxed create,
-so the standard-profile cases cover those branches. The frozen profile gates the rotation, which the probe
+sandbox, container and docker calls are spies. The desktop-managed profile refuses a sandboxed create,
+so the standard-profile cases cover that branch. The frozen profile gates the rotation, which the probe
 reaches only as refusals.
 
 A refused settings call writes nothing, even when earlier fields had already been applied to the cached document:
@@ -527,7 +526,7 @@ the org's host workspace and its scratch root.
 
 Recorded legacy defects (both docketed as org-admin-orgmd-put-reports-characters-as-bytes):
 - the org.md write reports the character count as `bytes`;
-- disk delete returns the raw OSError text, host path included, to admins and kiosk visitors alike.
+- disk delete returns the raw OSError text, host path included.
 
 Entries contracted: 99 of 194.
 
@@ -550,7 +549,7 @@ which F4 had contracted).
 grants are refused, and the held-handle audience bypass, the sighting registry, the handle sweeper and the "filed"
 status are removed. The sweeper's worker registration goes, so the inventory records 334 registrations, and its
 pending entry row goes with it. `agent-mail.authority` loses the held-handle clause. The kept pieces stay true: the node
-tree still serves `external_handles` as stored data, the public scrub drops it, and the preview lists it as private.
+tree still serves `external_handles` as stored data, and the preview lists it as private.
 Every moved span was re-anchored by exact text. The three regions the stage edited were re-derived: `post_mail`'s
 `@ext:`/`@mcp:` block, the `orgtree_message` dispatch branch and the `Op` body.
 
@@ -629,6 +628,13 @@ What the routes write:
 
 Recorded legacy defect (docket cancelling-an-orphaned-desktop-import-job-leaves): a cancel of such an orphaned record
 is accepted, and it leaves a marker that nothing consumes. Entries contracted: 119 of 187.
+
+778 is six fewer than the 784 of the P01 re-anchor after PYPG. A removed product feature took its operator
+route and the `control.*` contract mapped to it (192 contracts, 152 mapped entries; its three open dimension
+occurrences went with it), the workspace-usage worker and its pending entry row, and the LAN-address socket that
+S2k had excluded. Its ASGI wrapper's every-org read was the only part of `org-view.instrumentation` the P02 probe
+could not attribute, so that facet is now specified, which closes one open occurrence on each of `org.tree` and
+`org.node-detail`. Facts that described the feature's request path were removed from the facets they appeared in.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
@@ -763,7 +769,7 @@ Candidate 2 (F1, second half) adds the operator UI's read surface: `org.tree`
 which share one projection and so one set of `org-view` facets, and `org.feed`
 (the org websocket). Specified from source and pinned by
 `tests/test_state_org_view_boundary.py` against `org-view-boundary.json`:
-authority (the desktop token gate, 404s, kiosk scoping and scrubbing),
+authority (the desktop token gate and 404s),
 predicates (ETag revalidation, archived summaries, detail selection), receipt and
 effects for the view; authority, predicates, reads, writes, receipt and effects
 for the feed. Unresolved with an owner: the view's reads, cold/migration writes
@@ -772,11 +778,9 @@ wire for both (native/Rust), and the feed's instrumentation (P02). Recorded lega
 behaviour: the first ETag a cold org serves is already stale, a valid agent
 credential on these GETs is refused as "invalid or expired", the socket route
 accepts an organization that does not exist, and in desktop-managed mode an org
-document carrying `kiosk` makes the admin tree and node detail answer 500 (the
+document carrying `sandbox` makes the tree and node detail answer 500 (the
 warm-process eligibility check catches only `RuntimeError`, but the desktop
-policy raises `ValueError`) while the public view still serves. A kiosk config
-without a ceiling also mints a fresh ceiling notice on every cold load. The kiosk
-listener is started only by api.py's own `main()`, not by the desktop launcher.
+policy raises `ValueError`).
 
 Candidate 3 (F2, agent mail) adds `mail.message` (`orgtree_message`) and
 `mail.notice` (`orgtree_send_notice`), which share one set of `agent-mail`
@@ -886,8 +890,7 @@ of its callers contracted, `_staff_call`'s three action branches map back, each 
 the contracts that take it: the create branch to `staffing.staff-create` alone,
 because quick staff always sends action update. Recorded legacy defect: a
 request-mode commit whose kickoff is refused on a ticket with empty progress lists
-fails with an unhandled 500 and undoes nothing. The operator ops door's kiosk-visitor
-path is now pinned too (the candidate 6b reviewer's note).
+fails with an unhandled 500 and undoes nothing.
 
 F4 (the strict item read, S3 ruling 2) adds `work.item-list` and `work.item-get`
 (GET `/api/orgs/{slug}/work-items[/{wid}]`), sharing one set of `work-read` facets.
@@ -972,17 +975,19 @@ schedule it already carried. The approval's non-blocking notes A1 and A2 (r3's e
 recorded on `staffing.conflicts` as P04/P05 carries; the retracted section 4.8 sentence is
 not cited. r3 also amends r7 (E-D17): the island gains every lineage split, which amends
 section 6.4's `switch_model` and `retool` account rows (recorded on `preview.predicates`,
-which stays specified, and on `preview.conflicts`, which carries the new schedule Q-E2), the
-kiosk pool E8 joins every top-level holding write, and pair P8 orders a mail receive against
+which stays specified, and on `preview.conflicts`, which carries the new schedule Q-E2), an
+organization credits pool row E8 joins every top-level holding write (moot now: the organization
+type it served was removed), and pair P8 orders a mail receive against
 its mailbox's rehire, delete and fold (Q-E1, on `agent-mail.conflicts`).
 `tests/test_state_operation_contracts.py` checks every citation and keeps all 50 r3 schedules
 anchored in an open facet, each on its own facet (a per-facet map of section 9.1's Evidence
 column), and requires r3's extensions of r7's Q-C3 (on `agent-mail.conflicts`) and Q-C5 (on
-`preview.conflicts`) to stay named in an open owner line. One departure is recorded rather than
-claimed: in a kiosk organization r3 keeps an organization-wide kiosk pool row (E8), which
+`preview.conflicts`) to stay named in an open owner line. One departure was recorded rather than
+claimed: r3 keeps an organization-wide pool row (E8) for one organization type, which
 `funding.conflicts`' clause ("no org-wide credit counter") excludes; the coordinator accepted it
-as a departure from v6 scoped to kiosk organizations (E-D15; decision 2 of item
-`p01-cite-the-approved-native-design-extension-r3`).
+as a departure from v6 scoped to that type (E-D15; decision 2 of item
+`p01-cite-the-approved-native-design-extension-r3`). That organization type has since been removed,
+so the departure no longer applies.
 
 ## Deliberate failing controls
 

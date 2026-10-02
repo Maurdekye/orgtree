@@ -26,7 +26,7 @@ REGISTRY_READERS = sorted(
 MODULES = REGISTRY_READERS + [
     'tests/test_state_operation_inventory.py', 'tests/test_watchdog_list_unmanaged.py',
     'tests/test_s10_watchdog_route.py', 'tests/test_pg3c_watchdog_tx.py',
-    'tests/test_pg3c_kiosk_exempt.py', 'tests/test_write_route_timing.py',
+    'tests/test_write_route_timing.py',
     'tests/test_operation_census.py', 'tests/test_send_file_seat.py',
     'tests/test_agent_continue_on.py', 'tests/test_p02_operation_contacts.py']
 RESTORE = ['engine/backend/orgtree/api.py', 'engine/backend/orgtree/toolwait.py',

@@ -86,9 +86,7 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 # should reprice agents that are under $1/m") moved gpt-reserve and luna
 # AFTER the fractional machinery landed re-pricing nothing. A DROP is safe in
 # the budget (`committed` falls, `free` rises, `free() >= 0` cannot start
-# failing) but it is NOT safe unconditionally: `_check_tier_ceiling` compares
-# seats as an ORDERING, so tiers that used to TIE at 1 no longer do — see the
-# ⚠ in `_check_tier_ceiling`. A future RAISE would be the dangerous
+# failing). A future RAISE would be the dangerous
 # direction: it can overdraw a saved org, and nothing here handles that.
 #
 # ☞ THE SAME RULE REACHED THE DYNAMIC (OpenRouter) HALF ONLY ON 2026-09-04,
@@ -228,8 +226,8 @@ MODELS: Final[dict[str, str]] = {
 # subcategory INSIDE a tier (user ruling 2026-08-04: "the 4 chips should
 # represent the 4 tiers. individual model versions are a subcategory which
 # should only be accessible within the gear menu if the user desires to change
-# it"). Choosing one never touches the seat cost, the budget, or anything the
-# kiosk ceiling inspects — it decides one thing: which `--model` id the CLI is
+# it"). Choosing one never touches the seat cost or the budget — it decides
+# one thing: which `--model` id the CLI is
 # handed. A first attempt made Opus 4.8 a fifth TIER, which put a fifth chip on
 # the canvas and a fifth price band in every table; this is that, corrected.
 #
@@ -348,7 +346,7 @@ external_candidates: Callable[[str], dict[str, list[str]]] = \
 
 VIS_LEVELS: Final = ("self", "team", "subtree", "full")   # org-structure knowledge tiers
 TOOL_KEYS: Final = ("bash", "web", "edit", "subagents")   # the built-in tool switches
-# permission_mode rank order (kiosk-ceiling spec §2): later = more permissive.
+# permission_mode rank order: later = more permissive.
 # `plan` (user request 2026-08-12, with FR-13): the CLI's read-only planning
 # mode — MOST restrictive, so it ranks below `default`. Inserted at index 0:
 # every comparison in this file is relative (index max/greater-than), so the
@@ -416,7 +414,7 @@ _PROMOTION_SEAT_FIELDS: Final = ("add_dirs", "tools", "org_visibility",
 #: interrupting work the user was doing for a fact about text they had not
 #: touched. So it rides `advisories` instead — text the backend reports about
 #: a save that SUCCEEDED, carrying no action and no acknowledgement. Nothing
-#: pops an advisory. Genuine warnings (a ceiling clamp, a cascade, a subtree
+#: pops an advisory. Genuine warnings (a cascade, a subtree
 #: clamp, a bridge) are untouched and still interrupt.
 CHARTER_LONG: Final = 4000
 
@@ -456,18 +454,13 @@ def norm_tools(t: Mapping[str, Any] | None) -> ToolGrant:
     return cast(ToolGrant, out)
 
 
-def expand_mcp(granted: Iterable[str] | None, ceiling_mcp: Iterable[str] | None,
+def expand_mcp(granted: Iterable[str] | None,
                registry: Iterable[str] | None) -> list[str]:
-    """Build-time MCP expansion (ceiling spec §6, deliberately PURE — no env,
-    no engine — so the suite pins it directly). "*" = the whole registry; the
-    effective set is expand(granted) ∩ expand(ceiling). ceiling_mcp None = no
-    ceiling (a normal org). Miss the intersection and a kiosk with a list
-    ceiling still hands over every server through the "*" default path."""
+    """Build-time MCP expansion (deliberately PURE — no env, no engine — so
+    the suite pins it directly). "*" = the whole registry; otherwise the
+    granted names that the registry actually holds."""
     reg = set(registry or [])
     g = reg if "*" in (granted or []) else set(granted or []) & reg
-    if ceiling_mcp is not None:
-        c = reg if "*" in ceiling_mcp else set(ceiling_mcp) & reg
-        g = g & c
     return sorted(g)
 
 
@@ -661,8 +654,8 @@ _PROVIDER_SCOPED_FREEZE_FLAGS: Final = ("limit", "connection", "on_fallback",
 
 def retag_legacy_spend_freeze(fz: Any) -> bool:
     """Re-tag a pre-№41 spend freeze (the usage-limit keys `error` with no
-    `until` and no True kind flag) as `spend`, so clear_hard_freeze("spend")
-    actually clears it. Every `Org` load applies it; a writer that leaves a
+    `until` and no True kind flag) as `spend` (IGNORED_LEGACY_FREEZE_FLAGS),
+    so ▶ resume clears it. Every `Org` load applies it; a writer that leaves a
     record in this shape (the invariant sweep's quarantine) applies it too, so
     the row it commits is already at the load-heal fixed point. True if it
     changed the record.
@@ -937,15 +930,17 @@ def _lazy_rows(nodes: Any) -> bool:
 def freeze_describes_provider(fz: FrozenInfo) -> bool:
     """Is this freeze ABOUT the node's provider/session — a usage limit, a
     network drop, or an auth rejection (`cause` is a string, never a flag, so
-    it never trips this test) — rather than a GLOBAL/org-owned kind (kiosk
-    `spend`) that has nothing to do with which provider the node runs on?
+    it never trips this test) — rather than a GLOBAL/org-owned kind that has
+    nothing to do with which provider the node runs on? A legacy flag in
+    IGNORED_LEGACY_FREEZE_FLAGS owns nothing, so it never makes this False.
 
     Shared between `switch_model` (a crossing invalidates a freeze this says
     Yes to — the provider it described is gone) and
     `supervisor._resumable` (▶ resume acts on exactly the same freezes) so
     the two questions can never drift apart — D-182's standing warning about
     two copies of one rule."""
-    return not any(k not in _PROVIDER_SCOPED_FREEZE_FLAGS and v is True
+    return not any(k not in _PROVIDER_SCOPED_FREEZE_FLAGS
+                   and k not in IGNORED_LEGACY_FREEZE_FLAGS and v is True
                    for k, v in fz.items())
 
 
@@ -1104,14 +1099,24 @@ NODE_KEYED_SECTIONS: Final[dict[str, tuple[str, str, str]]] = {
         "deleted_cost_usd", "deleted_cost_usd_unknown", "dirs", "disk",
         "external_inbox_multi_holder", "fable_api_fallback", "fable_filter_model",
         "fable_filter_policy", "fable_limit_policy", "fable_lock", "headless", "killswitch",
-        "kiosk", "mail_drain_version", "max_children", "max_depth", "max_top_grant",
+        "mail_drain_version", "max_children", "max_depth", "max_top_grant",
         "models", "name", "net_autoconnect", "net_hubs", "net_identity", "net_spool",
         "net_state", "op_receipts_meta", "org_inbox_multi_holder", "org_inbox_read",
         "permission_mode", "reservations", "sandbox", "sandbox_vols_base", "slug",
-        "spend_frozen", "storage_blocked", "storage_frozen", "storage_full",
+        "storage_blocked", "storage_frozen", "storage_full",
         "storage_warned", "tiers", "tool_result_receipts", "version", "work_identity",
         "workspace")},
 }
+
+#: Top-level org-document keys left behind by a removed feature. Legacy
+#: fields; ignored: stored documents may still carry
+#: them, loading tolerates them and keeps them as-is in memory (so a save never
+#: drops stored data), and nothing reads or writes them for behaviour.
+IGNORED_LEGACY_KEYS: Final[tuple[str, ...]] = ("kiosk", "spend_frozen")
+#: Node freeze kind flags (`node.frozen`) left behind by the same removed
+#: feature. Stored records keep them; they own nothing any more, so ▶ resume
+#: treats a freeze carrying only these like a provider-scoped one and clears it.
+IGNORED_LEGACY_FREEZE_FLAGS: Final[tuple[str, ...]] = ("spend",)
 
 
 class Org:
@@ -1150,60 +1155,6 @@ class Org:
 
     def _initialize_doc(self, doc: OrgDoc) -> None:
         self._normalize_display_basics()
-        # kiosk permission ceiling (consensus spec §3): pre-ceiling kiosk docs
-        # get one MINTED = "what this org already does" — the union of every
-        # node's scope ∪ the org's dirs ∪ default_tools. Nothing running is
-        # swept; future escalation caps at the status quo; the admin is told.
-        _k = self.d.get("kiosk")
-        if _k is not None:
-            _k.setdefault("auto_raise", False)
-            # user report 2026-07-31: the inherited 50-credit default grant,
-            # kiosk-clamped to "everything remaining", made the FIRST hire
-            # swallow the whole pool — no second agent could ever spawn and
-            # the reason was opaque. A default the cap can't even hold was
-            # never a chosen default: zero it. In a capped org, grants are
-            # deliberate drags; a sub-cap default the admin set survives.
-            _cap = int(_k.get("credits") or 0)
-            if _cap and int(self.d.get("default_top_grant") or 0) >= _cap:
-                self.d["default_top_grant"] = 0
-            if not _k.get("max_scope"):
-                dt = self.d.get("default_tools") or {}
-                mt = norm_tools(dt)
-                md = {d["path"]: d["mode"] for d in norm_dirs(self.d.get("dirs"))}
-                dv = self.d.get("default_visibility", "full")
-                vr = VIS_LEVELS.index(dv) if dv in VIS_LEVELS else len(VIS_LEVELS) - 1
-                pr = PM_LEVELS.index("acceptEdits")
-                for n in self.nodes.values():
-                    sc = n.get("scope") or {}
-                    t = sc.get("tools") or {}
-                    for key in TOOL_KEYS:
-                        if t.get(key, True):
-                            mt[key] = True
-                    mcp = t.get("mcp") or []
-                    if "*" in mcp or "*" in mt["mcp"]:
-                        mt["mcp"] = ["*"]
-                    else:
-                        mt["mcp"] = sorted(set(mt["mcp"]) | set(mcp))
-                    for d in sc.get("add_dirs") or []:
-                        cur = md.get(d["path"])
-                        if cur is None or (cur == "ro" and d["mode"] == "rw"):
-                            md[d["path"]] = d["mode"]
-                    v = sc.get("org_visibility")
-                    if v in VIS_LEVELS:
-                        vr = max(vr, VIS_LEVELS.index(v))
-                    p = sc.get("permission_mode")
-                    if p in PM_LEVELS:
-                        pr = max(pr, PM_LEVELS.index(p))
-                _k["max_scope"] = {
-                    "tools": mt,
-                    "add_dirs": [{"path": p, "mode": m} for p, m in md.items()],
-                    "org_visibility": VIS_LEVELS[vr],
-                    "permission_mode": PM_LEVELS[pr]}
-                cev = _mint("access.kiosk_ceiling", actor_of(SYSTEM), self.org_ref())
-                self.to_user_inbox({
-                    "id": uuid.uuid4().hex[:8], "from": SYSTEM,
-                    "kind": "notice", "at": now(),
-                    "body": events.render_agent(cev)}, cev)
         # MAIL IDS. Ids arrived after the first mail did, so pre-id entries
         # really do need repairing — they render with no retraction ✕ and 404
         # the DELETE with a false excuse. What changed on 2026-09-03 is WHERE
@@ -1320,7 +1271,7 @@ class Org:
                         _n["grant"] = _want
                 _doc["whole_grants_v1"] = True
         # pre-№41 spend freezes wrote the usage-limit keys (error, until=None);
-        # re-tag them so clear_hard_freeze("spend") actually clears them
+        # re-tag them as the legacy `spend` kind, which ▶ resume clears,
         # instead of leaving a stale-reason freeze the API reports as cleared
         _lazy = _lazy_rows(self.d.get("nodes"))
         if not _lazy:
@@ -1481,10 +1432,6 @@ class Org:
         self.d.setdefault("cascade_alloc", True)
         self.d.setdefault("credit_requests", [])     # top-level asks to the user
         self.d.setdefault("compact_at", 0.80)        # compaction ratio, ≤ 0.95 hard
-        # kiosk v2 (user vision): per-org public exposure via a preauthenticated
-        # secret-URL token; caps live here, not in env vars. None = never a kiosk.
-        self.d.setdefault("kiosk", None)             # {enabled, token, credits,
-                                                     #  spend_limit, storage_limit_mb}
 
     def _normalize_display_models(self) -> None:
         """Additive model vocabulary and local node aliases; no history reads."""
@@ -1586,11 +1533,8 @@ class Org:
         # way for the static half — those tiers have no price in the document
         # to re-derive from, only a name.
         #
-        # It stays a DROP, so the budget half is safe for the same reason the
-        # block above is (committed falls, free rises). The ORDERING half is
-        # not automatic — see the ⚠ in `_check_tier_ceiling`: an `or-*` tier
-        # leaving 1 stops tying with haiku and flash. Verified 2026-09-04, as
-        # on 2026-09-03: no live org has a kiosk ceiling set at all.
+        # It stays a DROP, so the budget is safe for the same reason the
+        # block above is (committed falls, free rises).
         _t.update(_orr.stale_seats(_t, cast("dict[str, str]",
                                             _doc.get("models") or {})))
         # ☞ …and a MODEL-ID change needs one for exactly the same reason: the
@@ -2067,335 +2011,20 @@ class Org:
                 kept.append(cast(DirGrant, dict(d)))  # dict() copy loses the TypedDict
         return kept, lost
 
-    # ----------------------------------------------- kiosk permission ceiling
-    # Consensus spec 2026-07-31: a kiosk carries the MAXIMUM permission layer
-    # grantable to any agent in it; within it, all retooling/hiring permission
-    # ops are permitted (visitors clamp-with-warning, never a 403). Normal
-    # orgs have no ceiling — the top-level agent's own layer already is one.
-    # `raise_ceiling` threads the one gateway-conferred CAPABILITY (not an
-    # identity): "this call is authorized to, and intends to, raise the
-    # ceiling to fit". Fail-closed default; agents can never pass it.
-
-    def kiosk_ceiling(self) -> dict[str, Any] | None:
-        k = self.d.get("kiosk")
-        return (k or {}).get("max_scope") or None
-
-    def default_kiosk_ceiling(self) -> dict[str, Any]:
-        """Fresh-kiosk ceiling (spec §3): all built-ins ON, mcp "*" (user
-        ruling — continuity with default_tools; the create dialog surfaces the
-        ceiling so narrowing is a conscious act), the org's own dirs, full
-        visibility, acceptEdits."""
-        return {"tools": norm_tools({"mcp": ["*"]}),
-                "add_dirs": norm_dirs(self.d.get("dirs")),
-                "org_visibility": "full", "permission_mode": "acceptEdits"}
-
-    def _norm_ceiling(self, ms: Mapping[str, Any] | None) -> dict[str, Any]:
-        ms = ms or {}
-        vis = ms.get("org_visibility", "full")
-        if vis not in VIS_LEVELS:
-            raise LedgerError(f"ceiling org_visibility must be one of {VIS_LEVELS}")
-        pm = ms.get("permission_mode", "acceptEdits")
-        if pm not in PM_LEVELS:
-            raise LedgerError(f"ceiling permission_mode must be one of {PM_LEVELS}")
-        mt = ms.get("max_tier") or None
-        if mt is not None and mt not in TIERS:
-            raise LedgerError(f"ceiling max_tier must be one of {sorted(TIERS)} "
-                              f"(or unset for no cap)")
-        return {"tools": norm_tools(ms.get("tools", {"mcp": ["*"]})),
-                "add_dirs": norm_dirs(ms.get("add_dirs")),
-                "org_visibility": vis, "permission_mode": pm,
-                "max_tier": mt}
-
-    def _check_tier_ceiling(self, tier: str) -> None:
-        """Kiosk tier cap (user spec 2026-07-31: "no fable agents at all"):
-        a HARD refusal for every actor — agents can't spawn above the cap and
-        neither can direct API calls; the admin changes the cap itself in
-        kiosk settings. No raise_ceiling bridge here: a cost cap should never
-        rise as a side effect of a hire.
-
-        ⚠ THIS IS THE ONE PLACE A SEAT IS AN ORDERING RATHER THAN A BUDGET,
-        which is why the sub-$1 repricing (2026-09-03) is not the pure
-        loosening the rest of the ledger sees. Everywhere else a cheaper seat
-        only frees capacity; here it can REFUSE a hire that used to pass, by
-        breaking a TIE. Before the repricing haiku·flash·gpt-reserve·luna all
-        sat at 1, so `max_tier="luna"` admitted haiku — a model five times
-        luna's price — because 1 > 1 is false. At luna 0.2 that tie is gone
-        and haiku is correctly refused. That is a fix, not a regression (the
-        floor-to-1 tie-collapse was the same information loss the repricing
-        exists to undo), but it IS a behaviour change on a saved ceiling, so
-        it is pinned by test rather than left to be discovered. Measured
-        2026-09-03: no live org had a kiosk ceiling set at all, so nothing
-        real changed on the day."""
-        mt = (self.kiosk_ceiling() or {}).get("max_tier")
-        cap = TIERS[mt] if mt in TIERS else None
-        seat = self._ceiling_seat(tier)
-        if cap is not None and seat is not None and seat > cap:
-            raise LedgerError(
-                f"the kiosk ceiling caps agent tier at {mt} — {tier} agents "
-                f"cannot be hired, rehired or switched to in this org "
-                f"(admins change this in kiosk settings)")
-
-    def _ceiling_seat(self, tier: str) -> float | None:
-        """The seat `tier` brings to the CEILING ORDERING, or None if it has
-        no place in that ordering at all.
-
-        ⚠ THE `or-*` HALF WAS INVISIBLE HERE UNTIL 2026-09-04, and the cap
-        silently admitted everything it names. `_check_tier_ceiling` asked
-        `tier in TIERS` against the MODULE table, which holds the eleven
-        static bands and never an OpenRouter tier — those are minted at
-        runtime and live only in the per-org `d["tiers"]`. So the test was
-        skipped, not failed: MEASURED on this code, a `max_tier="haiku"`
-        (seat 1) kiosk admitted an `or-moonshotai-kimi-k3` (seat 3) at hire,
-        at switch_model and at plain rehire, while correctly refusing a
-        static opus (seat 5). An API-layer gate hid most of it
-        (`api.provider_hire_gate` refuses OpenRouter tiers in kiosk orgs
-        outright) but that gate is explicitly temporary — "until its
-        sandboxing is settled" — and the plain-rehire door skips it by
-        design, so the ledger was NOT carrying the guarantee its own
-        docstring claims for every actor.
-
-        WHICH TABLE EACH SIDE READS, and why it is not one table:
-          · a STATIC tier keeps reading the module `TIERS`. Reading the
-            document for it too would be tidier, but a document may carry an
-            operator's OWN price for a static band (the authority suite has a
-            fixture with `terra: 7`), and re-pricing the ceiling off that
-            would change refusals for orgs that have nothing to do with
-            OpenRouter. Out of scope, deliberately.
-          · an `or-*` tier reads `self.d["tiers"]` — the SAME table
-            `seat_cost` charges from, so the ordering and the bill agree by
-            construction. There is nowhere else it could read: the module
-            table has no row to offer.
-
-        Both sides are seats on one credit scale, quantised to 0.01, so the
-        comparison is well defined; `>` stays STRICT, so an `or-*` seat equal
-        to the cap is admitted exactly as flash is admitted under a haiku cap.
-
-        None means "not in the ordering", and the caller then refuses
-        nothing — the same fail-open the module-table test had for an unknown
-        tier. An `or-*` tier absent from the document cannot reach here from a
-        real door anyway: `hire` and `switch_model` both refuse an unknown
-        tier against `self.d["tiers"]` before the ceiling runs."""
-        if tier in TIERS:
-            return TIERS[tier]
-        from . import openrouter as _orr        # noqa: PLC0415 — as the load hook
-        if _orr.is_tier(tier):
-            v = (self.d.get("tiers") or {}).get(tier)
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                return float(v)
-        return None
-
-    def _apply_ceiling(self, tools: ToolGrant | None = None,
-                       dirs: list[DirGrant] | None = None,
-                       vis: str | None = None, pm: str | None = None,
-                       raise_ceiling: bool = False,
-                       warnings: list[str] | None = None,
-                       ) -> tuple[ToolGrant | None, list[DirGrant] | None,
-                                  str | None, str | None, bool]:
-        """The second clamp pass, against the kiosk ceiling (parent ∩ ceiling
-        at depth — the parent clamp already ran). Returns
-        (tools, dirs, vis, pm, bridged): bridged=True means something was
-        clamped that raise_ceiling=True would have admitted — the caller
-        surfaces the one-action bridge. With raise_ceiling, the ceiling grows
-        to the union instead (determinate), logged and named, never silent."""
-        ceil = self.kiosk_ceiling()
-        if ceil is None:
-            return tools, dirs, vis, pm, False
-        if raise_ceiling:
-            self._raise_ceiling_for(tools, dirs, vis, pm, warnings)
-            return tools, dirs, vis, pm, False
-        lost_all: list[str] = []
-        if tools is not None:
-            had_star = "*" in (norm_tools(tools).get("mcp") or [])
-            tools, tl = self._clamp_tools(tools, ceil["tools"], strict=False)
-            lost_all += tl
-            if had_star and "*" not in tools["mcp"]:
-                # §6: "*" may survive only under a "*" ceiling; a list ceiling
-                # materializes it — name the semantic change (future registry
-                # additions will NOT auto-flow to this agent)
-                lost_all.append("mcp:* (materialized to the ceiling's list)")
-        if dirs is not None:
-            cmap = {d["path"]: d["mode"] for d in ceil.get("add_dirs", [])}
-            dirs, dl = self._clamp_dirs(dirs, cmap, strict=False)
-            lost_all += [str(x) for x in dl]
-        if vis is not None and vis in VIS_LEVELS:
-            cv = ceil.get("org_visibility", "full")
-            if cv in VIS_LEVELS and VIS_LEVELS.index(vis) > VIS_LEVELS.index(cv):
-                lost_all.append(f"org_visibility {vis}→{cv}")
-                vis = cv
-        if pm is not None and pm in PM_LEVELS:
-            cp = ceil.get("permission_mode", "acceptEdits")
-            if cp in PM_LEVELS and PM_LEVELS.index(pm) > PM_LEVELS.index(cp):
-                lost_all.append(f"permission_mode {pm}→{cp}")
-                pm = cp
-        if lost_all:
-            if warnings is not None:
-                warnings.append(
-                    "clamped to the kiosk permission ceiling: "
-                    + ", ".join(lost_all))
-            return tools, dirs, vis, pm, True
-        return tools, dirs, vis, pm, False
-
-    def _raise_ceiling_for(self, tools: ToolGrant | None,
-                           dirs: list[DirGrant] | None, vis: str | None,
-                           pm: str | None, warnings: list[str] | None) -> None:
-        """Grow max_scope to the union of itself and the request — the
-        determinate bridge. Logged and returned as a warning NAMING what rose;
-        a ceiling must never rise silently."""
-        # only reached while a ceiling exists, so kiosk/max_scope are non-None
-        ms: dict[str, Any] = self.d["kiosk"]["max_scope"]  # type: ignore[index]
-        rose: list[str] = []
-        if tools is not None:
-            t = norm_tools(tools)
-            ct = ms["tools"]
-            for key in TOOL_KEYS:
-                if t[key] and not ct.get(key, True):
-                    ct[key] = True
-                    rose.append(key)
-            if "*" in t["mcp"] and "*" not in ct["mcp"]:
-                ct["mcp"] = ["*"]
-                rose.append("mcp:*")
-            elif "*" not in ct["mcp"]:
-                extra = [s for s in t["mcp"] if s not in ct["mcp"]]
-                if extra:
-                    ct["mcp"] = sorted(set(ct["mcp"]) | set(extra))
-                    rose += [f"mcp:{s}" for s in extra]
-        if dirs is not None:
-            held = {d["path"]: d for d in ms["add_dirs"]}
-            for d in dirs:
-                cur = held.get(d["path"])
-                if cur is None:
-                    ms["add_dirs"].append({"path": d["path"], "mode": d["mode"]})
-                    rose.append(d["path"])
-                elif cur["mode"] == "ro" and d["mode"] == "rw":
-                    cur["mode"] = "rw"
-                    rose.append(f"{d['path']} (rw)")
-        if vis in VIS_LEVELS:
-            cv = ms.get("org_visibility", "full")
-            if cv in VIS_LEVELS and VIS_LEVELS.index(vis) > VIS_LEVELS.index(cv):
-                ms["org_visibility"] = vis
-                rose.append(f"org_visibility {vis}")
-        if pm in PM_LEVELS:
-            cp = ms.get("permission_mode", "acceptEdits")
-            if cp in PM_LEVELS and PM_LEVELS.index(pm) > PM_LEVELS.index(cp):
-                ms["permission_mode"] = pm
-                rose.append(f"permission_mode {pm}")
-        if rose:
-            self._log("ceiling_raise", USER, {"raised": rose}, [])
-            if warnings is not None:
-                warnings.append("kiosk ceiling RAISED to fit: " + ", ".join(rose))
-
-    def set_kiosk_ceiling(self, max_scope: dict[str, Any],
-                          auto_raise: bool | None = None) -> dict[str, Any]:
-        """Admin sets/lowers the ceiling. Lowering SWEEPS (spec §5): the end
-        state is unique — clamp every node's stored scope against the new
-        ceiling — so it automates; refusal-with-directions would be the
-        anti-pattern the bypass principle names. Affected live agents are told
-        what they lost and why."""
-        k = self.d.get("kiosk")
-        if k is None:
-            raise LedgerError(
-                "this org is not a kiosk — normal orgs have no ceiling (the "
-                "top-level agent's own layer already bounds its subtree)")
-        ms = self._norm_ceiling(max_scope)
-        k["max_scope"] = ms
-        if auto_raise is not None:
-            k["auto_raise"] = bool(auto_raise)
-        swept: dict[str, list[str]] = {}
-        cmap = {d["path"]: d["mode"] for d in ms["add_dirs"]}
-        for nid, n in self.nodes.items():
-            sc = n.get("scope") or {}
-            loss: list[str] = []
-            had_star = "*" in (sc.get("tools", {}).get("mcp") or [])
-            t2, tl = self._clamp_tools(sc.get("tools"), ms["tools"], strict=False)
-            loss += tl
-            if had_star and "*" not in t2["mcp"]:
-                loss.append("mcp:* (materialized)")
-            d2, dl = self._clamp_dirs(sc.get("add_dirs") or [], cmap, strict=False)
-            loss += [str(x) for x in dl]
-            sc["tools"], sc["add_dirs"] = t2, d2
-            v = sc.get("org_visibility")
-            if v in VIS_LEVELS and VIS_LEVELS.index(v) > VIS_LEVELS.index(ms["org_visibility"]):
-                sc["org_visibility"] = ms["org_visibility"]
-                loss.append(f"org_visibility {v}→{ms['org_visibility']}")
-            p = sc.get("permission_mode")
-            if p in PM_LEVELS and PM_LEVELS.index(p) > PM_LEVELS.index(ms["permission_mode"]):
-                sc["permission_mode"] = ms["permission_mode"]
-                loss.append(f"permission_mode {p}→{ms['permission_mode']}")
-            if loss:
-                swept[nid] = loss
-                if n["state"] == "live" and not n.get("successor"):
-                    self._notify_ev([nid], _mint("access.kiosk_clamped", actor_of(USER),
-                                                 self.node_ref(nid), lost=list(loss)))
-        self._log("ceiling_set", USER, {"swept": swept}, [])
-        warnings = ([f"ceiling lowered — {len(swept)} agent(s) "
-                     f"clamped to fit: {sorted(swept)}"]
-                    if swept else [])
-        # tier cap: no model sweep — downgrading live agents moves seats and
-        # credits around (side effects the admin should choose per agent), so
-        # existing over-cap agents stay and the cap blocks NEW use only. Named
-        # here so nothing is silent.
-        #
-        # ⚠ COUNTED THROUGH `_ceiling_seat`, NOT THE MODULE TABLE. These two
-        # scans are the admin's only view of what a new cap has just stranded,
-        # and `TIERS.get(n["model"], 0)` scored every `or-*` agent at 0 — so a
-        # cap set over a room full of OpenRouter agents reported "0 above" and
-        # the admin acted on a number that was counting a different question.
-        # It has to be the same comparison the refusal uses or the report is
-        # about a rule that is not the rule.
-        mt = ms.get("max_tier")
-        if mt in TIERS:
-            over = sorted(i for i, n in self.nodes.items()
-                          if n["state"] == "live"
-                          and (self._ceiling_seat(n["model"]) or 0) > TIERS[mt])
-            if over:
-                warnings.append(
-                    f"{len(over)} live agent(s) above the {mt} tier cap "
-                    f"remain ({', '.join(over)}) — the cap blocks new hires, "
-                    f"rehires and switches; switch or retire them as you "
-                    f"see fit")
-            # …and the ARCHIVED ones, which used to be reported nowhere. They
-            # are the worse case: rehire hard-refuses on the cap and
-            # switch_model needs a live node, so an archived over-cap agent is
-            # STRANDED — recoverable only by raising the cap again — and the
-            # admin was told nothing at all.
-            stuck = sorted(i for i, n in self.nodes.items()
-                           if n["state"] == "archived"
-                           and (self._ceiling_seat(n["model"]) or 0) > TIERS[mt])
-            if stuck:
-                warnings.append(
-                    f"{len(stuck)} ARCHIVED agent(s) above the {mt} tier cap "
-                    f"({', '.join(stuck)}) can no longer be rehired at their "
-                    f"own tier — rehire them with a cheaper tier= override, or "
-                    f"raise the cap")
-        return {"max_scope": ms, "swept": swept, "warnings": warnings}
-
     def set_hire_defaults(self, default_tools: Mapping[str, Any] | None = None,
                           default_visibility: str | None = None,
                           permission_mode: str | None = None,
-                          default_account: str | None = None,
-                          raise_ceiling: bool = False) -> dict[str, Any]:
-        """The org's agent-hire defaults (the eye's gear). Kiosk VISITORS may
-        set these too (user ruling 2026-07-31) — a default is just a pre-filled
-        grant, so the ceiling clamps it with the same machinery as any grant;
-        admins get the bridge/auto-raise semantics. Hire-time still re-clamps
-        (defaults resolve THEN clamp), so this is honesty, not enforcement:
-        the stored default must never show a capability no hire can receive."""
+                          default_account: str | None = None) -> dict[str, Any]:
+        """The org's agent-hire defaults (the eye's gear). Hire-time still
+        re-clamps (defaults resolve THEN clamp), so a default is just a
+        pre-filled grant."""
         warnings: list[str] = []
-        bridged = False
         if default_tools is not None:
-            t = norm_tools(default_tools)
-            t, _d, _v, _p, b = self._apply_ceiling(
-                tools=t, raise_ceiling=raise_ceiling, warnings=warnings)
-            self.d["default_tools"] = cast(ToolGrant, t)  # tools in ⇒ tools out
-            bridged = bridged or b
+            self.d["default_tools"] = norm_tools(default_tools)
         if default_visibility is not None:
             if default_visibility not in VIS_LEVELS:
                 raise LedgerError(f"default_visibility must be one of {VIS_LEVELS}")
-            _t, _d, v2, _p, b = self._apply_ceiling(
-                vis=default_visibility, raise_ceiling=raise_ceiling,
-                warnings=warnings)
-            self.d["default_visibility"] = cast(str, v2)  # vis in ⇒ vis out
-            bridged = bridged or b
+            self.d["default_visibility"] = default_visibility
         if permission_mode is not None:
             # the org's BORN-WITH mode: `_new_node` reads `d["permission_mode"]`
             # into every hire's scope. Existing nodes keep the mode they were
@@ -2403,11 +2032,7 @@ class Org:
             # is a default, never a retroactive grant.
             if permission_mode not in PM_LEVELS:
                 raise LedgerError(f"permission_mode must be one of {PM_LEVELS}")
-            _t, _d, _v, p2, b = self._apply_ceiling(
-                pm=permission_mode, raise_ceiling=raise_ceiling,
-                warnings=warnings)
-            self.d["permission_mode"] = cast(str, p2)      # pm in ⇒ pm out
-            bridged = bridged or b
+            self.d["permission_mode"] = permission_mode
         if default_account is not None:
             acct_val = default_account.strip() if isinstance(default_account, str) else None
             if acct_val:
@@ -2444,8 +2069,6 @@ class Org:
                                "permission_mode": self.d.get("permission_mode"),
                                "default_account": self.d.get("default_account"),
                                "warnings": warnings}
-        if bridged:
-            res["bridge"] = {"raise_ceiling": True}
         return res
 
     def heal_plan_stamps(self) -> list[str] | None:
@@ -2461,9 +2084,7 @@ class Org:
         every bare rehire of a stamped expert came back mute — the user
         read it as "permissions are all wrong / newly hired agents don't
         start". Marker-keyed on the doc: runs once, records what it touched,
-        and a 'plan' set DELIBERATELY after the heal is preserved. Kiosk
-        ceilings are untouched — a ceiling is deliberate lockdown config,
-        not birth-stamp residue.
+        and a 'plan' set DELIBERATELY after the heal is preserved.
 
         Returns the healed names when the heal RAN (possibly empty), None
         when the marker says it already ran."""
@@ -3832,9 +3453,6 @@ class Org:
             # it, and they are expected to have coordinated internally.
             if actor_kind(sender) != "agent":
                 raise LedgerError("only agents message outside parties")
-            if self.is_kiosk:
-                raise LedgerError("this organization is a sealed kiosk — it has "
-                                  "no contact with the outside world")
             # C0 (user ruling 2026-08-05): HOLDERS ONLY speak for the org —
             # with the cross-gaps auto-bridge: a top-level agent COULD grant
             # itself the audience, so a top-level send without one is granted
@@ -4226,7 +3844,7 @@ class Org:
         agent the bootstrap would pick. For pre-delivery work (attachment
         copies) that must target the same set post_external_mail will."""
         rec = self.extern_recipients()
-        if rec or self.is_kiosk:
+        if rec:
             return rec
         first = next((c for c in self.children(None)
                       if self.nodes[c]["state"] == "live"), None)
@@ -4243,10 +3861,7 @@ class Org:
         to the ORGANIZATION, not to any agent. It lands in the org-wide inbox;
         every live org-inbox audience holder receives a copy, coordinates
         internally on who answers, and the answer speaks for the org. Returns
-        the recipients so the supervisor can drive them.
-        Kiosk orgs are sealed: inbound is dropped (empty recipient list)."""
-        if self.is_kiosk:
-            return []
+        the recipients so the supervisor can drive them."""
         self._org_inbox_log("in", peer, body)
         tops = self.extern_recipients()
         if not tops:
@@ -4312,11 +3927,7 @@ class Org:
     # Outside parties (chatq sessions, other orgs) see ONE recipient: the org.
     # Their mail lands here; every live top-level agent and every org-inbox
     # audience holder receives it, coordinates internally, and any one of them
-    # replies FOR the org. Kiosk orgs are sealed from all of it.
-    @property
-    def is_kiosk(self) -> bool:
-        return self.d.get("kiosk") is not None
-
+    # replies FOR the org.
     @property
     def multi_holder_enabled(self) -> bool:
         # `org_inbox_multi_holder` is the public organization setting. The
@@ -4562,8 +4173,6 @@ class Org:
         mail addressed to the org and may reply for it — the 'client contact'
         pattern. Granted by the user, or by a top-level agent for its own
         purview."""
-        if self.is_kiosk:
-            raise LedgerError("a sealed kiosk org has no org inbox")
         n = self.node(frm)
         _ = n
         # C0 (user ruling 2026-08-05): delivery is holder-only, so top-level
@@ -4895,7 +4504,6 @@ class Org:
              add_dirs: list[Any] | None = None, tools: Mapping[str, Any] | None = None,
              org_visibility: str | None = None, charter: str | None = None,
              external_handles: list[str] | None = None,
-             raise_ceiling: bool = False,
              account: str | None = None,
              harness: str | None = None) -> dict[str, Any]:
         """§4.2 + §4.6. `parent` None = top level (actor must be USER). If actor is a
@@ -4908,7 +4516,6 @@ class Org:
         statement, editable later via retool, injected into every turn.)"""
         if tier not in self.d["tiers"]:
             raise LedgerError(f"unknown tier {tier!r}; know {sorted(self.d['tiers'])}")
-        self._check_tier_ceiling(tier)
         if grant < 0 or grant != int(grant):
             raise LedgerError("grant must be a non-negative integer (№7)")
         # ATOMICITY (§4.7 moved up, 2026-08-04): the name was validated only
@@ -5027,14 +4634,6 @@ class Org:
 
         if tlost:
             warnings.append(f"tool grants clamped to the parent's own: {tlost}")
-        # ceiling spec §2/§4: the ceiling clamp runs AFTER defaults resolve and
-        # after the parent clamp (parent ∩ ceiling at depth) — org defaults may
-        # exceed the ceiling and must lose on every bare chip-click hire
-        # all three inputs are non-None here ⇒ the pass-through outputs are too
-        tset, dirs, vis, _pm, bridged = cast(
-            "tuple[ToolGrant, list[DirGrant], str, str | None, bool]",
-            self._apply_ceiling(tools=tset, dirs=dirs, vis=vis,
-                                raise_ceiling=raise_ceiling, warnings=warnings))
         # default account: if explicit account given, validate and assign it;
         # otherwise inherit org default_account if compatible with this tier
         node_account: str | None = None
@@ -5111,14 +4710,6 @@ class Org:
         if handles:
             self.nodes[nid]["external_handles"] = handles
             stamp_handles(self.nodes[nid], handles)      # D-166
-        # D-030 hardening: the fresh node inherits the ORG-wide
-        # permission_mode — clamp it against the kiosk ceiling like set_scope
-        # does, or a "default"-ceiling kiosk hires above its own ceiling
-        _t3, _d3, _v3, pm3, _b3 = self._apply_ceiling(
-            pm=self.nodes[nid]["scope"].get("permission_mode"),
-            warnings=warnings)
-        if pm3 is not None:
-            self.nodes[nid]["scope"]["permission_mode"] = pm3
         # every affected agent is told, WHOEVER acted (user ruling) — the actor
         # itself is skipped (it made the call and got the result)
         gist = (str(charter).strip().splitlines() or [""])[0][:120] if charter else ""
@@ -5137,11 +4728,6 @@ class Org:
                                   **({"external_handles": handles} if handles else {})},
                   warnings)
         res: dict[str, Any] = {"node": nid, "warnings": warnings}
-        if bridged:
-            # the one-action bridge (spec §1): re-send the SAME op with
-            # raise_ceiling=true. The API strips this for visitors/agents —
-            # no legal raise path exists for them, so no dangling offer.
-            res["bridge"] = {"raise_ceiling": True}
         return res
 
     def _chain_acquire(self, actor: str, payer: str, need: float,
@@ -5152,7 +4738,7 @@ class Org:
         down the path so every hop's invariant holds — refused only when the
         WHOLE chain up to and including the acting agent lacks it. The user
         tops an infinite pool: for user actions any remainder lands as
-        top-level grant inflation (kiosk caps still bind via the API check).
+        top-level grant inflation.
         `cascade=False` (the org settings cascade_hire / cascade_alloc, user
         spec): the payer must afford it from its OWN free credits — nothing
         bubbles."""
@@ -5719,7 +5305,7 @@ class Org:
 
     # ---------------------------------------------------------------- rehire
     def rehire(self, actor: str, nid: str, grant: float | None = None,
-               tier: str | None = None, raise_ceiling: bool = False) -> dict[str, Any]:
+               tier: str | None = None) -> dict[str, Any]:
         """§4.2. Parent pays seat + grant; may strand the parent's OTHER archived kids.
         `tier` override (№16, spike-verified): a knowledge bearer answers from context
         and can be consulted at a cheaper tier than it ran at.
@@ -5796,26 +5382,6 @@ class Org:
                     + (f" (it ran as {n['model']!r})" if n["model"] else "")
                     + "; to start it fresh on another provider deliberately, "
                     f"rehire it first and then switch its model.")
-        # kiosk tier cap: an archived over-cap agent re-entering service is
-        # "using" that tier — blocked like a fresh hire (reseed too). The
-        # EFFECTIVE tier is tested: a rehire that downgrades below the cap
-        # is welcome (motto: permit as much as possible); reseed ignores the
-        # override, so unrecoverable nodes test their own tier.
-        #
-        # ⚠ `tier is None`, NOT `tier not in TIERS`. The old spelling meant
-        # "no override was given" and was written as "the override is not a
-        # static band", which are the same sentence only while every tier is
-        # static. An `or-*` override took the None branch and the ceiling then
-        # tested the tier the node ALREADY RAN instead of the one being asked
-        # for: MEASURED, an archived `or-z-ai-glm-5-3-flash` (seat 0.1) node
-        # was rehired as `or-moonshotai-kimi-k3` (seat 3) under a haiku cap
-        # (seat 1) and admitted. The provider-crossing refusal above hides
-        # this whenever the node ran on Claude, which is why it survived: the
-        # only way to see it is an OpenRouter node rehired onto another
-        # OpenRouter tier, where nothing crosses.
-        self._check_tier_ceiling(
-            n["model"] if n["state"] == "unrecoverable" or tier is None
-            else tier)
         if n["state"] == "unrecoverable":
             # motto bridge: the session is dead but the node — name, position,
             # charter, credits, reports, mailbox — is fine. Rehire = re-seed.
@@ -5928,21 +5494,6 @@ class Org:
             n["scope"]["org_visibility"] = v
             warnings.append(
                 f"org_visibility adjusted to the parent's capability ({v})")
-        # kiosk ceiling: №30's revalidation extends to the ceiling — a node
-        # archived before the ceiling changed re-enters within it
-        # tools/dirs inputs are non-None ⇒ their pass-through outputs are too
-        ct, cd, cv, cp, bridged = cast(
-            "tuple[ToolGrant, list[DirGrant], str | None, str | None, bool]",
-            self._apply_ceiling(
-                tools=n["scope"]["tools"], dirs=n["scope"]["add_dirs"],
-                vis=n["scope"].get("org_visibility"),
-                pm=n["scope"].get("permission_mode"),
-                raise_ceiling=raise_ceiling, warnings=warnings))
-        n["scope"]["tools"], n["scope"]["add_dirs"] = ct, cd
-        if cv is not None:
-            n["scope"]["org_visibility"] = cv
-        if cp is not None:
-            n["scope"]["permission_mode"] = cp
 
         n["state"] = "live"
         n["grant"] = grant
@@ -5977,8 +5528,6 @@ class Org:
         if self.waking_mail(nid):
             drive.append(nid)
         res: dict[str, Any] = {"cost": need, "warnings": warnings, "drive": drive}
-        if bridged:
-            res["bridge"] = {"raise_ceiling": True}
         return res
 
     def _taken_with(self, nid: str) -> set[str]:
@@ -6053,8 +5602,7 @@ class Org:
     # ----------------------------------------------------------------- delete
     def cost_total(self) -> float:
         """Org spend INCLUDING deleted agents' burn (user bug 2026-07-31:
-        deleting agents shrank the total — undercounting the dashboard and,
-        worse, walking the enforced kiosk SPEND LIMIT backwards). Cost is
+        deleting agents shrank the total — undercounting the dashboard). Cost is
         history, not a node property; the tombstone accumulator keeps every
         dollar ever burned.
 
@@ -6261,13 +5809,6 @@ class Org:
             return {"model": tier, "seat": self.d["tiers"][tier], "freed": 0,
                     "queued": False,
                     "warnings": [f"{nid} already runs {tier} — nothing to do"]}
-        # the kiosk tier cap is checked HERE, after the no-op return and after
-        # the authority checks. It used to run first, so switching a
-        # grandfathered over-cap agent to the tier it ALREADY runs was refused
-        # ("opus agents cannot be switched to") — a hard error for a request
-        # that would change nothing, against the ratified idempotent-no-op rule.
-        # It also leaked the cap to actors with no authority over the node.
-        self._check_tier_ceiling(tier)
         if tier == "fable" and self.d.get("fable_lock") and actor == USER:
             self.clear_fable_lock()      # a user fable-switch is the decree
         # D-234: MID-TURN → QUEUE. The model the running turn launched with is
@@ -6413,7 +5954,7 @@ class Org:
             # place` already zeroes `frozen` on the BEARER copy below; this
             # is the same reset applied to the LIVE successor, which that
             # call never touches. `freeze_describes_provider` keeps a
-            # GLOBAL/org-owned kind (kiosk `spend`) untouched — that claim
+            # GLOBAL/org-owned kind (the `spend` kind) untouched — that claim
             # has nothing to do with which provider this node runs on. A
             # freeze this pops is not silently forgotten:
             # `resume_stale_freeze` wakes the node once the switch lands, so
@@ -7752,9 +7293,8 @@ class Org:
             dict[str, str] | None, ToolGrant | None, str, str]:
         """What this actor may grant, at most: (dirs, tools, visibility, mode).
 
-        The USER (and SYSTEM) is capped by nothing here — `_apply_ceiling`
-        still binds them to a kiosk's ceiling, which is the "or kiosk cap"
-        half of the ruling. An AGENT is capped by its OWN scope: `None` for
+        The USER (and SYSTEM) is capped by nothing here. An AGENT is capped
+        by its OWN scope: `None` for
         dirs/tools means unbounded, so only the user gets it.
         """
         if actor_kind(actor) in ("user", "system"):
@@ -7842,8 +7382,7 @@ class Org:
         (pm, clamped); strict=True raises instead of clamping.
 
         ⚠ Before this existed, `permission_mode` was the ONE scope field with
-        no parent clamp: it was checked against the kiosk ceiling and nothing
-        else, and `_new_node` copied the ORG default into every hire. So in an
+        no parent clamp, and `_new_node` copied the ORG default into every hire. So in an
         org whose default outranked a node, that node's reports were born
         ABOVE it — an escalation by inheritance that no actor had to ask for.
         Capping at the parent closes that as a side effect of exposing the
@@ -7926,7 +7465,7 @@ class Org:
             sc["tools"] = tkept
             dropped.extend(tlost)
             if had_star and "*" not in tkept["mcp"]:
-                # the same semantic change `_apply_ceiling` names: "*" meant
+                # a semantic change worth naming: "*" meant
                 # "every server, present AND future" and is now a fixed list,
                 # so registry additions will no longer reach this node. The
                 # sweep collapsed it in silence until 2026-08-04.
@@ -8065,16 +7604,14 @@ class Org:
                   effort: str | None = None, model_version: str | None = None,
                   auto_cheap_compact: Mapping[str, Any] | None = None,
                   external_handles: list[Any] | None = None,
-                  raise_ceiling: bool = False,
                   account_fallback: bool | None = None,
                   clear_account_fallback: bool = False,
                   clear_prefer_reserve: bool = False,
                   prefer_reserve: bool | None = None) -> dict[str, Any]:
         """Per-node configuration (the ⚙): dir grants with modes, the full tool set
         (built-ins + MCP servers), org-structure visibility. Superior-only.
-        Kiosk ceiling (spec §2): permission fields clamp against parent ∩
-        ceiling; charter/team_charter/effort pass unclamped (not permissions —
-        effort is a cost dial by user ruling and applies under any ceiling)."""
+        Charter/team_charter/effort pass unclamped (not permissions — effort
+        is a cost dial by user ruling)."""
         # D-105 (user ruling 2026-08-07): an agent may edit its OWN team
         # charter and nothing else. The two charters are different objects
         # wearing similar names: `charter` is the role card its SUPERIOR wrote
@@ -8133,15 +7670,12 @@ class Org:
         # CHARTER_LONG for the ruling that put the long-charter note here.
         advisories: list[str] = []
         changed_caps = False
-        bridged = False
         cascaded: list[str] = []       # D-106: agents this grant expanded
         # ATOMICITY (2026-08-04): every refusal happens in THIS block, before a
         # single field is written. The three capability fields used to be
         # validated-and-applied one at a time, so a call carrying a legal
         # `add_dirs` and an illegal `tools` grant wrote the dirs, refused, and
         # never ran the subtree sweep — half a retool, reported as a failure.
-        # `_apply_ceiling(raise_ceiling=True)` also grows the ceiling itself, so
-        # every strict parent clamp has to pass before ANY of it runs.
         # D-106 (user ruling 2026-08-07): the clamp is against the GRANTER's
         # own capability, not the target's parent, and an intermediate that
         # lacks what was granted below it is RAISED rather than the grant
@@ -8204,7 +7738,7 @@ class Org:
                        else " (this tier has a single model)"))
         # post-hire response handles. Validated HERE with everything else, so
         # a retool carrying a legal charter and a malformed handle writes
-        # neither (the atomicity contract above). Not a ceiling capability —
+        # neither (the atomicity contract above). Not a capability —
         # a handle clamps against nothing, it is granted or it is not — so it
         # sets no `changed_caps` and triggers no subtree sweep.
         want_handles: list[str] | None = None
@@ -8227,42 +7761,30 @@ class Org:
                 "team_charter", team_charter, advisories)
 
         if want_dirs is not None:
-            _t, kept, _v, _p, b = self._apply_ceiling(
-                dirs=want_dirs, raise_ceiling=raise_ceiling, warnings=warnings)
-            bridged = bridged or b
-            sc["add_dirs"] = cast("list[DirGrant]", kept)  # dirs in ⇒ dirs out
+            sc["add_dirs"] = want_dirs
             changed_caps = True
         if want_tools is not None:
-            tset, _d, _v, _p, b = self._apply_ceiling(
-                tools=want_tools, raise_ceiling=raise_ceiling, warnings=warnings)
-            bridged = bridged or b
-            sc["tools"] = cast(ToolGrant, tset)  # tools in ⇒ tools out
+            sc["tools"] = want_tools
             changed_caps = True
         if want_vis is not None:
-            _t, _d, vis2, _p, b = self._apply_ceiling(
-                vis=want_vis, raise_ceiling=raise_ceiling, warnings=warnings)
-            bridged = bridged or b
-            sc["org_visibility"] = cast(str, vis2)  # vis in ⇒ vis out
+            sc["org_visibility"] = want_vis
             changed_caps = True   # lowering sweeps the subtree like the others
         lowered_pm = False
         if want_pm is not None:
-            _t, _d, _v, pm2, b = self._apply_ceiling(
-                pm=want_pm, raise_ceiling=raise_ceiling, warnings=warnings)
-            bridged = bridged or b
+            pm2 = want_pm
             prev_pm = sc.get("permission_mode", "acceptEdits")
-            sc["permission_mode"] = cast(str, pm2)  # pm in ⇒ pm out
+            sc["permission_mode"] = pm2
             # ⚠ only a genuine LOWERING sweeps. Not "was passed" — the ⚙ panel
             # sends every field on every save, so a charter edit would carry
             # an unchanged permission_mode and revoke a deliberately-raised
             # report as a side effect. Same-value writes must be inert here.
             lowered_pm = (prev_pm in PM_LEVELS and pm2 in PM_LEVELS
-                          and PM_LEVELS.index(cast(str, pm2))
+                          and PM_LEVELS.index(pm2)
                           < PM_LEVELS.index(prev_pm))
             changed_caps = changed_caps or lowered_pm
         # D-106: raise the chain BETWEEN the granter and this node so what was
-        # just granted is actually reachable. Runs on the POST-ceiling values
-        # (`sc`, not the request), so a kiosk ceiling that clamped the grant
-        # clamps the bubble identically — an intermediate can never end up
+        # just granted is actually reachable. Runs on the stored values
+        # (`sc`, not the request), so an intermediate can never end up
         # holding more than the leaf it was raised for. Only RAISES: a
         # lowering is the subtree sweep's job, just below, and pushing a
         # revocation upward would strip a manager for its report's sake.
@@ -8389,7 +7911,7 @@ class Org:
         elif prefer_reserve is not None:
             # "Prefer reserve" (user ruling 2026-09-04, item 12): which of a
             # luna's two pools its turns try FIRST. A cost/budget dial like
-            # effort — no ceiling clamp, superior-set, stored explicitly so
+            # effort — no clamp, superior-set, stored explicitly so
             # the gear reads back what was chosen. ABSENT INHERITS THE APP
             # DEFAULT (including nodes hired before the field existed). Off
             # does not disable reserve: the other pool is still the fallback
@@ -8398,7 +7920,7 @@ class Org:
             sc["prefer_reserve"] = bool(prefer_reserve)
         if auto_cheap_compact is not None:
             # FR-24b per-node override: like effort, a cost dial, not a
-            # permission — no ceiling clamp. {} clears back to org inherit.
+            # permission — no clamp. {} clears back to org inherit.
             acc = dict(auto_cheap_compact)
             if acc:
                 keep: dict[str, Any] = {}
@@ -8454,8 +7976,6 @@ class Org:
             res["advisories"] = advisories
         if cascaded:
             res["cascaded"] = cascaded      # D-106: structured, for the UI
-        if bridged:
-            res["bridge"] = {"raise_ceiling": True}
         return res
 
     def reorder(self, actor: str, nid: str, before: str | None = None,
@@ -8641,9 +8161,8 @@ class Org:
 
     def _scope_item_state(self, nid: str, it: dict[str, Any]) -> str:
         """What the node ACTUALLY holds for this item right now, as a
-        comparable label. A kiosk ceiling MEETS rather than annihilates —
-        `rw` can land as `ro`, and a `bypassPermissions` ask still raises a
-        `plan` node to `acceptEdits`. Comparing this before and after the
+        comparable label. A clamp MEETS rather than annihilates — `rw` can
+        land as `ro`. Comparing this before and after the
         apply is what tells a real-but-short grant apart from nothing at
         all, which `_holds_scope_item` (asked-for or not) cannot."""
         sc = self.node(nid)["scope"]
@@ -8948,24 +8467,23 @@ class Org:
                     pm = str(it["mode"])
             granted_lines: list[str] = []
             if add_dirs is not None or tools is not None or pm is not None:
-                # applied AS THE USER — set_scope carries the kiosk-ceiling
-                # clamp and the D-106 upward cascade, so a deep grant raises
+                # applied AS THE USER — set_scope carries the D-106 upward
+                # cascade, so a deep grant raises
                 # the chain and reports it exactly like a manual ⚙ grant
                 r = self.set_scope(USER, nid, add_dirs=add_dirs, tools=tools,
                                    permission_mode=pm)
                 for w in cast("list[str]", r.get("warnings") or []):
                     granted_lines.append(f"({w})")
-            # ⚠ the verdict is measured, not assumed (found driving the
-            # kiosk composition 2026-08-12): a ceiling can clamp an approved
-            # item away ENTIRELY, and "GRANTED — live from your next turn"
+            # ⚠ the verdict is measured, not assumed (2026-08-12): a clamp
+            # can take an approved item away ENTIRELY, and "GRANTED — live
+            # from your next turn"
             # for a capability the scope does not hold is an unkeepable
             # promise. Re-check each approval against the ACTUAL post-apply
             # scope and say what really happened.
             #
-            # …and the measurement is THREE-valued, because a ceiling MEETS
+            # …and the measurement is THREE-valued, because a clamp MEETS
             # rather than annihilates (redteam, 2026-08-12): `E:/x rw` can
-            # land as `E:/x ro`, and a `bypassPermissions` ask still raises a
-            # `plan` node to `acceptEdits`. Both are real grants the agent
+            # land as `E:/x ro`. That is a real grant the agent
             # did not hold a moment ago. Reporting them as "NOT in effect" is
             # the same unkeepable-promise class inverted — the agent then
             # declines to use access it genuinely has — so a grant that moved
@@ -8989,18 +8507,15 @@ class Org:
             def _verdict(it: dict[str, Any]) -> str:
                 d = str(it["decision"])
                 if d == "approve (partial)":
-                    return ("approved by the user, then PARTIALLY clamped by "
-                            "the kiosk permission ceiling — you now hold "
+                    return ("approved by the user, then PARTIALLY clamped — "
+                            "you now hold "
                             + partial[self._scope_item_key(it)]
                             + ", which is real and live from your next turn, "
-                              "but less than you asked for (ask the user to "
-                              "raise the ceiling for the rest)")
+                              "but less than you asked for")
                 return {"approve": "GRANTED — live from your next turn",
                         "approve (clamped — not in effect)":
-                            "approved by the user, but the kiosk permission "
-                            "ceiling CLAMPED it — NOT in effect (see the "
-                            "clamp note below; ask the user to raise the "
-                            "ceiling if you truly need it)",
+                            "approved by the user, but it was CLAMPED — NOT "
+                            "in effect (see the clamp note below)",
                         "deny": "denied",
                         "skip": "skipped (undecided — you may re-ask)"}[d]
             outcome = "\n".join(
@@ -10014,35 +9529,27 @@ class Org:
 
     def credit_headroom(self, nid: str) -> tuple[int | None, str]:
         """How many MORE credits this node could be granted, and which cap
-        binds. None = unbounded (no cap set). Top-level: max_top_grant and the
-        kiosk pool. Deep node (a user-audience holder, ruling 2026-08-04):
-        credits arrive by user-actor cascade, so headroom = what is FREE along
-        its superior chain, plus how far the top-level ancestor could still
-        grow (cap slack, bounded by the kiosk pool) — or just the parent's own
+        binds. None = unbounded (no cap set). Top-level: max_top_grant. Deep
+        node (a user-audience holder, ruling 2026-08-04): credits arrive by
+        user-actor cascade, so headroom = what is FREE along its superior
+        chain, plus how far the top-level ancestor could still grow (cap
+        slack) — or just the parent's own
         free when allocation bubbling is off. Conservative on purpose: the
         outright refusal fires only on provably-zero; approve validates for
         real."""
         n = self.node(nid)
         cap = int(self.d.get("max_top_grant") or 0)
-        kc = (self.d.get("kiosk") or {}).get("credits")
-        pool: int | None = None
         # ⚠ FLOOR/CEIL, NOT int(). Headroom is answered in WHOLE credits (a
         # request is for a whole number) but its inputs may now be fractional,
         # and int() truncates toward zero — which rounds a holding DOWN and so
         # reports more room than exists. Every rounding here goes the
         # conservative way, matching the docstring's "provably-zero only".
-        if kc is not None:
-            holds = _q(sum(self.seat_cost(k) + self.nodes[k]["grant"]
-                           for k in self.children(None)))
-            pool = int(kc) - math.ceil(holds)
         if n["parent"] is None:
             rooms: list[tuple[int, str]] = []
             if cap:
                 rooms.append((cap - math.ceil(n["grant"]),
                               f"your grant {n['grant']:g} is at the org's "
                               f"top-level cap of {cap}"))
-            if pool is not None:
-                rooms.append((pool, f"the kiosk credit pool ({kc:g}) is fully held"))
             if not rooms:
                 return None, ""
             return min(rooms, key=lambda r: r[0])
@@ -10056,13 +9563,13 @@ class Org:
             chain.append(cur)
             cur = self.node(cur)["parent"]
         free_sum = sum(math.floor(self.free(a) or 0) for a in chain)
-        slack = [s for s in ((cap - math.ceil(self.node(chain[-1])["grant"])) if cap else None,
-                             pool) if s is not None]
+        slack = [s for s in ((cap - math.ceil(self.node(chain[-1])["grant"])) if cap else None,)
+                 if s is not None]
         if not slack:
             return None, ""
         return free_sum + max(0, min(slack)), (
             "nothing is free along your superior chain and the org has no "
-            "growth headroom (top-level cap / kiosk pool exhausted)")
+            "growth headroom (top-level cap exhausted)")
 
     def credit_request_action(self, rid: str, action: str,
                               granted: int | None = None) -> dict[str, Any]:
@@ -10805,8 +10312,8 @@ class Org:
         return {"node": a["node"], "body": events.render_agent(ev), "ev": ev}
 
     def _restart_authority(self, nid: str, what: str) -> None:
-        """May `nid` decide that this machine restarts? Live, not a kiosk,
-        and either top-level or holding a user audience.
+        """May `nid` decide that this machine restarts? Live, and either
+        top-level or holding a user audience.
 
         ⚠ ONE body for `self_restart_gate` and `prime_restart_gate`. Priming
         is the same decision as restarting — it IS a restart, merely deferred
@@ -10822,8 +10329,6 @@ class Org:
                 "self-update, self-restart, and primed restart; deploy this "
                 "installation through an operator-controlled path")
         self._require_live(nid)
-        if self.is_kiosk:
-            raise LedgerError(f"kiosk orgs are sealed — no {what}")
         n = self.node(nid)
         if n["parent"] is not None and not self._has_audience(nid, USER):
             raise LedgerError(
@@ -10837,7 +10342,7 @@ class Org:
         """FR-14 gate (user request 2026-08-06): a self-restart restarts the
         SHARED install — every org on this machine — so it takes the same
         gate as asking the user directly: top-level, or a held user
-        audience. Kiosks are sealed outright. The launch itself lives in
+        audience. The launch itself lives in
         supervisor.launch_self_restart; this only authorizes and records.
 
         FR-31 (2026-09-04): `force` deploys THROUGH agents that are mid-turn,
@@ -11502,17 +11007,11 @@ class Org:
             "by": actor, "at": now(), **({"was": was} if was else {})}
         self._notify_ev([nid], _mint("policy.unstuck", actor_of(actor), self.node_ref(nid)))
         self._log("unstick", actor, {"node": nid, "released": released}, [])
-        warnings: list[str] = []
-        if self.d.get("spend_frozen"):
-            warnings.append("the org-wide SPEND freeze still holds — turns "
-                            "stay refused until the limit is raised in "
-                            "settings")
         return {"released": released,
                 "resume_texts": [str(t) for t in cast(
                     "list[Any]", (was or {}).get("resume_texts") or [])],
                 "resume_views": [str(t) for t in cast(
-                    "list[Any]", (was or {}).get("resume_views") or [])],
-                **({"warnings": warnings} if warnings else {})}
+                    "list[Any]", (was or {}).get("resume_views") or [])]}
 
     def clear_fable_lock(self) -> None:
         """FABLE-3 (redteam 2026-08-06): the manual exit announces the
@@ -11561,8 +11060,7 @@ class Org:
             "ui_order": n.get("ui_order", 0) + 0.001,
             # audit finding: dict(n) copied the ACCOUNTING and runtime fields —
             # a duplicated cost_usd inflated the org total superlinearly with
-            # each compaction generation (kiosk spend caps froze on the false
-            # figure). The bearer starts clean; the successor keeps the real
+            # each compaction generation. The bearer starts clean; the successor keeps the real
             # numbers.
             "cost_usd": 0.0, "last_status": None, "frozen": None,
             "inflight": None,
@@ -12129,14 +11627,9 @@ class Org:
                                      # words "usage limit" do not describe
                                      # it. A reader that cannot see this
                                      # field cannot help over-claiming.
-                                     # the kiosk SPEND kind. It rode the
-                                     # org-level `spend_frozen` flag alone
-                                     # for a long time, which is why the
-                                     # org banner was right and the NODE
-                                     # BADGE was not: the badge has no
-                                     # org flag to consult, so a
-                                     # spend-frozen agent wore the words
-                                     # "usage limit" (2026-08-26).
+                                     # the SPEND kind: without it a
+                                     # spend-frozen agent's badge wore the
+                                     # words "usage limit" (2026-08-26).
                                      "spend",
                                      "cause")},
                         # ⚠⚠ THIS LIST IS A FILTER, AND WHAT IT OMITS IT
@@ -12170,8 +11663,7 @@ class Org:
             # @mcp: response handles STORED on this node before @mcp:
             # was retired (2026-09-25). Served as stored data only —
             # nothing honours them any more — and never cleared on load
-            # (no silent data rewrite). ⚠ _scrub_public still drops this
-            # for kiosk visitors: a peer id is an outside channel's name.
+            # (no silent data rewrite).
             "external_handles": n.get("external_handles") or [],
             # F-04/F-05: the ask card this node's desk shows — open, or
             # freshly nulled (the nulled card carries its reason)
@@ -12327,7 +11819,6 @@ class Org:
             # outline, the all-cards-red cascade and the release control all
             # read THIS key — per-node `halt` above never says it
             "killswitch": self.d.get("killswitch") or None,
-            "spend_frozen": bool(self.d.get("spend_frozen")),
             "storage_blocked": bool(self.d.get("storage_blocked")),
             "account_fallback_default": bool(self.d.get("account_fallback_default", False)),
             "auto_resume": bool(self.d.get("auto_resume")),
@@ -12362,8 +11853,7 @@ class Org:
             "fable_filter_model": self.d.get("fable_filter_model", "opus"),
             "cascade_hire": bool(self.d.get("cascade_hire", True)),
             "cascade_alloc": bool(self.d.get("cascade_alloc", True)),
-            "sandboxed": bool((self.d.get("kiosk") or {}).get("sandbox")
-                             or (self.d.get("sandbox") or {}).get("enabled")),
+            "sandboxed": bool((self.d.get("sandbox") or {}).get("enabled")),
             "audience_requests": self.d.get("audience_requests", []),
             # the docket toolbar badge (docket-final-spec.md): two counts over
             # the FULL item set, always present - the modal fetches the list
@@ -12401,7 +11891,7 @@ class Org:
                               - int(self.d.get("org_inbox_read", 0))),
                 "holders": self.extern_holders(),
                 "multi_holder_enabled": self.multi_holder_enabled,
-                "visible": not self.is_kiosk and bool(
+                "visible": bool(
                     self.d.get("org_inbox")
                     or any(a["grantor"] == EXTERN
                            for a in self.d["audiences"])

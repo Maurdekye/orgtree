@@ -33,7 +33,7 @@ killswitch FOR SHARE. On top of that:
     ordered by `fable_lock` itself, because the ONLY writer of
     `limit_locked` (`Org.fable_limit_hit`) writes `fable_lock` in the same
     step, and this transaction holds that row FOR UPDATE;
-  * the restart gates read `audiences` and `kiosk` and log to `events` — the
+  * the restart gates read `audiences` and log to `events` — the
     same rows the forced self-restart path (`api._forced_self_restart`)
     already takes.
 """
@@ -56,9 +56,9 @@ TOOLS: tuple[str, ...] = (INTERRUPT, UNSTICK, RESTART_WAKE, SELF_RELAUNCH,
                           SELF_RESTART, SELF_UPDATE, PRIME_RELAUNCH,
                           PRIME_RESTART)
 
-#: the rows a restart gate reads (authority: live, kiosk, parent, a user
-#: audience) and the event it logs — as `api._forced_self_restart` takes them
-_GATE = pgdoor.TxSpec(share_sections=("audiences", "kiosk"), logs=("events",))
+#: the rows a restart gate reads (authority: live, parent, a user audience)
+#: and the event it logs — as `api._forced_self_restart` takes them
+_GATE = pgdoor.TxSpec(share_sections=("audiences",), logs=("events",))
 
 UNSTICK_DEFAULT_TEXT = ("(orgtree) Your superior manually UNSTUCK you. Handle "
                         "any mail above and continue.")
@@ -153,7 +153,6 @@ def unstick_spec(snapshot: Any, call: Any, a: dict[str, Any]
         nodes=(target,) if target else (),
         sections=("fable_lock",) + ((("notices", target),) if target else ()),
         share_nodes=rcdoor.chain(snapshot, target, call.node),
-        share_sections=("spend_frozen",),
         logs=("events", "notice_log"))
 
 

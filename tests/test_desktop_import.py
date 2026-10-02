@@ -31,7 +31,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 from engine.backend.orgtree import desktop_import as imp, store
-from engine.backend.orgtree.ledger import Org
+from engine.backend.orgtree.ledger import IGNORED_LEGACY_KEYS, Org
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from engine.launch import TokenGate
@@ -496,18 +496,19 @@ class DesktopImportTests(unittest.TestCase):
 
     def test_disabled_features_and_account_registry_are_reported_and_archived(self) -> None:
         doc = self.fixture(sqlite=False)
-        doc.update(kiosk={"enabled": True}, sandbox={"enabled": True},
+        doc.update(sandbox={"enabled": True},
                    net_identity={"slug": "source-identity", "secret": "fixture-secret"})
+        doc.update(dict.fromkeys(IGNORED_LEGACY_KEYS, True))
         (self.source / "accounts.json").write_text('{"fallback":"fixture-only"}')
         (self.source / "orgs/acme.json").write_text(json.dumps(doc))
         before = fingerprint(self.source)
         result = self.run_import()
         imported = self.read()
-        for key in ("kiosk", "sandbox", "net_identity"):
+        for key in (*IGNORED_LEGACY_KEYS, "sandbox", "net_identity"):
             self.assertNotIn(key, imported)
         self.assertFalse((self.dest / "accounts.json").exists())
         warnings = " ".join(result["imported"][0]["warnings"])
-        for word in ("accounts.json skipped", "kiosk", "sandbox", "network identity"):
+        for word in ("accounts.json skipped", *IGNORED_LEGACY_KEYS, "sandbox", "network identity"):
             self.assertIn(word, warnings)
         self.assertEqual(json.loads((self.dest / "imports/acme/original.json").read_text()), doc)
         self.assertEqual(fingerprint(self.source), before)

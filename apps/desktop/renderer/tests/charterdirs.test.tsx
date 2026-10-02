@@ -18,7 +18,7 @@ const g = globalThis as unknown as Record<string, unknown>
 
 function tree(): TreePayload {
   return { slug: 'acme', name: 'acme', nodes: [], edges: [],
-    cascade_hire: true, cascade_alloc: true, net: { hubs: [] }, kiosk: null,
+    cascade_hire: true, cascade_alloc: true, net: { hubs: [] },
   } as unknown as TreePayload
 }
 
@@ -74,7 +74,7 @@ test('hire form offers same-named templates from two folders as two choices', as
   const view = await mountView(
     <DraftNode pos={{ x: 0, y: 0 }} draft={{ parent: null, tier: 'haiku' }}
       map={new Map()} seats={{ haiku: 1 }} maxTop={100} defaultTop={0}
-      kioskRemaining={null} tree={tree()} zoom={1} pxc={1}
+      tree={tree()} zoom={1} pxc={1}
       onConfirm={(_name, _grant, charter) => { confirmed = charter }}
       onCancel={() => {}} />, (el) => el)
   try {

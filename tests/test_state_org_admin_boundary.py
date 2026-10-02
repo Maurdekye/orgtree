@@ -146,18 +146,13 @@ class DockerOnly:
         return getattr(subprocess, name)
 
 
-def fresh(kiosk=False):
+def fresh():
     SEQ[0] += 1
     org = store.create_org(f"p01-f7-{SEQ[0]}")
     slug = str(org.d["slug"])
     org.hire(ledger.USER, None, "haiku", 20, "top", add_dirs=[], tools={}, charter="fixture")
     org.hire("top", "top", "haiku", 6, "mid", **SCOPE)
     org.d["mail"] = {}
-    if kiosk:
-        org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0, "storage_limit_mb": 0,
-                          "token": "kiosk-token-fixture", "auto_raise": False,
-                          "max_scope": {"tools": NO_TOOLS, "add_dirs": [], "org_visibility": "team",
-                                        "permission_mode": "acceptEdits"}}
     store.save_org(org)
     CUR["slug"] = slug
     CUR["tokens"] = {n: agentauth.child_env(slug, n)["ORGTREE_AGENT_TOKEN"] for n in ("top", "mid")}
@@ -281,7 +276,7 @@ def frozen(req):
 
 
 def standard(req):
-    """The request under the standard (not desktop-managed) profile: desktop_policy.validate admits kiosk/sandbox."""
+    """The request under the standard (not desktop-managed) profile: desktop_policy.validate admits sandbox."""
     def go(c):
         saved = os.environ.pop("ORGTREE_DESKTOP_MANAGED")
         try:
@@ -387,138 +382,119 @@ def env(**kw):
 S = "/api/orgs/{slug}/settings"
 CASES = [
     # create
-    ("create", op("POST", "/api/orgs", json={"name": "p01-f7-born"}), no_defaults, False,
-     env(born_watch=("net_autoconnect", "net_hubs", "kiosk", "sandbox", "default_top_grant"))),
+    ("create", op("POST", "/api/orgs", json={"name": "p01-f7-born"}), no_defaults,
+     env(born_watch=("net_autoconnect", "net_hubs", "sandbox", "default_top_grant"))),
     ("create_defaults", op("POST", "/api/orgs", json={"name": "p01-f7-born-d"}),
-     defaults({"compact_at": 0.7, "net_hub_address": "http://10.9.9.9:7370", "prefer_reserve": False}), False,
+     defaults({"compact_at": 0.7, "net_hub_address": "http://10.9.9.9:7370", "prefer_reserve": False}),
      env(born_watch=("compact_at", "net_hub_address", "prefer_reserve", "net_hubs"))),
     ("create_no_autoconnect", op("POST", "/api/orgs", json={"name": "p01-f7-born-n", "net_autoconnect": False,
-                                                            "net_hubs": ["10.1.1.1"]}), no_defaults, False,
+                                                            "net_hubs": ["10.1.1.1"]}), no_defaults,
      env(born_watch=("net_autoconnect", "net_hubs"))),
-    ("create_kiosk", op("POST", "/api/orgs", json={"name": "p01-f7-born-k", "kiosk": {"sandbox": False}}),
-     no_defaults, False, env(born_watch=("default_top_grant", "net_identity", "net_hubs"))),
-    ("create_kiosk_bad_scope", op("POST", "/api/orgs", json={"name": "p01-f7-born-kb",
-                                                             "kiosk": {"sandbox": False, "max_scope": {"tools": 7}}}),
-     no_defaults, False, None),
-    ("create_kiosk_small_disk", op("POST", "/api/orgs", json={"name": "p01-f7-born-ks",
-                                                              "kiosk": {"sandbox": True, "storage_limit_mb": 1024}}),
-     no_defaults, False, None),
     ("create_sandbox", op("POST", "/api/orgs", json={"name": "p01-f7-born-s", "sandbox": True, "disk_mb": 4096}),
-     no_defaults, False, env(born_watch=("net_autoconnect",))),
+     no_defaults, env(born_watch=("net_autoconnect",))),
     ("create_sandbox_small", op("POST", "/api/orgs", json={"name": "p01-f7-born-ss", "sandbox": True,
-                                                           "disk_mb": 1024}), no_defaults, False, None),
-    ("create_kiosk_std", standard(op("POST", "/api/orgs", json={"name": "p01-f7-born-k2", "kiosk": {"sandbox": False}})),
-     no_defaults, False, env(born_watch=("default_top_grant", "net_identity", "net_hubs"))),
-    ("create_kiosk_sandbox_std", standard(op("POST", "/api/orgs", json={"name": "p01-f7-born-k3", "kiosk": {}})),
-     no_defaults, False, env(born_watch=("default_top_grant",))),
-    ("create_kiosk_bad_scope_std", standard(op("POST", "/api/orgs", json={
-        "name": "p01-f7-born-kb2", "kiosk": {"sandbox": False, "max_scope": {"tools": 7}}})), no_defaults, False, None),
-    ("create_kiosk_small_disk_std", standard(op("POST", "/api/orgs", json={
-        "name": "p01-f7-born-ks2", "kiosk": {"sandbox": True, "storage_limit_mb": 1024}})), no_defaults, False, None),
+                                                           "disk_mb": 1024}), no_defaults, None),
     ("create_sandbox_std", standard(op("POST", "/api/orgs", json={"name": "p01-f7-born-s2", "sandbox": True,
-                                                                  "disk_mb": 4096})), no_defaults, False,
+                                                                  "disk_mb": 4096})), no_defaults,
      env(born_watch=("net_autoconnect",))),
     ("create_sandbox_small_std", standard(op("POST", "/api/orgs", json={"name": "p01-f7-born-ss2", "sandbox": True,
-                                                                        "disk_mb": 1024})), no_defaults, False, None),
+                                                                        "disk_mb": 1024})), no_defaults, None),
     ("create_duplicate", op("POST", "/api/orgs", json={"name": "p01-f7-dup"}),
-     then(no_defaults, op("POST", "/api/orgs", json={"name": "p01-f7-dup"})), False, None),
-    ("create_bad_name", op("POST", "/api/orgs", json={"name": ""}), no_defaults, False, None),
-    ("create_frozen_unsandboxed", frozen(op("POST", "/api/orgs", json={"name": "p01-f7-born-f"})), no_defaults,
-     False, None),
+     then(no_defaults, op("POST", "/api/orgs", json={"name": "p01-f7-dup"})), None),
+    ("create_bad_name", op("POST", "/api/orgs", json={"name": ""}), no_defaults, None),
+    ("create_frozen_unsandboxed", frozen(op("POST", "/api/orgs", json={"name": "p01-f7-born-f"})), no_defaults, None),
     # delete
-    ("delete", op("DELETE", "/api/orgs/{slug}"), None, False, None),
-    ("delete_missing", op("DELETE", "/api/orgs/nope-org"), None, False, None),
-    ("delete_twice", op("DELETE", "/api/orgs/{slug}"), op("DELETE", "/api/orgs/{slug}"), False, None),
+    ("delete", op("DELETE", "/api/orgs/{slug}"), None, None),
+    ("delete_missing", op("DELETE", "/api/orgs/nope-org"), None, None),
+    ("delete_twice", op("DELETE", "/api/orgs/{slug}"), op("DELETE", "/api/orgs/{slug}"), None),
     # bridge credential rotate
-    ("rotate_standard", op("POST", "/api/orgs/{slug}/bridge-credential/rotate"), None, False, None),
-    ("rotate_frozen", frozen(op("POST", "/api/orgs/{slug}/bridge-credential/rotate")), None, False, None),
-    ("rotate_frozen_no_org", frozen(op("POST", "/api/orgs/nope-org/bridge-credential/rotate")), None, False, None),
+    ("rotate_standard", op("POST", "/api/orgs/{slug}/bridge-credential/rotate"), None, None),
+    ("rotate_frozen", frozen(op("POST", "/api/orgs/{slug}/bridge-credential/rotate")), None, None),
+    ("rotate_frozen_no_org", frozen(op("POST", "/api/orgs/nope-org/bridge-credential/rotate")), None, None),
     # settings
     ("settings_caps", op("POST", S, json={"max_top_grant": 10, "default_top_grant": 3, "compact_at": 99}), None,
-     False, env(watch=("max_top_grant", "default_top_grant", "compact_at"))),
+     env(watch=("max_top_grant", "default_top_grant", "compact_at"))),
     ("settings_refused_after_edits", op("POST", S, json={"max_top_grant": 10, "compact_at": 60,
-                                                        "fable_filter_model": "fable"}), None, False,
+                                                        "fable_filter_model": "fable"}), None,
      env(watch=("max_top_grant", "compact_at"))),
-    ("settings_unknown_model", op("POST", S, json={"fable_filter_model": "no-such-tier"}), None, False, None),
-    ("settings_org_dirs_remove", op("POST", S, json={"org_dirs": []}), add_extra_dir, False, env(watch=("dirs",))),
-    ("settings_org_dirs_bad", op("POST", S, json={"org_dirs": [None]}), None, False, None),
+    ("settings_unknown_model", op("POST", S, json={"fable_filter_model": "no-such-tier"}), None, None),
+    ("settings_org_dirs_remove", op("POST", S, json={"org_dirs": []}), add_extra_dir, env(watch=("dirs",))),
+    ("settings_org_dirs_bad", op("POST", S, json={"org_dirs": [None]}), None, None),
     ("settings_refused_after_revoke", op("POST", S, json={"org_dirs": [], "fable_filter_model": "fable"}),
-     add_extra_dir, False, env(watch=("dirs",))),
-    ("settings_clear_fable_lock", op("POST", S, json={"clear_fable_lock": True}), fable_lock, False,
+     add_extra_dir, env(watch=("dirs",))),
+    ("settings_clear_fable_lock", op("POST", S, json={"clear_fable_lock": True}), fable_lock,
      env(watch=("fable_lock",))),
     ("settings_refused_after_lock_clear", op("POST", S, json={"clear_fable_lock": True,
-                                                             "fable_filter_model": "fable"}), fable_lock, False,
+                                                             "fable_filter_model": "fable"}), fable_lock,
      env(watch=("fable_lock",))),
-    ("settings_headless_lenient", op("POST", S, json={"headless": True}), lenient_policies, False,
+    ("settings_headless_lenient", op("POST", S, json={"headless": True}), lenient_policies,
      env(watch=("headless", "auto_resume"))),
     ("settings_hire_defaults", op("POST", S, json={"default_visibility": "subtree", "default_effort": "low"}), None,
-     False, env(watch=("default_visibility", "default_effort"))),
-    ("settings_headless", op("POST", S, json={"headless": True}), None, False,
+     env(watch=("default_visibility", "default_effort"))),
+    ("settings_headless", op("POST", S, json={"headless": True}), None,
      env(watch=("headless", "auto_resume"))),
-    ("settings_headless_kiosk", op("POST", S, json={"headless": True}), None, True, None),
-    ("settings_net_hubs", op("POST", S, json={"net_hubs": [{"address": "10.2.2.2"}]}), spool, False,
+    ("settings_net_hubs", op("POST", S, json={"net_hubs": [{"address": "10.2.2.2"}]}), spool,
      env(watch=("net_hubs", "net_spool", "net_autoconnect"))),
-    ("settings_net_hubs_bad", op("POST", S, json={"net_hubs": ["nope"]}), None, False, None),
-    ("settings_net_kiosk", op("POST", S, json={"net_autoconnect": True}), None, True, None),
-    ("settings_empty", op("POST", S, json={}), None, False, None),
-    ("settings_no_org", op("POST", "/api/orgs/nope-org/settings", json={}), None, False, None),
+    ("settings_net_hubs_bad", op("POST", S, json={"net_hubs": ["nope"]}), None, None),
+    ("settings_empty", op("POST", S, json={}), None, None),
+    ("settings_no_org", op("POST", "/api/orgs/nope-org/settings", json={}), None, None),
     # hire defaults
-    ("defaults", op("POST", "/api/orgs/{slug}/defaults", json={"default_visibility": "subtree"}), None, False, None),
-    ("defaults_bad", op("POST", "/api/orgs/{slug}/defaults", json={"default_visibility": "bogus"}), None, False,
+    ("defaults", op("POST", "/api/orgs/{slug}/defaults", json={"default_visibility": "subtree"}), None, None),
+    ("defaults_bad", op("POST", "/api/orgs/{slug}/defaults", json={"default_visibility": "bogus"}), None,
      None),
-    ("defaults_no_org", op("POST", "/api/orgs/nope-org/defaults", json={}), None, False, None),
+    ("defaults_no_org", op("POST", "/api/orgs/nope-org/defaults", json={}), None, None),
     # org.md
-    ("orgmd_put", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "# charter"}), None, False, None),
-    ("orgmd_put_unicode", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "é" * 10}), None, False, None),
-    ("orgmd_put_long", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "x" * 70000}), None, False, None),
-    ("orgmd_put_no_workspace", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "x"}), no_workspace, False,
+    ("orgmd_put", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "# charter"}), None, None),
+    ("orgmd_put_unicode", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "é" * 10}), None, None),
+    ("orgmd_put_long", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "x" * 70000}), None, None),
+    ("orgmd_put_no_workspace", op("PUT", "/api/orgs/{slug}/orgmd", json={"content": "x"}), no_workspace,
      None),
-    ("orgmd_put_no_org", op("PUT", "/api/orgs/nope-org/orgmd", json={"content": "x"}), None, False, None),
+    ("orgmd_put_no_org", op("PUT", "/api/orgs/nope-org/orgmd", json={"content": "x"}), None, None),
     # disk
-    ("disk_delete_none", op("POST", "/api/orgs/{slug}/disk/delete", json={"paths": ["home/a.txt"]}), None, False,
+    ("disk_delete_none", op("POST", "/api/orgs/{slug}/disk/delete", json={"paths": ["home/a.txt"]}), None,
      None),
     ("disk_delete", op("POST", "/api/orgs/{slug}/disk/delete",
                        json={"paths": ["home/a.txt", "usr/bin/x", "../x", "home/sub", "home/none"]}),
-     fake_disk(), False, env(extra_fn=disk_listing)),
-    ("disk_resize_none", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 9000}), None, False, None),
+     fake_disk(), env(extra_fn=disk_listing)),
+    ("disk_resize_none", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 9000}), None, None),
     ("disk_resize_grow", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 9000}), fake_disk(5000),
-     False, env(watch=("disk",))),
-    ("disk_resize_shrink", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 5000}), fake_disk(), False,
      env(watch=("disk",))),
-    ("disk_resize_floor", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 1000}), fake_disk(), False,
+    ("disk_resize_shrink", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 5000}), fake_disk(),
+     env(watch=("disk",))),
+    ("disk_resize_floor", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 1000}), fake_disk(),
      None),
     ("disk_resize_same", op("POST", "/api/orgs/{slug}/disk/resize", json={"size_mb": 8192}), fake_disk(5000),
-     False, env(watch=("disk",))),
+     env(watch=("disk",))),
     ("disk_resize_cancel", op("POST", "/api/orgs/{slug}/disk/resize", json={"cancel": True}), fake_disk(5000),
-     False, env(watch=("disk",))),
-    ("disk_resize_missing", op("POST", "/api/orgs/{slug}/disk/resize", json={}), fake_disk(), False, None),
-    ("disk_apply_none_pending", op("POST", "/api/orgs/{slug}/disk/resize/apply"), fake_disk(), False, None),
-    ("disk_apply", op("POST", "/api/orgs/{slug}/disk/resize/apply"), fake_disk(5000), False, env(watch=("disk",))),
-    ("disk_apply_kept", op("POST", "/api/orgs/{slug}/disk/resize/apply"), fake_disk(5000), False,
+     env(watch=("disk",))),
+    ("disk_resize_missing", op("POST", "/api/orgs/{slug}/disk/resize", json={}), fake_disk(), None),
+    ("disk_apply_none_pending", op("POST", "/api/orgs/{slug}/disk/resize/apply"), fake_disk(), None),
+    ("disk_apply", op("POST", "/api/orgs/{slug}/disk/resize/apply"), fake_disk(5000), env(watch=("disk",))),
+    ("disk_apply_kept", op("POST", "/api/orgs/{slug}/disk/resize/apply"), fake_disk(5000),
      env(resize_note="free 10 MB first")),
-    ("disk_apply_no_disk", op("POST", "/api/orgs/{slug}/disk/resize/apply"), None, False, None),
+    ("disk_apply_no_disk", op("POST", "/api/orgs/{slug}/disk/resize/apply"), None, None),
     # the legacy sweep
-    ("sweep_preview_unmounted", op("GET", "/api/orgs/{slug}/sweep-legacy"), fake_disk(), False,
+    ("sweep_preview_unmounted", op("GET", "/api/orgs/{slug}/sweep-legacy"), fake_disk(),
      env(mounted=False)),
-    ("sweep_preview", op("GET", "/api/orgs/{slug}/sweep-legacy"), then(fake_disk(), legacy_dirs), False, None),
-    ("sweep_unmounted", op("POST", "/api/orgs/{slug}/sweep-legacy"), then(fake_disk(), legacy_dirs), False,
+    ("sweep_preview", op("GET", "/api/orgs/{slug}/sweep-legacy"), then(fake_disk(), legacy_dirs), None),
+    ("sweep_unmounted", op("POST", "/api/orgs/{slug}/sweep-legacy"), then(fake_disk(), legacy_dirs),
      env(mounted=False, extra_fn=legacy_state)),
-    ("sweep", op("POST", "/api/orgs/{slug}/sweep-legacy"), then(fake_disk(), legacy_dirs, workspace), False,
+    ("sweep", op("POST", "/api/orgs/{slug}/sweep-legacy"), then(fake_disk(), legacy_dirs, workspace),
      env(extra_fn=legacy_state)),
-    ("sweep_no_disk", op("POST", "/api/orgs/{slug}/sweep-legacy"), None, False, None),
+    ("sweep_no_disk", op("POST", "/api/orgs/{slug}/sweep-legacy"), None, None),
     # the gate
     ("agent_token", lambda c: c.post(f"/api/orgs/{CUR['slug']}/settings", json={},
-                                     headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None, False, None),
+                                     headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None, None),
 ]
 
 
-CASES = {n: (r, p, k, e) for n, r, p, k, e in CASES}
+CASES = {n: (r, p, e) for n, r, p, e in CASES}
 
 
 def observe(name):
     """Run one fixtured case on a fresh org and return its normalized observation, the body and the case record."""
-    request, pre, kiosk, e = CASES[name]
-    fresh(kiosk)
+    request, pre, e = CASES[name]
+    fresh()
     CUR.update(e or {})
     client = TestClient(app, raise_server_exceptions=False)
     try:
@@ -607,30 +583,20 @@ class OrgAdminBoundary(unittest.TestCase):
         return out
 
     def test_create_and_the_org_it_is_born_as(self):
-        got = self.check('create', 'create_defaults', 'create_no_autoconnect', 'create_kiosk_std',
-                         'create_kiosk_sandbox_std', 'create_sandbox_std', 'create_kiosk_bad_scope_std',
-                         'create_kiosk_small_disk_std', 'create_sandbox_small_std', 'create_kiosk',
-                         'create_kiosk_bad_scope', 'create_kiosk_small_disk', 'create_sandbox', 'create_sandbox_small',
+        got = self.check('create', 'create_defaults', 'create_no_autoconnect', 'create_sandbox_std',
+                         'create_sandbox_small_std', 'create_sandbox', 'create_sandbox_small',
                          'create_duplicate', 'create_bad_name', 'create_frozen_unsandboxed')
         born = got['create'][2]['born_doc']
         # a throwaway data root never points a new org at the operator's real hub
-        self.assertEqual((born['net_autoconnect'], born['net_hubs'], born['kiosk'], born['default_top_grant']),
-                         (True, [{'id': 'local', 'address': net.UNROUTABLE_HUB_ADDRESS, 'enabled': True}], None, 50))
+        self.assertEqual((born['net_autoconnect'], born['net_hubs'], born['default_top_grant']),
+                         (True, [{'id': 'local', 'address': net.UNROUTABLE_HUB_ADDRESS, 'enabled': True}], 50))
         # the global defaults are written into the org, except the two that are not org settings
         d = got['create_defaults'][2]['born_doc']
         self.assertEqual((d['compact_at'], d['net_hub_address'], d['prefer_reserve'], d['net_hubs'][0]['address']),
                          (0.7, None, None, 'http://10.9.9.9:7370'))
         n = got['create_no_autoconnect'][2]['born_doc']
         self.assertEqual((n['net_autoconnect'], [h['address'] for h in n['net_hubs']]), (False, ['10.1.1.1']))
-        k = got['create_kiosk_std'][2]['born_doc']
-        self.assertEqual((k['default_top_grant'], k['net_identity'], k['net_hubs']), (0, None, None))
-        # the kiosk whose ceiling cannot be normalized is refused BEFORE its one creating save (PG-3f: the org is
-        # born whole in create_org's prepare hook): no store is written, so nothing is renamed away or unregistered
-        refused = got['create_kiosk_bad_scope_std'][0]
-        self.assertEqual((refused['status'], refused['orgs'], refused['spies']), (422, [0, 0], {}))
-        self.assertEqual(refused['files'], {'added': [], 'removed': [], 'changed': []})
-        for name in ('create_kiosk', 'create_sandbox'):
-            self.assertTrue(got[name][0]['detail'].startswith('Not available in desktop MVP: '))
+        self.assertTrue(got['create_sandbox'][0]['detail'].startswith('Not available in desktop MVP: '))
 
     def test_delete_renames_the_store_away_and_tears_down_its_runtime(self):
         got = self.check('delete', 'delete_missing', 'delete_twice')
@@ -644,8 +610,8 @@ class OrgAdminBoundary(unittest.TestCase):
         got = self.check('settings_caps', 'settings_refused_after_edits', 'settings_unknown_model',
                          'settings_org_dirs_remove', 'settings_org_dirs_bad', 'settings_refused_after_revoke',
                          'settings_clear_fable_lock', 'settings_refused_after_lock_clear', 'settings_headless_lenient',
-                         'settings_hire_defaults', 'settings_headless', 'settings_headless_kiosk', 'settings_net_hubs',
-                         'settings_net_hubs_bad', 'settings_net_kiosk', 'settings_empty', 'settings_no_org')
+                         'settings_hire_defaults', 'settings_headless', 'settings_net_hubs',
+                         'settings_net_hubs_bad', 'settings_empty', 'settings_no_org')
         self.assertEqual(got['settings_caps'][2]['doc_after'],
                          {'max_top_grant': 10, 'default_top_grant': 3, 'compact_at': 0.95})   # 99 clamps to 95
         # applied to the cached document, then refused: the lock release discards all of it

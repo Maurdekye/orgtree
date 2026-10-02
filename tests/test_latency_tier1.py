@@ -318,8 +318,8 @@ class BatchedLifecycle(unittest.TestCase):
 class SharedSnapshotTreeView(unittest.TestCase):
     """The tree view now builds over the SHARED refreshed snapshot
     (store.cached_org) instead of a fresh whole-document parse per rebuild.
-    Two properties keep that safe and worth it: the view (private AND
-    public-scrubbed) must leave the shared document byte-identical, and a
+    Two properties keep that safe and worth it: the view must leave the
+    shared document byte-identical, and a
     rebuild after a one-node save must parse the document ZERO times."""
 
     @classmethod
@@ -337,7 +337,7 @@ class SharedSnapshotTreeView(unittest.TestCase):
         with store.DOC_LOCK:
             org = store.load_org(cls.slug)
             n = org.node("kid")
-            # the two nested document structures `_scrub_public` rewrites
+            # two nested document structures the view projects
             n["scope"]["add_dirs"] = [{"path": "E:\\secret\\host\\folder",
                                        "mode": "rw"}]
             n["last_denials"] = [{"tool": "bash",
@@ -360,30 +360,18 @@ class SharedSnapshotTreeView(unittest.TestCase):
                                 for nid in sorted(org.d["nodes"])},
                                sort_keys=True, default=str)
 
-    def test_private_and_public_view_leave_the_document_byte_identical(self):
+    def test_the_view_leaves_the_document_byte_identical(self):
         before = self._doc_fingerprint()
-        tree = self.api.org_tree(self.slug, self._req())
-        self.api._scrub_public(tree)          # the public path's mutator
+        self.api.org_tree(self.slug, self._req())
         after = self._doc_fingerprint()
         self.assertEqual(before, after,
-                         "building/scrubbing the view mutated the shared document")
-        # and the scrub actually scrubbed the ROW while the DOC keeps truth
+                         "building the view mutated the shared document")
+        # the DOC keeps truth
         org = store.cached_org(self.slug)
         self.assertEqual(org.node("kid")["scope"]["add_dirs"][0]["path"],
                          "E:\\secret\\host\\folder")
         self.assertEqual(org.node("kid")["last_denials"][0]["arg"],
                          "C:\\Users\\operator\\private.txt")
-
-        def find(nodes, nid):
-            for n in nodes:
-                if n["id"] == nid:
-                    return n
-                got = find(n.get("children") or [], nid)
-                if got:
-                    return got
-        row = find(tree["roots"], "kid")
-        self.assertEqual(row["scope"]["add_dirs"][0]["path"], "folder")
-        self.assertNotIn("operator", row["last_denials"][0]["arg"])
 
     def test_tree_rebuild_after_one_save_parses_the_document_zero_times(self):
         from starlette.testclient import TestClient

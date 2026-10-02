@@ -1,10 +1,10 @@
 # pyright: strict
-"""Docker sandboxes for kiosk orgs (user spec).
+"""Docker sandboxes for orgs (user spec).
 
-Every kiosk org created with `sandbox: true` runs its agents' turns inside ONE
+Every org with `sandbox.enabled` runs its agents' turns inside ONE
 dedicated container (image: sandbox/Dockerfile) — genuine terminal use with no
 view of the host: no host filesystem, no host processes, per-container CPU and
-memory caps. Non-kiosk orgs are untouched and run natively.
+memory caps. Unsandboxed orgs are untouched and run natively.
 
 Container layout (bind mounts):
     /home/agent                          <data>/sandboxes/<slug>/home   (persists
@@ -23,8 +23,8 @@ sandbox secret — the only door out, gated by api.BridgeGateway.
 
 Auth: the default is the PROXIED SUBSCRIPTION — the container's CLI points at
 the bridge's /anthropic/<secret> proxy (host-side OAuth, no credential file
-ever enters the sandbox). In standard mode, a kiosk `api_key` (creation form /
-dashboard) or ORGTREE_SANDBOX_API_KEY overrides it with a plain env key, and
+ever enters the sandbox). In standard mode, the org `api_key` (settings) or
+ORGTREE_SANDBOX_API_KEY overrides it with a plain env key, and
 the literal value 'subscription' copies host credentials into the sandbox
 home. Frozen mode keeps supported provider keys host-side and routes each org
 through a rotatable bridge token; nodes in that shared root-capable container
@@ -92,7 +92,7 @@ _frozen_network_lock = threading.Lock()
 SYS_DIRS: tuple[str, ...] = ("usr", "var", "etc", "opt", "root", "srv")
 TMP_SIZE: str = os.environ.get("ORGTREE_SANDBOX_TMP", "1g")
 RUN_SIZE: str = os.environ.get("ORGTREE_SANDBOX_RUN", "64m")
-# default per-org disk limit (MB) for sandboxed orgs whose kiosk/org config
+# default per-org disk limit (MB) for sandboxed orgs whose org config
 # doesn't set one — 0 disables the default (NOT recommended: unbounded)
 DISK_MB: int = int(os.environ.get("ORGTREE_SANDBOX_DISK_MB", "20480") or 0)
 
@@ -125,9 +125,7 @@ def migrate_to_disk(org: Org) -> None:
     from . import disk as dsk
     from .ledger import SYSTEM, now
     slug = org.d["slug"]
-    k = org.d.get("kiosk") or {}
-    size_mb = (int(k.get("storage_limit_mb") or 0)
-               or int((org.d.get("sandbox") or {}).get("limit_mb") or 0)
+    size_mb = (int((org.d.get("sandbox") or {}).get("limit_mb") or 0)
                or DISK_MB)
     # one-disk semantics: the ~1 GB system seed and transcripts live INSIDE
     # the cap now — a limit written for the old workspace-only accounting
@@ -283,11 +281,7 @@ _build_lock: threading.Lock = threading.Lock()
 
 
 def _cfg(org: Org) -> dict[str, str] | None:
-    """Sandbox config for ANY org (user ruling: not just kiosks): kiosks
-    carry it inside their kiosk dict; normal orgs in a top-level `sandbox`."""
-    k = org.d.get("kiosk") or {}
-    if k.get("sandbox"):
-        return {"secret": k.get("sandbox_secret", "")}
+    """Sandbox config for any org: a top-level `sandbox`."""
     s = org.d.get("sandbox") or {}
     if s.get("enabled"):
         return {"secret": s.get("secret", "")}
@@ -325,39 +319,23 @@ def legacy_bridge_credentials_allowed() -> bool:
     return bridgeauth.legacy_credentials_allowed()
 
 
-def uses_subscription_auth(k: dict[str, Any] | None) -> bool:
-    """True when the org's sandbox would run on COPIED host credentials
-    (the 'subscription' escape hatch — docstring: private single-user
-    installs only). Security review 2026-08-01: this mode and a PUBLIC
-    kiosk URL are mutually exclusive STRUCTURALLY — the OAuth token lands
-    on the org disk, root-in-container can copy it to any path, and the
-    recovery browser serves the disk to visitors; no filename denylist can
-    be a boundary. Both enable-orderings are refused."""
-    key = ((k or {}).get("api_key")
-           or os.environ.get("ORGTREE_SANDBOX_API_KEY") or "proxied")
-    return str(key).strip().lower() == "subscription"
-
-
-def _configured_container_auth(org: Org, k: Any = None) -> str:
+def _configured_container_auth(org: Org) -> str:
     """Resolve sandbox auth without applying deployment-policy gates."""
-    k = (org.d.get("kiosk") or {}) if k is None else k
     return (("" if org.d.get("api_fallback")
              else str(org.d.get("api_key") or ""))
-            or str(k.get("api_key") or "")
             or os.environ.get("ORGTREE_SANDBOX_API_KEY")
             or "proxied").strip()
 
 
-def uses_legacy_credential_copy(org: Org, k: Any = None) -> bool:
+def uses_legacy_credential_copy(org: Org) -> bool:
     """Whether the effective selector asks to copy host credentials."""
-    return _configured_container_auth(org, k).lower() == "subscription"
+    return _configured_container_auth(org).lower() == "subscription"
 
 
-def _legacy_selector_present(org: Org, k: Any = None) -> bool:
+def _legacy_selector_present(org: Org) -> bool:
     """Whether any selectable auth source contains the forbidden sentinel."""
-    k = (org.d.get("kiosk") or {}) if k is None else k
     return any(str(value or "").strip().lower() == "subscription"
-               for value in (org.d.get("api_key"), k.get("api_key"),
+               for value in (org.d.get("api_key"),
                              os.environ.get("ORGTREE_SANDBOX_API_KEY")))
 
 
@@ -421,14 +399,14 @@ def on_disk(slug: str) -> bool:
     return val
 
 
-def auth_label(org: Org, k: Any = None) -> str:
+def auth_label(org: Org) -> str:
     """The container's auth as an identity token: `proxied`, `subscription`,
     or `key:<8 hex>` — a digest, never the key itself (labels are readable by
     anyone who can run `docker inspect`). Compared on every `ensure_container`
     so a settings change, a key rotation or an unset `ORGTREE_SANDBOX_API_KEY`
     recreates the container instead of leaving it billing the old way."""
     import hashlib
-    auth = container_auth(org, k)
+    auth = container_auth(org)
     # Frozen containers inherit no provider auth material, so their identity
     # does not depend on which host-side provider lane is selected. This fixed label
     # forces one recreate at either profile boundary but lets explicit keys
@@ -441,7 +419,7 @@ def auth_label(org: Org, k: Any = None) -> str:
     return "key:" + hashlib.sha256(auth.encode()).hexdigest()[:8]
 
 
-def container_auth(org: Org, k: Any = None) -> str:
+def container_auth(org: Org) -> str:
     """What a sandboxed org's container authenticates WITH: a literal API key,
     `"subscription"` (host credentials copied in), or `"proxied"` (the bridge
     attaches the host token per request).
@@ -450,11 +428,11 @@ def container_auth(org: Org, k: Any = None) -> str:
     caller needs the same answer and a hand-mirrored copy would drift:
     `supervisor.bills_the_key` has to know whether a limit error came off the
     org's own key or the host subscription, and reading `org.d["api_key"]`
-    alone missed BOTH the kiosk-level key and `ORGTREE_SANDBOX_API_KEY` — a
+    alone missed `ORGTREE_SANDBOX_API_KEY` — a
     per-minute API rate limit was then timed off the subscription's lanes."""
-    auth = _configured_container_auth(org, k)
+    auth = _configured_container_auth(org)
     if not deployment.current_policy().allow_legacy_sandbox_credentials:
-        if _legacy_selector_present(org, k):
+        if _legacy_selector_present(org):
             raise deployment.DeploymentConfigError(
                 "the frozen deployment profile disables legacy sandbox "
                 "credential copying; 'subscription' auth is forbidden -- use "
@@ -467,7 +445,7 @@ def container_auth(org: Org, k: Any = None) -> str:
     return auth
 
 
-def shared_container_auth_env(org: Org, k: Any = None) -> dict[str, str]:
+def shared_container_auth_env(org: Org) -> dict[str, str]:
     """Auth env baked into the shared container at ``docker run``.
 
     Frozen mode returns nothing for every supported provider auth selection:
@@ -476,7 +454,7 @@ def shared_container_auth_env(org: Org, k: Any = None) -> dict[str, str]:
     ``container_auth`` call is deliberately before the policy branch so its
     fail-closed validation cannot be bypassed by this helper.
     """
-    key = container_auth(org, k)
+    key = container_auth(org)
     if not legacy_bridge_credentials_allowed():
         return {}
     low = key.lower()
@@ -500,7 +478,7 @@ def anthropic_proxy_api_key(org: Org) -> str:
     api-fallback arm — relay traffic temporarily re-authed with the org key
     while a window was open — went with the org key fields, 2026-09-12.)
 
-    Always resolve ``container_auth`` first.  Besides choosing org, kiosk, and
+    Always resolve ``container_auth`` first.  Besides choosing org and
     install-default keys consistently, it owns frozen policy validation of
     forbidden legacy selectors.
     """
@@ -606,7 +584,7 @@ def chown_agent(org: Org, nid: str, *rel: str) -> None:
     The backend writes through the \\\\wsl.localhost UNC view, and everything
     it creates lands root-owned inside the container — while the CLI runs as
     `agent` (uid 1001). A root-owned `outbox/` or `uploads/` reads to the
-    agent as "my scratch is broken" (live bug 2026-08-04, kiosk `vnuser`).
+    agent as "my scratch is broken" (live bug 2026-08-04, org `vnuser`).
     Best-effort by design: with the container down the exec fails silently,
     and the start-time heal in ensure_container covers it instead."""
     if not is_sandboxed(org):
@@ -869,14 +847,13 @@ def ensure_container(org: Org) -> str:
     """The org's container, created on first need and restarted if stopped.
     Raises RuntimeError with an actionable message when it cannot run."""
     slug = org.d["slug"]
-    k = org.d.get("kiosk") or {}
     name = container_name(slug)
     policy = deployment.current_policy()
     network_layout = ("standard" if policy.allow_sandbox_internet
                       else FROZEN_NETWORK_LAYOUT)
     if not docker_ok():
         raise RuntimeError("Docker is not running — start Docker Desktop "
-                           "(kiosk sandboxes run their turns in containers)")
+                           "(sandboxed orgs run their turns in containers)")
     _warn_vm_cap()
     from . import disk as dsk
     # virtual-disk pivot (user verdict): every sandboxed org rides its own
@@ -930,7 +907,7 @@ def ensure_container(org: Org) -> str:
         # the container's own API limits against the host subscription's
         # lanes. Recreating on change is what makes the config truthful.
         if (cur_img and cur_img != want) or layout != LAYOUT \
-                or cur_auth != auth_label(org, k) \
+                or cur_auth != auth_label(org) \
                 or cur_network != network_layout:
             _docker("rm", "-f", name, timeout=60)
             if cur_network == FROZEN_NETWORK_LAYOUT \
@@ -943,26 +920,20 @@ def ensure_container(org: Org) -> str:
                 _docker("start", name)
                 _heal_ownership(name)
             return name
-    # auth (user ruling): PROXIED SUBSCRIPTION is the default for every kiosk
-    # — the container's CLI talks to the bridge's /anthropic passthrough and
-    # the HOST attaches the OAuth token; no credential ever enters the
-    # sandbox. ORGTREE_SANDBOX_API_KEY remains a hidden escape hatch (a real
-    # API key, or 'subscription' to copy the host credentials in).
-    # §9.5: the ORG-LEVEL key (settings, any org — promoted out of the kiosk
-    # spec) outranks the kiosk field; proxy mode and key mode stay mutually
-    # exclusive — a set key wins and the bridge proxy is not used.
+    # auth (user ruling): PROXIED SUBSCRIPTION is the default for every
+    # sandboxed org — the container's CLI talks to the bridge's /anthropic
+    # passthrough and the HOST attaches the OAuth token; no credential ever
+    # enters the sandbox. ORGTREE_SANDBOX_API_KEY remains a hidden escape
+    # hatch (a real API key, or 'subscription' to copy the host credentials
+    # in). §9.5: the ORG-LEVEL key (settings, any org) outranks it; proxy
+    # mode and key mode stay mutually exclusive — a set key wins and the
+    # bridge proxy is not used.
     # api_fallback (2026-08-17): a fallback org must stay PROXIED — container
     # env is fixed at `docker run`, so the per-request auth flip lives in the
     # bridge's /anthropic passthrough instead; skipping the org key here is
     # what routes it there
-    key = container_auth(org, k)
+    key = container_auth(org)
     use_sub = key.lower() == "subscription"
-    if use_sub and k.get("enabled") and k.get("token"):
-        # structural, not a filter: see uses_subscription_auth
-        raise RuntimeError(
-            "subscription-auth sandbox with a PUBLIC kiosk URL is refused — "
-            "the copied host credentials live on the org disk visitors can "
-            "browse. Disable the kiosk URL or switch to proxied auth.")
     image_tag = ensure_image()
     home = sandbox_home(slug)              # on-disk, via the UNC view
     os.makedirs(os.path.join(home, "orgtree"), exist_ok=True)
@@ -993,7 +964,7 @@ def ensure_container(org: Org) -> str:
     r = _docker(
         "run", "-d", "--name", name,
         "--label", f"orgtree.layout={LAYOUT}",
-        "--label", f"orgtree.auth={auth_label(org, k)}",
+        "--label", f"orgtree.auth={auth_label(org)}",
         "--label", f"orgtree.network={network_layout}",
         "--memory", MEM, "--cpus", CPUS,
         # ONE capped disk (user verdict): rootfs read-only, every persistent
@@ -1011,7 +982,7 @@ def ensure_container(org: Org) -> str:
         *([] if network_layout == FROZEN_NETWORK_LAYOUT else
           ["--add-host", "host.docker.internal:host-gateway"]),
         *[item for env_key, env_val in
-          sorted(shared_container_auth_env(org, k).items())
+          sorted(shared_container_auth_env(org).items())
           for item in ("-e", f"{env_key}={env_val}")],
         "-v", f"{mp}/home:/home/agent",
         "-v", f"{mp}/workspace:{cpath_workspace(slug)}",
@@ -1189,7 +1160,7 @@ def remove(slug: str) -> None:
 
 
 def warm(org: Org) -> None:
-    """Fire-and-forget prebuild at kiosk creation so the first turn is not
+    """Fire-and-forget prebuild at sandboxed-org creation so the first turn is not
     minutes slow (image build + container create)."""
     slug = org.d["slug"]
     _dead.discard(slug)          # same-slug re-create un-tombs it

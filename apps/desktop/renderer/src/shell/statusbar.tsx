@@ -10,10 +10,9 @@
 //
 // ⚠ MOVED, NOT REDUCED. Every chip keeps its own visibility rule, its exact
 // tooltip and its click-through: the mail-hub chip still opens Org settings at
-// Connections, the kiosk spend chip still turns bad at 90% of its limit, the
-// audit chip still speaks only when something is wrong. Nothing here is a
-// summary of what used to be shown; it is what used to be shown, in a
-// different place.
+// Connections, the audit chip still speaks only when something is wrong.
+// Nothing here is a summary of what used to be shown; it is what used to be
+// shown, in a different place.
 //
 // THE CONNECTIVITY ERROR IS PINNED TO THE END AND NEVER SCROLLS AWAY. In the
 // header it was absolutely positioned so its arrival could not change the
@@ -58,22 +57,11 @@ export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion 
         {!tree.audit.no_overdraft &&
           <span className="chip bad"><WarnIcon fontSize="inherit" /> {tree.audit.problems.join(', ')}</span>}
         <ActiveAgentSummary tree={tree} orgs={orgs} />
-        {/* the bare cost chip is redundant when the kiosk spend chip already
-            shows the same figure against its limit (user spec 2026-07-31) —
-            limitless orgs keep it */}
-        {showCost(tree) && !tree.kiosk?.spend_limit &&
+        {showCost(tree) &&
           <span className="chip" title={costTitle(tree)}>{costLabel(tree)}</span>}
         {tree.fable_lock &&
           <span className="chip bad" title={tree.fable_lock.at as string | undefined}>
             <BlockIcon fontSize="inherit" /> fable limit</span>}
-        {tree.kiosk?.spend_limit && (
-          tree.spend_frozen
-            ? <span className="chip bad"><BlockIcon fontSize="inherit" /> spend limit reached — agents frozen</span>
-            : <span className={'chip' + (tree.cost_usd_total >= tree.kiosk.spend_limit * 0.9 ? ' bad' : '')}
-              title={costTitle(tree, true)}>
-              {costLabel(tree)} / ${tree.kiosk.spend_limit.toFixed(2)}
-            </span>
-        )}
         {tree.headless && (
           <span className="chip"
             title="headless: no user is present — user-bound requests auto-deny; the eye renders grey and empty">

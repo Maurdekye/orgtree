@@ -19,7 +19,7 @@ out = Path('C:/Temp/watchdog-list-checks-' + sys.argv[2]) / PHASE
 out.mkdir(parents=True)
 NEW = 'tests/test_watchdog_list_unmanaged.py'
 GROUP = [NEW, 'tests/test_s10_watchdog_route.py', 'tests/test_pg3c_watchdog_tx.py',
-         'tests/test_pg3c_kiosk_exempt.py', 'tests/test_write_route_timing.py',
+         'tests/test_write_route_timing.py',
          'tests/test_operation_census.py', 'tests/test_send_file_seat.py',
          'tests/test_agent_continue_on.py', 'tests/test_state_requests_boundary.py',
          'tests/test_p02_operation_contacts.py', 'tests/test_state_p02_contact_facets.py']

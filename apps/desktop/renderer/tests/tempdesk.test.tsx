@@ -35,7 +35,7 @@ const agent = (id: string): CanvasNode => ({
 } as unknown as CanvasNode)
 
 const deskProps = (map: Map<string, CanvasNode>) => ({
-  map, op, slug: 'org', toast: noop, pub: false,
+  map, op, slug: 'org', toast: noop,
 })
 
 /** the canvas slot for an agent, plus the modal when `open` — the real shape:
@@ -58,7 +58,7 @@ function scene(node: CanvasNode, open: boolean, close = noop,
     <DeskHosts map={map} slug="org">
       {open && <TempDeskModal node={node} close={close} desk={deskProps(map)} />}
       <div data-which="canvas">
-        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
           bare {...canvasProps} />
       </div>
     </DeskHosts>
@@ -361,7 +361,7 @@ function tree(roots: unknown[]): TreePayload {
     roots, cost_usd_total: 0,
     audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null,

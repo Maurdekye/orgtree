@@ -14,23 +14,23 @@
   },
   "summary": {
     "modules": 143,
-    "registration_sites": 351,
+    "registration_sites": 349,
     "registration_kinds": {
       "callback": 5,
       "hook": 6,
-      "http": 192,
+      "http": 191,
       "registration_call": 14,
       "task": 15,
       "tool": 53,
       "tool_catalog": 1,
       "tool_verb": 7,
       "websocket": 1,
-      "worker": 57
+      "worker": 56
     },
     "unresolved_registrations": 14,
     "dispatch_selector_sites": 236,
-    "connection_sites": 25,
-    "unresolved_connect_calls": 8,
+    "connection_sites": 24,
+    "unresolved_connect_calls": 7,
     "unresolved_tool_refs": 2,
     "doc_lock_references": 48
   },
@@ -1263,25 +1263,6 @@
         "/api/orgs/{slug}/settings"
       ],
       "selector_expression": "'/api/orgs/{slug}/settings'",
-      "methods_expression": null,
-      "resolution": "literal"
-    },
-    {
-      "site_id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
-      "kind": "http",
-      "source": {
-        "path": "engine/backend/orgtree/api.py",
-        "symbol": "org_kiosk",
-        "line": 3907,
-        "end_line": 3907,
-        "syntax_sha256": "6d4db1af998e4b6c3a100b929b0a77a751e7e23225641e4fd3ba0ad8c22281f3"
-      },
-      "receiver": "app",
-      "method": "post",
-      "selectors": [
-        "/api/orgs/{slug}/kiosk"
-      ],
-      "selector_expression": "'/api/orgs/{slug}/kiosk'",
       "methods_expression": null,
       "resolution": "literal"
     },
@@ -5933,20 +5914,6 @@
       "resolution": "expression"
     },
     {
-      "site_id": "27675a1fdea8e96d9831b6de7876ddf7c3a86c76d6a7c4e0098f4e5a010dd40e",
-      "kind": "worker",
-      "source": {
-        "path": "engine/backend/orgtree/supervisor.py",
-        "symbol": "workspace_usage_cached",
-        "line": 193,
-        "end_line": 193,
-        "syntax_sha256": "d35c119968b2fd29b23a5d09d45b09fc3488ff2df22c98dd95ed0c0f25bb97b4"
-      },
-      "mechanism": "threading.Thread",
-      "target": "run",
-      "resolution": "expression"
-    },
-    {
       "site_id": "429378e11529fee07c5c2cbaf7ad6f404b1d8a0e6890497408541567cd2a6586",
       "kind": "worker",
       "source": {
@@ -10483,18 +10450,6 @@
       "factory": "sqlite3.connect",
       "classification": "database_factory",
       "arguments_expression": "sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True, timeout=0.1)"
-    },
-    {
-      "source": {
-        "path": "engine/backend/orgtree/api.py",
-        "symbol": "_share_url",
-        "line": 1351,
-        "end_line": 1351,
-        "syntax_sha256": "d1d7476c1e030f52215e7073381b4f4b122719f4eb1f404aa0515d92a9588450"
-      },
-      "factory": "s.connect",
-      "classification": "unresolved_connect_call",
-      "arguments_expression": "s.connect(('8.8.8.8', 80))"
     },
     {
       "source": {

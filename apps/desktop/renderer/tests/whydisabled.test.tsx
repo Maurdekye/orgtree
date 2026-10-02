@@ -83,7 +83,7 @@ async function draftCard() {
   return mountView(
     <DraftNode pos={{ x: 0, y: 0 }} draft={state} map={new Map()}
       seats={{ haiku: 1 }} maxTop={100} defaultTop={0}
-      kioskRemaining={null} tree={tree} zoom={1} pxc={1}
+      tree={tree} zoom={1} pxc={1}
       onConfirm={noop} onCancel={noop} />,
     (el) => el,
   )

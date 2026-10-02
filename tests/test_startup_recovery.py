@@ -31,7 +31,6 @@ class StartupOrderingTests(unittest.TestCase):
                 return []
             org = SimpleNamespace(heal_plan_stamps=lambda: None)
             with ExitStack() as stack:
-                stack.enter_context(patch.dict(os.environ, {"ORGTREE_KIOSK": ""}))
                 stack.enter_context(patch.object(startup, "recovery", startup.Recovery()))
                 stack.enter_context(patch.object(store, "list_orgs", return_value=[{"slug": "fixture"}]))
                 stack.enter_context(patch.object(store, "load_org", return_value=org))

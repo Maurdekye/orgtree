@@ -64,7 +64,7 @@ function lifecycle(name: string, run: (ctx: {
     const views: Array<{unmount: () => Promise<void>}> = []
     const mount = async () => {
       const view = await mountView(<><Sink /><DeskChat node={node} map={new Map([[id,node]])}
-        op={() => Promise.resolve({} as OpResult)} slug="org" toast={() => {}} pub={false} bare /></>, text)
+        op={() => Promise.resolve({} as OpResult)} slug="org" toast={() => {}} bare /></>, text)
       views.push(view)
       return view
     }

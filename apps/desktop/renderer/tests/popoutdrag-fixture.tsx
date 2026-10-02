@@ -43,7 +43,7 @@ const TREE = {
   audience_requests: [], credit_requests: [], audiences: [], workspace: null, dirs: [],
   audit: { live_nodes: 1, top_level_holds: 6, no_overdraft: true, problems: [] },
   max_top_grant: 100, default_top_grant: 5, compact_at: 0, cost_usd_total: 0,
-  user_inbox_count: 0, org_inbox: null, net: null, public: false,
+  user_inbox_count: 0, org_inbox: null, net: null,
 } as unknown as TreePayload
 
 const ITEM = {
@@ -113,7 +113,7 @@ window.fetch = (async (input: RequestInfo | URL) => {
 function Desk() {
   const map = React.useMemo(() => new Map([['builder', NODE]]), [])
   return <DeskHosts map={map} slug={SLUG}><div style={{ height: 700, width: 850 }}>
-    <DeskChat bare node={NODE} map={map} slug={SLUG} pub={false} toast={toast}
+    <DeskChat bare node={NODE} map={map} slug={SLUG} toast={toast}
       op={async () => ({})} onJump={noop} />
   </div></DeskHosts>
 }

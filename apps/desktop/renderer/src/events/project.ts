@@ -1,10 +1,10 @@
-import type { Event, PublicEvent, Family } from '../generated/events'
+import type { Event, Family } from '../generated/events'
 import { FAMILY_OF } from '../generated/events'
 import { record } from './decode'
 import { fieldType, humanValue } from './value'
 import type { HumanValue } from './value'
 
-export type KnownEvent = Event | PublicEvent
+export type KnownEvent = Event
 export type Placement = 'header' | 'body' | 'context'
 export interface EventField { key: string; label: string; placement: Placement; value: unknown; type: string }
 export interface EventView { event: KnownEvent; family: Family; title: string; fields: EventField[] }
@@ -13,8 +13,7 @@ type Spec<T> = readonly [Keys<T> & string, string, Placement]
 
 function layout<T extends KnownEvent>(event: T, title: string, specs: readonly Spec<T>[]): EventView {
   const fields: EventField[] = []
-  // Private-only fields are absent by construction in PublicEvent. No casts
-  // or text recognition fill those gaps, and no raw payload is rendered.
+  // No casts or text recognition fill gaps, and no raw payload is rendered.
   if (record(event)) for (const [key, label, placement] of specs) {
     if (Object.prototype.hasOwnProperty.call(event, key)) fields.push({ key, label, placement, value: event[key], type: fieldType(event.variant, key) })
   }
@@ -39,9 +38,9 @@ export function projectEvent(event: KnownEvent): EventView {
     case "reply.document": return layout(event, "Presentation reply", [["body", "Message", "body"]])
     case "reply.mail": return layout(event, "Mail reply", [["body", "Message", "body"], ["quote", "Quoted message", "context"]])
     case "docket.assigned": return layout(event, "Assignment", [["owner", "Assigned to", "header"], ["previous_owner", "Previously assigned to", "header"], ["assigner", "Assigned by", "header"], ["status", "Status", "header"], ["objective_notice", "Scope warning", "body"], ["objective", "Objective", "body"], ["acceptance", "Acceptance conditions", "context"], ["done_so_far", "Completed", "context"], ["working_on_next", "Next steps", "context"]])
-    case "docket.review_requested": return layout(event, "Review requested", [["reviewer", "Reviewer", "header"], ["requested_by", "Requested by", "header"], ["owner", "Assigned to", "header"], ["revision", "Item revision", "header"], ["candidate", "Candidate", "header"], ["objective_notice", "Scope warning", "body"], ["objective", "Objective", "body"], ["acceptance", "Acceptance conditions", "context"], ["done_so_far", "Completed", "context"], ["relayed", "Relayed to reviewer", "context"]])
+    case "docket.review_requested": return layout(event, "Review requested", [["reviewer", "Reviewer", "header"], ["requested_by", "Requested by", "header"], ["owner", "Assigned to", "header"], ["revision", "Item revision", "header"], ["candidate", "Candidate", "header"], ["base", "Base", "header"], ["objective_notice", "Scope warning", "body"], ["objective", "Objective", "body"], ["acceptance", "Acceptance conditions", "context"], ["done_so_far", "Completed", "context"], ["relayed", "Relayed to reviewer", "context"]])
     case "docket.review_seat_requested": return layout(event, "Review seat requested", [["reviewer", "Proposed reviewer", "header"], ["requested_by", "Requested by", "header"], ["grantor", "Asked of", "header"], ["owner", "Assigned to", "header"], ["note", "Why", "body"]])
-    case "docket.review_seat_decided": return layout(event, "Review seat decided", [["decision", "Decision", "header"], ["reviewer", "Reviewer", "header"], ["decided_by", "Decided by", "header"], ["owner", "Assigned to", "header"], ["note", "Note", "body"], ["seated", "Seat handed over", "context"]])
+    case "docket.review_seat_decided": return layout(event, "Review seat decided", [["decision", "Decision", "header"], ["reviewer", "Reviewer", "header"], ["decided_by", "Decided by", "header"], ["owner", "Assigned to", "header"], ["revision", "Item revision", "header"], ["note", "Note", "body"], ["seated", "Seat handed over", "context"]])
     case "docket.review_changes": return layout(event, "Changes requested", [["reviewer", "Reviewer", "header"], ["owner", "Assigned to", "header"], ["note", "Review note", "body"], ["relayed", "Relayed to owner", "context"]])
     case "docket.review_approved": return layout(event, "Review approved", [["note", "Review note", "body"], ["reviewer", "Reviewer", "header"], ["owner", "Assigned to", "header"], ["relayed", "Relayed to owner", "context"]])
     // the commit is a HEADER field, not context: which commit was approved is
@@ -61,8 +60,6 @@ export function projectEvent(event: KnownEvent): EventView {
     case "access.audience_changed": return layout(event, "Audience changed", [["outcome", "Outcome", "header"], ["by", "By", "header"], ["target", "Target", "header"], ["other", "Other", "context"]])
     case "access.grant_changed": return layout(event, "Credits changed", [["relation", "Relation", "context"], ["node", "Node", "header"], ["delta", "Change", "header"], ["now", "Current total", "header"], ["free", "Available credits", "context"], ["by", "By", "header"]])
     case "access.scope_changed": return layout(event, "Permissions changed", [["by", "By", "context"], ["changed", "Changed", "context"]])
-    case "access.kiosk_clamped": return layout(event, "Visitor permissions limited", [["lost", "Lost", "context"]])
-    case "access.kiosk_ceiling": return layout(event, "Visitor limits changed", [])
     case "lifecycle.kickoff": return layout(event, "Handoff", [["body", "Message", "body"], ["hired_by", "Hired by", "context"], ["reason", "Reason", "context"], ["tier", "Tier", "context"], ["grant", "Grant", "context"]])
     case "lifecycle.hired": return layout(event, "Agent hired", [["node", "Node", "context"], ["by", "By", "context"], ["relation", "Relation", "context"], ["tier", "Tier", "context"], ["grant", "Grant", "context"], ["parent", "Parent", "context"], ["why", "Why", "body"]])
     case "lifecycle.retired": return layout(event, "Agent retired", [["node", "Node", "context"], ["by", "By", "context"], ["relation", "Relation", "context"], ["freed", "Freed", "context"]])
@@ -143,7 +140,7 @@ function summaryValue(value: HumanValue): string {
 /** List previews and user-jump labels use the same declared human fields as
  * the card, including nested answers; empty bodies still have a useful label. */
 export function eventSummary(event: KnownEvent): string {
-  const view=projectEvent(event), profile='projection' in event?'public':'operator'
+  const view=projectEvent(event), profile='operator'
   const body=view.fields.filter(f=>f.placement==='body')
   const fields=body.length?body:view.fields.filter(f=>f.placement==='header')
   const text=fields.map(f=>summaryValue(humanValue(f.value,f.type,profile))).filter(Boolean).join(' / ')

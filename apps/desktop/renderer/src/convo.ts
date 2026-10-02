@@ -20,7 +20,7 @@ import type { DraftAttachment } from './draftstore'
 // It also costs LESS than what it replaces: one fetch per node instead of one
 // per mounted view.
 
-import { BASE, getChat } from './api'
+import { getChat } from './api'
 import { decodeEventRow, record } from './events/decode'
 import { segmentClientOps, segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
@@ -713,14 +713,14 @@ function serverCopies(c: ChatPayload | null, text: string, entireWindow = false)
   const needle = text.slice(0, COPIES_NEEDLE)
   return (entireWindow ? c.messages : c.messages.slice(-COPIES_WINDOW))
     .filter((m) => m.role === 'user' && m.segments === undefined && (m.text || '').includes(needle)).length
-    + (c.pending_mail ?? []).filter((m) => decodeEventRow(m, BASE ? 'public' : 'operator').kind === 'legacy' && (m.body || '').includes(needle)).length
+    + (c.pending_mail ?? []).filter((m) => decodeEventRow(m, 'operator').kind === 'legacy' && (m.body || '').includes(needle)).length
 }
 
 /** A single current payload can carry a mail in the queue, transcript or live log. */
 function serverMailIds(c: ChatPayload | null): Set<string> {
   const ids = new Set<string>()
   if (!c) return ids
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   for (const row of [...c.messages, ...(c.live ?? [])]) {
     for (const id of segmentMailIds(row.segments, profile)) ids.add(id)
   }
@@ -741,7 +741,7 @@ function serverMailIds(c: ChatPayload | null): Set<string> {
 function serverOpIds(c: ChatPayload | null): Set<string> {
   const ops = new Set<string>()
   if (!c) return ops
-  const profile = BASE ? 'public' : 'operator'
+  const profile = 'operator'
   for (const row of [...c.messages, ...(c.live ?? [])]) {
     for (const op of segmentClientOps(row.segments, profile)) ops.add(op)
   }
@@ -776,7 +776,7 @@ function mergeCommitted(e: Entry, c: ChatPayload, fetched = false): ChatPayload 
     const index = messages.findIndex(existing => !!existing.ts && !!row.ts && existing.ts > row.ts)
     messages.splice(index < 0 ? messages.length : index, 0, row)
   }
-  const mailIds = new Set(messages.flatMap(row => [...segmentMailIds(row.segments, BASE ? 'public' : 'operator')]))
+  const mailIds = new Set(messages.flatMap(row => [...segmentMailIds(row.segments, 'operator')]))
   return { ...c, messages: uniqueFileCards(messages), pending_mail: (c.pending_mail ?? []).filter(row => !row.id || !mailIds.has(row.id)) }
 }
 
@@ -1277,7 +1277,7 @@ export function addPending(slug: string, nid: string, text: string, reply?: Repl
 /** Bind only a validated typed response. Old servers retain the legacy path. */
 export function bindPendingMail(slug: string, nid: string, ghostId: number, response: unknown): void {
   if (!record(response) || typeof response.id !== 'string'
-      || decodeEventRow(response, BASE ? 'public' : 'operator').kind !== 'known') return
+      || decodeEventRow(response, 'operator').kind !== 'known') return
   const k = key(slug, nid), e = entry(k), mailId = response.id
   const visible = serverMailIds(e.s.chat).has(mailId)
   const isNotice = Boolean((response as { notice?: boolean }).notice)

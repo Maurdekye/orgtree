@@ -242,7 +242,7 @@ def _apply(org: Org, actor: str, operation: str, args: Mapping[str, Any],
         fields = {key: args[key] for key in (
             "add_dirs", "tools", "org_visibility", "permission_mode", "charter",
             "team_charter", "effort", "model_version", "auto_cheap_compact",
-            "external_handles", "raise_ceiling", "account_fallback",
+            "external_handles", "account_fallback",
             "clear_account_fallback", "clear_prefer_reserve", "prefer_reserve")
                   if key in args}
         return org.set_scope(actor, target, **fields)

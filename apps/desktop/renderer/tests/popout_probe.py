@@ -15,7 +15,7 @@ class FixtureHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_):
         pass
     def do_GET(self):
-        if self.path.startswith(('/o/', '/k/')):
+        if self.path.startswith('/o/'):
             self.path = '/index.html'
         try:
             super().do_GET()
@@ -440,17 +440,6 @@ def main():
             page.keyboard.type(' — typed after auto-recenter')
             assert draft.input_value() == 'draft before auto-recenter — typed after auto-recenter'
             results.append('with the ordinary automatic recenter (onJump), closing a popout whose anchor vanished while detached leaves no recovery box and the composer is immediately reachable by pointer/keyboard with the draft intact — no explicit return needed')
-            page.goto(f'http://127.0.0.1:{server.server_port}/k/probe-token/?desk=1&public=1')
-            page.get_by_placeholder('message builder\u2026', exact=True).fill('visitor draft')
-            with page.expect_popup() as popup:
-                page.get_by_role('button', name='Open in new window').click()
-            child = popup.value
-            child.get_by_placeholder('message builder\u2026', exact=True).wait_for()
-            assert child.url == 'about:blank'
-            assert page.evaluate("probe.requests.length > 0 && probe.requests.every(u => u.startsWith('/k/probe-token/'))")
-            page.evaluate('deskProbe.generation()')
-            assert child.locator('textarea').is_disabled()
-            results.append('public nonzero-generation desk uses opener kiosk API prefix without loading token URL in child')
             page.on('dialog', lambda dialog: dialog.accept())
             page.close(run_before_unload=True)
             child.wait_for_event('close') if not child.is_closed() else None

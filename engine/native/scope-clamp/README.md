@@ -20,8 +20,6 @@ It makes no authority, transaction or locking claim.
 | `clamp_tools` | `Org._clamp_tools` (strict refusal or lenient clamp, `lost` list) |
 | `clamp_dirs` | `Org._clamp_dirs` (held ancestor trees, rw wins, rw→ro downgrade) |
 | `clamp_vis` | `Org._clamp_vis` (the parent's stored visibility given explicitly) |
-| `apply_ceiling` | `Org._apply_ceiling`, and with `raise_ceiling` the ceiling `Org._raise_ceiling_for` would write back, returned as a plan |
-| `check_tier_ceiling` | `Org._check_tier_ceiling` with `_ceiling_seat` |
 | `normpath`, `normcase` | `ntpath.normpath`, `ntpath.normcase` on the engine runtime |
 
 Inputs are explicit values, never an organization document. Outputs are
@@ -65,21 +63,18 @@ the captured `str.isspace()` set.
 ## Parity domain
 
 Every Python string, including any Unicode path and lone surrogates. Tool
-maps, folder lists and ceilings as JSON-shaped Python values (dicts, lists,
+maps and folder lists as JSON-shaped Python values (dicts, lists,
 strings, ints, floats, bools, `None`), with Python truthiness, iteration of
 strings and dict keys, and `str()`/`repr()` of MCP names. Refused as
 `Outside` (Python raises `TypeError`/`KeyError`/`AttributeError` there):
 non-dict tool maps, non-iterable MCP or folder values, folder items that are
-neither strings nor dicts, non-string folder paths, a ceiling without `tools`
-or `tools.mcp` where Python indexes them, unhashable `max_tier`, and ints
-beyond `i128`.
+neither strings nor dicts, non-string folder paths, and ints beyond `i128`.
 
 ## Exclusions
 
 `_raise_along` (D-106, grants bubbling up the chain and mutating
 intermediates), the `set_scope`/`set_hire_defaults`/`revoke_dir`/`hire`/
-`rehire` orchestration and their authority checks, events and logs (the
-raise plan reports only whether Python would log `ceiling_raise`),
+`rehire` orchestration and their authority checks, events and logs,
 symlink/junction/8.3 resolution (Python's `normpath` does not resolve them
 either), `norm_extern_handles`, account and harness stamping, and any
 transaction, locking or persistence behaviour.
@@ -99,21 +94,19 @@ engine/runtime/python.exe engine/native/scope-clamp/oracle/generate_vectors.py -
 
 `vectors/scope-clamp-vectors.json` sections: `normpath`, `normcase`, `repr`,
 `strip`, `norm_tools`, `norm_dirs`, `expand_mcp`, `clamp_tools`,
-`clamp_dirs`, `clamp_vis`, `apply_ceiling`, `tier_ceiling`. A string holding
+`clamp_dirs`, `clamp_vis`. A string holding
 a lone surrogate is written as `{"\u0000str": [code points]}`, and a
 folder map as `[[path, mode], ...]`, because JSON text and object keys cannot
 carry lone surrogates. Handcrafted rows cover drive-relative and absolute
 paths, separator and case variants, trailing and dot segments, UNC and
 device roots, prefix-not-child (`C:\wor` vs `C:\work`), overlapping ro/rw
-grants, duplicate order, MCP wildcards on either side, every visibility and
-permission mode against every ceiling level, strict against lenient, the
-raise-ceiling union, static and `or-*` tier seats with equality at the cap,
-and Unicode case (U+0130, U+212A Kelvin, U+212B Angstrom, Deseret, split
+grants, duplicate order, MCP wildcards, every visibility level against every
+parent level, strict against lenient, and Unicode case (U+0130, U+212A Kelvin, U+212B Angstrom, Deseret, split
 surrogate pairs); seeded random rows add the rest.
 
 `tests/test_scope_clamp_vectors.py` regenerates the vectors and the tables
 from the current source and compares them byte for byte, and shows that
-replacing the folder clamp, the tool clamp or the tier table changes them,
+replacing the folder clamp or the tool clamp changes them,
 and that a `str.lower()` normcase, an unknown refusal text or moved level
 constants stop the oracle.
 
@@ -129,10 +122,9 @@ cargo run --offline --bin scope-vectors            # JSON report, exit 0 = all r
 cargo run --offline --bin scope-vectors -- FILE    # any vectors file of the same shape
 ```
 
-`tests/controls.rs` holds eleven negative controls (POSIX paths,
+`tests/controls.rs` holds eight negative controls (POSIX paths,
 ASCII-only lowercase, exact-key folder lookup, read-only winning over
 read/write, request order kept, last duplicate kept, wildcard not collapsed,
-the ceiling note skipped, `>=` at the tier cap, `or-*` seats read from the
-static table, strict clamps demoted); each must fail only its named
+strict clamps demoted); each must fail only its named
 sections. That shows sensitivity to those defects, not that every defect
 would be caught.

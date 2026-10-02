@@ -1,7 +1,7 @@
 // freezelabel.test.ts — every freeze kind gets its OWN words.
 //
-// This label surface has now produced the same failure three times in one day,
-// each time by the same route: a kind the payload could not describe fell
+// This label surface has produced the same failure more than once, each time
+// by the same route: a kind the payload could not describe fell
 // through to the `else` branch and the display said "usage limit" with total
 // confidence.
 //
@@ -11,18 +11,15 @@
 //     fix is to replace a credential. Worse, `_rederive_freeze_reset` then
 //     OVERWROTE its "replace it, then resume" text with "capacity available"
 //     — true, and the exact opposite of what to do.
-//   · SPEND read as "usage limit" on the node badges. The org banner escaped
-//     only because it returns early on the org-level `spend_frozen` flag; a
-//     badge has no org flag to consult.
 //
-// Both were unreachable until `ledger.tree()`'s frozen projection was taught
-// to carry `cause` and `spend` — it rebuilds the record key by key and drops
-// whatever it does not name, so the client could not make the test at all.
+// It was unreachable until `ledger.tree()`'s frozen projection was taught
+// to carry `cause` — it rebuilds the record key by key and drops whatever it
+// does not name, so the client could not make the test at all.
 //
 // ⚠ WHY A LEG PER KIND, AND WHY THE LABELS ARE COMPARED TO EACH OTHER. A
 // single "the label is right" case passes while every other kind is silently
 // collapsed into `limit` — which is the bug. Totality alone is not enough
-// either: a map that answers "usage limit" for all five kinds is total. The
+// either: a map that answers "usage limit" for every kind is total. The
 // property that actually matters is that no two kinds share a word, so §3
 // asserts DISTINCTNESS, not just presence.
 //
@@ -37,7 +34,7 @@ import {
 
 /** every kind, named here so a new one added to the union without a label is
  *  a failure rather than a silent fall-through */
-const KINDS: FreezeKind[] = ['halted', 'spend', 'auth', 'balance', 'connection', 'limit']
+const KINDS: FreezeKind[] = ['halted', 'auth', 'balance', 'connection', 'limit']
 
 // ------------------------------------------------------ §1 classification
 test('§1 a leg per kind — each is classified as itself, not as `limit`', () => {
@@ -56,22 +53,16 @@ test('§1 a leg per kind — each is classified as itself, not as `limit`', () =
   assert.equal(freezeKind({ limit: true, cause: 'balance' }), 'balance',
     'a balance freeze carries limit:true — same trap as auth')
   assert.equal(freezeKind({ limit: true, cause: 'balance' }, true), 'halted')
-  // spend
-  assert.equal(freezeKind({ spend: true }), 'spend')
   // halted outranks everything: a fable lock's clock can never fire, so any
   // other word here would promise a reset nobody performs
   assert.equal(freezeKind({ limit: true, cause: 'auth' }, true), 'halted')
-  assert.equal(freezeKind({ spend: true }, true), 'halted')
   // no record, no kind
   assert.equal(freezeKind(null), null)
   assert.equal(freezeKind(undefined), null)
 })
 
 test('§2 precedence is deliberate where kinds coexist', () => {
-  // spend outranks limit: a spend freeze is released by RAISING THE LIMIT,
-  // not by waiting, so "usage limit" would send the reader to wait
-  assert.equal(freezeKind({ spend: true, limit: true }), 'spend')
-  // auth outranks limit for the same reason: same shape, different remedy
+  // auth outranks limit: same shape, different remedy
   assert.equal(freezeKind({ limit: true, cause: 'auth', connection: false }), 'auth')
   // an unknown cause is NOT auth — it must not silently claim a remedy
   assert.equal(freezeKind({ limit: true, cause: 'something-new' }), 'limit')
@@ -98,16 +89,12 @@ test('§4 the words a reader would be misled by are not used for other kinds', (
   // the three specific misreadings that shipped
   assert.notEqual(FREEZE_LABEL.auth, FREEZE_LABEL.limit,
     'an auth freeze must not read as a usage limit')
-  assert.notEqual(FREEZE_LABEL.spend, FREEZE_LABEL.limit,
-    'a spend freeze must not read as a usage limit')
   assert.notEqual(FREEZE_LABEL_SHORT.auth, FREEZE_LABEL_SHORT.limit)
-  assert.notEqual(FREEZE_LABEL_SHORT.spend, FREEZE_LABEL_SHORT.limit)
   assert.notEqual(FREEZE_LABEL.balance, FREEZE_LABEL.limit,
     'a balance freeze must not read as a usage limit — a 402 is not a wall')
   assert.notEqual(FREEZE_LABEL_SHORT.balance, FREEZE_LABEL_SHORT.limit)
   // and each names its own remedy rather than a capacity wait
   assert.match(FREEZE_LABEL.auth, /credential/i)
-  assert.match(FREEZE_LABEL.spend, /spend/i)
 })
 
 // ------------------------------------------ §5 the banner's set-level choice

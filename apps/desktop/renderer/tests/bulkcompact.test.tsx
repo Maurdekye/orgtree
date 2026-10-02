@@ -71,8 +71,8 @@ test('§1a a live agent with live reports offers the subtree entry, above the '
     'compaction retires no one; it must not read as a destructive action')
 })
 
-test('§1b absent without live reports, on a retired agent, without the '
-  + 'confirm handler, and behind the kiosk gate', () => {
+test('§1b absent without live reports, on a retired agent, and without the '
+  + 'confirm handler', () => {
   // the positive control: the same boss WITH everything offers it
   const boss = agent('boss', { children: [agent('kid')] })
   assert.ok(labelsOf(boss, handlers()).includes(SUBTREE))
@@ -83,7 +83,6 @@ test('§1b absent without live reports, on a retired agent, without the '
     ['a retired agent', labelsOf(agent('boss', {
       state: 'archived', children: [agent('kid')] }), handlers({ onDismiss: noop }))],
     ['no confirm handler', labelsOf(boss, handlers({ onRetireAsk: undefined }))],
-    ['a kiosk viewer', labelsOf(boss, handlers({ canBulkCompact: false }))],
   ] as const) {
     assert.ok(!labels.includes(SUBTREE), `${what}: ${JSON.stringify(labels)}`)
   }
@@ -246,7 +245,7 @@ function tree(roots: unknown[], patch: Record<string, unknown> = {}): TreePayloa
     roots, cost_usd_total: 0,
     audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null, ...patch,
@@ -337,11 +336,10 @@ test('§4a the Agents List row: confirm names the branch and its skips, sends '
 })
 
 const seats = { haiku: 1, sonnet: 2, opus: 5 }
-const eye = (map: Map<string, CanvasNode>, op: (b: OpRequest) => Promise<OpResult>,
-  pub = false) => (
+const eye = (map: Map<string, CanvasNode>, op: (b: OpRequest) => Promise<OpResult>) => (
   <UserNode pos={{ x: 0, y: 0 }} isDrop={false}
     stats={{ circ: 0, seats: 0, free: 0 }} pip={null} seats={seats}
-    pub={pub} kiosk={undefined} kioskRemaining={null} pxc={1} zoom={1}
+    pxc={1} zoom={1}
     onSpawn={noop} onMailLink={noop} focused={false} eyeW={124}
     posX={() => 0} map={map} op={op} slug="org" toast={noop}
     onInbox={noop} onGear={noop} />
@@ -373,15 +371,4 @@ test('§4b the eye card: "Cheap-compact all agents…" confirms, then compacts '
     { op: 'cheap_compact', node: 'one', if_idle: true },
     { op: 'cheap_compact', node: 'two', if_idle: true },
   ])
-})
-
-test('§4c a kiosk viewer\'s eye card does not offer it', async (t: TestContext) => {
-  setAgentShortcutsOn(false)
-  const view = await mountView(eye(new Map([['one', agent('one')]]),
-    () => Promise.resolve({} as OpResult), true), (el) => el)
-  t.after(async () => { await view.unmount() })
-  await rightClick(view.el.querySelector('.sq.user')!)
-  // positive control: the menu really opened
-  assert.ok(labels().includes('Retire all agents…'), JSON.stringify(labels()))
-  assert.ok(!labels().includes('Cheap-compact all agents…'))
 })

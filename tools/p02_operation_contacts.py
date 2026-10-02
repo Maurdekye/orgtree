@@ -1831,14 +1831,13 @@ class Probe:
                      outer, patches=[(api, "provider_hire_gate", lambda *_a, **_k: None)])
 
     # -- P01 S3 F1b: org.tree, org.node-detail, org.feed --------------------------
-    KIOSK = "p02kioskTOKEN77"
     OPERATOR = {"X-Orgtree-Desktop-Token": "operator"}
 
     def build_org_view(self) -> None:
         """tests/test_state_org_view_boundary.py's org (with an archived
-        node), kiosk-enabled so the public side exists. Distinctive `ov-*`
-        ids, so `disclosed` cannot match ordinary words."""
-        store, ledger, api = self.m["store"], self.m["ledger"], self.m["api"]
+        node). Distinctive `ov-*` ids, so `disclosed` cannot match ordinary
+        words."""
+        store, ledger = self.m["store"], self.m["ledger"]
         org = store.create_org("p02-contacts-orgview")
         self.ovslug = str(org.d["slug"])
         org.hire(ledger.USER, None, "haiku", 10, "ov-boss")
@@ -1846,36 +1845,6 @@ class Probe:
         org.hire(ledger.USER, "ov-boss", "haiku", 0, "ov-gone")
         org.retire(ledger.USER, "ov-gone")
         store.save_org(org)
-        from fastapi.testclient import TestClient
-        self.public = TestClient(api.PublicGateway(api.app), raise_server_exceptions=False,
-                                 client=("127.0.0.1", 43001))
-
-    def measure_kiosk_scan(self) -> dict[str, Any]:
-        """The public gateway's kiosk token-map rebuild (api._kiosk_token_map,
-        cache forced stale), measured OUTSIDE any operation row because no
-        census attempt exists when it runs: its statements, how many of them
-        the census could not attribute, its connects, and the orgs it read."""
-        global _CURRENT
-        api = self.m["api"]
-        api._token_cache["at"] = 0.0
-        collector = Collector("kiosk-token-scan", self.ovslug)
-        before = self.census_state()
-        _CURRENT = collector
-        try:
-            mapped = api._kiosk_token_map()
-        finally:
-            _CURRENT = None
-        after = self.census_state()
-        c0, c1 = before.get("counters", {}), after.get("counters", {})
-        return {
-            "statements": len(collector.statements),
-            "statements_unbound": sum(1 for st in collector.statements if st["tally"] is None),
-            "db_unattributed_delta": c1.get("db_unattributed", 0) - c0.get("db_unattributed", 0),
-            "recorded_delta": c1.get("recorded", 0) - c0.get("recorded", 0),
-            "sqlite_connect": sum(collector.audit.get("sqlite_connect", {}).values()),
-            "orgs_listed": len(list(self.data.joinpath("orgs").glob("*.db"))),
-            "kiosk_orgs_mapped": len(mapped),
-        }
 
     @staticmethod
     def observe_stats() -> "list[tuple[Any, str, Any]]":
@@ -1914,8 +1883,8 @@ class Probe:
              ) -> Callable[[], tuple[int, Any]]:
         """Open one websocket per subscriber (label, client, path, headers),
         publish `frames` 'changed' broadcasts through the hub, and return how
-        many frames each subscriber received and whether the hub holds it as
-        public. A refused socket answers its close code."""
+        many frames each subscriber received. A refused socket answers its
+        close code."""
         api = self.m["api"]
         slug = self.ovslug
 
@@ -1939,22 +1908,19 @@ class Probe:
                     for label, ws in sockets:
                         if ws.receive_json().get("type") == "changed":
                             got[label] += 1
-                return 101, {"feed": {"subscribers": len(room), "frames": got,
-                                      "public_in_room": len(room & api.hub.public)}}
+                return 101, {"feed": {"subscribers": len(room), "frames": got}}
         return call
 
     def org_view(self) -> None:
         s, op = self.ovslug, self.OPERATOR
-        admin, public = self.client, self.public
-        tree, kiosk = f"/api/orgs/{s}", f"/k/{self.KIOSK}"
+        admin = self.client
+        tree = f"/api/orgs/{s}"
 
         def get(contract: str, variant: str, condition: str, client: Any, path: str,
                 headers: "dict[str, str] | None" = None, **kw: Any) -> None:
             self.run(contract, variant, condition, s, "ov-boss", f"GET {contract}", {},
                      call=self.http(client, path, headers), disclose=True, **kw)
 
-        # admin side, on the org before its kiosk is enabled (a kiosk-enabled
-        # org's admin tree is the desktop-mode 500 P01 pinned, recorded below)
         for condition in ("cold", "warm"):
             # the admin tree reads one doc row from EVERY other org
             # (store.local_net_slugs, marking hub peers that are local orgs)
@@ -1969,29 +1935,6 @@ class Probe:
         get("org.node-detail", "refusal:detail-unknown-node", "warm", admin,
             f"{tree}/nodes/nobody/detail", op, refusal="404 unknown node")
 
-        # public side: enable the kiosk, then measure the gateway's token-map
-        # rebuild ON ITS OWN. It runs in the ASGI wrapper before the app, so
-        # before any census attempt exists, and reads every org's document.
-        # The public rows below run with the map PINNED fresh (its timestamp
-        # set far ahead, so the real lookup answers from the built map however
-        # long a row takes): they carry only their own request's contacts,
-        # independent of the 5 s cache. In the product, any public request
-        # made after the cache expired carries the every-org read as well.
-        def kiosk_on(o: Any) -> None:
-            o.d["kiosk"] = {"enabled": True, "token": self.KIOSK,
-                            "max_scope": o.default_kiosk_ceiling()}
-        self.mutate(s, kiosk_on)
-        self.kiosk_scan = self.measure_kiosk_scan()
-        api = self.m["api"]
-        api._token_cache["at"] = time.time() + 1e9     # pinned until the feed rows end
-        for condition in ("cold", "warm"):
-            get("org.tree", "org.tree:public", condition, public, kiosk + tree)
-            get("org.node-detail", "org.node-detail:public", condition, public,
-                f"{kiosk}{tree}/nodes/ov-worker/detail")
-        get("org.tree", "refusal:tree-bad-kiosk-token", "warm", public,
-            f"/k/nopenopenope/api/orgs/{s}", refusal="404 unknown kiosk token")
-        get("org.tree", "refusal:tree-admin-on-kiosk-org", "warm", admin, tree, op,
-            refusal="desktop-mode 500 on a kiosk-enabled org (legacy defect pinned by P01)")
         # org-view.writes: a snapshot miss falls through cached_org to
         # load_org and _ensure_migrated, so a legacy org migrates in a GET
         legacy = self.legacy_org("p02-contacts-legacy-orgview", (), "json")
@@ -2005,21 +1948,17 @@ class Probe:
                      refusal=("legacy .json without ORGTREE_MIGRATE: MigrationRefused"
                               if variant == "migration:refused" else None))
 
-        # org.feed: subscriptions and the frame fan-out, admin and public
+        # org.feed: subscriptions and the frame fan-out
         ws = f"{tree}/ws"
         adm = ("admin", admin, ws, op)
-        pub = ("public", public, kiosk + ws, {})
         for condition in ("cold", "warm"):
             self.run("org.feed", "org.feed", condition, s, "ov-boss", "WS org.feed", {},
                      call=self.feed([adm], 1))
-            self.run("org.feed", "org.feed:public", condition, s, "ov-boss", "WS org.feed", {},
-                     call=self.feed([pub], 1))
         self.run("org.feed", "org.feed:fanout", "warm", s, "ov-boss", "WS org.feed", {},
-                 call=self.feed([adm, pub], 2))
+                 call=self.feed([adm, ("admin-2", admin, ws, op)], 2))
         self.run("org.feed", "refusal:feed-no-token", "warm", s, "ov-boss", "WS org.feed", {},
                  call=self.feed([("admin", admin, ws, {})], 0),
                  refusal="socket without the desktop token closed")
-        self.m["api"]._token_cache["at"] = 0.0          # unpin the kiosk token map
 
     # -- P01 S3 F2: mail.message, mail.notice ---------------------------------------
     def build_mail(self) -> None:
@@ -3044,7 +2983,7 @@ class Probe:
         (or-noimg's has no image); or-leaf has none; or-third is never named.
         The main org has a workspace with a CLAUDE.md. Separate orgs: two
         for the /net identity backfill (it writes on an org's first reveal),
-        a kiosk, a bare org (no workspace) and one with an unmounted disk."""
+        a bare org (no workspace) and one with an unmounted disk."""
         store, ledger = self.m["store"], self.m["ledger"]
         user = ledger.USER
         org = store.create_org("p02-contacts-orgread")
@@ -3089,18 +3028,11 @@ class Probe:
         (scratch / "notes.txt").write_text("notes", encoding="utf-8")
         (scratch / "sub" / "deep.txt").write_text("deep", encoding="utf-8")
         self.or_other: dict[str, str] = {}
-        for role in ("net-cold", "net-warm", "kiosk", "bare", "disk"):
+        for role in ("net-cold", "net-warm", "bare", "disk"):
             org = store.create_org(f"p02-contacts-orgread-{role}")
             self.or_other[role] = str(org.d["slug"])
             org.hire(user, None, "haiku", 2, f"or{role[0]}{role[-1]}-top", add_dirs=[], tools={},
                      charter="fixture")
-            if role == "kiosk":
-                org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0,
-                                  "storage_limit_mb": 0, "token": "kiosk-token-orgread",
-                                  "auto_raise": False,
-                                  "max_scope": {"tools": self.NO_TOOLS, "add_dirs": [],
-                                                "org_visibility": "team",
-                                                "permission_mode": "acceptEdits"}}
             if role == "disk":
                 org.d["disk"] = {"size_mb": 1024}
             org.d["mail"], org.d["audiences"] = {}, []
@@ -3232,8 +3164,6 @@ class Probe:
               args={"node": "or-hist-warm"})
         route("org-read.net", "org-read.net:repeat", "warm", f"/api/orgs/{o['net-warm']}/net",
               slug=o["net-warm"])
-        route("org-read.net", "org-read.net:kiosk", "warm", f"/api/orgs/{o['kiosk']}/net",
-              slug=o["kiosk"])
         route("org-read.scratch", "org-read.scratch:file", "warm", f"{base}/nodes/or-mid/scratch",
               params={"path": "sub/deep.txt"}, args={"node": "or-mid"})
         route("org-read.events", "org-read.events:last", "warm", f"{base}/events",
@@ -3349,13 +3279,11 @@ class Probe:
         """tests/test_state_exchange_boundary.py's shape (distinctive `ex-*` ids):
         the main org (ex-top and ex-top2 top-level, ex-mid under ex-top, ex-leaf
         under ex-mid, ex-third under ex-top and never named), the OTHER org an
-        @org: send reaches, a sealed KIOSK org (a ceiling set, as P01's fixture
-        does, so a cold load mints no ceiling notice), and a STORAGE-BLOCKED org
-        (the flag is org-wide) for the blocked upload and send_file refusals."""
+        @org: send reaches, and a STORAGE-BLOCKED org (the flag is org-wide) for the blocked upload and send_file refusals."""
         store, ledger = self.m["store"], self.m["ledger"]
         user = ledger.USER
         self.ex: dict[str, str] = {}
-        for role in ("main", "other", "kiosk", "blocked"):
+        for role in ("main", "other", "blocked"):
             org = store.create_org(f"p02-contacts-exchange-{role}")
             slug = str(org.d["slug"])
             self.ex[role] = slug
@@ -3366,13 +3294,6 @@ class Probe:
             org.hire(user, None, "haiku", 5, f"{x}-top2", add_dirs=[], tools={}, charter="fixture")
             if role == "main":
                 org.hire("ex-top", "ex-top", "haiku", 0, "ex-third", **self.SCOPE)
-            if role == "kiosk":
-                org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0,
-                                  "storage_limit_mb": 0, "token": "kiosk-token-fixture",
-                                  "auto_raise": False,
-                                  "max_scope": {"tools": self.NO_TOOLS, "add_dirs": [],
-                                                "org_visibility": "team",
-                                                "permission_mode": "acceptEdits"}}
             if role == "blocked":
                 org.d["storage_blocked"] = True
             org.d["mail"], org.d["audiences"] = {}, []
@@ -3387,8 +3308,8 @@ class Probe:
 
     def exchange(self) -> None:
         """Every F4 contract, cold and warm. As in the P01 fixture, turn
-        delivery, the mail spark, supervisor.notify, the storage check, the
-        workspace usage read and the mail-hub kick are counting spies
+        delivery, the mail spark, supervisor.notify, the storage check and the
+        mail-hub kick are counting spies
         (`spies`); hub_changed is real and counted. The external-chat routes
         (/api/extern/*), their MCP server (externtool) and @mcp: sends were
         retired on 2026-09-25: an @mcp: send is now a refusal row, and the
@@ -3411,7 +3332,6 @@ class Probe:
                   (supervisor, "mail_spark", spy("mail_spark")),
                   (supervisor, "notify", spy("notify")),
                   (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
-                  (supervisor, "workspace_usage_cached", spy("workspace_usage_cached")),
                   (api.net, "kick", spy("net_kick"))]
         saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
         for obj, name, value in family:
@@ -3425,7 +3345,7 @@ class Probe:
     def _exchange_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
         store, opreceipts = self.m["store"], self.m["opreceipts"]
         user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
-        other, kiosk, blocked = self.ex["other"], self.ex["kiosk"], self.ex["blocked"]
+        other, blocked = self.ex["other"], self.ex["blocked"]
         peers = iter(range(1, 1000))
         stmt = ("statement:data:org-db:foreign",)
 
@@ -3533,11 +3453,10 @@ class Probe:
         org_reply(peer())
         oid = str(store.load_org(s).d["org_inbox"][-1]["id"])
         route("exchange.mail-item", "exchange.mail-item:org", "warm", "GET", f"{base}/mail/org/{oid}")
-        # an @org: send writes the OTHER org's document; to a sealed kiosk or a
-        # missing org it only warns
+        # an @org: send writes the OTHER org's document; to a missing org it
+        # only warns
         for variant, to, extra in (
                 ("exchange.org-inbox-send:org", f"@org:{other}", {}),
-                ("exchange.org-inbox-send:org-kiosk", f"@org:{kiosk}", {}),
                 ("exchange.org-inbox-send:org-missing", "@org:nope-org", {}),
                 ("exchange.org-inbox-send:org-attachment", f"@org:{other}",
                  {"attachments": [staged()]})):
@@ -3944,7 +3863,7 @@ class Probe:
     # -- P01 F2: run control, per product profile -------------------------------
     CT_CELLS = ("interrupt", "unstick", "continue", "halt", "unhalt", "wake", "restart",
                 "prime", "opinterrupt", "opunstick", "opcontinue", "ophalt", "opunhalt",
-                "opprocess", "remote", "steer", "kiosk")
+                "opprocess", "remote", "steer")
     #: warm-only cells: variants, the refusals and the control
     CT_EXTRA = ("unsticknoop", "batch", "ref", "ctl")
     CT_FROZEN = {"limit": "weekly", "at": "2026-01-01T00:00:00Z", "reason": "fixture"}
@@ -3988,26 +3907,13 @@ class Probe:
                      **self.SCOPE)
             org.d["mail"], org.d["audiences"] = {}, []
             store.save_org(org)
-        # the non-desktop kiosk handler configures a kiosk org (a creation-
-        # time type): one per condition, disabled, as P01's fixture shapes it
-        self.kx: dict[str, str] = {}
-        for cond in both:
-            org = store.create_org(f"p02-contacts-kiosk-{cond}")
-            self.kx[cond] = str(org.d["slug"])
-            org.hire(user, None, "haiku", 2, f"kx-{cond}-top", add_dirs=[], tools={},
-                     charter="fixture")
-            org.d["kiosk"] = {"enabled": False, "credits": 0, "spend_limit": 0.0,
-                              "storage_limit_mb": 0}
-            org.d["mail"], org.d["audiences"] = {}, []
-            store.save_org(org)
 
     def control(self) -> None:
         """Every F2 contract, cold and warm, in the desktop-managed profile
         (the app's own: engine.launch sets ORGTREE_DESKTOP_MANAGED=1), and in
         the non-desktop profile (the flag cleared for the call) where
         desktop_policy changes the behaviour: self-restart and prime-restart
-        (refused on the desktop, served otherwise) and the kiosk route
-        (stripped from the desktop app). EVERY process effect is a counting
+        (refused on the desktop, served otherwise). EVERY process effect is a counting
         spy (`spies`), as in the P01 fixture: halt's process cut, turn
         interrupts, the killswitch sweep, the warm-pool process control,
         remote control, the restart launch, the prime arm/cancel, continue-
@@ -4153,12 +4059,6 @@ class Probe:
                   {"delivery_id": "d", "tool_use_id": "t"}, args={"node": c("steer", "m")})
             route("control.steer-state", "control.steer-state", cond, "GET",
                   base.format(c("steer", "m")) + "/steer-state", args={"node": c("steer", "m")})
-            # the kiosk route is stripped from the desktop-built app
-            # (desktop_policy drops every route whose path has /kiosk); the
-            # non-desktop handler is not mounted here, so it has no row.
-            # Observed 404 (P01 pins 405)
-            route("control.kiosk", "control.kiosk:desktop-stripped", cond, "POST", "/kiosk",
-                  {"enabled": True}, refusal="the route is stripped in the desktop profile")
             # the killswitch latches the whole org: its own org per condition
             ks = self.ks[cond]
             if cond == "warm":
@@ -4176,28 +4076,6 @@ class Probe:
 
         def w(cell: str, role: str) -> str:
             return f"ct-{cell}-warm-{role}"
-        # the NON-DESKTOP kiosk handler: desktop_policy.install_routes strips
-        # every /kiosk route from the desktop-built app, so the real handler
-        # (api.org_kiosk) is mounted at its own path for these rows only, as a
-        # non-desktop build mounts it, and the desktop flag is cleared for the
-        # call. Through the mounted route the call is a census-recorded,
-        # loss-accounted attempt like every other row; the route is removed
-        # afterwards (the desktop rows above ran without it).
-        kiosk_route = "/api/orgs/{slug}/kiosk"
-        api.app.add_api_route(kiosk_route, api.org_kiosk, methods=["POST"])
-        mounted = api.app.router.routes[-1]
-        try:
-            for cond in both:
-                kx = self.kx[cond]
-                if cond == "warm":
-                    store.load_org(kx)
-                route("control.kiosk", "control.kiosk:non-desktop", cond, "POST", "/kiosk",
-                      {"enabled": True}, slug=kx, env=nd)
-            route("control.kiosk", "refusal:kiosk-not-a-kiosk-org", "warm", "POST", "/kiosk",
-                  {"enabled": True}, env=nd,
-                  refusal="422 non-desktop: not a kiosk org (a creation-time type)")
-        finally:
-            api.app.router.routes.remove(mounted)
         run("control.unstick", "control.unstick:no-op", "warm", w("unsticknoop", "p"),
             "orgtree_unstick", {"node": w("unsticknoop", "m")})
         run("control.halt", "control.halt:batch", "warm", w("batch", "p"), "orgtree_halt",
@@ -4960,7 +4838,7 @@ class Probe:
                       self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug,
                       self.lcslug, *self.lc_all.values(), self.vxslug,
                       self.rqslug, self.ctslug, *self.ks.values(),
-                      *self.kx.values(), *self.ex.values(), self.orslug,
+                      *self.ex.values(), self.orslug,
                       *self.or_other.values())):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
@@ -5014,7 +4892,6 @@ class Probe:
                        "same_window": w0.get("window_generation") == w1.get("window_generation"),
                        "counters": loss},
             "between_operations": {k: dict(v) for k, v in _BETWEEN.audit.items()},
-            "kiosk_token_scan": getattr(self, "kiosk_scan", None),
             "connection_sites": self.connection_sites(),
             "residuals": residuals,
             "rows": self.rows,

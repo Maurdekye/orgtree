@@ -136,10 +136,10 @@ def _token(tag: str) -> str:
     return tag[8:-1] if tag.startswith('W/"tree-') and tag.endswith('"') else ''
 
 
-def read(slug: str, public: bool, since: str, *, stamp: Callable[[], str],
+def read(slug: str, since: str, *, stamp: Callable[[], str],
          build: Callable[[], dict[str, Any]], feed: pgfeed.RevisionFeed | None = None,
          compressed: bool = False, fast=None) -> tuple[str, bytes | None, dict[str, str]]:
-    key = (str(store.DATA_ROOT), slug, public)
+    key = (str(store.DATA_ROOT), slug)
     with _lock:
         build_lock = _build_locks.setdefault(key, threading.RLock())
     with build_lock:

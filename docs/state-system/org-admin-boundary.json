@@ -52,7 +52,6 @@
         "fable_filter_policy",
         "fable_limit_policy",
         "killswitch",
-        "kiosk",
         "max_top_grant",
         "models",
         "name",
@@ -108,7 +107,6 @@
         "fable_filter_policy",
         "fable_limit_policy",
         "killswitch",
-        "kiosk",
         "max_top_grant",
         "models",
         "name",
@@ -164,7 +162,6 @@
         "fable_filter_policy",
         "fable_limit_policy",
         "killswitch",
-        "kiosk",
         "max_top_grant",
         "models",
         "name",
@@ -180,66 +177,6 @@
         "whole_grants_v1",
         "workspace"
       ],
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
-    "create_kiosk": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "Not available in desktop MVP: kiosk",
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
-    "create_kiosk_bad_scope": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "Not available in desktop MVP: kiosk",
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
-    "create_kiosk_small_disk": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "Not available in desktop MVP: kiosk",
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
       "files": {
         "added": [],
         "removed": [],
@@ -287,154 +224,6 @@
       },
       "spies": {}
     },
-    "create_kiosk_std": {
-      "status": 200,
-      "ctype": "application/json",
-      "keys": [
-        "slug"
-      ],
-      "detail": null,
-      "sections": [],
-      "orgs": [
-        1,
-        0
-      ],
-      "born": [
-        "_actors_typed",
-        "_migrations",
-        "audience_requests",
-        "audiences",
-        "cascade_alloc",
-        "cascade_hire",
-        "compact_at",
-        "created",
-        "credit_requests",
-        "default_tools",
-        "default_top_grant",
-        "default_visibility",
-        "deleted_cost_usd",
-        "dirs",
-        "events",
-        "external_inbox_multi_holder",
-        "fable_filter_model",
-        "fable_filter_policy",
-        "fable_limit_policy",
-        "killswitch",
-        "kiosk",
-        "max_top_grant",
-        "models",
-        "name",
-        "nodes",
-        "org_inbox_multi_holder",
-        "permission_mode",
-        "slug",
-        "tiers",
-        "version",
-        "whole_grants_v1",
-        "workspace"
-      ],
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
-    "create_kiosk_sandbox_std": {
-      "status": 200,
-      "ctype": "application/json",
-      "keys": [
-        "slug"
-      ],
-      "detail": null,
-      "sections": [],
-      "orgs": [
-        1,
-        0
-      ],
-      "born": [
-        "_actors_typed",
-        "_migrations",
-        "audience_requests",
-        "audiences",
-        "cascade_alloc",
-        "cascade_hire",
-        "compact_at",
-        "created",
-        "credit_requests",
-        "default_tools",
-        "default_top_grant",
-        "default_visibility",
-        "deleted_cost_usd",
-        "dirs",
-        "events",
-        "external_inbox_multi_holder",
-        "fable_filter_model",
-        "fable_filter_policy",
-        "fable_limit_policy",
-        "killswitch",
-        "kiosk",
-        "max_top_grant",
-        "models",
-        "name",
-        "nodes",
-        "org_inbox_multi_holder",
-        "permission_mode",
-        "slug",
-        "tiers",
-        "version",
-        "whole_grants_v1",
-        "workspace"
-      ],
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {
-        "warm": 1
-      }
-    },
-    "create_kiosk_bad_scope_std": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "'int' object has no attribute 'get'",
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
-    "create_kiosk_small_disk_std": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "sandboxed orgs ride a fixed-size disk with a 4096 MB minimum — set storage to at least 4096 MB",
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
     "create_sandbox_std": {
       "status": 200,
       "ctype": "application/json",
@@ -468,7 +257,6 @@
         "fable_filter_policy",
         "fable_limit_policy",
         "killswitch",
-        "kiosk",
         "max_top_grant",
         "models",
         "name",
@@ -963,26 +751,6 @@
       },
       "spies": {}
     },
-    "settings_headless_kiosk": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "a kiosk cannot run headless — it is sealed from the org mail that headless depends on",
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {}
-    },
     "settings_net_hubs": {
       "status": 200,
       "ctype": "application/json",
@@ -1030,30 +798,6 @@
         "changed": []
       },
       "spies": {}
-    },
-    "settings_net_kiosk": {
-      "status": 200,
-      "ctype": "application/json",
-      "keys": [
-        "dirs",
-        "warnings"
-      ],
-      "detail": null,
-      "sections": [],
-      "orgs": [
-        0,
-        0
-      ],
-      "born": null,
-      "files": {
-        "added": [],
-        "removed": [],
-        "changed": []
-      },
-      "spies": {
-        "hub_changed": 1,
-        "kick": 1
-      }
     },
     "settings_empty": {
       "status": 200,
@@ -1719,7 +1463,7 @@
   },
   "legacy_defects": [
     "the org.md write reports the character count as `bytes`: ten 'é' answer bytes 10, where UTF-8 holds 20 (docket org-admin-orgmd-put-reports-characters-as-bytes)",
-    "disk delete reports an unlink failure with the raw OSError text, which carries the host's Windows path, to an admin and a kiosk visitor alike (the disk download route reduces host paths for visitors) (same docket)"
+    "disk delete reports an unlink failure with the raw OSError text, which carries the host's Windows path (same docket)"
   ],
   "scope": "Legacy boundary of the org administration routes (P01 F7) on disposable SQLite. Hub, net, sandbox, container and docker calls are spies; the WSL command runner is a recorded fake and a mounted org disk a temp folder; the routes, the ledger, the store's create and delete, the defaults file, the workspace files and the host folders the sweep removes are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
 }

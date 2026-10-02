@@ -25,7 +25,7 @@ class _View:
 def _read(slug, watchdogs):
     if store.STORE_BACKEND != 'postgres':
         return None
-    keys = ('nodes', 'kiosk', 'sandbox', 'storage_blocked')
+    keys = ('nodes', 'sandbox', 'storage_blocked')
     if watchdogs:
         keys += ('watchdogs', 'workspace', 'disk')
 

@@ -20,27 +20,8 @@
     "decided_by": "docket.review_seat_decided·decided_by",
     "decision": "granted",
     "seated": false,
-    "note": "docket.review_seat_decided·note"
+    "note": "docket.review_seat_decided·note",
+    "revision": 3
   },
-  "public": {
-    "v": 1,
-    "variant": "docket.review_seat_decided",
-    "projection": "public",
-    "actor": {
-      "kind": "agent",
-      "id": "docket.review_seat_decided·actor"
-    },
-    "object": {
-      "kind": "work_item",
-      "slug": "docket.review_seat_decided·object.slug",
-      "title": "docket.review_seat_decided·object.title"
-    },
-    "reviewer": "docket.review_seat_decided·reviewer",
-    "owner": "docket.review_seat_decided·owner",
-    "decided_by": "docket.review_seat_decided·decided_by",
-    "decision": "granted",
-    "seated": false,
-    "note": "docket.review_seat_decided·note"
-  },
-  "body": "[DOCKET REVIEW SEAT · docket.review_seat_decided·object.slug \"docket.review_seat_decided·object.title\"] docket.review_seat_decided·decided_by GRANTED docket.review_seat_decided·reviewer the review seat on this item.\nYou can now put the item into review naming docket.review_seat_decided·reviewer — orgtree_work action='update' slug=docket.review_seat_decided·object.slug status=review reviewer=docket.review_seat_decided·reviewer.\nTHE GRANT COVERS ONE REVIEW ROUND (user ruling 2026-09-16). Naming docket.review_seat_decided·reviewer spends it. If docket.review_seat_decided·reviewer comes back with `changes` and you want it to look again, ask docket.review_seat_decided·decided_by for a fresh seat.\nTheir note: docket.review_seat_decided·note"
+  "body": "[DOCKET REVIEW SEAT · docket.review_seat_decided·object.slug \"docket.review_seat_decided·object.title\"] docket.review_seat_decided·decided_by GRANTED docket.review_seat_decided·reviewer the review seat on this item.\nYou can now put the item into review naming docket.review_seat_decided·reviewer — orgtree_work action='update' slug=docket.review_seat_decided·object.slug status=review reviewer=docket.review_seat_decided·reviewer.\nNaming docket.review_seat_decided·reviewer spends the grant. A `changes` verdict keeps permission for the same reviewer's next entry into review on this item.\nIssued at item revision 3.\nTheir note: docket.review_seat_decided·note"
 }

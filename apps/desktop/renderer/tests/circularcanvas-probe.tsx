@@ -43,7 +43,7 @@ const tree = {
   roots, cost_usd_total: 0,
   audit: { live_nodes: count(roots), top_level_holds: 0, no_overdraft: true, problems: [] },
   user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-  spend_frozen: false, storage_blocked: false, auto_resume: false,
+  storage_blocked: false, auto_resume: false,
   fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
   cascade_hire: false, cascade_alloc: true, sandboxed: false,
   audience_requests: [], org_inbox: null, net: null,

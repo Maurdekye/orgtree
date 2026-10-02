@@ -479,7 +479,8 @@ def _prepare_document(doc: dict[str, Any], source: Path, dest: Path,
     _check_cancel(cancel)
     _stage_memory(doc, source, dest, slug, stage, native_sources or {}, warnings)
     # Removed MVP mechanisms must not activate just because their flags travel.
-    for key in ("kiosk", "sandbox", "disk"):
+    from .ledger import IGNORED_LEGACY_KEYS
+    for key in (*IGNORED_LEGACY_KEYS, "sandbox", "disk"):
         if doc.get(key):
             warnings.append(f"{key}: original settings archived; this removed V2 feature stays disabled")
         doc.pop(key, None)

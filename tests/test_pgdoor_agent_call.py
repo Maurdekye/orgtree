@@ -47,11 +47,10 @@ class Hook(unittest.TestCase):
         store.save_org(org)
         pgdoor.use_org_tx(None)
         # TOOL is a REAL tool name, and its family (PG-3c) registers more
-        # than LOCKS/BODIES for it — its kiosk exemption, `when`, `before` —
+        # than LOCKS/BODIES for it — its `when`, `before` —
         # so every door registry is saved here and restored in tearDown
         self.saved = (dict(pgdoor.LOCKS), dict(pgdoor.BODIES),
-                      set(pgdoor.KIOSK_EXEMPT), dict(pgdoor.WHEN),
-                      dict(pgdoor.BEFORE))
+                      dict(pgdoor.WHEN), dict(pgdoor.BEFORE))
         self.sent, self.thens, self.runs, self.hub = [], [], 0, []
         self.p = [patch.object(supervisor, 'send_message',
                                lambda slug, t, *a, **k: self.sent.append(t) or {}),
@@ -67,19 +66,16 @@ class Hook(unittest.TestCase):
         pgdoor.LOCKS.update(self.saved[0])
         pgdoor.BODIES.clear()
         pgdoor.BODIES.update(self.saved[1])
-        pgdoor.KIOSK_EXEMPT.clear()
-        pgdoor.KIOSK_EXEMPT.update(self.saved[2])
         pgdoor.WHEN.clear()
-        pgdoor.WHEN.update(self.saved[3])
+        pgdoor.WHEN.update(self.saved[2])
         pgdoor.BEFORE.clear()
-        pgdoor.BEFORE.update(self.saved[4])
+        pgdoor.BEFORE.update(self.saved[3])
         store._POOL.close_all(self.slug)
 
     def declare(self, body):
         # the test's own declaration, and nothing of the real family's
         pgdoor.LOCKS.pop(TOOL, None)
         pgdoor.BODIES.pop(TOOL, None)
-        pgdoor.KIOSK_EXEMPT.discard(TOOL)
         pgdoor.WHEN.pop(TOOL, None)
         pgdoor.BEFORE.pop(TOOL, None)
         pgdoor.declare(TOOL, pgdoor.TxSpec(), body=body)
@@ -295,23 +291,6 @@ class Hook(unittest.TestCase):
         self.assertEqual(self.runs, 0)
         self.assertEqual((self.sent, self.thens, self.hub, saves), ([], [], [], []))
         self.assertEqual(self.rev(), r0)
-
-    def test_kiosk_cap_is_checked_unless_the_tool_is_exempt(self):
-        org = store.load_org(self.slug)
-        org.d['kiosk'] = {'credits': 1}            # holdings (20) exceed it
-        store.save_org(org)
-        self.declare(self.good)
-        with self.assertRaises(HTTPException) as cm:
-            self.call()
-        self.assertEqual(cm.exception.status_code, 422)
-        self.assertIn('kiosk credit cap', cm.exception.detail)
-        pgdoor.LOCKS.pop(TOOL)
-        pgdoor.BODIES.pop(TOOL)
-        pgdoor.declare(TOOL, pgdoor.TxSpec(), body=self.good, kiosk_exempt=True)
-        try:
-            self.assertTrue(self.call()['ok'])
-        finally:
-            pgdoor.KIOSK_EXEMPT.discard(TOOL)
 
     def test_refusal_is_422_and_commits_nothing(self):
         def bad(tx):

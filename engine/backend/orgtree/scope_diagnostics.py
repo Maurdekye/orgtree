@@ -349,7 +349,6 @@ def shell_result(returncode: int | None, stdout: str = "", stderr: str = "",
 def mcp_tool_names(
     registry: Iterable[str] | Mapping[str, Any],
     granted: Iterable[str] = (),
-    ceiling: Iterable[str] | None = None,
     observed: Mapping[str, Iterable[str]] | None = None,
 ) -> list[str]:
     """Derive exact ``mcp__server__tool`` names from active configuration.
@@ -363,7 +362,7 @@ def mcp_tool_names(
         server_names = [str(k) for k in registry]
     else:
         server_names = [str(k) for k in registry if k]
-    active = expand_mcp(granted, ceiling, server_names)
+    active = expand_mcp(granted, server_names)
     result: set[str] = set()
     for server in active:
         tools = (observed or {}).get(server)

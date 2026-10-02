@@ -1,9 +1,8 @@
 # pyright: strict
 """One fixture per leaf, derived from the table so no leaf can be forgotten.
 
-Values are DISTINCT per path (`<leaf>·<path>`), which makes the B16 walk the harshest
-possible: a public string that the renderer does not print cannot hide behind a value
-that happens to occur elsewhere in the text. A few leaves need coherent combinations
+Values are DISTINCT per path (`<leaf>·<path>`), so a string the renderer does not print
+cannot hide behind a value that happens to occur elsewhere in the text. A few leaves need coherent combinations
 (a single-question answer, a terminal stall addressed to a superior); those are
 overridden below. Step 3 replaces these with rows captured from the REAL producers
 (design B16: fixture evidence is over actual producer fixtures); until then these are

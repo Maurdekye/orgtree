@@ -135,9 +135,8 @@ export interface OrgCanvasProps {
   onAccounts?: () => void
   /** open GENERAL org settings (user ruling 2026-09-11): the eye's ⚙ and its
    *  context menu both go here. Same shape as `onAccounts` and for the same
-   *  reason — SettingsPanel lives in App, not on the canvas. Absent on a
-   *  public org, where that modal has no door; the controls disappear with
-   *  it rather than becoming dead. */
+   *  reason — SettingsPanel lives in App, not on the canvas. When absent, the
+   *  controls disappear rather than becoming dead. */
   onOrgSettings?: () => void
   /** focus an agent's desk on the canvas (camera centerOn / mobile sheet) */
   focusAgent?: string | null
@@ -922,16 +921,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const chartLayout = useChartLayout()
   // the credit bars' scale, for the org inbox's clearance (= pxPerCredit below)
   const inboxPxc = useMemo(() => orgPxc(tree), [tree])
-  const kioskRemaining = tree.kiosk?.credits != null
-    ? Math.max(0, tree.kiosk.credits - (tree.audit?.top_level_holds ?? 0))
-    : null
   // the open hire draft's bar is drawn as tall as its tier seat + pending grant:
   // the grant it opens with, then whatever DraftNode reports (onGrant)
   const [draftGrant, setDraftGrant] = useState<number | null>(null)
   useEffect(() => { if (!draft) setDraftGrant(null) }, [draft])
   const draftCredits = draft
     ? (seats[draft.tier] ?? 0) + (draftGrant
-      ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50, kioskRemaining, seats))
+      ?? draftOpeningGrant(draft, tree.default_top_grant ?? 50))
     : undefined
   const target = useMemo(() => {
     const t = layout(vroot, hidden, chartLayout)
@@ -1140,7 +1136,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // just long enough to distinguish that identity transition from a genuine
   // removal followed by a new hire. Explicit websocket rename mappings are
   // authoritative; session_id matching below is only a bounded fallback for
-  // payloads that contain it (and is absent from kiosk payloads by design).
+  // payloads that contain it.
   const previousMapRef = useRef<Map<string, CanvasNode>>(new Map())
   const previousSlugRef = useRef(slug)
   const migrateRename = useCallback((from: string, to: string) => {
@@ -3006,14 +3002,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
-      canRetireAll: !tree.public,
-      canBulkCompact: !tree.public,
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
       // same executor, same words as the card's entry — the whole point of
       // this file being the single menu definition
-      onContinueOn: tree.public ? undefined
-        : (account) => void continueFrozenOnAccount(slug, n.id, account, toast),
+      onContinueOn: (account) => void continueFrozenOnAccount(slug, n.id, account, toast),
     }, {
       pinned: pinnedIds.has(n.id),
       detached: desk.detached,
@@ -3175,8 +3168,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
          above: draft!.above?.anchor,
          // pre-hire permissions (user spec): staged in the draft's modal,
          // applied atomically WITH the hire — effort included (review: the
-         // old post-hire /scope call is 403'd through the kiosk gateway,
-         // and its failure was swallowed silently)
+         // old post-hire /scope call's failure was swallowed silently)
          ...(scope ? { add_dirs: scope.add_dirs, tools: scope.tools,
                        org_visibility: scope.org_visibility,
                        effort: scope.effort || undefined,
@@ -3489,7 +3481,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           ⚠ `display: contents` — see the `.canvas-world` rule. A wrapper with a
           box would establish a containing block with no definite height and
           collapse `.tray-wrap`, which derives its height from the viewport. */}
-      <FirstUseGuide slug={slug} root={viewportRef} hidden={worldHidden || !!tree.public || compact} />
+      <FirstUseGuide slug={slug} root={viewportRef} hidden={worldHidden || compact} />
       <div ref={worldRef}
         className={'canvas-world' + (worldHidden ? ' canvas-world-hidden' : '')}
         aria-hidden={worldHidden || undefined}>
@@ -3594,9 +3586,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               openrouterHire={openrouterHire}
               claudeHire={claudeHire} onNoHarness={onAccounts}
               stats={orgStats}
-              kiosk={tree.kiosk} pub={!!tree.public} kioskRemaining={kioskRemaining}
-              kioskSegs={tree.roots.filter((n) => n.state === 'live')
-                .map((n) => ({ seat: n.seat, grant: n.grant }))}
               pxc={pxPerCredit} zoom={view.z}
               focused={focusId === USER} eyeW={Math.max(eyeW, USER_W)}
               onFocus={() => centerOn(USER)}
@@ -3638,7 +3627,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           }
           if (n.id === DRAFT) {
             return <DraftNode key={DRAFT} pos={p} draft={draft!} map={map} seats={seats}
-              maxTop={tree.max_top_grant ?? 1000} kioskRemaining={kioskRemaining}
+              maxTop={tree.max_top_grant ?? 1000}
               defaultTop={tree.default_top_grant ?? 50} tree={tree}
               zoom={view.z} pxc={pxPerCredit}
               onConfirm={confirmDraft} onCancel={() => { firstUseCancel(slug); setDraft(null) }}
@@ -3675,9 +3664,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               onMailLink={openMail} onWorkLink={openWork}
               onRecenter={() => centerOn(n.id)}   /* recenter AND re-zoom to fill */
               onJump={centerOn}                   /* F-01 nav chips */
-              pub={!!tree.public} kioskRemaining={kioskRemaining}
               cascadeAlloc={tree.cascade_alloc !== false}
-              maxTop={tree.max_top_grant ?? 1000} maxTier={tree.kiosk?.max_tier}
+              maxTop={tree.max_top_grant ?? 1000}
               pile={pileHere} compactAt={tree.compact_at}
               onDragStart={startNodeDrag} onDragMove={moveNodeDrag}
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag}
@@ -3829,7 +3817,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           still the old org's. Desktop only (see `pinnedIds`). */}
       {!isMobile && tree.slug === slug && (
         <PinLayer slug={slug} map={map} viewportRef={viewportRef}
-          targetOf={cardRectOf} op={op} toast={toast} pub={!!tree.public}
+          targetOf={cardRectOf} op={op} toast={toast}
           compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000}
           pxc={pxPerCredit} onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
           onLineage={(id) => toggleNodeSurface('lineage', id, setLineageId)} onConfig={toggleConfig} onJump={centerOn}
@@ -4019,7 +4007,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
             centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
           }}>Return to canvas</button></div>
-          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
+          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast}
             compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
             onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
         </div>
@@ -4147,14 +4135,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 {myDogs.length > 0 &&
                   <button className="ms-btn" onClick={() => setSheetDogs((v) => !v)}>
                     ◉ {myDogs.length}</button>}
-                {n.state === 'live' && !tree.public &&
+                {n.state === 'live' &&
                   <button className="ms-btn" title="hire a report"
                     onClick={() => setHireOpen(true)}>＋</button>}
                 <button className="ms-btn" title="inbox"
                   onClick={() => toggleNodeSurface('node-inbox', sheetId, setInboxId)}>✉</button>
-                {!tree.public &&
-                  <button className="ms-btn" title="permissions & settings"
-                    onClick={() => toggleConfig(sheetId)}>⚙</button>}
+                <button className="ms-btn" title="permissions & settings"
+                  onClick={() => toggleConfig(sheetId)}>⚙</button>
                 <button className="ms-btn ms-close" onClick={() => setSheetId(null)}>✕</button>
               </header>
               {sheetDogs && myDogs.length > 0 && (
@@ -4173,7 +4160,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               )}
               <div className="mobsheet-body">
                 <DeskChat bare node={n} map={map} op={op} slug={slug}
-                  toast={toast} pub={!!tree.public} compactAt={tree.compact_at}
+                  toast={toast} compactAt={tree.compact_at}
                   maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
                   onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView}
                   onLineage={() => toggleNodeSurface('lineage', sheetId, setLineageId)}
@@ -4243,7 +4230,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         onPin={!isMobile && !pinnedIds.has(tempDeskId)
           ? () => { if (pinDesk(tempDeskId)) setTempDeskId(null) } : undefined}
         desk={{
-          map, op, slug, toast, pub: false,
+          map, op, slug, toast,
           compactAt: tree.compact_at,
           maxTop: tree.max_top_grant ?? 1000,
           pxc: pxPerCredit,

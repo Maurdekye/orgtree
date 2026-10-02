@@ -29,7 +29,7 @@ class ForegroundCache(unittest.TestCase):
         self.runtime = 1
         self.builds = 0
 
-    def build(self, raw, graph, public=False):
+    def build(self, raw, graph):
         self.builds += 1
         self.assertEqual(raw.execute('SHOW transaction_isolation').fetchone()[0], 'repeatable read')
         name = json.loads(raw.execute("SELECT val FROM doc WHERE key='name'").fetchone()[0])
@@ -38,14 +38,13 @@ class ForegroundCache(unittest.TestCase):
             'catalog_revision': f"{graph['stamp']['org_id']}:{graph['stamp']['catalog_revision']}",
             'header': {'name': name}, 'roots': ['boss'], 'org_rev': 0, 'sync_rev': 0,
             'nodes': {nid: {'id': nid, 'children': [], 'charter': row['node'].get('charter'),
-                           'last_status': row['node'].get('last_status'),
-                           'public': public, **({} if public else {'secret': 'private'})}
+                           'last_status': row['node'].get('last_status')}
                       for nid, row in graph['rows'].items()}, 'missing_requested': graph['missing']}
 
-    def read(self, tag='', *, public=False, include=(), compressed=False):
-        return cache.read(self.slug, public, tag, include=include, compressed=compressed,
+    def read(self, tag='', *, include=(), compressed=False):
+        return cache.read(self.slug, tag, include=include, compressed=compressed,
             runtime=lambda: self.runtime, sync_revision=lambda: 0,
-            build=lambda raw, graph: self.build(raw, graph, public))
+            build=lambda raw, graph: self.build(raw, graph))
 
     def status(self, value):
         org = store.load_org(self.slug)
@@ -127,11 +126,8 @@ class ForegroundCache(unittest.TestCase):
         self.assertEqual(json.loads(full)['kind'], 'snapshot')
         self.assertEqual(self.builds, 1)
 
-    def test_public_and_include_partitions_never_share_private_or_missing_rows(self):
+    def test_include_partitions_never_share_missing_rows(self):
         private, _, _ = self.read()
-        public, body, _ = self.read(private, public=True)
-        self.assertNotEqual(public, private)
-        self.assertNotIn('secret', json.loads(body)['nodes']['boss'])
         included, body, _ = self.read(private, include=['retired'])
         self.assertNotEqual(included, private)
         self.assertEqual(set(json.loads(body)['nodes']), {'boss', 'retired'})
@@ -165,11 +161,11 @@ class ForegroundCache(unittest.TestCase):
     def test_external_commit_during_build_keeps_old_snapshot_then_refreshes(self):
         original = self.build
         changed = []
-        def interleave(raw, graph, public=False):
+        def interleave(raw, graph):
             if not changed:
                 changed.append(True)
                 self.direct("UPDATE doc SET val=%s WHERE key='name'", ('"newer snapshot"',))
-            return original(raw, graph, public)
+            return original(raw, graph)
         with patch.object(self, 'build', side_effect=interleave):
             tag, body, _ = self.read()
         self.assertNotEqual(json.loads(body)['header']['name'], 'newer snapshot')
@@ -199,7 +195,7 @@ class ForegroundCache(unittest.TestCase):
             return project(saved), saved
 
         def read(tag=''):
-            return cache.read(self.slug, False, tag, runtime=lambda: self.runtime,
+            return cache.read(self.slug, tag, runtime=lambda: self.runtime,
                               sync_revision=lambda: 0, build=build, reproject=project)
         return read
 

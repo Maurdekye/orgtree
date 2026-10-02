@@ -90,7 +90,7 @@ function frameTest(name: string, body: (k: Kit) => Promise<void>): void {
     const nd = node(ND)
     const v = await mountView(
       <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={SL}
-        toast={noop} pub={false} bare />,
+        toast={noop} bare />,
       (host) => host)
     const frames: string[] = []
     // What the reader sees in the chat, minus the "↑ you: …" jump pin: that

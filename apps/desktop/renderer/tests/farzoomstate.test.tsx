@@ -97,9 +97,7 @@ function renderCard(
       pxc={1}
       zoom={lod === 'mini' ? 0.35 : 1}
       compactAt={0.8}
-      pub={false}
       maxTop={100}
-      kioskRemaining={null}
       cascadeAlloc
       onSpawn={noop}
       onSpawnSide={noop}
@@ -476,34 +474,34 @@ test('§2b State precedence hierarchy: halt > frozen > active > queued > compact
 })
 
 test('§2c Normal card preservation: non-limit frozen, legacy waiting/error classes, and last_error-only idle', async () => {
-  // 1. Non-limit frozen (e.g. spend: true -> freezeKind is 'spend', NOT 'limit')
-  const spendFrozenNode = makeNode('spend-frozen', {
-    frozen: { until: 'later', spend: true, until_ts: 999999 },
+  // 1. Non-limit frozen (e.g. connection: true -> freezeKind is 'connection', NOT 'limit')
+  const netFrozenNode = makeNode('net-frozen', {
+    frozen: { until: 'later', connection: true, until_ts: 999999 },
     state: 'live',
   })
-  const spendVisual = deriveAgentVisualState(spendFrozenNode)
-  assert.equal(spendVisual.kind, 'idle', 'non-limit frozen is not usage frozen')
-  assert.equal(spendVisual.farKind, 'idle', 'farKind is idle for non-limit frozen')
-  assert.equal(spendVisual.normalClass, 'idle', 'normalClass is idle for non-limit frozen')
+  const netVisual = deriveAgentVisualState(netFrozenNode)
+  assert.equal(netVisual.kind, 'idle', 'non-limit frozen is not usage frozen')
+  assert.equal(netVisual.farKind, 'idle', 'farKind is idle for non-limit frozen')
+  assert.equal(netVisual.normalClass, 'idle', 'normalClass is idle for non-limit frozen')
 
-  const spendNormView = await renderCard(spendFrozenNode, 'norm')
+  const netNormView = await renderCard(netFrozenNode, 'norm')
   try {
-    const normCard = spendNormView.el.querySelector('.sq')!
+    const normCard = netNormView.el.querySelector('.sq')!
     assert.equal(normCard.querySelector('.usage-freeze-status'), null, 'no usage freeze banner on non-limit frozen')
     assert.ok(normCard.querySelector('.sq-idle.idle'), 'renders sq-idle idle on normal card')
     assert.equal(normCard.querySelector('.sq-idle')!.textContent?.trim(), 'Idle')
   } finally {
-    await spendNormView.unmount()
+    await netNormView.unmount()
   }
 
-  const spendMiniView = await renderCard(spendFrozenNode, 'mini')
+  const netMiniView = await renderCard(netFrozenNode, 'mini')
   try {
-    const miniCard = spendMiniView.el.querySelector('.sq')!
+    const miniCard = netMiniView.el.querySelector('.sq')!
     const icon = miniCard.querySelector('.sq-far-icon')!
     assert.ok(icon.classList.contains('idle'), 'far zoom renders idle icon on non-limit frozen')
     assert.equal(icon.classList.contains('frozen'), false)
   } finally {
-    await spendMiniView.unmount()
+    await netMiniView.unmount()
   }
 
   // 2. Legacy recorded waiting status

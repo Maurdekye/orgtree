@@ -121,7 +121,7 @@ class ContinueFrozenTests(unittest.TestCase):
                 {"frozen_patch": {"limit": False}},                 # not a limit
                 {"frozen_patch": {"untrusted": True}},              # auth freeze
                 {"frozen_patch": {"on_fallback": True}},            # already moved
-                {"frozen_patch": {"cause": "spend"}},               # not capacity
+                {"frozen_patch": {"cause": "account"}},             # not capacity
                 {"frozen_patch": {
                     "error": "rate limit: 40 requests per minute"}},
                 {"pending_switch": {"tier": "sonnet"}},             # mid-change
@@ -195,12 +195,10 @@ class ContinueFrozenTests(unittest.TestCase):
             self.assertEqual(len(self.fallback.alternatives(self.org, "worker")), 1)
 
     # ----------------------------------------------------- the payload itself
-    def _tree(self, public=False):
+    def _tree(self):
         request = SimpleNamespace(state=SimpleNamespace(), headers={},
                                   url=SimpleNamespace(path=f"/api/orgs/{self.slug}"))
-        with patch.object(self.api, "_public_slug",
-                          return_value=self.slug if public else None):
-            return self.api.org_tree(self.slug, request)
+        return self.api.org_tree(self.slug, request)
 
     def _worker(self, tree):
         def walk(nodes):
@@ -217,9 +215,6 @@ class ContinueFrozenTests(unittest.TestCase):
                           return_value=self._board()):
             self.assertEqual(self._worker(self._tree())["continue_accounts"],
                              [target["id"]])
-            # ⚠ a kiosk visitor is told nothing: this names accounts (D-145)
-            self.assertEqual(
-                self._worker(self._tree(public=True))["continue_accounts"], [])
             # automatic fallback on -> the scheduler owns it, no manual entry
             self.org.node("worker")["scope"]["account_fallback"] = True
             self.store.save_org(self.org)
@@ -365,18 +360,6 @@ class ContinueFrozenTests(unittest.TestCase):
         # …and the lock is released for the next honest attempt
         self.assertTrue(lock.acquire(blocking=False))
         lock.release()
-
-    # -------------------------------------------------------- the public wall
-    def test_a_kiosk_visitor_cannot_reach_the_route_at_all(self):
-        denied = self.api._public_denied(
-            "POST", f"/api/orgs/{self.slug}/nodes/worker/continue-on", self.slug)
-        self.assertIsNotNone(denied, "a share-token holder could move accounts")
-        # the same wall /unstick sits behind, for the same reason
-        self.assertEqual(
-            denied[0],
-            self.api._public_denied(
-                "POST", f"/api/orgs/{self.slug}/nodes/worker/unstick",
-                self.slug)[0])
 
 
 async def _noop_async(*_a, **_kw):

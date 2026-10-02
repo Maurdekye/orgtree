@@ -194,7 +194,7 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
             {ws.sockets.map((r, i) => (
               <tr key={`${r.window}-${r.org}-${i}`} className={r.window === WINDOW_ID ? 'edbg-self' : undefined}>
                 <td>{r.org}</td>
-                <td>{r.window}{r.window === WINDOW_ID ? ' (this)' : ''}{r.public ? ' · kiosk' : ''}</td>
+                <td>{r.window}{r.window === WINDOW_ID ? ' (this)' : ''}</td>
                 <td>{r.pending} / {ws.queue_max}</td>
                 <td>{fmtBytes(r.pending_bytes)}</td>
                 <td>{r.sent}</td>

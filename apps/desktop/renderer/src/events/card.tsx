@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { Event, PublicEvent, Family } from '../generated/events'
+import type { Event, Family } from '../generated/events'
 import { decodeEventRow } from './decode'
 import { fieldType, humanValue } from './value'
 import type { HumanValue } from './value'
@@ -42,7 +42,7 @@ function Value({ value, ...props }: ValueProps & { value: HumanValue }): ReactNo
       : <span className="dim">None</span>
     case 'record': return <dl className="event-record">{value.fields.map(field=><div key={field.key} data-event-field={field.key}>
       <dt>{field.label}</dt><dd><Value value={field.value} {...props}/></dd></div>)}</dl>
-    case 'event': return <EventCard {...props} embedded row={props.profile === 'public' ? {ev_public:value.event} : {ev:value.event}}/>
+    case 'event': return <EventCard {...props} embedded row={{ev:value.event}}/>
     case 'unavailable': return <span className="dim">Unavailable</span>
   }
   const unhandled: never = value
@@ -67,7 +67,7 @@ export function eventReference(event: KnownEvent, enclosingOrg: string): TypedRe
     case 'watchdog': case 'task': case 'build': case 'org': case 'session': return null
   }
 }
-function ObjectLabel({ event, org, world, onOpen }: { event: Event | PublicEvent; org: string } & ContentProps) {
+function ObjectLabel({ event, org, world, onOpen }: { event: Event; org: string } & ContentProps) {
   const object = event.object
   if (!object) return null
   const ref = eventReference(event, org)

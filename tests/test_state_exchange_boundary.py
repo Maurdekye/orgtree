@@ -1,7 +1,7 @@
 """P01 F4 legacy boundary contracts for mail, inbox and files (exchange.*).
 
-Disposable SQLite only; the app's lifecycle is not started. Every case builds a fresh pair of orgs (main and other,
-the other optionally a kiosk) under this test's temporary data root. The drives (supervisor.send_message), the
+Disposable SQLite only; the app's lifecycle is not started. Every case builds a fresh pair of orgs (main and other)
+under this test's temporary data root. The drives (supervisor.send_message), the
 sparks, notices, broadcasts and the mail-hub kick are spies; the routes, the ledger, the org inbox, the
 file-deliveries sidecar, the compose stage and the agents' scratch folders are real. (The external-chat routes and
 their MCP client were retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2.) Each case's
@@ -101,7 +101,7 @@ def norm(c, cur):
 
 
 # ---- harness (verbatim from the P01 F4 probe) --------------------------------------------------------------------
-def fresh(kiosk_other=False):
+def fresh():
     SEQ[0] += 1
     orgs = {}
     for role in ("main", "other"):
@@ -112,13 +112,6 @@ def fresh(kiosk_other=False):
         org.hire("top", "mid", "haiku", 2, "leaf", **SCOPE)
         org.hire(ledger.USER, None, "haiku", 5, "top2", add_dirs=[], tools={}, charter="fixture")
         org.d["mail"] = {}
-        if role == "other" and kiosk_other:
-            org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0, "storage_limit_mb": 0,
-                              "token": "kiosk-token-fixture", "auto_raise": False,
-                              # a ceiling already set: without one every cold load mints a new ceiling notice
-                              # (docket a-kiosk-config-without-a-ceiling-mints-a-new-per), noise here
-                              "max_scope": {"tools": NO_TOOLS, "add_dirs": [], "org_visibility": "team",
-                                            "permission_mode": "acceptEdits"}}
         store.save_org(org)
         orgs[role] = slug
     CUR["slug"], CUR["other"] = orgs["main"], orgs["other"]
@@ -176,7 +169,6 @@ class Spies:
         add(supervisor, "mail_spark")
         add(supervisor, "notify")
         add(supervisor, "maybe_storage_check")
-        add(supervisor, "workspace_usage_cached", return_value=None)
         add(api, "hub_changed")
         add(api, "mail_notify")
         add(api.net, "kick")
@@ -184,8 +176,7 @@ class Spies:
 
     def calls(self):
         return {k: [[repr(x)[:50] for x in c.args[:3]] for c in m.call_args_list]
-                for k, m in self.s.items() if m.call_count and k not in ("delivery_note", "maybe_storage_check",
-                                                                         "workspace_usage_cached")}
+                for k, m in self.s.items() if m.call_count and k not in ("delivery_note", "maybe_storage_check")}
 
     def __exit__(self, *e):
         for p in reversed(self.ps):
@@ -295,92 +286,88 @@ def big_file():
 DID = "f4-delivery-0001"
 CASES = [
     # GET /api/orgs (moved into F4)
-    ("orgs_list", op("GET", "/api/orgs"), None, True),
-    ("org_inbox", op("GET", "/api/orgs/{slug}/org_inbox"), org_reply, False),
-    ("org_inbox_no_org", op("GET", "/api/orgs/nope-org/org_inbox"), None, False),
+    ("orgs_list", op("GET", "/api/orgs"), None),
+    ("org_inbox", op("GET", "/api/orgs/{slug}/org_inbox"), org_reply),
+    ("org_inbox_no_org", op("GET", "/api/orgs/nope-org/org_inbox"), None),
     ("mail_user_found", dyn(lambda: op("GET", f"/api/orgs/{CUR['slug']}/mail/user/"
-                                       + store.load_org(CUR["slug"]).d["user_inbox"][-1]["id"])), user_mail, False),
-    ("mail_user_missing", op("GET", "/api/orgs/{slug}/mail/user/nope"), user_mail, False),
+                                       + store.load_org(CUR["slug"]).d["user_inbox"][-1]["id"])), user_mail),
+    ("mail_user_missing", op("GET", "/api/orgs/{slug}/mail/user/nope"), user_mail),
     ("mail_node_found", dyn(lambda: op("GET", f"/api/orgs/{CUR['slug']}/mail/node/{CUR['mid_mail']}",
-                                       params={"node": "mid"})), pending_mail, False),
-    ("mail_node_unknown", op("GET", "/api/orgs/{slug}/mail/node/x", params={"node": "ghost"}), None, False),
-    ("mail_bad_box", op("GET", "/api/orgs/{slug}/mail/bogus/x"), None, False),
+                                       params={"node": "mid"})), pending_mail),
+    ("mail_node_unknown", op("GET", "/api/orgs/{slug}/mail/node/x", params={"node": "ghost"}), None),
+    ("mail_bad_box", op("GET", "/api/orgs/{slug}/mail/bogus/x"), None),
     ("mail_org_found", dyn(lambda: op("GET", f"/api/orgs/{CUR['slug']}/mail/org/"
-                                      + store.load_org(CUR["slug"]).d["org_inbox"][-1]["id"])), org_reply, False),
-    ("org_inbox_read", op("POST", "/api/orgs/{slug}/org_inbox/read"), org_reply, False),
-    ("org_inbox_read_no_org", op("POST", "/api/orgs/nope-org/org_inbox/read"), None, False),
+                                      + store.load_org(CUR["slug"]).d["org_inbox"][-1]["id"])), org_reply),
+    ("org_inbox_read", op("POST", "/api/orgs/{slug}/org_inbox/read"), org_reply),
+    ("org_inbox_read_no_org", op("POST", "/api/orgs/nope-org/org_inbox/read"), None),
     ("org_inbox_upload", op("POST", "/api/orgs/{slug}/org_inbox/upload", params={"name": "a b?.txt"},
-                            content=b"bytes"), None, False),
+                            content=b"bytes"), None),
     ("org_inbox_upload_big", dyn(lambda: op("POST", f"/api/orgs/{CUR['slug']}/org_inbox/upload",
-                                            content=big_file().read_bytes())), None, False),
+                                            content=big_file().read_bytes())), None),
     ("org_send_mcp", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "@mcp:someone", "body": "hi"}),
-     None, False),
+     None),
     ("org_send_org", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "@org:{other}", "body": "hi"}),
-     None, False),
-    ("org_send_org_kiosk", dyn(lambda: op("POST", f"/api/orgs/{CUR['slug']}/org_inbox/send",
-                                          json={"to": f"@org:{CUR['other']}", "body": "hi"})), None, True),
+     None),
     ("org_send_org_missing", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "@org:nope-org", "body": "x"}),
-     None, False),
+     None),
     ("org_send_org_att", dyn(lambda: op("POST", f"/api/orgs/{CUR['slug']}/org_inbox/send",
                                         json={"to": f"@org:{CUR['other']}", "body": "f",
-                                              "attachments": [CUR["stage"]]})), staged, False),
-    ("org_send_ext", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "@ext:x", "body": "x"}), None, False),
-    ("org_send_bad_to", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "bob", "body": "x"}), None, False),
+                                              "attachments": [CUR["stage"]]})), staged),
+    ("org_send_ext", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "@ext:x", "body": "x"}), None),
+    ("org_send_bad_to", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "bob", "body": "x"}), None),
     ("org_send_bad_stage", op("POST", "/api/orgs/{slug}/org_inbox/send",
-                              json={"to": "@org:{other}", "body": "x", "attachments": ["nope"]}), None, False),
+                              json={"to": "@org:{other}", "body": "x", "attachments": ["nope"]}), None),
     ("org_send_mcp_att", dyn(lambda: op("POST", f"/api/orgs/{CUR['slug']}/org_inbox/send",
                                         json={"to": "@mcp:x", "body": "x", "attachments": [CUR["stage"]]})),
-     staged, False),
+     staged),
     ("org_send_net_nohub", op("POST", "/api/orgs/{slug}/org_inbox/send", json={"to": "@net:elsewhere", "body": "x"}),
-     None, False),
-    ("inbox_clear", op("POST", "/api/orgs/{slug}/inbox/clear"), user_mail, False),
-    ("inbox_clear_no_org", op("POST", "/api/orgs/nope-org/inbox/clear"), None, False),
+     None),
+    ("inbox_clear", op("POST", "/api/orgs/{slug}/inbox/clear"), user_mail),
+    ("inbox_clear_no_org", op("POST", "/api/orgs/nope-org/inbox/clear"), None),
     # node files, reply events and retraction
     ("node_upload", op("POST", "/api/orgs/{slug}/nodes/mid/upload", params={"name": "a.txt"}, content=b"one"),
-     None, False),
+     None),
     ("node_upload_dup", twice(op("POST", "/api/orgs/{slug}/nodes/mid/upload", params={"name": "a.txt"},
-                                 content=b"one")), None, False),
+                                 content=b"one")), None),
     ("node_upload_empty", op("POST", "/api/orgs/{slug}/nodes/mid/upload", params={"name": "a.txt"}, content=b""),
-     None, False),
-    ("node_upload_ghost", op("POST", "/api/orgs/{slug}/nodes/ghost/upload", content=b"x"), None, False),
-    ("node_upload_blocked", op("POST", "/api/orgs/{slug}/nodes/mid/upload", content=b"x"), storage_blocked, False),
-    ("reply_events", op("GET", "/api/orgs/{slug}/nodes/mid/reply-events"), None, False),
-    ("reply_events_ghost_node", op("GET", "/api/orgs/{slug}/nodes/ghost/reply-events"), None, False),
-    ("reply_events_no_org", op("GET", "/api/orgs/nope-org/nodes/mid/reply-events"), None, False),
-    ("reply_events_clear", op("DELETE", "/api/orgs/{slug}/nodes/mid/reply-events"), None, False),
-    ("reply_events_clear_ghost", op("DELETE", "/api/orgs/{slug}/nodes/ghost/reply-events"), None, False),
+     None),
+    ("node_upload_ghost", op("POST", "/api/orgs/{slug}/nodes/ghost/upload", content=b"x"), None),
+    ("node_upload_blocked", op("POST", "/api/orgs/{slug}/nodes/mid/upload", content=b"x"), storage_blocked),
+    ("reply_events", op("GET", "/api/orgs/{slug}/nodes/mid/reply-events"), None),
+    ("reply_events_ghost_node", op("GET", "/api/orgs/{slug}/nodes/ghost/reply-events"), None),
+    ("reply_events_no_org", op("GET", "/api/orgs/nope-org/nodes/mid/reply-events"), None),
+    ("reply_events_clear", op("DELETE", "/api/orgs/{slug}/nodes/mid/reply-events"), None),
+    ("reply_events_clear_ghost", op("DELETE", "/api/orgs/{slug}/nodes/ghost/reply-events"), None),
     ("retract", dyn(lambda: op("DELETE", f"/api/orgs/{CUR['slug']}/nodes/mid/mail/{CUR['mid_mail']}")),
-     pending_mail, False),
-    ("retract_gone", op("DELETE", "/api/orgs/{slug}/nodes/mid/mail/nope"), None, False),
+     pending_mail),
+    ("retract_gone", op("DELETE", "/api/orgs/{slug}/nodes/mid/mail/nope"), None),
     # the gate: a route with no credential, and with an agent credential
-    ("route_no_token", lambda c: c.get("/api/orgs"), None, False),
+    ("route_no_token", lambda c: c.get("/api/orgs"), None),
     ("route_agent_token", lambda c: c.get(f"/api/orgs/{CUR['slug']}/org_inbox",
-                                          headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None, False),
+                                          headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None),
     # agent tools
-    ("send_file", agent("orgtree_send_file", {"path": "report.txt", "note": "the report"}), scratch_file, False),
-    ("send_file_missing", agent("orgtree_send_file", {"path": "nope.txt"}), scratch_file, False),
-    ("send_file_no_path", agent("orgtree_send_file", {}), scratch_file, False),
-    ("send_file_escape", agent("orgtree_send_file", {"path": "../../x.txt"}), scratch_file, False),
-    ("send_file_delivery", agent("orgtree_send_file", {"path": "report.txt", "delivery_id": DID}), scratch_file, False),
+    ("send_file", agent("orgtree_send_file", {"path": "report.txt", "note": "the report"}), scratch_file),
+    ("send_file_missing", agent("orgtree_send_file", {"path": "nope.txt"}), scratch_file),
+    ("send_file_no_path", agent("orgtree_send_file", {}), scratch_file),
+    ("send_file_escape", agent("orgtree_send_file", {"path": "../../x.txt"}), scratch_file),
+    ("send_file_delivery", agent("orgtree_send_file", {"path": "report.txt", "delivery_id": DID}), scratch_file),
     ("send_file_delivery_replay", twice(agent("orgtree_send_file", {"path": "report.txt", "delivery_id": DID})),
-     scratch_file, False),
-    ("send_file_delivery_conflict", conflict, scratch_file, False),
-    ("send_file_bad_id", agent("orgtree_send_file", {"path": "report.txt", "delivery_id": "short"}), scratch_file,
-     False),
-    ("send_file_once", agent("orgtree_send_file_once", {"path": "report.txt", "delivery_id": DID}), scratch_file,
-     False),
-    ("send_file_once_no_id", agent("orgtree_send_file_once", {"path": "report.txt"}), scratch_file, False),
-    ("send_file_keyed", keyed("orgtree_send_file", {"path": "report.txt"}), scratch_file, False),
+     scratch_file),
+    ("send_file_delivery_conflict", conflict, scratch_file),
+    ("send_file_bad_id", agent("orgtree_send_file", {"path": "report.txt", "delivery_id": "short"}), scratch_file),
+    ("send_file_once", agent("orgtree_send_file_once", {"path": "report.txt", "delivery_id": DID}), scratch_file),
+    ("send_file_once_no_id", agent("orgtree_send_file_once", {"path": "report.txt"}), scratch_file),
+    ("send_file_keyed", keyed("orgtree_send_file", {"path": "report.txt"}), scratch_file),
     ("send_file_blocked", agent("orgtree_send_file", {"path": "report.txt", "delivery_id": DID}),
-     lambda c: (scratch_file(c), storage_blocked(c)), False),
+     lambda c: (scratch_file(c), storage_blocked(c))),
 ]
 
 
 
 def observe(name):
     """Run one fixtured case on a fresh org pair and return its normalized observation."""
-    request, pre, kiosk_other = CASES[name]
-    fresh(kiosk_other)
+    request, pre = CASES[name]
+    fresh()
     client = TestClient(app, raise_server_exceptions=False)
     with Spies() as sp:
         if pre:
@@ -404,7 +391,7 @@ def observe(name):
         return norm(raw, CUR), body, (b_main, a_main, b_other, a_other), dict(CUR)
 
 
-CASES = {n: (r, p, k) for n, r, p, k in CASES}
+CASES = {n: (r, p) for n, r, p in CASES}
 
 
 class BoundaryBinding(unittest.TestCase):
@@ -470,12 +457,10 @@ class ExchangeBoundary(unittest.TestCase):
         return out
 
     # -- the org list ----------------------------------------------------------------
-    def test_orgs_list_reads_every_org_and_carries_the_kiosk_flags(self):
+    def test_orgs_list_reads_every_org(self):
         [(seen, body, _, cur)] = self.check('orgs_list').values()
         rows = {r['slug']: r for r in body}
-        self.assertEqual((rows[cur['slug']]['kiosk'], rows[cur['other']]['kiosk']), (False, True))
-        self.assertIn('token', rows[cur['other']]['kiosk_cfg'])       # the admin view carries the share token
-        self.assertNotIn('kiosk_cfg', rows[cur['slug']])
+        self.assertLessEqual({cur['slug'], cur['other']}, set(rows))
 
     def test_the_gate(self):
         self.check('route_no_token', 'route_agent_token')
@@ -493,14 +478,14 @@ class ExchangeBoundary(unittest.TestCase):
 
     def test_org_inbox_upload_and_send(self):
         got = self.check('org_inbox_upload', 'org_inbox_upload_big', 'org_send_mcp', 'org_send_org',
-                         'org_send_org_kiosk', 'org_send_org_missing', 'org_send_org_att', 'org_send_ext',
+                         'org_send_org_missing', 'org_send_org_att', 'org_send_ext',
                          'org_send_bad_to', 'org_send_bad_stage', 'org_send_mcp_att', 'org_send_net_nohub')
         # a new @mcp: send is retired: refused 422 before the attachment checks, with or without a staged file
         for name in ('org_send_mcp', 'org_send_mcp_att'):
             self.assertEqual((got[name][0]['status'], got[name][0]['detail']), (422, ledger.MCP_RETIRED), name)
-        # an @org: send writes the OTHER org's documents and drives its holders; a sealed or missing one only warns
-        self.assertEqual(got['org_send_org_kiosk'][1]['warnings'],
-                         [f"not delivered: no organization named {got['org_send_org_kiosk'][3]['other']!r} is reachable"])
+        # an @org: send writes the OTHER org's documents and drives its holders; a missing one only warns
+        self.assertEqual(got['org_send_org_missing'][1]['warnings'],
+                         ["not delivered: no organization named 'nope-org' is reachable"])
         self.assertEqual(got['org_send_org'][1]['warnings'], [])
 
     # -- node files, reply events and retraction ----------------------------------------------------------------

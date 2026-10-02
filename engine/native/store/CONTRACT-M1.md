@@ -74,7 +74,7 @@ pub struct OpIdentity { pub org: Uuid, pub ns: KeyNamespace, pub key: String,
                         pub caller_keyed: bool }
 
 pub struct Binding {                    // bound by the authenticated adapter (door), never by caller JSON
-    pub principal: Principal,           // Agent{id,generation} | Operator | KioskVisitor{..} | System
+    pub principal: Principal,           // Agent{id,generation} | Operator | User | System
     pub acting: Option<Uuid>,           // S3 E5 acting identity
     pub op: OpIdentity,
     pub db_incarnation: Uuid,

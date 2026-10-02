@@ -3,14 +3,12 @@
 feature-fable/typed-message-architecture-backend.md VERSION 5, approved 2026-09-06).
 
 `events_table.py` is the ONE declarative source. This module turns it into:
-  * strict recursive validators for every leaf (private `Event`) and its visitor
-    projection (`PublicEvent`);
+  * strict recursive validators for every leaf (`Event`);
   * `mint()` — the ONLY constructor; validates BEFORE anything is written;
   * the row codec (`encode_row_ev` / `decode_row_ev`) that elides a body the row
     already holds, and the bare codec (`encode_ev` / `decode_ev`) that never elides;
   * the lenient decoder used by every reader (`decode`) — legacy / ok / unsupported /
     malformed, with a STATIC error (code, path, expected), never a value;
-  * the public projection (`public_event`) and its validator;
   * `FAMILY_OF`, the manifest, and the text emitters consumed by tools/gen_events.py.
 
 Nothing here parses `body`/`text`. Nothing here imports the ledger (the ledger imports
@@ -32,7 +30,6 @@ from . import events_table as T
 EVENT_V: Final = T.EVENT_V
 FAMILIES: Final = T.FAMILIES
 DISPOSITIONS: Final = ("both", "human_only", "model_only", "internal")
-PUBLIC_OK_DISPOSITIONS: Final = ("both", "human_only")
 ERROR_CODES: Final = ("unknown_version", "unknown_variant", "missing_field", "extra_field",
                       "wrong_type", "min_length", "bad_ref", "bad_literal", "not_finite",
                       "bad_structure")
@@ -50,16 +47,13 @@ class EventInvalid(ValueError):
         self.path = path
         self.expected = expected
 
-    def public(self) -> dict[str, str]:
-        return {"code": self.code}
-
     def admin(self) -> dict[str, str]:
         return {"code": self.code, "path": self.path, "expected": self.expected}
 
 
 class TableInvalid(RuntimeError):
     """The declarative table itself is malformed. Raised at import (the generator refuses
-    to emit anything) — this refusal IS the visitor boundary (design §4)."""
+    to emit anything) (design §4)."""
 
 
 # ============================================================================ type specs
@@ -101,28 +95,17 @@ def _type_name(t: Mapping[str, Any]) -> str:
 
 
 # ========================================================================= table checks
-def _check_fields(owner: str, fields: Mapping[str, Any], *, structural: frozenset[str]) -> None:
+def _check_fields(owner: str, fields: Mapping[str, Any]) -> None:
     for name, f in fields.items():
         if not isinstance(f, dict):
             raise TableInvalid(f"{owner}.{name}: field spec must be a dict")
         fd: dict[str, Any] = f
-        for key in ("t", "d", "p"):
+        for key in ("t", "d"):
             if key not in fd:
                 raise TableInvalid(f"{owner}.{name}: missing '{key}' — every field declares "
-                                   f"type, disposition AND public visibility; there is no default")
+                                   f"type AND disposition; there is no default")
         if fd["d"] not in DISPOSITIONS:
             raise TableInvalid(f"{owner}.{name}: disposition {fd['d']!r} not in {DISPOSITIONS}")
-        if not isinstance(fd["p"], bool):
-            raise TableInvalid(f"{owner}.{name}: public must be a bool")
-        if fd["p"] and fd["d"] not in PUBLIC_OK_DISPOSITIONS:
-            raise TableInvalid(f"{owner}.{name}: public:true on a {fd['d']} field — a visitor "
-                               f"may only see what a human renderer may show")
-        if "x" in fd and not fd["p"]:
-            raise TableInvalid(f"{owner}.{name}: public_exempt on a non-public field")
-        if name in structural and not fd["p"]:
-            raise TableInvalid(f"{owner}.{name}: structural key must be public (by rule)")
-        if name in structural and "x" in fd:
-            raise TableInvalid(f"{owner}.{name}: structural key must not carry public_exempt")
         t = parse_type(str(fd["t"]))
         _check_type_refs(owner + "." + name, t)
 
@@ -144,22 +127,21 @@ def _check_type_refs(where: str, t: Mapping[str, Any]) -> None:
 def check_table(table: Any = T) -> None:
     """Refuse a malformed table. Run at import; the tests also run it over deliberately
     broken tables (B15 positive controls)."""
-    kind_only = frozenset({"kind"})
     for rname, rf in table.REFS.items():
         if "kind" not in rf:
             raise TableInvalid(f"ref {rname} lacks the structural 'kind'")
-        _check_fields("ref " + rname, rf, structural=kind_only)
+        _check_fields("ref " + rname, rf)
     for rname, rf in table.RECORDS.items():
-        _check_fields("record " + rname, rf, structural=frozenset())
+        _check_fields("record " + rname, rf)
     for uname, members in table.UNIONS.items():
         for mname in members:
             if mname not in table.RECORDS or "kind" not in table.RECORDS[mname]:
                 raise TableInvalid(f"union {uname}: member {mname} must be a record with 'kind'")
             kf = table.RECORDS[mname]["kind"]
-            if not kf["p"] or parse_type(kf["t"])["k"] != "lit":
-                raise TableInvalid(f"union {uname}: {mname}.kind must be a public literal")
-    _check_fields("envelope", table.ENVELOPE, structural=frozenset({"v", "variant"}))
-    _check_fields("actor", table.ACTOR, structural=kind_only)
+            if parse_type(kf["t"])["k"] != "lit":
+                raise TableInvalid(f"union {uname}: {mname}.kind must be a literal")
+    _check_fields("envelope", table.ENVELOPE)
+    _check_fields("actor", table.ACTOR)
     for variant, spec in table.LEAVES.items():
         if not re.fullmatch(r"[a-z_]+\.[a-z_]+", variant):
             raise TableInvalid(f"leaf {variant!r}: name must be <group>.<leaf>")
@@ -171,7 +153,7 @@ def check_table(table: Any = T) -> None:
         for reserved in ("v", "variant", "actor", "object", "engine_authored", "projection"):
             if reserved in spec["fields"]:
                 raise TableInvalid(f"leaf {variant}: field {reserved!r} is an envelope key")
-        _check_fields("leaf " + variant, spec["fields"], structural=frozenset())
+        _check_fields("leaf " + variant, spec["fields"])
 
 
 check_table()
@@ -185,7 +167,7 @@ def leaf_fields(variant: str) -> dict[str, dict[str, Any]]:
     spec = T.LEAVES[variant]
     obj = spec["object"]
     out: dict[str, dict[str, Any]] = dict(T.ENVELOPE)
-    out["object"] = T.F(f"R:{obj}" if obj else "null", "both", True)
+    out["object"] = T.F(f"R:{obj}" if obj else "null", "both")
     out.update(spec["fields"])
     return out
 
@@ -199,7 +181,7 @@ def _is_float(v: Any) -> bool:
     return (isinstance(v, float) or _is_int(v)) and not isinstance(v, bool)
 
 
-def _validate(value: Any, t: Mapping[str, Any], path: str, *, public: bool) -> None:
+def _validate(value: Any, t: Mapping[str, Any], path: str) -> None:
     if value is None:
         if t.get("null") or t["k"] == "null":
             return
@@ -231,12 +213,12 @@ def _validate(value: Any, t: Mapping[str, Any], path: str, *, public: bool) -> N
         if len(items) < int(t["min"]):
             raise EventInvalid("min_length", path, f"≥{t['min']} items")
         for i, item in enumerate(items):
-            _validate(item, t["of"], f"{path}[{i}]", public=public)
+            _validate(item, t["of"], f"{path}[{i}]")
     elif k == "ref":
-        _validate_record(value, T.REFS[t["name"]], path, str(t["name"]), public=public)
+        _validate_record(value, T.REFS[t["name"]], path, str(t["name"]))
     elif k == "rec":
         fields = T.ACTOR if t["name"] == "Actor" else T.RECORDS[t["name"]]
-        _validate_record(value, fields, path, str(t["name"]), public=public)
+        _validate_record(value, fields, path, str(t["name"]))
     elif k == "union":
         if not isinstance(value, dict):
             raise EventInvalid("wrong_type", path, str(t["name"]))
@@ -246,22 +228,19 @@ def _validate(value: Any, t: Mapping[str, Any], path: str, *, public: bool) -> N
         if member is None:
             raise EventInvalid("bad_literal", path + ".kind",
                                "|".join(T.UNIONS[t["name"]]))
-        _validate_record(d, T.RECORDS[member], path, member, public=public)
+        _validate_record(d, T.RECORDS[member], path, member)
     elif k == "event":
-        if public:
-            validate_public_event(value, path)
-        else:
-            validate_event(value, path)
+        validate_event(value, path)
     else:  # pragma: no cover — parse_type refuses unknown kinds
         raise TableInvalid(f"unknown kind {k}")
 
 
 def _validate_record(value: Any, fields: Mapping[str, Mapping[str, Any]], path: str,
-                     name: str, *, public: bool) -> None:
+                     name: str) -> None:
     if not isinstance(value, dict):
         raise EventInvalid("wrong_type", path, name)
     d: dict[str, Any] = value
-    want = {n: f for n, f in fields.items() if (f["p"] if public else True)}
+    want = dict(fields)
     for n in want:
         if n not in d:
             raise EventInvalid("missing_field", f"{path}.{n}" if path else n, name)
@@ -269,7 +248,7 @@ def _validate_record(value: Any, fields: Mapping[str, Mapping[str, Any]], path: 
         if n not in want:
             raise EventInvalid("extra_field", f"{path}.{n}" if path else n, name)
     for n, f in want.items():
-        _validate(d[n], parse_type(str(f["t"])), f"{path}.{n}" if path else n, public=public)
+        _validate(d[n], parse_type(str(f["t"])), f"{path}.{n}" if path else n)
 
 
 def validate_event(ev: Any, path: str = "") -> str:
@@ -289,33 +268,13 @@ def validate_event(ev: Any, path: str = "") -> str:
         raise EventInvalid("unknown_variant", f"{path}.variant" if path else "variant", "Event")
     if "projection" in d:
         raise EventInvalid("extra_field", f"{path}.projection" if path else "projection", variant)
-    _validate_record(d, leaf_fields(variant), path, variant, public=False)
+    _validate_record(d, leaf_fields(variant), path, variant)
     if T.LEAVES[variant]["object"] is None and d.get("object") is not None:
         raise EventInvalid("bad_ref", f"{path}.object" if path else "object", "null")
     actor: dict[str, Any] = d["actor"]
     if d["engine_authored"] != (actor["kind"] == "system"):
         raise EventInvalid("bad_structure", f"{path}.engine_authored" if path else
                            "engine_authored", "actor.kind == system")
-    return variant
-
-
-def validate_public_event(ev: Any, path: str = "") -> str:
-    if not isinstance(ev, dict):
-        raise EventInvalid("wrong_type", path, "PublicEvent")
-    d: dict[str, Any] = ev
-    if d.get("projection") != "public":
-        raise EventInvalid("bad_structure", f"{path}.projection" if path else "projection",
-                           "public")
-    v = d.get("v")
-    if not _is_int(v) or v != EVENT_V:
-        raise EventInvalid("unknown_version", f"{path}.v" if path else "v", str(EVENT_V))
-    variant = d.get("variant")
-    if not isinstance(variant, str) or variant not in T.LEAVES:
-        raise EventInvalid("unknown_variant", f"{path}.variant" if path else "variant",
-                           "PublicEvent")
-    fields = {n: f for n, f in leaf_fields(variant).items()}
-    fields["projection"] = T.F("L[public]", "both", True)
-    _validate_record(d, fields, path, variant, public=True)
     return variant
 
 
@@ -422,47 +381,6 @@ def decode(raw: Any, row: Mapping[str, Any] | None = None) -> dict[str, Any]:
     return {"status": "ok", "ev": ev}
 
 
-# ====================================================================== public projection
-def _project(value: Any, t: Mapping[str, Any]) -> Any:
-    if value is None:
-        return None
-    k = t["k"]
-    if k == "list":
-        items: list[Any] = value
-        return [_project(x, t["of"]) for x in items]
-    if k == "ref":
-        return _project_record(value, T.REFS[t["name"]])
-    if k == "rec":
-        return _project_record(value, T.ACTOR if t["name"] == "Actor" else T.RECORDS[t["name"]])
-    if k == "union":
-        d: dict[str, Any] = value
-        member = next(m for m in T.UNIONS[t["name"]]
-                      if d.get("kind") in parse_type(T.RECORDS[m]["kind"]["t"])["vals"])
-        return _project_record(d, T.RECORDS[member])
-    if k == "event":
-        return public_event(value)
-    return value
-
-
-def _project_record(d: Mapping[str, Any], fields: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    return {n: _project(d[n], parse_type(str(f["t"]))) for n, f in fields.items() if f["p"]}
-
-
-def public_event(ev: Mapping[str, Any]) -> dict[str, Any]:
-    """The visitor projection: a complete PublicEvent (own validator), never a private leaf
-    with holes. Validates the input first and its own output last — a public shape that
-    fails its own schema is an error, never a leak (design §6 mechanic ii)."""
-    variant = validate_event(ev)
-    out: dict[str, Any] = {"projection": "public"}
-    out.update(_project_record(ev, leaf_fields(variant)))
-    # wire order: v, variant, projection, then the rest
-    ordered: dict[str, Any] = {"v": out.pop("v"), "variant": out.pop("variant"),
-                               "projection": out.pop("projection")}
-    ordered.update(out)
-    validate_public_event(ordered)
-    return ordered
-
-
 # ======================================================================== wire helpers
 SEGMENT_KINDS: Final = ("notices", "mail", "state", "drive", "text")
 DELIVERY_MODES: Final = ("turn", "steer", "boundary", "reconcile", "rehire", "idle_only")
@@ -509,42 +427,33 @@ def parse_reply_target(raw: Any) -> dict[str, str]:
     return out
 
 
-def wire_row(row: Mapping[str, Any], *, public: bool) -> dict[str, Any]:
+def wire_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """The WIRE projection of one stored mail / notice / user-inbox row (design §6):
     the stored `ev` is ROW-ENCODED (an ordinary body is elided) and never crosses the
-    wire in that form. Emits, for the operator, `ev` = the FULL event (or `ev_raw` +
-    static `ev_error`; nothing on a legacy row); for a visitor, `ev_public` = the
-    PublicEvent (or `ev_error` = {code}); never both, never `ev`/`ev_raw` publicly.
-    body/text are untouched."""
+    wire in that form. Emits `ev` = the FULL event (or `ev_raw` + static `ev_error`;
+    nothing on a legacy row). body/text are untouched."""
     out = {k: v for k, v in row.items() if k != "ev"}
     raw = row.get("ev")
     if raw is None:
         return out
     r = decode(raw, row)
     if r["status"] == "ok":
-        if public:
-            out["ev_public"] = public_event(r["ev"])
-        else:
-            out["ev"] = encode_ev(r["ev"])
+        out["ev"] = encode_ev(r["ev"])
     else:
-        if public:
-            out["ev_error"] = {"code": r["error"]["code"]}
-        else:
-            out["ev_raw"] = raw
-            out["ev_error"] = r["error"]
+        out["ev_raw"] = raw
+        out["ev_error"] = r["error"]
     return out
 
 
 def journal_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """A row as a journal/projection SEGMENT stores it: the FULL event (bare codec —
     these copies must outlive the mail_log cap, Opus E1)."""
-    return wire_row(row, public=False)
+    return wire_row(row)
 
 
-def wire_segments(segments: list[Mapping[str, Any]] | None, *,
-                  public: bool) -> list[dict[str, Any]] | None:
-    """Project a stored segment list for the wire. Segments store FULL events; the
-    operator gets them as stored, a visitor gets PublicEvent / withheld."""
+def wire_segments(segments: list[Mapping[str, Any]] | None) -> list[dict[str, Any]] | None:
+    """Project a stored segment list for the wire. Segments store FULL events and are
+    returned as stored."""
     if segments is None:
         return None
     out: list[dict[str, Any]] = []
@@ -552,31 +461,15 @@ def wire_segments(segments: list[Mapping[str, Any]] | None, *,
         k = str(seg.get("kind") or "")
         if k in ("notices", "mail"):
             rows = [dict(r) for r in seg.get("rows") or []]
-            if public:
-                proj: list[dict[str, Any]] = []
-                for r in rows:
-                    ev = r.pop("ev", None)
-                    r.pop("ev_raw", None)
-                    err = r.pop("ev_error", None)
-                    if ev is not None:
-                        try:
-                            r["ev_public"] = public_event(ev)
-                        except EventInvalid as e:
-                            r["ev_error"] = e.public()
-                    elif err is not None:
-                        r["ev_error"] = {"code": str(err.get("code") or "bad_structure")}
-                    proj.append(r)
-                rows = proj
             out.append({"kind": k, "rows": rows})
         elif k in ("state", "drive"):
             ev = seg.get("event")
             item: dict[str, Any] = {"kind": k, "text": str(seg.get("text") or "")}
             if ev is not None:
                 try:
-                    item["event_public" if public else "event"] = (
-                        public_event(ev) if public else encode_ev(ev))
+                    item["event"] = encode_ev(ev)
                 except EventInvalid as e:
-                    item["ev_error"] = e.public() if public else e.admin()
+                    item["ev_error"] = e.admin()
             out.append(item)
         elif k == "text":
             out.append({"kind": "text", "text": str(seg.get("text") or "")})
@@ -619,11 +512,10 @@ def human_visible_variant(variant: str) -> bool:
 
 
 def manifest() -> dict[str, Any]:
-    """Every field of every leaf/ref/record with its type, disposition, public flag and
-    exemption — the reviewable table (design §4, B16 packet table)."""
+    """Every field of every leaf/ref/record with its type and disposition — the
+    reviewable table (design §4)."""
     def fmap(fields: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-        return {n: {"type": f["t"], "disposition": f["d"], "public": f["p"],
-                    **({"public_exempt": f["x"]} if "x" in f else {})}
+        return {n: {"type": f["t"], "disposition": f["d"]}
                 for n, f in fields.items()}
     return {
         "v": EVENT_V,
@@ -638,34 +530,6 @@ def manifest() -> dict[str, Any]:
         "elided_row_fields": {k: list(v) for k, v in T.ELIDED_FIELDS.items()},
         "human_hidden": human_hidden_variants(),
     }
-
-
-def public_string_fields(variant: str) -> list[tuple[str, str | None]]:
-    """(path, exemption) for every TABLE-marked public string field of a leaf, recursively —
-    the domain of the B16 disclosure invariant. Structural keys are excluded by
-    construction (they are public by rule, not by the column)."""
-    out: list[tuple[str, str | None]] = []
-
-    def walk(fields: Mapping[str, Mapping[str, Any]], prefix: str, structural: frozenset[str]) -> None:
-        for n, f in fields.items():
-            if not f["p"] or n in structural:
-                continue
-            path = f"{prefix}.{n}" if prefix else n
-            t = parse_type(str(f["t"]))
-            base = t["of"] if t["k"] == "list" else t
-            if base["k"] == "str":
-                out.append((path, f.get("x")))
-            elif base["k"] == "ref":
-                walk(T.REFS[base["name"]], path, frozenset({"kind"}))
-            elif base["k"] == "rec":
-                walk(T.ACTOR if base["name"] == "Actor" else T.RECORDS[base["name"]], path,
-                     frozenset({"kind"}) if base["name"] == "Actor" else frozenset())
-            elif base["k"] == "union":
-                for m in T.UNIONS[base["name"]]:
-                    walk(T.RECORDS[m], path, frozenset({"kind"}))
-            # literals, numbers, bools, recursive events: outside the invariant's scope
-    walk(leaf_fields(variant), "", frozenset({"v", "variant"}))
-    return out
 
 
 # =========================================================================== rendering
@@ -704,7 +568,7 @@ if _missing:
 
 
 # ============================================================================ emitters
-def _ts_type(t: Mapping[str, Any], public: bool) -> str:
+def _ts_type(t: Mapping[str, Any]) -> str:
     k = t["k"]
     base: str
     if k == "null":
@@ -718,22 +582,20 @@ def _ts_type(t: Mapping[str, Any], public: bool) -> str:
     elif k == "lit":
         base = " | ".join(json.dumps(v) for v in t["vals"])
     elif k == "list":
-        base = f"Array<{_ts_type(t['of'], public)}>"
+        base = f"Array<{_ts_type(t['of'])}>"
     elif k in ("ref", "rec", "union"):
-        base = ("Public" if public else "") + str(t["name"])
+        base = str(t["name"])
     elif k == "event":
-        base = "PublicEvent" if public else "Event"
+        base = "Event"
     else:  # pragma: no cover
         raise TableInvalid(k)
     return f"{base} | null" if t.get("null") else base
 
 
-def _ts_iface(name: str, fields: Mapping[str, Mapping[str, Any]], public: bool) -> str:
-    lines = [f"export interface {('Public' if public else '')}{name} {{"]
+def _ts_iface(name: str, fields: Mapping[str, Mapping[str, Any]]) -> str:
+    lines = [f"export interface {name} {{"]
     for n, f in fields.items():
-        if public and not f["p"]:
-            continue
-        lines.append(f"  {n}: {_ts_type(parse_type(str(f['t'])), public)};")
+        lines.append(f"  {n}: {_ts_type(parse_type(str(f['t'])))};")
     lines.append("}")
     return "\n".join(lines)
 
@@ -748,38 +610,31 @@ def emit_typescript() -> str:
                       f"export const EVENT_V = {EVENT_V} as const;",
                       "export const FAMILIES = " + json.dumps(list(FAMILIES)) + " as const;",
                       "export type Family = (typeof FAMILIES)[number];", ""]
-    for public in (False, True):
-        pfx = "Public" if public else ""
-        out.append(f"// ---- {'PUBLIC (visitor) projection' if public else 'PRIVATE (operator) shape'}")
-        out.append(_ts_iface("Actor", T.ACTOR, public))
-        for n, f in T.REFS.items():
-            out.append(_ts_iface(n, f, public))
-        for n, f in T.RECORDS.items():
-            out.append(_ts_iface(n, f, public))
-        for n, m in T.UNIONS.items():
-            out.append(f"export type {pfx}{n} = " + " | ".join(pfx + x for x in m) + ";")
-        names: list[str] = []
-        for v in VARIANTS:
-            fields = leaf_fields(v)
-            if public:
-                fields = {**fields, "projection": T.F("L[public]", "both", True)}
-            lf = _ts_leaf_name(v)
-            names.append(pfx + lf)
-            lines = [f"export interface {pfx}{lf} {{", f"  v: {EVENT_V};",
-                     f"  variant: {json.dumps(v)};"]
-            if public:
-                lines.append('  projection: "public";')
-            for n, f in fields.items():
-                if n in ("v", "variant", "projection") or (public and not f["p"]):
-                    continue
-                lines.append(f"  {n}: {_ts_type(parse_type(str(f['t'])), public)};")
-            lines.append("}")
-            out.append("\n".join(lines))
-        out.append(f"export type {pfx}Event =\n  | " + "\n  | ".join(names) + ";")
-        out.append("")
+    out.append("// ---- PRIVATE (operator) shape")
+    out.append(_ts_iface("Actor", T.ACTOR))
+    for n, f in T.REFS.items():
+        out.append(_ts_iface(n, f))
+    for n, f in T.RECORDS.items():
+        out.append(_ts_iface(n, f))
+    for n, m in T.UNIONS.items():
+        out.append(f"export type {n} = " + " | ".join(m) + ";")
+    names: list[str] = []
+    for v in VARIANTS:
+        fields = leaf_fields(v)
+        lf = _ts_leaf_name(v)
+        names.append(lf)
+        lines = [f"export interface {lf} {{", f"  v: {EVENT_V};",
+                 f"  variant: {json.dumps(v)};"]
+        for n, f in fields.items():
+            if n in ("v", "variant"):
+                continue
+            lines.append(f"  {n}: {_ts_type(parse_type(str(f['t'])))};")
+        lines.append("}")
+        out.append("\n".join(lines))
+    out.append("export type Event =\n  | " + "\n  | ".join(names) + ";")
+    out.append("")
     out.append("""// ---- WIRE rows, segments and the delivery envelope (design §6)
 export type EvError = { code: string; path: string; expected: string };
-export type PublicEvError = { code: string };
 export interface WireMailRow {
   id?: string; from: string; kind: string; body: string; at: string;
   relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
@@ -787,26 +642,12 @@ export interface WireMailRow {
   delivering?: boolean; via?: string; stage?: string; ref?: string;
   ev?: Event; ev_raw?: unknown; ev_error?: EvError;
 }
-export interface PublicWireMailRow {
-  id?: string; from: string; kind: string; body: string; at: string;
-  relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
-  reply_to?: Record<string, unknown>; retracted?: boolean; delivering?: boolean;
-  via?: string; stage?: string; ref?: string;
-  ev_public?: PublicEvent; ev_error?: PublicEvError;
-}
 export interface WireNoticeRow { at: string; text: string; ev?: Event; ev_raw?: unknown; ev_error?: EvError; }
-export interface PublicWireNoticeRow { at: string; text: string; ev_public?: PublicEvent; ev_error?: PublicEvError; }
 export type Segment =
   | { kind: "notices"; rows: WireNoticeRow[] }
   | { kind: "mail"; rows: WireMailRow[] }
   | { kind: "state"; event?: Event; text: string; ev_error?: EvError }
   | { kind: "drive"; event?: Event; text: string; ev_error?: EvError }
-  | { kind: "text"; text: string };
-export type PublicSegment =
-  | { kind: "notices"; rows: PublicWireNoticeRow[] }
-  | { kind: "mail"; rows: PublicWireMailRow[] }
-  | { kind: "state"; event_public?: PublicEvent; text: string; ev_error?: PublicEvError }
-  | { kind: "drive"; event_public?: PublicEvent; text: string; ev_error?: PublicEvError }
   | { kind: "text"; text: string };
 export const DELIVERY_MODES = ["turn","steer","boundary","reconcile","rehire","idle_only"] as const;
 export type DeliveryMode = (typeof DELIVERY_MODES)[number];
@@ -820,8 +661,8 @@ export type ReplyTarget =
   | { kind: "document"; org: string; id: string }
   | { kind: "work_item"; org: string; slug: string };
 // what a typed send returns beside today's result fields: the delivered mail id, its
-// `@mail:` ref and the minted event in the caller's projection (never both).
-export interface TypedReplyReceipt { id: string; ref: string; ev?: Event; ev_public?: PublicEvent; }
+// `@mail:` ref and the minted event.
+export interface TypedReplyReceipt { id: string; ref: string; ev?: Event; }
 """)
     out.append("export const FAMILY_OF: Record<Event['variant'], Family> = "
                + json.dumps(FAMILY_OF, indent=2) + ";")
@@ -838,7 +679,7 @@ export interface TypedReplyReceipt { id: string; ref: string; ev?: Event; ev_pub
     return "\n".join(out) + "\n"
 
 
-def _js_type(t: Mapping[str, Any], public: bool) -> dict[str, Any]:
+def _js_type(t: Mapping[str, Any]) -> dict[str, Any]:
     k = t["k"]
     s: dict[str, Any]
     if k == "null":
@@ -854,50 +695,44 @@ def _js_type(t: Mapping[str, Any], public: bool) -> dict[str, Any]:
     elif k == "lit":
         s = {"enum": list(t["vals"])}
     elif k == "list":
-        s = {"type": "array", "items": _js_type(t["of"], public)}
+        s = {"type": "array", "items": _js_type(t["of"])}
         if t["min"]:
             s["minItems"] = t["min"]
     elif k in ("ref", "rec", "union"):
-        s = {"$ref": f"#/$defs/{'Public' if public else ''}{t['name']}"}
+        s = {"$ref": f"#/$defs/{t['name']}"}
     elif k == "event":
-        s = {"$ref": f"#/$defs/{'Public' if public else ''}Event"}
+        s = {"$ref": "#/$defs/Event"}
     else:  # pragma: no cover
         raise TableInvalid(k)
     return {"anyOf": [s, {"type": "null"}]} if t.get("null") else s
 
 
-def _js_obj(fields: Mapping[str, Mapping[str, Any]], public: bool,
+def _js_obj(fields: Mapping[str, Mapping[str, Any]],
             extra: Mapping[str, Any] | None = None) -> dict[str, Any]:
     props: dict[str, Any] = dict(extra or {})
     for n, f in fields.items():
-        if public and not f["p"]:
-            continue
-        props[n] = _js_type(parse_type(str(f["t"])), public)
+        props[n] = _js_type(parse_type(str(f["t"])))
     return {"type": "object", "properties": props, "required": list(props),
             "additionalProperties": False}
 
 
 def emit_json_schema() -> dict[str, Any]:
     defs: dict[str, Any] = {}
-    for public in (False, True):
-        pfx = "Public" if public else ""
-        defs[pfx + "Actor"] = _js_obj(T.ACTOR, public)
-        for n, f in T.REFS.items():
-            defs[pfx + n] = _js_obj(f, public)
-        for n, f in T.RECORDS.items():
-            defs[pfx + n] = _js_obj(f, public)
-        for n, m in T.UNIONS.items():
-            defs[pfx + n] = {"oneOf": [{"$ref": f"#/$defs/{pfx}{x}"} for x in m]}
-        leaves: list[dict[str, Any]] = []
-        for v in VARIANTS:
-            fields = leaf_fields(v)
-            extra: dict[str, Any] = {"v": {"const": EVENT_V}, "variant": {"const": v}}
-            if public:
-                extra["projection"] = {"const": "public"}
-            fields = {n: f for n, f in fields.items() if n not in ("v", "variant")}
-            defs[pfx + _ts_leaf_name(v)] = _js_obj(fields, public, extra)
-            leaves.append({"$ref": f"#/$defs/{pfx}{_ts_leaf_name(v)}"})
-        defs[pfx + "Event"] = {"oneOf": leaves}
+    defs["Actor"] = _js_obj(T.ACTOR)
+    for n, f in T.REFS.items():
+        defs[n] = _js_obj(f)
+    for n, f in T.RECORDS.items():
+        defs[n] = _js_obj(f)
+    for n, m in T.UNIONS.items():
+        defs[n] = {"oneOf": [{"$ref": f"#/$defs/{x}"} for x in m]}
+    leaves: list[dict[str, Any]] = []
+    for v in VARIANTS:
+        fields = leaf_fields(v)
+        extra: dict[str, Any] = {"v": {"const": EVENT_V}, "variant": {"const": v}}
+        fields = {n: f for n, f in fields.items() if n not in ("v", "variant")}
+        defs[_ts_leaf_name(v)] = _js_obj(fields, extra)
+        leaves.append({"$ref": f"#/$defs/{_ts_leaf_name(v)}"})
+    defs["Event"] = {"oneOf": leaves}
     return {"$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": "orgtree-events-v1", "$defs": defs,
-            "oneOf": [{"$ref": "#/$defs/Event"}, {"$ref": "#/$defs/PublicEvent"}]}
+            "oneOf": [{"$ref": "#/$defs/Event"}]}

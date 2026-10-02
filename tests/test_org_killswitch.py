@@ -271,8 +271,7 @@ class OrgKillswitchTests(unittest.TestCase):
                          ["/context"],
                          "the command's carrier survives for after the release")
         # CONTROL: after release the same command publishes normally — the
-        # gate is the latch, not a new hold on immediate commands (and the
-        # kiosk hard-freeze path, which never latches, keeps this behavior).
+        # gate is the latch, not a new hold on immediate commands.
         halt.killswitch_release(self.slug)
         started2, closed2 = threading.Event(), threading.Event()
         live2 = MagicMock()

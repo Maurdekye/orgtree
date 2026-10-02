@@ -23,10 +23,10 @@ const rows = [
 
 test('org rows validate the admin listing and refuse malformed payloads whole', () => {
   assert.deepEqual(orgActivityRows([
-    { slug: 'alpha', name: 'Alpha Org', working: 2, live: 5, nodes: 99, kiosk: false },
+    { slug: 'alpha', name: 'Alpha Org', working: 2, live: 5, nodes: 99, net_slug: null },
     { slug: 'idle-org', name: 'Idle', working: 0, live: 3 },
   ]), rows, 'extra listing fields pass through as the two tray counts')
-  // a deliberately working-less row (the public listing shape) reads as idle
+  // a deliberately working-less row reads as idle
   assert.deepEqual(orgActivityRows([{ slug: 'pub', name: 'P', live: 1 }]),
     [{ slug: 'pub', name: 'P', working: 0, live: 1 }])
   // an empty name falls back to the slug rather than a blank row

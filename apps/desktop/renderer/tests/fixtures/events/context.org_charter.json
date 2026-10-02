@@ -16,17 +16,5 @@
     "text": "context.org_charter·text",
     "readable": false
   },
-  "public": {
-    "v": 1,
-    "variant": "context.org_charter",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "org"
-    }
-  },
   "body": "context.org_charter·text"
 }

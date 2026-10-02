@@ -52,7 +52,6 @@
     "roots",
     "sandboxed",
     "slug",
-    "spend_frozen",
     "storage_blocked",
     "sync_rev",
     "tiers",
@@ -111,19 +110,6 @@
   "archived_summary_marker": {
     "detail": false
   },
-  "public": {
-    "adds": [
-      "kiosk",
-      "public"
-    ],
-    "drops": [
-      "net"
-    ],
-    "row_drops": [
-      "session_id",
-      "external_handles"
-    ]
-  },
   "refusals": {
     "missing": [
       401,
@@ -137,11 +123,7 @@
       401,
       "agent credential is invalid or expired; reconnect the agent session"
     ],
-    "ws_close": 4401,
-    "desktop_kiosk": [
-      500,
-      "ValueError: Not available in desktop MVP: kiosk"
-    ]
+    "ws_close": 4401
   },
   "frames": {
     "changed": [
@@ -167,7 +149,7 @@
     "the first ETag of a cold org is stale before the client can revalidate with it",
     "a valid agent credential on these GET routes is refused as 'invalid or expired'",
     "the websocket route accepts a socket for an organization that does not exist",
-    "in desktop-managed mode an org document carrying kiosk makes the admin tree and node detail answer 500 (ValueError escapes a RuntimeError-only gate)"
+    "in desktop-managed mode an org document carrying sandbox makes the tree and node detail answer 500 (ValueError escapes a RuntimeError-only gate; source)"
   ],
-  "scope": "Legacy boundary of GET /api/orgs/{slug}, the node detail route and the org websocket feed on disposable SQLite. It pins authentication and kiosk scoping, ETag revalidation, archived summaries, public scrubbing and frame shapes; it does not qualify native behaviour, contacts or conflicts."
+  "scope": "Legacy boundary of GET /api/orgs/{slug}, the node detail route and the org websocket feed on disposable SQLite. It pins authentication, ETag revalidation, archived summaries and frame shapes; it does not qualify native behaviour, contacts or conflicts."
 }

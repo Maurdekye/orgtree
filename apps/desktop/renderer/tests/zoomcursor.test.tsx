@@ -45,7 +45,7 @@ function card(nd: CanvasNode, options: {
       focused={options.focused ?? false} dragging={options.dragging ?? false}
       isDrop={false} seats={seats} map={new Map([[nd.id, nd]])} op={op}
       slug="org" toast={noop} pxc={1} zoom={options.lod === 'mini' ? .4 : 1}
-      compactAt={.8} pub={false} maxTop={10} kioskRemaining={null}
+      compactAt={.8} maxTop={10}
       cascadeAlloc onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
       onConfig={noop} onInbox={noop} onLineage={noop} onRecenter={noop}
       onJump={noop} onMailLink={noop} onWorkLink={noop}

@@ -58,7 +58,7 @@ const q = <T extends Element>(sel: string) => document.querySelector<T>(sel)
 const qa = (sel: string) => [...document.querySelectorAll(sel)]
 
 const org = (slug: string, patch: Partial<OrgListEntry> = {}): OrgListEntry => ({
-  slug, name: slug, nodes: 3, live: 4, kiosk: false, created: null, ...patch,
+  slug, name: slug, nodes: 3, live: 4, created: null, ...patch,
 })
 
 const TREE = {

@@ -66,10 +66,6 @@ interface UserNodeProps {
   openrouterHire?: HireState | null
   /** D-199: route out of the no-harness state (opens the accounts panel). */
   onNoHarness?: () => void
-  kiosk: TreePayload['kiosk']
-  pub: boolean
-  kioskRemaining: number | null
-  kioskSegs?: { seat: number; grant: number }[]
   pxc: number
   zoom: number
   /** open the user's inbox. Reachable two ways (user 2026-09-11): the ✉ on
@@ -77,9 +73,8 @@ interface UserNodeProps {
    *  the card's context menu, which does not depend on that setting. */
   onInbox?: () => void
   /** open GENERAL org settings — the whole modal, not one of its tabs (user
-   *  ruling 2026-09-11). Absent on a public org, where that modal has no
-   *  door at all; the ⚙ and the menu entry both disappear with it rather
-   *  than becoming dead controls. */
+   *  ruling 2026-09-11). When absent, the ⚙ and the menu entry both
+   *  disappear rather than becoming dead controls. */
   onGear?: () => void
   onSpawn: (tier: string) => void
   onMailLink: MailLinkFn
@@ -108,7 +103,7 @@ interface UserNodeProps {
 
 export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
   antigravityHire, openrouterHire,
-  kiosk, pub, kioskRemaining, kioskSegs, pxc, zoom, onInbox, onGear, onSpawn,
+  pxc, zoom, onInbox, onGear, onSpawn,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
@@ -145,17 +140,14 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         title: 'the whole settings modal — hire defaults are a tab of it',
         onSelect: () => onGear() })
     }
-    // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx). The
-    // same presentation gate as the agent menu's bulk entries: not for a
-    // kiosk viewer. Each target still runs the normal op and its checks.
-    if (!pub) {
-      entries.push({
-        label: 'Cheap-compact all agents…',
-        title: 'give every live agent a fresh session; old sessions stay '
-          + 'consultable, mid-turn agents are skipped',
-        onSelect: () => setAskingCompactAll(true),
-      })
-    }
+    // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx).
+    // Each target still runs the normal op and its checks.
+    entries.push({
+      label: 'Cheap-compact all agents…',
+      title: 'give every live agent a fresh session; old sessions stay '
+        + 'consultable, mid-turn agents are skipped',
+      onSelect: () => setAskingCompactAll(true),
+    })
     entries.push('sep', {
       label: 'Retire all agents…', danger: true,
       title: 'retires every agent in the org at once; context is kept',
@@ -254,8 +246,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
       {/* soleHire: the eye carries no side or top sets (see the static edge-b
           above), so its subordinate badge stands alone and needs no role word
           to tell it apart from anything */}
-      <SpawnChips onSpawn={onSpawn} free={kioskRemaining ?? Infinity} seats={seats}
-        maxTier={kiosk?.max_tier} soleHire codexHire={codexHire}
+      <SpawnChips onSpawn={onSpawn} seats={seats}
+        soleHire codexHire={codexHire}
         claudeHire={claudeHire} onNoHarness={onNoHarness}
         antigravityHire={antigravityHire} openrouterHire={openrouterHire}
         zoom={focused ? undefined : zoom} expanded={expandedHire || guideHire}
@@ -267,7 +259,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
              for again, so it is the same callback, not a second one that
              could drift from it. */
           onRecenter={onFocus}
-          pub={pub} eyeW={eyeW} posX={posX} onJump={onJump}
+          eyeW={eyeW} posX={posX} onJump={onJump}
           compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onNodeLineage={onNodeLineage} onNodeConfig={onNodeConfig}
@@ -307,7 +299,6 @@ interface EyeDeskProps {
   op: OpFn
   slug: string
   toast: ToastFn
-  pub: boolean
   eyeW: number
   posX: (id: string) => number
   onJump?: (id: string) => void
@@ -337,7 +328,7 @@ interface EyeDeskProps {
 }
 
 export function EyeDesk({ map, op, slug, toast,
-  pub, eyeW, posX, onJump, compactAt, maxTop, pxc,
+  eyeW, posX, onJump, compactAt, maxTop, pxc,
   onMailLink, onWorkLink, onOpenDoc, onNodeLineage, onNodeConfig, onRecenter,
   pinnedIds, onShowPin }: EyeDeskProps) {
   const isPinned = (id: string) => !!pinnedIds?.has(id)
@@ -532,7 +523,7 @@ export function EyeDesk({ map, op, slug, toast,
           {open.map((a) => (
             <div className="eye-panel" key={a.id}>
               <DeskChat node={a} map={map} op={op} slug={slug}
-                toast={toast} pub={pub} bare compact compactAt={compactAt}
+                toast={toast} bare compact compactAt={compactAt}
                 onJump={onJump} maxTop={maxTop} pxc={pxc} onMailLink={onMailLink}
                 onWorkLink={onWorkLink}
                 onOpenDoc={onOpenDoc}
@@ -559,9 +550,7 @@ export function EyeDesk({ map, op, slug, toast,
 
 interface SpawnChipsProps {
   onSpawn: (tier: string) => void
-  free: number
   seats: Record<string, number>
-  maxTier?: string | null
   /** F-03: render as a vertical column on this edge — the chips hire a
    *  COWORKER (same superior, placed to that side), not a report.
    *  FR-25: 'top' is the third variant — a horizontal row above the card
@@ -607,30 +596,20 @@ interface SpawnChipsProps {
   onToggleExpanded?: () => void
 }
 
-function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
+function SpawnChips({ onSpawn, seats, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, zoom,
   expanded = false, onToggleExpanded }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
-  // kiosk tier cap (user spec): tokens above the cap DISAPPEAR entirely —
-  // seat cost doubles as the tier rank, so the cap is a simple cost compare
-  const shown = TIERS.filter((t) =>
-    !maxTier || (seats[t] ?? 0) <= (seats[maxTier] ?? Infinity))
   const chip = (t: string, letter: string | undefined) => {
     const seat = seats[t] ?? anyTierSeat(t)
-    const cant = Number.isFinite(free) && free < seat
     // the tooltip names the tier the way the user reads it everywhere else:
     // an OpenRouter favorite by its model (`claude-sonnet-5`), never by its
     // `or-…` tier id (user ask 2026-09-03)
     const name = tierLabel(t)
     return (
-      <button key={t} disabled={cant} className={'t-' + t + (legacyMark(t) ? ' legacy' : '')} data-first-use={soleHire ? 'token' : undefined}
-        title={cant
-          // user report: an exhausted kiosk cap read as an opaque dead
-          // end — the tooltip now carries the REMEDY, not just the number
-          ? `${name}: needs ${fmtCredits(seat)} free (has ${fmtCredits(free)}) — the kiosk credit `
-            + 'cap is fully held; drag an agent’s credit bar down '
-            + 'or retire one to free credits'
+      <button key={t} className={'t-' + t + (legacyMark(t) ? ' legacy' : '')} data-first-use={soleHire ? 'token' : undefined}
+        title={
           // ONE SHAPE FOR ALL THREE (user request 2026-08-28: "make them
           // more concise; just 3-5 words at most", "for subordinate,
           // superior, and coworker"). They were written at different times
@@ -653,7 +632,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
           // word is dropped entirely — see `soleHire`. The cost badge
           // stays: it is the one part that still says something the user
           // cannot read off the badge's position.
-          : `hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
+          `hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
             + (soleHire ? ''
               : ` ${side === 'top' ? 'superior' : side ? 'coworker' : 'subordinate'}`)
             + ` (-${fmtCredits(seat)})` + legacyMark(t)}
@@ -691,16 +670,10 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
   // vanished from the side and top strips (`!side`), so one provider was
   // visible on one edge of a card and absent from another — and Claude was
   // never asked at all, which is the bug the user reported.
-  //
-  // The kiosk holdout is unchanged and still absolute: kiosks hold codex and
-  // antigravity out entirely (user ruling — sandboxing unsettled), and the kiosk
-  // cap is the one thing that sets maxTier, so it doubles as the kiosk test.
   const fams: { key: string; tiers: string[]; body: ReactNode }[] = []
   const fam = (key: string, tiers: string[], letters: Record<string, string>,
                label: string, hire: HireState | null | undefined,
-               seatOf: (t: string) => number,
-               kioskHeld = false): void => {
-    if (kioskHeld) return
+               seatOf: (t: string) => number): void => {
     // a family with no tiers has nothing to offer or to explain — only the
     // OpenRouter registry can be empty (no favorites picked yet), and an
     // empty row must not count as "a harness exists" for the no-harness
@@ -734,20 +707,17 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
       )),
     })
   }
-  // Claude's own list is the kiosk-capped `shown`, not the raw family: the cap
-  // removes tiers, the offer rule removes families, and they compose.
-  fam('claude', shown, TIER_LETTER, 'Claude', claudeHire,
+  fam('claude', TIERS, TIER_LETTER, 'Claude', claudeHire,
       (t) => seats[t] ?? TIER_SEAT[t] ?? 0)
   fam('codex', CODEX_TIERS, CODEX_TIER_LETTER, 'Codex', codexHire,
-      (t) => seats[t] ?? CODEX_TIER_SEAT[t] ?? 0, !!maxTier)
+      (t) => seats[t] ?? CODEX_TIER_SEAT[t] ?? 0)
   fam('antigravity', ANTIGRAVITY_TIERS, ANTIGRAVITY_TIER_LETTER, 'Antigravity', antigravityHire,
-      (t) => seats[t] ?? ANTIGRAVITY_TIER_SEAT[t] ?? 0, !!maxTier)
+      (t) => seats[t] ?? ANTIGRAVITY_TIER_SEAT[t] ?? 0)
   // the OpenRouter family (2026-09-02): its tiers are the user's favorites,
   // read from the shared registry the providers payload fills; the letters
-  // were written into TIER_LETTER by the same call. Kiosk-held like the
-  // other non-Claude lanes until its sandboxing is settled.
+  // were written into TIER_LETTER by the same call.
   fam('openrouter', openrouterTierIds(), TIER_LETTER, 'OpenRouter',
-      openrouterHire, (t) => seats[t] ?? anyTierSeat(t), !!maxTier)
+      openrouterHire, (t) => seats[t] ?? anyTierSeat(t))
   fams.sort((a, b) => b.tiers.length - a.tiers.length)   // inward-first
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire]
     .some((h) => h?.userEnabled === false)
@@ -759,7 +729,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
   // far-zoom compact control wraps whatever `fams` produced, so shaping the
   // empty state as a family means that control expands it like any other row
   // instead of collapsing to a dead arrow.
-  if (!fams.length && !maxTier)
+  if (!fams.length)
     fams.push({
       key: 'none', tiers: [],
       body: (
@@ -774,10 +744,6 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
         </button>
       ),
     })
-  // ...and the residual case that is NOT the no-harness state: a kiosk whose
-  // cap has excluded everything. There is nothing to say and nothing to open,
-  // so leave the strip out entirely — a compact arrow with no hire choice
-  // behind it is worse than an absent affordance.
   // Keep the hooks below unconditional: provider availability can change
   // after its payload loads, including into or out of this empty residual.
   const hasFamilies = fams.length > 0
@@ -854,7 +820,6 @@ interface CreditBarProps {
   onCommit?: (delta: number) => void  // live: reallocate on release
   zoom: number
   pxc: number
-  capMode?: boolean
   /** F-05 counter-offer: the agent's CURRENT grant. The tip shows the offer's
    *  ±delta against it and an I-bar brackets the difference, so the size of
    *  the concession is visible rather than arithmetic. */
@@ -864,7 +829,7 @@ interface CreditBarProps {
 }
 
 export function CreditBar({ seat = 0, grant, committed, segments = [], draftMode,
-  min = 0, max, maxGhost, onDragValue, onCommit, zoom, pxc, capMode,
+  min = 0, max, maxGhost, onDragValue, onCommit, zoom, pxc,
   baseline, onRelease }: CreditBarProps) {
   const [drag, setDrag] = useState<{ y0: number; g0: number; val: number } | null>(null)          // {y0, g0, val}
   const cur = drag && !draftMode ? drag.val : grant
@@ -993,13 +958,6 @@ export function CreditBar({ seat = 0, grant, committed, segments = [], draftMode
             <div>grant <b className="n-fill">{fmtCredits(grant)}</b></div>
             <div className="dim">seat <b className="n-seat">{fmtCredits(seat)}</b></div>
           </>
-        ) : capMode ? (
-          /* the eye's kiosk bar: the same numbers wear their org-level names */
-          <>
-            <div>cap <b className="n-fill">{fmtCredits(cur)}</b>{delta !== 0 && <span className="dim"> ({delta > 0 ? '+' : ''}{fmtCredits(delta)})</span>}</div>
-            <div>circulation <b className="n-fill">{fmtCredits(committed)}</b></div>
-            <div>free <b className="n-free">{fmtCredits(cur - committed)}</b></div>
-          </>
         ) : (
           <>
             <div>grant <b className="n-fill">{fmtCredits(cur)}</b>{delta !== 0 && <span className="dim"> ({delta > 0 ? '+' : ''}{fmtCredits(delta)})</span>}</div>
@@ -1020,7 +978,6 @@ interface DraftNodeProps {
   seats: Record<string, number>
   maxTop: number
   defaultTop: number
-  kioskRemaining: number | null
   tree: TreePayload
   zoom: number
   pxc: number
@@ -1054,7 +1011,7 @@ export function presetLabels(presets: CharterPreset[]): Map<string, string> {
     (again.get(first[i]!) ?? 0) > 1 ? `${p.name} — ${p.path}` : first[i]!]))
 }
 
-export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRemaining,
+export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
   tree, zoom, pxc, onConfirm, onCancel, onGrant }: DraftNodeProps) {
   const [name, setName] = useState('')
   useEffect(() => { firstUseName(tree.slug, name) }, [tree.slug, name])
@@ -1098,22 +1055,19 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
   // `cut` marks a preset the endpoint had to bound; the warning below explains
   // the resulting content without changing the hire flow.
   const cut = chosen.filter((c) => c.truncated)
-  // top-level drafts pre-fill the org's default grant (50 unless configured),
-  // clamped only by a kiosk's remaining headroom
+  // top-level drafts pre-fill the org's default grant (50 unless configured)
   const [grant, setGrant] = useState(() =>
-    draftOpeningGrant(draft, defaultTop, kioskRemaining, seats))
+    draftOpeningGrant(draft, defaultTop))
   const grantCb = useRef(onGrant)
   grantCb.current = onGrant
   useEffect(() => { grantCb.current?.(grant) }, [grant])
   // user ruling: drag the allocation as high as you want — the cost bubbles
   // up the chain to you (§4.6) — bounded only by the org's GLOBAL grant cap
-  // (settings: top-level grant cap), a kiosk's hard credit cap, or, when the
-  // cascade_hire setting is off, the parent's own free credits.
-  const max = kioskRemaining != null
-    ? Math.max(0, kioskRemaining - (seats[draft.tier] ?? 0))
-    : tree?.cascade_hire === false && draft.parent != null
-      ? (map.get(draft.parent)?.free ?? 0)
-      : maxTop
+  // (settings: top-level grant cap) or, when the cascade_hire setting is
+  // off, the parent's own free credits.
+  const max = tree?.cascade_hire === false && draft.parent != null
+    ? (map.get(draft.parent)?.free ?? 0)
+    : maxTop
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
     window.addEventListener('keydown', onKey)
@@ -1130,7 +1084,6 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
     <div className={'sq draft' + providerClass} style={{
       transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
     }} onPointerDown={(e) => e.stopPropagation()}>
-      {/* unbounded drag — the ghost ceiling only exists under a kiosk cap */}
       <CreditBar seat={seats[draft.tier] ?? 0} grant={grant} committed={0}
         draftMode max={max}
         onDragValue={setGrant} zoom={zoom} pxc={pxc} />
@@ -1285,13 +1238,10 @@ interface NodeSquareProps {
   onOpenAgentGallery?: (agentId: string) => void
   onRecenter?: () => void
   onJump?: (id: string) => void
-  pub: boolean
-  kioskRemaining: number | null
   cascadeAlloc: boolean
   maxTop: number
   pile?: Pile
   compactAt?: number
-  maxTier?: string | null
   onMailLink: MailLinkFn
   onWorkLink: WorkLinkFn
   onDragStart: (e: React.PointerEvent<HTMLDivElement>, id: string) => void
@@ -1460,7 +1410,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
 
 export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
-  onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
+  onRecenter, onJump, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, deskEligible = true, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
   onOpenTemporary,
@@ -1552,14 +1502,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ? () => onOpenTemporary(node.id) : undefined,
       onHire: revealHireChips,
       onRetireAsk: setAsking,
-      canRetireAll: !pub,
-      canBulkCompact: !pub,
       onDismiss,
-      // the same public gate the frozen badge's own unstick already applies:
-      // a kiosk visitor releases nothing and moves no account (the backend
-      // refuses the route outright, this keeps the entry off their menu)
-      onContinueOn: pub ? undefined
-        : (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
+      onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
     }, { pinned, piled: !!pile, detached: desk.detached })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1787,13 +1731,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           min={grant - free}
           /* reallocate cascades up the chain (§4.6), so the parent's free is
              not a ceiling — unless the cascade_alloc setting turns that off.
-             Otherwise the org's global grant cap (or a kiosk's hard credit
-             cap) bounds the drag. */
-          max={kioskRemaining != null
-            ? grant + kioskRemaining
-            : cascadeAlloc === false && node.parent !== USER
-              ? grant + (map.get(node.parent!)?.free ?? 0)
-              : maxTop}
+             Otherwise the org's global grant cap bounds the drag. */
+          max={cascadeAlloc === false && node.parent !== USER
+            ? grant + (map.get(node.parent!)?.free ?? 0)
+            : maxTop}
           maxGhost={cascadeAlloc === false && node.parent !== USER}
           onCommit={(delta) => op({ op: 'reallocate', node: node.id, delta })
             .then(() => toast(
@@ -1892,8 +1833,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               onDismiss()
             }}><CloseIcon fontSize="inherit" /></button>
         )}
-        {/* ceiling spec §2: visitors retool freely WITHIN the kiosk ceiling —
-            the gear is theirs too; the ledger clamps, never a 403 */}
         <button className="gearbtn"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onConfig() }}><SettingsIcon fontSize="inherit" /></button>
@@ -1949,7 +1888,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
                       : '')
                   : null].filter(Boolean).join(' — ') || undefined}
               onAct={() => {
-                if (pub) return
                 unstickNode(slug, node.id)
                   .then((r) => toast([r.released?.length
                     ? `${node.id} unstuck (${r.released.join(', ')})`
@@ -2021,7 +1959,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           toast={toast}
           onLineage={onLineage} onConfig={onConfig} compactAt={compactAt}
           onRecenter={onRecenter} onJump={onJump} maxTop={maxTop} pxc={pxc}
-          pub={pub} onMailLink={onMailLink} onWorkLink={onWorkLink}
+          onMailLink={onMailLink} onWorkLink={onWorkLink}
           onOpenDoc={onOpenDoc}
           onPin={onPin}
           onDismiss={onDismiss} />
@@ -2035,7 +1973,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       )}
       {/* user ruling: chips are NEVER disabled by the node's own free credits —
           a user hire §4.6-cascades, granting the chain whatever it lacks.
-          (Kiosk mode will pass the cap remainder here instead.)
 
           ⚠ AND NOT GATED ON `lod` (user report 2026-09-11: the hire tokens
           "disappear at maximum zoom and only come back when the card quick
@@ -2051,8 +1988,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           than by hiding the control (`.sq.mini:hover`); the numbers and the
           hit tests are in tests/minihire_probe.py. */}
       {live && !node.isBearerOf && !node.bearer_state &&
-        <SpawnChips onSpawn={onSpawn} free={kioskRemaining ?? Infinity} seats={seats}
-          maxTier={maxTier} codexHire={codexHire} antigravityHire={antigravityHire}
+        <SpawnChips onSpawn={onSpawn} seats={seats}
+          codexHire={codexHire} antigravityHire={antigravityHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
           openrouterHire={openrouterHire}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'b'}
@@ -2097,14 +2034,14 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <div className="hsof-bridge bridge-l" aria-hidden="true" />
           <div className="hsof-bridge bridge-r" aria-hidden="true" />
           <SpawnChips side="left" onSpawn={(t) => onSpawnSide(t, 'left')}
-            free={kioskRemaining ?? Infinity} seats={seats} maxTier={maxTier}
+            seats={seats}
             codexHire={codexHire} antigravityHire={antigravityHire}
             openrouterHire={openrouterHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'l'}
             onToggleExpanded={() => toggleCompactHire('l')} />
           <SpawnChips side="right" onSpawn={(t) => onSpawnSide(t, 'right')}
-            free={kioskRemaining ?? Infinity} seats={seats} maxTier={maxTier}
+            seats={seats}
             codexHire={codexHire} antigravityHire={antigravityHire}
             openrouterHire={openrouterHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
@@ -2118,7 +2055,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           atomically. Same pile/bearer exclusions as the side chips. */}
       {live && !node.isBearerOf && !node.bearer_state && !pile && onSpawnTop && (
         <SpawnChips side="top" onSpawn={(t) => onSpawnTop(t)}
-          free={kioskRemaining ?? Infinity} seats={seats} maxTier={maxTier}
+          seats={seats}
           codexHire={codexHire} antigravityHire={antigravityHire}
           openrouterHire={openrouterHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}

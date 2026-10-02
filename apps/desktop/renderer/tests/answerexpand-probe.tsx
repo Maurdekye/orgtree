@@ -221,7 +221,7 @@ createRoot(host).render(
   <Boundary>
     <DeskHosts map={MAP} slug="orgtree">
       <DeskChat node={hub} map={MAP} slug="orgtree" op={async () => ({})}
-        toast={() => {}} pub={false}
+        toast={() => {}}
         onRecenter={() => steps.push('recenter')} />
     </DeskHosts>
   </Boundary>)

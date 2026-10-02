@@ -1,5 +1,5 @@
 import { MANIFEST } from '../generated/events'
-import { isEvent, isPublicEvent, record } from './decode'
+import { isEvent, record } from './decode'
 import type { EventProfile } from './decode'
 import type { KnownEvent } from './project'
 
@@ -11,7 +11,7 @@ export type HumanValue =
   | { kind: 'event'; event: KnownEvent }
   | { kind: 'unavailable' }
 
-interface FieldSpec { type: string; disposition: string; public: boolean }
+interface FieldSpec { type: string; disposition: string }
 type Fields = Readonly<Record<string, FieldSpec>>
 const records: Readonly<Record<string, Fields>> = MANIFEST.records
 const refs: Readonly<Record<string, Fields>> = MANIFEST.refs
@@ -28,8 +28,7 @@ function recordValue(value: unknown, fields: Fields | undefined, profile: EventP
   if (!record(value) || !fields) return { kind: 'unavailable' }
   return { kind: 'record', fields: Object.entries(fields)
     .filter(([key, spec]) => Object.hasOwn(value, key)
-      && (spec.disposition === 'both' || spec.disposition === 'human_only')
-      && (profile === 'operator' || spec.public))
+      && (spec.disposition === 'both' || spec.disposition === 'human_only'))
     .map(([key, spec]) => ({ key, label: key.replaceAll('_', ' '),
       value: humanValue(value[key], spec.type, profile) })) }
 }
@@ -46,8 +45,7 @@ export function humanValue(value: unknown, type: string, profile: EventProfile):
       : { kind: 'unavailable' }
   }
   if (type === 'E:Event') {
-    if (profile === 'operator' && isEvent(value)) return { kind: 'event', event: value }
-    if (profile === 'public' && isPublicEvent(value)) return { kind: 'event', event: value }
+    if (isEvent(value)) return { kind: 'event', event: value }
     return { kind: 'unavailable' }
   }
   if (type.startsWith('N:')) return recordValue(value, records[type.slice(2)], profile)

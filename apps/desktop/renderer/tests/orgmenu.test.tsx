@@ -20,13 +20,13 @@ import { THEME_ACCENTS, themeAccent } from '../../../../packages/contracts/visua
 declare const __SRC_DIR__: string
 
 const entry = (slug: string, patch: Partial<OrgListEntry> = {}): OrgListEntry => ({
-  slug, name: slug, nodes: 9, live: 4, kiosk: false, created: null, ...patch,
+  slug, name: slug, nodes: 9, live: 4, created: null, ...patch,
 })
 
 const ORGS: OrgListEntry[] = [
   entry('orgtree', { name: 'Orgtree', working: 1, live: 4 }),
   entry('idle-org', { name: 'Idle Project', working: 0, live: 2 }),
-  entry('public-org', { name: 'Public Org', live: 3 }),
+  entry('unknown-org', { name: 'Unknown Org', live: 3 }),
 ]
 
 async function mountRows(t: TestContext, orgs: OrgListEntry[],
@@ -135,9 +135,9 @@ test('interactive behavior: inactive rows, selection, counts, and keyboard focus
   // Inactive rows do not show spinner, but activity cell keeps columns aligned
   assert.ok(rows[0]!.querySelector('.org-activity .cc-spin'), 'busy row has spinner')
   assert.equal(rows[1]!.querySelector('.cc-spin'), null, 'idle row has no spinner')
-  assert.equal(rows[2]!.querySelector('.cc-spin'), null, 'public row has no spinner')
+  assert.equal(rows[2]!.querySelector('.cc-spin'), null, 'working-less row has no spinner')
   assert.ok(rows[1]!.querySelector('.org-activity'), 'idle row retains activity cell for alignment')
-  assert.ok(rows[2]!.querySelector('.org-activity'), 'public row retains activity cell for alignment')
+  assert.ok(rows[2]!.querySelector('.org-activity'), 'working-less row retains activity cell for alignment')
 
   // Counts column
   const counts = rows.map((r) => r.querySelector('.org-counts')!.textContent)
@@ -154,6 +154,6 @@ test('interactive behavior: inactive rows, selection, counts, and keyboard focus
 
   // Delete button does not trigger pick
   ;(rows[2]!.querySelector('.org-del') as HTMLElement).click()
-  assert.deepEqual(doomed, ['public-org'])
+  assert.deepEqual(doomed, ['unknown-org'])
   assert.deepEqual(picked, ['idle-org', 'orgtree'])
 })

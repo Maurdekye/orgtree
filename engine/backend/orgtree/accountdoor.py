@@ -14,13 +14,13 @@ and scope family (S7-LOCK-PLAN.md §3, reviewed by p01 2026-09-26 13:39Z).
     pending entry amended) and the `events` log.
   Nothing when everything asked for is already held. No IO. The routed
   drive to the parent is `_agent_door`'s generic routed step, as in the
-  cycle. Not kiosk-exempt: the door's kiosk-cap check replaces the cycle's.
+  cycle.
 
   ACCOUNT_ASSIGN (`supervisor.assign_account` on the door's org, landing
   L2): the target seat and the `target@<gen>` row a provider-crossing
   rebind archives into (FOR UPDATE), `supervisor._ASSIGN_SECTIONS`
   (asks/credit_requests/scope_requests mooted, notices folded, work_items
-  rewritten by the docket reconcile), `_ASSIGN_SHARE` (kiosk, sandbox) and
+  rewritten by the docket reconcile), `_ASSIGN_SHARE` (sandbox) and
   `_ASSIGN_LOGS` — the row set `account_removal._lock_spec` and
   `_agent_door`'s `_account_selection` already hold — plus the target's
   ancestor chain up to the caller FOR SHARE (`is_ancestor`). The chain and
@@ -28,7 +28,7 @@ and scope family (S7-LOCK-PLAN.md §3, reviewed by p01 2026-09-26 13:39Z).
   parent or a split in between widens and re-runs). After the commit, in
   `_agent_door`'s order: the transcript export (file IO, never under the
   row locks — lead decision 41), the account notify, the unpark and thaw
-  wakes. Not kiosk-exempt.
+  wakes.
 """
 from __future__ import annotations
 

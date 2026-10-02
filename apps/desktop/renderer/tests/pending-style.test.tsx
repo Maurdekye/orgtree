@@ -18,7 +18,7 @@ test('pending user, agent and notice cards retain their transcript styling and a
   const node = {id:'worker',state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,
     scope:{tools:{},add_dirs:[]},model_id:'haiku'} as CanvasNode
   const view = await mountView(<DeskChat node={node} map={new Map([[node.id,node]])}
-    op={() => Promise.resolve({} as OpResult)} slug='pending-style' toast={() => {}} pub={false} bare />, el => el)
+    op={() => Promise.resolve({} as OpResult)} slug='pending-style' toast={() => {}} bare />, el => el)
   t.after(async () => {await view.unmount();resetConvos()})
   await inAct(async () => {await flush()})
   const pending = [...view.el.querySelectorAll('.pendrow .turn-mail')]
@@ -62,7 +62,7 @@ test('typed and legacy pending and delivered mail all use the Message card', asy
   const node = {id:'worker',state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,
     scope:{tools:{},add_dirs:[]},model_id:'haiku'} as CanvasNode
   const view = await mountView(<DeskChat node={node} map={new Map([[node.id,node]])}
-    op={() => Promise.resolve({} as OpResult)} slug='pending-typed' toast={() => {}} pub={false} bare />, el => el)
+    op={() => Promise.resolve({} as OpResult)} slug='pending-typed' toast={() => {}} bare />, el => el)
   t.after(async () => {await view.unmount();resetConvos()})
   await inAct(async () => {await flush()})
   const pend = view.el.querySelector('.pendrow .turn-mail[data-mail-id="mt"]')

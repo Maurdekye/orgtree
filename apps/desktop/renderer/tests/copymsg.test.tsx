@@ -113,7 +113,7 @@ async function desk(messages: ChatMessage[]): Promise<Mounted> {
   const toasts: string[][] = []
   const view = await mountView(
     <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
-      op={async () => ({})} toast={lines => { toasts.push(lines) }} pub={false} bare />,
+      op={async () => ({})} toast={lines => { toasts.push(lines) }} bare />,
     el => el)
   await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) })
   return { el: view.el, toasts, unmount: async () => { await view.unmount(); resetConvos() } }

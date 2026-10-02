@@ -228,7 +228,7 @@ function draftScene(grant: number | null) {
   const pxc = orgPxc(payload), seats = { t: 2 }
   const base = furnitureFor(root, pxc)
   // exactly what OrgCanvas passes for the draft: seat + (reported ?? opening) grant
-  const credits = seats.t + (grant ?? draftOpeningGrant(draft, 50, null, seats))
+  const credits = seats.t + (grant ?? draftOpeningGrant(draft, 50))
   const f = (id: string, p: Pt) => id === DRAFT ? cardFurniture(id, p, pxc, { credits }) : base(id, p)
   return { t, f, pxc, credits, payload }
 }
@@ -265,7 +265,7 @@ test('DraftNode reports its opening grant and every change to it', async () => {
   const got: number[] = []
   const tree = { cascade_hire: true, slug: 'o' } as unknown as TreePayload
   const v = await mountView(<DraftNode pos={{ x: 0, y: 0 }} draft={{ parent: null, tier: 'haiku' }} map={new Map()}
-    seats={{ haiku: 1 }} maxTop={1000} defaultTop={50} kioskRemaining={null} tree={tree} zoom={1} pxc={1}
+    seats={{ haiku: 1 }} maxTop={1000} defaultTop={50} tree={tree} zoom={1} pxc={1}
     onConfirm={() => {}} onCancel={() => {}} onGrant={(g) => got.push(g)} />, (el) => el)
   try {
     assert.deepEqual(got, [50], 'the opening grant, on mount')
@@ -300,8 +300,8 @@ test('the furniture numbers are the stylesheet\'s and the components\' own', () 
   assert.match(canvas, /const inboxPxc = useMemo\(\(\) => orgPxc\(tree\), \[tree\]\)/, 'and the inbox is placed at the same scale')
   assert.match(canvas, /onGrant=\{setDraftGrant\}/, 'the canvas hears the draft grant')
   assert.match(canvas, /credits: id === DRAFT \? draftCredits/, 'and sizes the draft bar from it')
-  assert.match(cards, /draftOpeningGrant\(draft, defaultTop, kioskRemaining, seats\)/, 'DraftNode opens at the same grant')
-  assert.match(canvas, /draftOpeningGrant\(draft, tree\.default_top_grant \?\? 50, kioskRemaining, seats\)/, 'as the canvas assumes')
+  assert.match(cards, /draftOpeningGrant\(draft, defaultTop\)/, 'DraftNode opens at the same grant')
+  assert.match(canvas, /draftOpeningGrant\(draft, tree\.default_top_grant \?\? 50\)/, 'as the canvas assumes')
 })
 
 test('OrgCanvas places the inbox through placeOrgInbox, after every other card', () => {

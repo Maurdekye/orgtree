@@ -111,5 +111,5 @@
     "POST /inbox/read broadcasts a tree change even when it read nothing",
     "client_op is not an idempotency key: a repeated request posts again"
   ],
-  "scope": "Legacy boundary of the human send and the three inbox routes at the operator door on disposable SQLite. Pins refusals, the session-command split, deep-reach effects, committed sections and callbacks at their boundary; /compact's background compaction, the kiosk path and the JSON backend are not exercised."
+  "scope": "Legacy boundary of the human send and the three inbox routes at the operator door on disposable SQLite. Pins refusals, the session-command split, deep-reach effects, committed sections and callbacks at their boundary; /compact's background compaction and the JSON backend are not exercised."
 }

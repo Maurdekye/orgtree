@@ -3,7 +3,7 @@ runs on every store.REVISION change (every save) for every org, and it used to
 `store.load_org` each one. It now reads only its net settings
 (`store.read_doc_sections`).
 
-  * SAME ANSWER: over a mix of orgs (plain, a kiosk org, one with a stale
+  * SAME ANSWER: over a mix of orgs (plain, one with a stale
     per-hub state cell and an orphaned spool key, one with no net identity
     yet), the result equals the fallback path's (read_doc_sections -> None,
     i.e. the old whole-document load), including the self-heal writes.
@@ -53,11 +53,9 @@ def fallback(*a, **k):
 class Participants(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        for s in ('np-a', 'np-b', 'np-c', 'np-kiosk'):
+        for s in ('np-a', 'np-b', 'np-c'):
             org = store.create_org(s)
             org.hire(USER, None, 'haiku', 1, 'top')
-            if s == 'np-kiosk':
-                org.d['kiosk'] = {'enabled': True, 'token': 't', 'credits': 1}
             store.save_org(org)
         net._participants()          # first pass mints identities / hub lists
 
@@ -83,7 +81,6 @@ class Participants(unittest.TestCase):
             new = net._participants()
         self.assertEqual(json.dumps(new, sort_keys=True), json.dumps(old, sort_keys=True))
         self.assertIn('np-a', new)
-        self.assertNotIn('np-kiosk', new)
         # the self-heal writes happened on the new path too
         d = store.load_org('np-b').d
         self.assertNotIn('gone-hub', d.get('net_state') or {})
@@ -144,7 +141,7 @@ class ReadDocSections(unittest.TestCase):
                 patch.object(store, 'load_org', boom), \
                 patch.object(store, '_scan_orgs', boom):
             self.assertEqual(store.org_slugs(), want)
-        self.assertIn('np-kiosk', want)          # kiosk is filtered by the caller
+        self.assertIn('np-c', want)
 
     def test_stored_values_for_present_keys_only(self) -> None:
         org = store.load_org('np-a')

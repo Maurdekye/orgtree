@@ -383,7 +383,6 @@ def start_backend() -> None:
         "ORGTREE_CLAUDE": os.path.join(_BACKEND, "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_BACKEND, "tests", "fakecli.js"),
     })
-    env.pop("ORGTREE_PUBLIC_PORT", None)
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
     # the CALLER sets fakecli's config before calling this, not here: a node
     # already exists on disk (seeded before this function ever runs), and

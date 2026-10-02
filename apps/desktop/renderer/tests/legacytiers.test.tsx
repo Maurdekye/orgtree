@@ -107,8 +107,8 @@ test('§2/§3 canvas hire chips: no Terra chip, then a dashed legacy one on the 
         toast={noop} pxc={1} zoom={1}
         onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
         onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
-        onRecenter={noop} onJump={noop} pub={false} cascadeAlloc
-        maxTop={100} onMailLink={noop} kioskRemaining={null}
+        onRecenter={noop} onJump={noop} cascadeAlloc
+        maxTop={100} onMailLink={noop}
         onDragStart={noop} onDragMove={noop} onDragEnd={noop}
         onDragCancel={noop}
         claudeHire={ON} codexHire={ON} antigravityHire={ABSENT} onNoHarness={noop} />,
@@ -204,8 +204,8 @@ test('§4 an agent already on Terra shows its T token on its card, toggle off',
         toast={noop} pxc={1} zoom={1}
         onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop}
         onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
-        onRecenter={noop} onJump={noop} pub={false} cascadeAlloc
-        maxTop={100} onMailLink={noop} kioskRemaining={null}
+        onRecenter={noop} onJump={noop} cascadeAlloc
+        maxTop={100} onMailLink={noop}
         onDragStart={noop} onDragMove={noop} onDragEnd={noop}
         onDragCancel={noop}
         claudeHire={ON} codexHire={ON} antigravityHire={ABSENT} onNoHarness={noop} />,

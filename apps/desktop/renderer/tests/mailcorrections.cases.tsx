@@ -6,7 +6,6 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { InboxPanel } from '../src/App'
 import { EventCard } from '../src/events/card'
-import { BASE } from '../src/api'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
 declare const __SRC_DIR__: string
@@ -28,12 +27,11 @@ async function type(el:HTMLElement, value:string) {
   return field
 }
 
-export function mailCorrections(profile:'operator'|'public') {
+export function mailCorrections(profile:'operator') {
   // one store per window (mailread.ts): a read in one case is not still
   // "read here" in the next
   test.beforeEach(() => resetLocalReads())
   for (const outcome of ['success','refused','read-failed','command'] as const) test(profile+' reply '+outcome+' preserves send/read ordering and original identity', async t=>{
-    assert.equal(BASE, profile==='public'?'/k/visitor':'')
     useFakeClock(); resetConvos()
     const saved=globalThis.fetch
     let pending=[oldest,newer], delivered:typeof pending=[], release:((r:Response)=>void)|undefined, refresh=0
@@ -143,9 +141,9 @@ export function mailCorrections(profile:'operator'|'public') {
   test(profile+' status header keeps one linked self identity and distinct reported identities',async t=>{
     const f=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/status.report.json'),'utf8'))
     for(const subject of ['alpha','beta']) {
-      const event={...f[profile==='public'?'public':'private'],actor:{kind:'agent',id:'alpha'},object:{...f[profile==='public'?'public':'private'].object,id:subject,name:subject,...(profile==='operator'?{org:'mine'}:{})},summary:'Meaningful status'}
+      const event={...f.private,actor:{kind:'agent',id:'alpha'},object:{...f.private.object,id:subject,name:subject,org:'mine'},summary:'Meaningful status'}
       const opened:string[]=[]
-      const view=await mountView(<EventCard org="mine" profile={profile} row={profile==='public'?{ev_public:event}:{ev:event}}
+      const view=await mountView(<EventCard org="mine" profile={profile} row={{ev:event}}
         actor={id=><span className="sender-control">{id}</span>}
         world={{org:'mine',agents:new Map([['alpha','alpha'],['beta','beta']]),tierOf:()=> 'fable'}} onOpen={r=>opened.push(r.ref.id)}/>,h=>h)
       const head=view.el.querySelector('.event-head')!

@@ -62,18 +62,8 @@ from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
                      freeze_describes_provider, next_config_seq,
                      now as now_iso, record_turn, turn_estimate_sums)
 from . import ledger as _ledger
-from .schema import (Denial, FrozenInfo, InflightInfo, KioskCfg, MailEntry,
+from .schema import (Denial, FrozenInfo, InflightInfo, MailEntry,
                      NodeDoc, NoticeEntry, TurnStat)
-
-# ---- kiosk v2 (user vision): per-org public exposure behind a secret-URL
-# token. Caps (credits, spend, workspace storage) live ON THE ORG DOC —
-# `kiosk: {enabled, token, credits, spend_limit, storage_limit_mb}`; the old
-# ORGTREE_KIOSK env vars migrate into the doc at startup (api.py).
-def kiosk_cfg(org: Org) -> KioskCfg | None:
-    """The org's kiosk config, or None for normal orgs. Kiosk is a TYPE
-    (user ruling): limits bind whether or not the public URL is currently
-    enabled — `enabled` only gates the token gateway."""
-    return org.d.get("kiosk") or None
 
 
 def _deployment_org_gate(org: Org) -> None:
@@ -97,107 +87,6 @@ def _native_context_hold(org: Org, nid: str, *, inventory: NativeInventory | Non
     except ImportError:
         return 'Imported native session continuity has not been validated'
 
-
-_ws_usage_cache: dict[str, tuple[float, int]] = {}
-
-
-def workspace_usage_bytes(org: Org, max_age: float = 0.0) -> int:
-    """Size of the org's OWN storage: the workspace dir PLUS the org's scratch
-    tree — agents' cwd writes and the public upload endpoint both land in
-    scratch, so a workspace-only walk measured a tree disjoint from what the
-    public write path fills (review X7/C11). External folder grants stay
-    excluded (user spec). `max_age` > 0 serves a recent measurement from
-    cache — for UI reads; enforcement paths measure fresh."""
-    slug = org.d["slug"]
-    if max_age > 0:
-        hit = _ws_usage_cache.get(slug)
-        if hit and time.time() - hit[0] < max_age:
-            return hit[1]
-    # a disk-migrated org's entire footprint is its disk: df INSIDE the
-    # distro is exact and instant — never 9p-walk 99k files over UNC
-    if sbx.is_sandboxed(org) and sbx.on_disk(slug):
-        from . import disk as dsk
-        du = dsk.usage(slug, max_age=max(max_age, 5.0))
-        if du is not None:
-            _ws_usage_cache[slug] = (time.time(), du[0])
-            return du[0]
-        hit = _ws_usage_cache.get(slug)
-        return hit[1] if hit else 0
-    ws = org.d.get("workspace")
-    roots = [p for p in (ws, store.scratch_root(slug))
-             if p and os.path.isdir(p)]
-    # sandboxed orgs: the container HOME persists on the host too — in-container
-    # writes outside the workspace/scratch mounts (~/junk, transcripts) are org
-    # disk footprint all the same (storage-bypass audit 2026-07-31). Counted,
-    # but never ACL'd — the CLI's own state must stay writable.
-    if sbx.is_sandboxed(org):
-        hm = sbx.sandbox_home(slug)
-        if os.path.isdir(hm):
-            roots.append(hm)
-    # scandir keeps each entry's size from the directory listing itself — the
-    # old per-file os.path.getsize paid one extra stat syscall PER FILE.
-    # Measured on the same 3.6 GB / 99k-file org: 6.9 s → 0.82 s (8.4×).
-    # Request paths still read through workspace_usage_cached, never inline.
-    total = _workspace_tree_bytes(roots)
-    _ws_usage_cache[slug] = (time.time(), total)
-    return total
-
-
-@fleet_walk("workspace-tree")
-def _workspace_tree_bytes(roots) -> int:
-    total = 0
-    stack = list(roots)
-    while stack:
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                for e in it:
-                    try:
-                        if e.is_dir(follow_symlinks=False):
-                            stack.append(e.path)
-                        elif e.is_file(follow_symlinks=False):
-                            total += e.stat(follow_symlinks=False).st_size
-                    except OSError:
-                        pass
-        except OSError:
-            pass
-    return total
-
-
-_ws_walk_lock = threading.Lock()
-_ws_walk_inflight: set[str] = set()
-
-
-def workspace_usage_cached(org: Org, max_age: float = 15.0) -> int | None:
-    """REQUEST-PATH storage reading (user bug 2026-07-31: selecting arti took
-    ~10 s — the tree AND list endpoints walked its 3.6 GB / 99k-file sandbox
-    home synchronously whenever the 15 s cache had lapsed). Serves the last
-    measurement INSTANTLY and refreshes it in a single-flight background walk
-    when stale; an org never measured this process returns None (the UI shows
-    '?' for a beat) rather than blocking the page. Enforcement paths keep
-    calling workspace_usage_bytes directly — they run in background threads
-    and need the fresh number."""
-    slug = org.d["slug"]
-    hit = _ws_usage_cache.get(slug)
-    if not (hit and time.time() - hit[0] < max_age):
-        with _ws_walk_lock:
-            due = slug not in _ws_walk_inflight
-            if due:
-                _ws_walk_inflight.add(slug)
-        if due:
-            def run() -> None:
-                try:
-                    workspace_usage_bytes(org)
-                except Exception:       # noqa: BLE001 — a failed walk keeps the stale value
-                    pass
-                finally:
-                    with _ws_walk_lock:
-                        _ws_walk_inflight.discard(slug)
-            threading.Thread(target=run, daemon=True).start()
-    if hit is None:
-        return None
-    total = hit[1]
-    return total
 
 COMPACT_AT = float(os.environ.get("ORGTREE_COMPACT_AT", "0.80"))   # §8.2
 ORACLE_AT = float(os.environ.get("ORGTREE_ORACLE_AT", "0.92"))     # §8.3 state 2→3
@@ -2270,7 +2159,7 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     """Hash the effective MCP launch surface, never transient readiness.
 
     The digest covers provider, effective granted server definitions after
-    kiosk/provider narrowing, sandbox delivery mode, and the callable names
+    provider narrowing, sandbox delivery mode, and the callable names
     exported by Orgtree's built-in MCP server. Raw server config (including
     any env secrets) is hashed in-memory and never persisted or published.
     """
@@ -2279,11 +2168,7 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
         return None
     n = org.node(nid)
     tools = n["scope"].get("tools", {})
-    ceiling = org.kiosk_ceiling()
-    granted_names = expand_mcp(
-        tools.get("mcp") or [],
-        (ceiling or {}).get("tools", {}).get("mcp") if ceiling else None,
-        sorted(registry))
+    granted_names = expand_mcp(tools.get("mcp") or [], sorted(registry))
     chosen = {name: registry[name] for name in granted_names
               if name in registry}
     provider = providers.provider_of(str(n.get("model") or ""))
@@ -4736,7 +4621,7 @@ def clean_env() -> dict[str, str]:
     for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
         env.pop(secret, None)
     # §9.5 (redteam finding 2026-08-05, measured): a HOST-level Anthropic key
-    # silently switched EVERY keyless org — kiosks included — off the
+    # silently switched EVERY keyless org off the
     # subscription and onto the key, with api_key_set reading false the whole
     # time. Billing must be the per-org selector's decision, never an
     # inherited env var: strip the family here; the spawn seam re-injects the
@@ -5889,8 +5774,8 @@ def bills_the_key(org: Org) -> bool:
     API rate limit.
 
     Only the SANDBOX shape remains: a sandboxed org whose container was
-    handed a key that never appears in `org.d` — a kiosk-level `api_key` or
-    the `ORGTREE_SANDBOX_API_KEY` escape hatch — which is why this asks
+    handed a key that never appears in `org.d` — the
+    `ORGTREE_SANDBOX_API_KEY` escape hatch — which is why this asks
     `sandbox.container_auth` (redteam 2026-08-18). The V1 org-key shapes
     (permanent key, fallback window) are gone with the org fields (user
     redesign 2026-09-12); a turn served by a metered ACCOUNT row is
@@ -6084,9 +5969,9 @@ def _reset_label(ts: float) -> str:
     cannot phrase — the record then kept a machine time and no human one, and
     the desk showed a freeze with no reset. Worse: {error, no until, no
     resume_texts, nothing True} is EXACTLY the shape ledger's pre-№41
-    migration re-tags as a kiosk SPEND freeze on the next load, after which ▶
+    migration re-tags as a SPEND freeze on the next load, after which ▶
     resume skips the node for good (it defers to "whichever mechanism owns
-    this freeze", and no spend mechanism exists in a non-kiosk org).
+    this freeze", and no spend mechanism exists).
     Live-caught 2026-08-04 (test_turn_lifecycle "freeze · a limit on the first
     call"). Deriving the label from the timestamp keeps the record out of that
     shape.
@@ -7086,14 +6971,12 @@ def sandbox_mcp_passthrough(granted: list[str],
 
 
 def granted_mcp_servers(org: Org, nid: str) -> dict[str, Any]:
-    """The registry entries a node is actually granted: expand(grant) ∩
-    expand(kiosk ceiling), against the live registry.
+    """The registry entries a node is actually granted: expand(grant),
+    against the live registry.
 
     D-182: THE one implementation of "which MCP servers may this node see".
-    There were three, and only two agreed. `_build_cmd` applied the kiosk
-    ceiling; `identity_prompt` expanded `"*"` straight against the registry and
-    ignored the ceiling entirely — so a KIOSK agent's prompt could name a
-    server its ceiling cuts, and the spawn would then not deliver it. That is
+    There were three, and only two agreed — so an agent's prompt could name a
+    server the spawn would then not deliver. That is
     the same promise/delivery drift as D-180, one lane over, and it recurred
     for the same reason: a second copy of this question agreed on the day it
     was written and nothing afterwards made it keep agreeing.
@@ -7103,11 +6986,7 @@ def granted_mcp_servers(org: Org, nid: str) -> dict[str, Any]:
     """
     tools = org.node(nid)["scope"].get("tools", {})
     registry = registered_mcp_servers()
-    ceil = org.kiosk_ceiling()
-    granted = expand_mcp(tools.get("mcp") or [],
-                         (ceil or {}).get("tools", {}).get("mcp")
-                         if ceil else None,
-                         sorted(registry))
+    granted = expand_mcp(tools.get("mcp") or [], sorted(registry))
     # `if k in registry` is DEFENCE, not the ghost guard: expand_mcp already
     # bounds the grant by the registry universe it is handed, so an
     # unregistered name is gone before this line (verified — removing this
@@ -7127,8 +7006,8 @@ def codex_mcp_grant(org: Org, nid: str) -> tuple[dict[str, Any], list[str]]:
     builder was only ever kept in step with the CLAUDE lane.
 
     Scope is deliberately the SAME math the claude lane does at `_build_cmd`:
-    `expand_mcp(granted, kiosk ceiling, registry)`, so "*" means every
-    registered server present and future, intersected with the ceiling. Nothing
+    `expand_mcp(granted, registry)`, so "*" means every
+    registered server present and future. Nothing
     here widens a grant; `deliverable_mcp` can only NARROW it, and what it
     narrows away is returned so the prompt can say so out loud.
     """
@@ -7308,7 +7187,7 @@ def _org_charter_block(org: Org) -> str:
         # Present-and-unreadable is NOT the same as absent. Name it in the
         # prompt itself: the agent is the one party that can say out loud that
         # the operator's directive did not arrive. No path in the text - host
-        # paths are the operator's, not the org's (see _public_slug in api.py).
+        # paths are the operator's, not the org's.
         return ("\n\n[ORG CHARTER - PRESENT BUT UNREADABLE. This organization "
                 "has standing instructions its operator wrote for every "
                 "agent, "
@@ -8107,7 +7986,7 @@ def _turn_usage_selection(org: Org, nid: str,
     """Safe provider/lane label for the process this turn would use.
 
     Raw account ids never leave this function.  Fallback ordinals are the
-    same already-safe labels used by the accounts panel and kiosk-safe desk
+    same already-safe labels used by the accounts panel and the desk
     payload.  Selection is advisory display data: any failure simply leaves
     the board without a selected marker.
     """
@@ -9094,10 +8973,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
             "find_by_name; when the work genuinely needs a write or a "
             "command, raise it rather than looking for a way around. ")
     # D-182: the SAME grant `_build_cmd` spawns with — `"*"` is every
-    # registered server, present and future, INTERSECTED WITH THE KIOSK
-    # CEILING. This used to expand `"*"` straight against the registry and
-    # skip the ceiling, so a kiosk agent was promised servers its ceiling cuts
-    # and the spawn then withheld them.
+    # registered server, present and future.
     mcp_names = sorted(granted_mcp_servers(org, nid))
     if sbx.is_sandboxed(org):
         # never promise servers the sandbox drops: MCP servers are excluded
@@ -9457,7 +9333,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
            "action=grant target=extern (yourself or your subtree); revoke "
            "your own with action=revoke. "
            if (n["parent"] is None or org._has_audience(nid, EXTERN))
-           and not org.is_kiosk else "")
+           else "")
         + ("⚠ THIS ORGANIZATION RUNS HEADLESS: no user is present and none "
            "will return. Nothing you send to the user will be read, and every "
            "request to the user — questions (orgtree_ask), credit requests, "
@@ -10530,7 +10406,6 @@ def _reclaim_blocked(org: Org, nid: str) -> bool:
     return bool(node is None or node.get("state") != "live"
         or node.get("halt") or node.get("frozen") or node.get("limit_locked")
         or node.get("remote_controlled") or org.d.get("killswitch")
-        or org.d.get("spend_frozen")
         or (org.d.get("storage_blocked") and (bool(org.d.get("disk"))
             if getattr(org, "_read_only_projection", False) else sbx.on_disk(org.d["slug"])))
         or _native_context_hold(org, nid))
@@ -12406,7 +12281,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # CLI knows (claude_model_for; 5.1 → 5.0 below the 2.1.257 floor)
     model = claude_model_for(org, nid)
     sc = n["scope"]
-    # kiosk sandbox (user spec): the whole turn — CLI, bash, file I/O, web —
+    # org sandbox (user spec): the whole turn — CLI, bash, file I/O, web —
     # runs inside the org's container; paths below become container paths and
     # the orgtree tools reach the host only via the secret-gated bridge
     sandboxed = sbx.is_sandboxed(org)
@@ -12594,11 +12469,9 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
         cmd += ["--disallowed-tools", ",".join(disallowed)]
     # every node gets the orgtree MCP server — its hands on the org — plus any
     # user-registered servers it was granted; --strict-mcp-config pins the set.
-    # Expansion is expand(granted) ∩ expand(ceiling) via the pure helper
-    # (ceiling spec §6): "*" under a list ceiling must yield the ceiling's
-    # servers, never the whole registry
+    # Expansion is expand(granted) via the pure helper
     registry = registered_mcp_servers()
-    grant = granted_mcp_servers(org, nid)     # D-182: shared, ceiling-aware
+    grant = granted_mcp_servers(org, nid)     # D-182: shared
     if sandboxed:
         # NO MCP servers in the sandbox (user ruling): they are points of
         # external contact that the sandbox is explicitly designed to
@@ -13682,7 +13555,7 @@ def _cache_precompact_decision(org: Org, nid: str,
         return ("miss_expected",
                 f"Automatic compaction is off and measured context {ratio:.0%} "
                 "is above the 25% warning floor.")
-    if org.d.get("spend_frozen") or org.d.get("storage_blocked"):
+    if org.d.get("storage_blocked"):
         return ("not_applicable",
                 "The organization is frozen or storage-blocked; no send-time "
                 "compaction is promised.")
@@ -14125,8 +13998,6 @@ def _auto_wake_gates_clear(org: Org, nid: str) -> bool:
             or n.get("remote_controlled") or n.get("bearer_state")
             or n.get("inflight")):
         return False
-    if org.d.get("spend_frozen"):
-        return False
     # Match the real turn's disk-org admission gate. Host-folder orgs use the
     # watchdog's ACL barrier instead and are not turn-blocked by this flag.
     if org.d.get("storage_blocked") and (bool(org.d.get("disk"))
@@ -14302,7 +14173,7 @@ def _idle_docket_reminder_reserve(
         # this seat's own box and mail_log rows (PG-3d splits `mail` per
         # owner), not every agent's mail
         sections={("mail", nid)}, nodes={nid}, logs={("mail_log", nid)},
-        share_sections={"work_items", "asks", "delivering", "spend_frozen",
+        share_sections={"work_items", "asks", "delivering",
                         "storage_blocked"})
     return worktx.tx(slug, lambda org: _idle_docket_reminder_reserve_body(
         org, nid, now), rows=rows)
@@ -14790,8 +14661,6 @@ def _working_cache_read(slug: str, nid: str,
         elif failed and not (lease is not None and lease["cancel"].is_set()):
             _working_cache_note_failure(slug, nid, time.time())
         if cost or success:
-            spend_total = None
-            kcfg = None
             try:
                 with orgtx.org_tx(slug, nodes=[nid],
                                   sections=["api_cost_usd",
@@ -14814,9 +14683,6 @@ def _working_cache_read(slug: str, nid: str,
                             n2["cache_keepalive_at"] = now_iso()
                             cache_event = _cache_refresh_receipt(
                                 current, nid, cache_attempt, cache_usage)
-                        # unlocked reads for the advisory kiosk check below
-                        spend_total = current.cost_total()
-                        kcfg = kiosk_cfg(current)
                     elif cost:
                         current.d["deleted_cost_usd"] = round(
                             float(current.d.get("deleted_cost_usd") or 0.0)
@@ -14828,10 +14694,6 @@ def _working_cache_read(slug: str, nid: str,
             except LedgerError:
                 print(f"[orgtree] {slug}/{nid}: keepalive finished after org "
                       f"deletion (${cost:.4f} unrecorded)")
-            if (kcfg and float(kcfg.get("spend_limit") or 0) > 0
-                    and spend_total is not None
-                    and spend_total >= float(kcfg["spend_limit"])):
-                hard_freeze(slug, "spend", "kiosk spend limit reached")
         if cache_event is not None:
             stream(slug, nid, {"kind": "cache_forecast",
                                "forecast": cache_event})
@@ -16446,10 +16308,10 @@ def _continue_verb(actor: str) -> str:
 #: What an account rebind can write besides the seat and its bearer row:
 #: `_moot_asks` (asks → credit/scope requests, and `work_items`, which the
 #: save's attention pass rewrites whenever `asks` moved), `_fold_notices` and
-#: the handoff record's notice. The kiosk/sandbox gates are read FOR SHARE.
+#: the handoff record's notice. The sandbox gate is read FOR SHARE.
 _ASSIGN_SECTIONS = ("asks", "credit_requests", "scope_requests", "notices",
                     "work_items")
-_ASSIGN_SHARE = ("kiosk", "sandbox")
+_ASSIGN_SHARE = ("sandbox",)
 _ASSIGN_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
 
 
@@ -17090,7 +16952,7 @@ def _codex_process_spec(org: Org, nid: str, *,
                 "`codex login` (accounts panel → Codex)")
     if sbx.is_sandboxed(org):
         raise RuntimeError("turn failed: codex agents cannot run in a "
-                           "sandboxed kiosk org yet (user ruling)")
+                           "sandboxed org yet (user ruling)")
     cwd = scratch_dir(slug, nid)
     ident = identity_prompt(org, nid)
     if write_ident:
@@ -17563,8 +17425,8 @@ def _codex_sandbox(sc: Mapping[str, Any]) -> str:
     whose entire meaning on the Claude lane is already "do not ask" — this is
     provider parity, not a new privilege class. `sc["permission_mode"]` is the
     same value the Claude lane passes as `--permission-mode` (see
-    `_build_cmd`); `ledger` setdefaults it on load and clamps it down to the
-    kiosk ceiling, so it is always one of `PM_LEVELS`.
+    `_build_cmd`); `ledger` setdefaults it on load, so it is always one of
+    `PM_LEVELS`.
 
     The `edit` switch gates it (coordinator ruling 2026-09-04, "option B"). A
     node with edit OFF stays `read-only` whatever its permission_mode, so that
@@ -19600,7 +19462,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     n = org.node(nid)
     tier = str(n.get("model") or "")
     if sbx.is_sandboxed(org):
-        raise RuntimeError("Antigravity sandboxed kiosk execution is not supported")
+        raise RuntimeError("Antigravity sandboxed execution is not supported")
     spec = antigravity_session.specification(org, nid, write=True)
     lineage_changed = antigravity_session.prepare_lineage(org, nid, spec)
     if lineage_changed:
@@ -20505,7 +20367,7 @@ def _run_one_turn(slug: str, nid: str,
 #: killswitch latch (FOR UPDATE) orders against admissions, while admissions
 #: do not serialise on each other.
 ADMISSION_GATE_SECTIONS: tuple[str, ...] = (
-    "killswitch", "spend_frozen", "storage_blocked")
+    "killswitch", "storage_blocked")
 #: Written by the DRAIN transaction (`_take_delivery_mail`, the notices pop,
 #: `_journal_drain`): the agent's OWN per-owner rows of the split sections
 #: (PG-3d: `mail`, `delivering`, `notices` are one row per owner) and its
@@ -20845,7 +20707,7 @@ def _resume_rows(slug: str, pick: set[str] | None, *,
                 "logs": ["events", "notice_log"]}
     # ... and what `assign_account` writes beside the seat (`_assign_tx`'s
     # rows: mooted asks/credit/scope requests, folded notices, the docket
-    # reconcile's work_items; kiosk and sandbox read FOR SHARE)
+    # reconcile's work_items; sandbox read FOR SHARE)
     return {"nodes": nodes,
             "sections": sorted({"notices", *_ASSIGN_SECTIONS}),
             "share_sections": sorted({*ADMISSION_GATE_SECTIONS, *_ASSIGN_SHARE}),
@@ -20888,9 +20750,6 @@ def _admission_gates(slug: str, org: Org, nid: str) -> None:
     _deployment_org_gate(org)
     if org.node(nid)["state"] != "live":
         raise RuntimeError(f"{nid} is not live")
-    if org.d.get("spend_frozen"):
-        raise RuntimeError("kiosk spend limit reached — frozen "
-                           "until the limit is raised (admin side)")
     if org.d.get("storage_blocked") and sbx.on_disk(slug):
         # disk-org soft cap (user verdict): the last 10% is the
         # journaling reserve — new turns wait it out
@@ -23976,7 +23835,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # the wake, and it is the only one a person reads:
                             # `ledger.tree()` projects `until`, and the UI
                             # renders it as system chrome in the org header
-                            # and on the node badge — KIOSK VISITORS INCLUDED.
+                            # and on the node badge.
                             # Taking it from the blob let an agent put ~60
                             # characters of its own prose (a URL, an
                             # instruction) into the operator's chrome by
@@ -24182,9 +24041,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # blob — and for a rejected credential there
                                 # is no wait: nothing about it improves at
                                 # 3:10pm. Leaving the number standing would
-                                # put a countdown in the org header (kiosk
-                                # visitors included) for an event that never
-                                # comes, which is the display-reports-intent
+                                # put a countdown in the org header for an
+                                # event that never comes, which is the display-reports-intent
                                 # failure this team spent a day on. Same
                                 # shape as the untrusted cap directly above:
                                 # the number is GONE, the label says what to
@@ -24854,14 +24712,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # of the turn slot, ~15811-15824) exactly, so the belt never
             # announces a terminal error for a turn a deliberate hold stopped:
             # a freeze, a node limit_locked, remote control, a non-live node,
-            # the kiosk spend freeze, or the disk soft-cap pause. ⚠ It is
+            # or the disk soft-cap pause. ⚠ It is
             # `storage_blocked and on_disk`, NOT the dead `storage_frozen`
             # flag (no writer since D-063) — matching the gate, per
             # state-review 2026-09-12.
             _belt_owned = True
             try:
                 # One coherent node/gate projection; retain the legacy read seam.
-                _bp = (store.read_runtime_node(slug, nid, ("spend_frozen", "storage_blocked"))
+                _bp = (store.read_runtime_node(slug, nid, ("storage_blocked",))
                        if store.STORE_BACKEND == "postgres" else None)
                 if _bp is None:
                     _bo = orgtx.org_read(slug)
@@ -24876,7 +24734,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     or _bn.get("limit_locked")
                     or _bn.get("remote_controlled")
                     or _bn["state"] != "live"
-                    or _bd.get("spend_frozen")
                     or (_bd.get("storage_blocked")
                         and sbx.on_disk(slug)))
             except Exception:                                # noqa: BLE001
@@ -26464,7 +26321,6 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
     # at 8 (they ride on the node document); counting the capped list reports
     # nine as eight, and these numbers say how much the seam let out.
     n_denials, n_approvals = len(raw_denials), len(raw_approvals)
-    spend_total = None
     cache_event: dict[str, Any] | None = None
     if cost or occ or cw or denials or res or lifecycle_row:
         # the node's row, the org's api_cost_usd only for an on-key turn, and
@@ -26650,10 +26506,6 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
                 # remains authoritative; the next forecast stays conservative.
                 print(f"[orgtree] {slug}/{nid}: cache receipt reconciliation "
                       f"unavailable ({type(exc).__name__}: {exc})")
-            spend_total = o2.cost_total()   # incl. deleted agents' burn
-            kcfg = kiosk_cfg(o2)
-    else:
-        kcfg = kiosk_cfg(org)
     if mcp_success:
         with _state_lock:
             # The STATE twin of the node write above, and it used to POP on an
@@ -26685,20 +26537,9 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
     if cache_event is not None:
         stream(slug, nid, {"kind": "cache_forecast",
                            "forecast": cache_event})
-    # kiosk spend limit (user spec): breach → freeze everything.
-    # ⚠ cost is only reported at turn end, so the limit can overshoot by the
-    # in-flight turns' cost — an accepted, irreducible window.
-    if (kcfg and float(kcfg.get("spend_limit") or 0) > 0
-            and spend_total is not None
-            # the .get guard above proves the key is present
-            and spend_total >= float(kcfg["spend_limit"])):   # pyright: ignore[reportTypedDictNotRequiredAccess]
-        hard_freeze(slug, "spend", "kiosk spend limit reached")
-    # kiosk workspace storage limit (user spec): NOT a freeze — over the limit
-    # file creation/writes are blocked while agents keep running (they can
-    # delete files to self-heal). Checked per turn, either direction.
-    if (kcfg and int(kcfg.get("storage_limit_mb") or 0) > 0) \
-            or sbx.is_sandboxed(org) \
-            or org.d.get("storage_blocked"):
+    # sandboxed-org disk soft cap: checked per turn, either direction (and a
+    # stale host-folder block is cleared).
+    if sbx.is_sandboxed(org) or org.d.get("storage_blocked"):
         storage_check(slug)
     n = org.node(nid)
     if n.get("bearer_state"):
@@ -27741,7 +27582,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             raise RuntimeError("codex is not signed in on this machine")
         if sbx.is_sandboxed(org):
             raise RuntimeError(
-                "codex agents cannot run in a sandboxed kiosk org yet")
+                "codex agents cannot run in a sandboxed org yet")
         if str(n.get("codex_thread") or "") != old_sid:
             raise RuntimeError(
                 "the current session is not a resumable Codex thread")
@@ -27815,7 +27656,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         st["compact_retry_at"] = time.time() + 900
         return
 
-    def _apply(tx: orgtx.OrgTx) -> tuple[str, float, KioskCfg | None] | None:
+    def _apply(tx: orgtx.OrgTx) -> str | None:
         current = tx.org
         if nid not in current.nodes:
             if fork_cost:
@@ -27843,9 +27684,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         live["occupancy"] = occ_new
         live.pop("occupancy_est", None)
         live["compacted_unrun"] = True
-        # unlocked reads: the kiosk check after the commit is advisory, as it
-        # was when these ran after the save under DOC_LOCK
-        return pred, current.cost_total(), kiosk_cfg(current)
+        return pred
 
     try:
         done = _lineage_tx(slug, nid, _apply,
@@ -27856,10 +27695,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         return
     if done is None:
         return
-    pred, spend_total, kcfg = done
-    if (kcfg and float(kcfg.get("spend_limit") or 0) > 0
-            and spend_total >= float(kcfg["spend_limit"])):  # pyright: ignore[reportTypedDictNotRequiredAccess]
-        hard_freeze(slug, "spend", "kiosk spend limit reached")
+    pred = done
     st = state(slug, nid)
     st.pop("compact_retry_at", None)
     notify(slug, nid, "compacted")
@@ -27988,8 +27824,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
         return
     # review C5/X6: the fork is a real API call — often the most expensive one
     # the system makes — and _after_turn never runs for it, so its cost was
-    # invisible to cost_usd and therefore to the kiosk spend cap (which the
-    # public gateway's compact button can trigger repeatedly)
+    # invisible to cost_usd
     fork_cost = float(res.get("total_cost_usd") or 0.0)
     # the successor's post-compaction fill, read off the transcript the fork
     # just wrote — OUTSIDE the lock, because this file carries the whole
@@ -28003,7 +27838,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
                                                    org.d.get("models"))
                                     if nid in org.nodes else None,
                                     require_boundary=True)
-    def _apply(tx: orgtx.OrgTx) -> tuple[str, float, KioskCfg | None] | None:
+    def _apply(tx: orgtx.OrgTx) -> str | None:
         # ⚠ Everything above ran for up to 600 s with no lock held, and the
         # node can be deleted — or the whole org dropped — inside that window.
         # `org.node(nid)` then raised a LedgerError out of a DAEMON THREAD
@@ -28070,11 +27905,10 @@ def _compact_split_body(slug: str, nid: str) -> None:
         # It is a separate flag from `occupancy_est` deliberately — that one
         # describes a NUMBER and would evaporate the day a fork's transcript
         # happens to carry a post-boundary record, taking a refusal that
-        # guards a 600 s billed CLI child on a public kiosk surface with it
+        # guards a 600 s billed CLI child with it
         # (redteam 2026-08-20). Cleared by the next completed turn.
         n["compacted_unrun"] = True
-        # incl. deleted agents' burn; unlocked reads, advisory as before
-        return pred, org.cost_total(), kiosk_cfg(org)
+        return pred
 
     try:
         done = _lineage_tx(slug, nid, _apply,
@@ -28086,11 +27920,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
         return
     if done is None:
         return
-    pred, spend_total, kcfg = done
-    if (kcfg and float(kcfg.get("spend_limit") or 0) > 0
-            # the .get guard above proves the key is present
-            and spend_total >= float(kcfg["spend_limit"])):   # pyright: ignore[reportTypedDictNotRequiredAccess]
-        hard_freeze(slug, "spend", "kiosk spend limit reached")
+    pred = done
     st = state(slug, nid)
     # (the post-compact occupancy reset lives on the doc, written above)
     st.pop("compact_retry_at", None)
@@ -28128,8 +27958,7 @@ def manual_compact(slug: str, nid: str) -> None:
         # turn costs, for up to the same 600 s — and this path did not take a
         # turn slot. `MAX_CONCURRENT` therefore did not bound the number of
         # concurrent CLI processes at all: N manual compactions ran ON TOP of
-        # the cap, and the compact button is on the kiosk's public surface, so
-        # a visitor with N agents could add N children to a box already at its
+        # the cap, so N agents could add N children to a box already at its
         # limit. Measured 2026-08-04 (test_compaction "a compaction fork
         # occupies a global turn slot"): with the cap at 1 and a node
         # compacting, an unrelated org was served in 152 ms — i.e. the fork
@@ -28216,7 +28045,7 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
     # FOR SHARE: a latch committing now orders before or after this park,
     # never through it.
     with orgtx.org_tx(slug, nodes=[nid],
-                      share_sections=["killswitch", "kiosk", "sandbox"]) as tx:
+                      share_sections=["killswitch", "sandbox"]) as tx:
         org = tx.org
         if nid not in org.nodes:
             return {"error": f"no agent {nid!r}"}
@@ -29163,7 +28992,7 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
     freeze forever and a stale `untrusted` would suppress its auto-wake.
 
     ⚠ AND IT MUST NEVER LEAVE `{error, no until, no resume_texts, nothing
-    True}`: ledger's pre-№41 migration re-tags that shape as a kiosk SPEND
+    True}`: ledger's pre-№41 migration re-tags that shape as a SPEND
     freeze, after which ▶ skips the node for good. `limit = True` and a label
     derived from the timestamp are what keep the record out of it."""
     ts, src = _provider_limit_until(blob, reset_ts, reset_from=reset_from)
@@ -29281,102 +29110,6 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
     return True
 
 
-def hard_freeze(slug: str, kind: str, error: str) -> None:
-    """A kiosk hard limit breached (today only kind='spend'): freeze
-    EVERYTHING immediately. Cleared only from the admin side — raising the
-    limit past current usage — after which the ▶ resume button replays the
-    interrupted turns."""
-    flag = kind + "_frozen"
-    # PG-3e-A: every node row (orgtx.ALL — it also excludes a node being
-    # created mid-sweep) and the flag's section, in one row transaction. Its
-    # callers hold no transaction on the org, so this never nests.
-    with orgtx.org_tx(slug, nodes=orgtx.ALL, sections=[flag]) as _hf_tx:
-        org = _hf_tx.org
-        if org.d.get(flag):
-            return
-        org.d[flag] = True
-        for nid, n in org.nodes.items():
-            if n["state"] == "live":
-                fz = _ensure_frozen(n)
-                # №41 (user ruling): freeze kinds are COMMUTATIVE — a spend
-                # freeze landing on a usage-limit freeze must not overwrite
-                # the limit's error/reset info; each kind owns its own keys
-                # dynamic per-kind keys ("spend" / "spend_error") — a TypedDict
-                # can't index by a str variable, so widen for these two writes
-                fzd = cast("dict[str, Any]", fz)
-                fzd[kind] = True
-                fzd[kind + "_error"] = error
-                # review C7: the interrupt below kills these turns and the
-                # finally pops their inflight — capture the text NOW so the
-                # docstring's promise ("▶ replays the interrupted turns")
-                # has something to replay. Commands don't replay (honest drop).
-                inf = n.get("inflight")
-                if inf and inf.get("text") and not inf.get("cmd"):
-                    rt = fz.setdefault("resume_texts", [])
-                    if inf["text"][-8000:] not in rt:
-                        _append_resume(fz, inf["text"][-8000:],
-                                       str(inf.get("view") or "")[-8000:])
-                        halt.link_freeze_replay(slug, nid, fz)
-    interrupt_all(slug)
-    notify(slug, "", flag)
-
-
-def clear_hard_freeze(org: Org, kind: str) -> int:
-    """The limit was raised past usage: clear the org flag and un-tag node
-    freezes IN PLACE — nodes with an interrupted turn stay frozen so ▶ resume
-    replays it; a freeze that was ONLY the hard limit drops entirely. Caller
-    holds DOC_LOCK and saves."""
-    org.d.pop(kind + "_frozen", None)
-    cleared = 0
-    for nid, n in list(org.nodes.items()):
-        fz = n.get("frozen")
-        if fz and fz.pop(kind, None):
-            cleared += 1
-            # №41: remove ONLY this kind's record — a concurrent usage-limit
-            # freeze keeps its error/until untouched and the node stays frozen
-            fz.pop(kind + "_error", None)
-            if not fz.get("resume_texts") and not fz.get("error") \
-                    and not fz.get("until"):
-                n.pop("frozen", None)
-    return cleared
-
-
-def _org_write_acl(org: Org, blocked: bool) -> None:
-    """OS-level enforcement of the storage block (Windows): deny write-data /
-    add-file on the workspace AND the org's scratch tree while LEAVING DELETE
-    RIGHTS INTACT, so agents can clean up and self-heal. The scratch half is
-    the user-observed bypass (2026-07-31): agents' cwd IS their scratch dir,
-    so the old workspace-only deny never touched the tree they naturally
-    write. Measured: the deny ACE binds Docker bind mounts too (Docker
-    Desktop's file sharing writes as the host user), so sandboxed orgs are
-    enforced by the same ACE — container writes fail, deletes still work.
-    The sandbox home is counted but never ACL'd (transcripts/CLI state).
-    POSIX has no deny-write-but-allow-delete bit (dir -w blocks unlinking
-    too), so there enforcement is the advisory notice + steer only.
-    Disk-migrated orgs: icacls cannot reach ext4-over-WSL — their soft-cap
-    enforcement is the turn gate in storage_check's disk branch instead."""
-    if os.name != "nt" or sbx.on_disk(org.d["slug"]):
-        return
-    slug = org.d["slug"]
-    ws = org.d.get("workspace")
-    targets = [p for p in (ws, store.scratch_root(slug))
-               if p and os.path.isdir(p)]
-    user = os.environ.get("USERNAME") or "*S-1-1-0"
-    for t in targets:
-        try:
-            if blocked:
-                subprocess.run(["icacls", t, "/deny",
-                                f"{user}:(OI)(CI)(WD,AD)"],
-                               capture_output=True, timeout=15,
-                               creationflags=subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
-            else:
-                subprocess.run(["icacls", t, "/remove:d", user],
-                               capture_output=True, timeout=15,
-                               creationflags=subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
-        except OSError:
-            pass
-
-
 def _storage_ev(org: Org, level: str, scope: str, used_mb: float,
                 cap_mb: float | None) -> dict[str, Any]:
     """The typed storage notice (family runtime_recovery, `runtime.storage`): the
@@ -29456,79 +29189,24 @@ def _storage_check_disk(slug: str, org: Org) -> str | None:
 
 def storage_check(slug: str) -> str | None:
     """Storage enforcement dispatch. Disk-migrated sandboxed orgs → the soft
-    tiers over the ext4 cap (_storage_check_disk). Unsandboxed kiosks with a
-    loose cap → the icacls write-block below (D-031: an unsandboxed kiosk
-    bounds configuration and money, not capability — checked between turns).
-    Sandboxed-but-not-yet-migrated orgs enforce nothing here: their disk and
-    its cap arrive with the first container need. The pre-disk sandbox
+    tiers over the ext4 cap (_storage_check_disk). Every other org
+    enforces nothing here: sandboxed-but-not-yet-migrated orgs get their
+    disk and its cap with the first container need. The pre-disk sandbox
     enforcement (volume measurement → container stop → storage freeze) is
     RETIRED (user ruling 2026-08-01, D-063)."""
-    # №22: the full workspace walk runs OUTSIDE the doc lock — it reads the
-    # filesystem, not the doc, and holding DOC_LOCK across a multi-GB walk
-    # starved the whole turn machinery (and timed out MCP calls into
-    # duplicate-mail retries)
     org = store.load_org(slug)
     if sbx.is_sandboxed(org):
         if sbx.on_disk(slug):
             return _storage_check_disk(slug, org)
         return None
-    used = workspace_usage_bytes(org)
-    nudge: list[str] = []      # live nodes to steer mid-turn after the lock
-    with halt.txn(slug, **{"sections": ["storage_blocked", "storage_warned", "storage_full", "notices"], "logs": ["notice_log", "events"]}) as _cb_tx:  # PG-3e-A
-        org = _cb_tx.org
-        k = kiosk_cfg(org)
-        lim_mb = int((k or {}).get("storage_limit_mb") or 0)
-        limit = lim_mb * 1048576
-        over = bool(lim_mb) and used > limit
-        blocked = bool(org.d.get("storage_blocked"))
-        warned = bool(org.d.get("storage_warned"))
-        # storage-bypass audit (user bug 2026-07-31): notices went to
-        # TOP-LEVELS only ("pass it on") and only as next-turn mail — the
-        # agent doing the writing never heard. Every live node is told, and
-        # busy ones get it STEERED into the running turn below.
-        live = [i for i, n in org.nodes.items() if n["state"] == "live"]
-        if over and not blocked:
-            org.d["storage_blocked"] = True
-            _org_write_acl(org, True)
-            org._notify_ev(live, _storage_ev(org, "over", "storage", used / 1048576,
-                                             float(lim_mb)))
-            nudge = live
-            result = "blocked"
-        elif blocked and not over:
-            org.d.pop("storage_blocked", None)
-            org.d.pop("storage_warned", None)   # a fresh climb re-warns
-            _org_write_acl(org, False)
-            org._notify_ev(live, _storage_ev(org, "cleared", "storage", used / 1048576,
-                                             float(lim_mb) if lim_mb else None))
-            result = "cleared"
-        elif (lim_mb and not blocked and not warned
-                and used > limit * 0.9):
-            # user ruling: a soft warning inside the last ~10% so agents can
-            # slow down / clean up BEFORE the hard write block lands
-            org.d["storage_warned"] = True
-            org._notify_ev(live, _storage_ev(org, "heads_up", "storage", used / 1048576,
-                                             float(lim_mb)))
-            nudge = live
-            result = "warned"
-        elif warned and (not lim_mb or used <= limit * 0.85):
-            org.d.pop("storage_warned", None)   # re-arm below 85%
-            return None
-        else:
-            return None
-    # mid-turn awareness: a busy node's steer delivers right after its next
-    # tool call — the writing agent learns DURING the turn, not next turn.
-    # send_message drains the mailbox into the steer, so the notice above is
-    # exactly what arrives. Idle nodes just read it on their next turn.
-    for nid in nudge:
-        try:
-            if state(slug, nid)["busy"]:
-                send_message(slug, nid,
-                             "(orgtree) ⚠ Storage notice in your mail above — "
-                             "act on it NOW, mid-task.")
-        except Exception:                       # noqa: BLE001 — best-effort
-            pass
-    notify(slug, "", "storage_" + result)
-    return result
+    if not (org.d.get("storage_blocked") or org.d.get("storage_warned")):
+        return None
+    # A host-folder org has no storage limit, so a block or warning stored by
+    # an earlier version's per-org write limit is stale: clear it.
+    with halt.txn(slug, **{"sections": ["storage_blocked", "storage_warned"]}) as _cb_tx:
+        _cb_tx.org.d.pop("storage_blocked", None)
+        _cb_tx.org.d.pop("storage_warned", None)
+    return "cleared"
 
 
 _storage_check_at: dict[str, float] = {}
@@ -29550,10 +29228,7 @@ def maybe_storage_check(slug: str) -> None:
             # read-only: the shared snapshot, not a private full load per
             # org every 20 s (`storage_check` loads for itself if it runs)
             org = store.cached_org(slug) if STEER_CHEAP else store.load_org(slug)
-            k = kiosk_cfg(org)
-            if (k and int(k.get("storage_limit_mb") or 0) > 0) \
-                    or sbx.is_sandboxed(org) \
-                    or org.d.get("storage_blocked"):
+            if sbx.is_sandboxed(org) or org.d.get("storage_blocked"):
                 storage_check(slug)
         except Exception:       # noqa: BLE001 — advisory path, never breaks steering
             pass
@@ -29676,7 +29351,7 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
                      _command_output_row(out_text, cap=20000, sticky=True))
             halt.complete_auxiliary(slug, nid, carrier)
         # the fork transcript is a full COPY of the session — delete it, or
-        # every /context banks megabytes (kiosk storage included) for nothing
+        # every /context banks megabytes for nothing
         if fork_sid and fork_sid != sid:
             fp = transcript_path(fork_sid, tdir)
             if fp:
@@ -29719,10 +29394,7 @@ def start_storage_watchdog() -> None:
                     # auto-unblock path once usage drops
                     if not busy and not org.d.get("storage_blocked"):
                         continue
-                    k = kiosk_cfg(org)
-                    if (k and int(k.get("storage_limit_mb") or 0) > 0) \
-                            or sbx.is_sandboxed(org) \
-                            or org.d.get("storage_blocked"):
+                    if sbx.is_sandboxed(org) or org.d.get("storage_blocked"):
                         storage_check(slug)
             except Exception:   # noqa: BLE001 — the sweep must never die
                 pass
@@ -29750,13 +29422,9 @@ def interrupt_all(slug: str, *,
     could be a little destructive." The only exits are resuming one dog by
     hand or telling its owner to. Do not add an automatic one.
 
-    ⚠ WHY IT DEFAULTS TO FALSE, which looks timid and is not. This function
-    has a SECOND caller: `hard_freeze`, the kiosk spend-limit breach. That one
-    has a designed recovery — the admin raises the limit and ▶ replays the
-    interrupted turns — so attaching a pause that only a human can undo would
-    silently convert an existing self-recovering feature into one that needs
-    an operator to visit every dog, and would do it to people who never asked
-    for a killswitch at all. The user's ruling is about THE BUTTON. Keep it
+    ⚠ IT DEFAULTS TO FALSE: attaching a pause that only a human can undo to
+    any other caller would make people who never asked for a killswitch
+    visit every dog. The user's ruling is about THE BUTTON. Keep it
     there: pass it explicitly from the killswitch route and nowhere else.
 
     ORDER IS LOAD-BEARING: the pause commits BEFORE any agent is interrupted.
@@ -30064,8 +29732,7 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                   account_fallbacks: dict[str, dict[str, Any]] | None = None) -> list[str]:
     """The ▶ button: un-freeze every usage-limit-frozen agent at once and replay
     the turn(s) the limit interrupted; waiting mailbox mail rides along on the
-    turn's own envelope drain. A kiosk SPEND freeze blocks resume until the
-    admin raises the limit (the storage limit never freezes — it write-blocks).
+    turn's own envelope drain.
 
     `only` restricts the sweep to named nodes — the auto-resume timer passes
     the nodes whose OWN wake time has arrived. ▶ itself passes nothing and
@@ -30103,9 +29770,6 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
             # AFTER release (the /resume route already answers 409; this
             # covers the timer, which must stay quiet rather than error).
             return []
-        if org.d.get("spend_frozen"):
-            raise RuntimeError("the kiosk spend limit was reached — raise the "
-                               "limit from the admin dashboard to resume")
         # list(): cheap_first inserts bearer nodes mid-sweep
         for nid, n in list(org.nodes.items()):
             if pick is not None and nid not in pick:
@@ -30391,17 +30055,12 @@ def interorg_send(src_slug: str, dst_slug: str, body: str,
                   op_key: str | None = None) -> str | None:
     """Org → org mail, no chatq required (user spec): delivered straight into
     the destination org's inbox as an outside party. Returns an error string,
-    or None on success. Kiosks are sealed in both directions (the ledger
-    already refuses the sending side for kiosk orgs)."""
+    or None on success."""
     try:
         # PG-3d: a lock-free read (was DOC_LOCK). The destination is the only
         # org written, in deliver_org_inbox's own transaction; the source's
         # side (its outbound log) was written by the caller's.
-        dst = orgtx.org_read(dst_slug)
-        if dst.is_kiosk:
-            # sealed kiosks answer exactly like nonexistent orgs — the
-            # split wording let a sender enumerate the kiosk roster
-            return f"no organization named '{dst_slug}'"
+        orgtx.org_read(dst_slug)
     except Exception:                        # noqa: BLE001 — unknown slug
         return f"no organization named '{dst_slug}'"
     deliver_org_inbox(dst_slug, f"@org:{src_slug}", body, op_key=op_key)
@@ -30795,9 +30454,10 @@ def _invariant_sweep_org(slug: str) -> None:
 
     Rides the auto-resume loop (one pass per org per 30 s, already wrapped in
     survive-anything). Off-lock drives after the save. Never raises."""
-    from .ledger import (_PROVIDER_SCOPED_FREEZE_FLAGS,
+    from .ledger import (IGNORED_LEGACY_FREEZE_FLAGS,
+                         _PROVIDER_SCOPED_FREEZE_FLAGS,
                          retag_legacy_spend_freeze)
-    known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | {"spend"}
+    known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | set(IGNORED_LEGACY_FREEZE_FLAGS)
     announce: list[tuple[str, str, str, str]] = []   # nid, name, sup, body
     announced: list[tuple[str, str, str]] = []       # orphan keys, marked after COMMIT
     rc_cleared: list[tuple[str, bool, str | None]] = []   # nid, had_mail, sid
@@ -31005,7 +30665,7 @@ def start_auto_resume_loop() -> None:
                     slug = str(o["slug"])
                     try:
                         # cheap read-only gate on the shared snapshot: an org
-                        # with no freeze anywhere and no spend freeze is a
+                        # with no freeze anywhere is a
                         # provable no-op for the RESUME SCHEDULER, and taking
                         # DOC_LOCK + a fresh load every 30 s per org to
                         # discover that was most of this loop's cost
@@ -31016,9 +30676,8 @@ def start_auto_resume_loop() -> None:
                         # sweep) always runs (perf-review round 3 caught the
                         # composed skip).
                         snap = policy_context.read(slug)
-                        if (snap.d.get("spend_frozen")
-                                or any(n.get("frozen")
-                                       for n in snap.nodes.values())):
+                        if any(n.get("frozen")
+                               for n in snap.nodes.values()):
                             _auto_resume_org(slug)
                     except Exception as exc:
                         print(f"[orgtree] auto-resume org skipped ({type(exc).__name__})", flush=True)
@@ -31040,8 +30699,8 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
     from . import account_fallback
     now = time.time() if now is None else now
     # PG-3e-A: one halt transaction over the nodes frozen at planning time
-    # (the cached snapshot) — the only rows the wake-deadline stamp writes —
-    # with spend_frozen read FOR SHARE. A node that froze after the plan was
+    # (the cached snapshot) — the only rows the wake-deadline stamp writes.
+    # A node that froze after the plan was
     # stamped by its own freeze writer (`commit_node_wake` runs wherever a
     # freeze is written) and is re-stamped on the next tick.
     try:
@@ -31049,11 +30708,8 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
                       if v.get("frozen")]
     except Exception:                                    # noqa: BLE001
         _ar_frozen = []
-    with halt.txn(slug, nodes=_ar_frozen,
-                  share_sections=["spend_frozen"]) as _ar_tx:
+    with halt.txn(slug, nodes=_ar_frozen) as _ar_tx:
         org = _ar_tx.org
-        if org.d.get("spend_frozen"):
-            return True
         # ⚠ BEFORE the readiness query, and it WRITES. Each frozen node records
         # the deadline it is currently promised, so that when that moment
         # arrives the promise is still on the record to be honoured — instead
@@ -33829,7 +33485,7 @@ def start_cred_watcher() -> None:
     """§9.2: the refresh token is the hard ceiling on unattended subscription
     auth — when it lapses, re-auth is INTERACTIVE, and an unattended box
     finds out as a pile of failed turns at 3am. Watch the credentials file
-    and alarm EARLY (user mail to every non-kiosk org, ≤1/org/day).
+    and alarm EARLY (user mail to every org, ≤1/org/day).
 
     An ABSENT `refreshTokenExpiresAt` is UNKNOWN, not expired — subproxy
     legitimately drops the field when a rotated refresh token arrives without
@@ -33857,8 +33513,6 @@ def start_cred_watcher() -> None:
                     if left_days < 3.0:
                         for o in store.list_orgs():
                             slug = str(o["slug"])
-                            if o.get("kiosk"):
-                                continue
                             try:
                                 _cred_warn_org(slug, left_days)
                             except Exception:                    # noqa: BLE001

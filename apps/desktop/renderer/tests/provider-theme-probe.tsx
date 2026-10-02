@@ -33,7 +33,7 @@ createRoot(document.getElementById('root')!).render(<>
       dragging={false} isDrop={false} seats={{}} codexHire={hire}
       antigravityHire={hire} claudeHire={hire} map={map} op={op}
       slug="fixture" toast={noop} pxc={1} zoom={.8} compactAt={.8}
-      pub={false} maxTop={100} kioskRemaining={null} cascadeAlloc
+      maxTop={100} cascadeAlloc
       onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
       onInbox={noop} onDocket={noop} onLineage={noop} onOpenDoc={noop}
       onRecenter={noop} onJump={noop} onMailLink={noop}
@@ -42,6 +42,6 @@ createRoot(document.getElementById('root')!).render(<>
   </section>
   <section id="standalone" style={{ width: 900, height: 430, margin: 20 }}>
     <DeskChat node={nodes[3]} map={map} op={op} slug="fixture"
-      toast={noop} pub={false} bare onPin={noop} onConfig={noop} />
+      toast={noop} bare onPin={noop} onConfig={noop} />
   </section>
 </>)

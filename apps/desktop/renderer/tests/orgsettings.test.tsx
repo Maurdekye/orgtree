@@ -23,9 +23,9 @@ import type { TreePayload } from '../src/types'
 
 const g = globalThis as unknown as Record<string, unknown>
 
-/** the shape SettingsPanel actually reads. Deliberately a plain org: no
- *  kiosk (so Autonomy exists) and a mail identity (so Mailserver exists),
- *  which is the widest tab set an ordinary org can show. */
+/** the shape SettingsPanel actually reads. Deliberately a plain org with a
+ *  mail identity (so Mailserver exists), which is the widest tab set an
+ *  ordinary org can show. */
 function tree(over: Record<string, unknown> = {}): TreePayload {
   return {
     slug: 'acme', name: 'Acme', nodes: [], edges: [],
@@ -34,7 +34,7 @@ function tree(over: Record<string, unknown> = {}): TreePayload {
     fable_limit_policy: 'halt', fable_filter_policy: 'halt',
     auto_cheap_compact: { enabled: false, occ: 0.5 },
     auto_resume_compact: false,
-    kiosk: null, sandboxed: false, disk: null, net: { hubs: [] },
+    sandboxed: false, disk: null, net: { hubs: [] },
     ...over,
   } as unknown as TreePayload
 }
@@ -235,8 +235,6 @@ test('④  the tab set follows the org: an '
 
 })
 
-// Kiosk ceiling tests are outside the v2 desktop scope.
-
 test('⑥  content-filter policy: auto-autopsy reveals model selector without fable and saves chosen model', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
@@ -288,10 +286,10 @@ test('⑥  content-filter policy: auto-autopsy reveals model selector without fa
 
 
 
-test('legacy excluded fields cannot reintroduce kiosk, disk or fallback controls', async () => {
+test('legacy excluded fields cannot reintroduce disk or fallback controls', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
-  const { view } = await mountOrg({ kiosk: { max_scope: {}, credits: 99 }, sandboxed: true,
+  const { view } = await mountOrg({ sandboxed: true,
     disk: { size_mb: 4096 }, api_fallback: true, fable_api_fallback: true })
   try {
     assert.ok(tabs(view.el).some(t => t.textContent === 'Basic'), 'real settings modal mounted')
@@ -299,13 +297,13 @@ test('legacy excluded fields cannot reintroduce kiosk, disk or fallback controls
       await open(view.el, label)
       const active = view.el.querySelector('[role="tabpanel"]:not([hidden])')!
       assert.ok(active, label + ' panel is visible')
-      assert.doesNotMatch(active.textContent!, /API[- ]key fallback|sandbox|kiosk|virtual disk|permission ceiling|rollback backup/i)
+      assert.doesNotMatch(active.textContent!, /API[- ]key fallback|sandbox|virtual disk|permission ceiling|rollback backup/i)
     }
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'save')!
     await inAct(async () => { save.click(); await flush(10) })
     const body = seen.find(r => r.path.endsWith('/settings') && r.method === 'POST')!.body as Record<string, unknown>
     assert.equal(body.max_top_grant, 1000, 'ordinary settings still save')
-    assert.equal(Object.keys(body).some(k => /kiosk|sandbox|disk|^(?:api_fallback|fable_api_fallback)$/.test(k)), false)
+    assert.equal(Object.keys(body).some(k => /sandbox|disk|^(?:api_fallback|fable_api_fallback)$/.test(k)), false)
   } finally { await view.unmount(); delete g.fetch }
 })
 

@@ -15,17 +15,5 @@
     "engine_authored": true,
     "text": "context.cache_continuity·text"
   },
-  "public": {
-    "v": 1,
-    "variant": "context.cache_continuity",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "org"
-    }
-  },
   "body": "context.cache_continuity·text"
 }

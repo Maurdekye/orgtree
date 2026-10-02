@@ -217,7 +217,7 @@ test('§6 the desk OFFERS the retry, and pressing it asks again', async (t: Test
     children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] } }
   const v = await mountView(
     <DeskChat node={node as never} map={new Map([[node.id, node as never]])} slug="org"
-      op={async () => ({})} toast={() => {}} pub={false} bare />, el => el)
+      op={async () => ({})} toast={() => {}} bare />, el => el)
   t.after(async () => { await v.unmount(); resetConvos(); realClock() })
   await inAct(async () => { await refreshConvo('org', 'writer'); await flush(8) })
 

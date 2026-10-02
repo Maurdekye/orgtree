@@ -40,7 +40,7 @@ async function open(extra: Partial<DeskChatProps>) {
   const view = await mountView(
     <AgentSurfaceRoutesProvider value={routes}>
       <DeskChat node={agent} map={new Map([[agent.id, agent]])} slug="org"
-        op={async () => ({})} toast={() => {}} pub={false} bare {...extra} />
+        op={async () => ({})} toast={() => {}} bare {...extra} />
     </AgentSurfaceRoutesProvider>, el => el)
   await inAct(async () => { await flush(3) })
   const press = async (sel: string) => {

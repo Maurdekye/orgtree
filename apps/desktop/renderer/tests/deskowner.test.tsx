@@ -51,11 +51,11 @@ function twoSlots(node: CanvasNode, a: Record<string, unknown>, b: Record<string
   return (
     <DeskHosts map={map} slug="org">
       <div data-which="A">
-        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
           bare {...a} />
       </div>
       <div data-which="B">
-        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
           bare {...b} />
       </div>
     </DeskHosts>
@@ -68,7 +68,7 @@ function oneSlot(node: CanvasNode, a: Record<string, unknown>) {
   return (
     <DeskHosts map={map} slug="org">
       <div data-which="A">
-        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
           bare {...a} />
       </div>
     </DeskHosts>
@@ -196,7 +196,7 @@ test('§5 an automatic claim DOES take an unowned desk', async (t: TestContext) 
     const view = await mountView(
       <DeskHosts map={map} slug="org">
         <div data-which="A">
-          <DeskSlot node={n} map={map} op={op} slug="org" toast={noop} pub={false}
+          <DeskSlot node={n} map={map} op={op} slug="org" toast={noop}
             bare claim="automatic" />
         </div>
       </DeskHosts>, (el) => el)
@@ -234,7 +234,7 @@ function trio(node: CanvasNode) {
   const map = new Map([[node.id, node]])
   const box = (which: string, props: Record<string, unknown>) => (
     <div data-which={which} key={which}>
-      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
         bare {...props} />
     </div>
   )
@@ -271,7 +271,7 @@ function trioChurned(node: CanvasNode) {
   const map = new Map([[node.id, node]])
   const box = (which: string, props: Record<string, unknown>) => (
     <div data-which={which} key={which}>
-      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
         bare {...props} />
     </div>
   )
@@ -393,7 +393,7 @@ test('§7d a borrow that never had a prior owner leaves the desk with a home',
     const view = await mountView(
       <DeskHosts map={map} slug="org">
         <div data-which="C">
-          <DeskSlot node={n} map={map} op={op} slug="org" toast={noop} pub={false}
+          <DeskSlot node={n} map={map} op={op} slug="org" toast={noop}
             bare borrow />
         </div>
       </DeskHosts>, (el) => el)
@@ -431,7 +431,7 @@ function hoverPair(node: CanvasNode) {
   const map = new Map([[node.id, node]])
   const box = (which: string, props: Record<string, unknown>) => (
     <div data-which={which} key={which}>
-      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop}
         bare {...props} />
     </div>
   )

@@ -19,20 +19,5 @@
     "text": "context.drive_mail_pointer·text",
     "reason": "user_mail"
   },
-  "public": {
-    "v": 1,
-    "variant": "context.drive_mail_pointer",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "node",
-      "id": "context.drive_mail_pointer·object.id",
-      "name": "context.drive_mail_pointer·object.name",
-      "generation": 3
-    }
-  },
   "body": "context.drive_mail_pointer·text"
 }

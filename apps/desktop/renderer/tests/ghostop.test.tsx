@@ -105,7 +105,7 @@ function ghostTest(name: string,
       sink.push(c)
       const nd = node(ND)
       return <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op_}
-        slug={SL} toast={noop} pub={false} bare />
+        slug={SL} toast={noop} bare />
     }
     const v = await mountView(<Rig />, () => sink.length)
     t.after(async () => {

@@ -47,7 +47,7 @@ const tree = (roots = [agent()]): TreePayload => ({
   slug: 'mine', name: 'mine', roots, dirs: [], max_top_grant: 1000,
   default_top_grant: 50, compact_at: 0, credit_requests: [], tiers: { haiku: 1 }, audiences: [],
   cost_usd_total: 0, audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
-  user_inbox_count: 0, fable_lock: null, spend_frozen: false, storage_blocked: false,
+  user_inbox_count: 0, fable_lock: null, storage_blocked: false,
   audience_requests: [], org_inbox: null, net: null, asks: [],
 } as unknown as TreePayload)
 const ticket = (extra: Partial<WorkItem> = {}): WorkItem => ({
@@ -124,7 +124,7 @@ for (const variant of ['linked', 'own desk', 'read only', 'prefix', 'archived ge
   })
 }
 
-for (const variant of ['normal', 'mini', 'map', 'archived', 'unrecoverable', 'bearer', 'public']) {
+for (const variant of ['normal', 'mini', 'map', 'archived', 'unrecoverable', 'bearer']) {
   ui(`Canvas card: ${variant}`, async ({ mount, writes }) => {
     const n = agent(variant === 'bearer' ? 'worker@3' : 'worker', {
       state: ['archived', 'unrecoverable'].includes(variant) ? variant : 'live',
@@ -135,7 +135,7 @@ for (const variant of ['normal', 'mini', 'map', 'archived', 'unrecoverable', 'be
       seats={{ haiku: 1 }} map={new Map([[n.id, n]])} op={noOp} slug="mine" toast={noop}
       pxc={1} zoom={1} onSpawn={BAD} onConfig={BAD} onInbox={BAD} onLineage={BAD}
       onRecenter={BAD} onMailLink={BAD} onWorkLink={BAD} onDragStart={BAD}
-      onDragMove={BAD} onDragEnd={BAD} onDragCancel={BAD} pub={variant === 'public'}
+      onDragMove={BAD} onDragEnd={BAD} onDragCancel={BAD}
       mapMode={variant === 'map'} />)
     await copy(v.el.querySelector('.sq')!, 'Copy agent name')
     assert.deepEqual(writes, [n.id])
@@ -146,7 +146,7 @@ ui('Focused desk, switchboard/pinned/mobile desk headers and jump cards', async 
   const n = agent(), map = new Map([[n.id, n]])
   for (const bare of [false, true]) {
     const v = await mount(<DeskChat node={n} bare={bare} map={map} op={noOp} slug="mine"
-      toast={noop} pub onJump={BAD} />)
+      toast={noop} onJump={BAD} />)
     await copy(v.el.querySelector('.cc-head-left')!, 'Copy agent name')
   }
   const nav = await mount(<NavChip n={n} dir="down" onJump={BAD} />)
@@ -215,7 +215,7 @@ for (const kind of ['node-config', 'lineage', 'node-inbox', 'agent-docket', 'age
 ui('Switchboard tabs retain their open state while their agent name is copied', async ({ mount, writes }) => {
   const n = agent('worker', { parent: USER })
   const v = await mount(<EyeDesk map={new Map([[n.id, n]])} op={noOp} slug="mine" toast={noop}
-    pub eyeW={900} posX={() => 0} onJump={BAD} onMailLink={BAD} onWorkLink={BAD} />)
+    eyeW={900} posX={() => 0} onJump={BAD} onMailLink={BAD} onWorkLink={BAD} />)
   const tab = v.el.querySelector('.eye-tab')!
   const before = tab.className
   await copy(tab, 'Copy agent name')
@@ -278,7 +278,7 @@ ui('Pinned agent title keeps its pin position and does not jump or unpin', async
   const n = agent(), map = new Map([[n.id, n], ['other', agent('other')]])
   const viewport = { current: null as HTMLDivElement | null }
   await mount(<div ref={el => { viewport.current = el }}><PinLayer slug="mine" map={map}
-    viewportRef={viewport} targetOf={() => null} op={noOp} toast={noop} pub maxTop={100} pxc={1}
+    viewportRef={viewport} targetOf={() => null} op={noOp} toast={noop} maxTop={100} pxc={1}
     onMailLink={BAD} onWorkLink={BAD} onOpenDoc={BAD} onLineage={BAD} onConfig={BAD}
     onJump={BAD} onShowOnCanvas={BAD} /></div>)
   const before = structuredClone(readPins('mine'))

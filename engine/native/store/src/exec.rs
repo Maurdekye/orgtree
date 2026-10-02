@@ -117,7 +117,6 @@ pub enum Principal {
     Agent { id: Uuid, generation: i64 },
     Operator { id: Uuid },
     User,
-    KioskVisitor { kiosk_incarnation: Uuid },
     System,
 }
 
@@ -127,14 +126,12 @@ impl Principal {
             Principal::Agent { .. } => "agent",
             Principal::Operator { .. } => "operator",
             Principal::User => "user",
-            Principal::KioskVisitor { .. } => "kiosk_visitor",
             Principal::System => "system",
         }
     }
     pub fn id(&self) -> Option<Uuid> {
         match self {
             Principal::Agent { id, .. } | Principal::Operator { id } => Some(*id),
-            Principal::KioskVisitor { kiosk_incarnation } => Some(*kiosk_incarnation),
             Principal::User | Principal::System => None,
         }
     }

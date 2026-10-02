@@ -176,7 +176,7 @@ class DiskMigrationFlip(unittest.TestCase):
         org = store.load_org(slug)
         org.d['workspace'] = str(ws)
         org.d['dirs'] = [{'path': str(ws), 'mode': 'rw'}]
-        org.d['kiosk'] = {'storage_limit_mb': 256}          # floored to 4096: the inbox notice path
+        org.d['sandbox'] = {'limit_mb': 256}                # floored to 4096: the inbox notice path
         org.d['storage_frozen'] = True
         org.node('a')['frozen'] = {'storage': True, 'storage_error': 'full'}
         org.node('a').setdefault('scope', {})['add_dirs'] = [{'path': str(ws), 'mode': 'rw'}]

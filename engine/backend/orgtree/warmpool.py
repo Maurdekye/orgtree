@@ -1292,8 +1292,6 @@ def _warm_eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
         return False, "remote-controlled"
     if n.get("bearer_state"):
         return False, "bearer-state"
-    if org.d.get("spend_frozen"):
-        return False, "spend-frozen"
     if n.get("inflight"):
         return False, "inflight"
     if (org.d.get("delivering") or {}).get(nid):
@@ -1377,7 +1375,6 @@ def _control_eligibility_text(reason: str) -> str:
         "limit-locked": "the agent is limit-locked",
         "remote-controlled": "the agent is under remote control",
         "bearer-state": "the agent is in a bearer lifecycle state",
-        "spend-frozen": "organization spending is frozen",
         "inflight": "the agent has a turn pending recovery",
         "delivery-in-progress": "the agent has a delivery in progress",
         "storage-blocked": "the organization storage gate is closed",
@@ -1390,8 +1387,7 @@ def _control_eligibility_text(reason: str) -> str:
     }.get(reason, "the agent is not eligible for process warming")
 
 
-def process_control_status(org: Any, nid: str, *, public: bool = False,
-                           ) -> dict[str, Any]:
+def process_control_status(org: Any, nid: str) -> dict[str, Any]:
     """Return the backend-owned control state shown in the desk tooltip."""
     slug = str(org.d.get("slug") or "")
     n = org.nodes.get(nid)
@@ -1403,9 +1399,6 @@ def process_control_status(org: Any, nid: str, *, public: bool = False,
         "paused": paused, "enabled": False, "action": action,
         "reason": None, "runtime": runtime,
     }
-    if public:
-        result["reason"] = "process controls are available on admin desks only"
-        return result
     if n is None:
         result["action"] = None
         result["reason"] = "the agent no longer exists"
@@ -1530,7 +1523,7 @@ def process_control(slug: str, nid: str, action: str,
         # is changed. A turn that reached the state lock first wins and this
         # request refuses. No org row is written here.
         with orgtx.org_tx(slug, share_nodes=[nid],
-                          share_sections=["delivering", "spend_frozen",
+                          share_sections=["delivering",
                                           "storage_blocked"]) as tx:
             org = tx.org
             n = org.node(nid)
@@ -1725,7 +1718,6 @@ _RELAUNCH_LABELS = {
     "limit-locked": "the agent is limit-locked",
     "remote-controlled": "the agent is under remote control",
     "bearer-state": "the agent is in a bearer lifecycle state",
-    "spend-frozen": "organization spending is frozen",
     "not-eligible": "the agent is no longer eligible for process reuse",
 }
 _IDENTITY_LABELS = {
@@ -1852,7 +1844,6 @@ KILL_REASON_CLASS = {
     "limit-locked": "prompt-change",
     "remote-controlled": "prompt-change",
     "bearer-state": "prompt-change",
-    "spend-frozen": "prompt-change",
     "disabled": "kill-switch",           # the coordinator-ordered A/B and
     "excluded-by-flag": "kill-switch",   # back-out lever, sanctioned
     "superseded": "duplicate-resolution",  # the seat KEEPS a warm process

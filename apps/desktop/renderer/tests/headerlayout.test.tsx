@@ -56,7 +56,7 @@ test('desk header has bounded controls and a separate wrapping metadata row', as
   }
   const view = await mountView(
     <DeskChat node={n} map={new Map([[id, n], ['superior', superior]])}
-      op={op} slug="header" toast={noop} pub={false} bare onJump={noop} />,
+      op={op} slug="header" toast={noop} bare onJump={noop} />,
     (el) => el,
   )
   t.after(() => view.unmount())
@@ -154,7 +154,7 @@ test('fresh desk preserves empty context, off process, and neutral Idle banner',
   }
   const view = await mountView(
     <DeskChat node={n} map={new Map([[id, n]])} op={op} slug="fresh"
-      toast={noop} pub={false} bare />,
+      toast={noop} bare />,
     (el) => el,
   )
   t.after(() => view.unmount())
@@ -185,7 +185,7 @@ test('desk cost badge distinguishes unresolved zero and positive estimates', asy
     } as CanvasNode
     const view = await mountView(
       <DeskChat node={n} map={new Map([[n.id, n]])} op={op} slug={n.id}
-        toast={noop} pub={false} bare />, (el) => el)
+        toast={noop} bare />, (el) => el)
     await flush()
     return view
   }
@@ -217,7 +217,7 @@ test('the MCP badge is absent for zero configured servers, not zero or unknown',
   }
   const noneView = await mountView(
     <DeskChat node={none} map={new Map([[noneId, none]])} op={op} slug={noneId}
-      toast={noop} pub={false} bare />,
+      toast={noop} bare />,
     (el) => el,
   )
   t.after(() => noneView.unmount())
@@ -237,7 +237,7 @@ test('the MCP badge is absent for zero configured servers, not zero or unknown',
   }
   const pendingView = await mountView(
     <DeskChat node={pending} map={new Map([[pendingId, pending]])} op={op} slug={pendingId}
-      toast={noop} pub={false} bare />,
+      toast={noop} bare />,
     (el) => el,
   )
   t.after(() => pendingView.unmount())
@@ -289,7 +289,7 @@ test('queued or compacting desks keep an unclaimed live process on standby', asy
     }
     const view = await mountView(
       <DeskChat node={n} map={new Map([[id, n]])} op={op} slug={id}
-        toast={noop} pub={false} bare />,
+        toast={noop} bare />,
       (el) => el,
     )
     t.after(() => view.unmount())

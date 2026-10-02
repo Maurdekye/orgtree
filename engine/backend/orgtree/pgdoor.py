@@ -262,7 +262,6 @@ LOCKS: "dict[str, TxSpec | SpecFn]" = {}
 SNAPSHOT_FREE: set[str] = set()
 RUNTIME_SNAPSHOTS: set[str] = set()
 BODIES: "dict[str, Callable[[AgentTx], Any]]" = {}
-KIOSK_EXEMPT: "set[str]" = set()
 # route only the calls a predicate accepts (one tool whose modes belong to
 # different families), and the pre-transaction step per name (F1)
 WHEN: "dict[str, Callable[[dict[str, Any]], bool]]" = {}
@@ -288,7 +287,6 @@ class Widen(Exception):
 
 def declare(name: str, spec: "TxSpec | SpecFn",
             body: "Callable[[AgentTx], Any] | None" = None, *,
-            kiosk_exempt: bool = False,
             needs_snapshot: bool = True,
             runtime_snapshot: bool = False,
             when: "Callable[[dict[str, Any]], bool] | None" = None,
@@ -309,9 +307,7 @@ def declare(name: str, spec: "TxSpec | SpecFn",
     `runtime_snapshot=True`: this spec explicitly accepts version-checked
     deferred work bodies on PG; ordinary specs retain their coherent cache.
     Test snapshot seams still override both forms.
-    `kiosk_exempt` (lead decision 18.8): the tool is PROVEN unable to move
-    top-level holdings, so the door skips the kiosk credit-cap check for it —
-    the family carries the proof. Re-declaring a name with a DIFFERENT spec
+    Re-declaring a name with a DIFFERENT spec
     or body is refused: two families claiming one tool is a merge bug, and
     last-wins would hide it."""
     old, old_body = LOCKS.get(name), BODIES.get(name)
@@ -329,8 +325,6 @@ def declare(name: str, spec: "TxSpec | SpecFn",
         SNAPSHOT_FREE.add(name)
     if body is not None:
         BODIES[name] = body
-    if kiosk_exempt:
-        KIOSK_EXEMPT.add(name)
     if when is not None:
         WHEN[name] = when
     if before is not None:

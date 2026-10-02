@@ -167,23 +167,13 @@ class ForegroundPagesPG(unittest.TestCase):
                             'expiry changed nothing: probe inert')
         self.assertEqual((kept.status_code, kept.content), (control.status_code, control.content))
 
-    def test_public_and_operator_answers_are_kept_apart(self):
+    def test_operator_answer_matches_a_cold_build_with_private_fields(self):
         self.save(lambda org: org.nodes['boss'].__setitem__('session_id', 'private-session'))
         _clear()
         url = self.PAGES[0]
-        public = TestClient(api.PublicGateway(api.app))
-        with patch.object(api, '_kiosk_token_map', return_value={'testtoken': self.slug}), \
-                patch.object(api, '_tree_runtime_stamp', side_effect=lambda slug: tuple(self.runtime)):
-            shown = public.get(f'/k/testtoken{self.base}{url}', headers={'Accept-Encoding': 'identity'})
-        self.assertEqual(shown.status_code, 200, shown.text)
-        self.assertNotIn('session_id', shown.json()['nodes']['boss'])
         operator = self.get(url)
         self.assertEqual(operator.content, self.cold(url).content)
         self.assertEqual(operator.json()['nodes']['boss'].get('session_id'), 'private-session')
-        with patch.object(api, '_kiosk_token_map', return_value={'testtoken': self.slug}), \
-                patch.object(api, '_tree_runtime_stamp', side_effect=lambda slug: tuple(self.runtime)):
-            again = public.get(f'/k/testtoken{self.base}{url}', headers={'Accept-Encoding': 'identity'})
-        self.assertEqual(again.content, shown.content)
 
     def test_funding_is_read_as_the_four_index_fields(self):
         with store._POOL.acquire(self.slug) as conn:

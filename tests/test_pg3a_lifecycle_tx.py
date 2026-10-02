@@ -849,7 +849,7 @@ class Scope(unittest.TestCase):
     def test_a_charter_change_locks_only_the_node(self):
         o = store.load_org(self.slug)
         upd, share, secs, ssecs, _ = lifecycle_tx._scope_plan(
-            o, ledger.USER, "leaf", {"charter": "x"}, True)
+            o, ledger.USER, "leaf", {"charter": "x"})
         self.assertEqual(upd, {"leaf"})
         self.assertEqual(share, {"mid", "root"})
         self.assertEqual((secs, ssecs), (("notices",), ()))
@@ -876,10 +876,9 @@ class Scope(unittest.TestCase):
     def test_an_agent_retool_shares_the_org_grants(self):
         o = store.load_org(self.slug)
         _u, _s, secs, ssecs, _ = lifecycle_tx._scope_plan(
-            o, "root", "leaf", {"tools": {}}, False)
+            o, "root", "leaf", {"tools": {}})
         self.assertEqual(secs, ("notices",))
         self.assertIn("dirs", ssecs)
-        self.assertIn("kiosk", ssecs)
         self.parity("root", "leaf", charter="set by the parent")
 
     def test_every_section_a_capability_change_writes_is_needed(self):
@@ -887,58 +886,14 @@ class Scope(unittest.TestCase):
         d = _t.mkdtemp(prefix="pg3a-sc-dir-")
         real = lifecycle_tx._scope_plan
         for drop in ("dirs", "notices"):
-            def smaller(org, actor, nid, kw, may_raise, drop=drop):
-                u, s, secs, ss, lg = real(org, actor, nid, kw, may_raise)
+            def smaller(org, actor, nid, kw, drop=drop):
+                u, s, secs, ss, lg = real(org, actor, nid, kw)
                 return u, s, tuple(x for x in secs if x != drop), ss, lg
             with patch.object(lifecycle_tx, "_scope_plan", smaller):
                 with self.assertRaises(orgtx.UnlockedWrite, msg=drop):
                     lifecycle_tx.set_scope(self.slug, ledger.USER, "root",
                                            add_dirs=[{"path": d, "mode": "rw"}])
         self.assertNotIn(d, [x["path"] for x in store.load_org(self.slug).d.get("dirs") or []])
-
-    def kiosk(self, slug):
-        with store.DOC_LOCK:
-            o = store.load_org(slug)
-            ms = o.default_kiosk_ceiling()
-            ms["tools"]["bash"] = False
-            o.d["kiosk"] = {"max_scope": ms, "auto_raise": False}
-            store.save_org(o)
-
-    def test_raising_the_kiosk_ceiling_writes_the_kiosk_row(self):
-        self.kiosk(self.slug)
-        tools = dict(store.load_org(self.slug).node("root")["scope"]["tools"])
-        tools["bash"] = True
-        twin = "pg3a-sc-twin-" + str(time.time_ns())
-        self.build(twin)
-        self.kiosk(twin)
-        with store.DOC_LOCK:
-            o = store.load_org(twin)
-            legacy = o.set_scope(ledger.USER, "root", tools=tools, raise_ceiling=True)
-            store.save_org(o)
-        mine = lifecycle_tx.set_scope(self.slug, ledger.USER, "root", tools=tools,
-                                      raise_ceiling=True)
-        same = lambda x: repr(x).replace(twin, self.slug)  # noqa: E731
-        self.assertEqual(same(mine), same(legacy))
-        o = store.load_org(self.slug)
-        self.assertTrue(o.d["kiosk"]["max_scope"]["tools"]["bash"])      # it rose
-        self.assertEqual(same(o.d["kiosk"]), same(store.load_org(twin).d["kiosk"]))
-        store._POOL.close_all(twin)
-
-    def test_without_may_raise_the_grant_is_clamped_and_kiosk_only_read(self):
-        self.kiosk(self.slug)
-        tools = dict(store.load_org(self.slug).node("root")["scope"]["tools"])
-        tools["bash"] = True
-        o = store.load_org(self.slug)
-        _u, _s, secs, ssecs, _ = lifecycle_tx._scope_plan(
-            o, ledger.USER, "root", {"tools": tools}, False)
-        self.assertIn("kiosk", ssecs)
-        self.assertNotIn("kiosk", secs)
-        r = lifecycle_tx.set_scope(self.slug, ledger.USER, "root", may_raise=False,
-                                   tools=tools, raise_ceiling=True)
-        self.assertEqual(r.get("bridge"), {"raise_ceiling": True})
-        o = store.load_org(self.slug)
-        self.assertFalse(o.d["kiosk"]["max_scope"]["tools"]["bash"])
-        self.assertFalse(o.node("root")["scope"]["tools"]["bash"])
 
     def test_a_refused_retool_writes_nothing(self):
         before = self.view(self.slug)

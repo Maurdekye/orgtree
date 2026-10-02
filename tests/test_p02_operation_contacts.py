@@ -58,7 +58,7 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
         "restart-wake-cancel", "restart-wake-status", "op-interrupt", "op-unstick",
         "op-continue-on", "op-halt", "op-unhalt", "op-process", "killswitch",
         "killswitch-release", "resume", "remote-control", "steer-claim", "steer-ack",
-        "steer-state", "kiosk")} | {
+        "steer-state")} | {
     f"exchange.{v}" for v in (
         "orgs-list", "org-inbox-list", "mail-item",
         "org-inbox-read", "org-inbox-upload", "org-inbox-send", "inbox-clear", "node-upload",
@@ -378,8 +378,9 @@ class OperationContacts(unittest.TestCase):
     def test_every_connection_site_is_classified_with_a_reason(self):
         sites = self.doc["connection_sites"]
         # 25 since the P01 inventory re-anchor after PYPG (987d163): the 7 new
-        # rows are the PostgreSQL backend's connections, named as such below
-        self.assertEqual(len(sites), 25)
+        # rows are the PostgreSQL backend's connections, named as such below;
+        # 24 since the removed per-org public link's token-map scan went
+        self.assertEqual(len(sites), 24)
         self.assertEqual(sum(s["status"] == "instrumented" for s in sites), 7)
         for s in sites:
             self.assertIn(s["status"], ("instrumented", "uninstrumented"))
@@ -774,16 +775,14 @@ class OperationContacts(unittest.TestCase):
     # -- P01 S3 F1b: org.tree, org.node-detail, org.feed ---------------------------
     OV_ALL = ["ov-boss", "ov-gone", "ov-worker"]
 
-    def test_org_tree_and_detail_admin_and_public_cold_and_warm(self):
-        """org-view.reads/instrumentation: the tree and detail routes, admin
-        and public, cold and warm, with an archived node present; each a read
+    def test_org_tree_and_detail_admin_cold_and_warm(self):
+        """org-view.reads/instrumentation: the tree and detail routes, admin,
+        cold and warm, with an archived node present; each a read
         that writes nothing; `disclosed` shows the archived node is in the
         tree and that each detail row answers for its own node."""
         cases = {"org.tree": ("org.tree", self.OV_ALL),
-                 "org.tree:public": ("org.tree", self.OV_ALL),
                  "org.node-detail": ("org.node-detail", ["ov-worker"]),
-                 "org.node-detail:archived": ("org.node-detail", ["ov-gone"]),
-                 "org.node-detail:public": ("org.node-detail", ["ov-worker"])}
+                 "org.node-detail:archived": ("org.node-detail", ["ov-gone"])}
         for variant, (contract, shown) in cases.items():
             for condition in ("cold", "warm"):
                 with self.subTest(variant=variant, condition=condition):
@@ -794,15 +793,11 @@ class OperationContacts(unittest.TestCase):
                     self.assertEqual(r["disclosed"], shown)
                     if condition == "cold":
                         self.assertGreater(r["census"]["statements"], 0)
-        refusals = {"refusal:tree-no-token": 401, "refusal:detail-unknown-node": 404,
-                    "refusal:tree-bad-kiosk-token": 404,
-                    "refusal:tree-admin-on-kiosk-org": 500}
+        refusals = {"refusal:tree-no-token": 401, "refusal:detail-unknown-node": 404}
         for variant, status in refusals.items():
             with self.subTest(variant=variant):
                 r = self.rows(variant=variant)[0]
                 self.assertEqual((r["http_status"], r["harness"]["writes"]), (status, 0))
-        self.assertIn("Not available in desktop MVP: kiosk",
-                      self.rows(variant="refusal:tree-admin-on-kiosk-org")[0]["detail"])
 
     def test_org_tree_migration_path_through_cached_org(self):
         """org-view.writes: the cold and migration paths reached through
@@ -819,38 +814,22 @@ class OperationContacts(unittest.TestCase):
 
     def test_org_feed_subscriptions_and_fan_out(self):
         """org-feed.instrumentation: subscriptions and frame fan-out per slug,
-        admin and public. The census records no websocket attempt (census
-        records 0), and a subscription runs no statement."""
-        for variant, label, public in (("org.feed", "admin", 0), ("org.feed:public", "public", 1)):
+        admin. The census records no websocket attempt (census records 0),
+        and a subscription runs no statement."""
+        for variant, label in (("org.feed", "admin"),):
             for condition in ("cold", "warm"):
                 with self.subTest(variant=variant, condition=condition):
                     r = self.rows(contract="org.feed", variant=variant, condition=condition)[0]
                     self.assertEqual(r["http_status"], 101)
-                    self.assertEqual(r["feed"], {"subscribers": 1, "frames": {label: 1},
-                                                 "public_in_room": public})
+                    self.assertEqual(r["feed"], {"subscribers": 1, "frames": {label: 1}})
                     self.assertEqual(r["census"]["records"], 0)
                     self.assertEqual(r["harness"]["statements_attributed"]
                                      + r["harness"]["statements_unbound"], 0)
         fan = self.rows(variant="org.feed:fanout")[0]
-        self.assertEqual(fan["feed"], {"subscribers": 2, "frames": {"admin": 2, "public": 2},
-                                       "public_in_room": 1})
+        self.assertEqual(fan["feed"], {"subscribers": 2, "frames": {"admin": 2, "admin-2": 2}})
         refused = self.rows(variant="refusal:feed-no-token")[0]
         self.assertEqual((refused["http_status"], refused["feed"]),
                          (4401, {"refused": True, "close_code": 4401}))
-
-    def test_kiosk_token_scan_is_measured_outside_the_rows(self):
-        """The public gateway's token-map rebuild runs before any census
-        attempt and reads every org's document: none of its statements can be
-        attributed. Measured on its own so the public rows carry only their
-        own request."""
-        scan = self.doc["kiosk_token_scan"]
-        self.assertGreater(scan["statements"], 0)
-        self.assertEqual(scan["statements_unbound"], scan["statements"])
-        self.assertGreater(scan["db_unattributed_delta"], 0)
-        self.assertEqual(scan["recorded_delta"], 0)
-        # the org-view kiosk, F4's sealed kiosk and F6's (F2's kiosk orgs hold no token)
-        self.assertEqual(scan["kiosk_orgs_mapped"], 3)
-        self.assertGreater(scan["orgs_listed"], 1)
 
 
     # -- P01 S3 F2: mail.message, mail.notice ---------------------------------------
@@ -2041,7 +2020,6 @@ class OperationContacts(unittest.TestCase):
         "control.steer-claim": ("steer", "control.steer-claim", 200, ()),
         "control.steer-ack": ("steer", "control.steer-ack", 200, ()),
         "control.steer-state": ("steer", "control.steer-state", 200, ()),
-        "control.kiosk": ("kiosk", "control.kiosk:desktop-stripped", 404, ()),
         "control.killswitch": (None, "control.killswitch", 200, ()),
         "control.killswitch-release": (None, "control.killswitch-release", 200, ()),
         "control.resume": (None, "control.resume", 200, ()),
@@ -2063,7 +2041,7 @@ class OperationContacts(unittest.TestCase):
     def test_control_contracts_run_cold_and_warm_per_profile(self):
         """control.instrumentation: every F2 contract, cold and warm,
         loss-accounted; the restart tools in BOTH profiles (refused on the
-        desktop, served otherwise); the kiosk route stripped on the desktop."""
+        desktop, served otherwise)."""
         for contract, (cell, variant, status, told) in self.CT_MAIN.items():
             for condition in ("cold", "warm"):
                 with self.subTest(contract=contract, condition=condition):
@@ -2081,21 +2059,6 @@ class OperationContacts(unittest.TestCase):
                         self.assertEqual(desk["http_status"], 422)
                         self.assertIn("desktop-managed V2 renamed", desk["detail"])
                         self.assertEqual((desk["spies"], desk["harness"]["writes"]), ({}, 0))
-        # the kiosk route: stripped in the desktop profile (above), and the
-        # non-desktop handler, mounted at its own path for these rows only,
-        # configures a kiosk org, cold and warm, loss-accounted
-        for condition in ("cold", "warm"):
-            with self.subTest(kiosk=condition):
-                [r] = self.rows(contract="control.kiosk", variant="control.kiosk:non-desktop",
-                                condition=condition)
-                self.assertEqual((r["http_status"], r["census"]["records"]), (200, 1), r["detail"])
-                self.assertIs(r["harness"]["matches_census"], True)
-                self.assertIn("ORGTREE_DESKTOP_MANAGED", r["env"])
-                self.assertIn("doc", r["harness"]["stores"]["primary"]["tables_written"])
-        [refused] = self.rows(variant="refusal:kiosk-not-a-kiosk-org")
-        self.assertEqual(refused["http_status"], 422)
-        self.assertIn("not a kiosk org", refused["detail"])
-        self.assertIn("ORGTREE_DESKTOP_MANAGED", refused["env"])
 
     def test_control_rows_reach_only_the_declared_set(self):
         rows = self.ct_rows()
@@ -2157,9 +2120,8 @@ class OperationContacts(unittest.TestCase):
 
     def test_control_refusals_write_nothing_to_the_org(self):
         refusals = [r for r in self.ct_rows() if r["variant"].startswith("refusal:")]
-        # 13 tool refusals, 3 route refusals, resume while latched, and the
-        # non-desktop kiosk handler on an org that is not a kiosk
-        self.assertEqual(len(refusals), 18)
+        # 13 tool refusals, 3 route refusals and resume while latched
+        self.assertEqual(len(refusals), 17)
         for r in refusals:
             with self.subTest(variant=r["variant"]):
                 self.assertGreaterEqual(r["http_status"], 400)
@@ -2188,7 +2150,7 @@ class OperationContacts(unittest.TestCase):
     #: the rows that run statements on OTHER orgs' stores, as found: the org list
     #: (every org) and an @org: send (the other org; the main send row is one)
     EX_FOREIGN = {"exchange.orgs-list", "exchange.org-inbox-send", "exchange.org-inbox-send:org",
-                  "exchange.org-inbox-send:org-kiosk", "exchange.org-inbox-send:org-attachment"}
+                  "exchange.org-inbox-send:org-attachment"}
 
     def ex_rows(self):
         return [r for r in self.doc["rows"] if r["contract"].startswith("exchange.")
@@ -2210,8 +2172,7 @@ class OperationContacts(unittest.TestCase):
     def test_exchange_org_level_locality_as_found(self):
         """The org list reads EVERY org's document. An @org: send writes the
         other org's store (the main send row, cold and warm, and its :org
-        variants); to a sealed kiosk it reads the other store and only warns.
-        Nothing else leaves the org."""
+        variants). Nothing else leaves the org."""
         for r in self.ex_rows():
             foreign = r["harness"]["statement_stores"].get("data:org-db:foreign", 0)
             with self.subTest(variant=r["variant"], condition=r["condition"]):
@@ -2226,8 +2187,6 @@ class OperationContacts(unittest.TestCase):
             self.assertIn("orgtree.store:_save_sqlite", sent, condition)
         sent = self.rows(variant="exchange.org-inbox-send:org")[0]["harness"]["foreign_statement_sites"]
         self.assertIn("orgtree.store:_save_sqlite", sent)
-        sealed = self.rows(variant="exchange.org-inbox-send:org-kiosk")[0]
-        self.assertNotIn("orgtree.store:_save_sqlite", sealed["harness"]["foreign_statement_sites"])
 
     def test_exchange_rows_reach_only_the_declared_set(self):
         rows = self.ex_rows()
@@ -2279,9 +2238,8 @@ class OperationContacts(unittest.TestCase):
         for variant in ("refusal:route-no-token", "refusal:route-agent-token"):
             self.assertEqual((one(variant)["http_status"], one(variant)["census"]["records"]),
                              (401, 0), variant)
-        # an @org: send sparks the other org's recipient; a sealed kiosk does not
+        # an @org: send sparks the other org's recipient
         self.assertEqual(one("exchange.org-inbox-send:org")["spies"].get("mail_spark"), 1)
-        self.assertNotIn("mail_spark", one("exchange.org-inbox-send:org-kiosk")["spies"])
 
     def test_exchange_refusals_write_nothing_to_the_org(self):
         refusals = [r for r in self.ex_rows() if r["variant"].startswith("refusal:")]

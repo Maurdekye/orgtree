@@ -2,7 +2,7 @@
 
 This module does not load an Org or query storage. Its input graph and context
 must come from one committed snapshot; the API still owns runtime annotation
-and public scrubbing. Only selected identities enter the returned flat map.
+and scrubbing. Only selected identities enter the returned flat map.
 """
 from __future__ import annotations
 

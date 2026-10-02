@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DocGalleryModal } from '../src/canvas/gallery'
 import { InboxPanel } from '../src/App'
-import { BASE } from '../src/api'
 import { addPending, resetConvos, useConvo } from '../src/convo'
 import type { Convo } from '../src/convo'
 import type { TreePayload } from '../src/types'
@@ -13,9 +12,8 @@ declare const __SRC_DIR__: string
 const fixture=(variant:string)=>JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events',variant+'.json'),'utf8'))
 const noop=()=>{}
 
-export function replyCases(profile:'operator'|'public') {
+export function replyCases(profile:'operator') {
   for(const surface of ['document','mail'] as const) test(profile+' '+surface+' sends identity, retains failed draft, and binds its own accepted ghost',async t=>{
-    assert.equal(BASE,profile==='public'?'/k/visitor':'','positive control: API profile')
     useFakeClock();resetConvos()
     let fail=true, snapshot:Convo|null=null
     const requests:{url:string,body:unknown}[]=[], notices:string[][]=[]
@@ -23,13 +21,13 @@ export function replyCases(profile:'operator'|'public') {
     const item={id:'d1',node:'alpha',title:'Client title must not be sent',at:'2026-09-06T12:00:00Z',node_state:'live',evicted:false}
     const mail={id:'m1',from:'alpha',kind:'message',at:'2026-09-06T12:00:00Z',body:'Client quote must not be sent'}
     const f=fixture('reply.'+surface)
-    const event={...f[profile==='public'?'public':'private'],actor:{kind:'user',id:'user'},body:'Same draft'}
+    const event={...f.private,actor:{kind:'user',id:'user'},body:'Same draft'}
     globalThis.fetch=(async (input,init)=>{
       const url=String(input), method=init?.method??'GET'
       const response=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}})
       if(method==='POST'&&url.endsWith('/nodes/alpha/message')) {
         requests.push({url,body:JSON.parse(String(init?.body))})
-        return fail?response({detail:'target no longer exists'},422):response({id:'accepted-id',ref:'@mail:mine/node/alpha/accepted-id',deferred:true,...(profile==='public'?{ev_public:event}:{ev:event})})
+        return fail?response({detail:'target no longer exists'},422):response({id:'accepted-id',ref:'@mail:mine/node/alpha/accepted-id',deferred:true,ev:event})
       }
       if(url.split('?')[0].endsWith('/documents'))return response({documents:[item]})
       if(url.endsWith('/documents/d1'))return response({...item,body:'Document body'})

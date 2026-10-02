@@ -22,7 +22,7 @@ const writer: CanvasNode = { id: 'writer', generation: 2, state: 'live', tier: '
   seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] } }
 const target = (eventId: string): ReplyContext => ({ org: 'org', agent: 'writer', generation: 2, eventId, quote: 'Saved excerpt' })
 const desk = () => <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
-  op={async () => ({})} toast={() => {}} pub={false} bare />
+  op={async () => ({})} toast={() => {}} bare />
 async function refresh() { await inAct(async () => { await refreshConvo('org', 'writer'); await flush(5) }) }
 
 test('composing, pending and sent replies retain the same structured source, metadata and attachments', async () => {
@@ -149,29 +149,6 @@ test('missing snapshot and generation mismatch keep the saved quote, never a new
       assert.equal(preview.querySelector<HTMLButtonElement>('button')!.disabled, true)
     } finally { await view.unmount(); resetConvos() }
   }
-})
-
-test('the public source renderer validates public events and legacy prose remains an honest fallback', async () => {
-  const messages: ChatMessage[] = [
-    { event_id: 'public', role: 'user', text: 'unused', segments: [{ kind: 'mail', rows: [
-      { from: 'reporter', kind: 'status', body: STATUS.body, at: '2026-09-12T09:00:00Z', ev_public: STATUS.public },
-    ] }] },
-    { event_id: 'wrong-profile', role: 'user', text: 'Legacy safe excerpt', segments: [{ kind: 'mail', rows: [
-      { from: 'reporter', kind: 'status', body: 'SECRET', at: '2026-09-12T09:00:00Z', ev: { ...STATUS.private, summary: 'SECRET' } },
-    ] }] },
-  ]
-  const sources = indexReplySources({ messages })
-  const render = (id: string) => <ReplySourceProvider value={reply => <ReplySourceContent source={sources.get(reply.eventId)!}
-    slug="org" nid="writer" profile="public" />}><ReplyPreview reply={target(id)} available onLocate={() => {}} /></ReplySourceProvider>
-  const view = await mountView(render('public'), el => el)
-  try {
-    assert.ok(view.el.querySelector('[data-event-variant="status.report"]'))
-    assert.match(view.el.textContent!, /status.report·summary/)
-    await view.render(render('wrong-profile'))
-    assert.equal(view.el.querySelectorAll('[data-event-variant]').length, 0)
-    assert.match(view.el.textContent!, /Legacy safe excerpt/)
-    assert.doesNotMatch(view.el.textContent!, /SECRET/)
-  } finally { await view.unmount() }
 })
 
 test('live plans retain step status and sealed thinking stays an indicator', async () => {

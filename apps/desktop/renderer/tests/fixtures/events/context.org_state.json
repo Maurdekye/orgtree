@@ -40,17 +40,5 @@
       ]
     }
   },
-  "public": {
-    "v": 1,
-    "variant": "context.org_state",
-    "projection": "public",
-    "actor": {
-      "kind": "system",
-      "id": "@system"
-    },
-    "object": {
-      "kind": "org"
-    }
-  },
   "body": "context.org_state·text"
 }

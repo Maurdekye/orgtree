@@ -11,7 +11,7 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
   * each writer's result is the same as before the conversion.
 
 Converted so far: api._disk_doc_update (disk), api.org_net's two lazy
-writes (net_identity/net_hubs/net_autoconnect, share kiosk; net_hubs),
+writes (net_identity/net_hubs/net_autoconnect; net_hubs),
 net._record_hub_name (net_hubs), net._clear_registration (net_state).
 
 Run:  python tools/run-python-verification.py tests/test_pg3f_settings_tx.py
@@ -31,7 +31,7 @@ home = Path(_temp.name) / 'home'
 home.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                   ORGTREE_STORE='sqlite', ORGTREE_STEER_HOOK='0',
-                  ORGTREE_PORT='7404', ORGTREE_PUBLIC_PORT='7404')
+                  ORGTREE_PORT='7404')
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
@@ -70,7 +70,7 @@ def _doc(slug: str) -> dict:
 
 
 def _request() -> object:
-    # admin listener: no public_slug on request.state
+    # the loopback admin listener's request
     return types.SimpleNamespace(state=types.SimpleNamespace())
 
 
@@ -564,7 +564,7 @@ class OrgsCreate(unittest.TestCase):
         from unittest import mock
         real = store.save_org
         saved: list = []
-        # the desktop build refuses kiosk/sandbox creation at admission
+        # the desktop build refuses sandbox creation at admission
         # (desktop_policy); the create path itself is what is tested here
         env = mock.patch.dict(os.environ, {'ORGTREE_DESKTOP_MANAGED': '0'})
         env.start()
@@ -593,118 +593,8 @@ class OrgsCreate(unittest.TestCase):
         self.assertEqual(d['net_identity'], first['net_identity'])
         self.assertEqual(d['default_top_grant'], 7)
 
-    def test_a_kiosk_is_born_a_kiosk_in_one_save(self) -> None:
-        out, saved = self._create(api.OrgCreate(
-            name='born kiosk', kiosk=api.KioskSpec(sandbox=False)))
-        self.assertFalse(isinstance(out, BaseException), out)
-        self.assertEqual(len(saved), 1, 'more than the one creating save')
-        self.assertTrue(saved[0]['kiosk']['enabled'])
-        self.assertTrue(saved[0]['kiosk']['max_scope'])
-        self.assertEqual(saved[0]['default_top_grant'], 0)
-        self.assertNotIn('net_identity', saved[0])
 
-    def test_a_refused_kiosk_ceiling_leaves_no_org(self) -> None:
-        from fastapi import HTTPException
-        out, saved = self._create(api.OrgCreate(
-            name='bad kiosk', kiosk=api.KioskSpec(
-                sandbox=False, max_scope={'org_visibility': 'bogus'})))
-        self.assertIsInstance(out, HTTPException)
-        self.assertEqual(out.status_code, 422, out.detail)
-        self.assertEqual(saved, [], 'a refused create saved something')
-        self.assertNotIn('bad-kiosk', [o['slug'] for o in store.list_orgs()])
-
-
-ALL_TOOLS = {'bash': True, 'web': True, 'edit': True, 'subagents': True, 'mcp': ['*']}
 NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
-CEILING = {'tools': NO_TOOLS, 'add_dirs': [], 'org_visibility': 'team',
-           'permission_mode': 'acceptEdits'}
-
-
-class KioskWholeOrg(unittest.TestCase):
-    """api.org_kiosk: the kiosk rows + EVERY node row in one org_tx."""
-
-    def setUp(self) -> None:
-        from unittest import mock
-        from orgtree import ledger, supervisor
-        # post-commit effects are not what is measured here (and some take
-        # DOC_LOCK themselves, exactly as they did before the conversion)
-        for name in ('hard_freeze', 'send_message', 'storage_check'):
-            p = mock.patch.object(supervisor, name, return_value=None)
-            p.start()
-            self.addCleanup(p.stop)
-        p = mock.patch.object(api, 'hub_changed', return_value=None)
-        p.start()
-        self.addCleanup(p.stop)
-        global _n
-        _n += 1
-        org = store.create_org(f'pg3f-k{_n}')
-        self.slug = org.d['slug']
-        org.hire(ledger.USER, None, 'haiku', 20, 'top', add_dirs=[],
-                 tools=ALL_TOOLS, charter='fixture')
-        org.d['kiosk'] = {'enabled': True, 'credits': 0, 'spend_limit': 0.0,
-                          'storage_limit_mb': 0, 'token': 't', 'auto_raise': False,
-                          'max_scope': {**CEILING, 'tools': ALL_TOOLS}}
-        org.d['spend_frozen'] = True
-        store.save_org(org)
-        store.save_org(store.load_org(self.slug))
-
-    def _call(self):
-        return api.org_kiosk(self.slug, api.KioskCfg(max_scope=CEILING,
-                                                     spend_limit=100.0))
-
-    def _check(self) -> None:
-        d = _doc(self.slug)
-        self.assertFalse(d['nodes']['top']['scope']['tools']['bash'],
-                         'the ceiling sweep did not clamp the node')
-        self.assertTrue((d.get('notices') or {}).get('top'),
-                        'the swept agent was not told')
-        self.assertNotIn('spend_frozen', d)
-        self.assertEqual(d['kiosk']['spend_limit'], 100.0)
-
-    def test_never_waits_on_doc_lock(self) -> None:
-        with _Held(lambda: store.DOC_LOCK):
-            done, out, _t = _run(self._call, FREE_S)
-            self.assertTrue(done, 'org_kiosk waited on DOC_LOCK')
-        self.assertFalse(isinstance(out[0], BaseException), out)
-        self._check()
-
-    def test_waits_for_a_holder_of_any_node_row(self) -> None:
-        with _Held(lambda: orgtx.org_tx(self.slug, nodes=['top'])):
-            done, out, t = _run(self._call, BLOCKED_S)
-            self.assertFalse(done, 'org_kiosk did not lock the node rows')
-        t.join(FREE_S)
-        self.assertFalse(isinstance(out[0], BaseException), out)
-        self._check()
-
-    def test_no_node_can_be_created_under_the_sweep(self) -> None:
-        """The phantom rule: while org_kiosk holds every node row, a
-        transaction that would CREATE a node waits for it."""
-        from unittest import mock
-        entered, release = threading.Event(), threading.Event()
-
-        def hook(point, tx):
-            if point == 'after_lock' and tx.all_nodes and tx.slug == self.slug:
-                entered.set()
-                release.wait(10)
-        with mock.patch.dict(os.environ, {'ORGTREE_ORGTX_TEST_HOOKS': '1'}):
-            orgtx.set_pause_hook(hook)
-        self.addCleanup(orgtx.set_pause_hook, None)
-        done_k, out_k, tk = _run(self._call, 0)
-        self.assertTrue(entered.wait(FREE_S), 'org_kiosk never took nodes=ALL')
-
-        def create():
-            with orgtx.org_tx(self.slug, nodes=['newbie']) as tx:
-                tx.org.nodes['newbie'] = dict(tx.org.nodes['top'], id='newbie',
-                                              name='newbie')
-        done_c, out_c, tc = _run(create, BLOCKED_S)
-        self.assertFalse(done_c, 'a node was created under the fleet sweep')
-        release.set()
-        tk.join(FREE_S)
-        tc.join(FREE_S)
-        self.assertFalse(tk.is_alive() or tc.is_alive())
-        self.assertFalse(out_k and isinstance(out_k[0], BaseException), out_k)
-        self._check()
-        self.assertIn('newbie', _doc(self.slug)['nodes'])
 
 
 class SettingsRoute(unittest.TestCase):
@@ -778,14 +668,11 @@ class Semantics(unittest.TestCase):
         api._disk_doc_update(slug, pending_size_mb=None)
         self.assertEqual(_doc(slug)['disk'], {'size_mb': 4096})
 
-    def test_backfill_is_idempotent_and_kiosk_has_none(self) -> None:
+    def test_backfill_is_idempotent(self) -> None:
         slug = _fresh_org()
         first = api.org_net(slug, _request())
         second = api.org_net(slug, _request())
         self.assertEqual(first['identity']['secret'], second['identity']['secret'])
-        kslug = _fresh_org(kiosk={'enabled': False})
-        self.assertEqual(api.org_net(kslug, _request())['identity'], None)
-        self.assertNotIn('net_identity', _doc(kslug))
 
     def test_clear_registration_without_cell_writes_nothing(self) -> None:
         slug = _fresh_org(net_state={})

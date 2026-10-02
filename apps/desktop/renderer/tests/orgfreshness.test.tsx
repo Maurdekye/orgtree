@@ -42,7 +42,7 @@ declare const __SRC_DIR__: string   // injected by run.mjs (see agentstray.test.
 const src = (name: string) => fs.readFileSync(path.join(__SRC_DIR__, name), 'utf8')
 
 const entry = (slug: string, patch: Partial<OrgListEntry> = {}): OrgListEntry => ({
-  slug, name: slug, nodes: 9, live: 4, kiosk: false, created: null, ...patch,
+  slug, name: slug, nodes: 9, live: 4, created: null, ...patch,
 })
 
 // ------------------------------------------------------------- §1 the rule
@@ -299,13 +299,13 @@ test('an older completion landing last does not pull the visible rows backwards'
 })
 
 test('an organization that reports no working count is never rendered as zero', async (t) => {
-  // a public/kiosk listing omits `working` deliberately; absence is unknown,
-  // not idle, and the source inspection called that out explicitly
+  // a row without `working`: absence is unknown, not idle, and the source
+  // inspection called that out explicitly
   const el = await rows(t, 'current')
   assert.equal(el.querySelector('.org-counts')!.textContent, '3/5')
   const view = await mountView(
     <OrgRows slug={null} onPick={() => {}} onDelete={() => {}}
-      orgs={[entry('public-row', { name: 'Public', live: 4 })]} />,
+      orgs={[entry('unknown-row', { name: 'Unknown', live: 4 })]} />,
     (e) => e)
   t.after(async () => { await view.unmount() })
   assert.equal(view.el.querySelector('.org-counts')!.textContent, '4',

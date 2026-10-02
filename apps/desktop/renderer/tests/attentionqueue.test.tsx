@@ -71,7 +71,7 @@ const openAsk: AskInfo = {
   options: [{ label: 'Ship it' }, { label: 'Hold' }],
 }
 
-const tree = (o: { ask?: AskInfo; isPublic?: boolean } = {}): TreePayload => ({
+const tree = (o: { ask?: AskInfo } = {}): TreePayload => ({
   slug: SLUG, name: 'Org 1', epoch: 1, rev: 1,
   roots: [{
     id: 'scout', tier: 'opus', state: 'live', generation: 0, seat: 1, grant: 10, free: 4,
@@ -80,7 +80,6 @@ const tree = (o: { ask?: AskInfo; isPublic?: boolean } = {}): TreePayload => ({
   work_items_summary: { attention: 0, active: 0 },
   user_inbox_count: 0, user_inbox_urgent_count: 0, asks: [], asks_open: 0,
   max_top_grant: 1000,
-  ...(o.isPublic ? { public: true } : {}),
 } as unknown as TreePayload)
 
 function installServer(initial: Partial<Server> = {}) {
@@ -557,32 +556,6 @@ test('§4 the list is a real listbox the keyboard can drive', async () => {
   await key('Home')
   await settle()
   assert.equal(rowFor(v.el, 'ticket:cutover')!.getAttribute('aria-selected'), 'true')
-  await v.unmount()
-})
-
-// ------------------------------------------------------------------- §5
-test('§5 a public organization can read the queue and resolve nothing', async () => {
-  localStorage.clear()
-  installServer({ items: [flagged], pending: [urgent] })
-  const v = await mountView(panel(tree({ isPublic: true })), titles)
-  await settle()
-  assert.deepEqual(titles(v.el),
-    ['mail:the nightly build has been red for six hours', 'ticket:cutover'],
-    'what is waiting is not a secret from a reader who can already see the docket')
-
-  await inAct(() => { rowEl(v.el, 'ticket:cutover')!.click() })
-  await settle()
-  // the docket's own pane is drawn as the docket draws it; a Dismiss pressed
-  // here still writes nothing, and the row stays
-  const dismiss = [...v.el.querySelectorAll('[data-attn-detail="ticket"] button')]
-    .find((b) => /Dismiss/.test(b.textContent ?? '')) as HTMLButtonElement | undefined
-  if (dismiss) await inAct(() => { dismiss.click() })
-  assert.ok(titles(v.el).includes('ticket:cutover'), 'no dismissal')
-
-  await inAct(() => { rowEl(v.el, 'mail:m1')!.click() })
-  await settle()
-  assert.equal(!!v.el.querySelector('[data-attn-detail="mail"] .mail-reply'), false, 'no reply')
-  assert.equal(server.posts.length, 0, 'and nothing here wrote anything at all')
   await v.unmount()
 })
 

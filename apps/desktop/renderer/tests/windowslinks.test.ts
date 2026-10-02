@@ -196,7 +196,7 @@ test('§14 a missing native bridge is survivable, not a thrown click handler', (
   const host = document.createElement('div')
   host.innerHTML = md(`[Setup](<${WIN}>)`).__html
   delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop
-  // browser/kiosk, or a portal that never received a bridge
+  // browser, or a portal that never received a bridge
   assert.doesNotThrow(() => revealFileFromEvent({
     target: host.querySelector('a')!, preventDefault: () => {},
   }))

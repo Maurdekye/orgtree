@@ -68,7 +68,7 @@ function tree(roots: unknown[]): TreePayload {
     roots, cost_usd_total: 0,
     audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
     user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-    spend_frozen: false, storage_blocked: false, auto_resume: false,
+    storage_blocked: false, auto_resume: false,
     fable_limit_policy: 'freeze', fable_filter_policy: 'halt',
     cascade_hire: false, cascade_alloc: true, sandboxed: false,
     audience_requests: [], org_inbox: null, net: null,
@@ -329,24 +329,6 @@ uiTest('§2f busy, halted, frozen and read-only seats keep the card\'s rules on 
       assert.ok(have.includes('Retire…') && have.includes('Settings'),
         `${id}: a live seat keeps its lifecycle entries — have ${JSON.stringify(have)}`)
     }
-  })
-
-uiTest('§2g a PUBLIC (kiosk) org gets the same menu on the row as on the card',
-  async (t) => {
-    // the ceiling spec's rule is that a visitor retools within the ceiling —
-    // the card's menu is not gated on `public`, so the row's must not be
-    const c = await mountCanvas(t, [mkNode('worker')],
-      { public: true, kiosk: { max_tier: 'sonnet', credits: 10 } })
-    await openTray(c.el)
-    const have = await assertParity(c, 'worker', 'a seat in a public org')
-    assert.ok(have.includes('Settings') && have.includes('Retire…'), JSON.stringify(have))
-    const c2 = await mountCanvas(t, [mkNode('boss', { children: [
-      mkNode('kid', { parent: 'boss' }),
-    ] })], { public: true, kiosk: { max_tier: 'sonnet', credits: 10 } })
-    await openTray(c2.el)
-    const restricted = await assertParity(c2, 'boss', 'a superior in a public org')
-    assert.ok(!restricted.includes('Retire all subordinates…'),
-      `bulk retirement is hidden without surface authority: ${JSON.stringify(restricted)}`)
   })
 
 // ----------------------------------------------------- §3 it is not a click

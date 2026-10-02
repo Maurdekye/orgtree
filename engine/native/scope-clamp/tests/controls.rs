@@ -28,7 +28,6 @@ const PATHS: &[&str] = &[
     "normcase",
     "norm_dirs",
     "clamp_dirs",
-    "apply_ceiling",
 ];
 
 #[test]
@@ -66,7 +65,7 @@ fn c03_exact_key_only_folder_lookup() {
             exact_key_only: true,
             ..L
         },
-        &["clamp_dirs", "apply_ceiling"],
+        &["clamp_dirs"],
     );
 }
 
@@ -77,7 +76,7 @@ fn c04_read_only_wins_over_read_write() {
             ro_over_rw: true,
             ..L
         },
-        &["clamp_dirs", "apply_ceiling"],
+        &["clamp_dirs"],
     );
 }
 
@@ -110,40 +109,7 @@ fn c07_mcp_wildcard_not_collapsed() {
             no_star_collapse: true,
             ..L
         },
-        &["norm_tools", "clamp_tools", "apply_ceiling"],
-    );
-}
-
-#[test]
-fn c08_ceiling_skips_the_wildcard_note() {
-    detected_only_in(
-        Rules {
-            skip_ceiling_note: true,
-            ..L
-        },
-        &["apply_ceiling"],
-    );
-}
-
-#[test]
-fn c09_tier_cap_refuses_equality() {
-    detected_only_in(
-        Rules {
-            tier_cap_ge: true,
-            ..L
-        },
-        &["tier_ceiling"],
-    );
-}
-
-#[test]
-fn c10_or_tier_seat_from_the_static_table() {
-    detected_only_in(
-        Rules {
-            or_price_static: true,
-            ..L
-        },
-        &["tier_ceiling"],
+        &["norm_tools", "clamp_tools"],
     );
 }
 

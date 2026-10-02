@@ -10,7 +10,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "The reservation branch requires a live caller. Shared authentication, halt/killswitch, kiosk and receipt gates are separate wrapper obligations; this facet closes only reservation/item authority.",
+        "The reservation branch requires a live caller. Shared authentication, halt/killswitch and receipt gates are separate wrapper obligations; this facet closes only reservation/item authority.",
         "Item lookup trims the submitted slug, scans work_items then work_items_archive, and matches the exact slug; it never resolves an old opaque ID to a new name. Archived items remain eligible for this metadata access.",
         "Visibility is USER, the stored owner or creator node, a strict ancestor of owner (or creator while unowned), an explicit participant, or the named reviewer. Stored actor objects resolve by node string here; this is the legacy rule, not a claim of born-identity fencing.",
         "Ancestry reads parent links from the anchor toward USER with a cycle guard. Org visibility alone grants no docket access. The item owner/creator/reviewer, participants, and necessary parent links are the predicate read set.",
@@ -3490,7 +3490,7 @@
         "Selected fixtures cover fractional grant rounding, lack of funds, cross-target authority, move-batch rollback, self-retirement with reports, scope escalation, audience actions and busy/durable-inflight switch queuing. These do not close the per-operation native invariant matrix.",
         "Retool validates account against CURRENT model and does not call assign_account in its shadow. This differs from the landed rebind writer with its effective queued destination and account mutation. Switch simulation calls the ledger but does not finish supervisor account/session binding.",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): sections 6.4 and 6.5, C2a and C6, with decision D10, are the conflict sets and the resolution this facet's clause asks for. Section 6.4 gives the declared read set, real write set, real mechanism and real conflict partners of each transition the agent preview runs: reallocate, move and move batch, swap and swap_seats, subjugate and self_subjugate, retool and set_scope, retire, dissolve, revoke_dir, switch_model and audience, the ten transitions behind the thirteen spellings of _AGENT_PREVIEW_OPS, with its completeness rule (a predicate found in conversion outside a declared read set is a design defect). Section 6.5 resolves both preview-versus-real differences: preview runs the real decide function, so a retool with an account evaluates the effective queued destination with the frozen, busy and session-boundary rules, and a switch reports the binding and the melt. The clause asks for design only, so the facet is specified; qualification (Q-P3, Q-P6, Q-C2, Q-C3, Q-C7 to Q-C12) runs at P03 for reallocate and the C2a schedules and at P05 for the other transitions (D11).",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): r3 amends two of section 6.4's rows this facet cites (E-D17 (a)): a cross-provider switch_model and retool's account branch run their session split in the SERIALIZABLE island, in one transaction with the configuration half, and stay READ COMMITTED when they do not split (section 3.1). In an organization with a kiosk credits pool (E8, E-D15, E-D17 (b)), every writer of a top-level holding takes the kiosk pool row FOR UPDATE, locked last after every capacity row, and updates it; of the transitions this facet cites, that is reallocate, move and move batch, swap and swap_seats, subjugate and self_subjugate, retire, dissolve and the switch_model melt of a top-level node, each when it changes the top level (deep user acquires included, N8). The facet stays specified: its clause asks for the approved design, which is now r7 as amended by r3; qualification of the amendment is Q-E2, anchored on preview.conflicts."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): r3 amends two of section 6.4's rows this facet cites (E-D17 (a)): a cross-provider switch_model and retool's account branch run their session split in the SERIALIZABLE island, in one transaction with the configuration half, and stay READ COMMITTED when they do not split (section 3.1). r3's organization credits pool row (E8, E-D15, E-D17 (b)) served an organization type the product no longer has, so no transition this facet cites takes it. The facet stays specified: its clause asks for the approved design, which is now r7 as amended by r3; qualification of the amendment is Q-E2, anchored on preview.conflicts."
       ],
       "source_refs": [
         {
@@ -3636,7 +3636,7 @@
         "The operator preview reads the committed document lock-free (orgtx.org_read (fence-off S5); it held DOC_LOCK while loading, probing and simulating before), so nothing fences its before/after against a concurrent writer. The pending operator route and native design must replace this shared serialization with explicit scoped reads; this package adds no lock or native execution.",
         "Current generation/disclosure fences do not extend through the whole agent output. The earlier diagnostic gaps also apply to preview projections; pure detachment alone is not authorization-race protection.",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered: sections 6.2 and 6.3 and C5 (no locks, no predicate locks, no writes and no rollback; a REPEATABLE READ snapshot that takes no SIREAD locks; a current-output fence; read-worker admission separate from commands; the operator preview's DOC_LOCK removed). The qualified half is scheduled at P03 for reallocate and at P05 for the other transitions (D11): Q-P1, Q-P2, Q-P4 and Q-P5.",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): r3 amends r7 under r7's own completeness rule (E-D17). (a) Every lineage split and bearer-state writer is placed: the compaction split, cheap_compact, record_cli_compaction and recover_lost_generation join the SERIALIZABLE island, and the session splits inside a cross-provider switch_model, finish_switch_binding and assign_account run in the island with their configuration half (they stay READ COMMITTED when they do not split); this amends r7 C2a's membership list and section 6.4's switch_model and retool (account branch) rows (section 3.1). (b) In a kiosk organization every writer of a top-level holding meets on the kiosk pool row (E8). (c) New C2a pair P8, the mailbox head row (section 3.2). Qualification: Q-E2 for (a), at P03 (E-D18); Q-E1 for (c) is anchored on agent-mail.conflicts; section 7.1 also extends r7's Q-C3 (anchored, as extended, on agent-mail.conflicts) and Q-C5 (anchored in this facet's owner line)."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): r3 amends r7 under r7's own completeness rule (E-D17). (a) Every lineage split and bearer-state writer is placed: the compaction split, cheap_compact, record_cli_compaction and recover_lost_generation join the SERIALIZABLE island, and the session splits inside a cross-provider switch_model, finish_switch_binding and assign_account run in the island with their configuration half (they stay READ COMMITTED when they do not split); this amends r7 C2a's membership list and section 6.4's switch_model and retool (account branch) rows (section 3.1). (b) The organization credits pool row (E8) served an organization type the product no longer has, so no writer meets on it. (c) New C2a pair P8, the mailbox head row (section 3.2). Qualification: Q-E2 for (a), at P03 (E-D18); Q-E1 for (c) is anchored on agent-mail.conflicts; section 7.1 also extends r7's Q-C3 (anchored, as extended, on agent-mail.conflicts) and Q-C5 (anchored in this facet's owner line)."
       ],
       "source_refs": [
         {
@@ -4572,8 +4572,7 @@
       "status": "specified",
       "facts": [
         "The desktop engine wraps the app in engine/launch.py's TokenGate (outside the pinned backend module set, so no source span): every HTTP request needs X-Orgtree-Desktop-Token. A missing token is 401 'missing authentication; …', a wrong one 401 'invalid desktop token'. An agent credential is honoured only on POST /api/agent and the steer routes, so a VALID agent token on these GETs is refused 401 'agent credential is invalid or expired; …' — a misleading message, recorded as legacy behaviour. Pinned.",
-        "The operator token reaches every organization: there is no per-org operator scope. An unknown org is 404 (cached_org raises); a detail request for a node not in that org's tree is 404 'no such node: …'. Pinned.",
-        "Public kiosk access goes through PublicGateway, which resolves /k/<token>/… to exactly one kiosk-enabled org, 404s any other org or unknown token, applies the _public_denied matrix and marks the request public; the view then scrubs host paths, session ids and external handles (org-view.wire). Pinned with the gateway wrapped around the app directly. Only api.py's own main() starts that listener (ORGTREE_PUBLIC_PORT, policy allowing); the desktop launcher serves only the token-gated app."
+        "The operator token reaches every organization: there is no per-org operator scope. An unknown org is 404 (cached_org raises); a detail request for a node not in that org's tree is 404 'no such node: …'. Pinned."
       ],
       "source_refs": [
         {
@@ -4631,10 +4630,10 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "The tree ETag hashes the org's save seq, supervisor.tree_state_fingerprint, the limits board's fetch stamp, the primed-restart record, the per-slug patch invalidation rev and a 30-second bucket. A matching If-None-Match answers 304 with no body before any load or build. The built body is cached per (slug, public) and one build at a time runs per key.",
+        "The tree ETag hashes the org's save seq, supervisor.tree_state_fingerprint, the limits board's fetch stamp, the primed-restart record, the per-slug patch invalidation rev and a 30-second bucket. A matching If-None-Match answers 304 with no body before any load or build. The built body is cached per slug and one build at a time runs per slug.",
         "Recorded legacy behaviour: the first build of an org whose supervisor state is cold allocates per-node state entries while annotating, which changes the fingerprint, so the ETag that first response carried is already stale. Revalidating with it returns 200 and a new tag; revalidating with the new tag returns 304. Pinned.",
         "Archived nodes are summarised in the tree (detail false, charter_line, lineage_count, read_only, detail_rev, only the last turn) and the payload carries archived_defaults once. The detail route finds the named node in the tree, empties its children, annotates it in full and, for an archived seat only, recomputes detail_rev. Pinned.",
-        "Recorded legacy defect, desktop-managed mode with warming enabled: annotating a live node asks warmpool.process_control_status for its control state, whose eligibility check runs the deployment gate and catches only RuntimeError. desktop_policy.validate raises ValueError for an org document carrying kiosk (or sandbox, or disk_mb), so such an org's admin tree and node detail answer 500 'ValueError: Not available in desktop MVP: kiosk'. The public view returns before that check and answers 200. Pinned."
+        "Recorded legacy defect, desktop-managed mode with warming enabled: annotating a live node asks warmpool.process_control_status for its control state, whose eligibility check runs the deployment gate and catches only RuntimeError. desktop_policy.validate raises ValueError for an org document carrying sandbox (or disk_mb), so such an org's tree and node detail answer 500 'ValueError: Not available in desktop MVP: sandbox' (source; the pinned case used an org flag the product no longer has)."
       ],
       "source_refs": [
         {
@@ -4698,11 +4697,10 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches, kiosk config, sandbox disk usage and hub network status. Detail builds the same whole-tree projection before selecting one node.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for org.tree and org.node-detail, admin (desktop token) and public (kiosk gateway), cold and warm, with a retired node present (it is in every tree's disclosed set), answering both questions above. Cold, every build reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the node detail (admin and public) and the public tree run no statement at all: they are served from the cached snapshot and the tree cache.",
-        "Recorded cross-org read (legacy, not endorsed; P02 finding): every ADMIN tree build, cold and warm, also reads the doc table of the other orgs on the data root through store.local_net_slugs, declared as foreign statements; warm, those are the build's only statements. The node detail and the public tree make no foreign contact. Admin builds also read provider settings files under HOME.",
-        "The public gateway resolves /k/<token> through api._kiosk_token_map, which is rebuilt on a 5-second cache by reading every org's store in the ASGI wrapper, before any census attempt exists (P02 kiosk_token_scan: every statement unbound, no census record). The public rows ran with that map pinned fresh, so a real public request made after the cache expires carries this every-org read as well (see org-view.instrumentation).",
-        "Refusals: no token (401) and a bad kiosk token (404, answered by the gateway) run no statement and leave no census record; an unknown node (404) and the desktop-mode kiosk 500 (the recorded org-view.wire defect) run no statement warm. No row has an unknown contact. Asserted by tests/test_state_p02_contact_facets.py."
+        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches, sandbox disk usage and hub network status. Detail builds the same whole-tree projection before selecting one node.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for org.tree and org.node-detail (desktop token), cold and warm, with a retired node present (it is in every tree's disclosed set), answering both questions above. Cold, every build reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the node detail runs no statement at all: it is served from the cached snapshot.",
+        "Recorded cross-org read (legacy, not endorsed; P02 finding): every ADMIN tree build, cold and warm, also reads the doc table of the other orgs on the data root through store.local_net_slugs, declared as foreign statements; warm, those are the build's only statements. The node detail makes no foreign contact. Admin builds also read provider settings files under HOME.",
+        "Refusals: no token (401) runs no statement and leaves no census record; an unknown node (404) runs no statement warm. No row has an unknown contact. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4736,9 +4734,8 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "Neither route saves. Measured on already-migrated synthetic data: no document section changes for the tree, the detail route or the public tree. The tree cache, the per-slug invalidation rev and the supervisor state entries annotate allocates are process memory.",
-        "Observed load-time migration: a cold load of a kiosk org whose config has no max_scope backfills the ceiling in memory and mints a fresh access.kiosk_ceiling notice into the user's mail log (a new id on every load; observed across two consecutive cold reads with no request between them). The view itself never saves it; what a later write cycle persists was not measured.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667), answering both questions above: no tree or detail row writes a table, cold or warm, admin or public. On the migration path through cached_org, migration:refused (no ORGTREE_MIGRATE) answers 500 MigrationRefused with no statement and nothing written; migration:legacy-json cold migrates inside the GET (writes doc, log_d, log_l, meta and nodes and renames the JSON document aside in store.migrate_org) and then serves the tree; its warm repeat writes nothing.",
+        "Neither route saves. Measured on already-migrated synthetic data: no document section changes for the tree or the detail route. The tree cache, the per-slug invalidation rev and the supervisor state entries annotate allocates are process memory.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667), answering both questions above: no tree or detail row writes a table, cold or warm. On the migration path through cached_org, migration:refused (no ORGTREE_MIGRATE) answers 500 MigrationRefused with no statement and nothing written; migration:legacy-json cold migrates inside the GET (writes doc, log_d, log_l, meta and nodes and renames the JSON document aside in store.migrate_org) and then serves the tree; its warm repeat writes nothing.",
         "One of the cold migration's 68 statement writes runs outside a transaction, the same count as on every other route's migration:legacy-json row. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
@@ -4773,9 +4770,9 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The build reads the shared snapshot outside DOC_LOCK. Coherence rests on the ETag components, a per-(slug, public) build lock and guarded publication (a patch frame that invalidates during a build keeps that build out of the cache). Nothing fences a restriction against a payload already served.",
+        "The build reads the shared snapshot outside DOC_LOCK. Coherence rests on the ETag components, a per-slug build lock and guarded publication (a patch frame that invalidates during a build keeps that build out of the cache). Nothing fences a restriction against a payload already served.",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no snapshot or revision rule for the tree payload; the UI feed appears only in v6's P03 slice list (D11).",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.3 with E2 and E3 (one REPEATABLE READ READ ONLY snapshot of the read model, or of authority while the projection is not Ready; the tree's position and tag come from that snapshot; kiosk visitors are served under an output claim; the stale first ETag is fixed), decision E-D8. The qualified half is scheduled at P03 (E-D18): Q-V1 to Q-V3."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.3 with E2 and E3 (one REPEATABLE READ READ ONLY snapshot of the read model, or of authority while the projection is not Ready; the tree's position and tag come from that snapshot; the stale first ETag is fixed), decision E-D8. The qualified half is scheduled at P03 (E-D18): Q-V1 to Q-V3."
       ],
       "source_refs": [
         {
@@ -4806,7 +4803,7 @@
       "dimension": "wire",
       "status": "unresolved",
       "facts": [
-        "The admin tree's top-level field set and the archived-summary field set are fixtured in docs/state-system/org-view-boundary.json and compared by tests/test_state_org_view_boundary.py. The public tree adds public and kiosk and drops net; public rows drop session_id and external_handles, and host paths become basenames or '<path>'. The detail response is one node object (children []), scrubbed the same way when public."
+        "The admin tree's top-level field set and the archived-summary field set are fixtured in docs/state-system/org-view-boundary.json and compared by tests/test_state_org_view_boundary.py. The detail response is one node object (children [])."
       ],
       "source_refs": [
         {
@@ -4842,7 +4839,7 @@
       ],
       "open_questions": [
         "Carry the fixtured tree and detail shapes to the native/Rust routes and decide each recorded legacy defect.",
-        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary, public-scrub and detail shapes passing against the native and Rust builds, with the stale-first-ETag, the misleading agent-token 401 and the desktop-mode kiosk 500 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary and detail shapes passing against the native and Rust builds, with the stale-first-ETag, the misleading agent-token 401 and the desktop-mode sandbox 500 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
       ]
     },
     "org-view.receipt": {
@@ -4891,10 +4888,10 @@
     },
     "org-view.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "The access middleware labels the route; when profiling is bound the build records load_snapshot_ms, tree_ms and annotate_ms stages. P02's per-operation record covers these routes (below).",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted per-operation record for every tree and detail row, admin and public, cold and warm (per-row unattributed and late deltas zero, every statement bound). NOT covered: the public gateway's token-map rebuild (kiosk_token_scan) runs before any census attempt, so its every-org read is unattributable (all its statements unbound, census db_unattributed grows, no record); the public rows ran with the map pinned fresh. Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted per-operation record for every tree and detail row, cold and warm (per-row unattributed and late deltas zero, every statement bound). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -4904,16 +4901,13 @@
           "sha256": "c7d58fce62eb891b6452c5df05b9087e65e0f1bd8bd521bf4d763340345b0dbd"
         }
       ],
-      "open_questions": [
-        "Attribute the public gateway's token-map rebuild to the request that triggers it.",
-        "Owner: P02's runtime instrumentation stage. Closes with: an attributed, loss-accounted contact record for the public gateway's token-map rebuild (kiosk_token_scan), charged to the request that carries it after the cache expires. The tree and detail routes themselves are covered (the fact above), and native negative controls are the P03 gate, not a clause of this facet (S2d decision 1; narrowed by P01 S2j). Not coverable at P01 from available evidence: the rebuild runs in the ASGI wrapper before the census attempt exists, so no record can attribute it without product instrumentation."
-      ]
+      "open_questions": []
     },
     "org-feed.authority": {
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "TokenGate closes a websocket without the desktop token with code 4401 before the route runs (pinned). A kiosk socket arrives through PublicGateway and joins flagged public. The route itself checks no org: a token-holding socket for an organization that does not exist is accepted and joins an empty room (pinned)."
+        "TokenGate closes a websocket without the desktop token with code 4401 before the route runs (pinned). The route itself checks no org: a token-holding socket for an organization that does not exist is accepted and joins an empty room (pinned)."
       ],
       "source_refs": [
         {
@@ -4941,7 +4935,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "Client text is received and ignored (it only keeps the socket alive). A disconnect leaves the room; a broadcast never waits on a socket: each socket has its own bounded frame queue drained by its own writer task (Hub._writer); a socket whose queue is full (_WS_QUEUE_MAX) or whose send stalls past _WS_SEND_TIMEOUT is dropped, counted and its connection aborted, and a failed send drops the socket from the room (P01 re-anchor after PYPG, source at v3 8d5787a). Public sockets receive the public projection of any typed segments in a frame, admin sockets the full one. Pinned for join, ignore and leave."
+        "Client text is received and ignored (it only keeps the socket alive). A disconnect leaves the room; a broadcast never waits on a socket: each socket has its own bounded frame queue drained by its own writer task (Hub._writer); a socket whose queue is full (_WS_QUEUE_MAX) or whose send stalls past _WS_SEND_TIMEOUT is dropped, counted and its connection aborted, and a failed send drops the socket from the room (P01 re-anchor after PYPG, source at v3 8d5787a). Pinned for join, ignore and leave."
       ],
       "source_refs": [
         {
@@ -4985,7 +4979,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "No document write: room and public-set membership are process memory. Pinned: joining and leaving change no document section."
+        "No document write: room membership is process memory. Pinned: joining and leaving change no document section."
       ],
       "source_refs": [
         {
@@ -5009,7 +5003,7 @@
       "facts": [
         "Ordering rests on a per-slug, per-process rev counter; 'changed' is coalesced over 0.4 s; there is no durable cursor, so a client that misses frames catches up with one full tree fetch (sync_rev).",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): not covered by r7. It gives no change-feed cursor, resnapshot or restriction-drain rule; the change feed appears only as something preview does not publish to (section 6.3).",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.4 and E3 (the v6 change feed: every frame carries a commit position; a durable cursor; ResnapshotRequired when the client's position is below the client-event log floor, or the projection generation or the database incarnation changes; kiosk sockets drained on restriction), decision E-D8. The qualified half is scheduled at P03 (E-D18): Q-F1 to Q-F3."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.4 and E3 (the v6 change feed: every frame carries a commit position; a durable cursor; ResnapshotRequired when the client's position is below the client-event log floor, or the projection generation or the database incarnation changes), decision E-D8. The qualified half is scheduled at P03 (E-D18): Q-F1 to Q-F3."
       ],
       "source_refs": [
         {
@@ -5110,7 +5104,7 @@
       "status": "specified",
       "facts": [
         "No per-operation census record is made for the socket or its frames.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) through a real websocket, answering the question above. Each row records the subscribers in the slug's room, the frames each received after hub.changed, and how many the hub holds as public: org.feed (admin) and org.feed:public, cold and warm, one subscriber and one frame (public count 0 and 1); org.feed:fanout (admin and public together, two broadcasts), two subscribers with two frames each, one of them public; refusal:feed-no-token closes 4401. A subscription runs no statement.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) through a real websocket, answering the question above. Each row records the subscribers in the slug's room, and the frames each received after hub.changed: org.feed, cold and warm, one subscriber and one frame; org.feed:fanout (two broadcasts), two subscribers with two frames each; refusal:feed-no-token closes 4401. A subscription runs no statement.",
         "This record is the probe's, not the product census's: the census makes no websocket attempt (fact above), and a census record of subscriptions would need product instrumentation, which this facet's question does not ask for. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
@@ -5131,7 +5125,7 @@
         "Addressing (§7.2, Org.post_mail) for an in-org agent recipient: the sender may reach any descendant, its parent (one hop up), a sibling (same parent), or anyone whose audience it holds. Everything else is refused 422 '<sender> may not address <to> — …'. Pinned: a cousin and a grandparent are refused; a reply from a deep report succeeds once the sender holds the audience its superior's mail granted. A node may address itself: the sibling clause is trivially true for sender == target (recorded, D-165).",
         "§7.3: mail or a notice from an ancestor to a NON-child descendant that does not already hold the reverse audience grants the recipient an audience to reply to the sender directly (an 'audiences' row and the warning 'audience granted: <to> may now reply to <sender> directly'). Pinned for both tools; a second send grants nothing.",
         "The user: only a top-level agent, or a holder of a user audience, may message 'user'; others are refused 422. orgtree_send_notice refuses the user and every outside address.",
-        "Outside parties (@org: and @net:, orgtree_message only): only agents; never from a sealed kiosk (read from source, not exercised); the sender must hold the ORG-INBOX (EXTERN) audience (the held-handle bypass left with the second stage of the external-chat retirement, docket the-external-chat-mcp-server-cannot-reach-the-v2, which also refuses every new response-handle grant). A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: and @mcp: forms are retired and refuse 422, a new @mcp: send answering ledger.MCP_RETIRED before any audience or kiosk check (the external-chat server was retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2; historical @mcp: rows stay readable). Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
+        "Outside parties (@org: and @net:, orgtree_message only): only agents; the sender must hold the ORG-INBOX (EXTERN) audience (the held-handle bypass left with the second stage of the external-chat retirement, docket the-external-chat-mcp-server-cannot-reach-the-v2, which also refuses every new response-handle grant). A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: and @mcp: forms are retired and refuse 422, a new @mcp: send answering ledger.MCP_RETIRED before any audience check (the external-chat server was retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2; historical @mcp: rows stay readable). Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
       ],
       "source_refs": [
         {
@@ -5355,7 +5349,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "Source read set: caller identity (cached snapshot) and the resident document (caller node, halt, killswitch, recipient node and parent chain, audiences, EXTERN holders, org_inbox peers). A bare name that is not a node here is resolved by external_candidates, which lists every local org and reads each one's document to skip sealed kiosks, and by the net roster cache.",
+        "Source read set: caller identity (cached snapshot) and the resident document (caller node, halt, killswitch, recipient node and parent chain, audiences, EXTERN holders, org_inbox peers). A bare name that is not a node here is resolved by external_candidates, which lists every local org and loads the one whose slug matches, and by the net roster cache.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for orgtree_message and orgtree_send_notice by recipient class, cold and warm, answering both questions above: agent (to the sender's superior), deep agent, archived, user, @org: and a bare unknown name for the message (the @mcp: class, a filed send at v3 27c8667, is refused since the retirement: refusal:mail-message-mcp-retired in P02's retirement commit, 422 with nothing written); peer, deep and archived for the notice; plus keyed fresh and replay, the halted refusal and the notice refusals. Cold, every class reads doc, log_d, log_l, meta and nodes of the sender's org. A keyed replay and every refusal write nothing; the halted refusal reads only meta and nodes.",
         "Recorded cross-org contacts (legacy, not endorsed): a bare name that is not a node here is looked up in every other org before the 422 NOT DELIVERED, hundreds of statements on foreign stores, cold or warm; @org: mail writes into the DESTINATION org's store (interorg_send runs unstubbed), with a foreign connect when that store is cold. Asserted by tests/test_state_p02_contact_facets.py."
       ],
@@ -5480,8 +5474,7 @@
       "status": "specified",
       "facts": [
         "The desktop engine's TokenGate (engine/launch.py, outside the pinned module set, so no span) requires X-Orgtree-Desktop-Token; an agent credential is honoured only on POST /api/agent and the steer routes, so a valid agent token here is refused 401 'agent credential is invalid or expired; …' (pinned). The operator acts as the user (@user) and reaches ANY node of the org: Org.post_mail applies §7.2 addressing only when the sender is not the user or the system. Pinned for a deep node.",
-        "§7.4 direct user contact (Org.user_deep_reach): addressing a node that has a superior notifies every non-user ancestor with a context.deep_reach notice and grants the node a user audience if it holds none. It runs for mail AND for a session command, and also when the recipient is archived. A top-level node gets neither. Pinned.",
-        "The public kiosk gateway does not freeze this route (it is not in _public_denied), so a kiosk visitor can send too, with a public receipt projection; that path is read from source only (the desktop launcher does not start the public listener)."
+        "§7.4 direct user contact (Org.user_deep_reach): addressing a node that has a superior notifies every non-user ancestor with a context.deep_reach notice and grants the node a user audience if it holds none. It runs for mail AND for a session command, and also when the recipient is archived. A top-level node gets neither. Pinned."
       ],
       "source_refs": [
         {
@@ -5703,8 +5696,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "The desktop engine's TokenGate (engine/launch.py, outside the pinned module set, so no span) requires X-Orgtree-Desktop-Token; an agent credential is honoured only on POST /api/agent and the steer routes, so a valid agent token here is refused 401 'agent credential is invalid or expired; …' (pinned). The operator reaches every org's user inbox and every node's inbox; an unknown org or node is 404. Pinned.",
-        "The public kiosk gateway does not freeze these routes; rows are then projected with public=True (_mail_refs/_sent_refs). Read from source only (the desktop launcher does not start the public listener)."
+        "The desktop engine's TokenGate (engine/launch.py, outside the pinned module set, so no span) requires X-Orgtree-Desktop-Token; an agent credential is honoured only on POST /api/agent and the steer routes, so a valid agent token here is refused 401 'agent credential is invalid or expired; …' (pinned). The operator reaches every org's user inbox and every node's inbox; an unknown org or node is 404. Pinned."
       ],
       "source_refs": [
         {
@@ -6242,7 +6234,7 @@
       "facts": [
         "On the default SQLite store each agent tool runs in one document write cycle under DOC_LOCK; with the door enabled (PostgreSQL, or ORGTREE_PGDOOR=1; pgdoor.enabled) orgtree_reallocate and orgtree_request_credits run as one row transaction instead (rcdoor). The decision route is one row transaction on the request row, the approval's chain and the decision mail's rows (rcdoor.run_op over rcdoor.decide_rows), its preview a lock-free org_read, and on the default SQLite store the transition fence (orgtx.TRANSITION_FENCE, on by default) still takes DOC_LOCK before the row locks, so it serialises with every DOC_LOCK writer; grants, the parent chain's free amounts and credit_requests are org-document state, so every funding change serialises with every other writer.",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part: C2a pair P2 (the payer's capacity row holds committed child obligations in unpriced terms, the sum of child grants and child seat counts per tier; every obligation writer updates it; island writers take it FOR UPDATE before computing free and outside writers take it FOR UPDATE first; the catalog version row is share-locked and prices apply at read), section 6.4's reallocate row and its funding requirement, and C2a pair P7 for a credit-request filing (the asker's authority-epoch row is bumped, so a retire or dissolve either moots it or makes it refuse). Credit-request approval appears only as a C2a P2 outside writer (it updates the payer's capacity row). Not covered by r7: approval's own conflict set (legacy checks that the request is still pending and computes the delta from the current grant inside the approval's transaction (DOC_LOCK before PG-3c, rcdoor.run_op since), ledger.py credit_request_action; native has to order a conditional pending-state transition before the delta is computed from the grant read after the funding locks, or two concurrent decisions both apply it); the filing's one-pending-request-per-node rule (P7 does not require the authority-epoch bump before the pending lookup, so two concurrent filings could both create a pending request); and r7 section 8 has no schedule for deep bubbling or a concurrent decision. Qualification of the covered part is scheduled at P03: Q-C8 and Q-C12 (b).",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered for what r7 left open: section 4.13. A decision is one READ COMMITTED command that anchors the agent (FOR SHARE), then compare-and-sets the request row from pending BEFORE any amount is computed, so a second decision on one request refuses and an approve racing a deny, or two counter-offers, cannot both apply; it then takes r7's reallocate funding locks with the user as actor, reads the grant after them and computes the delta; an approve of an agent that is no longer live moots the request by its own compare-and-set from pending, before the decision's (a deny does not look at liveness). The filing's one-pending rule is a partial unique index on (organization, node) WHERE status is pending. In a kiosk organization every writer of a top-level holding meets on E8's kiosk pool row (E-D17 (b) amends r7's reallocate row). Decisions E-D14 and E-D15. With r7's P2, reallocate row and P7 (above) this covers the clause's design half, except in a kiosk organization: there E-D15 deliberately keeps an organization-wide kiosk pool row (E8) that every top-level holding writer locks exclusively, which the clause's 'no org-wide credit counter' excludes. That exception is a coordinator-accepted departure from v6, scoped to kiosk organizations (E-D15; coordinator ruling, decision 2 of item p01-cite-the-approved-native-design-extension-r3), not the clause as worded; its schedule is Q-FD5. The qualified half is scheduled at P03 (E-D18): Q-FD1 (two decisions on one request), Q-FD2 (a decision racing an amendment, and two concurrent filings), Q-FD3 (a decision racing a retire or mark_unrecoverable), Q-FD4 (deep bubbling), Q-FD5 (the kiosk pool) and r7's Q-C8 and Q-C12 (b)."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered for what r7 left open: section 4.13. A decision is one READ COMMITTED command that anchors the agent (FOR SHARE), then compare-and-sets the request row from pending BEFORE any amount is computed, so a second decision on one request refuses and an approve racing a deny, or two counter-offers, cannot both apply; it then takes r7's reallocate funding locks with the user as actor, reads the grant after them and computes the delta; an approve of an agent that is no longer live moots the request by its own compare-and-set from pending, before the decision's (a deny does not look at liveness). The filing's one-pending rule is a partial unique index on (organization, node) WHERE status is pending. Decisions E-D14 and E-D15. With r7's P2, reallocate row and P7 (above) this covers the clause's design half. E-D15's organization-wide pool row (E8, amending r7's reallocate row by E-D17 (b)) served an organization type the product no longer has, so the coordinator-accepted departure from v6 it carried (decision 2 of item p01-cite-the-approved-native-design-extension-r3) no longer applies; its schedule Q-FD5 stays on the record. The qualified half is scheduled at P03 (E-D18): Q-FD1 (two decisions on one request), Q-FD2 (a decision racing an amendment, and two concurrent filings), Q-FD3 (a decision racing a retire or mark_unrecoverable), Q-FD4 (deep bubbling), Q-FD5 (the pool row, moot with its organization type) and r7's Q-C8 and Q-C12 (b)."
       ],
       "source_refs": [
         {
@@ -6352,7 +6344,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "orgtree_hire and orgtree_staff come through the agent door (401/403, halt and killswitch 409, as for every agent tool). The provider gate (provider_hire_gate: the tier's provider must be enabled, installed and signed in; kiosks hold out Codex, Antigravity and OpenRouter) runs first for a hire and is a machine-state check outside the pinned set: the boundary tests patch it off and say so. ",
+        "orgtree_hire and orgtree_staff come through the agent door (401/403, halt and killswitch 409, as for every agent tool). The provider gate (provider_hire_gate: the tier's provider must be enabled, installed and signed in) runs first for a hire and is a machine-state check outside the pinned set: the boundary tests patch it off and say so. ",
         "Hire destination: `target` (or its older spelling `parent`), defaulting to the caller, must be the caller or a live descendant (check_placement: '\"<t>\" is outside your subtree …'); only the user hires at the top level; hire_type='superior' inserts the seat above a seat in the caller's subtree (above a top-level seat only the user may). Pinned.",
         "The new seat's scope is clamped strictly to its parent's for an agent caller: folders, every tool switch and visibility cannot exceed the parent's, and permission_mode/effort/team_charter go through set_scope, which caps permission_mode at the caller's own. Audiences use orgtree_audience's vocabulary and rules ('user' only for a top-level caller, the caller's own id, a live peer, or the caller's direct superior); a target the caller could not grant refuses the whole call. Pinned for 'user' from a non-top-level caller and for the caller's own id.",
         "orgtree_staff inherits the seat authority unchanged (_hire_seat or _rehire_seat) and the docket authority of work_create/work_update; in rehire mode the caller needs authority over the archived node (Org.rehire: a strict ancestor, or the node's own bearer successor). An account named with `account` is validated by registry.validate_selection."
@@ -6629,7 +6621,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "Source read set: the caller, the destination and its chain up to the caller (free amounts, grants, scopes, depth and child counts), tier prices and the tier ceiling, the org's defaults (visibility, tools, account, cascade_hire), the audience table, and for staff the work items; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
+        "Source read set: the caller, the destination and its chain up to the caller (free amounts, grants, scopes, depth and child counts), tier prices, the org's defaults (visibility, tools, account, cascade_hire), the audience table, and for staff the work items; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 56a9c22) for every class the clause names, cold and warm, answering both questions above: hire plain, :kickoff, :target, :superior, :audiences and :work-item; staff create, update (an item passes from its owner to a new seat) and create in rehire mode; plus keyed fresh and replay for both tools, the refusals and a locality control. Cold, every class reads doc, log_d, log_l, meta and nodes of the org's own store; warm, every class reads at least doc, log_l, meta and nodes. No row makes an unknown contact or touches another org's store. Not exercised: the OpenRouter harness choice (new_hire_harness, a provider read), because the fixture hires haiku and the provider gate is stubbed; the clause does not name it.",
         "Every successful call writes log_l and nodes of the org's store, and a call that starts the seat (kickoff, audiences, work item, and every staff call) writes all five tables. Every hire and staff call, refused and replayed ones too, also journals in the tool_waits sidecar (both are managed-wait tools, toolwait.invoke): it writes operations and dead_letters and runs eight DDL statements outside a transaction, each row's only writes outside a transaction (recorded, not endorsed). The refusals (422) write nothing to the org's store: outside the subtree reads all five tables first; not enough credits, an unknown tier, a bad staff action and a missing title run no statement on it. A keyed replay writes nothing to it. Asserted by tests/test_state_p02_contact_facets.py."
       ],
@@ -6777,7 +6769,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "POST /api/orgs/{slug}/ops is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). The operator acts as `actor`, which defaults to the user; naming an agent as `actor` makes the ledger apply THAT agent's authority and rules — an agent-actor hire needs the no-defaults fields and an agent-actor reallocation is downward-only (pinned). Kiosk visitors reach the same handler through the public gateway (/k/<token>/api/orgs/{slug}/ops, which does not deny it): a visitor hire and reallocation run with the visitor's `actor` as sent (default the user), raise_ceiling is not honoured and the ceiling bridge is stripped, the kiosk ceiling clamps the new seat, and a visitor preview is refused 403 (pinned).",
+        "POST /api/orgs/{slug}/ops is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). The operator acts as `actor`, which defaults to the user; naming an agent as `actor` makes the ledger apply THAT agent's authority and rules — an agent-actor hire needs the no-defaults fields and an agent-actor reallocation is downward-only (pinned).",
         "operator.hire: the user hires at the top level (no `parent`) or under any live parent; `above` inserts the new seat above an existing report of `parent` ('insert-superior: <x> does not report to <p>' otherwise), with check_placement's rules. The provider gate runs first (machine state, patched off by the boundary tests). operator.reallocate: the user may move any node's grant, drawn up the parent chain as for credits.reallocate; a top-level target is bounded by the top-level grant cap.",
         "The F1b variants (operator.rename through operator.revoke-dir, and operator.preview) share the route's door and actor rule: an agent credential is refused 401, and naming an agent as `actor` applies that agent's authority (an agent-actor rename or retire outside its subtree is refused 'X has no authority over Y'; an agent-actor retire of itself with live reports is refused). rescind and delete are user-only in the ledger ('only the user may rescind …', 'only the user may delete agents …'), and a promotion to the top level is user-only ('only the user promotes agents to top level …'). A preview's actor, when not the user, must be a live node. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json."
       ],
@@ -7080,8 +7072,8 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "Source read set: the org loaded under DOC_LOCK through load_org, which inside the lock is served the per-org resident document (store._load_org's resident fast path; a fresh parse only on a miss or a dirty repeat hand-out), the parent chain's free amounts and grants, tier prices and ceilings, the org's scope defaults and the anchor's scope for `above`; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321) for every class the clause names, cold and warm, answering both questions above, as the operator (@user) on the desktop token: hire at the top level, under a parent (:under) and above an anchor (:above); reallocate up, :down and :top-level; plus a fractional delta, the refusals and a locality control. Cold, every class reads doc, log_d, log_l, meta and nodes of the org's own store; warm, only meta and nodes. No row makes an unknown contact or touches another org's store. Not exercised: the OpenRouter harness choice (new_hire_harness, a provider read), because the fixture hires haiku and the provider gate is stubbed, and the kiosk visitor path to this door; the clause names neither.",
+        "Source read set: the org loaded under DOC_LOCK through load_org, which inside the lock is served the per-org resident document (store._load_org's resident fast path; a fresh parse only on a miss or a dirty repeat hand-out), the parent chain's free amounts and grants, tier prices, the org's scope defaults and the anchor's scope for `above`; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321) for every class the clause names, cold and warm, answering both questions above, as the operator (@user) on the desktop token: hire at the top level, under a parent (:under) and above an anchor (:above); reallocate up, :down and :top-level; plus a fractional delta, the refusals and a locality control. Cold, every class reads doc, log_d, log_l, meta and nodes of the org's own store; warm, only meta and nodes. No row makes an unknown contact or touches another org's store. Not exercised: the OpenRouter harness choice (new_hire_harness, a provider read), because the fixture hires haiku and the provider gate is stubbed; the clause does not name it.",
         "The refusals write nothing to the org's store: a hire with no name, an unknown tier, an above-hire whose anchor does not report to the named parent, a reallocation with no delta, one below the committed floor, and a named agent actor with no authority over its superior (422); the agent credential is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py.",
         "F1b variants, from source: each operation loads the org under DOC_LOCK in _org_op_locked; retire, dissolve and rescind load it once more before the lock for their authority pre-guard, and rename loads it in supervisor.rename_node. switch_model reads the provider gate, the account rule (check_switch_account) and the live busy state; cheap_compact with if_idle reads the live busy state; a preview reads the committed org lock-free (orgtx.org_read (fence-off S5)) and simulates the operation on a detached copy (statepreview.preview), never saving. These reads are not observed by P02 (operator-ops.variant-instrumentation)."
       ],
@@ -7143,7 +7135,7 @@
       "facts": [
         "Each operation is one whole-document write cycle under DOC_LOCK (load_org, mutate, save_org), so it serialises with every other writer; the harness read happens before the lock. with the door enabled (PostgreSQL, or ORGTREE_PGDOOR=1; pgdoor.enabled) the hire op run as one row transaction instead (api._op_door, staffdoor).",
         "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): the design half is answered in part, for the ledger transitions this door runs: reallocate by section 6.4's reallocate row and C2a pair P2, and hire by its island membership (C2a P2, P3, P5, P6) as for staffing. Not covered by r7: the operator door itself (section 6.4 defers only the operator-only preview operations, rescind, delete and reseed, until the operator registration is contracted, and gives the door no rule), a declared read set for hire, and the rule that an agent named as actor gets that agent's authority. Qualification of the covered part is scheduled at P03: Q-C8.",
-        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.9 with E4 and E5 (the door runs each family's own transaction; an agent named as actor is an acting-as identity whose rows are anchored; an optional operation key (chosen, E-D9) stops a retried hire from duplicating the seat once the operator UI sends one), with section 4.8's declared read set for hire and, in a kiosk organization, E8's kiosk pool row, taken FOR UPDATE and locked last by every hire or reallocation through this door that changes the top level, deep user acquires included (E-D17 (b) amends r7's reallocate row). The qualified half is scheduled at P03 (E-D18): Q-OP1 to Q-OP4 and r7's Q-C8."
+        "Native design extension r3 (docket extend-the-native-conflict-and-predicate-design artifact r8, sha256 f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c; approved by review artifact r11, sha256 4f94e78ccec0ba8a942e277e0c73f5d298f184c0dfb61d2e25cb73ce50c30b8d): the design half is answered: section 4.9 with E4 and E5 (the door runs each family's own transaction; an agent named as actor is an acting-as identity whose rows are anchored; an optional operation key (chosen, E-D9) stops a retried hire from duplicating the seat once the operator UI sends one), with section 4.8's declared read set for hire. The qualified half is scheduled at P03 (E-D18): Q-OP1 to Q-OP4 and r7's Q-C8."
       ],
       "source_refs": [
         {
@@ -7235,7 +7227,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "All four routes are operator routes behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned for staffing-options and the quick-staff commit). The commit acts as the user throughout: request mode mails the assignee as @user, and the immediate modes call _staff_call(org, slug, USER, …), so the seat and the docket write carry the user's authority and the staffing.staff-update rules. Kiosk visitors are not examined here."
+        "All four routes are operator routes behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned for staffing-options and the quick-staff commit). The commit acts as the user throughout: request mode mails the assignee as @user, and the immediate modes call _staff_call(org, slug, USER, …), so the seat and the docket write carry the user's authority and the staffing.staff-update rules."
       ],
       "source_refs": [
         {
@@ -7283,7 +7275,7 @@
       "facts": [
         "Provider discovery (api._providers_payload, the OpenRouter catalog, account boards), the provider gate, account reasons and advertised efforts are machine state read through the staffcache snapshot; the boundary tests patch them to a fixed offer and recompute the snapshot on every read.",
         "Preview and commit: the ticket must be backlogged and not archived ('Quick staff is available only for backlogged tickets. Reopen the menu.'); the mode is the app setting quick_staff_behavior (request | under_assignee | top_level), falling back to top_level when the assignee is not live (context). The commit refuses a selection whose mode, configured_mode or owner no longer match ('The staffing behavior or assignee changed. …'), an effort or an account without a tier, an immediate mode without a tier ('Immediate staffing requires a model. …'), and in request mode an account unless the quick_staff_request_accounts setting is on ('Request staffing cannot pin an account …'); the tier is re-checked by quickstaff.check_choice over a snapshot read with max_age COMMIT_MAX_AGE (30 s) and allow_stale False. Pinned.",
-        "staffing-options answers the org's tiers in catalog order, omitting a tier the provider gate or tier ceiling blocks and an account-needing tier with no eligible account; discovery errors are reported in `errors`, never as an empty list. The quick-staff preview lists the offered models in request mode and, in the immediate modes, only tiers a trial hire (HireProbe) admits. Pinned for the fixed offer."
+        "staffing-options answers the org's tiers in catalog order, omitting a tier the provider gate blocks and an account-needing tier with no eligible account; discovery errors are reported in `errors`, never as an empty list. The quick-staff preview lists the offered models in request mode and, in the immediate modes, only tiers a trial hire (HireProbe) admits. Pinned for the fixed offer."
       ],
       "source_refs": [
         {
@@ -7486,7 +7478,7 @@
       "dimension": "reads",
       "status": "unresolved",
       "facts": [
-        "Source read set: the staffcache snapshot (read OUTSIDE DOC_LOCK), then (staffing-options and the preview) the shared snapshot store.cached_org, lock-free and read-only, with a document still on the old work identity converted in a private orgtx.org_read copy instead (fence-off S5); the commit loads the org under DOC_LOCK (load_org), the ticket and its owner's liveness, the org's tiers, ceilings and scope defaults, and for the immediate modes a trial hire per tier over the eager sections (HireProbe); the commit's harness choice is a provider read before the lock.",
+        "Source read set: the staffcache snapshot (read OUTSIDE DOC_LOCK), then (staffing-options and the preview) the shared snapshot store.cached_org, lock-free and read-only, with a document still on the old work identity converted in a private orgtx.org_read copy instead (fence-off S5); the commit loads the org under DOC_LOCK (load_org), the ticket and its owner's liveness, the org's tiers and scope defaults, and for the immediate modes a trial hire per tier over the eager sections (HireProbe); the commit's harness choice is a provider read before the lock.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321): staffing-options and its refresh, the preview in each mode (request, under the assignee, top level) and the commit in each mode with its replay, cold and warm, plus the refusals. Cold, the options read and the previews read doc, log_d, log_l, meta and nodes of the org's own store; warm, every read and replay runs no statement at all (the org is the resident document; at the probe's commit these routes called load_org under DOC_LOCK, and since fence-off S5 staffing-options and the preview read store.cached_org); the refresh never touches an org store. A replay is answered from the ticket's receipt with no write, no mail and no wake. The refusals write nothing (a stale selection, an effort without a model, an account in request mode, an immediate mode without a model, a preview of a ticket no longer backlogged); the agent credential is refused 401 before any census attempt. NOT observed: the staffing snapshot's own reads. P02's fixture fixes provider discovery (api._providers_payload), stubs the provider gate, account reasons and advertised efforts, and recomputes the snapshot on every read, so the snapshot's provider, account and effort contacts, and a cached (warm) snapshot, are outside what the rows observe. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
@@ -8250,7 +8242,7 @@
         "The door's identity check (api._agent_identity) refuses 403 a caller whose seat is archived or replaced ('authenticated seat is archived or replaced …') and a credential minted for an earlier session generation ('agent credential is stale: session generation changed …'). So after a dissolve the archived seats can no longer call, and after a cheap compaction the seat's pre-compaction credential is refused. Pinned.",
         "The two catalogue reads need only a known caller; list_tiers also needs a live one (org._require_live), and list_orgs, which runs in the agent door's read block (not the write cycle (fence-off S5)), keeps the halt and killswitch refusals the write cycle gave it, with the same words. Pinned for the successful reads.",
         "The seven routes are operator routes behind the desktop TokenGate (engine/launch.py): an agent credential is refused 401, and the operator acts as the user (ledger actor USER). repair-rename is the exception: its body names an actor (default the user) that must be the user or the renamed identity itself (Org.repair_rename_identity). account-assign leaves every account check to supervisor.assign_account's shared validator, so being the user does not bypass the account rules. Pinned for the 401 and the refusals; the actor rule of repair-rename is source.",
-        "lifecycle.operator-scope (POST /api/orgs/{slug}/nodes/{nid}/scope, P01 F3): the operator retools a node as the user (Org.set_scope with actor USER); a kiosk visitor's raise_ceiling is ignored (source). Pinned by tests/test_state_requests_boundary.py."
+        "lifecycle.operator-scope (POST /api/orgs/{slug}/nodes/{nid}/scope, P01 F3): the operator retools a node as the user (Org.set_scope with actor USER). Pinned by tests/test_state_requests_boundary.py."
       ],
       "source_refs": [
         {
@@ -8333,7 +8325,7 @@
       "status": "specified",
       "facts": [
         "Every write-cycle tool (retool, retire, dissolve, cheap_compact, rehire, move, swap, self_subjugate and switch_model) loads the org document under DOC_LOCK through store.write_org (the resident write cycle); rename reads it in its own row transaction (supervisor.rename_node, lifecycle_tx.rename_tx), and list_tiers and list_orgs read the shared snapshot (store.cached_org) in the agent door's read block (fence-off S5). Before the lock, retire and dissolve load the org once more for their authority pre-guard. Source.",
-        "Reads outside the org document: list_orgs loads EVERY org's whole document to build the catalogue (store.list_orgs over _scan_orgs, which parses each org; only a summary row per org is kept and kiosk orgs are dropped; relayed from P02's F1 probe, which measured statements on every other org's store, and checked in source) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question.",
+        "Reads outside the org document: list_orgs loads EVERY org's whole document to build the catalogue (store.list_orgs over _scan_orgs, which parses each org; only a summary row per org is kept; relayed from P02's F1 probe, which measured statements on every other org's store, and checked in source) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question.",
         "lifecycle.operator-scope loads the org in the resident write cycle (store.write_org) and reads the node's effective effort before an effort change (source)."
       ],
       "source_refs": [
@@ -8884,7 +8876,7 @@
       "status": "specified",
       "facts": [
         "The access middleware labels the route; nothing identifies the operation beyond the body. P02's per-operation record covers the variants (below).",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for every F1b row, cold and warm (one census record matching the harness): the 13 operations and the preview, the four preview variants, the waiting-mail rehire (its one drive) and the no-op reseed, and 16 refusals, of which only the agent-credential refusal is answered before any census attempt. Org-level locality, answering the question above: every statement runs on this org's own store. Agent-level locality: every agent row a variant writes is one of its declared targets, and for promote that is the WHOLE old chain up to the top-level seat (ledger._move's credit path, see operator-ops.writes); the previews and the no-op reseed write nothing, and every refusal writes nothing and changes no agent's mail. The control control:op-variants-third-agent (an operation that also writes a third agent) is flagged, and no other row touches a third agent. Not exercised: the kiosk visitor path to this door, which the clause does not name. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for every F1b row, cold and warm (one census record matching the harness): the 13 operations and the preview, the four preview variants, the waiting-mail rehire (its one drive) and the no-op reseed, and 16 refusals, of which only the agent-credential refusal is answered before any census attempt. Org-level locality, answering the question above: every statement runs on this org's own store. Agent-level locality: every agent row a variant writes is one of its declared targets, and for promote that is the WHOLE old chain up to the top-level seat (ledger._move's credit path, see operator-ops.writes); the previews and the no-op reseed write nothing, and every refusal writes nothing and changes no agent's mail. The control control:op-variants-third-agent (an operation that also writes a third agent) is flagged, and no other row touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -10169,7 +10161,7 @@
       "facts": [
         "Agent tools: interrupt, unstick, halt, unhalt and continue_on act only on the caller's subtree (Org._require_authority, no allow_self: 'X has no authority over Y'); continue_on also refuses the caller itself 403 ('you cannot choose your own account …'); halt and unhalt check every target of a `nodes` batch in one lock pass before any process is cut, so a single target outside the caller's subtree refuses the whole batch and nothing is cut (the per-node halt re-checks authority itself). restart_wake manages the caller or a live descendant ('you can only manage restart wake for yourself or your subordinates', 403). A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json.",
         "PROFILES (decision 1 on this item). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets) orgtree_self_restart and orgtree_prime_restart are refused 422 at the door, every action included ('desktop-managed V2 renamed … to orgtree_self_relaunch / orgtree_prime_relaunch …'). Under the non-desktop profile (e.g. the Windows service host) they take the machine-wide gate (Org.self_restart_gate / prime_restart_gate): only a top-level agent or a holder of a user audience ('a self-restart restarts the shared orgtree install for EVERY org …'); prime_restart status needs only a live caller; a frozen deployment profile refuses both 403 (source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json, except the frozen profile.",
-        "Routes are operator routes behind the desktop TokenGate (an agent credential is refused 401) and act as the user; the steering routes additionally accept a hook call that carries the agent's own identity, which must name this live agent generation ('Steering credential does not name this live agent generation', 403, source). PROFILES: the kiosk route is REMOVED under the desktop-managed profile (desktop_policy.install_routes strips every path containing /kiosk, so no handler runs: a POST answers 405 when the packaged UI's GET catch-all /{path:path} is mounted, which matches the path, and 404 when it is not, since api mounts that catch-all only when its UI directory exists) and served under the non-desktop profile, where it refuses a non-kiosk org ('not a kiosk org …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+        "Routes are operator routes behind the desktop TokenGate (an agent credential is refused 401) and act as the user; the steering routes additionally accept a hook call that carries the agent's own identity, which must name this live agent generation ('Steering credential does not name this live agent generation', 403, source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10273,7 +10265,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "Measured cold. halt writes nodes (the halt record, phase halting then halted) and events; unhalt writes nodes and events, and leaves an unsaved empty steer_attempts owner for the node on the cached org document, which the next save writes (so a keyed unhalt's own receipt save writes steer_attempts; see the legacy defect below), and unhalt of a node that is not halted writes nothing; unstick of a frozen node writes nodes, events and policy.unstuck to the node, and of a node that is not stuck writes nothing ('… not stuck — nothing to release'); interrupt, continue_on (its switch is _continue_on_account's own two transactions, source), steer, steer-ack, steer-state, process, resume with nothing frozen and remote-control write nothing to the org document here; the killswitch latch writes killswitch and events (and pauses every armed watchdog and suspends every node's mail drain in the same transaction, halt.txn over the killswitch and watchdogs rows and every node with a drain), its release writes killswitch back to its cleared value (the row is kept, not popped) and events, and a release while nothing is latched writes nothing. restart_wake arm, cancel and status write NO org section: the wake lives in its own sidecar file. Non-desktop restart tools: self_restart and prime_restart arm or cancel write events (the gate's log row). The kiosk handler (non-desktop) writes kiosk (enable, token rotation, caps). Recorded legacy defect (docket unhalting-an-agent-leaves-an-unsaved-empty-steer; found by P02's SQL-level write trace, reproduced by P01): halt.unhalt calls supervisor.scan_steer_records, which loaded the cached (resident) document under the document lock and created steer_attempts[node] = {} with setdefault, and did not save when no attempt was pending (since PG-3e-A scan_steer_records reads a lock-free org_read snapshot, never calls that setdefault, and writes only through _scan_steer_commit, so the mechanism is gone from source; the control-boundary fixture still records the old measurement and is not re-measured by this re-anchor); the lock-release discard check does not catch that change, so on the warm document every later save on the org, whatever its operation and whoever calls it, deletes that owner's steer_attempts rows again until a later unhalt, and the durable document ends with the empty owner. A reload between the calls drops the carry-over. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+        "Measured cold. halt writes nodes (the halt record, phase halting then halted) and events; unhalt writes nodes and events, and leaves an unsaved empty steer_attempts owner for the node on the cached org document, which the next save writes (so a keyed unhalt's own receipt save writes steer_attempts; see the legacy defect below), and unhalt of a node that is not halted writes nothing; unstick of a frozen node writes nodes, events and policy.unstuck to the node, and of a node that is not stuck writes nothing ('… not stuck — nothing to release'); interrupt, continue_on (its switch is _continue_on_account's own two transactions, source), steer, steer-ack, steer-state, process, resume with nothing frozen and remote-control write nothing to the org document here; the killswitch latch writes killswitch and events (and pauses every armed watchdog and suspends every node's mail drain in the same transaction, halt.txn over the killswitch and watchdogs rows and every node with a drain), its release writes killswitch back to its cleared value (the row is kept, not popped) and events, and a release while nothing is latched writes nothing. restart_wake arm, cancel and status write NO org section: the wake lives in its own sidecar file. Non-desktop restart tools: self_restart and prime_restart arm or cancel write events (the gate's log row). Recorded legacy defect (docket unhalting-an-agent-leaves-an-unsaved-empty-steer; found by P02's SQL-level write trace, reproduced by P01): halt.unhalt calls supervisor.scan_steer_records, which loaded the cached (resident) document under the document lock and created steer_attempts[node] = {} with setdefault, and did not save when no attempt was pending (since PG-3e-A scan_steer_records reads a lock-free org_read snapshot, never calls that setdefault, and writes only through _scan_steer_commit, so the mechanism is gone from source; the control-boundary fixture still records the old measurement and is not re-measured by this re-anchor); the lock-release discard check does not catch that change, so on the warm document every later save on the org, whatever its operation and whoever calls it, deletes that owner's steer_attempts rows again until a later unhalt, and the durable document ends with the empty owner. A reload between the calls drops the carry-over. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10343,7 +10335,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "prime_restart and restart_wake: an action other than arm, cancel or status is refused ('action must be arm|cancel|status'); every falsy action (omitted, null, empty, 0, false) arms, because the door reads str(a.get('action') or 'arm'), and the selectors use that same reading (action normalization str_or_arm), so it selects the arm contract, while an unknown action ('bogus', 'ARM', ' arm', 1) selects no contract and the door refuses it; restart_wake refuses a mode other than one_shot. remote-control: the action must be start or stop. process: an unknown node is 404. resume: 409 while the killswitch is latched ('release it before resuming'). kiosk (non-desktop): the org must already be a kiosk, and a credits cap below the current top-level holdings is refused ('cap below current holdings …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+        "prime_restart and restart_wake: an action other than arm, cancel or status is refused ('action must be arm|cancel|status'); every falsy action (omitted, null, empty, 0, false) arms, because the door reads str(a.get('action') or 'arm'), and the selectors use that same reading (action normalization str_or_arm), so it selects the arm contract, while an unknown action ('bogus', 'ARM', ' arm', 1) selects no contract and the door refuses it; restart_wake refuses a mode other than one_shot. remote-control: the action must be start or stop. process: an unknown node is 404. resume: 409 while the killswitch is latched ('release it before resuming'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10521,7 +10513,7 @@
       "status": "unresolved",
       "facts": [
         "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. P02's per-operation record covers the family, except the process effects (below).",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for all 26 run-control contracts cold and warm (one census record matching the harness each, except the agent-credential refusal, which is answered before any census attempt), both product profiles for self_restart, prime_restart and the kiosk route (the stripped route answers 404 in the probe's app, which mounts no UI catch-all; see control.authority), the variants and 18 refusals. No row makes an unknown contact or touches another org's store, and every refusal writes nothing and changes no agent's mail. Agent-level locality: apart from the flagged control control:control-third-agent, the only third agent any row writes is the node unhalted earlier in the warm run, whose steer_attempts log_d rows every later warm save rewrites (the recorded legacy defect in control.writes). NOT covered: the process effects themselves, which the probe keeps as spies by design (question below). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for all 25 run-control contracts cold and warm (one census record matching the harness each, except the agent-credential refusal, which is answered before any census attempt), both product profiles for self_restart and prime_restart, the variants and 17 refusals. No row makes an unknown contact or touches another org's store, and every refusal writes nothing and changes no agent's mail. Agent-level locality: apart from the flagged control control:control-third-agent, the only third agent any row writes is the node unhalted earlier in the warm run, whose steer_attempts log_d rows every later warm save rewrites (the recorded legacy defect in control.writes). NOT covered: the process effects themselves, which the probe keeps as spies by design (question below). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "open_questions": [
         "Observe the run-control process effects with real processes: halt's process cut, the interrupts, the killswitch sweep, the warm-pool process control, remote control, the restart launch and the prime arm and cancel.",
@@ -10850,7 +10842,7 @@
       "status": "specified",
       "facts": [
         "Every route is an operator route behind the desktop TokenGate that both current launch paths install (engine/launch.py load_app): a request with no credential is refused 401 ('missing authentication; provide a desktop or live agent credential'), and an agent credential on a route 401 ('agent credential is invalid or expired; reconnect the agent session'); past the gate a route acts as the user. orgtree_send_file and orgtree_send_file_once are agent tools on the agent door, acting for the calling agent on files it can reach. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes and none of them reads ORGTREE_DESKTOP_MANAGED, so the desktop-managed and non-desktop profiles behave alike. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json.",
-        "The public kiosk gateway, which the desktop launcher does not start, is read from source: GET /api/orgs lists only the token's org there, the org_inbox upload and send routes refuse it 404 ('not found'), and node upload is reachable through it. The external-chat MCP server (externtool.py) and its three /api/extern routes were retired by user ruling (docket the-external-chat-mcp-server-cannot-reach-the-v2), and the gate's refusal of its credential-less client went with them."
+        "The external-chat MCP server (externtool.py) and its three /api/extern routes were retired by user ruling (docket the-external-chat-mcp-server-cannot-reach-the-v2), and the gate's refusal of its credential-less client went with them."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10896,7 +10888,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count; a kiosk org's admin row carries kiosk_cfg, share token included. The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count. The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11013,7 +11005,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "org_inbox send: the retired @ext: form 422; a new @mcp: send 422 (ledger.MCP_RETIRED, before the attachment checks); a recipient that is not @org: or @net: 422; an unknown staged id 422; a @net: send with no enabled hub 422; and, from source, a kiosk org 422, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a sealed or missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422, unknown node 404, the org over its storage limit 413, and a kiosk org's 256 MB per-node total 413 (source). mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422, the org over its storage limit 422; orgtree_send_file_once without a delivery_id 422. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+        "org_inbox send: the retired @ext: form 422; a new @mcp: send 422 (ledger.MCP_RETIRED, before the attachment checks); a recipient that is not @org: or @net: 422; an unknown staged id 422; a @net: send with no enabled hub 422; and, from source, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422, unknown node 404, and the org over its storage limit 413. mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422, the org over its storage limit 422; orgtree_send_file_once without a delivery_id 422. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11196,7 +11188,7 @@
       "status": "unresolved",
       "facts": [
         "The access middleware labels each route and the agent door labels the two tools (stateprobe.refine('tool:' + tool)); orgtree_send_file_once is one of api._PROFILE_EXTRA_TOOL_VERBS. P02's per-operation record covers the family, except the paths below.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 817c816, the F4 review follow-up in the P02 F6 probe commit and P02's external-chat retirement commit): a loss-accounted per-operation record for all 12 exchange contracts cold and warm, with the variants (the node and org mail boxes, the @org: send with and without an attachment and to a kiosk or a missing org, and the delivery, replay, keyed and once send_file calls) and 27 refusals, the retired @mcp: send among them with and without a staged attachment. Every row carries one census record matching the harness, except two 401 refusals answered before any census attempt: the route without a token and the route with an agent credential. No row makes an unknown contact, every refusal writes no org's store and changes no agent's mail, and agent-level locality stays within each row's declared set; the family's locality control control:exchange-third-agent (an org_inbox read row that also writes a third agent) is flagged. Org-level locality: only the org list and the @org: send touch another org's store. A delivered @org: send writes the other org, one to a kiosk org only reads it and one to a missing org touches none. The record's cold condition is cold for the actor org only. NOT covered: the @net: send against a live mail hub, which the probe does not have (it answers 'no mailserver is configured'). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 817c816, the F4 review follow-up in the P02 F6 probe commit and P02's external-chat retirement commit): a loss-accounted per-operation record for all 12 exchange contracts cold and warm, with the variants (the node and org mail boxes, the @org: send with and without an attachment and to a missing org, and the delivery, replay, keyed and once send_file calls) and 27 refusals, the retired @mcp: send among them with and without a staged attachment. Every row carries one census record matching the harness, except two 401 refusals answered before any census attempt: the route without a token and the route with an agent credential. No row makes an unknown contact, every refusal writes no org's store and changes no agent's mail, and agent-level locality stays within each row's declared set; the family's locality control control:exchange-third-agent (an org_inbox read row that also writes a third agent) is flagged. Org-level locality: only the org list and the @org: send touch another org's store. A delivered @org: send writes the other org and one to a missing org touches none. The record's cold condition is cold for the actor org only. NOT covered: the @net: send against a live mail hub, which the probe does not have (it answers 'no mailserver is configured'). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "open_questions": [
         "Observe the @net: send against a live mail hub: actual contacts per outcome, cold and warm.",
@@ -11216,7 +11208,7 @@
       "status": "specified",
       "facts": [
         "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential on a route is refused 401 'agent credential is invalid or expired; reconnect the agent session') and reads as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes, but desktop_policy.validate refuses a sandboxed org under the desktop-managed profile, so no desktop org carries a virtual disk and the three disk routes answer 409 there ('this org has no virtual disk …'); a sandboxed org elsewhere reads its disk (source). The bridge-credential status depends on the DEPLOYMENT profile: under the standard profile it answers 409 ('rotatable bridge credentials are active only in the frozen deployment profile'); under the frozen profile it attests the org's sandbox credential, a non-sandboxed org answering 503 ('… is not sandboxed and gets no bridge credential'). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json.",
-        "The public kiosk gateway, which the desktop launcher does not start, is read from source: the net and bridge-credential routes refuse it (404 and 403) and the aggregates route refuses kiosk and bridge callers 403 ('diagnostics are available only to the host operator'); the other reads serve it, scrubbing host paths from events and node history and reducing the org.md path to its basename."
+        "The aggregates route refuses a sandbox bridge caller 403 ('diagnostics are available only to the host operator') (source)."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11332,7 +11324,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "chat's FIRST read of a node mints its reply and transcript-record incarnations: it writes nodes and reply_incarnation and creates the chat-window-index, reply-events and transcript-records sidecars; a later read writes nothing. The mint runs before the cursor check, so a chat read refused 422 for a bad cursor still writes (recorded legacy defect, docket org-reads-that-write-chat-gets-mint-on-first-rea, which also records these first-read mints and the net backfill as reads that write). history entries' chat section writes the same on its first read. net's FIRST read of an org with no network identity writes net_identity, net_hubs and net_autoconnect (a lazy backfill) and later reads write nothing; a kiosk org answers identity None and writes nothing; a hub carrying retired pairing fields is scrubbed once (source). Every other route writes nothing. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+        "chat's FIRST read of a node mints its reply and transcript-record incarnations: it writes nodes and reply_incarnation and creates the chat-window-index, reply-events and transcript-records sidecars; a later read writes nothing. The mint runs before the cursor check, so a chat read refused 422 for a bad cursor still writes (recorded legacy defect, docket org-reads-that-write-chat-gets-mint-on-first-rea, which also records these first-read mints and the net backfill as reads that write). history entries' chat section writes the same on its first read. net's FIRST read of an org with no network identity writes net_identity, net_hubs and net_autoconnect (a lazy backfill) and later reads write nothing; a hub carrying retired pairing fields is scrubbed once (source). Every other route writes nothing. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11513,8 +11505,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential is refused 401 'agent credential is invalid or expired; reconnect the agent session') and acts as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): engine.launch sets the desktop-managed profile, under which desktop_policy.validate refuses a kiosk or sandboxed org at creation 422 ('Not available in desktop MVP: kiosk' and '… sandbox, disk_mb'), so no desktop org carries a virtual disk and the disk and sweep routes answer 409 there; under the standard profile a kiosk or sandboxed org is created (org-admin.writes). The frozen DEPLOYMENT profile refuses an unsandboxed create 422 ('the frozen deployment profile requires every org to be sandboxed …'). The bridge-credential rotation answers 409 under the standard deployment profile ('rotatable bridge credentials are active only in the frozen deployment profile') and under the frozen one attests the org's sandbox credential first, a non-sandboxed org answering 503. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
-        "The public kiosk gateway, which the desktop launcher does not start, is read from source: its path filter (api._public_denied) refuses create, delete, settings, the org.md write and the bridge-credential rotation 403 ('kiosk: configuration is managed from the admin side'); disk resize, resize apply and both sweep routes refuse a kiosk caller 403 themselves ('admin side only'); hire defaults admits a visitor but drops default_account and never raises the ceiling; disk delete classifies each path for a visitor (credential files blocked)."
+        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential is refused 401 'agent credential is invalid or expired; reconnect the agent session') and acts as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): engine.launch sets the desktop-managed profile, under which desktop_policy.validate refuses a sandboxed org at creation 422 ('Not available in desktop MVP: sandbox' and '… sandbox, disk_mb'), so no desktop org carries a virtual disk and the disk and sweep routes answer 409 there; under the standard profile a sandboxed org is created (org-admin.writes). The frozen DEPLOYMENT profile refuses an unsandboxed create 422 ('the frozen deployment profile requires every org to be sandboxed …'). The bridge-credential rotation answers 409 under the standard deployment profile ('rotatable bridge credentials are active only in the frozen deployment profile') and under the frozen one attests the org's sandbox credential first, a non-sandboxed org answering 503. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11594,8 +11585,8 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "create writes a new org document (the born sections are pinned) with the global defaults except prefer_reserve and net_hub_address, the latter only choosing the local hub's address; a non-kiosk org also mints its network identity and hub list (the local entry unless net_autoconnect is off, then the typed addresses). Under the standard profile a kiosk org is born with a kiosk section (token and sandbox secret minted), default_top_grant 0 and no identity, and a sandboxed org with a sandbox section and a warmed container (a spy); a kiosk whose ceiling cannot be normalized is refused 422 before the org's one creating save, so nothing is stored, trashed or unregistered (everything above is applied in store.create_org's prepare step and born in that one save; PG-3f). delete renames the org's store into <DATA_ROOT>/deleted/<slug>-<timestamp>.db, unregisters it from its hubs, forgets its runtime state, reaps its remote servers and removes its container (spies); scratch folders stay. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
-        "settings writes only the sections a request names and commits once, in one row transaction (settingstx): the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and, for a non-kiosk org, the hub list, re-keying orphaned spool entries to the first enabled hub; a kiosk org's hub fields are ignored and an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section (its answer reports the character count as `bytes`: recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). disk resize writes the disk section: a grow sets size_mb after growing the image, a shrink stages pending_size_mb and a same-size or cancel request clears it; resize apply stops the container and applies the pending shrink (spies). disk delete unlinks the allowed paths on the disk, a directory all or nothing. The sweep removes the legacy volumes (docker volume rm) and deletes the sandbox root, the org's host workspace and its scratch root with rmtree, leaving the org's workspace path naming a deleted folder. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "create writes a new org document (the born sections are pinned) with the global defaults except prefer_reserve and net_hub_address, the latter only choosing the local hub's address; the org also mints its network identity and hub list (the local entry unless net_autoconnect is off, then the typed addresses). Under the standard profile a sandboxed org is born with a sandbox section and a warmed container (a spy) (everything above is applied in store.create_org's prepare step and born in that one save; PG-3f). delete renames the org's store into <DATA_ROOT>/deleted/<slug>-<timestamp>.db, unregisters it from its hubs, forgets its runtime state, reaps its remote servers and removes its container (spies); scratch folders stay. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
+        "settings writes only the sections a request names and commits once, in one row transaction (settingstx): the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and the hub list, re-keying orphaned spool entries to the first enabled hub; an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section (its answer reports the character count as `bytes`: recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). disk resize writes the disk section: a grow sets size_mb after growing the image, a shrink stages pending_size_mb and a same-size or cancel request clears it; resize apply stops the container and applies the pending shrink (spies). disk delete unlinks the allowed paths on the disk, a directory all or nothing. The sweep removes the legacy volumes (docker volume rm) and deletes the sandbox root, the org's host workspace and its scratch root with rmtree, leaving the org's workspace path naming a deleted folder. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11677,7 +11668,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "create refuses an empty or letterless name 400 ('name is mandatory …'), an existing name 400 ('org … already exists') and a sandboxed disk under 4096 MB 422. delete, settings, the org.md write, the rotation and the disk and sweep routes answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422, headless on a kiosk 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied (folder revokes and the fable lock clear included): the whole call is one row transaction (settingstx.settings_tx over api._org_settings_apply; PG-3f), and a refusal rolls it back. hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. The disk and sweep routes answer 409 without a virtual disk; disk resize refuses no size 422 and a shrink under 4096 MB 422 (or, source, below usage with the MB to free); resize apply refuses no pending resize 422 and a shrink the apply keeps pending 422 with what to free; the sweeps refuse an unmounted disk 503. disk delete refuses per path, answering 200: a path outside the disk ('path escapes the org disk'), a system seed path and a protected transcript, and it reports an unlink error with the raw OSError text, host path included, to an admin and a kiosk visitor alike (recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "create refuses an empty or letterless name 400 ('name is mandatory …'), an existing name 400 ('org … already exists') and a sandboxed disk under 4096 MB 422. delete, settings, the org.md write, the rotation and the disk and sweep routes answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied (folder revokes and the fable lock clear included): the whole call is one row transaction (settingstx.settings_tx over api._org_settings_apply; PG-3f), and a refusal rolls it back. hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. The disk and sweep routes answer 409 without a virtual disk; disk resize refuses no size 422 and a shrink under 4096 MB 422 (or, source, below usage with the MB to free); resize apply refuses no pending resize 422 and a shrink the apply keeps pending 422 with what to free; the sweeps refuse an unmounted disk 503. disk delete refuses per path, answering 200: a path outside the disk ('path escapes the org disk'), a system seed path and a protected transcript, and it reports an unlink error with the raw OSError text, host path included (recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11884,7 +11875,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is an operator route: the router's dependency (gitapi.operator) refuses a kiosk or bridge caller 403 ('Git workspace is available only to the host operator') (source), and the desktop TokenGate of both current launch paths admits the operator and refuses an agent credential 401. PROFILES: desktop_policy.install_routes, which engine.launch runs under the desktop-managed profile it sets, is meant to strip every /git/ route, but the bundled FastAPI (0.141.1) registers the included git router as one _IncludedRouter entry with no path, which that filter keeps; so the desktop app serves every one of these routes exactly as the router alone does (recorded legacy defect, docket the-desktop-app-still-serves-the-git-workspace-r). Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+        "Every route is an operator route: the router's dependency (gitapi.operator) refuses a sandbox bridge caller 403 ('Git workspace is available only to the host operator') (source), and the desktop TokenGate of both current launch paths admits the operator and refuses an agent credential 401. PROFILES: desktop_policy.install_routes, which engine.launch runs under the desktop-managed profile it sets, is meant to strip every /git/ route, but the bundled FastAPI (0.141.1) registers the included git router as one _IncludedRouter entry with no path, which that filter keeps; so the desktop app serves every one of these routes exactly as the router alone does (recorded legacy defect, docket the-desktop-app-still-serves-the-git-workspace-r). Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -12229,7 +12220,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is a desktop operator route. Only engine/launch.py's load_app mounts the router (app.include_router(desktop_import.router) on the V1 API app, after it wires the recovery hook with desktop_import.configure), and the app it serves is wrapped in the launcher's TokenGate: a request without the desktop token is refused 401 ('missing authentication; provide a desktop or live agent credential') and so is a request carrying only a live agent credential ('agent credential is invalid or expired; reconnect the agent session', although the credential is valid), because the gate admits an agent token only on POST /api/agent and the steer routes. The router has no dependency of its own. PROFILES: the standard API (orgtree.api alone) never mounts these routes; under the desktop-managed profile desktop_policy.install_routes leaves them in place (it filters accounts, kiosk and /git/ paths). The request-wide middleware (RecoveryBarrier, FrozenAdminBoundary) applies as to every request and is witnessed separately. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+        "Every route is a desktop operator route. Only engine/launch.py's load_app mounts the router (app.include_router(desktop_import.router) on the V1 API app, after it wires the recovery hook with desktop_import.configure), and the app it serves is wrapped in the launcher's TokenGate: a request without the desktop token is refused 401 ('missing authentication; provide a desktop or live agent credential') and so is a request carrying only a live agent credential ('agent credential is invalid or expired; reconnect the agent session', although the credential is valid), because the gate admits an agent token only on POST /api/agent and the steer routes. The router has no dependency of its own. PROFILES: the standard API (orgtree.api alone) never mounts these routes; under the desktop-managed profile desktop_policy.install_routes leaves them in place (it filters accounts and /git/ paths). The request-wide middleware (RecoveryBarrier, FrozenAdminBoundary) applies as to every request and is witnessed separately. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -12315,7 +12306,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "preview is not read-only: for every org in the source it writes <DATA_ROOT>/.import-staging/<uuid>/<slug>/ (the private copy of the V1 database and WAL and its snapshot.db, or source.json, and original.json once the document validates) and never removes it, a refused preview that got as far as reading the document included. job-start writes the job record and current.json atomically and starts a daemon worker (desktop-import-<id>) that plans, copies each org's areas into new staging, prepares the document (runtime paths remapped to the V2 root, each node's session rebound to a native clone or held, pids and provider bindings cleared, kiosk, sandbox, disk and the network identity archived), writes and verifies a candidate SQLite store, and publishes each org: the areas move into the data root, imports/<slug>/ keeps original.json, history, native and memory, and orgs/<slug>.db appears by an exclusive hard link. A native Claude import also publishes the node's project memory into the DESTINATION agent's Claude profile (CLAUDE_CONFIG_DIR, else USERPROFILE/.claude, projects/<key>/memory), outside the V2 data root. After publication the recovery hook (desktop_recovery.resume_import) records recovery_attempts, recovery_intents and recovery_phase in the imported org's desktop_import metadata. The staging folder is retained after success. job-status and job-current rewrite an active record that no worker owns (the destination lease is free) as interrupted, never replaying it; job-start does the same to the record current.json names before it refuses. job-cancel writes the <id>.cancel marker and the record (state cancelling) for a job in a cancellable phase and returns a finished job unchanged; the worker consumes the marker at its checkpoints. LEGACY: a cancel of an active record that no worker owns is accepted the same way, and the marker is never consumed (docket cancelling-an-orphaned-desktop-import-job-leaves). import-retired writes nothing. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+        "preview is not read-only: for every org in the source it writes <DATA_ROOT>/.import-staging/<uuid>/<slug>/ (the private copy of the V1 database and WAL and its snapshot.db, or source.json, and original.json once the document validates) and never removes it, a refused preview that got as far as reading the document included. job-start writes the job record and current.json atomically and starts a daemon worker (desktop-import-<id>) that plans, copies each org's areas into new staging, prepares the document (runtime paths remapped to the V2 root, each node's session rebound to a native clone or held, pids and provider bindings cleared, the settings of removed features, sandbox, disk and the network identity archived), writes and verifies a candidate SQLite store, and publishes each org: the areas move into the data root, imports/<slug>/ keeps original.json, history, native and memory, and orgs/<slug>.db appears by an exclusive hard link. A native Claude import also publishes the node's project memory into the DESTINATION agent's Claude profile (CLAUDE_CONFIG_DIR, else USERPROFILE/.claude, projects/<key>/memory), outside the V2 data root. After publication the recovery hook (desktop_recovery.resume_import) records recovery_attempts, recovery_intents and recovery_phase in the imported org's desktop_import metadata. The staging folder is retained after success. job-status and job-current rewrite an active record that no worker owns (the destination lease is free) as interrupted, never replaying it; job-start does the same to the record current.json names before it refuses. job-cancel writes the <id>.cancel marker and the record (state cancelling) for a job in a cancellable phase and returns a finished job unchanged; the worker consumes the marker at its checkpoints. LEGACY: a cancel of an active record that no worker owns is accepted the same way, and the marker is never consumed (docket cancelling-an-orphaned-desktop-import-job-leaves). import-retired writes nothing. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -20302,61 +20293,6 @@
       ],
       "domain_mode": "write"
     },
-    "control.kiosk": {
-      "entry_ids": [
-        "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "control.authority"
-        ],
-        "reads": [
-          "control.reads"
-        ],
-        "writes": [
-          "control.writes"
-        ],
-        "predicates": [
-          "control.predicates"
-        ],
-        "conflicts": [
-          "control.conflicts"
-        ],
-        "wire": [
-          "control.wire"
-        ],
-        "receipt": [
-          "control.receipt"
-        ],
-        "effects": [
-          "control.effects"
-        ],
-        "instrumentation": [
-          "control.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 3907,
-          "end": 4019,
-          "sha256": "6f8703dbeef92069da21348fd9a7730a5c8a2bc7084ee00edf0cda5f443eb08a"
-        },
-        {
-          "path": "engine/backend/orgtree/desktop_policy.py",
-          "start": 19,
-          "end": 23,
-          "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
-        }
-      ],
-      "domain_mode": "write"
-    },
     "relaunch.self-relaunch": {
       "entry_ids": [
         "d1d0a186d8065924bd0fb33a6d15f1f6e1d5c67da7a71ab5968c571484eb3727"
@@ -26273,13 +26209,6 @@
       "domain_mode": "write"
     },
     {
-      "name": "org_kiosk:control.kiosk",
-      "entry_id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
-      "args": {},
-      "contract": "control.kiosk",
-      "domain_mode": "write"
-    },
-    {
       "name": "orgtree_self_relaunch:relaunch.self-relaunch",
       "entry_id": "d1d0a186d8065924bd0fb33a6d15f1f6e1d5c67da7a71ab5968c571484eb3727",
       "args": {},
@@ -27147,22 +27076,6 @@
           "start": 3640,
           "end": 3640,
           "sha256": "bfdded5f34aa3eab79a4caf5c99a076c428d934b3fbde42ccc407b0c85256fe6"
-        }
-      ]
-    },
-    {
-      "id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
-      "disposition": "mapped",
-      "contracts": [
-        "control.kiosk"
-      ],
-      "reason": "POST /api/orgs/{slug}/kiosk: control.kiosk (P01 F2).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 3907,
-          "end": 3907,
-          "sha256": "9cca61657afa34df256688d80238c2a5ca40de48e9c3b31e9cb6b0bf4765e758"
         }
       ]
     },
@@ -30289,13 +30202,6 @@
       ]
     },
     {
-      "id": "27675a1fdea8e96d9831b6de7876ddf7c3a86c76d6a7c4e0098f4e5a010dd40e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W2): the background walk (workspace_usage_bytes) measures an org's workspace and scratch roots (org material) for the storage figure the org views show (api uses workspace_usage_cached in the tree). Owner: the runtime (P08).",
-      "source_refs": []
-    },
-    {
       "id": "429378e11529fee07c5c2cbaf7ad6f404b1d8a0e6890497408541567cd2a6586",
       "disposition": "pending",
       "contracts": [],
@@ -33094,7 +33000,7 @@
       "source_refs": []
     },
     {
-      "id": "ffe783fc5795ecc0681adba0c44920f357ffac2769d63eb2260f090441346eca",
+      "id": "67aa7043ae765c8f4d985809035caf4e1cd5ac9331a34cb16f91bdc0d8e7b1e5",
       "disposition": "mapped",
       "contracts": [
         "git-workspace.cleanup-unlink"
@@ -33103,14 +33009,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/gitworkspace.py",
-          "start": 481,
-          "end": 481,
+          "start": 479,
+          "end": 479,
           "sha256": "9b44c67c7d4c948772e2b73e08b61a56910b9e9bb7eee9d33b411909ceb2d965"
         }
       ]
     },
     {
-      "id": "971a1c01a95b14ee5753950f2acf20cf038a8c260ad0b64315e8c75e2165b8ce",
+      "id": "c8f1f626c0e5371da59e175db1fbc7c0b564109ed32bf1930a80c8f4d516c70c",
       "disposition": "mapped",
       "contracts": [
         "git-workspace.push",
@@ -33120,14 +33026,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/gitworkspace.py",
-          "start": 1113,
-          "end": 1113,
+          "start": 1111,
+          "end": 1111,
           "sha256": "898794c8462791a993a9abc430a49c2b9e59d240b65d75e25ceafded64363555"
         }
       ]
     },
     {
-      "id": "308423a336818938353c9ce981bbe16f7e6539a5ca590c4d6cc95c3138070201",
+      "id": "24f091ec43e15a27cc4b2ab643e8206f4b7ca86c53f1f44a923c9c7b6b9b5589",
       "disposition": "mapped",
       "contracts": [
         "git-workspace.push"
@@ -33136,14 +33042,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/gitworkspace.py",
-          "start": 1135,
-          "end": 1135,
+          "start": 1133,
+          "end": 1133,
           "sha256": "02c4acc2b83235d76b9c16aa164eeb58131ee42061c03e0301efbe45389f7364"
         }
       ]
     },
     {
-      "id": "7c8cc82d65783c9f6f806dbba6ee2e56de90d316ccc1fd4dc879c7374af210d6",
+      "id": "e581eb5ef9c54a5b439ed81d0944bb90bdf50ef9ccf1eba0a40a32a55b8c6a56",
       "disposition": "mapped",
       "contracts": [
         "git-workspace.push"
@@ -33152,8 +33058,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/gitworkspace.py",
-          "start": 1139,
-          "end": 1139,
+          "start": 1137,
+          "end": 1137,
           "sha256": "d97da54dc6fb37f263a20d88ab76833e602b11b0cf4025ebf2ad4d9210b89df6"
         }
       ]
@@ -34421,20 +34327,6 @@
           "start": 284,
           "end": 329,
           "sha256": "c895150fc49d428def7fbc2588b7d4f497394aa2e80ffbf289a4160cc001d799"
-        }
-      ]
-    },
-    {
-      "id": "f06e42ec7fc7ba87a8ec18d60fc6ef1d25de44a161a2ad857234ec5a8adca8fe",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not storage and not org state: a UDP socket 'connected' to 8.8.8.8:80 only so getsockname() names this machine's LAN address for a kiosk share URL; no datagram is sent, nothing is read or written, and the result is a process-local cache (_LAN_IP). P01 S2k.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 1337,
-          "end": 1356,
-          "sha256": "e3b2ee9176d5182aac98ebb733b188f71b494214e97f71e3a1a75bc367accffc"
         }
       ]
     },

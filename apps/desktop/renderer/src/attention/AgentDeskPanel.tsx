@@ -334,7 +334,6 @@ export function AgentDeskPanel({
         data-attn-desk-claim={claim ?? 'none'}>
         {selected
           ? <DeskSlot bare node={selected} map={map} op={op} slug={slug} toast={toast}
-              pub={!!tree.public}
               maxTop={tree.max_top_grant ?? 1000}
               eligible={eligible} claim={claim} hidePopout
               {...deskExtras} />

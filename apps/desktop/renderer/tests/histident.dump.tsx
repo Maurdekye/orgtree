@@ -105,7 +105,7 @@ const main = async () => {
   const view = await mountView(
     createElement(DeskChat, {
       node: worker, map, op: () => Promise.resolve({}), slug: 'org1',
-      toast: () => {}, pub: false, bare: true, onJump: () => {},
+      toast: () => {}, bare: true, onJump: () => {},
     } as never),
     (el: HTMLElement) => el)
   await act(async () => { await flush(8) })

@@ -460,14 +460,13 @@ class QuickStaffTests(unittest.TestCase):
         # consult it. A real POST and a populated Request list rule out an
         # empty-menu fix.
         #
-        # WHAT DIRECT DOES WITH THE REFUSAL SPLIT IN TWO (2026-09-15). The three
+        # WHAT DIRECT DOES WITH THE REFUSAL SPLIT IN TWO (2026-09-15). The two
         # MACHINE gates remove the row: nothing can staff that tier. An ACCOUNT
         # refusal leaves the row standing and only closes its one-click, because
         # another account can still run it. That split is the whole of the
         # model-list defect, so it is asserted here rather than lumped together.
         for target, name, direct in [
                 (api, "provider_hire_gate", []),
-                (ledger.Org, "_check_tier_ceiling", []),
                 (quickstaff, "account_reason", ["haiku", "luna"]),
                 (ledger.Org, "hire", [])]:
             with self.subTest(gate=name):
@@ -654,8 +653,7 @@ class QuickStaffTests(unittest.TestCase):
         """
         for change, preview_ok, select_ok in (("owner", True, False),
                                               ("mode", True, False),
-                                              ("backlog", False, False),
-                                              ("kiosk", True, True)):
+                                              ("backlog", False, False)):
             with self.subTest(change=change):
                 store.save_org(self.org)
                 appsettings.set_quick_staff_behavior("request")
@@ -670,9 +668,6 @@ class QuickStaffTests(unittest.TestCase):
                             appsettings.set_quick_staff_behavior("top_level")
                         elif change == "backlog":
                             current._work_find(self.item)[0]["status"] = "open"
-                        else:
-                            current.d["kiosk"] = {"auto_raise": False,
-                                "max_scope": {"tools": current.node(self.owner)["scope"]["tools"]}}
                         store.save_org(current)
                     return self.offered
                 with patch.object(api, "_providers_payload", side_effect=discovery):
@@ -683,25 +678,6 @@ class QuickStaffTests(unittest.TestCase):
                 self.assertEqual(select.status_code, 200 if select_ok else 422, select.text)
                 self.assertEqual(len(self.loaded().nodes), 1)
                 store.save_org(self.org)
-
-    def test_kiosk_request_omits_org_barred_providers_without_catalog_io(self):
-        self.offered["providers"].extend([
-            {"id": "google", "hire_enabled": True, "tiers": [{"tier": "flash", "seat": 1}]},
-            {"id": "openrouter", "hire_enabled": True,
-             "tiers": [{"tier": "or-live", "model": "vendor/live", "seat": 1}]}])
-        # Positive control: non-kiosk offers every one of these exact tokens.
-        with patch.object(quickstaff.openrouter, "refresh_catalog", return_value=[{"id": "vendor/live"}]):
-            self.assertEqual([m["tier"] for m in self.preview()["models"]],
-                             ["haiku", "luna", "flash", "or-live"])
-        self.org.d["kiosk"] = {"auto_raise": False, "max_scope": {"tools": self.org.node(self.owner)["scope"]["tools"]}}
-        store.save_org(self.org)
-        before = copy.deepcopy(self.loaded().d)
-        with patch.object(quickstaff.openrouter, "refresh_catalog", side_effect=AssertionError("kiosk requested catalog")):
-            self.assertEqual([m["tier"] for m in self.preview()["models"]], ["haiku"])
-            for tier in ("luna", "flash", "or-live"):
-                self.assertEqual(self.send(self.selection(tier)).status_code, 422)
-                self.assertEqual(self.loaded().d, before)
-            self.assertEqual(self.send(self.selection("haiku")).status_code, 200)
 
     def test_direct_actions_never_call_request_discovery(self):
         for mode in ("top_level", "under_assignee"):

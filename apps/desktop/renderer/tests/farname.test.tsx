@@ -54,8 +54,8 @@ function cardElement(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: []
       dragging={false} isDrop={false} seats={seats} codexHire={hire}
       antigravityHire={hire} claudeHire={hire}
       map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
-      pxc={1} zoom={lod === 'mini' ? 0.24 : 0.8} compactAt={0.8} pub={false}
-      maxTop={0} kioskRemaining={null} cascadeAlloc
+      pxc={1} zoom={lod === 'mini' ? 0.24 : 0.8} compactAt={0.8}
+      maxTop={0} cascadeAlloc
       onSpawn={(t) => sink.spawned.push(`b:${t}`)}
       onSpawnSide={(t, side) => sink.spawned.push(`${side}:${t}`)}
       onSpawnTop={(t) => sink.spawned.push(`t:${t}`)}

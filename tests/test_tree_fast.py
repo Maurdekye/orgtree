@@ -28,7 +28,7 @@ class StatusProjection(unittest.TestCase):
         return store.cached_org(self.slug).tree()
 
     def read(self, tag=''):
-        return tree_ui.read(self.slug, False, tag,
+        return tree_ui.read(self.slug, tag,
             stamp=lambda:(store.org_seq(self.slug), self.runtime), build=self.build, fast=self.fast)
 
     def save(self, **values):

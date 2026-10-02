@@ -44,7 +44,7 @@ class SummaryVolume(unittest.TestCase):
                 conn.execute('ANALYZE doc')
                 conn.execute('ANALYZE node_index')
             for mode in ('legacy', 'metadata'):
-                for entry, action in (('admin', lambda: self.row()), ('public', lambda: self.row(public=True))):
+                for entry, action in (('admin', lambda: self.row()),):
                     count = {'rows': 0, 'bytes': 0}
                     one, many = psycopg.Cursor.fetchone, psycopg.Cursor.fetchall
                     def record(rows):
@@ -75,13 +75,12 @@ class SummaryVolume(unittest.TestCase):
                     plans.append(execute(conn, 'EXPLAIN (ANALYZE, FORMAT JSON) ' + sql, params).fetchone()[0])
                 return execute(conn, sql, params, **kw)
             with patch.object(psycopg.Connection, 'execute', explain):
-                org_summary._read(self.slug, False)
-                org_summary._read(self.slug, True)
+                org_summary._read(self.slug)
         print('SUMMARY_VOLUME ' + json.dumps(results), flush=True)
         print('SUMMARY_PLANS ' + json.dumps(plans), flush=True)
         dest = os.environ.get('SUMMARY_VOLUME_OUTPUT')
         if dest: Path(dest).write_text(json.dumps({'rows': results, 'plans': plans}, indent=2))
-        for entry in ('admin', 'public'):
+        for entry in ('admin',):
             for archived in (1154, 11540):
                 self.assertEqual(outputs[archived, 'legacy', entry], outputs[archived, 'metadata', entry])
             new = [r for r in results if r['mode']=='metadata' and r['entry']==entry]

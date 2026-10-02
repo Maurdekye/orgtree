@@ -14,7 +14,6 @@ mint, mutate the things the slug must NOT follow, and assert it did not move —
 then sweep every other reachable payload for the secret's literal bytes.
 
     §1  the mint — shape, derivation, and minted-ONCE
-    §2  kiosks mint nothing (anti-enumeration by NONEXISTENCE, not by filter)
     §3  hub entries — the local id, remote ids, blanks, and unnamed-at-birth
     §4  the defaults plumbing — net_hub_address shapes it, never lands in a doc
     §5  secret hygiene — where it may appear, and everywhere it may not
@@ -22,7 +21,7 @@ then sweep every other reachable payload for the secret's literal bytes.
 
 Hermetic: throwaway ORGTREE_DATA + HOME, no listener, no Docker, no CLI. The
 API is driven by calling the ASGI app with a hand-built scope (same technique
-as test_api_surface.py) so the PUBLIC gateway is exercised for real.
+as test_api_surface.py).
 
     python backend/tests/test_net_identity.py [-v]
 """
@@ -57,8 +56,7 @@ os.environ["ORGTREE_DATA"] = os.path.join(_TMP, "data")
 os.environ["USERPROFILE"] = _HOME
 os.environ["HOME"] = _HOME
 os.environ["ORGTREE_STEER_HOOK"] = "0"
-os.environ["ORGTREE_PORT"] = "7404"          # never bound — only _share_url reads it
-os.environ["ORGTREE_PUBLIC_PORT"] = "7404"
+os.environ["ORGTREE_PORT"] = "7404"          # never bound
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
@@ -72,7 +70,6 @@ supervisor.storage_check = lambda slug: None
 sandbox.warm = lambda org: None
 
 ADMIN = api.app
-PUBLIC = api.PublicGateway(api.app)
 
 PASS = 0
 FAIL: list[tuple[str, str]] = []
@@ -175,16 +172,6 @@ def make_org(**over):
     return r.json["slug"]
 
 
-def make_kiosk(**over):
-    _n[0] += 1
-    body = {"name": f"zz kiosk {_n[0]}",
-            "kiosk": {"sandbox": False, "credits": 10}}
-    body.update(over)
-    r = call(ADMIN, "POST", "/api/orgs", body)
-    assert r.status == 200, r
-    return r.json["slug"]
-
-
 def write_defaults(**kv):
     p = os.path.join(store.DATA_ROOT, "defaults.json")
     cur = {}
@@ -276,39 +263,6 @@ def sec_mint() -> None:
             "a recreated org with the same name reused the old address"
     check("a recreated org with the same name gets a DIFFERENT address",
           _not_from_name_collision)
-
-
-# ===================================================================== §2
-def sec_kiosk() -> None:
-    print("\n§2  kiosks mint nothing — absence, not filtering")
-    # V2 scope note: kiosk orgs were REMOVED from the desktop product (user
-    # decision 2026-09-07), so the strongest form of "a kiosk has no
-    # identity" now holds by construction — a kiosk cannot exist at all.
-    # These checks pin (a) that the refusal really stands at the door, and
-    # (b) that net.mint_identity keeps its own kiosk guard anyway, so a doc
-    # that ever ARRIVES with a kiosk marker (an import, a hand edit) still
-    # mints nothing.
-
-    def _kiosks_cannot_exist():
-        _n[0] += 1
-        r = call(ADMIN, "POST", "/api/orgs",
-                 {"name": f"zz kiosk {_n[0]}",
-                  "kiosk": {"sandbox": False, "credits": 10}})
-        assert r.status != 200, (
-            "a kiosk org was CREATED — the desktop product removed kiosks, "
-            "and every kiosk-seal property in this suite assumes the door "
-            "is closed")
-    check("kiosk creation is refused at the door (V2 removed kiosks)",
-          _kiosks_cannot_exist)
-
-    def _mint_returns_none():
-        org = store.load_org(make_org())
-        org.d.pop("net_identity", None)        # in-memory only: the shape of
-        org.d["kiosk"] = {"token": "zz"}       # an imported/hand-edited doc
-        assert net.mint_identity(org) is None
-        assert "net_identity" not in org.d
-    check("mint_identity refuses a kiosk-marked doc and leaves it alone",
-          _mint_returns_none)
 
 
 # ===================================================================== §3
@@ -489,23 +443,6 @@ def sec_hygiene() -> None:
         assert "net_identity" not in blob
     check("Org.tree() carries no identity at all", _not_in_the_tree_object)
 
-    def _public_gateway_404s():
-        # V2 removed kiosks, so no real public token can exist — the door
-        # is closed by construction. The gateway CLASS still stands, so pin
-        # the belt too: even a presented token (valid-shaped, unknown) gets
-        # a 404 with no identity material in the body, for its own org path
-        # or anyone else's.
-        victim = make_org()
-        for path in (f"/k/{'f' * 32}/api/orgs/zz-any/net",
-                     f"/k/{'f' * 32}/api/orgs/{victim}/net"):
-            r = call(PUBLIC, "GET", path)
-            assert r.status == 404, r
-            assert "identity" not in r.text and "secret" not in r.text
-        assert store.load_org(victim).d["net_identity"]["secret"] \
-            not in r.text
-    check("☞ the public gateway never reaches …/net (kiosks removed; the "
-          "gateway itself still 404s)", _public_gateway_404s)
-
     def _lazy_backfill():
         # an org created before F-06 has no identity; the first reveal mints
         # one and PERSISTS it (a mint that is not saved would hand out a new
@@ -680,7 +617,6 @@ def sec_username() -> None:
 def main() -> int:
     print("orgtree · @net Phase A — identity + hub configuration (F-06)")
     sec_mint()
-    sec_kiosk()
     sec_hubs()
     sec_defaults()
     sec_hygiene()

@@ -86,7 +86,7 @@ class ForegroundRoutePG(unittest.TestCase):
             self.assertEqual(renamed.status_code, 200, renamed.text)
             self.assertEqual(renamed.json()['header']['set']['name'], 'externally renamed')
 
-    def test_hidden_lookup_pages_include_and_public_scrub(self):
+    def test_hidden_lookup_pages_and_include(self):
         found = self.get('/foreground-tree/lookup/hidden')
         self.assertEqual(found.status_code, 200, found.text)
         self.assertEqual(found.json()['path'], ['boss', 'hidden'])
@@ -103,15 +103,6 @@ class ForegroundRoutePG(unittest.TestCase):
         self.assertEqual(shown.json()['nodes']['boss']['hidden_retired_children'], 0)
         missing = self.get('/foreground-tree/lookup/absent')
         self.assertFalse(missing.json()['found'])
-        org = store.load_org(self.slug)
-        org.nodes['boss']['session_id'] = 'private-session'
-        store.save_org(org)
-        public = TestClient(api.PublicGateway(api.app))
-        with patch.object(api, '_kiosk_token_map', return_value={'testtoken': self.slug}):
-            response = public.get('/k/testtoken' + self.url + '/foreground-tree',
-                                  headers={'Accept-Encoding': 'identity'})
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertNotIn('session_id', response.json()['nodes']['boss'])
 
     def test_native_row_transaction_status_keeps_changed_node_read_bound(self):
         # TestClient omits lifespan. Install the same post-commit listener as

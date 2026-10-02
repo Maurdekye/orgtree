@@ -229,7 +229,7 @@ class InboxHoldersTests(unittest.TestCase):
         tree_org = self.ledger.Org.create("tree-policy")
         self.assertFalse(tree_org.tree()["org_inbox"]["multi_holder_enabled"])
 
-    def test_permission_and_kiosk_boundaries_remain_enforced(self):
+    def test_permission_boundaries_remain_enforced(self):
         org = self.ledger.Org.create("permission-holder")
         org.nodes["top"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
         org.nodes["child"] = {"state": "live", "parent": "top", "generation": 1, "model": "opus"}
@@ -239,12 +239,6 @@ class InboxHoldersTests(unittest.TestCase):
         org.audience_grant(USER, "top", EXTERN)
         org.audience_grant("top", "child", EXTERN)
         self.assertEqual(org.extern_holders(), ["child"])
-
-        kiosk = self.ledger.Org.create("kiosk-holder")
-        kiosk.d["kiosk"] = {"enabled": True}
-        kiosk.nodes["top"] = {"state": "live", "parent": None, "generation": 1, "model": "opus"}
-        with self.assertRaises(self.ledger.LedgerError):
-            kiosk.audience_grant(USER, "top", EXTERN)
 
     def test_competing_grants_are_serialized_to_one_persisted_holder(self):
         org = self.ledger.Org.create("concurrent-holder")

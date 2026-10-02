@@ -63,14 +63,14 @@ test('§2 the desk shows the banner for a queued node and not for a running one'
   const waiting = node('worker', { waiting: true, queued_for_slot: queued })
   const view = await mountView(
     <DeskChat node={waiting} map={new Map([[waiting.id, waiting]])} slug="busy-org"
-      op={op} toast={noop} pub={false} bare />, (el) => el)
+      op={op} toast={noop} bare />, (el) => el)
   try {
     await flush()
     assert.ok(view.el.querySelector('.slot-queued-warning'), 'queued desk shows it')
     const running = node('worker', { waiting: false, queued_for_slot: null })
     await view.render(
       <DeskChat node={running} map={new Map([[running.id, running]])} slug="busy-org"
-        op={op} toast={noop} pub={false} bare />)
+        op={op} toast={noop} bare />)
     await flush()
     assert.equal(view.el.querySelector('.slot-queued-warning'), null,
       'admitted → the banner is gone')

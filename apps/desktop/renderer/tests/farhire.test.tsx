@@ -47,8 +47,8 @@ function card(zoom: number, providers = {
       codexHire={providers.codexHire} antigravityHire={providers.antigravityHire}
       claudeHire={providers.claudeHire}
       map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
-      pxc={1} zoom={zoom} compactAt={0.8} pub={false} maxTop={0}
-      kioskRemaining={null} cascadeAlloc
+      pxc={1} zoom={zoom} compactAt={0.8} maxTop={0}
+      cascadeAlloc
       onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
       onInbox={noop} onLineage={noop} onOpenDoc={noop} onRecenter={noop}
       onJump={noop} onMailLink={noop} onDragStart={noop} onDragMove={noop}

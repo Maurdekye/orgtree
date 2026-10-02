@@ -256,7 +256,7 @@ def card(docs: bool, desk: bool, families: int = 1) -> str:
     side strips are a ROW of family COLUMNS — the fixture mirrors that DOM
     exactly, including the order rule (higher tier count nearest the card, so
     the codex family renders FIRST on side-l and LAST on side-r). `families=2`
-    is the codex-signed-in card; `families=1` the signed-out/kiosk one. Both
+    is the codex-signed-in card; `families=1` the signed-out one. Both
     ship. (This fixture measured bare un-wrapped chips for one evening and
     the probe spent it measuring a card the app never draws — see the guard.)
     """

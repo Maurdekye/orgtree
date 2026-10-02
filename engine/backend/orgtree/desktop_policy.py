@@ -9,7 +9,7 @@ def enabled():
 def validate(values):
     if not enabled():
         return
-    forbidden = [key for key in ('kiosk','sandbox') if values.get(key)]
+    forbidden = [key for key in ('sandbox',) if values.get(key)]
     if values.get('disk_mb') is not None:
         forbidden.append('disk_mb')
     if forbidden:
@@ -19,5 +19,4 @@ def validate(values):
 def install_routes(app):
     app.router.routes[:] = [route for route in app.router.routes
         if not (str(getattr(route,'path','')).startswith(('/api/accounts/keys','/api/accounts/order'))
-                or '/kiosk' in str(getattr(route,'path',''))
                 or '/git/' in str(getattr(route,'path','')))]

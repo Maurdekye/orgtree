@@ -54,5 +54,5 @@
     "the operator ops door takes no operation key, so a retried hire seats a second agent under a suffixed id",
     "a fractional operator reallocation delta rounds the resulting grant up to a whole credit"
   ],
-  "scope": "Legacy boundary of the operator ops door's hire and reallocate on disposable SQLite: authority, predicates, committed sections and callbacks at their boundary. The provider gate is patched off (machine state); kiosk visitors are not exercised. Nothing native, contact-level or concurrent is qualified."
+  "scope": "Legacy boundary of the operator ops door's hire and reallocate on disposable SQLite: authority, predicates, committed sections and callbacks at their boundary. The provider gate is patched off (machine state). Nothing native, contact-level or concurrent is qualified."
 }

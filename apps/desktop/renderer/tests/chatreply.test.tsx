@@ -18,7 +18,7 @@ const source: ReplyContext = { org: 'org', agent: 'writer', generation: 2, event
 const writer: CanvasNode = { id: 'writer', generation: 2, state: 'live', tier: 'haiku', children: [],
   seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] } }
 const desk = () => <DeskChat node={writer} map={new Map([[writer.id, writer]])} slug="org"
-  op={async () => ({})} toast={() => {}} pub={false} bare />
+  op={async () => ({})} toast={() => {}} bare />
 
 test('polled sealed thinking is an indicator and durable handover preserves repeated native messages', async () => {
   localStorage.clear(); resetConvos()

@@ -116,16 +116,6 @@ class TransitionPreviewTests(unittest.TestCase):
                 api.agent_call(body, request)
         self.assertEqual(raised.exception.status_code, 422)
 
-    def test_public_operator_preview_is_blocked(self) -> None:
-        org = _fixture()
-        body = api.Op(op="reallocate", preview=True, node="manager", delta=1)
-        request = SimpleNamespace(state=SimpleNamespace())
-        with patch.object(api, "_public_slug", return_value="w19-test"), \
-                patch.object(api.store, "load_org", return_value=org):
-            with self.assertRaises(api.HTTPException) as raised:
-                api.org_op("w19-test", body, request)
-        self.assertEqual(raised.exception.status_code, 403)
-
 
 if __name__ == "__main__":
     unittest.main()

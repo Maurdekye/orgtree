@@ -32,7 +32,7 @@ else:
 ORG: str = os.environ.get("ORGTREE_ORG", "")
 NODE: str = os.environ.get("ORGTREE_NODE", "")
 PORT: str = os.environ.get("ORGTREE_PORT", "7360")
-# sandboxed kiosk orgs (containers) reach the backend through the bridge
+# sandboxed orgs (containers) reach the backend through the bridge
 # listener instead of loopback: an explicit base URL + the org's secret
 BASE: str = os.environ.get("ORGTREE_BASE") or f"http://127.0.0.1:{PORT}"
 BRIDGE_SECRET: str = os.environ.get("ORGTREE_BRIDGE_SECRET", "")
@@ -783,7 +783,7 @@ TOOLS: list[dict[str, Any]] = [
              "never touched) or 'both'. Runs detached and returns a log path; "
              "your own next turn is the liveness check. No automatic rollback — "
              "tell the user if it misbehaves. Top-level agents and user-audience "
-             "holders only; kiosks sealed; one launch per 5 minutes per machine. "
+             "holders only; one launch per 5 minutes per machine. "
              "⚠ 'org'/'both' REFUSES while any agent is mid-turn and names them: "
              "wait, or arm orgtree_prime_restart, which fires when the machine "
              "goes quiet. force=true (needs `reason`) STOPS every working agent, "
@@ -839,7 +839,7 @@ TOOLS: list[dict[str, Any]] = [
              "quiet by then, it ESCALATES unattended like force — stops working "
              "agents, deploys, and wakes them on the new build (a turn each, "
              "charged to their orgs). Without it a prime waits forever. "
-             "Top-level agents and user-audience holders only; kiosks sealed. "
+             "Top-level agents and user-audience holders only. "
              "Still a real restart: have a reason. This is a backend deployment "
              "operation; it does not update any installed Electron desktop "
              "application — use the tray's Update now action or the Windows "
@@ -1670,8 +1670,7 @@ TOOLS: list[dict[str, Any]] = [
             "List reachable outside recipients: other orgs on this backend "
              "(@org:<slug>) and hub peers (@net:<slug>, with online/last_seen). "
              "Each entry's `transports` lists the address forms that reach it; "
-             "prefer fewer hops or send the bare name. Sealed kiosk orgs are not "
-             "listed."),
+             "prefer fewer hops or send the bare name."),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {

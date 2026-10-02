@@ -60,9 +60,10 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 193)
+        # 193 -> 192 and 153 -> 152 mapped entries: a removed product feature took its run-control route and contract
+        self.assertEqual(result["contracts"], 192)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (153, 168, 6))
+                          result["summary"]["storage"]["mapped"]), (152, 168, 6))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -98,7 +99,10 @@ class ContractCoverage(unittest.TestCase):
         # (conflicts, wire and instrumentation on each of 6 desktop-import contracts)
         # 752 -> 784 (P01 re-anchor after PYPG): 32 new pending rows for the sites PYPG, PG-4 and the change-feed
         # queue added (12 registrations, 13 dispatch branches, 7 PostgreSQL connection sites)
-        self.assertEqual(len(result["pending"]), 784)
+        # 784 -> 778 (a removed product feature): its run-control contract's 3 open dimension occurrences, the
+        # workspace-usage worker's pending entry row, and org-view.instrumentation closing on org.tree and
+        # org.node-detail (its one open clause was that feature's unattributable ASGI-wrapper read)
+        self.assertEqual(len(result["pending"]), 778)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -122,8 +126,7 @@ class ContractCoverage(unittest.TestCase):
         facets = self.document["facets"]
         closed = facets["diagnostic.instrumentation"]
         self.assertEqual((closed["status"], closed["open_questions"]), ("specified", []))
-        narrowed = {"org-view.instrumentation": "token-map rebuild (kiosk_token_scan)",
-                    "material.reads": "DISK-BACKED sandboxed organization",
+        narrowed = {"material.reads": "DISK-BACKED sandboxed organization",
                     "material.effects": "SUCCESSFUL sandbox chown_agent"}
         for name, clause in narrowed.items():
             with self.subTest(facet=name):
@@ -135,7 +138,7 @@ class ContractCoverage(unittest.TestCase):
 
     def test_s2k_storage_triage_excludes_only_sites_that_are_not_org_state(self):
         # P01 S2k (coordinator ruling 2026-09-24 21:14Z), by source reading: four connection candidates are not org
-        # state and are excluded; none is mapped (a shared store maps only once every operation reaching it has a
+        # state and are excluded (three since a removed feature took its LAN-address socket); none is mapped (a shared store maps only once every operation reaching it has a
         # contract); the other eleven stay pending with a reason that says why
         sites = {contracts.witness_id("storage", s): s["source"] for s in self.source["connection_sites"]}
         rows = {r["id"]: r for r in self.document["storage"]}
@@ -148,7 +151,7 @@ class ContractCoverage(unittest.TestCase):
             by.setdefault(r["disposition"], []).append(where(i))
         self.assertEqual(sorted(by["excluded"]), ["antigravity_provenance.py:_Read.__init__",
                                                   "antigravity_provenance.py:_Read.__init__",
-                                                  "api.py:_share_url", "liveness.py:_observe_port"])
+                                                  "liveness.py:_observe_port"])
         # P01 F4 maps the two sidecar sites only its operations reach (rule 1): the file_deliveries write and the
         # reply_events read-only count. P01 F9 maps the four desktop import sites only its routes reach (rule 1): the
         # V1 store's private copy and backup (preview and the job) and the V2 candidate store (the job)
@@ -259,14 +262,14 @@ class ContractCoverage(unittest.TestCase):
                   | {("gitworkspace.py", "FetchScheduler.request", 0)}
                   | {("net.py", "start_net_client", 0), ("net.py", "start_net_client", 1), ("sandbox.py", "warm", 0)}
                   | {("supervisor.py", f, 0) for f in (
-                      "workspace_usage_cached", "_spawn_reset_refresh", "start_usage_warm_loop",
+                      "_spawn_reset_refresh", "start_usage_warm_loop",
                       "_codex_leg_attempt._on_event", "_codex_leg_attempt", "_codex_leg_attempt._steer_pump",
                       "_antigravity_leg", "_run_one_turn_recorded._start_cold_mcp_pump", "start_cred_watcher")}
                   | {("supervisor.py", "_codex_leg_attempt", 1), ("supervisor.py", "_antigravity_leg", 1)}
                   | {("warmpool.py", f, 0) for f in ("_release_process_control", "_codex_prewarm_events._on_event",
                                                      "_prewarm_node.run", "start_warm_pool")})
     S2K_EXCLUDED = {("antigravity_provenance.py", "_Read.__init__", 0), ("antigravity_provenance.py", "_Read.__init__", 1),
-                    ("api.py", "_share_url", 0), ("liveness.py", "_observe_port", 0)}
+                    ("liveness.py", "_observe_port", 0)}
 
     def test_w2_provider_and_machine_workers_are_triaged(self):
         names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
@@ -275,7 +278,7 @@ class ContractCoverage(unittest.TestCase):
         def at(i):
             return names[i]
         mine = self.W2_EXCLUDED | self.W2_PENDING
-        self.assertEqual(len(mine), 30)
+        self.assertEqual(len(mine), 29)     # 30 -> 29: the removed workspace-usage worker
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"} & mine, self.W2_EXCLUDED)
         seen = set()
         for i, r in rows.items():

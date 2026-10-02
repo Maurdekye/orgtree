@@ -5,11 +5,9 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import path from 'node:path'
 declare const __SRC_DIR__: string
-const {BASE}=await import('../src/api')
 const {DeskChat,HistoryView}=await import('../src/canvas/desk')
 import type {CanvasNode} from '../src/canvas/shared'
 test('history renders typed status and preserves legacy and unsupported content',async t=>{
-  assert.equal(BASE,'')
   useFakeClock(); const old=globalThis.fetch
   const f=JSON.parse(readFileSync(path.resolve(__SRC_DIR__,'../tests/fixtures/events/status.report.json'),'utf8'))
   const event={...f.private,summary:'Visible status summary C'}
@@ -47,7 +45,7 @@ test('history keeps ordinary messages and notices styled with navigable agent se
   const worker:CanvasNode={id:'worker',generation:1,state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
   const peer:CanvasNode={id:actor,generation:1,state:'live',tier:'sonnet',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
   const view=await mountView(<DeskChat node={worker} map={new Map([[worker.id,worker],[peer.id,peer]])}
-    slug="fixture" op={async()=>({})} toast={()=>{}} pub={false} bare onJump={id=>jumped.push(id)}/>,h=>h)
+    slug="fixture" op={async()=>({})} toast={()=>{}} bare onJump={id=>jumped.push(id)}/>,h=>h)
   t.after(async()=>{await view.unmount();globalThis.fetch=old;realClock()})
   await flush()
   const history=[...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]

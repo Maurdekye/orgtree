@@ -203,7 +203,7 @@ async function desk(t: TestContext, opts: {
   for (const o of opts.others ?? []) map.set(o.id, o)
   s.userMsg('Agent projection fallback').segments = typedMessage(opts.from, opts.rel ?? 'your peer').segments
   const v = await mountView(
-    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop} pub={false}
+    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop}
       bare onJump={opts.onJump} />,
     (host) => host)
   t.after(async () => {
@@ -313,7 +313,7 @@ async function selfMailDesk(t: TestContext, bare: boolean): Promise<HTMLElement>
   s.userMsg('Agent projection fallback').segments = typedMessage(ND, 'yourself').segments
   const v = await mountView(
     <DeskChat node={nd} map={new Map([[nd.id, nd]])} op={op} slug={SL}
-      toast={noop} pub={false} bare={bare} onJump={noop} />, (host) => host)
+      toast={noop} bare={bare} onJump={noop} />, (host) => host)
   t.after(async () => {
     try { await v.unmount() } catch { /* gone */ }
     resetConvos(); realClock()
@@ -790,7 +790,7 @@ test('§8.1 a tier change, a disappearance and a return all reach a mail card '
     return m
   }
   const deskAt = (map: Map<string, CanvasNode>) => (
-    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop} pub={false}
+    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop}
       bare onJump={noop} />)
   const v = await mountView(deskAt(treeWith('sonnet')), (host) => host)
   t.after(async () => {
@@ -905,7 +905,7 @@ async function liveDesk(t: TestContext, opts: {
   lr.segments = segments
   if (opts.truncated) lr.truncated = true
   const v = await mountView(
-    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop} pub={false}
+    <DeskChat node={nd} map={map} op={op} slug={SL} toast={noop}
       bare onJump={noop} />, (host) => host)
   t.after(async () => {
     try { await v.unmount() } catch { /* gone */ }
@@ -1240,7 +1240,7 @@ async function deskInbox(t: TestContext, opts: { onJump?: (id: string) => void }
     ['peer-notier', node('peer-notier', { tier: null })],
   ])
   const v = await mountView(
-    <DeskChat node={nd} map={map} op={op} slug="org" toast={noop} pub={false}
+    <DeskChat node={nd} map={map} op={op} slug="org" toast={noop}
       bare onJump={opts.onJump} />, (host) => host)
   t.after(async () => {
     try { await v.unmount() } catch { /* gone */ }

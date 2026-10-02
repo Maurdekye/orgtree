@@ -31,7 +31,7 @@ class WaitGateTests(unittest.TestCase):
 
     _seq = 0
 
-    def _fixture(self, slug, until=None, provenance="observed", spend=False):
+    def _fixture(self, slug, until=None, provenance="observed", hold=False):
         WaitGateTests._seq += 1
         row = self.registry.create_account(
             "claude", "t",
@@ -41,8 +41,10 @@ class WaitGateTests(unittest.TestCase):
         org.nodes["root"] = {"state": "live", "parent": None,
                              "generation": 1, "model": "opus",
                              "account": row["id"]}
-        if spend:
-            org.d["spend_frozen"] = True
+        if hold:
+            # in-slot stopper: the admission gates refuse a remote-controlled
+            # node AFTER the pre-slot account gate, before any CLI spawn
+            org.nodes["root"]["remote_controlled"] = {"at": "2026-01-01T00:00:00Z"}
         self.store.save_org(org)
         if until is not None:
             import time as _t
@@ -88,15 +90,15 @@ class WaitGateTests(unittest.TestCase):
         self.assertEqual(fz["provenance"], "inferred")
 
     def test_no_mark_writes_no_freeze(self):
-        # spend_frozen stops the turn INSIDE the slot for an unrelated
+        # remote control stops the turn INSIDE the slot for an unrelated
         # reason, so this proves the GATE wrote nothing (a freeze here
         # would be the gate firing without a mark)
-        self._fixture("wg-none", until=None, spend=True)
+        self._fixture("wg-none", until=None, hold=True)
         self._drive("wg-none")
         self.assertIsNone(self._frozen("wg-none"))
 
     def test_expired_mark_writes_no_freeze(self):
-        row = self._fixture("wg-expired", spend=True)
+        row = self._fixture("wg-expired", hold=True)
         import time as _t
         self.registry.record_mark(row["id"], "opus", until=_t.time() + 0.05)
         _t.sleep(0.1)
@@ -119,11 +121,11 @@ class WaitGateTests(unittest.TestCase):
     # (user ruling 2026-09-12; coordinator's narrowest path; identity binding
     # from review round 4.) A wake at a conclusive 429's own stated time gets
     # ONE real attempt instead of being re-frozen on the spot by an older,
-    # longer mark. `spend_frozen` stops every one of these inside the slot for
+    # longer mark. `remote_controlled` stops every one of these inside the slot for
     # an unrelated reason, so a pass that WORKS still launches nothing — and
     # the freeze record is the observable either way, exactly as above.
-    def _pass_fixture(self, slug, pass_, spend=True):
-        row = self._fixture(slug, until=86400.0, spend=spend)
+    def _pass_fixture(self, slug, pass_, hold=True):
+        row = self._fixture(slug, until=86400.0, hold=hold)
         org = self.store.load_org(slug)
         org.node("root")["admit_once"] = pass_(row)
         self.store.save_org(org)
@@ -141,7 +143,7 @@ class WaitGateTests(unittest.TestCase):
         self._drive("wg-pass-ok")
         self.assertIsNone(self._frozen("wg-pass-ok"),
                           "the live mark re-froze the wake it was owed")
-        # ⚠ AND THE PASS IS STILL THERE, on purpose (round 5). `spend_frozen`
+        # ⚠ AND THE PASS IS STILL THERE, on purpose (round 5). `remote_controlled`
         # kills this turn inside the slot, before the provider seam — so no
         # real attempt happened and the pass is still owed one. Spending it
         # here is the bug this fixture now guards: it would leave the next
@@ -227,7 +229,7 @@ class WaitGateTests(unittest.TestCase):
         reached a provider. Spending the pass there burned it for exactly the
         reason round 5 moved it out of the gate.
 
-        This turn is NOT `spend_frozen`, so it runs past the slot and past the
+        This turn is NOT `remote_controlled`, so it runs past the slot and past the
         inflight stamp, and then the envelope build fails. Popen is stubbed as
         a backstop so no provider process can start even if the seam moves."""
         import time as _t
@@ -236,7 +238,7 @@ class WaitGateTests(unittest.TestCase):
                            lambda row: {"at": _t.time(),
                                         "account": row["id"],
                                         "model": "opus"},
-                           spend=False)
+                           hold=False)
 
         def _boom(*a, **kw):
             raise RuntimeError("synthetic failure during prompt assembly")

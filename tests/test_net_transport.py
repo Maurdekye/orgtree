@@ -878,19 +878,6 @@ def sec_compose() -> None:
     check("the compose stage does not accumulate files forever",
           _stage_is_swept)
 
-    def _kiosk_is_sealed():
-        _n[0] += 1
-        org = store.create_org(f"zz kiosk {_n[0]}")
-        org.d["kiosk"] = {"enabled": True, "token": "t" * 16, "credits": 10}
-        store.save_org(org)
-        code, r = api_call(api.app, "POST",
-                           f"/api/orgs/{org.d['slug']}/org_inbox/send",
-                           {"to": "@org:someone", "body": "x"})
-        # the SEAL must be the reason — not a retired address form, which
-        # would make this pass for the wrong reason
-        assert code == 422 and "sealed kiosk" in json.dumps(r), (code, r)
-    check("a sealed kiosk cannot compose outward either", _kiosk_is_sealed)
-
     def _address_guards():
         a = mkorg()
         for to, needle in (("nobody", "outside address"),
@@ -912,21 +899,6 @@ def sec_compose() -> None:
         assert not spool_of(a), "a refused send must not spool"
     check("composing @net: with no hub is refused, not spooled",
           _no_hub_refused_at_the_door)
-
-    def _public_gateway_cannot_compose():
-        _n[0] += 1
-        org = store.create_org(f"zz kiosk pub {_n[0]}")
-        org.d["kiosk"] = {"enabled": True, "token": "k" * 20, "credits": 10}
-        store.save_org(org)
-        k, tok = org.d["slug"], org.d["kiosk"]["token"]
-        pub = api.PublicGateway(api.app)
-        for path in (f"/k/{tok}/api/orgs/{k}/org_inbox/send",
-                     f"/k/{tok}/api/orgs/{k}/org_inbox/upload"):
-            code, _r = api_call(pub, "POST", path,
-                                {"to": "@org:x", "body": "y"})
-            assert code == 404, (path, code)
-    check("☞ a kiosk visitor reaches neither compose endpoint",
-          _public_gateway_cannot_compose)
 
     def _oversize_refused():
         a = mkorg()

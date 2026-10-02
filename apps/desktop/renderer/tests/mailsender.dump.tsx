@@ -141,7 +141,7 @@ const main = async () => {
   const desk = await mountView(
     createElement(DeskChat, {
       node: nd, map, op: () => Promise.resolve({}), slug: 'org1',
-      toast: () => {}, pub: false, bare: true, onJump: () => {},
+      toast: () => {}, bare: true, onJump: () => {},
     } as never),
     (el: HTMLElement) => el.innerHTML)
   await refreshConvo('org1', nd.id, { force: true })
@@ -161,7 +161,7 @@ const main = async () => {
   const box = await mountView(
     createElement(DeskChat, {
       node: nd, map, op: () => Promise.resolve({}), slug: 'org1',
-      toast: () => {}, pub: false, bare: true, onJump: () => {},
+      toast: () => {}, bare: true, onJump: () => {},
     } as never),
     (el: HTMLElement) => el)
   await act(async () => { await flush(8) })

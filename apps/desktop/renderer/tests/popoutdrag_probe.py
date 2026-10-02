@@ -79,7 +79,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path.startswith(('/o/', '/k/')):
+        if self.path.startswith('/o/'):
             self.path = '/index.html'
         try:
             super().do_GET()

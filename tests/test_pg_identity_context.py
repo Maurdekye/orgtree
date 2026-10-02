@@ -85,7 +85,7 @@ class IdentityPG(unittest.TestCase):
 
     def test_legacy_and_first_turn_splice_use_exact_compatibility(self):
         full=store.load_org(self.slug)
-        for field,value in [('_actors_typed',False),('kiosk',{'credits':10})]:
+        for field,value in [('_actors_typed',False)]:
             altered=copy.deepcopy(full.d);altered[field]=value
             rows=[(nid,i,n) for i,(nid,n) in enumerate(altered['nodes'].items())]
             with self.assertRaises(ctx.CompatibilityRequired):ctx.IdentityContext(altered,rows,'leaf')

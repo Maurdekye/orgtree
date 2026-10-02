@@ -146,7 +146,7 @@ def main() -> int:
         env.update({
             "ORGTREE_DATA": data, "USERPROFILE": home, "HOME": home,
             "ORGTREE_PORT": str(PORT), "ORGTREE_BRIDGE_PORT": "0",
-            "ORGTREE_PUBLIC_PORT": "0", "ORGTREE_EXPOSE_ADMIN": "0",
+            "ORGTREE_EXPOSE_ADMIN": "0",
             "PYTHONPATH": os.path.join(REPO, "backend"),
             "PYTHONIOENCODING": "utf-8",
             "ORGTREE_CLAUDE": os.path.join(

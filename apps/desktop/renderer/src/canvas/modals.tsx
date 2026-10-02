@@ -254,17 +254,6 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
 // and its save reads that buffer. Every key this tab writes is prefixed
 // `hire.` so the save row can tell — structurally, rather than by keeping a
 // list in step — whether anything here was touched. See `hireEdited`.
-//
-// ⚠ NO VISITOR DOOR WAS ADDED. The ⚙ this replaces was deliberately open to
-// kiosk visitors (v1 ruling 2026-07-31) while org settings is admin-only:
-// both chrome buttons that open it are gated `!tree.public`. That is not a
-// regression here, because docs/v2-user-decisions.md excludes "Kiosk mode
-// and every public/browser-sharing exposure" from v2 and reaffirms it
-// (7 Sep 20:34 "REMOVE ALL kiosk and agent sandbox/isolation features";
-// 21:22 "Kiosk and agent isolation stay out for the foreseeable future"),
-// superseding the v1 rule. The `pub` conditionals below are kept anyway: a
-// PINNED org-settings window restores without passing the chrome's gate, so
-// they are a guard of last resort, not a visitor feature.
 interface HireDefaultsTabProps {
   tree: TreePayload
   slug: string
@@ -338,7 +327,6 @@ export function McpCurrentServers({ servers, sandboxed, sandboxMcp }: {
 export function HireDefaultsTab({ tree, slug, toast, close,
   tools, setTools, vis, setVis, pm, setPm, dirs, setDirs,
   servers: propServers, account, setAccount, accounts: propAccounts }: HireDefaultsTabProps) {
-  const pub = !!tree.public
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
   const [servers, setServers] = useState<string[]>(propServers ?? [])
   const [sandboxMcp, setSandboxMcp] = useState(false)
@@ -400,7 +388,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
     <>
       {/* folder access FIRST — the same order as the per-agent config (user
           ruling), which is the order the ⚙ panel used */}
-      {!pub && <SetGroup title="Folder access"
+      <SetGroup title="Folder access"
         note="the org's holdings — also the folder defaults for every hire">
         <SetBlock hint={'additions apply to FUTURE hires; removing one '
           + 'revokes it everywhere, and an RW→RO downgrade reaches every '
@@ -444,7 +432,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             </div>
           </div>
         </SetBlock>
-      </SetGroup>}
+      </SetGroup>
 
       <SetGroup title="Agent hire defaults"
         note="granted to hires that state no tools of their own">
@@ -465,19 +453,17 @@ export function HireDefaultsTab({ tree, slug, toast, close,
                 ...tools, mcp: e.target.checked ? ['*'] : [...servers] })} />
             all registered servers (current and future)
           </label>
-          {allMcp && !pub && (
+          {allMcp && (
             <McpCurrentServers servers={servers}
               sandboxed={!!tree.sandboxed} sandboxMcp={sandboxMcp} />
           )}
-          {!allMcp && !pub && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
+          {!allMcp && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
             sandboxed={!!tree.sandboxed}
             checked={(s) => tools.mcp.includes(s)}
             onToggle={(s, on) => setTools({
               ...tools,
               mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
             })} />}
-          {!allMcp && pub && <div className="dim">
-            individual server names are admin-side — off means none</div>}
         </SetBlock>
         <SetRow label="org-structure visibility">
           <select value={vis} aria-label="org-structure visibility"
@@ -485,11 +471,11 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
         </SetRow>
-        {/* D-101: the born-with mode, editable post-creation. Admin-only —
-            it rides /settings, never the visitor-open defaults endpoint. It
-            is a DEFAULT: existing agents keep the mode they were hired with
-            and change one at a time in their own ⚙. */}
-        {!pub && <SetRow label="permission mode for NEW agents"
+        {/* D-101: the born-with mode, editable post-creation. It rides
+            /settings, not the defaults endpoint. It is a DEFAULT: existing
+            agents keep the mode they were hired with and change one at a
+            time in their own ⚙. */}
+        <SetRow label="permission mode for NEW agents"
           hint="existing agents keep theirs — change those in the agent's own ⚙">
           <select value={pm} aria-label="permission mode for new agents"
             onChange={(e) => setPm(e.target.value)}>
@@ -498,8 +484,8 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             <option value="acceptEdits">acceptEdits — the normal seat</option>
             <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
           </select>
-        </SetRow>}
-        {!pub && <SetBlock label="provider account for NEW agents"
+        </SetRow>
+        <SetBlock label="provider account for NEW agents"
           hint="existing agents keep theirs — change those in the agent's own ⚙">
           <select aria-label="Provider for default account" value={selectedProvider}
             onChange={(e) => {
@@ -515,7 +501,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
           {account ? <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>
             : <div className="dim">Uses each hire's default account.</div>}
-        </SetBlock>}
+        </SetBlock>
       </SetGroup>
 
       {/* the ⚙ panel's own danger row. It is not a hire default, but that
@@ -917,7 +903,7 @@ const TOOL_LABELS = [
  *
  * WARNINGS ONLY. A scope save returns two kinds of text (ledger.set_scope):
  * `warnings` — something the save had to do that the user must see, like a
- * grant clamped to the kiosk ceiling, a cascade down the chain, or a subtree
+ * cascade down the chain, or a subtree
  * clamp — and `advisories`, which are facts about a save that SUCCEEDED and
  * carry no action and no acknowledgement.
  *
@@ -1135,19 +1121,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         scopeBody))
       .then((r) => {
         const lines = savePopups(r)
-        if (r?.bridge?.raise_ceiling) {
-          // one-action bridge (ceiling spec §1): same save, flag set
-          toast(lines.length ? lines
-            : ['clamped to the kiosk permission ceiling'],
-          { label: 'raise ceiling & apply',
-            fn: () => saveScope(slug, node.id,
-              { ...scopeBody, raise_ceiling: true })
-              .then((r2) => {
-                const lines2 = savePopups(r2)
-                toast(lines2.length ? lines2 : ['ceiling raised — applied'])
-              })
-              .catch((e: Error) => toast([`error: ${e.message}`])) })
-        } else toast(lines)
+        toast(lines)
         close()
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
@@ -1172,21 +1146,16 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // login first, then org policy, then the headless authentication rule.
   const codexUnavailable = !codexProvider?.hire_enabled
     ? codexProvider?.reason ?? 'provider state unavailable'
-    : tree.kiosk
-      ? 'unavailable in kiosk orgs'
-      : tree.headless && codexProvider.status.kind !== 'api-key'
-        ? 'headless requires a Codex API-key login'
-        : null
+    : tree.headless && codexProvider.status.kind !== 'api-key'
+      ? 'headless requires a Codex API-key login'
+      : null
   const antigravityUnavailable = !antigravityProvider?.hire_enabled
     ? antigravityProvider?.reason ?? 'provider state unavailable'
-    : tree.kiosk
-      ? 'unavailable in kiosk orgs'
-      : null
-  // the OpenRouter lane: a key IS a keyed login, so headless never refuses
-  // it; kiosks hold it out like the other non-Claude lanes
+    : null
+  // the OpenRouter lane: a key IS a keyed login, so headless never refuses it
   const openrouterUnavailable = !openrouterProvider?.hire_enabled
     ? openrouterProvider?.reason ?? 'provider state unavailable'
-    : tree.kiosk ? 'unavailable in kiosk orgs' : null
+    : null
   const unavailable = (t: string): string | null => {
     // The current tier remains a truthful selected no-op even if policy has
     // since tightened around it; save does not call switch_model for a no-op.
@@ -1197,8 +1166,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       if (openrouterUnavailable) return openrouterUnavailable
       if (!openrouterTierIds().includes(t)) return 'not among current favorites'
     }
-    const cap = tree.kiosk?.max_tier
-    if (cap && tierSeat(t) > tierSeat(cap)) return `above kiosk cap (${cap})`
     return null
   }
   // D-202. `tierShown` is the shared rule; `node.tier` is the `keep` that
@@ -1345,24 +1312,20 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               grant had to fit the parent. D-106 removed that constraint from
               the ledger (the chain is raised instead of the grant refused),
               and the user asked for new DIRECTORIES specifically, so the
-              control has to be able to express it at any depth. Owner only:
-              a kiosk visitor's grants clamp to the ceiling's folder list and
-              their payload carries basenames, not host paths. */}
-          {!tree.public && (
-            <div className="dirrow">
-              <input placeholder={parent && parent !== USER
-                ? 'or any absolute path — superiors are raised to carry it'
-                : 'or any absolute path (top-level: you grant freely)'}
-                value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-              <button type="button" className="iconbtn" title="browse for a folder"
-                onClick={() => pickFolder().then((r) => {
-                  if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
-                }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
-              <button type="button" className="addrow" onClick={() => {
-                if (newPath.trim()) { setDirs([...dirs, { path: newPath.trim(), mode: 'rw' }]); setNewPath('') }
-              }}>add</button>
-            </div>
-          )}
+              control has to be able to express it at any depth. */}
+          <div className="dirrow">
+            <input placeholder={parent && parent !== USER
+              ? 'or any absolute path — superiors are raised to carry it'
+              : 'or any absolute path (top-level: you grant freely)'}
+              value={newPath} onChange={(e) => setNewPath(e.target.value)} />
+            <button type="button" className="iconbtn" title="browse for a folder"
+              onClick={() => pickFolder().then((r) => {
+                if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
+              }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
+            <button type="button" className="addrow" onClick={() => {
+              if (newPath.trim()) { setDirs([...dirs, { path: newPath.trim(), mode: 'rw' }]); setNewPath('') }
+            }}>add</button>
+          </div>
         </div>
 
         <div className="field-label">tools</div>

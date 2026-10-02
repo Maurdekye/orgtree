@@ -3,7 +3,7 @@
 // Moved out of App.tsx so the Homepage view and the compact menu can render
 // them without importing App.tsx, which renders both. App.tsx re-exports the
 // component, so every existing importer is unaffected.
-import { AutorenewIcon, DeleteIcon, PublicIcon } from '../icons'
+import { AutorenewIcon, DeleteIcon } from '../icons'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
 
@@ -12,8 +12,8 @@ import type { OrgListEntry } from '../types'
  * turn executing), the name, and an always-visible n/m count where n = agents
  * active now (`working`, supervisor.working_count()) and m = currently hired
  * agents (`live`). Every row renders every cell so the columns line up when
- * idle; a public listing row (no `working` — deliberately omitted server-side)
- * shows its hired count alone rather than inventing a zero. */
+ * idle; a row without `working` shows its hired count alone rather than
+ * inventing a zero. */
 export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
   ageMs = 0, openLabel }: {
   orgs: OrgListEntry[]; slug: string | null
@@ -32,7 +32,7 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
   // the row — an animation that says "a turn is executing now" — so it is
   // suppressed whenever the numbers behind it predate the open or have stopped
   // refreshing, rather than spinning on somebody's memory of three minutes
-  // ago. Names, ordering, kiosk badges and every navigation affordance are
+  // ago. Names, ordering, badges and every navigation affordance are
   // untouched: those are not status and they do not go stale on this timescale.
   const current = freshness === 'current'
   const staleTitle = freshness === 'loading'
@@ -43,8 +43,7 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
       const already = openLabel?.(o.slug) ?? null
       return (
       <div key={o.slug} role="button" tabIndex={0}
-        className={'org' + (o.slug === slug ? ' current' : '')
-          + (o.kiosk_cfg || o.kiosk ? ' kiosk-org' : '')}
+        className={'org' + (o.slug === slug ? ' current' : '')}
         onClick={() => onPick(o.slug)}
         onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
         <span className="org-activity">
@@ -55,8 +54,6 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
         </span>
         <span className="org-name">
           <span className="org-name-text">{o.name}</span>
-          {(o.kiosk_cfg || o.kiosk) &&
-            <span className="kiosk-badge" title="kiosk org"><PublicIcon fontSize="inherit" /></span>}
           {already && <span className="org-open-badge">{already}</span>}
         </span>
         <span className={'org-counts dim'
@@ -66,10 +63,6 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
           {freshness === 'loading' ? '…'
             : typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
         </span>
-        {/* kiosk orgs delete like any other (user report 2026-07-31: the
-            old !o.kiosk gate left NO UI path at all — the server already
-            refuses public deletes, so hiding the trash from the admin
-            protected nothing) */}
         <button className="org-del"
           onClick={(e) => { e.stopPropagation(); onDelete(o) }}><DeleteIcon fontSize="inherit" /></button>
       </div>

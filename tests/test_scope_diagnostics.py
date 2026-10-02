@@ -163,7 +163,7 @@ class ScopeDiagnosticsTests(unittest.TestCase):
     def test_mcp_names_use_active_grant_and_runtime_tools(self) -> None:
         got = sd.mcp_tool_names(
             {"box": {"tools": ["search"]}, "hidden": {"tools": ["secret"]}},
-            granted=["box", "hidden"], ceiling=["box"],
+            granted=["box"],
             observed={"box": ["search", "ArtifactMetadata"]},
         )
         self.assertEqual(got, ["mcp__box__ArtifactMetadata", "mcp__box__search"])

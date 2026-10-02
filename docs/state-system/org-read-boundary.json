@@ -528,18 +528,6 @@
       "sections": [],
       "spies": {}
     },
-    "net_kiosk": {
-      "status": 200,
-      "ctype": "application/json",
-      "keys": [
-        "autoconnect",
-        "hubs",
-        "identity"
-      ],
-      "detail": null,
-      "sections": [],
-      "spies": {}
-    },
     "net_no_org": {
       "status": 404,
       "ctype": "application/json",

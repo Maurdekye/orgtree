@@ -77,12 +77,6 @@ class AutoResumeSweepTests(unittest.TestCase):
         self.assertEqual(calls['resume'], ['probe'])
         self.assertEqual(calls['sweep'], ['probe'])
 
-    def test_spend_frozen_org_resumes(self):
-        snap = types.SimpleNamespace(d={'spend_frozen': True}, nodes={})
-        calls = self._run_one_tick(snap)
-        self.assertEqual(calls['resume'], ['probe'])
-        self.assertEqual(calls['sweep'], ['probe'])
-
 
 if __name__ == '__main__':
     unittest.main()

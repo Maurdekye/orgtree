@@ -32,7 +32,7 @@ function card(warm: boolean, live = warm, busy = false) {
   return mountView(<NodeSquare node={n} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
     dragging={false} isDrop={false} seats={seats} codexHire={hire} antigravityHire={hire} claudeHire={hire}
     map={new Map([[n.id, n]])} op={op} slug="org" toast={noop} pxc={1} zoom={1} compactAt={.8}
-    pub={false} maxTop={0} kioskRemaining={null} cascadeAlloc onSpawn={noop} onSpawnSide={noop}
+    maxTop={0} cascadeAlloc onSpawn={noop} onSpawnSide={noop}
     onSpawnTop={noop} onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
     onRecenter={noop} onJump={noop} onMailLink={noop} onDragStart={noop} onDragMove={noop}
     onDragEnd={noop} onDragCancel={noop} />, (el) => el)

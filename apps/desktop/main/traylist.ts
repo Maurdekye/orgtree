@@ -27,8 +27,8 @@ const SLUG_RE = /^[a-z0-9@-]+$/
  *  parsed list would silently drop organizations, and "some rows" is
  *  indistinguishable from "all rows" on screen. `working` is
  *  supervisor.working_count() and present on every admin row; it is still
- *  defaulted (not required) so a row deliberately built without it — the
- *  public listing shape — reads as idle rather than poisoning the list. */
+ *  defaulted (not required) so a row built without it reads as idle rather
+ *  than poisoning the list. */
 export function orgActivityRows(raw: unknown): OrgActivityRow[] | null {
   if (!Array.isArray(raw)) return null
   const out: OrgActivityRow[] = []
