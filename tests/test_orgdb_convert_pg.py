@@ -21,7 +21,10 @@ What it proves:
   * a legacy row with no marker is not converted and is listed;
   * two markers naming one org make it unavailable, naming both;
   * a non-null kiosk value is listed as ignored; an unregistered top-level key is kept and listed;
-  * a resumed first pass skips orgs that are already active.
+  * a resumed first pass skips orgs that are already active;
+  * the accounts registry converts in the first pass: the machine-wide account to the app
+    database, the one restricted to an org to that org's database; a resumed pass checks them
+    against the file again, and a file that no longer matches refuses.
 
 Run:  python tools/run-python-verification.py --timeout 1200 tests/test_orgdb_convert_pg.py
 """
@@ -32,6 +35,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import types
 import unittest
 from urllib.parse import urlsplit, urlunsplit
 
@@ -203,6 +207,13 @@ class FirstPass(unittest.TestCase):
                                    'source': str(DATA / 'orgs' / 'held.json')},
                           'later': {'reasons': ["refused by an older importer"],
                                     'source': str(DATA / 'orgs' / 'later.db')}}}), encoding='utf-8')
+        # one machine-wide account and one restricted to alpha (design §5.2 "Accounts")
+        cls.accounts = {'version': 1, 'accounts': [
+            {'id': 'claude-1', 'provider': 'claude', 'label': 'everywhere', 'enabled': True},
+            {'id': 'claude-2', 'provider': 'claude', 'origin_org': cls.alpha, 'mode': 'apikey'}],
+            'aliases': {'primary': 'claude-1'}, 'id_counters': {'claude': 2},
+            'tint_counters': {'claude': 2}}
+        (DATA / 'accounts-registry.json').write_text(json.dumps(cls.accounts), encoding='utf-8')
         cls.report = convert('first-pass')
         cls.rows = registry()
 
@@ -222,6 +233,32 @@ class FirstPass(unittest.TestCase):
 
     def test_a_second_pass_does_nothing(self) -> None:
         self.assertIn('skipped', convert('first-pass'))
+
+    def test_accounts_convert_once_and_an_org_only_account_goes_to_its_org(self) -> None:
+        from orgtree.orgdb.convert import accounts, run
+        got = self.report['accounts']
+        self.assertEqual((got['present'], got['machine_wide']), (True, 1))
+        with conn.connect(RUNTIME, names.app(PREFIX)) as c:
+            self.assertEqual(c.execute('SELECT id FROM accounts').fetchall(), [('claude-1',)])
+        with conn.connect(RUNTIME, self.rows[self.alpha]['database']) as c:
+            self.assertEqual(c.execute('SELECT id, origin_org FROM org_accounts').fetchall(),
+                             [('claude-2', self.alpha)])
+        with conn.connect(RUNTIME, self.rows[self.beta]['database']) as c:
+            self.assertEqual(c.execute('SELECT count(*) FROM org_accounts').fetchone()[0], 0)
+        self.assertEqual(self.outcome(self.alpha)['side']['org_accounts'], 1)
+        # a pass resumed after a crash finds them converted and checks them against the file
+        cfg = types.SimpleNamespace(data_root=str(DATA), runtime_base=RUNTIME)
+        lc = types.SimpleNamespace(prefix=PREFIX)
+        self.assertIn('resumed', run._accounts(cfg, lc))
+        path = DATA / 'accounts-registry.json'
+        original = path.read_bytes()
+        try:
+            path.write_text(json.dumps(dict(self.accounts, aliases={'primary': 'claude-9'})),
+                            encoding='utf-8')
+            with self.assertRaises(accounts.AccountsMismatch):
+                run._accounts(cfg, lc)
+        finally:
+            path.write_bytes(original)
 
     def test_ignored_and_unregistered_keys_are_listed(self) -> None:
         o = self.outcome(self.beta)

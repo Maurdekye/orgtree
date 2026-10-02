@@ -61,9 +61,13 @@ class SideInputs:
     """What the side files and the accounts registry give each org (filled by the side-file
     and accounts modules). ``sections_for(org, doc)`` returns the extra Sections (keys=())
     that write the org's side rows, and ``check(org, rows_read)`` returns a list of
-    mismatches between the side rows written and the source."""
+    mismatches between the side rows written and the source. ``report_for(org)`` is the
+    org's side report (rows moved, by evidence, and the receipts left), and
+    ``left_over(orgs)`` what stays in the old files once those orgs are in."""
     sections_for: Callable[[legacy.LegacyOrg, dict[str, Any]], list[sections.Section]]
     check: Callable[[legacy.LegacyOrg, dict[str, list[dict[str, Any]]]], list[dict[str, Any]]]
+    report_for: Callable[[legacy.LegacyOrg], dict[str, Any]] | None = None
+    left_over: Callable[[list[legacy.LegacyOrg]], dict[str, Any]] | None = None
 
 
 class Mismatch(Exception):
@@ -209,11 +213,14 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         _record_run(cfg, build, org, started, digest, report)
         lc.mark_filled(build)
         lc.publish(build, state=state, trashed_at=org.deleted_at)
-        return {"slug": org.slug, "org_id": org_id, "outcome": state,
-                "rows": sum(report["rows_written"].values()),
-                "ignored_with_values": report["ignored_with_values"],
-                "unregistered_keys": report["unregistered_keys"],
-                "kept_in_extra": report["kept_in_extra"]}
+        out = {"slug": org.slug, "org_id": org_id, "outcome": state,
+               "rows": sum(report["rows_written"].values()),
+               "ignored_with_values": report["ignored_with_values"],
+               "unregistered_keys": report["unregistered_keys"],
+               "kept_in_extra": report["kept_in_extra"]}
+        if cfg.side is not None and cfg.side.report_for is not None:
+            out["side"] = cfg.side.report_for(org)
+        return out
     except Exception as e:   # noqa: BLE001  one org's failure is that org's (Q12)
         report["error"] = _one_line(e)
         report["traceback"] = traceback.format_exc()
@@ -263,12 +270,36 @@ def _app(cfg: Config, lc: Lifecycle) -> Any:
     return conn.connect(cfg.runtime_base, names.app(lc.prefix))
 
 
+def _accounts(cfg: Config, lc: Lifecycle) -> dict[str, Any]:
+    """The machine-wide accounts into the app database, read back and checked in the same
+    transaction (design §5.2 "Accounts"). A pass resumed after a crash finds them there and
+    checks them against the file again instead. Any fault raises, and the host refuses to
+    start: every org's turns need these accounts. The org-restricted rows go to their org's
+    own database with that org (``SideInputs``)."""
+    from . import accounts                          # noqa: PLC0415
+    path = os.path.join(cfg.data_root, accounts.REGISTRY_FILE)
+    with conn.connect(cfg.runtime_base, names.app(lc.prefix), autocommit=False) as a:
+        try:
+            out = accounts.convert_accounts(a, path)
+        except accounts.AccountsAlreadyConverted:
+            a.rollback()
+            doc = accounts.read_registry(path)
+            want = accounts.split_registry(doc)[0] if doc is not None else None
+            if want is None or accounts.canon(want) != accounts.canon(accounts.read_accounts(a)):
+                raise accounts.AccountsMismatch(
+                    f"the app database holds accounts that differ from {accounts.REGISTRY_FILE}")
+            return {"file": path, "present": True, "resumed": "already converted, checked again"}
+        a.commit()
+    return out["report"]
+
+
 def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
     """The one first pass (see the module docstring). Returns the run's report."""
     with _app(cfg, lc) as a:
         done = a.execute("SELECT legacy_cutover_at FROM app_settings").fetchone()[0]
     if done is not None:
         return {"skipped": "the first pass finished before", "at": done.isoformat()}
+    accounts_report = _accounts(cfg, lc)
     resumed = {c.org_id: c for c in lc.take_over() if c.kind in ("convert", "retry")}
     with conn.connect(cfg.legacy_base, _legacy_db(cfg)) as legacy_conn:
         orgs = legacy.classify(legacy_conn, cfg.data_root)
@@ -279,7 +310,10 @@ def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
     by_legacy = {(r["legacy_database"], r["legacy_org_id"]): r for r in lc.rows()
                  if r["legacy_org_id"] is not None}
     report: dict[str, Any] = {"legacy_database": _legacy_db(cfg), "legacy_level": level,
-                              "build": cfg.build, "orgs": [], "not_converted": []}
+                              "build": cfg.build, "accounts": accounts_report, "orgs": [],
+                              "not_converted": []}
+    published: list[legacy.LegacyOrg] = []
+    earlier = False                  # an org a crashed earlier pass already converted
     held_files = {r["legacy_file"] for r in lc.rows() if r["legacy_file"]}
     for slug, info in sorted(held_back(cfg.data_root).items()):
         # the 2.1.14 first-launch import held this org back (design §5.1): unavailable
@@ -306,9 +340,18 @@ def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
         if row["state"] in ("active", "trashed", "unavailable") and row["op_kind"] is None:
             report["orgs"].append({"slug": org.slug, "org_id": row["org_id"],
                                    "outcome": f"already {row['state']}"})
+            earlier = earlier or row["state"] != "unavailable"
             continue
         out = convert_org(lc, cfg, org, int(row["org_id"]), claim=resumed.get(row["org_id"]))
         report["orgs"].append(out)
+        if out["outcome"] in ("active", "trashed"):
+            published.append(org)
+    if cfg.side is not None and cfg.side.left_over is not None:
+        # the rows no org of this pass took; an org an earlier, crashed pass converted took
+        # its rows then, and is not counted here
+        report["side_left_over"] = cfg.side.left_over(published)
+        if earlier:
+            report["side_left_over"]["partial"] = "orgs converted by an earlier pass are not counted"
     with _app(cfg, lc) as a:
         a.execute("UPDATE app_settings SET legacy_cutover_at = now(), legacy_cutover_database = %s, "
                   "legacy_cutover_level = %s, legacy_cutover_build = %s, legacy_cutover_report = %s, "

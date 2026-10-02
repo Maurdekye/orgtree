@@ -6,7 +6,7 @@
 Environment (set by the engine host's database bracket):
   ORGTREE_PG_CONNINFO        the runtime role, aimed at the LEGACY database (the loader reads
                              it; the new databases are reached by changing only the name)
-  ORGTREE_PG_ADMIN_CONNINFO  the admin role, for the org lifecycle module only (Q10)
+  lifecycle.ADMIN_ENV        the admin role, read by the org lifecycle module only (Q10)
   ORGTREE_ORGDB_PREFIX       optional: tests' and rehearsals' database-name prefix
 
 The legacy loader is pointed at a throwaway data root holding only markers, and the storage
