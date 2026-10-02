@@ -12,8 +12,7 @@ before anything is sent, and the refusal names every unknown field and, when
 one is an obvious misnaming, the field that was meant. `orgtree_message` and
 `orgtree_send_notice` also refuse a missing or blank `body`.
 
-Dependency-free on purpose: `mcptool` imports it, and the sandboxed lane runs
-`mcptool` by file path with nothing but this package beside it.
+Dependency-free on purpose: `mcptool` imports it.
 """
 
 from __future__ import annotations

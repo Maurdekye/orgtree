@@ -11,7 +11,7 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from . import store
 from .ledger import LedgerError
@@ -100,22 +100,14 @@ def aggregate_document(document: Mapping[str, Any],
             "totals": {"rows": total_rows, "bytes": total_bytes}}
 
 
-def _operator_only(request: Request) -> None:
-    """Reject bridge callers; desktop-token callers are operators."""
-    state = request.scope.get("state") or {}
-    if state.get("bridge_slug"):
-        raise HTTPException(403, "diagnostics are available only to the host operator")
-
-
-@router.get("/api/orgs/{slug}/diagnostics/aggregates",
-            dependencies=[Depends(_operator_only)])
+@router.get("/api/orgs/{slug}/diagnostics/aggregates")
 def aggregates(slug: str, request: Request, collections: str = "") -> dict[str, Any]:
     """Return metadata-only counts for exactly one operator-authorized org.
 
     ``collections`` is an optional comma-separated allowlist selection.  No
     free-form document path or cross-organization selector is accepted.
     """
-    del request  # dependency performs the authority check
+    del request
     selected = tuple(part.strip() for part in collections.split(",") if part.strip()) or None
     try:
         org = store.load_org(slug)
@@ -128,8 +120,7 @@ def aggregates(slug: str, request: Request, collections: str = "") -> dict[str, 
     return {"org": slug, **body}
 
 
-@router.get("/api/diagnostics/aggregates",
-            dependencies=[Depends(_operator_only)])
+@router.get("/api/diagnostics/aggregates")
 def aggregates_unscoped(request: Request, org: str, collections: str = "") -> dict[str, Any]:
     """Compatibility shape for tooling that keeps the org in query data.
 

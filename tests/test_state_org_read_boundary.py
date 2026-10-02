@@ -8,9 +8,7 @@ and compared with docs/state-system/org-read-boundary.json, and each test pins a
 docs/state-system/operation-contracts.json (org-read.*).
 
 This module launches no process. An audit hook installed before anything else is imported refuses and records any
-process launch for the whole run (imports, the app's construction, every case). The org disk module's command runner
-(disk._run, which shells out to WSL) is a recorded fake WSL (a docker-desktop distro whose mount root exists and
-whose org disk is not mounted), and the disk's Windows path is a temp folder.
+process launch for the whole run (imports, the app's construction, every case).
 """
 from __future__ import annotations
 
@@ -62,21 +60,10 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402
-from orgtree import agentauth, api, deployment, disk, ledger, store, supervisor  # noqa: E402
+from orgtree import agentauth, api, ledger, store, supervisor  # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == _data.resolve(), 'this process would have written to the live root'
 assert LAUNCHES == [], LAUNCHES      # nothing above (the imports, the app's construction) tried to launch a process
-DISKS = Path(_temp) / 'disks'
-
-
-def fake_wsl(args, timeout=60):
-    """disk._run on a machine with a docker-desktop distro, a writable mount root and no mounted org disk."""
-    CUR['wsl'].append(list(args))
-    script = args[-1] if args[:1] == ['wsl'] and '-c' in args else ''
-    ok = args == ['wsl', '-l', '-q'] or script.startswith('mkdir -p ')
-    return subprocess.CompletedProcess(args, 0 if ok else 1, 'docker-desktop\n' if args[1:2] == ['-l'] else '', '')
-
-
 OP ={'X-Orgtree-Desktop-Token': 'operator'}
 NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
 SCOPE = {'add_dirs': [], 'tools': NO_TOOLS, 'org_visibility': 'team', 'charter': 'fixture'}
@@ -163,28 +150,17 @@ class Spies:
         add(supervisor, "send_message", return_value={"delivered": True})
         add(supervisor, "delivery_note", return_value="fixture carrier")
         add(supervisor, "notify")
-        add(supervisor, "maybe_storage_check")
         add(api, "hub_changed")
         add(api, "mail_notify")
         # the transcript of a node is the fixture file, whatever the session
         add(supervisor, "transcript_path_for_node", side_effect=lambda *a, **k: str(CUR["transcript"]))
         add(supervisor, "transcript_path", side_effect=lambda *a, **k: str(CUR["transcript"])
             if CUR["transcript"].exists() else None)
-        # the org disk: a recorded fake WSL and a temp Windows path, the module's caches cleared per case
-        CUR["wsl"] = []
-        add(disk, "_run", side_effect=fake_wsl)
-        add(disk, "windows_path", side_effect=lambda slug: str(DISKS / slug))
-        for cache, empty in (("_distro_cache", None), ("_mount_root_cache", None), ("_usage_cache", {}),
-                             ("_tree_cache", {})):
-            p = patch.object(disk, cache, new=empty)
-            p.start()
-            self.ps.append(p)
         return self
 
     def calls(self):
         return {k: len(m.call_args_list) for k, m in self.s.items()
-                if m.call_count and k not in ("delivery_note", "maybe_storage_check", "transcript_path_for_node",
-                                              "transcript_path", "_run", "windows_path")}
+                if m.call_count and k not in ("delivery_note", "transcript_path_for_node", "transcript_path")}
 
     def __exit__(self, *e):
         for p in reversed(self.ps):
@@ -234,20 +210,6 @@ def workspace(size=10):
         org = store.load_org(CUR["slug"])
         org.d["workspace"] = str(ws)
         store.save_org(org)
-    return go
-
-
-def fake_disk(c):
-    org = store.load_org(CUR["slug"])
-    org.d["disk"] = {"size_mb": 1024}
-    store.save_org(org)
-
-
-def frozen(req):
-    def go(c):
-        with patch.object(api.deployment, "current_policy", return_value=deployment.FROZEN):
-            loop = TestClient(app, raise_server_exceptions=False, client=("127.0.0.1", 50000))
-            return req(loop)
     return go
 
 
@@ -312,25 +274,12 @@ CASES = [
     ("net_first", op("GET", "/api/orgs/{slug}/net"), None),
     ("net_second", op("GET", "/api/orgs/{slug}/net"), op("GET", "/api/orgs/{slug}/net")),
     ("net_no_org", op("GET", "/api/orgs/nope-org/net"), None),
-    ("bridge_standard", op("GET", "/api/orgs/{slug}/bridge-credential"), None),
-    ("bridge_frozen", frozen(op("GET", "/api/orgs/{slug}/bridge-credential")), None),
-    ("bridge_frozen_no_org", frozen(op("GET", "/api/orgs/nope-org/bridge-credential")), None),
     ("aggregates", op("GET", "/api/orgs/{slug}/diagnostics/aggregates"), None),
     ("aggregates_one", op("GET", "/api/orgs/{slug}/diagnostics/aggregates", params={"collections": "events"}),
      None),
     ("aggregates_bad", op("GET", "/api/orgs/{slug}/diagnostics/aggregates", params={"collections": "bogus"}),
      None),
     ("aggregates_no_org", op("GET", "/api/orgs/nope-org/diagnostics/aggregates"), None),
-    # the org disk
-    ("disk_none", op("GET", "/api/orgs/{slug}/disk"), None),
-    ("disk_dir_none", op("GET", "/api/orgs/{slug}/disk/dir"), None),
-    ("disk_file_none", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "home/x"}), None),
-    ("disk_fake", op("GET", "/api/orgs/{slug}/disk"), fake_disk),
-    ("disk_dir_fake", op("GET", "/api/orgs/{slug}/disk/dir"), fake_disk),
-    ("disk_dir_escape", op("GET", "/api/orgs/{slug}/disk/dir", params={"path": "../x"}), fake_disk),
-    ("disk_file_escape", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "../x"}), fake_disk),
-    ("disk_file_missing", op("GET", "/api/orgs/{slug}/disk/file", params={"path": "home/none.txt"}), fake_disk),
-    ("disk_no_org", op("GET", "/api/orgs/nope-org/disk"), None),
     # the gate
     ("agent_token", lambda c: c.get(f"/api/orgs/{CUR['slug']}/events",
                                     headers={"X-Orgtree-Agent-Token": CUR["tokens"]["mid"]}), None),
@@ -348,7 +297,6 @@ def observe(name):
             pre(client)
             for m in sp.s.values():
                 m.reset_mock()
-            CUR['wsl'].clear()
         b = durable(CUR['slug'])
         r = request(client)
         a = durable(CUR['slug'])
@@ -370,7 +318,7 @@ class BoundaryBinding(unittest.TestCase):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         result = contracts.validate(registry, contracts.inventory.scan(ROOT), ROOT)
         self.assertTrue(result['valid'], result['errors'])
-        self.assertEqual(len(spec['contracts']), 15)
+        self.assertEqual(len(spec['contracts']), 11)
         self.assertEqual(set(spec['cases']), set(CASES))
         for d in contracts.DIMENSIONS:
             self.assertEqual(registry['facets']['org-read.' + d]['status'],
@@ -396,7 +344,7 @@ class BoundaryBinding(unittest.TestCase):
                 for e in c['entry_ids']:
                     bound.setdefault(e, []).append(name)
                     self.assertEqual(contracts.select(registry, e, {}), [name], name)
-        self.assertEqual(len(bound), 15)
+        self.assertEqual(len(bound), 11)
         for e, names in bound.items():
             self.assertEqual((entries[e]['disposition'], entries[e]['contracts']), ('mapped', names))
         # the transcript card-rendering branches every reader of which is now contracted (rule 1)
@@ -458,22 +406,6 @@ class OrgReadBoundary(unittest.TestCase):
         self.assertEqual(got['net_first'][0]['sections'], ['net_autoconnect', 'net_hubs', 'net_identity'])
         self.assertEqual(got['net_second'][0]['sections'], [])
 
-    def test_the_disk_routes_ask_wsl_exactly_this_and_no_case_launches_a_process(self):
-        test_f = 'test -f /mnt/host/wsl/orgtree-disk/{slug}/.orgtree-disk'
-        expected = {'disk_fake': [test_f, test_f], 'disk_dir_fake': [test_f], 'disk_file_missing': [],
-                    'disk_dir_escape': [], 'disk_file_escape': [], 'disk_none': []}
-        before = len(LAUNCHES)
-        for name, checks in expected.items():
-            with self.subTest(case=name):
-                seen, _body, _docs, cur = observe(name)
-                self.assertEqual(seen, self.spec['cases'][name], name)
-                scripts = [a[-1].replace(cur['slug'], '{slug}') for a in cur['wsl'] if a[1:2] == ['-d']]
-                # detection and the mount root come first whenever the disk module runs a command at all
-                self.assertEqual([a for a in cur['wsl'] if a[1:2] != ['-d']], [['wsl', '-l', '-q']] if checks else [])
-                self.assertEqual(scripts, ['mkdir -p /mnt/host/wsl/orgtree-disk'] + checks if checks else [])
-                self.assertTrue(all(a[:4] == ['wsl', '-d', 'docker-desktop', '-e'] for a in cur['wsl'] if a[1:2] == ['-d']))
-        self.assertEqual(LAUNCHES[before:], [])
-
     def test_the_guard_refuses_a_real_launch_before_it_happens(self):
         before = len(LAUNCHES)
         self.assertTrue(GUARD['on'])         # on for the whole module, never switched off
@@ -491,10 +423,8 @@ class OrgReadBoundary(unittest.TestCase):
         self.assertEqual([e for e, _ in LAUNCHES[before:]], ['_winapi.CreateProcess'])
         del LAUNCHES[before:]
 
-    def test_bridge_credential_per_deployment_profile_and_the_org_disk(self):
-        self.check('bridge_standard', 'bridge_frozen', 'bridge_frozen_no_org', 'disk_none', 'disk_dir_none',
-                   'disk_file_none', 'disk_fake', 'disk_dir_fake', 'disk_dir_escape', 'disk_file_escape',
-                   'disk_file_missing', 'disk_no_org', 'agent_token')
+    def test_an_agent_credential_is_refused(self):
+        self.check('agent_token')
 
 
 def tearDownModule():

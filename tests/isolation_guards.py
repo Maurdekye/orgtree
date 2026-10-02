@@ -103,7 +103,7 @@ PROCESS_EVENTS = frozenset({
 KILL_EVENTS = frozenset({"os.kill", "os.killpg", "signal.pthread_kill",
                          "_winapi.OpenProcess", "_winapi.TerminateProcess"})
 #: Native modules that act on other processes without any audit event.
-#: ``psutil`` (warmpool.py, frozen_install.py; both handle ImportError) reads
+#: ``psutil`` (warmpool.py; it handles ImportError) reads
 #: memory, argv and listener tables of arbitrary PIDs — in a copy of real
 #: data, REAL PIDs. ``block_native_process_modules`` makes it unimportable.
 NATIVE_PROCESS_MODULES = ("psutil",)
@@ -210,7 +210,7 @@ WAKE_ENTRY_POINTS = (
     "force_quiesce_for_restart", "reconcile", "manual_compact",
     "interorg_send", "immediate_command", "recover_lost_generation",
     "start_watchdog_engine", "start_auto_resume_loop", "start_usage_warm_loop",
-    "start_storage_watchdog", "start_steer_late_watchdog",
+    "start_steer_late_watchdog",
     "start_prime_restart_engine", "start_cred_watcher",
     "start_working_cache_keeper",
 )

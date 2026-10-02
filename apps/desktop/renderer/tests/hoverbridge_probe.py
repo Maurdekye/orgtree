@@ -370,9 +370,8 @@ def verify_identity_guard() -> bool:
 
 
 def start_backend() -> None:
-    """Own ORGTREE_DATA/HOME, own port, ORGTREE_CLAUDE_CLI -> fakecli.js,
-    ORGTREE_BRIDGE_PORT=0 so the sandbox-bridge listener never contests the
-    real one (same rig as live_probe.py's start_backend()).
+    """Own ORGTREE_DATA/HOME, own port, ORGTREE_CLAUDE_CLI -> fakecli.js
+    (same rig as live_probe.py's start_backend()).
 
     Ownership is established by `_check_ownership` (OS-reported LISTEN PID
     == our own spawned PROC.pid, AND the real endpoint's exact empty-list
@@ -397,7 +396,6 @@ def start_backend() -> None:
         "ORGTREE_TURN_TIMEOUT": "60",
         "PYTHONPATH": os.path.join(_REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",
-        "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })

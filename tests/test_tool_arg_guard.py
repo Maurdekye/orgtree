@@ -68,7 +68,6 @@ def tearDownModule():
 
 class _ReqState:
     agent_identity = None
-    bridge_slug = None
 
 
 class _Req:

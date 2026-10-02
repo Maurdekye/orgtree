@@ -133,8 +133,8 @@ const tree = (over: Partial<TreePayload> = {}): TreePayload => ({ slug: SLUG, na
   roots: [agent('a1', [agent('a2'), agent('a3'), agent('a4', [], 'archived')])], cost_usd_total: 0,
   audit: { live_nodes: 4, top_level_holds: 0, no_overdraft: true, problems: [] },
   user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-  storage_blocked: false, auto_resume: false, fable_limit_policy: 'freeze',
-  fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true, sandboxed: false,
+  auto_resume: false, fable_limit_policy: 'freeze',
+  fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true,
   audience_requests: [], org_inbox: null, net: null, epoch: 1, rev: 1,
   work_items_summary: { attention: 0, active: 0 }, asks: [], asks_open: 0, watchdogs: [], ...over } as unknown as TreePayload)
 

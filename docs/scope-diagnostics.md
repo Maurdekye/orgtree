@@ -4,15 +4,13 @@ The `engine.backend.orgtree.scope_diagnostics` module explains one attempted
 operation using already-authoritative facts. It is read-only: it never grants a
 folder, changes a provider setting, launches a command, or retries a refusal.
 
-Each report separates four layers:
+Each report separates three layers:
 
 * `org_grant` is the effective scratch or directory grant. The own scratch
   directory is writable even when an ancestor was supplied read-only, but a
   symlink or junction that resolves outside that root is a `path_escape`.
 * `provider` is an explicit provider/OS observation supplied by the caller.
   The diagnostic never infers a restriction from a provider name.
-* `sandbox` records whether the target is mounted in the supplied sandbox
-  roots. Host-only paths are not treated as container paths.
 * `tool` records a missing shell or MCP grant. A failed command does not widen
   any of these layers.
 

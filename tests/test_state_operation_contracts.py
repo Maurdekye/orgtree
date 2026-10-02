@@ -61,9 +61,12 @@ class ContractCoverage(unittest.TestCase):
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
         # 193 -> 192 and 153 -> 152 mapped entries: a removed product feature took its run-control route and contract
-        self.assertEqual(result["contracts"], 192)
+        # 192 -> 182 and 152 -> 142 mapped entries: a second removed product feature took its ten operator routes
+        # (two credential routes, three volume reads, three volume writes, the legacy sweep and its preview) and
+        # their contracts
+        self.assertEqual(result["contracts"], 182)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (152, 168, 6))
+                          result["summary"]["storage"]["mapped"]), (142, 168, 6))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -94,7 +97,7 @@ class ContractCoverage(unittest.TestCase):
         # (conflicts, wire and instrumentation on each of 21 git-workspace contracts)
         # 742 -> 744 (p01-inventory-misses-middleware-add-middleware-c): the scan now sees middleware installed by
         # add_middleware and by a direct decorator-factory call; of its 5 new entries the two request-wide
-        # admission layers (RecoveryBarrier, FrozenAdminBoundary) stay pending
+        # admission layers (RecoveryBarrier and a since-removed admission layer) stay pending
         # 744 -> 752 (P01 F9): 6 entries and 4 storage witnesses mapped, 18 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of 6 desktop-import contracts)
         # 752 -> 784 (P01 re-anchor after PYPG): 32 new pending rows for the sites PYPG, PG-4 and the change-feed
@@ -102,7 +105,12 @@ class ContractCoverage(unittest.TestCase):
         # 784 -> 778 (a removed product feature): its run-control contract's 3 open dimension occurrences, the
         # workspace-usage worker's pending entry row, and org-view.instrumentation closing on org.tree and
         # org.node-detail (its one open clause was that feature's unattributable ASGI-wrapper read)
-        self.assertEqual(len(result["pending"]), 778)
+        # 778 -> 739 (the second removed product feature): its ten contracts' 30 open dimension occurrences
+        # (conflicts, wire and instrumentation on each); the pending entry rows of its relay route, its warm-up
+        # worker, its two storage-limit workers and its admission middleware (5); and material.reads and
+        # material.effects closing on material.scratch and material.transcript (4: their one open clause each named
+        # that feature's placement)
+        self.assertEqual(len(result["pending"]), 739)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -121,20 +129,16 @@ class ContractCoverage(unittest.TestCase):
                 self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
                 self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
 
-    def test_s2j_closes_diagnostic_instrumentation_and_narrows_the_sandbox_remainder(self):
+    def test_s2j_closes_diagnostic_instrumentation_and_the_material_remainder(self):
         # coordinator ruling 2026-09-24 21:14Z: P02's reviewed probe-level record meets the clause
         facets = self.document["facets"]
         closed = facets["diagnostic.instrumentation"]
         self.assertEqual((closed["status"], closed["open_questions"]), ("specified", []))
-        narrowed = {"material.reads": "DISK-BACKED sandboxed organization",
-                    "material.effects": "SUCCESSFUL sandbox chown_agent"}
-        for name, clause in narrowed.items():
+        # S2j narrowed material.reads and material.effects to one placement each; that placement went with a
+        # removed product feature, so nothing is left open on either
+        for name in ("material.reads", "material.effects"):
             with self.subTest(facet=name):
-                self.assertEqual(facets[name]["status"], "unresolved")
-                [owner] = [q for q in facets[name]["open_questions"] if q.startswith("Owner: ")]
-                closes = owner.split(". Closes with: ", 1)[1].split(". Not coverable at P01", 1)[0]
-                self.assertIn(clause, closes)
-                self.assertIn("narrowed by P01 S2j", closes)
+                self.assertEqual((facets[name]["status"], facets[name]["open_questions"]), ("specified", []))
 
     def test_s2k_storage_triage_excludes_only_sites_that_are_not_org_state(self):
         # P01 S2k (coordinator ruling 2026-09-24 21:14Z), by source reading: four connection candidates are not org
@@ -179,11 +183,11 @@ class ContractCoverage(unittest.TestCase):
     # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
     # every operation reaching a witness has a contract, exclude only what source reading shows is not an org-state
     # operation, otherwise stay pending with a reason that names the owner
-    W1_EXCLUDED = {("api.py", "<module>", 1), ("api.py", "<module>", 2), ("api.py", "<module>", 6),
-                   ("api.py", "<module>", 7), ("api.py", "<module>", 8), ("api.py", "_validation_error", 0),
-                   ("api.py", "_unhandled_error", 0), ("api.py", "_cancel_startup", 0), ("disk.py", "create", 0),
-                   ("sandbox.py", "ensure_container", 0), ("sandbox.py", "try_apply_pending_resize", 0),
-                   ("sandbox.py", "try_apply_pending_resize", 1), ("turnread.py", "<module>", 0)}
+    # (the four volume mount calls the scanner took for route mounts left with a removed product feature, and
+    # that feature's admission middleware took api.py's fourth module-level site, renumbering 6-8 -> 5-7)
+    W1_EXCLUDED = {("api.py", "<module>", 1), ("api.py", "<module>", 2), ("api.py", "<module>", 5),
+                   ("api.py", "<module>", 6), ("api.py", "<module>", 7), ("api.py", "_validation_error", 0),
+                   ("api.py", "_unhandled_error", 0), ("api.py", "_cancel_startup", 0), ("turnread.py", "<module>", 0)}
     # the 4 stderr pumps feed the failure path, which can freeze a node (W1 review fix)
     W1_PENDING = {("api.py", "_wire_notify", 0), ("antigravityrun.py", "AntigravityTurn.launch", 0),
                   ("codexrun.py", "AppServerClient.__init__", 0), ("warmpool.py", "WarmProc.__init__", 0),
@@ -260,7 +264,7 @@ class ContractCoverage(unittest.TestCase):
                   | {("providers.py", "providers_payload", 0)}
                   | {("gitworkspace.py", "snapshot", n) for n in range(6)}
                   | {("gitworkspace.py", "FetchScheduler.request", 0)}
-                  | {("net.py", "start_net_client", 0), ("net.py", "start_net_client", 1), ("sandbox.py", "warm", 0)}
+                  | {("net.py", "start_net_client", 0), ("net.py", "start_net_client", 1)}
                   | {("supervisor.py", f, 0) for f in (
                       "_spawn_reset_refresh", "start_usage_warm_loop",
                       "_codex_leg_attempt._on_event", "_codex_leg_attempt", "_codex_leg_attempt._steer_pump",
@@ -278,7 +282,7 @@ class ContractCoverage(unittest.TestCase):
         def at(i):
             return names[i]
         mine = self.W2_EXCLUDED | self.W2_PENDING
-        self.assertEqual(len(mine), 29)     # 30 -> 29: the removed workspace-usage worker
+        self.assertEqual(len(mine), 28)     # 30 -> 29: the removed workspace-usage worker; 29 -> 28: a removed warm-up
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"} & mine, self.W2_EXCLUDED)
         seen = set()
         for i, r in rows.items():
@@ -300,8 +304,10 @@ class ContractCoverage(unittest.TestCase):
                        ("process_lifetime.py", "arm_process_lifetime", 0), ("service_host.py", "main", 0)}
 
     # p01-inventory-misses-middleware-add-middleware-c: middleware installed by a call, not a decorator
-    MIDDLEWARE_EXCLUDED = {("api.py", "<module>", 3), ("api.py", "<module>", 5), ("p03_door.py", "install", 0)}
-    MIDDLEWARE_PENDING = {("api.py", "<module>", 0), ("api.py", "<module>", 4)}
+    # (a removed feature's admission middleware was api.py's fourth module-level site; AccessRecord moved from 5
+    # to 4)
+    MIDDLEWARE_EXCLUDED = {("api.py", "<module>", 3), ("api.py", "<module>", 4), ("p03_door.py", "install", 0)}
+    MIDDLEWARE_PENDING = {("api.py", "<module>", 0)}
 
     def test_middleware_registrations_are_triaged(self):
         registrations = {r["site_id"]: r for r in self.source["registrations"]}
@@ -359,8 +365,8 @@ class ContractCoverage(unittest.TestCase):
                    ("transcript_ingest.py", "start", 0)}
                   | {("supervisor.py", f, 0) for f in (
                       "_launch_working_cache_read", "start_working_cache_keeper", "_arm_deploy_window",
-                      "_start_turn_worker", "_run_one_turn_recorded", "maybe_storage_check", "immediate_command",
-                      "start_storage_watchdog", "resume_frozen", "start_auto_resume_loop", "_fire_prime",
+                      "_start_turn_worker", "_run_one_turn_recorded", "immediate_command",
+                      "resume_frozen", "start_auto_resume_loop", "_fire_prime",
                       "start_prime_restart_engine", "start_steer_late_watchdog", "wd_smoke", "_wd_cmd_submit",
                       "_wd_ensure_stream", "start_watchdog_engine")})
 
@@ -372,7 +378,9 @@ class ContractCoverage(unittest.TestCase):
         def at(i):
             return names[i]
         mine = self.W3_EXCLUDED | self.W3_PENDING
-        self.assertEqual(len(mine), 31)     # 32 until the handle sweeper left (retirement stage 2)
+        # 32 until the handle sweeper left (retirement stage 2); 31 -> 29: two storage-limit workers left with a
+        # removed product feature
+        self.assertEqual(len(mine), 29)
         seen = set()
         for i, r in rows.items():
             if at(i) not in mine:
@@ -482,7 +490,8 @@ class ContractCoverage(unittest.TestCase):
     # 106 -> 95: P01 F7 contracted 11 of them
     # 95 -> 74: P01 F8 contracted 21 of them
     # 74 -> 68: P01 F9 contracted 6 of them
-    GENERIC_PENDING_ENTRIES = 68
+    # 68 -> 67: the bridge's /anthropic proxy route was removed with the bridge
+    GENERIC_PENDING_ENTRIES = 67
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}

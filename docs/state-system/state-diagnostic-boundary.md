@@ -35,20 +35,18 @@ start the ASGI lifespan, a provider, PostgreSQL or a Rust service.
 | Wire coercion | Node text normalization, list-only `nodes`, element stringification, and the shared string-aware archive flag are pinned. A leading/trailing space in a target name is not stripped. |
 | Safe fields | Exact top-level and nested field allowlists omit account identifiers, charters, sessions, transcripts, mail, directory paths and status summaries. Account binding exposes presence/missing/provider only. |
 | Funding display | The returned free balance depends on current tier prices and immediate non-archived child obligations, including children absent from the requested output. It is not permission to spend. |
-| Capability catalogue | Current actor/scope plus install-wide tool names and agent/operator asymmetries. Standard/frozen and desktop alias combinations are exercised over HTTP; a reported tool still refuses an unauthorized target when actually called. |
-| Middleware | Invalid credentials, identity mismatch, stale generation, archive, halt and killswitch reject before projection. Frozen policy refuses a non-loopback client. Invalid deployment policy does not yield a permissive catalogue. |
+| Capability catalogue | Current actor/scope plus install-wide tool names and agent/operator asymmetries. Desktop alias combinations are exercised over HTTP; a reported tool still refuses an unauthorized target when actually called. |
+| Middleware | Invalid credentials, identity mismatch, stale generation, archive, halt and killswitch reject before projection. |
 | Repeated requests | The diagnostic branches execute freshly with current scope; no committed operation result is replayed. Unsupported receipt lookup does not create a fence. |
 
 The capability list is a catalogue of the install's dispatch surface. It is not
 a per-target authority check, a provider-availability probe or a grant of the
-listed operator-only operations. Catalogue fixtures use a loopback ASGI client;
-the separate non-loopback refusal fixture prevents accidentally claiming that
-the frozen policy works with an unrestricted remote client. No real listener is
-started.
+listed operator-only operations. Catalogue fixtures use a loopback ASGI client.
+No real listener is started.
 
 Projection allowlists constrain keys, not every value's origin or size. Allowed
 operational values such as a title, MCP name or freeze cause are not recursively
-scrubbed. Malformed restored field types, all middleware/bridge paths and
+scrubbed. Malformed restored field types, all middleware paths and
 complete Rust/native wire parity remain open. A visible row can contain a
 parent identifier whose own row is not visible; this existing structural
 reference grants no access to that parent.

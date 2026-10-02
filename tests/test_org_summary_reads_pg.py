@@ -84,7 +84,7 @@ class SummaryReads(unittest.TestCase):
         _, ctx = org_summary._read(self.slug)
         with self.assertRaises(TypeError): store.save_org(ctx)
         full = store.load_org(self.slug)
-        for key in ('slug', 'workspace', 'sandbox', 'disk'):
+        for key in ('slug', 'workspace'):
             self.assertEqual(ctx.d.get(key), full.d.get(key))
 
     def test_legacy_settings_use_per_org_fallback_and_bad_number_refuses(self):

@@ -51,14 +51,16 @@ import threading
 import time
 from typing import Any, Callable, Final, TypedDict
 
-from . import sandbox as sbx
 # ⚠ THE SHA RULE LIVES IN `workevidence` AND IS RE-EXPORTED HERE, so every
 # existing caller (`ledger.work_claim`, `api`, the docket tests) keeps working
 # unchanged. It moved because the verification receipt tooling has to validate
-# a sha with NO DATA ROOT and no `store` import — this module reaches
-# `sandbox`/`store` for REPO_ROOT, and a probe replayed from another checkout
-# cannot pay that cost. One rule, one implementation, two names for it.
+# a sha with NO DATA ROOT and no `store` import, and a probe replayed from
+# another checkout cannot pay that cost. One rule, one implementation, two
+# names for it.
 from .workevidence import ShaError, validate_sha  # noqa: F401
+
+#: the orgtree checkout this module asks git about
+REPO_ROOT: str = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 STAGES: Final = ("implemented", "committed", "pushed", "deployed", "in_build")
 #: the stages this module can evaluate; the other two are claims by design
@@ -82,12 +84,12 @@ class StageResult(TypedDict):
 
 
 def repo_label() -> str:
-    return f"orgtree@{sbx.REPO_ROOT}"
+    return f"orgtree@{REPO_ROOT}"
 
 
 def _default_runner(argv: list[str]) -> tuple[int, str]:
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0  # type: ignore[attr-defined]
-    r = subprocess.run(["git", *argv], cwd=sbx.REPO_ROOT, capture_output=True,
+    r = subprocess.run(["git", *argv], cwd=REPO_ROOT, capture_output=True,
                        text=True, timeout=GIT_TIMEOUT_S, shell=False,
                        creationflags=flags)
     return r.returncode, r.stdout.strip()
@@ -131,7 +133,7 @@ def _resolve_commit(sha: str) -> tuple[str | None, str]:
         return None, err
     if code != 0 or not out:
         return None, (f"does not resolve to a unique commit in the orgtree repository "
-                      f"at {sbx.REPO_ROOT}; other repositories are not checked")
+                      f"at {REPO_ROOT}; other repositories are not checked")
     return out.splitlines()[0].strip(), ""
 
 
@@ -215,7 +217,7 @@ def evaluate(stage: str, ref: Any, *, now: float | None = None) -> StageResult:
         elif not target:
             pre_detail = "boot commit unknown"
 
-    key = (sbx.REPO_ROOT, stage, sha, target)
+    key = (REPO_ROOT, stage, sha, target)
     with _cache_lock:
         hit = _cache.get(key)
         if hit and now - hit[0] < CACHE_TTL_S:

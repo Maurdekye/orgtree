@@ -277,7 +277,6 @@ def movable(org: Any, nid: str) -> bool:
                 and not n.get("bearer_state") and not n.get("inflight")
                 and not st.get("busy") and not st.get("responding")
                 and not org.d.get("headless")
-                and not supervisor.sbx.is_sandboxed(org)
                 # a freeze earned on a metered API-key ACCOUNT row is the
                 # API's own wall, never a subscription's — switching login
                 # profiles cannot clear it (the V1 org-key form of this

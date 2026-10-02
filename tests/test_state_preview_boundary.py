@@ -361,13 +361,6 @@ class PreviewBoundary(PreviewFixture,unittest.TestCase):
         self.refused(self.call('retool',{'node':'a','account':'openai/primary'}),'does not match')
         self.assertIn('account_session_parity',self.spec['native_obligations'])
 
-    def test_directory_translation_runs_but_its_warnings_are_not_returned(self):
-        with patch.object(supervisor,'sandbox_dirs_to_host',return_value=([],['dropped-fixture-dir'])) as translated:
-            out = self.assert_simulation_only('retool',{'node':'a','add_dirs':[{'path':'/fixture/scratch'}]})
-        translated.assert_called_once()
-        self.assertEqual(translated.call_args.args[1],[{'path':'/fixture/scratch'}])
-        self.assertNotIn('dropped-fixture-dir',json.dumps(out))
-
     def test_unknown_retool_fields_and_private_charter_do_not_appear_in_projection(self):
         baseline = self.assert_simulation_only('retool',{'node':'a','not_a_field':True})
         out = self.assert_simulation_only('retool',{'node':'a','charter':'new-private-body','not_a_field':True})

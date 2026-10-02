@@ -504,20 +504,6 @@
       "stage_added": 0,
       "spies": {}
     },
-    "node_upload_blocked": {
-      "status": 413,
-      "keys": [
-        "detail"
-      ],
-      "detail": "the org is over its storage limit — uploads are paused until files are deleted (the block lifts automatically)",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
-      "peer_seen": false,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
     "reply_events": {
       "status": 200,
       "keys": [
@@ -832,20 +818,6 @@
           "outbox/report.txt"
         ]
       },
-      "peer_seen": false,
-      "deliveries_added": 0,
-      "stage_added": 0,
-      "spies": {}
-    },
-    "send_file_blocked": {
-      "status": 422,
-      "keys": [
-        "detail"
-      ],
-      "detail": "the org is over its storage limit; file delivery is paused",
-      "sections": [],
-      "sections_other": [],
-      "files": {},
       "peer_seen": false,
       "deliveries_added": 0,
       "stage_added": 0,

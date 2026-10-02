@@ -50,9 +50,7 @@
     "prefer_reserve_default",
     "primed_restart",
     "roots",
-    "sandboxed",
     "slug",
-    "storage_blocked",
     "sync_rev",
     "tiers",
     "urgent_unread",
@@ -148,8 +146,7 @@
   "legacy_defects": [
     "the first ETag of a cold org is stale before the client can revalidate with it",
     "a valid agent credential on these GET routes is refused as 'invalid or expired'",
-    "the websocket route accepts a socket for an organization that does not exist",
-    "in desktop-managed mode an org document carrying sandbox makes the tree and node detail answer 500 (ValueError escapes a RuntimeError-only gate; source)"
+    "the websocket route accepts a socket for an organization that does not exist"
   ],
   "scope": "Legacy boundary of GET /api/orgs/{slug}, the node detail route and the org websocket feed on disposable SQLite. It pins authentication, ETag revalidation, archived summaries and frame shapes; it does not qualify native behaviour, contacts or conflicts."
 }

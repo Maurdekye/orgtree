@@ -54,7 +54,7 @@ from . import (accounts, agentauth, antigravity_limits, appsettings,
                lifecycle, limits,
                liveness, localtime, mailruntime, net, openrouter,
                openrouter_harness, opreceipts, providers, registry,
-               sandbox as sbx, stateprobe, steer, store, workevidence,
+               stateprobe, steer, store, workevidence,
                tokens, turnlog, turnusage, warmpool)
 from .fleet_walk import fleet_walk
 from .desktop_native import NativeInventory
@@ -64,18 +64,6 @@ from .ledger import (EXTERN, SYSTEM, USER, LedgerError, Org, expand_mcp,
 from . import ledger as _ledger
 from .schema import (Denial, FrozenInfo, InflightInfo, MailEntry,
                      NodeDoc, NoticeEntry, TurnStat)
-
-
-def _deployment_org_gate(org: Org) -> None:
-    """Refuse every agent execution path that cannot prove sandboxing."""
-    from . import desktop_policy
-    desktop_policy.validate(org.d)
-    if deployment.current_policy().require_sandboxed_orgs \
-            and not sbx.is_sandboxed(org):
-        raise RuntimeError(
-            "the frozen deployment profile refuses to run an unsandboxed "
-            f"org ({org.d.get('slug') or '<unknown>'}); recreate the org with "
-            "sandbox enabled before enabling frozen mode")
 
 
 def _native_context_hold(org: Org, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
@@ -302,9 +290,8 @@ def claude_install_state(force: bool = False) -> dict[str, Any]:
 # The machine's GLOBAL (home-scope) skills — the only skills directory a
 # headless agent actually loads from, since its cwd is its own empty scratch
 # dir and project-scope discovery is `<cwd>/.claude/skills`. User ruling
-# 2026-08-07: every UNSANDBOXED agent on this machine gets it read+write;
-# sandboxed agents do not (nothing on the host is theirs to touch, and it is
-# not mounted). Writes additionally need permission_mode=bypassPermissions —
+# 2026-08-07: every agent on this machine gets it read+write. Writes
+# additionally need permission_mode=bypassPermissions —
 # see the sensitive-path note in _build_cmd — but the grant is unconditional
 # so reads work for everyone and raising the mode is the ONLY step left.
 GLOBAL_SKILLS = os.path.join(os.path.expanduser("~"), ".claude", "skills")
@@ -317,11 +304,10 @@ def cli_version() -> str:
     """The resolved Claude CLI's version (№44): from the nearest
     @anthropic-ai/claude-code package.json above cli.js (the npm bin shim
     nests, so walk up), falling back to `claude --version`. Drives
-    sandbox-image tagging (host CLI updates → the next sandboxed turn
-    rebuilds the image) and the /api/host report. Cached on the resolved
-    package.json's mtime (review X2): a forever-cache froze the versioned
-    image for the backend's lifetime — the one thing it exists to react to
-    is the CLI changing under a running backend.
+    the /api/host report. Cached on the resolved package.json's mtime
+    (review X2): a forever-cache would freeze the answer for the backend's
+    lifetime — the one thing it exists to react to is the CLI changing
+    under a running backend.
 
     ⚠ PRODUCTION SPAWNS THE BUNDLED 2.1.220 CLI from ORGTREE_CLI_DIR
     (measured from a live process on 2026-08-31, D-211). A separate 2.1.241
@@ -373,8 +359,7 @@ def cli_version_cached() -> str | None:
     """The Claude CLI version SOMETHING ALREADY OBSERVED, or None.
 
     `cli_version` above may fall through to a `claude --version` subprocess.
-    That is right for the surfaces that need an answer (image tagging, the
-    host report) and wrong for the turn envelope, whose promise is that it
+    That is right for the surfaces that need an answer (the host report) and wrong for the turn envelope, whose promise is that it
     opens no process at all — see `capability.cli_version_cached`, the one
     caller. An unobserved version is reported as unobserved; nothing here
     probes to avoid saying so.
@@ -384,6 +369,7 @@ def cli_version_cached() -> str | None:
 
 
 _build_info_cache: dict[str, Any] | None = None
+_REPO_ROOT: str = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def build_info() -> dict[str, Any]:
@@ -399,7 +385,7 @@ def build_info() -> dict[str, Any]:
         branch = None
         try:
             r = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                                cwd=sbx.REPO_ROOT, capture_output=True,
+                                cwd=_REPO_ROOT, capture_output=True,
                                 text=True, timeout=10,
                                 creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                                                if os.name == "nt" else 0))
@@ -411,7 +397,7 @@ def build_info() -> dict[str, Any]:
             # "main" stay None — the badge shows a name only when the name
             # says something the SHA does not.
             b = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                               cwd=sbx.REPO_ROOT, capture_output=True,
+                               cwd=_REPO_ROOT, capture_output=True,
                                text=True, timeout=10,
                                creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                                               if os.name == "nt" else 0))
@@ -2159,7 +2145,7 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     """Hash the effective MCP launch surface, never transient readiness.
 
     The digest covers provider, effective granted server definitions after
-    provider narrowing, sandbox delivery mode, and the callable names
+    provider narrowing, and the callable names
     exported by Orgtree's built-in MCP server. Raw server config (including
     any env secrets) is hashed in-memory and never persisted or published.
     """
@@ -2181,9 +2167,7 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     elif provider == "google":
         from . import antigravityrun                   # noqa: PLC0415
         chosen, _ = antigravityrun.deliverable_mcp(chosen)
-    elif sbx.is_sandboxed(org):
-        chosen = sandbox_mcp_passthrough(sorted(chosen), registry)
-    from . import mcptool                              # noqa: PLC0415
+    from . import mcptool                             # noqa: PLC0415
     # Codex receives Orgtree powers as dynamic functions, not through MCP;
     # they are deliberately excluded from both the runtime MCP count and its
     # infrastructure generation. Claude/Antigravity launch Orgtree as an MCP
@@ -2195,8 +2179,10 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     raw = json.dumps({
         "version": 1,
         "provider": provider,
-        "sandboxed": sbx.is_sandboxed(org),
-        "sandbox_mcp": bool(sandbox_mcp_enabled()),
+        # retired fields pinned to their only remaining value, so the digest
+        # stored on existing nodes (`last_turn_mcp_fingerprint`) still matches
+        "sandboxed": False,
+        "sandbox_mcp": False,
         "servers": chosen,
         "orgtree_tools": builtin,
     }, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -3434,23 +3420,10 @@ def working_count(slug: str) -> int:
 def scratch_dir(slug: str, nid: str, *, policy_org: Any = None) -> str:
     # lineage nodes ("name@gen") share their successor's scratch — they are the same
     # self at different times, and the CLAUDE.md self-notes belong to that self.
-    # A disk-migrated org's scratch lives ON the disk (UNC view for the backend).
-    if (bool(policy_org.d.get("disk")) if policy_org is not None else sbx.on_disk(slug)):
-        from . import disk as dsk
-        base = dsk.windows_sub(slug, "scratch")
-    else:
-        base = store.scratch_root(slug)
+    base = store.scratch_root(slug)
     p = os.path.join(base, nid.split("@")[0])
     if not os.path.isdir(p):
         os.makedirs(p, exist_ok=True)
-        # backend-minted = root-owned inside a sandbox (UNC writes arrive as
-        # root; the CLI runs as agent) — hand a NEW node dir over immediately,
-        # or its first turn cannot write its own cwd (live bug 2026-08-04)
-        try:
-            org = policy_org if policy_org is not None else store.load_runtime_org(slug)
-            sbx.chown_agent(org, nid)
-        except Exception:                                    # noqa: BLE001
-            pass          # container down → ensure_container's heal covers it
     return p
 
 
@@ -4096,23 +4069,14 @@ def _rename_locked(slug: str, nid: str, new_name: str, actor: str, org: Any,
         # under its new name right after.
         warmpool.kill_node(slug, k, "renamed")
     # ---- filesystem, before commit: scratch dir + CLI project dir ----
-    if sbx.on_disk(slug):
-        from . import disk as dsk
-        base = dsk.windows_sub(slug, "scratch")
-    else:
-        base = store.scratch_root(slug)
+    base = store.scratch_root(slug)
     old_dir, new_dir = (os.path.join(base, nid),
                         os.path.join(base, new))
     ctx["dirs"] = (old_dir, new_dir)
-    # the CLI project dir rides the CWD — container path for sandboxed
-    # orgs, host path natively. One directory holds every generation's
-    # sessions (they share the scratch cwd).
+    # the CLI project dir rides the CWD. One directory holds every
+    # generation's sessions (they share the scratch cwd).
     troot = _transcript_root(org, nid) or os.path.expanduser("~/.claude")
-    if sbx.is_sandboxed(org):
-        old_cwd = sbx.cpath_scratch(slug, nid)
-        new_cwd = sbx.cpath_scratch(slug, new)
-    else:
-        old_cwd, new_cwd = old_dir, new_dir
+    old_cwd, new_cwd = old_dir, new_dir
     oldp = os.path.join(troot, "projects", _cli_project_dir(old_cwd))
     newp = os.path.join(troot, "projects", _cli_project_dir(new_cwd))
     # an occupied DESTINATION is an ORPHAN by construction (redteam +
@@ -4152,7 +4116,7 @@ def export_predecessor_transcript(org: Org, nid: str,
                                   reason: str | None = None) -> str | None:
     """FR-24 cheap compact: copy the pre-compact session's raw CLI
     transcript into the (unchanged) node's OWN scratch as transcript.jsonl —
-    the folder the successor session already works in, sandboxed included.
+    the folder the successor session already works in.
 
     `old_sid` is the session the compact just archived (the live node's
     session_id is already the FRESH one by the time this runs); without it,
@@ -4519,9 +4483,7 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
 def _transcript_root(org: Org, nid: str | None = None, *,
                      session_id: str | None = None) -> str | None:
     """Use the same Claude profile for transcript lookup as for spawning."""
-    if sbx.is_sandboxed(org):
-        return os.path.join(sbx.sandbox_home(org.d["slug"]), ".claude")
-    node = org.nodes.get(nid or "")
+    node =org.nodes.get(nid or "")
     if node is None and session_id:
         node = next((n for n in org.nodes.values()
                      if n.get("session_id") == session_id), None)
@@ -4531,7 +4493,7 @@ def _transcript_root(org: Org, nid: str | None = None, *,
 
 
 def _account_transcript_root(account_id: str) -> str | None:
-    """`_transcript_root` of a node bound to `account_id` (unsandboxed org):
+    """`_transcript_root` of a node bound to `account_id`:
     it depends on the binding alone."""
     from . import registry
     try:
@@ -4752,18 +4714,11 @@ def spawn_env(org: Org, tier: str | None = None,
     (measured 2026-08-24: the pinned CLI 2.1.220 does read this variable).
     AND THE STRIP MUST NEVER BE RELAXED TO ACCOMMODATE THIS — it is why an
     ambient token in the BACKEND's environment cannot silently capture every
-    org, the same failure a host-level API key once caused.
-
-    Sandboxed orgs are excluded from BOTH lanes on purpose: their credential
-    reaches the process through the container's own environment (sandbox.py),
-    and setting it on the host-side `docker exec` would leak it into an
-    argv/env the container does not own."""
+    org, the same failure a host-level API key once caused."""
     env = clean_env()
     if nid is not None:
         from . import agentauth
         env.update(agentauth.node_env(org.d["slug"], nid, org.node(nid)))
-    if sbx.is_sandboxed(org):
-        return env
     # D-206 (fleet ruling 2026-08-30): turn on the CLI's own prompt-cache
     # break diagnoser. CLAUDE_CODE_IS_COWORK gates Claude Code's per-request
     # cache diff — named "[PROMPT CACHE BREAK] …" warning lines plus
@@ -5767,26 +5722,17 @@ def _parse_limit_reset_ts(blob: str, kind: str | None = None,
 
 
 def bills_the_key(org: Org) -> bool:
-    """Did THIS turn's process bill a container-held API key rather than the
+    """Did THIS turn's process bill an org-held API key rather than the
     host subscription? It decides whether the host's usage lanes describe the
     wall this turn hit at all — they describe the SUBSCRIPTION, and reading
     them for a key-billed turn parked nodes for four hours on a per-minute
     API rate limit.
 
-    Only the SANDBOX shape remains: a sandboxed org whose container was
-    handed a key that never appears in `org.d` — the
-    `ORGTREE_SANDBOX_API_KEY` escape hatch — which is why this asks
-    `sandbox.container_auth` (redteam 2026-08-18). The V1 org-key shapes
-    (permanent key, fallback window) are gone with the org fields (user
-    redesign 2026-09-12); a turn served by a metered ACCOUNT row is
-    classified by its own spawn-captured attribution (`served_metered_row`),
-    never by org state."""
-    if sbx.is_sandboxed(org):
-        auth = sbx.container_auth(org).lower()
-        # the same fuzzy test `ensure_container` applies — an exact-match copy
-        # read `ORGTREE_SANDBOX_API_KEY=proxy` as a key while the sandbox read
-        # it as proxied (redteam 2026-08-18)
-        return "prox" not in auth and auth != "subscription"
+    No org shape bills a key any more: the V1 org-key shapes (permanent key,
+    fallback window) are gone with the org fields (user redesign 2026-09-12);
+    a turn served by a metered ACCOUNT row is classified by its own
+    spawn-captured attribution (`served_metered_row`), never by org state.
+    Kept as the one place the question is asked, answering False."""
     return False
 
 
@@ -5813,13 +5759,10 @@ def subscription_lane(billed_key: bool, ran_as: str) -> bool:
 
     ⚠ AND THE TWO TERMS ARE NOT REDUNDANT, though on the common path they
     look it: a key-billed turn normally reports `ran_as="api-key"`, so the
-    second term alone would refuse it anyway. The case that needs the first
-    is the SANDBOX — `bills_the_key` returns True for a container handed a key
-    that never appears in `org.d`, while the parent env carries no
-    `ANTHROPIC_API_KEY` and `ran_as` reads as the primary. Dropping
-    `billed_key` is invisible everywhere except there. (Which is why this is
-    unit-tested on its inputs: the suite cannot build a real container, so
-    that shape is unreachable end-to-end.)
+    second term alone would refuse it anyway. The first covers a key billed
+    while the parent env carries no `ANTHROPIC_API_KEY` and `ran_as` reads as
+    the primary — a shape `bills_the_key` no longer produces, which is why
+    this is unit-tested on its inputs.
     """
     return not billed_key and (ran_as or accounts.PRIMARY) == accounts.PRIMARY
 
@@ -6926,50 +6869,6 @@ def registered_mcp_servers() -> dict[str, Any]:
         return {}
 
 
-def sandbox_mcp_enabled() -> bool:
-    """EXPERIMENTAL escape hatch (user spec): MCP servers are excluded from
-    sandboxes by design — external contact points the sandbox restricts —
-    unless this env var opts in url-based + portable-stdio passthrough."""
-    return bool(os.environ.get("ORGTREE_SANDBOX_MCP"))
-
-
-_PORTABLE_CMDS = {"npx", "node", "python", "python3", "uvx", "uv"}
-
-
-def sandbox_mcp_passthrough(granted: list[str],
-                            registry: dict[str, Any]) -> dict[str, Any]:
-    """The granted servers a SANDBOXED turn may receive. Empty unless
-    ORGTREE_SANDBOX_MCP is set; then: URL servers with localhost rewritten to
-    the container's host alias, and stdio servers whose command is portable
-    enough to attempt in-container (npx/node/python/uv — Windows `cmd /c`
-    wrappers stripped). Experimental — no guarantee a given server runs."""
-    if not sandbox_mcp_enabled():
-        return {}
-    out = {}
-    for k in granted:
-        srv = registry.get(k)
-        if not isinstance(srv, dict):
-            continue
-        if srv.get("url"):
-            srv = dict(srv)
-            srv["url"] = re.sub(r"\b(localhost|127\.0\.0\.1)\b",
-                                "host.docker.internal", srv["url"], count=1)
-            out[k] = srv
-            continue
-        cmd = srv.get("command", "") or ""
-        args = list(srv.get("args") or [])
-        if os.path.basename(cmd).lower() in ("cmd", "cmd.exe") \
-                and args[:1] == ["/c"] and len(args) > 1:
-            cmd, args = args[1], args[2:]
-        base = os.path.basename(cmd).lower()
-        for suf in (".exe", ".cmd", ".bat"):
-            base = base.removesuffix(suf)
-        if base in _PORTABLE_CMDS:
-            out[k] = {**srv, "command": "python3" if base.startswith("python") else base,
-                      "args": args}
-    return out
-
-
 def granted_mcp_servers(org: Org, nid: str) -> dict[str, Any]:
     """The registry entries a node is actually granted: expand(grant),
     against the live registry.
@@ -6981,8 +6880,8 @@ def granted_mcp_servers(org: Org, nid: str) -> dict[str, Any]:
     for the same reason: a second copy of this question agreed on the day it
     was written and nothing afterwards made it keep agreeing.
 
-    Callers add their own lane's narrowing on top (the sandbox passthrough,
-    codex's expressibility filter) — but none of them re-derive the GRANT.
+    Callers add their own lane's narrowing on top (codex's expressibility
+    filter) — but none of them re-derive the GRANT.
     """
     tools = org.node(nid)["scope"].get("tools", {})
     registry = registered_mcp_servers()
@@ -7137,14 +7036,12 @@ def _org_charter_block(org: Org) -> str:
     currently what happens, that needs to be changed to do so." It did not.
     The org-charter editor writes <workspace>/CLAUDE.md and relied entirely on
     some provider's own project-doc loader picking that file up, which made its
-    reach an accident of three unrelated things:
+    reach an accident of unrelated things:
 
       * whether the agent happened to hold the workspace as a folder grant -
         MOST SEATS HOLD NO GRANTS AT ALL, and those got the charter zero times;
       * which CLI it runs, because codex reads AGENTS.md and never CLAUDE.md,
-        so the file was not an input on that lane by any route at all;
-      * whether the org is sandboxed, where the host workspace path does not
-        exist inside the container.
+        so the file was not an input on that lane by any route at all.
 
     `identity_prompt` is the one channel orgtree fully controls and delivers
     itself on all three lanes - `--append-system-prompt-file` for claude, the
@@ -7954,8 +7851,7 @@ def _org_state_parts(org: Org, nid: str,
             f"next message that you did and why. If it does still stand, "
             f"leave it alone — do not re-ask, that only replaces it.")
     live_guidance = _claudemd_caveat(org, nid).strip()
-    if deployment.current_policy().allow_agent_restart \
-            and n["parent"] is not None and org._has_audience(nid, USER):
+    if n["parent"] is not None and org._has_audience(nid, USER):
         # The full unprompted-deploy doctrine remains in a top-level agent's
         # stable identity. A deep audience holder gains the same authority
         # dynamically, so state that trigger here without putting the live
@@ -8003,10 +7899,6 @@ def _turn_usage_selection(org: Org, nid: str,
         if not str(org.node(nid).get("account") or "") \
                 and apikey_route_for(tier, now) is not None:
             return provider, "account"
-        if bills_the_key(org):
-            # a sandboxed container key consumes no host lane — advisory
-            # selection has no board marker to place for it
-            return provider, ""
         resolved = accounts.resolve(tier, now)
         account = str(resolved.get("account") or "")
         if account == accounts.PRIMARY:
@@ -8825,65 +8717,40 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
 
     dirs = sc.get("add_dirs", [])
     ro = [d["path"] for d in dirs if d["mode"] == "ro"]
-    if sbx.is_sandboxed(org):
-        # №19 + user ruling: a sandboxed agent lives in its container and must
-        # be told ONLY paths that exist there — host-absolute grants named
-        # here used to contradict the mounts one paragraph later, and agents
-        # debugged the contradiction on the operator's dime. Everything it
-        # can reach is at a stable relative shape from its cwd (its scratch).
-        ws = org.d.get("workspace")
-        mounted = [d for d in dirs if ws and os.path.normpath(d["path"]) ==
-                   os.path.normpath(ws)]
-        outside = [d["path"] for d in dirs if d not in mounted]
-        dir_line = ("You run inside this org's sandbox container. Folders you "
-                    "may work in: your scratch folder (your cwd) and the org "
-                    f"workspace at {sbx.cpath_workspace(org.d['slug'])}"
-                    + (" (read-only)" if any(d["mode"] == "ro"
-                                             for d in mounted) else "")
-                    + ". Use those paths only — host paths do not exist here. "
-                    if mounted else
-                    "You run inside this org's sandbox container. Folders you "
-                    "may work in: only your scratch folder (your cwd). ")
-        if outside:
-            dir_line += (f"({len(outside)} external folder grant(s) exist on "
-                         f"the host but are NOT mounted in the sandbox — "
-                         f"they are unreachable from here.) ")
-        skills_line = ""      # host home is not mounted; nothing to promise
-    else:
-        dir_line = ("Folders you may work in: "
-                    + (", ".join(d["path"] for d in dirs)
-                       or "only your own scratch folder")
-                    + (f". Read-only: {', '.join(ro)}" if ro else "") + ". ")
-        # ⚠ THE FIRST VERSION OF THIS LINE WAS WRONG, and wrong in the more
-        # damaging direction (agent report 2026-08-07, measured not inferred:
-        # `reso-limits` invoked from a seat whose cwd is its scratch dir,
-        # resolving to <granted dir>/.claude/skills/reso-limits). Skill
-        # discovery is NOT home-only: a `.claude/skills` folder inside the cwd
-        # OR any granted directory contributes too, and for most seats here
-        # that is where nearly every skill they have comes from. Naming the
-        # home scope as the only loadable one steered agents AWAY from the
-        # route that works and TOWARD the one location they cannot write —
-        # worse than the silence it replaced, which at least let them look.
-        # State both scopes, and put the gate on the `.claude` SEGMENT (what
-        # is actually measured) rather than on a directory.
-        skills_line = (
-            "Skills: you load them from two places — this machine's global "
-            f"{GLOBAL_SKILLS}, and a .claude/skills folder inside your cwd or "
-            "any folder granted to you (most of yours may come from the "
-            "latter; check before assuming). Reading either is fine. "
-            + ("Writing either is fine too — your permission mode clears the "
-               "sensitive-path gate. A skill you add or edit is live for "
-               "sessions that load from that folder. "
-               if sc.get("permission_mode") == "bypassPermissions" else
-               "WRITING is the constrained half: any path containing a "
-               ".claude segment is gated ABOVE the permission system, and at "
-               "your mode such a write raises a permission REQUEST that a "
-               "headless turn has no way to answer — so it fails and nothing "
-               "is written. It is not a hard deny and the file is not "
-               "corrupt or missing; there is simply nobody present to "
-               "approve. If you need one, request the raise with "
-               "orgtree_request_scope (permission_mode) — do "
-               "not work around it. "))
+    dir_line = ("Folders you may work in: "
+                + (", ".join(d["path"] for d in dirs)
+                   or "only your own scratch folder")
+                + (f". Read-only: {', '.join(ro)}" if ro else "") + ". ")
+    # ⚠ THE FIRST VERSION OF THIS LINE WAS WRONG, and wrong in the more
+    # damaging direction (agent report 2026-08-07, measured not inferred:
+    # `reso-limits` invoked from a seat whose cwd is its scratch dir,
+    # resolving to <granted dir>/.claude/skills/reso-limits). Skill
+    # discovery is NOT home-only: a `.claude/skills` folder inside the cwd
+    # OR any granted directory contributes too, and for most seats here
+    # that is where nearly every skill they have comes from. Naming the
+    # home scope as the only loadable one steered agents AWAY from the
+    # route that works and TOWARD the one location they cannot write —
+    # worse than the silence it replaced, which at least let them look.
+    # State both scopes, and put the gate on the `.claude` SEGMENT (what
+    # is actually measured) rather than on a directory.
+    skills_line = (
+        "Skills: you load them from two places — this machine's global "
+        f"{GLOBAL_SKILLS}, and a .claude/skills folder inside your cwd or "
+        "any folder granted to you (most of yours may come from the "
+        "latter; check before assuming). Reading either is fine. "
+        + ("Writing either is fine too — your permission mode clears the "
+           "sensitive-path gate. A skill you add or edit is live for "
+           "sessions that load from that folder. "
+           if sc.get("permission_mode") == "bypassPermissions" else
+           "WRITING is the constrained half: any path containing a "
+           ".claude segment is gated ABOVE the permission system, and at "
+           "your mode such a write raises a permission REQUEST that a "
+           "headless turn has no way to answer — so it fails and nothing "
+           "is written. It is not a hard deny and the file is not "
+           "corrupt or missing; there is simply nobody present to "
+           "approve. If you need one, request the raise with "
+           "orgtree_request_scope (permission_mode) — do "
+           "not work around it. "))
     # ── the sensitive-path gate, named in full ───────────────────────────
     # Ticket `a-third-git-gate-blocks-claude-lane-tools-above` (2026-09-17).
     # `8e81614` established the principle this line exists to serve: an agent
@@ -8957,10 +8824,8 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                     and not _codex_may_write(sc))
     if tools.get("bash", True) and not agy_no_shell:
         # keep in step with _build_cmd's allowlist — promising a capability the
-        # config drops is a bug class already hit once here. A Linux sandbox
-        # has Bash only, so never offer PowerShell there.
-        tool_line += ("Terminal: Bash. " if sbx.is_sandboxed(org) else
-                      "Terminal: Bash and PowerShell are both available to "
+        # config drops is a bug class already hit once here.
+        tool_line += ("Terminal: Bash and PowerShell are both available to "
                       "you; for a cmd command, run `cmd /c …` from either. ")
     elif tools.get("bash", True):     # agy_no_shell: the switch is ON and
         tool_line += (                # the seat still loses the terminal
@@ -8975,24 +8840,11 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
     # D-182: the SAME grant `_build_cmd` spawns with — `"*"` is every
     # registered server, present and future.
     mcp_names = sorted(granted_mcp_servers(org, nid))
-    if sbx.is_sandboxed(org):
-        # never promise servers the sandbox drops: MCP servers are excluded
-        # from sandboxes by design (external contact points), except the
-        # experimental ORGTREE_SANDBOX_MCP passthrough set
-        passed = sandbox_mcp_passthrough(mcp_names, registered_mcp_servers())
-        dropped = [m for m in mcp_names if m not in passed]
-        mcp_names = sorted(passed)
-        if dropped:
-            tool_line += (f"Sandboxed: MCP servers are disabled in your "
-                          f"container ({', '.join(dropped)} unavailable despite "
-                          f"the grant) — they are outside contact points the "
-                          f"sandbox restricts. ")
     if codex_harness_turn(org, nid, str(n.get("model") or "")):
         # D-180: the codex lane attaches granted servers by LAUNCHING the
         # app-server with `-c mcp_servers.…` overrides, which cannot express
         # every registry shape (a name that is not a TOML bare key aborts the
-        # process outright). Promise EXACTLY what that lane delivers — the same
-        # discipline as the sandbox branch above, and for the same reason: an
+        # process outright). Promise EXACTLY what that lane delivers, because an
         # assertion in this text reads to the agent as the capability itself.
         # THE DENIAL THAT IS NOT A REFUSAL (2026-09-04). Measured: at turn
         # setup the codex sandbox writes an explicit DENY on every `.git`
@@ -9460,8 +9312,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
            "existing is the liveness check. Have a REASON — something to "
            "deploy, or a backend to bounce. Never restart speculatively, on a "
            "hunch, or to 'make sure': there is no free restart. "
-           if deployment.current_policy().allow_agent_restart
-           and n["parent"] is None
+           if n["parent"] is None
            and os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1'
            else "")
         + ("KEEPING THIS DESKTOP SESSION RUNNING: "
@@ -9473,8 +9324,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
            "now action or the Windows installer for installed-file updates. "
            "The prime waits for the engine and at least 60 seconds of OS idle "
            "before relaunching; do not use these tools for deployment. "
-           if deployment.current_policy().allow_agent_restart
-           and n["parent"] is None
+           if n["parent"] is None
            and os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1'
            else "")
         + f"AUTHENTIC-CHANNEL NOTE: "
@@ -9991,8 +9841,7 @@ def delivering_mail(org: Org, nid: str,
       via="turn"   written to the CLI as a user event, so the transcript WILL
                    carry it — but not until the process has started and echoed
                    it back. That is D-29's "starting…" phase: ~1 s warm,
-                   several seconds cold, longer still for a sandboxed org that
-                   must start a container first. Draining removed it from the
+                   several seconds cold. Draining removed it from the
                    mailbox at the top of the turn, so for the whole of that
                    phase the message the user had just sent existed in NO
                    place the desk renders from (user bug 2026-08-03: "the
@@ -10406,8 +10255,6 @@ def _reclaim_blocked(org: Org, nid: str) -> bool:
     return bool(node is None or node.get("state") != "live"
         or node.get("halt") or node.get("frozen") or node.get("limit_locked")
         or node.get("remote_controlled") or org.d.get("killswitch")
-        or (org.d.get("storage_blocked") and (bool(org.d.get("disk"))
-            if getattr(org, "_read_only_projection", False) else sbx.on_disk(org.d["slug"])))
         or _native_context_hold(org, nid))
 
 
@@ -12281,18 +12128,6 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # CLI knows (claude_model_for; 5.1 → 5.0 below the 2.1.257 floor)
     model = claude_model_for(org, nid)
     sc = n["scope"]
-    # org sandbox (user spec): the whole turn — CLI, bash, file I/O, web —
-    # runs inside the org's container; paths below become container paths and
-    # the orgtree tools reach the host only via the secret-gated bridge
-    sandboxed = sbx.is_sandboxed(org)
-    # Compute once so the CLI proxy, MCP child and steering hook all carry the
-    # same org credential generation. Frozen mode rotates this host-rooted
-    # bearer; standard mode keeps the existing org secret for migration.
-    # This is deliberately NOT node isolation: sandbox siblings share one
-    # root-capable container and are mutually trusted at this boundary.
-    bridge_credential = sbx.bridge_credential(org) if sandboxed else ""
-    frozen_bridge = (sandboxed
-                     and not sbx.legacy_bridge_credentials_allowed())
     # isolation by default: the user's global hooks must not leak into agents.
     # The PostToolUse steering hook (mid-task mail delivery, 3f42476) needs a
     # CLI that fires TOOL hooks headless — <= 2.1.31 does not (live-tested).
@@ -12324,19 +12159,12 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
              "shell": "bash", "timeout": 8}]}]
         return {"hooks": evs}
 
-    if sandboxed:
-        # the in-container CLI is current (hooks fire headless); steer.py runs
-        # from the read-only backend mount and finds the bridge via .bridge.
-        # slug+nid ride argv (review C10): hooks get a sanitized env and the
-        # cwd is SHARED across a lineage (name@gen → base dir), so a live
-        # bearer's hook used to resolve as its successor and eat its mail
-        settings: dict = _steer_settings(
-            "python3 /opt/orgtree-backend/orgtree/steer.py "
-            f'"{slug}" "{nid}"'
-            + (f' "{bridge_credential}"' if frozen_bridge else ""))
-    elif steer_capable and os.environ.get("ORGTREE_STEER_HOOK") != "0":
+    # slug+nid ride argv (review C10): hooks get a sanitized env and the
+    # cwd is SHARED across a lineage (name@gen → base dir), so a live
+    # bearer's hook used to resolve as its successor and eat its mail
+    if steer_capable and os.environ.get("ORGTREE_STEER_HOOK") != "0":
         steer_py = os.path.join(BACKEND_DIR, "orgtree", "steer.py")
-        settings = _steer_settings(
+        settings: dict = _steer_settings(
             '"{}" "{}" "{}" "{}"'.format(
                 sys.executable.replace("\\", "/"),
                 steer_py.replace("\\", "/"), slug, nid)
@@ -12345,16 +12173,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
                if (scoped_token := agentauth.node_env(slug, nid, n).get("ORGTREE_AGENT_TOKEN")) else ""))
     else:
         settings = {"disableAllHooks": True}
-    if sandboxed:
-        # the workspace is the sandbox's ONE mounted window — external folder
-        # grants cannot follow into the container and are dropped
-        ws = os.path.normpath(org.d.get("workspace") or "")
-        ws_mode = next((d["mode"] for d in sc["add_dirs"]
-                        if os.path.normpath(d["path"]) == ws), None)
-        grant_dirs = ([(sbx.cpath_workspace(slug), ws_mode)]
-                      if ws_mode else [])
-    else:
-        grant_dirs = [(d["path"], d["mode"]) for d in sc["add_dirs"]]
+    grant_dirs = [(d["path"], d["mode"]) for d in sc["add_dirs"]]
     ro_paths = [p for p, m in grant_dirs if m == "ro"]
     # FR-24 cheap compact: the replacement reads its PREDECESSOR's scratch —
     # transcript.jsonl and every working file — read-only, regenerated per
@@ -12381,22 +12200,17 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
         # and worked — --add-dir on a missing path is a CLI error, not a
         # silent no-op
         if os.path.isdir(host_pd):
-            pred_dir = (sbx.cpath_scratch(slug, pred) if sandboxed
-                        else host_pd)
+            pred_dir = host_pd
             ro_paths = ro_paths + [pred_dir]
     if ro_paths:
         # read-only enforcement: permission deny rules on the writing tools.
         # The rendering — and, above all, WHY the agent's own scratch is never
         # denied by it — lives in `ro_deny_rules`, which is module-level so it
         # can be tested without spawning anything.
-        deny = ro_deny_rules(ro_paths, sbx.cpath_scratch(slug, nid)
-                             if sandboxed else scratch_dir(slug, nid, policy_org=org))
+        deny = ro_deny_rules(ro_paths, scratch_dir(slug, nid, policy_org=org))
         if deny:
             settings["permissions"] = {"deny": deny}
-    head = ((sbx.exec_argv(sbx.container_name(slug),
-                           sbx.cpath_scratch(slug, nid),
-                           sbx.bridge_exec_env(org)) + ["claude"])
-            if sandboxed else _claude_argv())
+    head = _claude_argv()
     # №29 still holds — the identity prompt regenerates every turn — but it
     # rides a FILE now, not argv (user order 2026-08-17). Windows CreateProcess
     # caps the whole command line at 32,767 chars, and a grown org chart pushed
@@ -12405,20 +12219,13 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # retired reports, and a full-visibility prompt measures ~22k chars on a
     # mere 12-node org). `--append-system-prompt-file` is the same system
     # prompt through the CLI's other door (hidden flag, verified in cli.js
-    # 2.1.31: both flags fill one variable; the sandbox image pins the host
-    # CLI's version, so both spawn shapes have it). The scratch is the one
-    # folder both shapes can read — host path directly, container through its
-    # mount. Rewritten before every spawn, so tampering/deletion self-heals;
+    # 2.1.31: both flags fill one variable). The file sits in the agent's
+    # scratch. Rewritten before every spawn, so tampering/deletion self-heals;
     # the agent may read it, but it is only its own system prompt.
     ident_file = os.path.join(scratch_dir(slug, nid, policy_org=org), ".orgtree-identity.md")
     if write_ident:
-        ident_new = not os.path.exists(ident_file)
         with open(ident_file, "w", encoding="utf-8") as f:
             f.write(identity_prompt(org, nid))
-        if sandboxed and ident_new:
-            # first mint lands root-owned through the UNC view (see
-            # chown_agent); later rewrites truncate in place and keep the owner
-            sbx.chown_agent(org, nid, ".orgtree-identity.md")
     cmd = head + ["-p",
            "--output-format", "stream-json", "--input-format", "stream-json",
            "--include-partial-messages",   # token-level streaming (user spec)
@@ -12426,8 +12233,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
            "--model", model,
            "--permission-mode", sc.get("permission_mode", "acceptEdits"),
            "--append-system-prompt-file",
-           (f"{sbx.cpath_scratch(slug, nid)}/.orgtree-identity.md"
-            if sandboxed else ident_file),
+           ident_file,
            "--settings", json.dumps(settings),
            # D-211 (2026-08-31): the other half of the cache-break diagnoser.
            # This flag is the ONLY thing that routes the CLI's
@@ -12470,35 +12276,17 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # every node gets the orgtree MCP server — its hands on the org — plus any
     # user-registered servers it was granted; --strict-mcp-config pins the set.
     # Expansion is expand(granted) via the pure helper
-    registry = registered_mcp_servers()
     grant = granted_mcp_servers(org, nid)     # D-182: shared
-    if sandboxed:
-        # NO MCP servers in the sandbox (user ruling): they are points of
-        # external contact that the sandbox is explicitly designed to
-        # restrict — the container gets exactly one server, orgtree, via the
-        # bridge. ORGTREE_SANDBOX_MCP=1 experimentally re-enables granted
-        # URL-based and portable-stdio servers (no full support).
-        chosen = sandbox_mcp_passthrough(sorted(grant), registry)
-        chosen["orgtree"] = {
-            "command": "python3",
-            "args": ["/opt/orgtree-backend/orgtree/mcptool.py"],
-        "env": {**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
-                    "ORGTREE_BASE": sbx.bridge_url(),
-                    "ORGTREE_BRIDGE_SECRET": bridge_credential,
-                    deployment.PROFILE_ENV:
-                        deployment.current_policy().name},
-        }
-    else:
-        chosen = dict(grant)
-        chosen["orgtree"] = {
-            "command": sys.executable,
-            "args": ["-m", "orgtree.mcptool"],
-        "env": {**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
-                    "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360"),
-                    "PYTHONPATH": BACKEND_DIR,
-                    deployment.PROFILE_ENV:
-                        deployment.current_policy().name},
-        }
+    chosen = dict(grant)
+    chosen["orgtree"] = {
+        "command": sys.executable,
+        "args": ["-m", "orgtree.mcptool"],
+    "env": {**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+                "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360"),
+                "PYTHONPATH": BACKEND_DIR,
+                deployment.PROFILE_ENV:
+                    deployment.current_policy().name},
+    }
     # Do not force `alwaysLoad` here. In CLI 2.1.220 it blocks construction of
     # the first request until each MCP server connects (up to its timeout).
     # Production measured 5–7 second waits on cold and young-prewarm turns,
@@ -12525,7 +12313,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # --add-dir on the path, --permission-mode dontAsk and a PreToolUse hook
     # returning permissionDecision=allow were each tried and each still got
     # "… which is a sensitive file". Only bypassPermissions clears it.
-    # ∴ an unsandboxed agent that must maintain the GLOBAL skills is given
+    # ∴ an agent that must maintain the GLOBAL skills is given
     # permission_mode=bypassPermissions per node (set_scope already accepts it;
     # PM_LEVELS already ranks it) — user ruling 2026-08-07, which also ruled
     # that nothing may be plumbed over the file tools to simulate the access.
@@ -12534,7 +12322,6 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
         # both shells the CLI actually exposes (probed on the pinned 2.1.220:
         # "Bash, PowerShell" — there is no separate cmd tool; cmd is reached as
         # `cmd /c …` from either, so the terminal switch already covers it).
-        # PowerShell is inert inside a Linux sandbox, which costs nothing.
         allowed += ["Bash", "PowerShell"]
     if tools.get("web", True):
         allowed += ["WebSearch", "WebFetch"]
@@ -12545,10 +12332,8 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     cmd += ["--allowedTools", ",".join(allowed)]
     for p, _m in grant_dirs:
         cmd += ["--add-dir", p]
-    if not sandboxed and os.path.isdir(GLOBAL_SKILLS):
-        # standing grant, no scope entry needed (user ruling 2026-08-07). A
-        # sandboxed agent never gets it: the host home is not mounted, and the
-        # container's own ~/.claude is transcripts, not skills.
+    if os.path.isdir(GLOBAL_SKILLS):
+        # standing grant, no scope entry needed (user ruling 2026-08-07).
         cmd += ["--add-dir", GLOBAL_SKILLS]
     # §7.6 read-down: a node's file tools reach its own scratch (cwd) plus every
     # descendant's — regenerated per turn, so re-parenting never leaves stale access
@@ -12588,16 +12373,14 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # tokens a turn against a ~200k-token cold turn (break-even ~365 turns per
     # retire). Held and abandoned at commit 2e0eb47. LENGTH IS NOT THE COST;
     # STABILITY IS. Do not re-derive it.
-    # ⚠ DERIVED FROM `scratch_dir`, NOT REBUILT FROM `store.scratch_root`. A
-    # DISK-MIGRATED org keeps its scratch on the disk (`dsk.windows_sub`), so a
-    # root composed from the data root would name a directory the agents' own
-    # folders are not under — granting a real path that covers nothing, which
-    # fails silently as "the file tools stopped reaching my reports". Taking the
+    # ⚠ DERIVED FROM `scratch_dir`, NOT REBUILT FROM `store.scratch_root`: a
+    # root composed elsewhere could name a directory the agents' own folders
+    # are not under — granting a real path that covers nothing, which fails
+    # silently as "the file tools stopped reaching my reports". Taking the
     # parent of the same function that mints the per-node dirs cannot drift.
-    root = (os.path.dirname(sbx.cpath_scratch(slug, nid)) if sandboxed
-            else os.path.dirname(scratch_dir(org.d["slug"], nid, policy_org=org)))
+    root = os.path.dirname(scratch_dir(org.d["slug"], nid, policy_org=org))
     seen = set()
-    if sandboxed or os.path.isdir(root):
+    if os.path.isdir(root):
         # `--add-dir` on a missing host path is a CLI error, not a no-op. The
         # root exists as soon as any node has a scratch dir, but a brand-new
         # org spawning its first agent is exactly the case that would not.
@@ -12676,13 +12459,7 @@ def spawn_argv(org: Org, nid: str, cmd: list[str],
     render from the same org doc — divergence needs a scope edit inside the
     sub-second spawn window, and the keeper's next identity pass respawns the
     parked process then anyway.
-
-    Sandboxed spawns pass through untouched: their grants collapse to the one
-    mounted workspace (no unbounded deny render), and their argv carries
-    container paths a host-side file rewrite could not serve.
     """
-    if sbx.is_sandboxed(org):
-        return cmd
     try:
         i = cmd.index("--settings")
     except ValueError:
@@ -13019,19 +12796,8 @@ def _cache_claude_namespace(org: Org, tier: str,
     represented only by a digest so rotation is detectable without persisting
     the credential, and the primary login carries its own account digest so a
     re-login as a different account is a namespace change (see
-    ``_cache_primary_namespace``).  Sandboxed proxy requests do not carry the
-    credential in the host spawn environment, so their namespace is resolved
-    from the same fallback-window and container-auth helpers used by the
-    request relay.
+    ``_cache_primary_namespace``).
     """
-    if sbx.is_sandboxed(org):
-        if not bills_the_key(org):
-            # Billed to the host subscription, i.e. to the main login — so it
-            # is the main login's identity that bounds this cache namespace.
-            return _cache_primary_namespace(), "subscription"
-        credential = sbx.container_auth(org)
-        return ("sandbox-api-key:" + cachecontinuity.digest(
-                    {"credential": credential}, 16), "api_key")
     api_key = str(resolved_env.get("ANTHROPIC_API_KEY") or "")
     if api_key:
         return ("api-key:" + cachecontinuity.digest(
@@ -13555,10 +13321,6 @@ def _cache_precompact_decision(org: Org, nid: str,
         return ("miss_expected",
                 f"Automatic compaction is off and measured context {ratio:.0%} "
                 "is above the 25% warning floor.")
-    if org.d.get("storage_blocked"):
-        return ("not_applicable",
-                "The organization is frozen or storage-blocked; no send-time "
-                "compaction is promised.")
     ready, why = _auto_cheap_context_ready(org.node(nid), cfg,
                                            org.d.get("models"))
     if not ready:
@@ -13998,18 +13760,9 @@ def _auto_wake_gates_clear(org: Org, nid: str) -> bool:
             or n.get("remote_controlled") or n.get("bearer_state")
             or n.get("inflight")):
         return False
-    # Match the real turn's disk-org admission gate. Host-folder orgs use the
-    # watchdog's ACL barrier instead and are not turn-blocked by this flag.
-    if org.d.get("storage_blocked") and (bool(org.d.get("disk"))
-            if getattr(org, "_read_only_projection", False) else sbx.on_disk(org.d["slug"])):
-        return False
     if org.waking_mail(nid):
         return False
     if (org.d.get("delivering") or {}).get(nid):
-        return False
-    try:
-        _deployment_org_gate(org)
-    except RuntimeError:
         return False
     return True
 
@@ -14173,8 +13926,7 @@ def _idle_docket_reminder_reserve(
         # this seat's own box and mail_log rows (PG-3d splits `mail` per
         # owner), not every agent's mail
         sections={("mail", nid)}, nodes={nid}, logs={("mail_log", nid)},
-        share_sections={"work_items", "asks", "delivering",
-                        "storage_blocked"})
+        share_sections={"work_items", "asks", "delivering"})
     return worktx.tx(slug, lambda org: _idle_docket_reminder_reserve_body(
         org, nid, now), rows=rows)
 
@@ -14324,8 +14076,7 @@ def _working_cache_interval(org: Org, nid: str) -> tuple[float, bool] | None:
 
     Provider selection is positive. Codex and Antigravity own different CLIs and
     cache contracts, so they receive neither a synthetic Claude request nor a
-    made-up TTL. `bills_the_key` is the real-turn billing resolver, including
-    sandbox auth and active fallback windows.
+    made-up TTL. `bills_the_key` is the real-turn billing resolver.
     """
     n = org.nodes.get(nid)
     if not n or n.get("state") != "live" or not _reported_working(n):
@@ -14461,19 +14212,15 @@ def _working_cache_cmd(org: Org, nid: str) -> list[str]:
                   "UserPromptSubmit", "Stop", "SubagentStop", "PreCompact",
                   "SessionStart", "SessionEnd"):
         hooks.setdefault(event, [])
-    sandboxed = sbx.is_sandboxed(org)
-    if (not sandboxed and not cli_capable()
+    if (not cli_capable()
             and os.environ.get("ORGTREE_STEER_HOOK") != "1"):
         # Old Claude CLIs do not fire tool hooks in headless mode. The prompt
         # is not a security boundary, so refuse maintenance rather than run a
         # child whose tool denial cannot be enforced locally.
         raise RuntimeError("Claude CLI cannot enforce the keepalive tool hook")
-    if sandboxed:
-        deny_cmd = "python3 /opt/orgtree-backend/orgtree/cachedeny.py"
-    else:
-        deny_py = os.path.join(BACKEND_DIR, "orgtree", "cachedeny.py")
-        deny_cmd = '"{}" "{}"'.format(
-            sys.executable.replace("\\", "/"), deny_py.replace("\\", "/"))
+    deny_py = os.path.join(BACKEND_DIR, "orgtree", "cachedeny.py")
+    deny_cmd = '"{}" "{}"'.format(
+        sys.executable.replace("\\", "/"), deny_py.replace("\\", "/"))
     hooks["PreToolUse"] = [{"hooks": [{
         "type": "command", "command": deny_cmd,
         "shell": "bash", "timeout": 5,
@@ -16308,10 +16055,11 @@ def _continue_verb(actor: str) -> str:
 #: What an account rebind can write besides the seat and its bearer row:
 #: `_moot_asks` (asks → credit/scope requests, and `work_items`, which the
 #: save's attention pass rewrites whenever `asks` moved), `_fold_notices` and
-#: the handoff record's notice. The sandbox gate is read FOR SHARE.
+#: the handoff record's notice. Nothing is read FOR SHARE any more; the empty
+#: tuple stays because the account doors union it into their lock sets.
 _ASSIGN_SECTIONS = ("asks", "credit_requests", "scope_requests", "notices",
                     "work_items")
-_ASSIGN_SHARE = ("sandbox",)
+_ASSIGN_SHARE: tuple[str, ...] = ()
 _ASSIGN_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
 
 
@@ -16414,10 +16162,6 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         node = org.node(nid)
         if node.get("state") != "live":
             raise RuntimeError(f"{nid} is not live")
-        if sbx.is_sandboxed(org):
-            raise RuntimeError(
-                "sandboxed orgs are container-managed — accounts do not "
-                "apply (declared exemption, design D2a)")
         # A durable `inflight` marker survives a backend death mid-turn. It is
         # handled by the same queue below; recovery paths (allow_frozen) still
         # own release and replay of interrupted work.
@@ -16950,9 +16694,6 @@ def _codex_process_spec(org: Org, nid: str, *,
             raise RuntimeError(
                 "turn failed: codex is not signed in on this machine — run "
                 "`codex login` (accounts panel → Codex)")
-    if sbx.is_sandboxed(org):
-        raise RuntimeError("turn failed: codex agents cannot run in a "
-                           "sandboxed org yet (user ruling)")
     cwd = scratch_dir(slug, nid)
     ident = identity_prompt(org, nid)
     if write_ident:
@@ -19461,8 +19202,6 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     from . import antigravity_session
     n = org.node(nid)
     tier = str(n.get("model") or "")
-    if sbx.is_sandboxed(org):
-        raise RuntimeError("Antigravity sandboxed execution is not supported")
     spec = antigravity_session.specification(org, nid, write=True)
     lineage_changed = antigravity_session.prepare_lineage(org, nid, spec)
     if lineage_changed:
@@ -20367,7 +20106,7 @@ def _run_one_turn(slug: str, nid: str,
 #: killswitch latch (FOR UPDATE) orders against admissions, while admissions
 #: do not serialise on each other.
 ADMISSION_GATE_SECTIONS: tuple[str, ...] = (
-    "killswitch", "storage_blocked")
+    "killswitch",)
 #: Written by the DRAIN transaction (`_take_delivery_mail`, the notices pop,
 #: `_journal_drain`): the agent's OWN per-owner rows of the split sections
 #: (PG-3d: `mail`, `delivering`, `notices` are one row per owner) and its
@@ -20707,7 +20446,7 @@ def _resume_rows(slug: str, pick: set[str] | None, *,
                 "logs": ["events", "notice_log"]}
     # ... and what `assign_account` writes beside the seat (`_assign_tx`'s
     # rows: mooted asks/credit/scope requests, folded notices, the docket
-    # reconcile's work_items; sandbox read FOR SHARE)
+    # reconcile's work_items)
     return {"nodes": nodes,
             "sections": sorted({"notices", *_ASSIGN_SECTIONS}),
             "share_sections": sorted({*ADMISSION_GATE_SECTIONS, *_ASSIGN_SHARE}),
@@ -20747,16 +20486,8 @@ def _admission_gates(slug: str, org: Org, nid: str) -> None:
     admission transactions in `_run_one_turn_recorded` run them, so a halt,
     freeze or remote-control change that commits between the two is still
     refused before any mail is drained."""
-    _deployment_org_gate(org)
     if org.node(nid)["state"] != "live":
         raise RuntimeError(f"{nid} is not live")
-    if org.d.get("storage_blocked") and sbx.on_disk(slug):
-        # disk-org soft cap (user verdict): the last 10% is the
-        # journaling reserve — new turns wait it out
-        raise RuntimeError(
-            "org disk past its 90% soft cap — turns are paused "
-            "until usage drops under 85% (delete files, use the "
-            "recovery browser, or grow the disk)")
     if org.node(nid).get("limit_locked"):
         raise RuntimeError(
             "halted: weekly Fable usage limit exhausted — waiting for the "
@@ -21271,7 +21002,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             carried=carrier_segs)
                         if pending or mail:
                             # journal the batch: if the CLI never launches (bad
-                            # binary, Docker down, timeout) the drained mail would
+                            # binary, timeout) the drained mail would
                             # die with the turn — the journal folds it back. The row
                             # holds THIS drain's own composition only
                             # AT THE FRONT (text order, see the boundary feed): the
@@ -21582,9 +21313,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     antigravity legs, so their passes were never spent at all
                     (round 7);
                   · and the shared dispatch is still BEFORE provider-specific
-                    preparation — `sbx.ensure_container` raising "Docker
-                    unavailable" burned it with zero provider launches
-                    (round 8).
+                    preparation — a prep step raising there burned it with
+                    zero provider launches (round 8).
                 Each leg calls this once its own prep has succeeded and the
                 provider has been contacted. ⚠ ERR LATE, NEVER EARLY: a pass
                 spent too soon costs the node the real attempt the user ruled
@@ -21661,11 +21391,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                             token=probe_token):
                         probe_token = None
                 raise _AntigravityTurnDone
-            sandbox_name = None
-            if sbx.is_sandboxed(org):
-                # actionable RuntimeError (no Docker / no API key) surfaces as
-                # the node's last_error through the except path below
-                sandbox_name = sbx.ensure_container(org)
             # §9.5: a per-org API key reaches exactly THIS org's processes —
             # metered spend against the org's own key: no refresh-token
             # ceiling, no competition with the user's plan. (The key injection
@@ -21987,9 +21712,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     # tree BEFORE the parent vanishes, or its child keeps
                     # stdout/stderr open and the reader never reaches finally.
                     _wd_kill_tree(proc)
-                    if sandbox_name:
-                        # The container is shared; reap only this session.
-                        sbx.kill_claude(sandbox_name, sid)
                 finally:
                     # Even failed OS cleanup cannot leave the turn waiting
                     # forever for pipe EOF. The finally path checks the exit.
@@ -22799,7 +22521,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     slug, nid, turn_hash, wp_turn)
                             # Identity dirtiness is a RELAUNCH condition, not
                             # a delivery condition. All other negative reasons
-                            # (kill switch, exclusion, provider/sandbox/scope
+                            # (kill switch, exclusion, provider/scope
                             # eligibility) still close this process's input.
                             may_feed = proc_current or (
                                 _bnd_why == "identity-changed"
@@ -23230,10 +22952,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # applies to the tool surface beside it.
                             if proc.poll() is None:
                                 _wd_kill_tree(proc)
-                                if sandbox_name:
-                                    # the docker-exec client is not the process —
-                                    # reap the in-container one too (`_expire`)
-                                    sbx.kill_claude(sandbox_name, sid)
                                 try:
                                     proc.wait(timeout=5)
                                 except (subprocess.TimeoutExpired, OSError,
@@ -24711,31 +24429,24 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # The set matches the ACTUAL admission gate (the raises at the top
             # of the turn slot, ~15811-15824) exactly, so the belt never
             # announces a terminal error for a turn a deliberate hold stopped:
-            # a freeze, a node limit_locked, remote control, a non-live node,
-            # or the disk soft-cap pause. ⚠ It is
-            # `storage_blocked and on_disk`, NOT the dead `storage_frozen`
-            # flag (no writer since D-063) — matching the gate, per
-            # state-review 2026-09-12.
+            # a freeze, a node limit_locked, remote control or a non-live node.
             _belt_owned = True
             try:
-                # One coherent node/gate projection; retain the legacy read seam.
-                _bp = (store.read_runtime_node(slug, nid, ("storage_blocked",))
+                # One coherent node projection; retain the legacy read seam.
+                _bp = (store.read_runtime_node(slug, nid)
                        if store.STORE_BACKEND == "postgres" else None)
                 if _bp is None:
                     _bo = orgtx.org_read(slug)
                     _bn = _bo.node(nid) if nid in _bo.nodes else None
-                    _bd = _bo.d
                 else:
-                    _bn, _bd = _bp["node"], _bp
+                    _bn = _bp["node"]
                 _belt_owned = bool(
                     _bn is None
                     or _bn.get("halt")
                     or _bn.get("frozen")
                     or _bn.get("limit_locked")
                     or _bn.get("remote_controlled")
-                    or _bn["state"] != "live"
-                    or (_bd.get("storage_blocked")
-                        and sbx.on_disk(slug)))
+                    or _bn["state"] != "live")
             except Exception:                                # noqa: BLE001
                 _belt_owned = True
             if not _belt_owned:
@@ -26537,10 +26248,6 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
     if cache_event is not None:
         stream(slug, nid, {"kind": "cache_forecast",
                            "forecast": cache_event})
-    # sandboxed-org disk soft cap: checked per turn, either direction (and a
-    # stale host-folder block is cleared).
-    if sbx.is_sandboxed(org) or org.d.get("storage_blocked"):
-        storage_check(slug)
     n = org.node(nid)
     if n.get("bearer_state"):
         # §8.3: a predecessor NEVER re-compacts — it has already been compacted, in
@@ -26755,7 +26462,7 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
             #
             # UNKNOWN BEATS STALE, unconditionally: where the transcript
             # cannot answer (a boundary whose summary is not written yet, a
-            # sandboxed session this host cannot read) the peak is still a
+            # session this host cannot read) the peak is still a
             # fill this session does not have. `_fill or None` — never
             # "leave it standing".
             n2["occupancy"] = _fill or None
@@ -26858,7 +26565,7 @@ def _count_cli_compactions(
     The count is None — never 0 — when the session could not be READ, and the
     distinction is load-bearing (redteam 2026-08-20). `_after_turn` writes the
     first observation straight to the node, so a transient failure (a glob
-    over a huge projects/ tree, an AV lock, a sandbox bind-mount hiccup)
+    over a huge projects/ tree, an AV lock)
     baselining as 0 instead of the fork's true 1 would make the fork's own
     /compact read as new on the very next turn — re-minting the phantom this
     branch exists to kill, and now WITH a bearer, which `_phantom_evidence`
@@ -27013,12 +26720,6 @@ def _fork_bearer_session(org: Org, sid: str, upto: int) -> str | None:
                 f.write(ln if ln.endswith(b"\n") else ln + b"\n")
         os.replace(tmp, dst)
         tmp = None
-        # a sandboxed org's transcripts live in the container's home, and
-        # everything the backend mints through the UNC view lands root-owned
-        # while the CLI runs as `agent` (see sandbox.chown_agent). A bearer
-        # the agent can read but not append to fails the moment it is
-        # rehired — and the ledger would already be calling it consultable.
-        sbx.chown_home_path(org, dst)
         return new_sid
     except OSError:
         return None
@@ -27285,10 +26986,8 @@ def recover_lost_generation(slug: str, pred_id: str) -> dict[str, Any]:
 
     Three phases, because the middle one must not hold the doc lock: DECIDE
     under the lock, CUT outside it, RECORD under it again having re-checked
-    that nothing moved. The cut copies a multi-MB prefix and, on a sandboxed
-    org, shells out to `docker exec` with a 30 s ceiling — a stopped container
-    or a wedged daemon would otherwise block every other org's turn for the
-    whole window (redteam round 2; `spend_unrun_pardon` states the same rule
+    that nothing moved. The cut copies a multi-MB prefix, which would
+    otherwise block every other org's turn for the whole window (redteam round 2; `spend_unrun_pardon` states the same rule
     for its glob).
 
     PG-3e-B: DECIDE reads a lock-free snapshot. It writes nothing, and its
@@ -27580,9 +27279,6 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             raise RuntimeError("the Codex CLI is not installed")
         if not cstat.get("connected"):
             raise RuntimeError("codex is not signed in on this machine")
-        if sbx.is_sandboxed(org):
-            raise RuntimeError(
-                "codex agents cannot run in a sandboxed org yet")
         if str(n.get("codex_thread") or "") != old_sid:
             raise RuntimeError(
                 "the current session is not a resumable Codex thread")
@@ -27754,16 +27450,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
             "and archives this one's transcript")
         st0["compact_retry_at"] = time.time() + 3600
         return
-    if sbx.is_sandboxed(org):
-        # the session lives inside the org's container — fork it there too
-        try:
-            name = sbx.ensure_container(org)
-        except RuntimeError as e:
-            state(slug, nid)["last_error"] = f"compaction split failed: {e}"
-            return
-        head = sbx.exec_argv(name, sbx.cpath_scratch(slug, nid)) + ["claude"]
-    else:
-        head = _claude_argv()
+    head = _claude_argv()
     argv = head + ["-p", "--output-format", "json",
                    "--resume", old_sid, "--fork-session",
                    "--model", model,
@@ -28000,8 +27687,7 @@ def manual_compact(slug: str, nid: str) -> None:
 # session id is the hazard, so while the server runs the node is PARKED:
 # send_message queues mail without driving, and the turn gate refuses to
 # launch. Strictly user-triggered (starting the server ENROLLS this device
-# on the user's account — never automatic), unsandboxed agents only (a
-# container's session files never hold the subscription token). The spawned
+# on the user's account — never automatic). The spawned
 # server is leashed to the backend, and reconcile() clears stale flags on
 # startup — so a backend restart always ends remote control cleanly.
 
@@ -28041,11 +27727,11 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
     # writes serialize on the node's row lock (PG-3e-B: this tx and turn
     # admission both lock `nid` FOR UPDATE), so there is no window in which
     # the node looks idle and unflagged while the server is (about to be)
-    # driving the same session id. The killswitch and sandbox gates are read
+    # driving the same session id. The killswitch gate is read
     # FOR SHARE: a latch committing now orders before or after this park,
     # never through it.
     with orgtx.org_tx(slug, nodes=[nid],
-                      share_sections=["killswitch", "sandbox"]) as tx:
+                      share_sections=["killswitch"]) as tx:
         org = tx.org
         if nid not in org.nodes:
             return {"error": f"no agent {nid!r}"}
@@ -28058,11 +27744,6 @@ def _remote_control_start_owned(slug: str, nid: str) -> dict[str, Any]:
         if n["state"] != "live":
             return {"error": f"{nid} is {n['state']} — only a live agent "
                              f"can be remote-controlled"}
-        if sbx.is_sandboxed(org):
-            return {"error": "sandboxed agents are out of scope: their "
-                             "session files live inside the container, "
-                             "which deliberately never holds the "
-                             "subscription token"}
         if n.get("remote_controlled"):
             return {"ok": True, "already": True}
         sid = n["session_id"]
@@ -29110,131 +28791,6 @@ def freeze_provider_limit(slug: str, nid: str, blob: str,
     return True
 
 
-def _storage_ev(org: Org, level: str, scope: str, used_mb: float,
-                cap_mb: float | None) -> dict[str, Any]:
-    """The typed storage notice (family runtime_recovery, `runtime.storage`): the
-    tier and scope are literals, the numbers are MB as floats; the rendering is
-    byte for byte the former notice text (test_events_producers §R)."""
-    return events.mint("runtime.storage", _SYSTEM_ACTOR, _org_ref(org),
-                       level=level, used_mb=float(used_mb),
-                       cap_mb=(float(cap_mb) if cap_mb is not None else None),
-                       scope=scope)
-
-
-def _storage_check_disk(slug: str, org: Org) -> str | None:
-    """Storage enforcement for a DISK-MIGRATED org (user verdict): the ext4
-    cap itself is the hard limit (ENOSPC — no container stop, no ACL, ever);
-    this check runs the SOFT tiers. 80% warns every live node; 90% BLOCKS NEW
-    TURNS (the enforceable ext4 mapping of "agents blocked, engine keeps
-    journaling" — mail queues, the UI and the recovery path stay live, and
-    the last 10% is the reserve that lets in-flight turns journal their
-    transcripts); ≤85% auto-clears. ≥99% sets the hard-full flag the
-    recovery-browser alert renders persistently."""
-    from . import disk as dsk
-    du = dsk.usage(slug, max_age=5.0)
-    if du is None:
-        return None          # disk unmounted: nothing can write; ensure_container refuses anyway
-    used, total = du
-    frac = used / total if total else 0.0
-    nudge: list[str] = []
-    with halt.txn(slug, **{"sections": ["storage_blocked", "storage_warned", "storage_full", "notices"], "logs": ["notice_log", "events"]}) as _cb_tx:  # PG-3e-A
-        org = _cb_tx.org
-        blocked = bool(org.d.get("storage_blocked"))
-        warned = bool(org.d.get("storage_warned"))
-        full = bool(org.d.get("storage_full"))
-        live = [i for i, n in org.nodes.items() if n["state"] == "live"]
-        mb = 1048576
-        result: str | None = None
-        if frac >= 0.99 and not full:
-            org.d["storage_full"] = True     # stage-4 alert state (persistent)
-            result = "full"
-        elif full and frac < 0.99:
-            org.d.pop("storage_full", None)
-            result = result or None
-        if frac >= 0.90 and not blocked:
-            org.d["storage_blocked"] = True
-            org._notify_ev(live, _storage_ev(org, "over", "disk", used / mb, total / mb))
-            nudge = live
-            result = "blocked"
-        elif blocked and frac <= 0.85:
-            org.d.pop("storage_blocked", None)
-            org.d.pop("storage_warned", None)
-            org._notify_ev(live, _storage_ev(org, "cleared", "disk", used / mb, total / mb))
-            result = "cleared"
-        elif frac >= 0.80 and not blocked and not warned:
-            org.d["storage_warned"] = True
-            org._notify_ev(live, _storage_ev(org, "heads_up", "disk", used / mb, total / mb))
-            nudge = live
-            result = "warned"
-        elif warned and frac < 0.75:
-            org.d.pop("storage_warned", None)   # re-arm below 75%
-        # PG-3e-A DEVIATION: the DOC_LOCK version saved only `if result:`,
-        # so the two result-less pops above (re-arm below 75%, storage_full
-        # cleared below 99%) were silently dropped and a disk org could never
-        # re-warn. The transaction commits them, as the comments intend and
-        # as `storage_check`'s own re-arm always did.
-    if not result:
-        return None
-    for nid in nudge:
-        try:
-            if state(slug, nid)["busy"]:
-                send_message(slug, nid,
-                             "(orgtree) ⚠ Storage notice in your mail above — "
-                             "act on it NOW, mid-task.")
-        except Exception:                       # noqa: BLE001 — best-effort
-            pass
-    notify(slug, "", "storage_" + result)
-    return result
-
-
-def storage_check(slug: str) -> str | None:
-    """Storage enforcement dispatch. Disk-migrated sandboxed orgs → the soft
-    tiers over the ext4 cap (_storage_check_disk). Every other org
-    enforces nothing here: sandboxed-but-not-yet-migrated orgs get their
-    disk and its cap with the first container need. The pre-disk sandbox
-    enforcement (volume measurement → container stop → storage freeze) is
-    RETIRED (user ruling 2026-08-01, D-063)."""
-    org = store.load_org(slug)
-    if sbx.is_sandboxed(org):
-        if sbx.on_disk(slug):
-            return _storage_check_disk(slug, org)
-        return None
-    if not (org.d.get("storage_blocked") or org.d.get("storage_warned")):
-        return None
-    # A host-folder org has no storage limit, so a block or warning stored by
-    # an earlier version's per-org write limit is stale: clear it.
-    with halt.txn(slug, **{"sections": ["storage_blocked", "storage_warned"]}) as _cb_tx:
-        _cb_tx.org.d.pop("storage_blocked", None)
-        _cb_tx.org.d.pop("storage_warned", None)
-    return "cleared"
-
-
-_storage_check_at: dict[str, float] = {}
-
-
-def maybe_storage_check(slug: str) -> None:
-    """Per-TOOL-CALL storage cadence, throttled (storage-bypass audit: the
-    turn-end-only check let one long turn write unbounded data before anything
-    fired). The steering hook hits /steer after every tool call — this rides
-    that beat: at most one walk per org per 20 s, in a background thread so
-    the hot steer path never waits on a multi-GB walk."""
-    now = time.time()
-    if now - _storage_check_at.get(slug, 0.0) < 20:
-        return
-    _storage_check_at[slug] = now
-
-    def run() -> None:
-        try:
-            # read-only: the shared snapshot, not a private full load per
-            # org every 20 s (`storage_check` loads for itself if it runs)
-            org = store.cached_org(slug) if STEER_CHEAP else store.load_org(slug)
-            if sbx.is_sandboxed(org) or org.d.get("storage_blocked"):
-                storage_check(slug)
-        except Exception:       # noqa: BLE001 — advisory path, never breaks steering
-            pass
-    threading.Thread(target=run, daemon=True).start()
-
-
 # read-only session-introspection commands (user spec 2026-07-31): these
 # answer IMMEDIATELY — even mid-turn — instead of waiting for a turn slot
 IMMEDIATE_CMDS = {"context", "cost", "todos"}
@@ -29256,7 +28812,6 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
     if word not in IMMEDIATE_CMDS:
         return False
     org = store.load_org(slug)
-    _deployment_org_gate(org)
     n = org.node(nid)
     sid = n["session_id"]
     model = claude_model_for(org, nid)   # the id THIS CLI knows (see above)
@@ -29276,12 +28831,7 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
         proc = None
         try:
             halt.check(slug, nid)
-            if sbx.is_sandboxed(org):
-                name = sbx.ensure_container(org)
-                head = sbx.exec_argv(name,
-                                     sbx.cpath_scratch(slug, nid)) + ["claude"]
-            else:
-                head = _claude_argv()
+            head = _claude_argv()
             resume, fork_env = _claude_fork_context(org, nid)
             argv = head + ["-p", "--output-format", "stream-json", "--verbose",
                            "--resume", resume, "--fork-session",
@@ -29361,44 +28911,6 @@ def immediate_command(slug: str, nid: str, text: str) -> bool:
                     pass
     threading.Thread(target=run, daemon=True).start()
     return True
-
-
-_watchdog_started = False
-
-
-def start_storage_watchdog() -> None:
-    """20 s background sweep while turns are running (user spec 2026-07-31:
-    downloads count too — `git clone`/builds are ONE long bash call, so the
-    per-tool-call beat never fires while they balloon past the limit; the
-    watchdog lands the block MID-CALL, and the download's next file write
-    fails at the OS level). Orgs with no limit, no block and no busy node
-    cost nothing."""
-    global _watchdog_started
-    if _watchdog_started:
-        return
-    _watchdog_started = True
-
-    def run() -> None:
-        while True:
-            time.sleep(20)
-            try:
-                from .policy_reads import poll_orgs, storage_org
-                for slug, org in poll_orgs(storage_org):
-                    with _state_lock:
-                        busy = any(k[0] == slug and v.get("busy")
-                                   for k, v in _state.items())
-                    # Bounded read-only pre-checks; storage_check still does
-                    # its own loading and saving.
-                    # blocked orgs stay on the 20 s cadence even when idle —
-                    # a storage-frozen org runs no turns, so this loop IS its
-                    # auto-unblock path once usage drops
-                    if not busy and not org.d.get("storage_blocked"):
-                        continue
-                    if sbx.is_sandboxed(org) or org.d.get("storage_blocked"):
-                        storage_check(slug)
-            except Exception:   # noqa: BLE001 — the sweep must never die
-                pass
-    threading.Thread(target=run, daemon=True).start()
 
 
 def interrupt_all(slug: str, *,
@@ -29977,14 +29489,10 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
         tops = org.extern_recipients_preview()
         for nid in tops:
             updir = os.path.join(scratch_dir(slug, nid), "uploads")
-            new_updir = not os.path.isdir(updir)
             metas = []
             for src in attachments:
                 try:
                     os.makedirs(updir, exist_ok=True)
-                    if new_updir:      # root-owned when backend-minted (sandbox)
-                        new_updir = False
-                        sbx.chown_agent(org, nid, "uploads")
                     safe = re.sub(r"[^\w .()+\-]", "_",
                                   os.path.basename(src)).strip(" .") or "file.bin"
                     stem, ext = os.path.splitext(safe)
@@ -31108,11 +30616,6 @@ def launch_self_restart(
     `force=True` on its own is refused right here, so no later caller can turn
     the flag into a hard cut by passing it and nothing else.
     """
-    if not deployment.current_policy().allow_agent_restart:
-        raise RuntimeError(
-            "the frozen deployment profile disables agent-triggered "
-            "self-update and self-restart; deploy this installation through "
-            "an operator-controlled path")
     if target not in ("org", "mailhub", "both"):
         raise ValueError(f"unknown self-restart target {target!r}")
     hold_token = quiesced.get("hold_token") if quiesced else None
@@ -31523,11 +31026,6 @@ def arm_prime_restart(slug: str, nid: str, target: str,
     that reboots every few minutes would hold a deadline that never expires
     and the feature would silently do nothing on exactly the box that needs
     it most."""
-    if not deployment.current_policy().allow_agent_restart:
-        raise RuntimeError(
-            "the frozen deployment profile disables agent-triggered primed "
-            "restart; deploy this installation through an operator-controlled "
-            "path")
     if target not in ("org", "mailhub", "both"):
         raise ValueError(f"unknown self-restart target {target!r}")
     with _prime_lock:
@@ -31596,10 +31094,6 @@ def arm_prime_restart(slug: str, nid: str, target: str,
 def cancel_prime_restart(slug: str, nid: str) -> dict[str, Any]:
     """Disarm. A cancel with nothing armed is a benign no-op that SAYS it was
     a no-op — the caller is usually checking, not undoing."""
-    if not deployment.current_policy().allow_agent_restart:
-        raise RuntimeError(
-            "the frozen deployment profile disables agent-triggered primed "
-            "restart; manage deployment through an operator-controlled path")
     with _prime_lock:
         d = _prime_read()
         executing = d.get("executing")
@@ -31999,10 +31493,6 @@ def start_prime_restart_engine() -> None:
     registry; this loop only watches for the moment to spend it — which is
     what makes an armed prime survive this process dying and coming back."""
     global _prime_started
-    if not deployment.current_policy().allow_agent_restart:
-        # A prime left by an earlier standard-profile process stays durable
-        # but inert. Frozen mode must never spend it in the background.
-        return
     if _prime_started:
         return
     # An executing record belongs to the process that wrote it. Reaching this
@@ -32471,7 +31961,7 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
 #: The /steer door checks the credential against committed node fields
 #: instead of a private whole-org read. `claim_steer` skips
 #: the halt-gated claim transaction when there is no RAM carrier (it could
-#: only choose nothing), and the storage pre-check reads the snapshot. Off:
+#: only choose nothing). Off:
 #: exactly the behaviour before. Tests can flip this module attribute.
 STEER_CHEAP = os.environ.get("ORGTREE_STEER_CHEAP", "1") == "1"
 
@@ -33689,64 +33179,6 @@ def _restart_owners_gone() -> Callable[[Mapping[str, Any]], bool] | None:
     return owners_gone
 
 
-def _sandbox_container_state(slug: str) -> tuple[bool, float | None] | None:
-    """(running, started_at epoch) of the org's sandbox container, or None
-    when docker cannot say (missing container, docker error, timeout).
-
-    `started_at` is on the Docker daemon's clock (a VM on Windows), not this
-    host's, so it is reported for diagnostics only and is NEVER owner proof."""
-    try:
-        r = sbx._docker("container", "inspect", "-f",
-                        "{{.State.Running}} {{.State.StartedAt}}",
-                        sbx.container_name(slug), timeout=15)
-    except Exception:                                        # noqa: BLE001
-        return None
-    if r.returncode != 0:
-        return None
-    parts = (r.stdout or "").strip().split()
-    if len(parts) != 2 or parts[0] not in ("true", "false"):
-        return None
-    started: float | None = None
-    try:
-        stamp = parts[1].rstrip("Z")
-        whole, _, frac = stamp.partition(".")
-        started = _dtm.datetime.fromisoformat(whole).replace(
-            tzinfo=_dtm.timezone.utc).timestamp() + (float("0." + frac) if frac else 0.0)
-    except (ValueError, OverflowError):
-        started = None
-    return parts[0] == "true", started
-
-
-def _sandbox_owner_proof(org: Org, owners_gone: Callable[[Mapping[str, Any]], bool]
-                         ) -> Callable[[Mapping[str, Any]], bool]:
-    """A sandboxed org's provider runs INSIDE its container via `docker exec`;
-    the host table sees only the docker client, and killing that client leaves
-    the in-container process alive (sandbox.py). So the host proof is
-    necessary but not sufficient: also require positive container evidence
-    that no process from before this engine survives. The ONLY accepted
-    evidence is docker reporting the container exists and is not running.
-    A running container is never proof, whatever its StartedAt says: that
-    stamp is on the daemon's (VM's) clock, and without a proven bound on the
-    skew against this host's clock a pre-existing container could look
-    restarted (decision35 review N2). Missing, docker error or timeout
-    answer 'not proven'."""
-    cache: dict[str, bool] = {}
-    mine = getattr(owners_gone, "mine", None)
-
-    def stopped() -> bool:
-        if "v" not in cache:
-            state = _sandbox_container_state(org.d["slug"])
-            cache["v"] = bool(state is not None and state[0] is False)
-        return cache["v"]
-
-    def gone(row: Mapping[str, Any]) -> bool:
-        return owners_gone(row) and stopped()
-
-    gone.prior = getattr(owners_gone, "prior", None)  # type: ignore[attr-defined]
-    gone.mine = mine                                  # type: ignore[attr-defined]
-    return gone
-
-
 def _pid_provably_dead(pid: int) -> bool:
     """DECISIVELY dead, never merely 'could not confirm alive' (state-review
     2026-09-12). `_wd_proc_alive` returns False for BOTH a gone process and an
@@ -33896,8 +33328,7 @@ def wd_bash_exe() -> str | None:
 def _wd_popen(org: Org, owner: str, cmd: str,
               shell_pref: Any = None) -> subprocess.Popen[str]:
     """Spawn a dog's command WITH THE OWNER'S HANDS (capability ruling):
-    inside the owner's sandbox container when sandboxed, else a host shell in
-    the owner's scratch. clean_env like every agent process.
+    a host shell in the owner's scratch. clean_env like every agent process.
 
     `shell_pref` is the dog's `shell` field (2026-08-22). Absent/"native" is
     the historical behaviour EXACTLY — `shell=True`, i.e. cmd.exe on Windows
@@ -33911,12 +33342,8 @@ def _wd_popen(org: Org, owner: str, cmd: str,
     tool card would have TOLD it bash was fine. `watchdog_create` refuses the
     dog up front for the same reason; this is the tick-time half of it."""
     slug = org.d["slug"]
-    if sbx.is_sandboxed(org):
-        argv: list[str] | str = sbx.exec_argv(
-            sbx.container_name(slug),
-            sbx.cpath_scratch(slug, owner)) + ["sh", "-lc", cmd]
-        shell = False
-    elif str(shell_pref or "") == "bash":
+    argv: list[str] | str
+    if str(shell_pref or "") == "bash":
         exe = wd_bash_exe()
         if exe is None:
             raise OSError(
@@ -34031,14 +33458,12 @@ def wd_shell(org: Org, shell_pref: Any = None) -> str:
     looking exactly like "the condition never happened".
 
     `shell_pref` is the dog's opt-in `shell` field; absent means native."""
-    if sbx.is_sandboxed(org):
-        return "sh"                       # sh -lc, inside the owner's container
     if str(shell_pref or "") == "bash":
         return "bash"
     return "cmd" if os.name == "nt" else "sh"
 
 
-def wd_shell_note(shell: str, sandboxed: bool = False) -> str:
+def wd_shell_note(shell: str) -> str:
     """The idiom warning that goes with `wd_shell` — said in full, because the
     whole defect was an agent confidently writing for the wrong one."""
     if shell == "bash":
@@ -34054,8 +33479,7 @@ def wd_shell_note(shell: str, sandboxed: bool = False) -> str:
                 "$(...), $VAR and /tmp/... all fail here, and `find` resolves "
                 "to Windows FIND.EXE, not GNU find. Use findstr, dir /b, "
                 "%VAR%, and %TEMP%.")
-    return ("target runs in a POSIX shell" + (" INSIDE your sandbox container"
-                                              if sandboxed else "")
+    return ("target runs in a POSIX shell"
             + " with the backend service's environment — your interactive "
               "shell's aliases, rc files and PATH additions are not there.")
 
@@ -34316,7 +33740,7 @@ def wd_smoke(org: Org, owner: str, kind: str, target: str,
     Never raises: a create must not fail because its smoke run did."""
     sh = wd_shell(org, shell_pref)
     res: dict[str, Any] = {"shell": sh,
-                           "note": wd_shell_note(sh, sbx.is_sandboxed(org))}
+                           "note": wd_shell_note(sh)}
     pat = None
     if pattern:
         try:
@@ -34446,7 +33870,7 @@ def _wd_owner_lost(org: Org, w: dict[str, Any]) -> str | None:
     if kind in ("command", "stream") and not n["scope"]["tools"].get("bash"):
         return "its owner no longer holds bash — the hands it runs with"
     if kind in ("command", "stream") and str(w.get("shell") or "") == "bash" \
-            and not sbx.is_sandboxed(org) and wd_bash_exe() is None:
+            and wd_bash_exe() is None:
         # the same "checked once, never again" lesson as the two above, for
         # the shell opt-in: `watchdog_create` refuses a bash dog when there is
         # no bash, and uninstalling Git afterwards must not leave the dog
@@ -34456,11 +33880,6 @@ def _wd_owner_lost(org: Org, w: dict[str, Any]) -> str | None:
                 "silently match nothing (re-create it with shell='native' "
                 "and a cmd target, or reinstall Git)")
     if kind == "file":
-        if sbx.is_sandboxed(org):
-            # the org moved into a container after the dog was armed; the
-            # host path it watches is not one the owner can even name now
-            return "its owner now runs sandboxed — watch the file with a " \
-                   "stream dog inside the container instead"
         if not wd_file_contained(org, owner, str(w["target"])):
             return "its owner no longer holds the folder it watches"
     return None
@@ -35257,21 +34676,11 @@ def forget(slug: str, nids: Iterable[str]) -> None:
     """After a user delete of NODES: drop runtime state and remove org-owned
     scratch dirs. Lineage ids share their base's scratch, so only base ids
     delete directories; session transcripts under ~/.claude are deliberately
-    left alone.
-
-    ⚠ The scratch base must branch on the DISK-MIGRATED case exactly like
-    scratch_dir() does (redteam 2026-08-05): rmtree aimed at
-    store.scratch_root for a disk-migrated org deleted a path that never
-    existed — ignore_errors swallowed the miss and the agent's working
-    folder stayed on the org disk forever, counted against its quota."""
+    left alone."""
     import shutil
     nids = set(nids)
     forget_state(slug, nids)
-    if sbx.on_disk(slug):
-        from . import disk as dsk
-        base = dsk.windows_sub(slug, "scratch")
-    else:
-        base = store.scratch_root(slug)
+    base = store.scratch_root(slug)
     for nid in {n for n in nids if "@" not in n}:
         shutil.rmtree(os.path.join(base, nid), ignore_errors=True)
 
@@ -35287,9 +34696,9 @@ def _store_provably_absent(proj: str) -> bool:
     2026-08-18). №31 condemns a whole org on that difference, so it is
     proven by walking up to something that answers, never inferred.
 
-    Climbing matters: the WHOLE root can be missing (`<data>/sandboxes/…`
-    for an org whose sandbox dir was never created), which is still a
-    genuine absence as long as some ancestor can be listed without it."""
+    Climbing matters: the WHOLE root can be missing (a profile directory
+    that was never created), which is still a genuine absence as long as
+    some ancestor can be listed without it."""
     p = os.path.abspath(proj)
     while True:
         parent = os.path.dirname(p)
@@ -35319,11 +34728,8 @@ def _transcript_evidence(org: Org, *, inventory: NativeInventory | None = None) 
         # of EVERY node (retired history included) come from the distinct
         # bindings, without decoding every row (engine-startup-cost-must-
         # not-grow-with-retired-h); a node with no binding has no own root
-        if sbx.is_sandboxed(org):
-            roots = {_transcript_root(org)}
-        else:
-            roots = {_account_transcript_root(a)
-                     for a in store.node_field_values(org, "account") if a}
+        roots = {_account_transcript_root(a)
+                 for a in store.node_field_values(org, "account") if a}
         for root in roots - {None, _transcript_root(org)}:
             try:
                 seen.update(transcript_index(root, strict=True))
@@ -35360,33 +34766,25 @@ def _legacy_transcript_evidence(org: Org) -> dict[str, str] | None:
 
     `transcript_index` returns `{}` for two states reconcile cannot otherwise
     tell apart: "this store holds no transcripts" and "this store is not
-    there". For a disk-migrated sandboxed org the second is the NORMAL state
-    after a host reboot — the ext4 image is not loop-mounted until something
-    asks for a container, and the startup sweep runs before anything does. A
-    verdict from that empty index condemns EVERY live node in the org in one
-    pass, and each one then refuses mail.
+    there". A verdict from an empty index condemns EVERY live node in the
+    org in one pass, and each one then refuses mail.
 
-    Resolving the root can also raise outright (`disk.distro()` fails loud
-    with `DiskError` when WSL is down), and the sweep's caller is a FastAPI
-    startup handler with no guard around it: with Docker Desktop stopped, one
-    disk-migrated org stopped the whole backend from starting.
+    Resolving the root can also raise outright, and the sweep's caller is a
+    FastAPI startup handler with no guard around it, so a raise is caught
+    here rather than stopping the whole backend from starting.
 
     ⚠ Three verdicts, and the distinction between the last two is the
     whole point (redteam 2026-08-18). The walk itself decides — never a
     separate `isdir`, which answers False for an unreadable directory and
-    True for one that cannot be LISTED (a root-owned `projects/` on an org
-    disk; a transient 9p error over the \\wsl.localhost view), the second
-    of which walks straight back into the empty-index condemnation:
+    True for one that cannot be LISTED, the second of which walks straight
+    back into the empty-index condemnation:
 
       * PRESENT → the index, and №31 judges normally;
       * UNREADABLE (any OSError but ENOENT/ENOTDIR) → None. Present-but-
         unlistable is not evidence of anything;
       * NOT A DIRECTORY (ENOTDIR) → the store cannot be reached THROUGH
-        that path, which is a verdict rather than a blind spot: `{}` for a
-        host-backed org (see below), None for a sandboxed one;
-      * MISSING (ENOENT) → None for a SANDBOXED org, whose transcripts sit
-        on a disk image that is routinely not mounted yet; and for a
-        host-backed org, `{}` only when the store is PROVABLY absent.
+        that path, which is a verdict rather than a blind spot: `{}`;
+      * MISSING (ENOENT) → `{}` only when the store is PROVABLY absent.
         Gone must still condemn — skipping the sweep would let a user who
         deleted their transcript store resume onto silent empty sessions
         instead of being told, which is the outcome №31 exists to prevent
@@ -35402,14 +34800,11 @@ def _legacy_transcript_evidence(org: Org) -> dict[str, str] | None:
     except Exception:                                        # noqa: BLE001
         return None                     # the root would not even resolve
     base = root or os.path.expanduser("~/.claude")
-    sandboxed = sbx.is_sandboxed(org)
     try:
         return transcript_index(root, strict=True)
     except NotADirectoryError:
-        return None if sandboxed else {}
+        return {}
     except FileNotFoundError:
-        if sandboxed:
-            return None
         return {} if _store_provably_absent(
             os.path.join(base, "projects")) else None
     except OSError:
@@ -35518,9 +34913,6 @@ def _condemnable(n: NodeDoc, seen: Mapping[str, str]) -> bool:
             and not n.get("bearer_state")
             and not n.get("session_unrun")
             and _foreign_session_provider(n) is None
-            # audit finding: the root MUST be the org's — sandboxed
-            # transcripts live under <data>/sandboxes/<slug>/home, and
-            # omitting it condemned every sandboxed node at restart
             and n["session_id"] not in seen)
 
 
@@ -35678,8 +35070,6 @@ def _reconcile_mail_journal(org: Org, *,
     all_folded = set()
     if org.d.get("killswitch"):
         return frozenset()
-    if owners_gone is not None and sbx.is_sandboxed(org):
-        owners_gone = _sandbox_owner_proof(org, owners_gone)
     for nid in list(org.d.get("delivering") or {}):
         node = org.nodes.get(nid)
         if _reclaim_blocked(org, nid):
@@ -36509,39 +35899,6 @@ def _cmd_stdout(raw: str) -> str:
             out.append(("⚠ " if tag.endswith("stderr") else "")
                        + m.group(1).strip())
     return _ANSI_RE.sub("", "\n\n".join(out))[:20000]
-
-
-def sandbox_dirs_to_host(
-        org: Org, add_dirs: list[Any] | None,
-) -> tuple[list[Any] | None, list[str]]:
-    """Container→host translation for agent-supplied dir grants in SANDBOXED
-    orgs (user bug 2026-07-31): sandboxed agents are deliberately told only
-    container paths (/home/agent/orgtree/...), but the ledger holds host
-    paths — so every folder the system itself said they hold was refused
-    with №30. Workspace-tree paths map onto the host workspace; scratch-tree
-    paths are DROPPED with a warning (scratch is every agent's own cwd —
-    always reachable, never a grant); anything else passes through untouched
-    and meets the honest №30 refusal. Returns (dirs, warnings)."""
-    if add_dirs is None or not sbx.is_sandboxed(org):
-        return add_dirs, []
-    slug = org.d["slug"]
-    cw = sbx.cpath_workspace(slug)
-    cs = f"{sbx.cpath_data()}/scratch/{slug}"
-    host_ws = org.d.get("workspace") or store.workspace_dir(slug)
-    out, warns = [], []
-    for d in add_dirs:
-        if isinstance(d, str):
-            d = {"path": d, "mode": "rw"}
-        p = str(d.get("path", "")).replace("\\", "/").rstrip("/")
-        if p == cw or p.startswith(cw + "/"):
-            out.append({**d, "path": os.path.normpath(host_ws + p[len(cw):])})
-        elif p == cs or p.startswith(cs + "/"):
-            warns.append(f"{d.get('path')}: scratch is each agent's own "
-                         f"working folder — always reachable, never a grant; "
-                         f"dropped from the dir list")
-        else:
-            out.append(dict(d))
-    return out, warns
 
 
 def _ts_gap_secs(a: str | None, b: str | None) -> int | None:

@@ -15,7 +15,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 
 from engine.launch import load_app
 app,*_ = load_app()
-from orgtree import accounts, store, ledger, supervisor, api, mcptool
+from orgtree import accounts, store, ledger, supervisor, api, mcptool, deployment
 
 def tearDownModule():
     store._POOL.close_all('docket-policy')
@@ -70,13 +70,23 @@ class DesktopPolicyTests(unittest.TestCase):
             self.assertIn('Update now', description)
             self.assertIn('Windows installer', description)
 
-        with patch.dict(os.environ, {
-            'ORGTREE_DESKTOP_MANAGED': '1',
-            'ORGTREE_DEPLOYMENT_PROFILE': 'frozen',
-        }):
-            frozen_names = {tool['name'] for tool in mcptool.available_tools()}
-        self.assertNotIn('orgtree_self_relaunch', frozen_names)
-        self.assertNotIn('orgtree_prime_relaunch', frozen_names)
+    def test_removed_frozen_profile_fails_startup_with_named_error(self):
+        # the "frozen" deployment profile is removed: selecting it must stop
+        # startup with a config error naming it, never fall back silently
+        for value in ('frozen', ' FROZEN '):
+            with patch.dict(os.environ, {'ORGTREE_DEPLOYMENT_PROFILE': value}):
+                with self.assertRaisesRegex(
+                        deployment.DeploymentConfigError,
+                        r"'frozen' deployment profile has been removed"):
+                    api._deployment_preflight()
+                with self.assertRaises(deployment.DeploymentConfigError):
+                    deployment.current_policy()
+        with patch.dict(os.environ, {'ORGTREE_DEPLOYMENT_PROFILE': 'bogus'}):
+            with self.assertRaisesRegex(deployment.DeploymentConfigError, 'bogus'):
+                api._deployment_preflight()
+        for value in ('', 'standard'):
+            with patch.dict(os.environ, {'ORGTREE_DEPLOYMENT_PROFILE': value}):
+                self.assertIs(api._deployment_preflight(), deployment.STANDARD)
 
     def test_git_verify_refused_but_docket_list_available(self):
         org = store.create_org('docket-policy')
@@ -104,10 +114,6 @@ class DesktopPolicyTests(unittest.TestCase):
     def test_routes_and_runtime_refuse_excluded_features(self):
         client = TestClient(app)
         headers = {'X-Orgtree-Desktop-Token':'operator'}
-        with patch.object(store,'create_org',side_effect=AssertionError('must reject before write')):
-            for extra in ({'sandbox':True},{'disk_mb':4096}):
-                response = client.post('/api/orgs',json={'name':'forbidden',**extra},headers=headers)
-                self.assertEqual(response.status_code,422,response.text)
         # The excluded routes are REMOVED from the router (desktop_policy
         # .install_routes), so a request falls through to the SPA catch-all,
         # which serves GET only and answers 405 — never 404. Asserting the
@@ -127,14 +133,9 @@ class DesktopPolicyTests(unittest.TestCase):
         with patch.object(accounts,'registry_path',side_effect=AssertionError('no registry read')):
             self.assertEqual(accounts.load()['keys'],[])
         with self.assertRaises(accounts.RegistryUnreadable): accounts.save({'keys':[]})
-        org = ledger.Org.create('runtime')
         # the V1 org-key window is gone outright in every build (user
         # redesign 2026-09-12), so desktop no longer needs a guard for it
         self.assertFalse(hasattr(supervisor, 'api_fallback_active'))
-        org.d.update(sandbox={'enabled': True})
-        with self.assertRaises(ValueError): supervisor._deployment_org_gate(org)
-        org.d.pop('sandbox', None)
-        supervisor._deployment_org_gate(org)
         self.assertEqual(client.get('/api/orgs',headers=headers).status_code,200)
 
 if __name__ == '__main__': unittest.main()

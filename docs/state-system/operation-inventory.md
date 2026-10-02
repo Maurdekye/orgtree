@@ -31,7 +31,7 @@ The runtime census must retain the logical end-to-end denominator.
 
 The scanner retains dynamic selectors and targets as unresolved expressions.
 Names such as `mount`, `submit` and `TOOLS` are deliberately conservative source
-candidates: a disk mount or an unrelated set can appear and needs disposition,
+candidates: a filesystem mount call or an unrelated set can appear and needs disposition,
 not inclusion in an operation denominator. Exception-class hooks also appear as
 expressions rather than being incorrectly treated as literal route strings.
 Task hand-offs are matched by call name, so `asyncio.to_thread` is recorded as

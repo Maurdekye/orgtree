@@ -70,8 +70,6 @@ class SteerPollCostTests(unittest.TestCase):
         self.stack.enter_context(patch.object(warmpool, "poke"))
         self.stack.enter_context(patch.object(sup, "notify"))
         self.stack.enter_context(patch.object(sup, "_emit_committed_steer"))
-        # the storage walk is its own concern (and backgrounded): keep it out
-        self.stack.enter_context(patch.object(sup, "maybe_storage_check"))
         fd, self.tp = tempfile.mkstemp(prefix="transcript-", suffix=".jsonl", dir=_root.name)
         os.close(fd)
         self.client = TestClient(TokenGate(api.app, "test-operator"))
@@ -263,37 +261,6 @@ class SwitchOffTests(SteerPollCostTests):
 
 
 SwitchOffTests._imported = sup.STEER_CHEAP
-
-
-class StoragePrecheckTests(unittest.TestCase):
-    def setUp(self):
-        self.stack = ExitStack()
-        self.stack.enter_context(patch.object(sup, "STEER_CHEAP", True))
-
-    def tearDown(self):
-        self.stack.close()
-
-    def test_precheck_reads_the_snapshot_and_still_fires(self):
-        org = store.create_org(f"spc-st-{next(_SERIAL)}")
-        slug = org.d["slug"]
-        SLUGS.append(slug)
-        org.d["sandbox"] = {"enabled": True}
-        store.save_org(org)
-
-        class Now:                          # run the background walk inline
-            def __init__(self, target, daemon=None):
-                self.target = target
-
-            def start(self):
-                self.target()
-
-        sup._storage_check_at.pop(slug, None)
-        with patch.object(sup.threading, "Thread", Now), \
-                patch.object(sup, "storage_check") as walk, \
-                patch.object(store, "load_org", wraps=store.load_org) as load:
-            sup.maybe_storage_check(slug)
-        walk.assert_called_once_with(slug)
-        self.assertEqual(load.call_count, 0, "the pre-check did a private full load")
 
 
 if __name__ == "__main__":

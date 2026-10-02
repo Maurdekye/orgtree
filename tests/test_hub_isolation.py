@@ -365,8 +365,6 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
         'tests/test_state_operation_contracts.py': 'names engine/launch.py in an asserted reason string only',
         'tests/test_state_operation_inventory.py': 'names engine/launch.py and service_host.py as '
                                                    'inventory paths (strings, comments) only',
-        'tests/test_state_reservation_boundary.py': 'names engine/launch.py in a comment; builds the app '
-                                                    'with load_app but never enters TestClient (no startup, no hub)',
         'tests/test_startup_progress.py': 'runs service_host.main against a stub launch.py',
         'tests/test_engine_liveness.py': 'runs service_host.run_host against a stub launch.py',
         'tests/hub_isolation.py': 'the helpers themselves; boots no engine',

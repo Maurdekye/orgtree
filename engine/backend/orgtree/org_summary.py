@@ -13,7 +13,7 @@ from .ledger import Org
 from .readonly_projection import ProjectionDoc
 
 _ADMIN_KEYS = tuple('''slug name created net_identity tiers models deleted_cost_usd
- workspace sandbox disk storage_blocked _actors_typed whole_grants_v1
+ workspace _actors_typed whole_grants_v1
  _migrations fable_lock nodes'''.split())
 
 

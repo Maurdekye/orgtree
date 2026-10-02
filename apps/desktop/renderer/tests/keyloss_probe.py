@@ -77,7 +77,7 @@ HARD CONSTRAINTS OBSERVED
 - Binds ONLY port 7408 by default (--port to override). Never 7360/7361/7362
   (the live deployment), never 7401 (the backend test rig), never 7407
   (crowdtoggle_probe).
-- Own ORGTREE_DATA/HOME under a temp dir, ORGTREE_BRIDGE_PORT=0, fakecli — no
+- Own ORGTREE_DATA/HOME under a temp dir, fakecli — no
   real model call. Deletes the org it creates.
 - ⚠ It does NOT build. Run `npm run build` first or you measure a stale `dist`.
 - ⚠ NO REAL KEY IS EVER TYPED. The sentinel below is not a credential and the
@@ -172,7 +172,6 @@ def start_backend() -> None:
         "ORGTREE_TURN_TIMEOUT": "60",
         "PYTHONPATH": os.path.join(_REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",
-        "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })
     env.pop("ORGTREE_EXPOSE_ADMIN", None)

@@ -306,7 +306,6 @@ class AdmissionPathTests(unittest.TestCase):
         self.patches = [
             patch.object(sup, '_cache_snapshot', side_effect=snapshot),
             patch.object(sup, 'spawn_env', return_value={}),
-            patch.object(sup, '_deployment_org_gate'),
             patch.object(sup.appsettings, 'subscription_inference_enabled',
                          return_value=True),
             patch.object(sup, 'export_predecessor_transcript'),

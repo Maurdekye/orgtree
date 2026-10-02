@@ -65,8 +65,7 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
         "reply-events-count", "reply-events-clear", "mail-retract", "send-file")} | {
     f"org-read.{v}" for v in (
         "chat", "file", "scratch", "tool-image", "node-history", "history-sources",
-        "history-entries", "events", "orgmd", "net", "aggregates", "bridge-credential",
-        "disk-list", "disk-dir", "disk-file")}
+        "history-entries", "events", "orgmd", "net", "aggregates")}
 #: the managed-wait tools (mcptool.MANAGED_WAIT_TOOLS) among the probed ones
 MANAGED_WAIT = {"orgtree_hire", "orgtree_staff", "orgtree_rehire", "orgtree_retire",
                 "orgtree_dissolve", "orgtree_cheap_compact", "orgtree_watchdog",
@@ -425,16 +424,9 @@ class OperationContacts(unittest.TestCase):
             "dropped_capture_off", "evicted")
     #: rows that make an unknown-class contact ON PURPOSE, and exactly which
     DECLARED = {
-        "sandbox:chown-new-dir": ["guard:process/subprocess.Popen"],
-        "sandbox:on-disk": ["guard:process/subprocess.Popen"],
         "provider:codex-not-signed-in": ["guard:process/subprocess.Popen"],
         "provider:legacy-tier": ["guard:process/subprocess.Popen"],
         "provider:openrouter-network-refused": ["guard:egress/urllib.Request"],
-        # F6: a disk read on an org whose disk is configured but not mounted
-        # shells out to WSL (disk._run)
-        "refusal:disk-list-unmounted": ["guard:process/subprocess.Popen"],
-        "refusal:disk-dir-unmounted": ["guard:process/subprocess.Popen"],
-        "refusal:disk-file-missing": ["guard:process/subprocess.Popen"],
     }
     F_CONN, F_STMT = "sqlite_connect:data:org-db:foreign", "statement:data:org-db:foreign"
 
@@ -488,39 +480,6 @@ class OperationContacts(unittest.TestCase):
             "control:foreign-org-contact", "mail.message:org", "mail.message:bare-unknown-name",
             "org.tree", "migration:legacy-json", "refusal:human-unknown-node",
             "control:work-read-foreign-org", "catalogue.list-orgs"} | self.EX_FOREIGN)
-
-    def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
-        """material.reads: a SANDBOXED org's transcript is read from the
-        sandbox home; with disk-backed placement the path resolution itself
-        starts wsl (refused here) before any read."""
-        for condition in ("cold", "warm"):
-            with self.subTest(condition=condition):
-                t = self.rows(contract="material.transcript", variant="sandbox:host-placed",
-                              condition=condition)[0]
-                self.assertEqual(t["http_status"], 200, t["detail"])
-                self.assertIn("file_read:data:sandbox", t["contact_classes"])
-                self.assertNotIn("file_read:home:provider", t["contact_classes"])
-                sc = self.rows(contract="material.scratch", variant="sandbox:host-placed",
-                               condition=condition)[0]
-                self.assertEqual(sc["http_status"], 200, sc["detail"])
-                self.assertIn("file_read:data:scratch", sc["contact_classes"])
-        for contract in ("material.scratch", "material.transcript"):
-            with self.subTest(on_disk=contract):
-                r = self.rows(contract=contract, variant="sandbox:on-disk")[0]
-                self.assertEqual(r["http_status"], 500)
-                self.assertIn("GuardRefused", r["detail"])
-                self.assertEqual(r["guard_refusals"], {"process/subprocess.Popen": 1})
-                self.assertFalse([c for c in r["contact_classes"]
-                                  if c.endswith(("data:sandbox", "data:scratch"))])
-
-    def test_sandbox_chown_effect_is_attempted_and_its_failure_swallowed(self):
-        """material.effects: minting a node's scratch dir in a sandboxed org
-        hands it to the container user (docker exec); refused, the product
-        swallows the failure and the read still answers."""
-        r = self.rows(variant="sandbox:chown-new-dir")[0]
-        self.assertEqual(r["http_status"], 200, r["detail"])
-        self.assertEqual(r["guard_refusals"], {"process/subprocess.Popen": 1})
-        self.assertIn("fs_mutation:data:scratch", r["contact_classes"])
 
     def test_json_backend_diagnostic_contacts(self):
         """diagnostic.reads on the JSON store backend: a child process of the
@@ -2190,7 +2149,8 @@ class OperationContacts(unittest.TestCase):
 
     def test_exchange_rows_reach_only_the_declared_set(self):
         rows = self.ex_rows()
-        self.assertGreater(len(rows), 60)
+        # 60 since the storage-blocked org's two rows went with the org disk
+        self.assertGreaterEqual(len(rows), 60)
         for r in rows:
             agents = r["agents"]
             with self.subTest(variant=r["variant"], condition=r["condition"]):
@@ -2243,9 +2203,9 @@ class OperationContacts(unittest.TestCase):
 
     def test_exchange_refusals_write_nothing_to_the_org(self):
         refusals = [r for r in self.ex_rows() if r["variant"].startswith("refusal:")]
-        # 18 route refusals, the two retired @mcp: sends (with and without an
-        # attachment) and 7 send_file refusals
-        self.assertEqual(len(refusals), 27)
+        # 17 route refusals, the two retired @mcp: sends (with and without an
+        # attachment) and 6 send_file refusals
+        self.assertEqual(len(refusals), 25)
         for r in refusals:
             with self.subTest(variant=r["variant"]):
                 self.assertGreaterEqual(r["http_status"], 400)
@@ -2263,9 +2223,7 @@ class OperationContacts(unittest.TestCase):
 
     # -- P01 F6: the org and agent reads (org-read.*) ---------------------------------
     OR_CONTROL = "control:org-read-third-agent"
-    #: contract -> (the variant run cold and warm, its status). The bridge
-    #: credential and the disk reads have no synthetic success path (they need
-    #: a sandboxed org): their cold/warm rows are the standard answers
+    #: contract -> (the variant run cold and warm, its status)
     OR_MAIN = {
         "org-read.chat": ("org-read.chat", 200), "org-read.file": ("org-read.file", 200),
         "org-read.scratch": ("org-read.scratch", 200),
@@ -2275,10 +2233,6 @@ class OperationContacts(unittest.TestCase):
         "org-read.history-entries": ("org-read.history-entries", 200),
         "org-read.events": ("org-read.events", 200), "org-read.orgmd": ("org-read.orgmd", 200),
         "org-read.net": ("org-read.net", 200), "org-read.aggregates": ("org-read.aggregates", 200),
-        "org-read.bridge-credential": ("refusal:bridge-standard-profile", 409),
-        "org-read.disk-list": ("refusal:disk-list-no-disk", 409),
-        "org-read.disk-dir": ("refusal:disk-dir-no-disk", 409),
-        "org-read.disk-file": ("refusal:disk-file-no-disk", 409),
     }
     #: the reads that WRITE on a first call, and their repeat rows that do not
     OR_FIRST = {"org-read.chat", "org-read.history-entries:chat-first", "org-read.net"}
@@ -2353,7 +2307,7 @@ class OperationContacts(unittest.TestCase):
 
     def test_org_reads_reach_only_the_declared_set(self):
         rows = self.or_rows()
-        self.assertGreater(len(rows), 60)
+        self.assertGreater(len(rows), 43)
         for r in rows:
             agents = r["agents"]
             with self.subTest(variant=r["variant"], condition=r["condition"]):
@@ -2368,11 +2322,9 @@ class OperationContacts(unittest.TestCase):
     def test_org_read_refusals_write_nothing_to_the_org(self):
         refusals = [r for r in self.or_rows() if r["variant"].startswith("refusal:")
                     and r["variant"] != "refusal:chat-bad-cursor"]
-        # 10 cold/warm standard answers of the bridge and disk reads, 2 on the
-        # unmounted disk, 25 in the refusal table, the frozen-profile bridge
-        # read of a missing org, the agent token, and the repeat bad-cursor chat
-        # read (its first call is the recorded legacy write)
-        self.assertEqual(len(refusals), 40)
+        # 21 in the refusal table, the agent token, and the repeat bad-cursor
+        # chat read (its first call is the recorded legacy write)
+        self.assertEqual(len(refusals), 23)
         for r in refusals:
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertGreaterEqual(r["http_status"], 400)
@@ -2380,17 +2332,6 @@ class OperationContacts(unittest.TestCase):
                 self.assertEqual(r["agents"]["logical"], {})
         [token] = self.rows(variant="refusal:org-read-agent-token")
         self.assertEqual((token["http_status"], token["census"]["records"]), (401, 0))
-        # the frozen deployment profile: the bridge credential of an org that is
-        # not sandboxed answers 503, in both conditions
-        for r in self.rows(variant="refusal:bridge-frozen-not-sandboxed"):
-            self.assertEqual(r["http_status"], 503, r["condition"])
-            self.assertIn("is not sandboxed", r["detail"])
-        # a disk read on a configured but unmounted disk starts wsl.exe: the
-        # guard refuses exactly that process start, and nothing else
-        for variant in ("refusal:disk-list-unmounted", "refusal:disk-dir-unmounted",
-                        "refusal:disk-file-missing"):
-            [r] = self.rows(variant=variant)
-            self.assertEqual(set(r["guard_refusals"]), {"process/subprocess.Popen"}, variant)
 
     def test_org_read_third_agent_control_is_flagged(self):
         control = self.rows(variant=self.OR_CONTROL)[0]

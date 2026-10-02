@@ -60,14 +60,12 @@ os.environ["ORGTREE_PORT"] = "7404"          # never bound
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import api, net, sandbox, store, supervisor          # noqa: E402
+from orgtree import api, net, store, supervisor                   # noqa: E402
 from orgtree.ledger import LedgerError, Org, USER                 # noqa: E402
 
-# no chatq registry writes, no Docker, no host storage walks
+# no chatq registry writes
 supervisor.chatq_register_org = lambda slug: None
 supervisor.chatq_deregister_org = lambda slug: None
-supervisor.storage_check = lambda slug: None
-sandbox.warm = lambda org: None
 
 ADMIN = api.app
 
@@ -463,24 +461,6 @@ def sec_hygiene() -> None:
             "a second reveal minted a DIFFERENT identity — the address must "
             "be stable from the moment it first exists")
     check("a pre-F-06 org backfills once, on first reveal", _lazy_backfill)
-
-    def _bridge_gateway_closed():
-        # the OTHER door out of loopback: V2 removed sandboxed orgs (user
-        # decision 2026-09-07), so no org can ever hold a bridge secret —
-        # by construction, no bridge caller exists. The gateway CLASS still
-        # stands; pin the belt: a bridge-marked request with any secret is
-        # refused at …/net and no identity material rides the refusal.
-        slug = make_org()
-        ident = store.load_org(slug).d["net_identity"]
-        got = call(api.BridgeGateway(api.app), "GET",
-                   f"/api/orgs/{slug}/net",
-                   headers=[("x-orgtree-bridge", "f" * 32)])
-        assert got.status in (403, 404), got
-        assert ident["secret"] not in got.text, \
-            "THE SECRET LEAKED THROUGH THE BRIDGE GATEWAY"
-    check("☞ the sandbox bridge never reaches …/net either (sandboxes "
-          "removed; the gateway itself still refuses)",
-          _bridge_gateway_closed)
 
     def _unknown_org():
         r = call(ADMIN, "GET", "/api/orgs/zz-no-such-org/net")

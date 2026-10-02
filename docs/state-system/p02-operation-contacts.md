@@ -28,6 +28,21 @@ read would compute it and start `git`, which a running app never does on a
 read path. `tests/test_p02_operation_contacts.py`
 runs the probe and checks its output.
 
+**Removed on 2026-10-02, with the per-org sandbox, the org disk, the bridge
+and the frozen deployment profile.** The rows that measured them are gone
+from the tool and from this report: the sandboxed-org material rows
+(`sandbox:host-placed`, `sandbox:chown-new-dir`, `sandbox:on-disk`), the
+bridge-credential and disk reads of F6 (their standard answers, the
+frozen-profile answers and the unmounted-disk rows that started `wsl.exe`),
+and the storage-blocked upload and send_file refusals of F4. The storage
+check is no longer a spy (it no longer exists). The probe was NOT re-run for
+this change: every number below is the earlier run. Rows that remain but
+whose arrangement changed were not re-measured. In particular, the cross-org
+rows (the org list, the org tree's `local_net_slugs`, `orgtree_list_orgs`,
+the bare-name lookups) ran with the sandboxed, unmounted-disk and
+storage-blocked synthetic orgs present, and the material scratch reads went
+through `scratch_dir`'s former disk-placement check.
+
 ## Cross-org reads found (recorded, not fixed)
 
 Operations that read OTHER orgs' stores. Each is observed by the probe on
@@ -53,22 +68,6 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   and `/wait`) did the same, even with an `?org=` filter, until they were
   retired on 2026-09-25.
 - **An `@org:` send from the org inbox writes the other org's store**.
-
-## Reads that start a process (recorded, not fixed)
-
-- **An admin disk read on an org whose virtual disk is configured but not
-  mounted starts `wsl.exe`** (P01 F6, below). `GET /api/orgs/{slug}/disk`
-  and `/disk/dir` reach `disk.is_mounted` (through `usage` / `enumerate`),
-  and `/disk/file` reaches `disk.windows_path` (through `_disk_rel`). Both
-  call `disk.mount_path` → `mount_root()`, and `distro()`: the first run is
-  `wsl -l -q`, then `mount_root()` runs
-  `wsl -d <docker-desktop distro> -e sh -c "mkdir -p /mnt/host/wsl/orgtree-disk"`,
-  a WRITE inside the real distro (both are cached per process after the
-  first success). The probe's guard refuses the first process start, so
-  these rows answer 500 here; P01's fixture (a fake `disk._run` since
-  581ea2d) pins 503 / 404. The
-  material rows `sandbox:on-disk` reach the same `windows_path` start
-  (below).
 
 ## Where each number comes from
 
@@ -128,18 +127,6 @@ for its organization. A warm row runs immediately after the cold one.
   - `control:foreign-org-contact`: the operation loads another organization's
     store. It must be classified `org-db:foreign`, and no other row may touch
     a foreign org.
-- **Sandboxed organization** (`sandbox:*`, material family): a synthetic org
-  with `d.sandbox.enabled`.
-  - `sandbox:host-placed` (scratch and transcript, cold/warm): the transcript
-    is read from the sandbox home under the data root (`data:sandbox`).
-  - `sandbox:chown-new-dir`: a read that creates a node's scratch directory
-    hands it to the container user (`sandbox.chown_agent`, `docker exec`).
-    The guard refuses the process; the product swallows the failure by
-    design and the read answers 200.
-  - `sandbox:on-disk` (scratch and transcript): with `d.disk` the path goes
-    through the org's virtual disk (`disk.windows_path`), which starts
-    `wsl -l -q`. That is refused, and the read is a 500 before any file is
-    read.
 - **JSON store backend** (`json:*` rows, `backend: "json"`): the backend is
   fixed at import, so `main` runs ONE child copy of the probe with
   `--store json` before this process installs any guard. The child is fully
@@ -219,9 +206,8 @@ Every row lists its `contact_classes`: `<group>:<path category>` with the
 code location dropped, plus `guard:<group>/<event>` for each guard refusal.
 The KNOWN classes are:
 - the file, listing, mutation and connect groups;
-- on the operation's own org store, a sidecar, the scratch or sandbox
-  trees, the rest of the synthetic data root, the provider home, the probe
-  root, and code.
+- on the operation's own org store, a sidecar, the scratch tree, the rest
+  of the synthetic data root, the provider home, the probe root, and code.
 
 Anything else is unknown: a foreign org store, anything outside the
 synthetic root, a process, a socket, or a guard refusal. A row must declare
@@ -231,7 +217,6 @@ each unknown class it provokes on purpose (`expected_unknown`).
 
 The test refuses both. The declaring rows are:
 - `control:foreign-org-contact`;
-- `sandbox:chown-new-dir` and `sandbox:on-disk`;
 - `provider:codex-not-signed-in`, `provider:legacy-tier` and
   `provider:openrouter-network-refused`.
 
@@ -311,8 +296,8 @@ enough to move a facet is P01's decision. Rows are named by `variant`
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
 | `contacts` | agent-level mail-locality control: release-notify's mail contacts are limited to the sender and the named successor, never self-only | covered (6721cad); specified by P01 at 88c1390 | all four `reservation.release-notify` rows (`agents.logical` = successor only); `control:third-agent-mail`. Added here (P01 review f1): `audience-successor:reservation.release-notify`, a successor reached through a held audience |
-| `material.reads` | observed reads for a SANDBOXED organization (`sandbox.on_disk`, disk-backed placement) | partly | covered: `sandbox:host-placed` (scratch and transcript, cold/warm: the transcript is read from the sandbox home, `data:sandbox`); `sandbox:on-disk` (scratch and transcript: the disk-backed path is resolved through `wsl`, which is refused, so the read fails with a 500 before any file is read). NOT observable here: the read contacts of a disk-backed org. They need a running Docker Desktop WSL distro with the org's virtual disk mounted, which this synthetic, process-refusing harness cannot provide. Owner: P02, in a probe run on a sandbox-capable environment, which needs coordinator approval because it starts real processes. Outside the probe, from reading the source and not run here: on a machine where Docker Desktop's WSL distro is running, `disk.distro()` resolves and the read proceeds, so the 500 is the guard's refusal and not a product bug. Where WSL is down, or no docker-desktop distro exists, `distro()` raises `DiskError` ("fails loud" by design). The agent read path catches only `LedgerError`, so the caller gets a 500 carrying DiskError's actionable text rather than a 4xx/503 refusal. Whether that should be a clean refusal is a product question, not decided here. |
-| `material.effects` | an observed sandbox `chown_agent` effect and its failure outcome | partly | covered: the chown ATTEMPT and its FAILURE outcome. `sandbox:chown-new-dir`: the `docker exec` chown is attempted and refused by the guard; the product swallows the failure and the read answers 200. NOT observed: a SUCCESSFUL chown, which needs a running sandbox container. Owner: P02, in the same sandbox-capable environment run as `material.reads`. |
+| `material.reads` | observed reads for a SANDBOXED organization (`sandbox.on_disk`, disk-backed placement) | no rows: the feature is removed | the per-org sandbox and the org disk were removed on 2026-10-02, and their rows (`sandbox:host-placed`, `sandbox:on-disk`) with them. The clause names a placement that no longer exists; whether that closes the facet is P01's decision. |
+| `material.effects` | an observed sandbox `chown_agent` effect and its failure outcome | no rows: the feature is removed | the sandbox chown went with the per-org sandbox on 2026-10-02, and its row (`sandbox:chown-new-dir`) with it. Whether that closes the facet is P01's decision. |
 | `material.contacts` | production-grade contact records with drift/unknown-contact refusal | partly: probe-level only | every row: `contact_classes`, `unknown_contacts` and `expected_unknown_missing`, refused by the test. NOT observable by a synthetic probe: production-grade runtime records and a product-side drift refusal. They need product instrumentation, owned by the P02 runtime-instrumentation stage; native concurrency and negative controls are P03 |
 | `diagnostic.reads` | observed contacts on the JSON store backend and on malformed stored state | covered | `json:diagnostic.inspect`, `json:diagnostic.capabilities` (cold/warm), `json:refusal:killswitch`; `malformed:*:node` and `malformed:*:org` (18 corruptions × node/org) on BOTH backends |
 | `diagnostic.writes` | observed writes on the migration paths (legacy JSON `migrate_org`, an interrupted migration finished by `_ensure_migrated`) | covered | `migration:legacy-json` (cold: the migration's writes, renames, candidate cleanup; warm: none), `migration:interrupted` (one rename, no statement writes) |
@@ -408,7 +393,7 @@ F1b, F2 (agent and human mail, inbox routes), F3 (funding), F3b (staffing),
 F3c (operator ops), F3d (quick-staff) and F4 (work-read, receipt-lookup)
 follow below. With F4, every P02-owned `reads` and `instrumentation` facet in
 the registry at v3 b4a702b has probe rows, several of them only partly
-covered (for example `material.reads`, disk-backed placement). That is NOT complete
+covered (for example `material.contacts`, probe-level only). That is NOT complete
 coverage: see each hand-off table's status, "NOT covered" and "Owned
 elsewhere" entries, and Limits.
 
@@ -1260,8 +1245,7 @@ spy** (`spies`), as the ticket requires and as in the P01 fixture:
 - the warm-pool process control;
 - remote control;
 - the restart launch and the prime arm and cancel;
-- continue-on's live provider read;
-- the storage check.
+- continue-on's live provider read.
 
 The probe never halts, restarts or kills a real process, and the guards
 refuse any process start in any case.
@@ -1367,9 +1351,8 @@ and as agent mail (`refusal:mail-message-mcp-retired`, P01 S3 F2).
 The fixture follows `tests/test_state_exchange_boundary.py` with
 distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
 `ex-mid` under `ex-top`, `ex-leaf` under `ex-mid`, and `ex-third` under
-`ex-top`, never named. Two more orgs exist:
-- the OTHER org an `@org:` send reaches;
-- a STORAGE-BLOCKED org, because the flag is org-wide.
+`ex-top`, never named. One more org exists: the OTHER org an `@org:` send
+reaches.
 
 The org inbox's peer entries (a question in, an answer out) are written
 directly into the fixture from a mail-hub peer (`@net:p02x.<n>`); no row
@@ -1379,7 +1362,6 @@ writes `extern-peers.json`, and the test asserts it.
 - turn delivery;
 - the mail spark;
 - `supervisor.notify`;
-- the storage check;
 - the mail-hub kick.
 
 `hub_changed` is real and counted.
@@ -1397,20 +1379,20 @@ writes `extern-peers.json`, and the test asserts it.
   - a duplicate node upload;
   - send_file with a delivery id, its replay, `send_file_once`, and a keyed
     call.
-- **Refusals** (warm; no primary write, nothing logical): 27 of them.
+- **Refusals** (warm; no primary write, nothing logical): 25 of them.
   - an unknown org on the inbox, read and clear routes;
   - an unknown node and a bad box on a mail item;
   - `@ext:`, a bad recipient, an unknown stage id and `@net:` with no hub;
   - **a send to `@mcp:`**, with and without a staged attachment
     (`refusal:org-send-mcp-retired`, `-attachment`): 422 "the @mcp: address
     form is retired", before the attachment check, writing nothing;
-  - an empty, unknown-node and storage-blocked upload;
+  - an empty and an unknown-node upload;
   - the three raw-500 reply-event cases;
   - a retract of mail that is gone;
   - a route with no credential and with an agent credential (401, before
     any attempt is recorded);
-  - seven send_file refusals (missing, no path, escape, bad delivery id,
-    `_once` without an id, a delivery conflict, storage blocked).
+  - six send_file refusals (missing, no path, escape, bad delivery id,
+    `_once` without an id, a delivery conflict).
 - **Org-level locality, as found:**
   - the org list runs statements on every other org's store (see "Cross-org
     reads found"). "Cold" here, as everywhere in this probe, means the ACTOR
@@ -1438,7 +1420,7 @@ first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 12 contracts cold and warm (the three extern contracts are retired, with no rows), the variants above and 27 refusals, including the retired `@mcp:` send with and without an attachment; per-row loss zero; org-level locality measured (the org list reads every org; an @org: send, the main send row included, writes the other org); agent-level locality within the declared recipients; no row writes `extern-peers.json`; `control:exchange-third-agent` flagged. NOT covered: cold-machine counts for the other orgs the org list reads (cold is the actor org only); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
+| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 12 contracts cold and warm (the three extern contracts are retired, with no rows), the variants above and 25 refusals, including the retired `@mcp:` send with and without an attachment; per-row loss zero; org-level locality measured (the org list reads every org; an @org: send, the main send row included, writes the other org); agent-level locality within the declared recipients; no row writes `extern-peers.json`; `control:exchange-third-agent` flagged. NOT covered: cold-machine counts for the other orgs the org list reads (cold is the actor org only); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
 
 Owned elsewhere, with no rows added: `exchange.conflicts` and
 `exchange.wire`.
@@ -1457,23 +1439,18 @@ The fixture follows `tests/test_state_org_read_boundary.py` with distinctive
 - the main org has a workspace with a `CLAUDE.md`.
 
 Separate orgs: two for the `/net` identity backfill (it writes on an org's
-first reveal), a bare org without a workspace, and one with an
-unmounted disk.
+first reveal) and a bare org without a workspace.
 
 As in the P01 fixture, a node's transcript resolves through
 `supervisor.transcript_path` and `transcript_path_for_node` to its fixture
-file. `notify` and the storage check are counting spies (`spies`), and
+file. `notify` is a counting spy (`spies`), and
 `hub_changed` is real and counted. Every row also records
 `resource_warnings`: the "unclosed file" ResourceWarnings raised while it ran,
 after a garbage collection.
 
-- **Each read, cold and warm** (15 contracts):
-  - `org-read.chat`, `.file`, `.scratch`, `.tool-image`, `.node-history`,
-    `.history-sources`, `.history-entries`, `.events`, `.orgmd`, `.net` and
-    `.aggregates`;
-  - the bridge credential and the three disk reads answer their standard
-    refusal, cold and warm (409). Their success paths need a sandboxed org
-    with a mounted disk, which a synthetic root does not have.
+- **Each read, cold and warm** (11 contracts): `org-read.chat`, `.file`,
+  `.scratch`, `.tool-image`, `.node-history`, `.history-sources`,
+  `.history-entries`, `.events`, `.orgmd`, `.net` and `.aggregates`.
 - **Reads that write** (docket `org-reads-that-write-chat-gets-mint-on-first-rea`,
   measured, not fixed):
   - a first read writes, cold and warm: `org-read.chat` (the node's row, and
@@ -1489,20 +1466,8 @@ after a garbage collection.
 - **Refusals** (warm; no primary write, nothing logical, except the chat
   cursor above): unknown nodes and orgs, path escapes, a missing file or
   path, a tool result with no image, a node with no transcript, an unknown
-  history collection, a bad history cursor, an unsupported aggregate, the
-  frozen-profile bridge credential (503 for an org that is not sandboxed,
-  404 for a missing one), and an agent credential (401, before any attempt
-  is recorded).
-- **The unmounted disk starts a process** (`refusal:disk-list-unmounted`,
-  `refusal:disk-dir-unmounted`, `refusal:disk-file-missing`): on an org whose
-  disk is configured but not mounted, the three disk reads shell out to WSL
-  (`wsl -l -q`, and `mount_root`'s `mkdir -p` inside the Docker Desktop
-  distro; see "Reads that start a process" at the top). The guard refuses
-  the process start, so these rows answer **500 here**; P01's fixture (a
-  fake `disk._run` since 581ea2d) pins 503 / 404. Each row declares exactly
-  `guard:process/subprocess.Popen`, and the test asserts it is the row's only
-  guard refusal. What the product does past that refused start is not
-  measured.
+  history collection, a bad history cursor, an unsupported aggregate, and
+  an agent credential (401, before any attempt is recorded).
 - **Open file handles:** the scratch-file, tool-image and orgmd reads each
   raise an "unclosed file" ResourceWarning. The file stays open until
   garbage collection. The tests pin those rows at one or more, and the
@@ -1520,7 +1485,7 @@ first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 15 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged; the unmounted-disk rows (`refusal:disk-list-unmounted`, `refusal:disk-dir-unmounted`, `refusal:disk-file-missing`) up to the refused `wsl.exe` start (500 here, where P01's fixture, a fake `disk._run` since 581ea2d, pins 503 / 404). NOT covered: the success paths of the bridge credential and the three disk reads (they need a sandboxed org with a mounted disk; the rows are their standard answers); the unmounted-disk reads' contacts past the refused process start (the WSL commands and `mount_root`'s `mkdir -p` in the distro); P03 native negative controls |
+| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 11 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged. NOT covered: P03 native negative controls |
 
 Owned elsewhere, with no rows added: `org-read.conflicts` and
 `org-read.wire`.

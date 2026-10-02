@@ -1409,7 +1409,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "This facet specifies legacy read-material authorization, not native Effective fencing. Both tools call the same _agent_read_access before reading content; shared middleware/transport and operator/bridge paths remain separately unresolved.",
+        "This facet specifies legacy read-material authorization, not native Effective fencing. Both tools call the same _agent_read_access before reading content; shared middleware/transport and operator paths remain separately unresolved.",
         "The public agent path authenticates org/node/generation, requires a live unreplaced caller, and checks halt/killswitch before these reads. The tool-specific read then obtains a seq-guarded cached org, without a document transaction around content production.",
         "Self wins first; strict descendant ancestry wins second, even for an archived target. Otherwise the shared-item route checks the active work_items collection, current holder/reviewer/participant standing, and the target node name in the holder roster except its last row. Creator, org visibility and unrelated-item membership do not independently grant material access.",
         "The item access disclosure includes via,item,title,standing,held_from,derived,note. Stored holder rows survive history folding. An absent roster is derived from surviving assign history/current owner without persisting it.",
@@ -1573,12 +1573,11 @@
     },
     "material.reads": {
       "dimension": "reads",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
         "The read door consults cached org snapshots for caller/halt/target/item/ancestry. Scratch resolves an OS realpath beneath the shared lineage scratch root, checks isdir/isfile, enumerates the whole directory before a 200-name slice, or reads the whole UTF-8 replacement-decoded file before a 20000-character slice.",
-        "scratch_dir additionally checks disk placement through sandbox.on_disk (which can load org state) and can reload org data on directory creation. Disk-backed UNC resolution, sandbox ownership, storage-pool/cache misses and every transitive helper are not an exhaustive contact map yet.",
-        "read_chat calls chat_window.read_window and unique_cards. The current transcript stack consults provider files, prompt/import sidecars, retained transcript records, projection cache, assistant state, runtime state and reply snapshots. The bounded fixture witnesses three SQLite surfaces; it does not enumerate every provider/import/sandbox branch.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e), for a SANDBOXED organization: host-placed (sandbox:host-placed, scratch and transcript, cold and warm), the transcript is read from the sandbox home (data:sandbox) and scratch from the shared scratch root, with no unknown contact. Disk-backed (sandbox:on-disk, scratch and transcript), the path is resolved through wsl, which the probe's isolation guard refuses, so the read fails with a 500 before any file is read: the disk-backed read contacts are NOT observed. Recorded from P02's source reading, not run: where Docker Desktop's WSL distro is down or absent, disk.distro() raises DiskError, which the agent read path does not catch (it catches LedgerError), so the caller gets a 500 carrying DiskError's text rather than a refusal; whether that should be a clean refusal is a product question, not decided here (docket item disk-backed-sandbox-reads-return-a-raw-500-when). Asserted by tests/test_state_p02_contact_facets.py."
+        "scratch_dir resolves the node's lineage folder under the shared scratch root and creates it when missing. Storage-pool/cache misses and every transitive helper are not an exhaustive contact map yet.",
+        "read_chat calls chat_window.read_window and unique_cards. The current transcript stack consults provider files, prompt/import sidecars, retained transcript records, projection cache, assistant state, runtime state and reply snapshots. The bounded fixture witnesses three SQLite surfaces; it does not enumerate every provider/import branch."
       ],
       "source_refs": [
         {
@@ -1634,31 +1633,16 @@
           "start": 223,
           "end": 274,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 407,
-          "end": 415,
-          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 598,
-          "end": 616,
-          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
         }
       ],
-      "open_questions": [
-        "Observe the reads of a disk-backed sandboxed organization (the org's virtual disk mounted in Docker Desktop's WSL distro).",
-        "Owner: P02, in a probe run on a sandbox-capable environment (it starts real processes, so it needs coordinator approval). Closes with: observed reads for a DISK-BACKED sandboxed organization (sandbox.on_disk true, the virtual disk mounted), cold and warm (narrowed by P01 S2j: the host-placed sandbox reads are observed). Not coverable at P01 from available evidence: P02's synthetic harness refuses real processes, so the disk-backed path stops at its wsl resolution with a 500 before any file is read."
-      ]
+      "open_questions": []
     },
     "material.writes": {
       "dimension": "writes",
       "status": "unresolved",
       "facts": [
         "The early API branch has no explicit org save or operation receipt, but a cold transcript helper mints reply/transcript incarnation identifiers and commits them to the org in its own row transaction (see material.conflicts). The shared snapshot is not stamped, so the same call can repeat reply-incarnation save cycles before the next fresh snapshot. Warm pre-minted fixture reads avoid these org saves; neither case files an operation receipt.",
-        "scratch_dir creates a missing lineage directory and attempts sandbox ownership repair, with exceptions swallowed. No atomic transaction couples that directory or ownership attempt to the earlier read authorization.",
+        "scratch_dir creates a missing lineage directory. No atomic transaction couples that directory creation to the earlier read authorization.",
         "Transcript reads can initialize/write transcript-records.sqlite3, chat-window-index.sqlite3 and reply-events.sqlite3 in separate SQLite connections and transactions, independently of the cold org identity saves. Ingestion/retained quote data is not automatically disposable projection data. Runtime caches can also change."
       ],
       "source_refs": [
@@ -1715,18 +1699,6 @@
           "start": 223,
           "end": 274,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 407,
-          "end": 415,
-          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 598,
-          "end": 616,
-          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
         }
       ],
       "open_questions": [
@@ -1799,18 +1771,6 @@
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
         },
         {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 407,
-          "end": 415,
-          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 598,
-          "end": 616,
-          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
-        },
-        {
           "path": "engine/backend/orgtree/api.py",
           "start": 10236,
           "end": 10309,
@@ -1860,11 +1820,10 @@
     },
     "material.effects": {
       "dimension": "effects",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "These tool branches do not intentionally send mail or start a provider. Scratch may create directories and call sandbox chown_agent; for sandboxed orgs that helper invokes Docker chown. This test package spies that effect and never starts a container.",
-        "Transcript reads can lazily import durable records, persist quote identities, update derived caches/order and volatile runtime state. The source name read must not hide these effects.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 be8a05e): minting a node's scratch directory in a sandboxed organization (sandbox:chown-new-dir) attempts the sandbox chown_agent effect (a docker exec chown); the probe's isolation guard refuses the process, the product swallows that failure, and the read answers 200. So the attempt and its failure outcome are observed; a SUCCESSFUL chown is not. Asserted by tests/test_state_p02_contact_facets.py."
+        "These tool branches do not intentionally send mail or start a provider. Scratch may create the node's lineage directory; no process is started.",
+        "Transcript reads can lazily import durable records, persist quote identities, update derived caches/order and volatile runtime state. The source name read must not hide these effects."
       ],
       "source_refs": [
         {
@@ -1920,24 +1879,9 @@
           "start": 223,
           "end": 274,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 407,
-          "end": 415,
-          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 598,
-          "end": 616,
-          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
         }
       ],
-      "open_questions": [
-        "Observe a successful sandbox chown_agent in a running sandbox container.",
-        "Owner: P02, in the same sandbox-capable run as material.reads. Closes with: an observed SUCCESSFUL sandbox chown_agent effect (narrowed by P01 S2j: the attempt and its failure outcome are observed). Not coverable at P01 from available evidence: a successful chown needs a running sandbox container, which P02's synthetic, process-refusing harness cannot provide."
-      ]
+      "open_questions": []
     },
     "material.wire": {
       "dimension": "wire",
@@ -1947,8 +1891,7 @@
         "Transcript returns node,busy,access,occupancy,occupancy_estimated,messages. Each projected message retains only role,text,tools, truncates text to 1200 characters, defaults absent tools to [], and preserves an explicit tools:null. The outer last slice remains even when read_chat supplies extra rows.",
         "last defaults to30 for missing/null/empty, coerces through int then float-to-int, and clamps to1..80; malformed or nonfinite values return422. node/path use shared text normalization: null restores default, scalars stringify, containers refuse. The card schema is stricter than the gateway coercion.",
         "The scratch path is stripped, leading separators removed, then realpath-resolved with a separator-anchored containment check. Its 20000/200/1200 bounds constrain returned characters or entries, not underlying IO or all nested response bytes.",
-        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
-        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision.",
+        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_and_operator_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
         "The legacy transcript projector (supervisor._read_chat_source, through chat_window.read_window and supervisor.read_chat) is fixtured at the public orgtree_read_transcript door, one fresh org per row type, in tests/test_state_material_reads.py (TranscriptProjector). An agent receives only role, text (cut to 1200 characters) and tools; every other projected field (thinking, codexPlan, cmd_out, summary, segments, native ids) never reaches it.",
         "Rows that project to nothing: unparseable lines, JSON that is not an object, isSidechain/isMeta records, system subtypes other than compact_boundary/api_error/local_command, record types other than user/assistant/system/codex_plan_updated, a non-object message, isVisibleInTranscriptOnly, 'No response requested.', a compact summary (attached to its boundary, invisible to agents), pure tool_result plumbing, and an empty transcript.",
         "Rows that project to text: assistant string content and joined non-blank text blocks; user string content or its first text block (an image block beside it is dropped, and an image-only prompt projects nothing); a slash-command echo as '/<name> <args>'; a compact boundary as '— context compacted —' with ' · N.Nk tokens' when preTokens is numeric; api_error as '⚠ API error — ' plus 300 characters; a <synthetic> model or isApiErrorMessage as '⚠ ' plus 300 characters, speaking as system.",
@@ -2112,18 +2055,6 @@
           "start": 223,
           "end": 274,
           "sha256": "38c63284a3574fb026f8fb80837217d881f69e3c00a993f5db67a2a517637177"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 407,
-          "end": 415,
-          "sha256": "2d60e44a96e3cf8318d776a44c12b36d25b872574846d27dd0228a6a0fc7332e"
-        },
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 598,
-          "end": 616,
-          "sha256": "3865cb7f96c704ffafa5cb7517311d3ec74d6da1e2d25cfa4aa40e802236026c"
         }
       ],
       "open_questions": [
@@ -2135,7 +2066,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Legacy source contract for structural inspection and capability reporting only. The real agent HTTP door authenticates the org/node/generation, refuses archived/replaced callers and halt/killswitch, then these branches load an independent org and require the named caller live. Frozen-profile middleware additionally rejects non-loopback non-bridge clients before the diagnostic. Neither branch adds an operator identity or grants a permission.",
+        "Legacy source contract for structural inspection and capability reporting only. The real agent HTTP door authenticates the org/node/generation, refuses archived/replaced callers and halt/killswitch, then these branches load an independent org and require the named caller live. Neither branch adds an operator identity or grants a permission.",
         "Inspection visibility is self; team (self plus siblings sharing the same parent, not the parent or children); subtree (self plus recursive descendants); or full (rooted tree). The helper falls back to team for an empty value, but Org construction backfills a missing visibility with full before the public branch runs. These legacy defaults are distinct. Explicit hidden or unknown targets refuse as one whole request before any _safe_node call. Item membership and material-read audience grants do not broaden this structural visibility.",
         "include_archived controls the visible universe as well as explicit target eligibility. Live-only output finally filters state exactly equal to live. The selected node row may still carry its parent id even when the parent row itself is outside visibility; that existing structural reference is not authority to inspect the parent.",
         "Capability operations are the install-wide available_tools catalogue, not a filtered list of actions authorized for this actor/target. Restricted scope is displayed separately. Subsequent real dispatch repeats its ordinary authority checks.",
@@ -2395,7 +2326,7 @@
       "status": "specified",
       "facts": [
         "Agent authentication and halt checks use cached_org; the diagnostic branch separately calls load_org. For SQLite, _load_sqlite_org takes pooled connections and _load_lazy reads eager doc and all nodes in a short BEGIN/COMMIT snapshot before projecting. Unnamed lazy sections, if reached, can observe a later revision.",
-        "Inspection reads structural/operational node fields, tier prices and child grant totals; provider_of uses static membership/prefix checks. Capabilities reads the MCP cards plus deployment profile and desktop-managed environment selectors. Ordinary capability reporting does not probe provider CLIs or network services.",
+        "Inspection reads structural/operational node fields, tier prices and child grant totals; provider_of uses static membership/prefix checks. Capabilities reads the MCP cards plus the desktop-managed environment selector. Ordinary capability reporting does not probe provider CLIs or network services.",
         "The SQL fixture attaches to actual pooled acquisitions and retains only statement verbs, recognized table labels and a boolean for the known all-node SELECT. It distinguishes output size from underlying materialization without retaining SQL values.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103, synthetic), answering both questions above. Middleware and schema/pool cold-path reads on SQLite were observed earlier (b6568a1); legacy input is the migration rows (diagnostic.writes).",
         "JSON store backend (json:* rows): inspect and capabilities answer 200 cold and warm without any SQL statement; each reads the org's own JSON document (store._read_bytes, class data:org-db:own), and the cold call also reads code files (lazy imports). The killswitch refusal answers 409 after reading the document. No row has an unknown contact.",
@@ -2725,12 +2656,11 @@
       "facts": [
         "The fixture pins the local structural fields and nested allowlists, role/visibility metadata, request order/duplicates, archived filtering and selected malformed argument refusals. Private account identity becomes present/missing/provider facts; charter, session, mail, transcript, directories and status summaries are omitted.",
         "nodes must be a list when supplied; each element is then stringified, empty strings removed by inspect_state, and all targets checked together. nodes takes precedence over node even when empty. node uses shared text normalization. include_archived uses shared string-aware flag semantics, not plain bool of a string.",
-        "Capabilities returns actor,surface,operations,operator_only,agent_only,scope. The catalogue follows standard/frozen policy and desktop alias replacement, preserves order and has no provider availability guarantee. Topology/operator metadata cannot elevate the caller.",
+        "Capabilities returns actor,surface,operations,operator_only,agent_only,scope. The catalogue follows desktop alias replacement, preserves order and has no provider availability guarantee. Topology/operator metadata cannot elevate the caller.",
         "Allowed operational field values are projected as currently stored with selected bool/int/string coercions; this is an allowlist of fields, not recursive secret sanitization or a byte limit. Restored/malformed field types and complete middleware/error/Rust parity remain unresolved.",
         "Malformed stored node fields are fixtured in tests/test_state_diagnostic_boundary.py (test_malformed_stored_node_fields_pin_legacy_projection_or_failure). A non-integer generation, a non-numeric or null grant, a model outside the tier catalogue, or a non-dict scope/tools raises while the inspection is built, and the whole call is a 500. The same happens for an UNFILTERED inspection of the whole org, so one corrupt node denies the diagnostic to every caller whose visible set includes it.",
         "An unknown state value or a dangling parent drops the node from the visible set (422 'state inspection is outside your visible scope' when targeted, silently absent from the whole org). A malformed frozen/pending_switch/last_status map projects as null. A null generation projects as 0; a negative grant, a non-string org_visibility and a numeric title are projected as stored.",
-        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
-        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision."
+        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_and_operator_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common)."
       ],
       "source_refs": [
         {
@@ -2873,8 +2803,8 @@
         }
       ],
       "open_questions": [
-        "Carry the native and Rust versions through the same cases: argument schema/type refusals, the malformed stored-state matrix, and the agent/operator/bridge door matrix. Decide each legacy behaviour explicitly rather than copying it: one corrupt node failing the whole-org inspection, broadening on corrupt visibility, bridge org secrets acting as any node.",
-        "Owner: the native/Rust conversion, from the P03 prototype onward (the bridge authority decision is p05-authority-review-bridge-org-secret-acts-as-a). Closes with: these fixtures passing against the native and Rust builds, with each legacy defect reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured."
+        "Carry the native and Rust versions through the same cases: argument schema/type refusals, the malformed stored-state matrix, and the agent/operator door matrix. Decide each legacy behaviour explicitly rather than copying it: one corrupt node failing the whole-org inspection and broadening on corrupt visibility.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: these fixtures passing against the native and Rust builds, with each legacy defect reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured."
       ]
     },
     "diagnostic.effects": {
@@ -3270,7 +3200,7 @@
         "inspect_state projects before and after visibility over nodes and funding dependencies. isolated() JSON-serializes the entire Org document before constructing the shadow. On a LazyDoc this traverses items()/materialize_all and owner maps, so a narrow preview can read unrelated retained mail/history as well as every eager node.",
         "The source-bound fixture observes actual pooled SQLite acquisitions and selected lazy-section materialization labels on disposable, already-migrated data. It retains no SQL values or payloads. Whole-document traversal and hidden sections are source/fixture evidence, not a measured clone-byte budget or a proposed native read strategy.",
         "The eager SQLite snapshot does not make all separately loaded lazy sections or provider/registry/runtime observations one consistent transaction. Before projection and the isolated clone are sequential reads; pending native snapshot and output-fence requirements remain.",
-        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): section 6.2 and C6 are the approved bounded native simulation this facet's clause asks for. Admission is as legacy (the thirteen spellings); external observations (provider availability and authentication, the credential service, sandbox path mapping) are observed first and traced, not claimed consistent with the snapshot; one REPEATABLE READ READ ONLY snapshot reads the caller's identity, generation and visibility, the before projection and the transition's declared read set (section 6.4); decide is pure; the after projection is computed in memory. No whole-document clone, and no read of mail bodies, transcripts, docket history or events. The clause asks for the approved design only, so the facet is specified; qualification (Q-P1) runs at P03 for reallocate and at P05 for the rest (D11), and completing the observed provider-preflight contacts stays with P02 and P08 (r7 section 6.6)."
+        "Native design r7 (docket design-the-native-conflict-predicate-and-isolati artifact r7, sha256 24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792; approved by review artifact r10, sha256 8be9323173dd1ae785f66328a8481a12bf86c7f2c816797c1c9c496c01ea895b): section 6.2 and C6 are the approved bounded native simulation this facet's clause asks for. Admission is as legacy (the thirteen spellings); external observations (provider availability and authentication, the credential service) are observed first and traced, not claimed consistent with the snapshot; one REPEATABLE READ READ ONLY snapshot reads the caller's identity, generation and visibility, the before projection and the transition's declared read set (section 6.4); decide is pure; the after projection is computed in memory. No whole-document clone, and no read of mail bodies, transcripts, docket history or events. The clause asks for the approved design only, so the facet is specified; qualification (Q-P1) runs at P03 for reallocate and at P05 for the rest (D11), and completing the observed provider-preflight contacts stays with P02 and P08 (r7 section 6.6)."
       ],
       "source_refs": [
         {
@@ -3734,8 +3664,7 @@
         "Selected malformed numeric inputs reach legacy 500 errors. The isolated simulation may otherwise report success without a visible diff (for example hidden charter/directory/account state). Neither result shape nor empty diff proves no hypothetical change.",
         "Per-operation malformed arguments are fixtured in tests/test_state_preview_boundary.py (test_per_operation_malformed_arguments_pin_legacy_refusals) for reallocate, move, swap, self_subjugate, retool, retire, dissolve, revoke_dir, switch_model and audience. For each field it sends a dict, a list, an unknown name, an empty string and a number. Every node-naming field is a shared _norm_args text field: containers refuse '<field> must be text, not <type>', and other values refuse \"no such node: '<value>'\". org_visibility, tier and audience action refuse with their enum messages. A non-numeric delta is an unhandled 500. Nothing is persisted in any case.",
         "Recorded gap: revoke_dir's dir is not a _norm_args field. It is stringified with str(args.get('dir') or ''), and Org.revoke_dir removes nothing for an unknown path, so any value (container, number, empty) returns a successful empty simulation.",
-        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common).",
-        "BridgeGateway: a valid org bridge secret may call /api/agent as ANY node of that org, with or without an agent credential. Another org gets 403 'bridge secret is scoped to its own org'; an unknown secret gets 403 'forbidden'. Only the standalone api.main starts BridgeGateway; the desktop launch path engine/launch.py never does. This is recorded, not approved; docket item p05-authority-review-bridge-org-secret-acts-as-a owns the decision."
+        "Door parity is fixtured in tests/test_state_reservation_boundary.py::test_every_p01_tool_shares_the_agent_and_operator_door_shapes for all five non-reservation P01 tools. Agent credential: 401 missing or invalid, 403 identity mismatch. The desktop operator token acts as any live node, and as node=user gets 403 'authenticated seat is missing; …'. Request-schema errors are FastAPI 422 with a list-shaped detail. Halt/killswitch is 409 before the lock. An unhandled error uses the shared 500 serializer, whose body echoes the exception text (see wire-common)."
       ],
       "source_refs": [
         {
@@ -3807,7 +3736,7 @@
       ],
       "open_questions": [
         "Carry the native and Rust versions through the same cases: the admitted/denied spellings, the per-operation malformed matrix, account/session and bounded-output fixtures, and the door matrix. Decide each current gap deliberately (non-numeric delta 500, unvalidated revoke_dir dir, plain-bool include_archived, key-name-only redaction) rather than copying it.",
-        "Owner: the native/Rust conversion, from the P03 prototype onward (the bridge authority decision is p05-authority-review-bridge-org-secret-acts-as-a). Closes with: these fixtures passing against the native and Rust builds, with every recorded gap either reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured."
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: these fixtures passing against the native and Rust builds, with every recorded gap either reproduced deliberately or replaced by an approved refusal. Not coverable at P01 from available evidence: no native or Rust build of this door exists; the legacy half is fixtured."
       ]
     },
     "preview.effects": {
@@ -3815,7 +3744,7 @@
       "status": "specified",
       "facts": [
         "Shadow event/mail/audience mutations and returned drive hints are simulated data; the agent preview branch does not run the later save/wake/interrupt paths. Tests observe generated shadow mail yet prove its absence from the persisted org.",
-        "Provider hire admission is deliberately re-run for switch previews and may inspect installation/auth or refresh provider evidence; supplied non-primary accounts consult the registry, and directory translation reads sandbox context. The broad tool-card no-external-effects wording is not treated as a proof that these adapters are free of all effects.",
+        "Provider hire admission is deliberately re-run for switch previews and may inspect installation/auth or refresh provider evidence; and supplied non-primary accounts consult the registry. The broad tool-card no-external-effects wording is not treated as a proof that these adapters are free of all effects.",
         "Provider-gate outcomes are deterministic seams in these tests; native provider processes/network/auth are not executed or qualified. The diagnostic reviewer correction separately distinguishes test-blocked process/save/transcript paths from source-inspected network absence.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 0679103), without stubbed preflights, answering both questions above. Ten provider failure modes (provider:* rows) all answer 422 with the refusal sentence, and none writes the store: provider disabled, Claude CLI not installed, Claude not signed in, unknown registry account, Codex CLI not installed, Codex not signed in, a legacy tier, Antigravity CLI not installed, OpenRouter without a key, and OpenRouter with the network refused.",
         "External contacts: the Codex sign-in and legacy-tier checks start a version-probe subprocess, and the OpenRouter check makes an HTTP request; the probe's isolation guards REFUSE those (recorded as guard refusals process/subprocess.Popen and egress/urllib.Request), and the product turns the refusal into the 422. So the attempt is observed, not a successful provider round trip.",
@@ -4402,7 +4331,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "Source read set: the cached_org snapshot for caller identity, scope and visibility; children, parent, ancestors and their team charters; for subtree/full every rendered node row and its status, age, grant and archive state; seat cost, grant and free credits; the org's fable_lock, the caller's open request, deployment policy and audience state.",
+        "Source read set: the cached_org snapshot for caller identity, scope and visibility; children, parent, ancestors and their team charters; for subtree/full every rendered node row and its status, age, grant and archive state; seat cost, grant and free credits; the org's fable_lock, the caller's open request and audience state.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (v3 3a2ec7b, SQLite) at each level (self, team, subtree, full), with and without archived rows, cold and warm. Cold: doc, log_d, log_l, meta and nodes plus one connect. Warm: no statement at all (served from the cached snapshot). Every chart row also reads provider settings files under HOME and the data root's settings.",
         "The ids each level discloses (the `disclosed` field): self discloses the caller, its report and its superior; team, subtree and full add the sibling; archived rows appear only at subtree and full with include_archived. Asserted by tests/test_state_p02_contact_facets.py."
       ],
@@ -4632,8 +4561,7 @@
       "facts": [
         "The tree ETag hashes the org's save seq, supervisor.tree_state_fingerprint, the limits board's fetch stamp, the primed-restart record, the per-slug patch invalidation rev and a 30-second bucket. A matching If-None-Match answers 304 with no body before any load or build. The built body is cached per slug and one build at a time runs per slug.",
         "Recorded legacy behaviour: the first build of an org whose supervisor state is cold allocates per-node state entries while annotating, which changes the fingerprint, so the ETag that first response carried is already stale. Revalidating with it returns 200 and a new tag; revalidating with the new tag returns 304. Pinned.",
-        "Archived nodes are summarised in the tree (detail false, charter_line, lineage_count, read_only, detail_rev, only the last turn) and the payload carries archived_defaults once. The detail route finds the named node in the tree, empties its children, annotates it in full and, for an archived seat only, recomputes detail_rev. Pinned.",
-        "Recorded legacy defect, desktop-managed mode with warming enabled: annotating a live node asks warmpool.process_control_status for its control state, whose eligibility check runs the deployment gate and catches only RuntimeError. desktop_policy.validate raises ValueError for an org document carrying sandbox (or disk_mb), so such an org's tree and node detail answer 500 'ValueError: Not available in desktop MVP: sandbox' (source; the pinned case used an org flag the product no longer has)."
+        "Archived nodes are summarised in the tree (detail false, charter_line, lineage_count, read_only, detail_rev, only the last turn) and the payload carries archived_defaults once. The detail route finds the named node in the tree, empties its children, annotates it in full and, for an archived seat only, recomputes detail_rev. Pinned."
       ],
       "source_refs": [
         {
@@ -4697,7 +4625,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches, sandbox disk usage and hub network status. Detail builds the same whole-tree projection before selecting one node.",
+        "Source read set: the shared cached_org snapshot (eager document; mail, asks and org_inbox materialise on first touch), Org.tree() over every node, the supervisor's per-node runtime state, the account registry rows and ambient provider paths, the limits and usage caches and hub network status. Detail builds the same whole-tree projection before selecting one node.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for org.tree and org.node-detail (desktop token), cold and warm, with a retired node present (it is in every tree's disclosed set), answering both questions above. Cold, every build reads doc, log_d, log_l, meta and nodes of the org's own store. Warm, the node detail runs no statement at all: it is served from the cached snapshot.",
         "Recorded cross-org read (legacy, not endorsed; P02 finding): every ADMIN tree build, cold and warm, also reads the doc table of the other orgs on the data root through store.local_net_slugs, declared as foreign statements; warm, those are the build's only statements. The node detail makes no foreign contact. Admin builds also read provider settings files under HOME.",
         "Refusals: no token (401) runs no statement and leaves no census record; an unknown node (404) runs no statement warm. No row has an unknown contact. Asserted by tests/test_state_p02_contact_facets.py."
@@ -4839,7 +4767,7 @@
       ],
       "open_questions": [
         "Carry the fixtured tree and detail shapes to the native/Rust routes and decide each recorded legacy defect.",
-        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary and detail shapes passing against the native and Rust builds, with the stale-first-ETag, the misleading agent-token 401 and the desktop-mode sandbox 500 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured tree, archived-summary and detail shapes passing against the native and Rust builds, with the stale-first-ETag and the misleading agent-token 401 each reproduced deliberately or replaced by an approved behaviour. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
       ]
     },
     "org-view.receipt": {
@@ -9452,7 +9380,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "kind must be one of file, command, process or stream; a command or stream dog needs the bash the owner holds; a file outside the owner's roots is refused; supersede needs a one-shot dog ('only a one-shot watchdog can be superseded …') and a reason; an unknown id is refused ('no watchdog …'). From source: sandboxed orgs watch files with stream dogs only, and shell='bash' refuses when no bash is found. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json, except the two source clauses."
+        "kind must be one of file, command, process or stream; a command or stream dog needs the bash the owner holds; a file outside the owner's roots is refused; supersede needs a one-shot dog ('only a one-shot watchdog can be superseded …') and a reason; an unknown id is refused ('no watchdog …'). From source: shell='bash' refuses when no bash is found. Pinned by tests/test_state_requests_boundary.py against docs/state-system/requests-boundary.json, except the source clause."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10160,7 +10088,7 @@
       "status": "specified",
       "facts": [
         "Agent tools: interrupt, unstick, halt, unhalt and continue_on act only on the caller's subtree (Org._require_authority, no allow_self: 'X has no authority over Y'); continue_on also refuses the caller itself 403 ('you cannot choose your own account …'); halt and unhalt check every target of a `nodes` batch in one lock pass before any process is cut, so a single target outside the caller's subtree refuses the whole batch and nothing is cut (the per-node halt re-checks authority itself). restart_wake manages the caller or a live descendant ('you can only manage restart wake for yourself or your subordinates', 403). A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json.",
-        "PROFILES (decision 1 on this item). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets) orgtree_self_restart and orgtree_prime_restart are refused 422 at the door, every action included ('desktop-managed V2 renamed … to orgtree_self_relaunch / orgtree_prime_relaunch …'). Under the non-desktop profile (e.g. the Windows service host) they take the machine-wide gate (Org.self_restart_gate / prime_restart_gate): only a top-level agent or a holder of a user audience ('a self-restart restarts the shared orgtree install for EVERY org …'); prime_restart status needs only a live caller; a frozen deployment profile refuses both 403 (source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json, except the frozen profile.",
+        "PROFILES (decision 1 on this item). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets) orgtree_self_restart and orgtree_prime_restart are refused 422 at the door, every action included ('desktop-managed V2 renamed … to orgtree_self_relaunch / orgtree_prime_relaunch …'). Under the non-desktop profile (e.g. the Windows service host) they take the machine-wide gate (Org.self_restart_gate / prime_restart_gate): only a top-level agent or a holder of a user audience ('a self-restart restarts the shared orgtree install for EVERY org …'); prime_restart status needs only a live caller. Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json.",
         "Routes are operator routes behind the desktop TokenGate (an agent credential is refused 401) and act as the user; the steering routes additionally accept a hook call that carries the agent's own identity, which must name this live agent generation ('Steering credential does not name this live agent generation', 403, source). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
@@ -10532,7 +10460,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets, and under which it installs desktop_maintenance) orgtree_self_relaunch, orgtree_prime_relaunch arm and cancel take the machine-wide gate (Org.self_restart_gate and Org.prime_restart_gate): only a top-level agent or a holder of a user audience, any other caller refused 422 ('a self-restart restarts the shared orgtree install for EVERY org on this machine …' or 'a primed restart …'). The deprecated orgtree_self_update is refused 422 under that profile before the gate, the force check and the adapter ('desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch'), as orgtree_self_restart is. prime_relaunch status takes no gate and needs only a live caller (an archived seat is refused 403 'authenticated seat is archived or replaced …'). Under the non-desktop profile orgtree_self_relaunch and orgtree_prime_relaunch are refused 422 at the door whatever their action or options ('<tool> is available only to the desktop-managed V2 profile'), while orgtree_self_update takes the same gate as orgtree_self_restart. The frozen deployment profile refuses all three 403 before any write, prime_relaunch status included, under either profile ('the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart …'). A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs (the shared door gate, source; pinned for the run-control tools by tests/test_state_control_boundary.py). Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
+        "PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets, and under which it installs desktop_maintenance) orgtree_self_relaunch, orgtree_prime_relaunch arm and cancel take the machine-wide gate (Org.self_restart_gate and Org.prime_restart_gate): only a top-level agent or a holder of a user audience, any other caller refused 422 ('a self-restart restarts the shared orgtree install for EVERY org on this machine …' or 'a primed restart …'). The deprecated orgtree_self_update is refused 422 under that profile before the gate, the force check and the adapter ('desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch'), as orgtree_self_restart is. prime_relaunch status takes no gate and needs only a live caller (an archived seat is refused 403 'authenticated seat is archived or replaced …'). Under the non-desktop profile orgtree_self_relaunch and orgtree_prime_relaunch are refused 422 at the door whatever their action or options ('<tool> is available only to the desktop-managed V2 profile'), while orgtree_self_update takes the same gate as orgtree_self_restart. A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs (the shared door gate, source; pinned for the run-control tools by tests/test_state_control_boundary.py). Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11005,7 +10933,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "org_inbox send: the retired @ext: form 422; a new @mcp: send 422 (ledger.MCP_RETIRED, before the attachment checks); a recipient that is not @org: or @net: 422; an unknown staged id 422; a @net: send with no enabled hub 422; and, from source, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422, unknown node 404, and the org over its storage limit 413. mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422, the org over its storage limit 422; orgtree_send_file_once without a delivery_id 422. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+        "org_inbox send: the retired @ext: form 422; a new @mcp: send 422 (ledger.MCP_RETIRED, before the attachment checks); a recipient that is not @org: or @net: 422; an unknown staged id 422; a @net: send with no enabled hub 422; and, from source, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422 and unknown node 404. mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422; orgtree_send_file_once without a delivery_id 422. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11188,7 +11116,7 @@
       "status": "unresolved",
       "facts": [
         "The access middleware labels each route and the agent door labels the two tools (stateprobe.refine('tool:' + tool)); orgtree_send_file_once is one of api._PROFILE_EXTRA_TOOL_VERBS. P02's per-operation record covers the family, except the paths below.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 817c816, the F4 review follow-up in the P02 F6 probe commit and P02's external-chat retirement commit): a loss-accounted per-operation record for all 12 exchange contracts cold and warm, with the variants (the node and org mail boxes, the @org: send with and without an attachment and to a missing org, and the delivery, replay, keyed and once send_file calls) and 27 refusals, the retired @mcp: send among them with and without a staged attachment. Every row carries one census record matching the harness, except two 401 refusals answered before any census attempt: the route without a token and the route with an agent credential. No row makes an unknown contact, every refusal writes no org's store and changes no agent's mail, and agent-level locality stays within each row's declared set; the family's locality control control:exchange-third-agent (an org_inbox read row that also writes a third agent) is flagged. Org-level locality: only the org list and the @org: send touch another org's store. A delivered @org: send writes the other org and one to a missing org touches none. The record's cold condition is cold for the actor org only. NOT covered: the @net: send against a live mail hub, which the probe does not have (it answers 'no mailserver is configured'). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 817c816, the F4 review follow-up in the P02 F6 probe commit and P02's external-chat retirement commit): a loss-accounted per-operation record for all 12 exchange contracts cold and warm, with the variants (the node and org mail boxes, the @org: send with and without an attachment and to a missing org, and the delivery, replay, keyed and once send_file calls) and 25 refusals (27 until the two storage-limit refusals were removed with their feature), the retired @mcp: send among them with and without a staged attachment. Every row carries one census record matching the harness, except two 401 refusals answered before any census attempt: the route without a token and the route with an agent credential. No row makes an unknown contact, every refusal writes no org's store and changes no agent's mail, and agent-level locality stays within each row's declared set; the family's locality control control:exchange-third-agent (an org_inbox read row that also writes a third agent) is flagged. Org-level locality: only the org list and the @org: send touch another org's store. A delivered @org: send writes the other org and one to a missing org touches none. The record's cold condition is cold for the actor org only. NOT covered: the @net: send against a live mail hub, which the probe does not have (it answers 'no mailserver is configured'). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "open_questions": [
         "Observe the @net: send against a live mail hub: actual contacts per outcome, cold and warm.",
@@ -11207,8 +11135,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential on a route is refused 401 'agent credential is invalid or expired; reconnect the agent session') and reads as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes, but desktop_policy.validate refuses a sandboxed org under the desktop-managed profile, so no desktop org carries a virtual disk and the three disk routes answer 409 there ('this org has no virtual disk …'); a sandboxed org elsewhere reads its disk (source). The bridge-credential status depends on the DEPLOYMENT profile: under the standard profile it answers 409 ('rotatable bridge credentials are active only in the frozen deployment profile'); under the frozen profile it attests the org's sandbox credential, a non-sandboxed org answering 503 ('… is not sandboxed and gets no bridge credential'). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json.",
-        "The aggregates route refuses a sandbox bridge caller 403 ('diagnostics are available only to the host operator') (source)."
+        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential on a route is refused 401 'agent credential is invalid or expired; reconnect the agent session') and reads as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes, so the desktop-managed and non-desktop profiles behave alike. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11254,7 +11181,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "chat reads the node's transcript through supervisor.read_chat, or through chat_window.read_page when a `before` cursor is given, with the chat-window, transcript-records and reply-events sidecars. file and scratch read the node's scratch folder under a containment check (scratch lists up to 300 entries and returns up to 60000 characters of a file); tool-image scans the node's transcript for the tool_use_id's tool_result image and returns its bytes. node history reads the events and notices naming the node through the bounded row reader; history sources lists the sections and nodes, and history entries pages one section (chat builds it from the transcript). events pages the org's events (total, events, offset). orgmd reads the workspace CLAUDE.md, up to 60000 characters, with its true length, read_truncated and prompt_max. net reads the org's network identity, hubs and autoconnect. aggregates counts rows and bytes per collection, metadata only. The disk routes read the org's virtual disk through the WSL mount (usage, files by size, one directory level, a file). The scratch, tool-image and orgmd reads open the file without closing it (recorded legacy defect, docket org-reads-that-write-chat-gets-mint-on-first-rea: the boundary test run shows a ResourceWarning for each). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+        "chat reads the node's transcript through supervisor.read_chat, or through chat_window.read_page when a `before` cursor is given, with the chat-window, transcript-records and reply-events sidecars. file and scratch read the node's scratch folder under a containment check (scratch lists up to 300 entries and returns up to 60000 characters of a file); tool-image scans the node's transcript for the tool_use_id's tool_result image and returns its bytes. node history reads the events and notices naming the node through the bounded row reader; history sources lists the sections and nodes, and history entries pages one section (chat builds it from the transcript). events pages the org's events (total, events, offset). orgmd reads the workspace CLAUDE.md, up to 60000 characters, with its true length, read_truncated and prompt_max. net reads the org's network identity, hubs and autoconnect. aggregates counts rows and bytes per collection, metadata only. The scratch, tool-image and orgmd reads open the file without closing it (recorded legacy defect, docket org-reads-that-write-chat-gets-mint-on-first-rea: the boundary test run shows a ResourceWarning for each). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11352,7 +11279,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "An unknown org or node answers 404 on every route. file, scratch and the disk file and dir routes refuse a path outside their root 422 ('path escapes the scratch space' and 'path escapes the org disk') and a missing path 404. chat refuses a malformed `before` cursor 422 ('Invalid transcript cursor'). tool-image answers 404 with no transcript ('no transcript') or no image on that tool result. history entries refuses an unknown section 404 ('Unknown history collection'), a per-node section without a node 404 and a malformed cursor 422 ('Invalid history cursor'). aggregates refuses an unknown collection 422. The disk routes answer 409 without a virtual disk and 503 when the disk is not mounted ('… disk is not mounted'). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+        "An unknown org or node answers 404 on every route. file and scratch refuse a path outside their root 422 ('path escapes the scratch space') and a missing path 404. chat refuses a malformed `before` cursor 422 ('Invalid transcript cursor'). tool-image answers 404 with no transcript ('no transcript') or no image on that tool result. history entries refuses an unknown section 404 ('Unknown history collection'), a per-node section without a node 404 and a malformed cursor 422 ('Invalid history cursor'). aggregates refuses an unknown collection 422. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11505,7 +11432,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential is refused 401 'agent credential is invalid or expired; reconnect the agent session') and acts as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): engine.launch sets the desktop-managed profile, under which desktop_policy.validate refuses a sandboxed org at creation 422 ('Not available in desktop MVP: sandbox' and '… sandbox, disk_mb'), so no desktop org carries a virtual disk and the disk and sweep routes answer 409 there; under the standard profile a sandboxed org is created (org-admin.writes). The frozen DEPLOYMENT profile refuses an unsandboxed create 422 ('the frozen deployment profile requires every org to be sandboxed …'). The bridge-credential rotation answers 409 under the standard deployment profile ('rotatable bridge credentials are active only in the frozen deployment profile') and under the frozen one attests the org's sandbox credential first, a non-sandboxed org answering 503. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential is refused 401 'agent credential is invalid or expired; reconnect the agent session') and acts as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes, so the desktop-managed profile engine.launch sets and the standard profile create, delete and configure an org alike. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11545,7 +11472,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "create reads the global defaults (defaults.json through load_org_defaults) and validates them with the request. delete reads the org's document before the rename, to unregister it from its mail hubs. settings, hire defaults and the disk resize read the org's document; the org.md write reads the org's workspace path. disk delete reads the disk usage, walks a directory's subtree (inside the WSL distro; in the test a temp folder) and classifies each path. The sweep preview lists the legacy volumes (docker volume inspect per system folder) and the host folders (the sandbox root, the org's host workspace and its scratch root) and sums their sizes. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "create reads the global defaults (defaults.json through load_org_defaults) and validates them with the request. delete reads the org's document before the rename, to unregister it from its mail hubs. settings and hire defaults read the org's document; the org.md write reads the org's workspace path. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11585,8 +11512,8 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "create writes a new org document (the born sections are pinned) with the global defaults except prefer_reserve and net_hub_address, the latter only choosing the local hub's address; the org also mints its network identity and hub list (the local entry unless net_autoconnect is off, then the typed addresses). Under the standard profile a sandboxed org is born with a sandbox section and a warmed container (a spy) (everything above is applied in store.create_org's prepare step and born in that one save; PG-3f). delete renames the org's store into <DATA_ROOT>/deleted/<slug>-<timestamp>.db, unregisters it from its hubs, forgets its runtime state, reaps its remote servers and removes its container (spies); scratch folders stay. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
-        "settings writes only the sections a request names and commits once, in one row transaction (settingstx): the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and the hub list, re-keying orphaned spool entries to the first enabled hub; an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section (its answer reports the character count as `bytes`: recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). disk resize writes the disk section: a grow sets size_mb after growing the image, a shrink stages pending_size_mb and a same-size or cancel request clears it; resize apply stops the container and applies the pending shrink (spies). disk delete unlinks the allowed paths on the disk, a directory all or nothing. The sweep removes the legacy volumes (docker volume rm) and deletes the sandbox root, the org's host workspace and its scratch root with rmtree, leaving the org's workspace path naming a deleted folder. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "create writes a new org document (the born sections are pinned) with the global defaults except prefer_reserve and net_hub_address, the latter only choosing the local hub's address; the org also mints its network identity and hub list (the local entry unless net_autoconnect is off, then the typed addresses). Everything above is applied in store.create_org's prepare step and born in that one save (PG-3f). delete renames the org's store into <DATA_ROOT>/deleted/<slug>-<timestamp>.db, unregisters it from its hubs, forgets its runtime state and reaps its remote servers (spies); scratch folders stay. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
+        "settings writes only the sections a request names and commits once, in one row transaction (settingstx): the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and the hub list, re-keying orphaned spool entries to the first enabled hub; an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section (its answer reports the character count as `bytes`: recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11668,7 +11595,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "create refuses an empty or letterless name 400 ('name is mandatory …'), an existing name 400 ('org … already exists') and a sandboxed disk under 4096 MB 422. delete, settings, the org.md write, the rotation and the disk and sweep routes answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied (folder revokes and the fable lock clear included): the whole call is one row transaction (settingstx.settings_tx over api._org_settings_apply; PG-3f), and a refusal rolls it back. hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. The disk and sweep routes answer 409 without a virtual disk; disk resize refuses no size 422 and a shrink under 4096 MB 422 (or, source, below usage with the MB to free); resize apply refuses no pending resize 422 and a shrink the apply keeps pending 422 with what to free; the sweeps refuse an unmounted disk 503. disk delete refuses per path, answering 200: a path outside the disk ('path escapes the org disk'), a system seed path and a protected transcript, and it reports an unlink error with the raw OSError text, host path included (recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "create refuses an empty or letterless name 400 ('name is mandatory …') and an existing name 400 ('org … already exists'). delete, settings and the org.md write answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied (folder revokes and the fable lock clear included): the whole call is one row transaction (settingstx.settings_tx over api._org_settings_apply; PG-3f), and a refusal rolls it back. hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11744,10 +11671,10 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "create builds the whole org in store.create_org's prepare step and saves it once, with no follow-up save (PG-3f); delete calls store.delete_org without the document lock (the store's own locking applies); the org.md write is an async route that loads the org and writes the file on the event loop without the document lock; disk delete and the sweep change the org disk and host folders outside any org transaction (source)."
+        "create builds the whole org in store.create_org's prepare step and saves it once, with no follow-up save (PG-3f); delete calls store.delete_org without the document lock (the store's own locking applies); the org.md write is an async route that loads the org and writes the file on the event loop without the document lock (source)."
       ],
       "open_questions": [
-        "Implement and qualify native transactions for the org administration writes: create and delete against a concurrent writer, the settings save, and the disk and sweep changes outside the org store.",
+        "Implement and qualify native transactions for the org administration writes: create and delete against a concurrent writer, and the settings save.",
         "Owner: P03 (native design and qualification). Closes with: a native design qualified by a settings save and a delete racing a turn's own save. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
       ],
       "source_refs": [
@@ -11816,7 +11743,7 @@
       "dimension": "effects",
       "status": "specified",
       "facts": [
-        "settings broadcasts (hub_changed) and kicks the net daemon; hire defaults broadcasts; the org.md write and the rotation announce through hub.changed; delete unregisters from the hubs, forgets runtime state, reaps remote servers and removes the container; create warms a sandboxed org's container; disk delete and a grow run the storage check; resize apply stops the container. All are spies in the test. The org.md write drives no agent itself (its docstring's restart of every agent happens outside the route, source). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json for the spy calls."
+        "settings broadcasts (hub_changed) and kicks the net daemon; hire defaults broadcasts; the org.md write announces through hub.changed; delete unregisters from the hubs, forgets runtime state and reaps remote servers. All are spies in the test. The org.md write drives no agent itself (its docstring's restart of every agent happens outside the route, source). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json for the spy calls."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11875,7 +11802,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is an operator route: the router's dependency (gitapi.operator) refuses a sandbox bridge caller 403 ('Git workspace is available only to the host operator') (source), and the desktop TokenGate of both current launch paths admits the operator and refuses an agent credential 401. PROFILES: desktop_policy.install_routes, which engine.launch runs under the desktop-managed profile it sets, is meant to strip every /git/ route, but the bundled FastAPI (0.141.1) registers the included git router as one _IncludedRouter entry with no path, which that filter keeps; so the desktop app serves every one of these routes exactly as the router alone does (recorded legacy defect, docket the-desktop-app-still-serves-the-git-workspace-r). Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+        "Every route is an operator route: the router has no dependency of its own, and the desktop TokenGate of both current launch paths admits the operator and refuses an agent credential 401. PROFILES: desktop_policy.install_routes, which engine.launch runs under the desktop-managed profile it sets, is meant to strip every /git/ route, but the bundled FastAPI (0.141.1) registers the included git router as one _IncludedRouter entry with no path, which that filter keeps; so the desktop app serves every one of these routes exactly as the router alone does (recorded legacy defect, docket the-desktop-app-still-serves-the-git-workspace-r). Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11903,7 +11830,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "The routes read the machine-wide repository registry <DATA_ROOT>/git-workspace.json (gitsettings.load) and, for links and item titles, the org document (gitworkspace.org_facts, a lock-free org_read since PG-3r). Every git read runs through gitrunner.run with hooks and normal validation enabled, optional locks off, no pager or colour and GIT_TERMINAL_PROMPT=0. The registered root is re-identified with rev-parse on every call and a moved or replaced directory is refused 409. discover scans the org's roots (workspace, folders, registered repositories and, outside a sandbox, the nodes' scratch folders) or one scan directory inside them, two levels deep and at most 200 directories, skipping .git, node_modules, .venv and reparse points, and reports one candidate per common directory: a checkout and its linked worktrees collapse into one, named after whichever the scan reached last. observation reads the refs and the remote configuration (ref identity and freshness) and answers busy rather than wait; inventory lists the worktrees with their change state; settings reads the refs, remotes, saved trunk and remote, the org's work items and the links; snapshot builds and caches a history snapshot (a token with a TTL) that history pages through with an HMAC-signed cursor; changes reads one worktree's status and diffs under the repository lock and refuses a checkout that moved meanwhile 409. setup and cleanup-preview are plans: setup never writes repository metadata (git_metadata_write false) and cleanup-preview marks every candidate that is not a registered owned link as preserved. The git launches of each route are pinned. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
+        "The routes read the machine-wide repository registry <DATA_ROOT>/git-workspace.json (gitsettings.load) and, for links and item titles, the org document (gitworkspace.org_facts, a lock-free org_read since PG-3r). Every git read runs through gitrunner.run with hooks and normal validation enabled, optional locks off, no pager or colour and GIT_TERMINAL_PROMPT=0. The registered root is re-identified with rev-parse on every call and a moved or replaced directory is refused 409. discover scans the org's roots (workspace, folders, registered repositories and the nodes' scratch folders) or one scan directory inside them, two levels deep and at most 200 directories, skipping .git, node_modules, .venv and reparse points, and reports one candidate per common directory: a checkout and its linked worktrees collapse into one, named after whichever the scan reached last. observation reads the refs and the remote configuration (ref identity and freshness) and answers busy rather than wait; inventory lists the worktrees with their change state; settings reads the refs, remotes, saved trunk and remote, the org's work items and the links; snapshot builds and caches a history snapshot (a token with a TTL) that history pages through with an HMAC-signed cursor; changes reads one worktree's status and diffs under the repository lock and refuses a checkout that moved meanwhile 409. setup and cleanup-preview are plans: setup never writes repository metadata (git_metadata_write false) and cleanup-preview marks every candidate that is not a registered owned link as preserved. The git launches of each route are pinned. Pinned by tests/test_state_git_workspace_boundary.py against docs/state-system/git-workspace-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -12220,7 +12147,7 @@
       "dimension": "authority",
       "status": "specified",
       "facts": [
-        "Every route is a desktop operator route. Only engine/launch.py's load_app mounts the router (app.include_router(desktop_import.router) on the V1 API app, after it wires the recovery hook with desktop_import.configure), and the app it serves is wrapped in the launcher's TokenGate: a request without the desktop token is refused 401 ('missing authentication; provide a desktop or live agent credential') and so is a request carrying only a live agent credential ('agent credential is invalid or expired; reconnect the agent session', although the credential is valid), because the gate admits an agent token only on POST /api/agent and the steer routes. The router has no dependency of its own. PROFILES: the standard API (orgtree.api alone) never mounts these routes; under the desktop-managed profile desktop_policy.install_routes leaves them in place (it filters accounts and /git/ paths). The request-wide middleware (RecoveryBarrier, FrozenAdminBoundary) applies as to every request and is witnessed separately. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+        "Every route is a desktop operator route. Only engine/launch.py's load_app mounts the router (app.include_router(desktop_import.router) on the V1 API app, after it wires the recovery hook with desktop_import.configure), and the app it serves is wrapped in the launcher's TokenGate: a request without the desktop token is refused 401 ('missing authentication; provide a desktop or live agent credential') and so is a request carrying only a live agent credential ('agent credential is invalid or expired; reconnect the agent session', although the credential is valid), because the gate admits an agent token only on POST /api/agent and the steer routes. The router has no dependency of its own. PROFILES: the standard API (orgtree.api alone) never mounts these routes; under the desktop-managed profile desktop_policy.install_routes leaves them in place (it filters accounts and /git/ paths). The request-wide middleware (RecoveryBarrier) applies as to every request and is witnessed separately. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -12306,7 +12233,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "preview is not read-only: for every org in the source it writes <DATA_ROOT>/.import-staging/<uuid>/<slug>/ (the private copy of the V1 database and WAL and its snapshot.db, or source.json, and original.json once the document validates) and never removes it, a refused preview that got as far as reading the document included. job-start writes the job record and current.json atomically and starts a daemon worker (desktop-import-<id>) that plans, copies each org's areas into new staging, prepares the document (runtime paths remapped to the V2 root, each node's session rebound to a native clone or held, pids and provider bindings cleared, the settings of removed features, sandbox, disk and the network identity archived), writes and verifies a candidate SQLite store, and publishes each org: the areas move into the data root, imports/<slug>/ keeps original.json, history, native and memory, and orgs/<slug>.db appears by an exclusive hard link. A native Claude import also publishes the node's project memory into the DESTINATION agent's Claude profile (CLAUDE_CONFIG_DIR, else USERPROFILE/.claude, projects/<key>/memory), outside the V2 data root. After publication the recovery hook (desktop_recovery.resume_import) records recovery_attempts, recovery_intents and recovery_phase in the imported org's desktop_import metadata. The staging folder is retained after success. job-status and job-current rewrite an active record that no worker owns (the destination lease is free) as interrupted, never replaying it; job-start does the same to the record current.json names before it refuses. job-cancel writes the <id>.cancel marker and the record (state cancelling) for a job in a cancellable phase and returns a finished job unchanged; the worker consumes the marker at its checkpoints. LEGACY: a cancel of an active record that no worker owns is accepted the same way, and the marker is never consumed (docket cancelling-an-orphaned-desktop-import-job-leaves). import-retired writes nothing. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+        "preview is not read-only: for every org in the source it writes <DATA_ROOT>/.import-staging/<uuid>/<slug>/ (the private copy of the V1 database and WAL and its snapshot.db, or source.json, and original.json once the document validates) and never removes it, a refused preview that got as far as reading the document included. job-start writes the job record and current.json atomically and starts a daemon worker (desktop-import-<id>) that plans, copies each org's areas into new staging, prepares the document (runtime paths remapped to the V2 root, each node's session rebound to a native clone or held, pids and provider bindings cleared, the settings of removed features (ledger.IGNORED_LEGACY_KEYS) and the network identity archived), writes and verifies a candidate SQLite store, and publishes each org: the areas move into the data root, imports/<slug>/ keeps original.json, history, native and memory, and orgs/<slug>.db appears by an exclusive hard link. A native Claude import also publishes the node's project memory into the DESTINATION agent's Claude profile (CLAUDE_CONFIG_DIR, else USERPROFILE/.claude, projects/<key>/memory), outside the V2 data root. After publication the recovery hook (desktop_recovery.resume_import) records recovery_attempts, recovery_intents and recovery_phase in the imported org's desktop_import metadata. The staging folder is retained after success. job-status and job-current rewrite an active record that no worker owns (the destination lease is free) as interrupted, never replaying it; job-start does the same to the record current.json names before it refuses. job-cancel writes the <id>.cancel marker and the record (state cancelling) for a job in a cancellable phase and returns a finished job unchanged; the worker consumes the marker at its checkpoints. LEGACY: a cancel of an active record that no worker owns is accepted the same way, and the marker is never consumed (docket cancelling-an-orphaned-desktop-import-job-leaves). import-retired writes nothing. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -22014,67 +21941,6 @@
       ],
       "domain_mode": "conditional_write"
     },
-    "org-read.bridge-credential": {
-      "entry_ids": [
-        "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-read.authority"
-        ],
-        "reads": [
-          "org-read.reads"
-        ],
-        "writes": [
-          "org-read.writes"
-        ],
-        "predicates": [
-          "org-read.predicates"
-        ],
-        "conflicts": [
-          "org-read.conflicts"
-        ],
-        "wire": [
-          "org-read.wire"
-        ],
-        "receipt": [
-          "org-read.receipt"
-        ],
-        "effects": [
-          "org-read.effects"
-        ],
-        "instrumentation": [
-          "org-read.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2071,
-          "end": 2071,
-          "sha256": "f1e4c406c564a012bf5b002ff4e31bab5168a2d1d79e02fa5a01ea7c30c2ba3f"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2071,
-          "end": 2074,
-          "sha256": "a3bfcdf1621e068580b8c5d55ca6855bb4e42376f1937699d07f73fa08e9810d"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2049,
-          "end": 2068,
-          "sha256": "b54aab2d7e252bb58a276765d3d95b39979774b42435d2e8b61bead47c2f8fa6"
-        }
-      ],
-      "domain_mode": "read"
-    },
     "org-read.aggregates": {
       "entry_ids": [
         "8ef7d8729bcec04845e962e58acc6002be21a665e232644d0da664d6bdc109c3"
@@ -22132,201 +21998,6 @@
           "start": 103,
           "end": 107,
           "sha256": "f690ddeda75bf82efa07939c68faea1232af0d2a5a90aea16d0873f8de781e92"
-        }
-      ],
-      "domain_mode": "read"
-    },
-    "org-read.disk-list": {
-      "entry_ids": [
-        "f6e69b914d253e9c6e25f925c74f5ee2d64ae12292668df22f396afdadb1977a"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-read.authority"
-        ],
-        "reads": [
-          "org-read.reads"
-        ],
-        "writes": [
-          "org-read.writes"
-        ],
-        "predicates": [
-          "org-read.predicates"
-        ],
-        "conflicts": [
-          "org-read.conflicts"
-        ],
-        "wire": [
-          "org-read.wire"
-        ],
-        "receipt": [
-          "org-read.receipt"
-        ],
-        "effects": [
-          "org-read.effects"
-        ],
-        "instrumentation": [
-          "org-read.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14158,
-          "end": 14158,
-          "sha256": "f3ec903661c792fb1108f16e782e919d21d165411548056b6311a088409f5841"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14158,
-          "end": 14188,
-          "sha256": "f454ab801b47f8cc1570bdadbeb5d7b0830d26133de9ae0b580fd3f5639222ce"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        }
-      ],
-      "domain_mode": "read"
-    },
-    "org-read.disk-dir": {
-      "entry_ids": [
-        "5e2b74680b80d7803b6c0b652a5ca1e86b4b0fc1a2cecc458653221bbf68c2ff"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-read.authority"
-        ],
-        "reads": [
-          "org-read.reads"
-        ],
-        "writes": [
-          "org-read.writes"
-        ],
-        "predicates": [
-          "org-read.predicates"
-        ],
-        "conflicts": [
-          "org-read.conflicts"
-        ],
-        "wire": [
-          "org-read.wire"
-        ],
-        "receipt": [
-          "org-read.receipt"
-        ],
-        "effects": [
-          "org-read.effects"
-        ],
-        "instrumentation": [
-          "org-read.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14213,
-          "end": 14213,
-          "sha256": "6dad8c04d4b68b2880a87ef216dc842c2a09e3ba158d48f40f03f49e917e60c8"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14213,
-          "end": 14246,
-          "sha256": "7e9263c262c0b070635041d2c1802acb7623d7e1ac4130fe741343025365b3ee"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14104,
-          "end": 14119,
-          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
-        }
-      ],
-      "domain_mode": "read"
-    },
-    "org-read.disk-file": {
-      "entry_ids": [
-        "80bec218982ea1ceca95a680cefc56d5a605c3fef7d5089e8b47a1757813618d"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-read.authority"
-        ],
-        "reads": [
-          "org-read.reads"
-        ],
-        "writes": [
-          "org-read.writes"
-        ],
-        "predicates": [
-          "org-read.predicates"
-        ],
-        "conflicts": [
-          "org-read.conflicts"
-        ],
-        "wire": [
-          "org-read.wire"
-        ],
-        "receipt": [
-          "org-read.receipt"
-        ],
-        "effects": [
-          "org-read.effects"
-        ],
-        "instrumentation": [
-          "org-read.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14249,
-          "end": 14249,
-          "sha256": "a01a57ee7151a0ef05b2a4a5336a65bc3966496e4253cd6c3f1be6e46c68be66"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14249,
-          "end": 14284,
-          "sha256": "36787bbfe79251e4261c86c7b8a32825af67c93f2b3c967e4d7a001a492e8242"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14104,
-          "end": 14119,
-          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
         }
       ],
       "domain_mode": "read"
@@ -22461,73 +22132,6 @@
           "start": 5497,
           "end": 5648,
           "sha256": "a27a1091ef536a9c2b20286fea5e991b0dd6730d1b7c0a852924abc9fbb0ce6b"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "org-admin.bridge-rotate": {
-      "entry_ids": [
-        "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-admin.authority"
-        ],
-        "reads": [
-          "org-admin.reads"
-        ],
-        "writes": [
-          "org-admin.writes"
-        ],
-        "predicates": [
-          "org-admin.predicates"
-        ],
-        "conflicts": [
-          "org-admin.conflicts"
-        ],
-        "wire": [
-          "org-admin.wire"
-        ],
-        "receipt": [
-          "org-admin.receipt"
-        ],
-        "effects": [
-          "org-admin.effects"
-        ],
-        "instrumentation": [
-          "org-admin.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2077,
-          "end": 2077,
-          "sha256": "616a434854547b3ceb4ed8608c126c4b25769ef9a0ba3327b666b53d80a4068a"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2077,
-          "end": 2091,
-          "sha256": "2ac625610bb258f7994a3a10d394c237052269f26c7346fa538ae39a587b180b"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2049,
-          "end": 2068,
-          "sha256": "b54aab2d7e252bb58a276765d3d95b39979774b42435d2e8b61bead47c2f8fa6"
-        },
-        {
-          "path": "engine/backend/orgtree/bridgeauth.py",
-          "start": 309,
-          "end": 344,
-          "sha256": "35dba044de8069931ae8daae920b4324ed668cd9e52e67b184ba6744cc5dfb74"
         }
       ],
       "domain_mode": "write"
@@ -22729,341 +22333,6 @@
           "start": 10066,
           "end": 10113,
           "sha256": "0672c2fef6d67cbe6953065bc0c0453f5e005615e13b8326f36ad5f73eac1c08"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "org-admin.disk-delete": {
-      "entry_ids": [
-        "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-admin.authority"
-        ],
-        "reads": [
-          "org-admin.reads"
-        ],
-        "writes": [
-          "org-admin.writes"
-        ],
-        "predicates": [
-          "org-admin.predicates"
-        ],
-        "conflicts": [
-          "org-admin.conflicts"
-        ],
-        "wire": [
-          "org-admin.wire"
-        ],
-        "receipt": [
-          "org-admin.receipt"
-        ],
-        "effects": [
-          "org-admin.effects"
-        ],
-        "instrumentation": [
-          "org-admin.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14291,
-          "end": 14291,
-          "sha256": "63ca691bf08e6114e4cc245979206b6d2f775bd6d76adf80cb7ed99294bcf292"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14291,
-          "end": 14356,
-          "sha256": "9dabd44040813f4367ac6c68bcc28b68760ec67fb8485843ab118a2be327f18c"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14104,
-          "end": 14119,
-          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14125,
-          "end": 14155,
-          "sha256": "2fd5c71d980164682902f8ac863837f6480408c98dc284910996328376832daf"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "org-admin.disk-resize": {
-      "entry_ids": [
-        "6efa8fe24f914e1b64f92a701ac6fd426b6b1dbde20e4d3f8e69161909ff63a8"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-admin.authority"
-        ],
-        "reads": [
-          "org-admin.reads"
-        ],
-        "writes": [
-          "org-admin.writes"
-        ],
-        "predicates": [
-          "org-admin.predicates"
-        ],
-        "conflicts": [
-          "org-admin.conflicts"
-        ],
-        "wire": [
-          "org-admin.wire"
-        ],
-        "receipt": [
-          "org-admin.receipt"
-        ],
-        "effects": [
-          "org-admin.effects"
-        ],
-        "instrumentation": [
-          "org-admin.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14377,
-          "end": 14377,
-          "sha256": "f05c335858a69de1da9dde0a4c703c0e3060ebf4ad07e19d92adc72fa98d2381"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14377,
-          "end": 14424,
-          "sha256": "6f98abd4687fa437a55ca03886c36238186a3c665d1e9e089c6ebed859734a78"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14364,
-          "end": 14374,
-          "sha256": "37583ebebc369300fdf624057fd57e286748026db8c18f1c2201658b695e96a7"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "org-admin.disk-resize-apply": {
-      "entry_ids": [
-        "11523cde8191de8f0b53d33661abf08d4cb8be1f06f8330a4060c375ef38b759"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-admin.authority"
-        ],
-        "reads": [
-          "org-admin.reads"
-        ],
-        "writes": [
-          "org-admin.writes"
-        ],
-        "predicates": [
-          "org-admin.predicates"
-        ],
-        "conflicts": [
-          "org-admin.conflicts"
-        ],
-        "wire": [
-          "org-admin.wire"
-        ],
-        "receipt": [
-          "org-admin.receipt"
-        ],
-        "effects": [
-          "org-admin.effects"
-        ],
-        "instrumentation": [
-          "org-admin.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14427,
-          "end": 14427,
-          "sha256": "e0c911a533f2463bc58dd0e673c79536de5999ddd71c6fa0ffe465c2053e05de"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14427,
-          "end": 14450,
-          "sha256": "f947489a64d47e0b30fccb7561997fe7bf5a51e0b9849d0e0e114c7dfa960c34"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "org-admin.sweep-preview": {
-      "entry_ids": [
-        "f5c06e89664d0e0f9fdc70f5e9521385ef3b63e73406dd672c8b9720b93a36f5"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-admin.authority"
-        ],
-        "reads": [
-          "org-admin.reads"
-        ],
-        "writes": [
-          "org-admin.writes"
-        ],
-        "predicates": [
-          "org-admin.predicates"
-        ],
-        "conflicts": [
-          "org-admin.conflicts"
-        ],
-        "wire": [
-          "org-admin.wire"
-        ],
-        "receipt": [
-          "org-admin.receipt"
-        ],
-        "effects": [
-          "org-admin.effects"
-        ],
-        "instrumentation": [
-          "org-admin.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14492,
-          "end": 14492,
-          "sha256": "298a93ce472e713969533ed496e88a0ba968b98301371459d6ba4b70f895a085"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14492,
-          "end": 14509,
-          "sha256": "61ce3071a8cd7bd94fe6815d271fc99308c32c8b2b2ed843546b118feac94e57"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14475,
-          "end": 14489,
-          "sha256": "931e1cef01b621337399ab2ed79626437fe5f22e604e1387a44e7e9df4e99fac"
-        }
-      ],
-      "domain_mode": "read"
-    },
-    "org-admin.sweep": {
-      "entry_ids": [
-        "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda"
-      ],
-      "tools": [],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "org-admin.authority"
-        ],
-        "reads": [
-          "org-admin.reads"
-        ],
-        "writes": [
-          "org-admin.writes"
-        ],
-        "predicates": [
-          "org-admin.predicates"
-        ],
-        "conflicts": [
-          "org-admin.conflicts"
-        ],
-        "wire": [
-          "org-admin.wire"
-        ],
-        "receipt": [
-          "org-admin.receipt"
-        ],
-        "effects": [
-          "org-admin.effects"
-        ],
-        "instrumentation": [
-          "org-admin.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14512,
-          "end": 14512,
-          "sha256": "c192e79625309234e02614cf6c7109a652eba89094f236b10114665b5bfaf25b"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14512,
-          "end": 14539,
-          "sha256": "8d6e4c74eda823f690b74d1cd44b6ab1283411d8ef5cfdd8241432f58138926d"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14093,
-          "end": 14101,
-          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14475,
-          "end": 14489,
-          "sha256": "931e1cef01b621337399ab2ed79626437fe5f22e604e1387a44e7e9df4e99fac"
         }
       ],
       "domain_mode": "write"
@@ -26411,38 +25680,10 @@
       "domain_mode": "conditional_write"
     },
     {
-      "name": "GET /api/orgs/{slug}/bridge-credential:org-read.bridge-credential",
-      "entry_id": "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28",
-      "args": {},
-      "contract": "org-read.bridge-credential",
-      "domain_mode": "read"
-    },
-    {
       "name": "GET /api/orgs/{slug}/diagnostics/aggregates:org-read.aggregates",
       "entry_id": "8ef7d8729bcec04845e962e58acc6002be21a665e232644d0da664d6bdc109c3",
       "args": {},
       "contract": "org-read.aggregates",
-      "domain_mode": "read"
-    },
-    {
-      "name": "GET /api/orgs/{slug}/disk:org-read.disk-list",
-      "entry_id": "f6e69b914d253e9c6e25f925c74f5ee2d64ae12292668df22f396afdadb1977a",
-      "args": {},
-      "contract": "org-read.disk-list",
-      "domain_mode": "read"
-    },
-    {
-      "name": "GET /api/orgs/{slug}/disk/dir:org-read.disk-dir",
-      "entry_id": "5e2b74680b80d7803b6c0b652a5ca1e86b4b0fc1a2cecc458653221bbf68c2ff",
-      "args": {},
-      "contract": "org-read.disk-dir",
-      "domain_mode": "read"
-    },
-    {
-      "name": "GET /api/orgs/{slug}/disk/file:org-read.disk-file",
-      "entry_id": "80bec218982ea1ceca95a680cefc56d5a605c3fef7d5089e8b47a1757813618d",
-      "args": {},
-      "contract": "org-read.disk-file",
       "domain_mode": "read"
     },
     {
@@ -26457,13 +25698,6 @@
       "entry_id": "ad058027db1a6951f566d08ec7d174198d158db9081c23b66b9c5eb79c935367",
       "args": {},
       "contract": "org-admin.delete",
-      "domain_mode": "write"
-    },
-    {
-      "name": "POST /api/orgs/{slug}/bridge-credential/rotate:org-admin.bridge-rotate",
-      "entry_id": "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9",
-      "args": {},
-      "contract": "org-admin.bridge-rotate",
       "domain_mode": "write"
     },
     {
@@ -26485,41 +25719,6 @@
       "entry_id": "930cb8d0181b2a0c50d78ff395d9332dfdbc4bcacf1aee4b4130e2c8e7116c23",
       "args": {},
       "contract": "org-admin.orgmd-write",
-      "domain_mode": "write"
-    },
-    {
-      "name": "POST /api/orgs/{slug}/disk/delete:org-admin.disk-delete",
-      "entry_id": "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f",
-      "args": {},
-      "contract": "org-admin.disk-delete",
-      "domain_mode": "write"
-    },
-    {
-      "name": "POST /api/orgs/{slug}/disk/resize:org-admin.disk-resize",
-      "entry_id": "6efa8fe24f914e1b64f92a701ac6fd426b6b1dbde20e4d3f8e69161909ff63a8",
-      "args": {},
-      "contract": "org-admin.disk-resize",
-      "domain_mode": "write"
-    },
-    {
-      "name": "POST /api/orgs/{slug}/disk/resize/apply:org-admin.disk-resize-apply",
-      "entry_id": "11523cde8191de8f0b53d33661abf08d4cb8be1f06f8330a4060c375ef38b759",
-      "args": {},
-      "contract": "org-admin.disk-resize-apply",
-      "domain_mode": "write"
-    },
-    {
-      "name": "GET /api/orgs/{slug}/sweep-legacy:org-admin.sweep-preview",
-      "entry_id": "f5c06e89664d0e0f9fdc70f5e9521385ef3b63e73406dd672c8b9720b93a36f5",
-      "args": {},
-      "contract": "org-admin.sweep-preview",
-      "domain_mode": "read"
-    },
-    {
-      "name": "POST /api/orgs/{slug}/sweep-legacy:org-admin.sweep",
-      "entry_id": "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda",
-      "args": {},
-      "contract": "org-admin.sweep",
       "domain_mode": "write"
     },
     {
@@ -26927,38 +26126,6 @@
           "start": 2005,
           "end": 2005,
           "sha256": "0aba54611f16e6b6b53faf5f3c7f3c9d00a1f82634379b85e688d10bc12f45d8"
-        }
-      ]
-    },
-    {
-      "id": "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28",
-      "disposition": "mapped",
-      "contracts": [
-        "org-read.bridge-credential"
-      ],
-      "reason": "GET /api/orgs/{slug}/bridge-credential: org-read.bridge-credential (P01 F6).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2071,
-          "end": 2071,
-          "sha256": "f1e4c406c564a012bf5b002ff4e31bab5168a2d1d79e02fa5a01ea7c30c2ba3f"
-        }
-      ]
-    },
-    {
-      "id": "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9",
-      "disposition": "mapped",
-      "contracts": [
-        "org-admin.bridge-rotate"
-      ],
-      "reason": "POST /api/orgs/{slug}/bridge-credential/rotate: org-admin.bridge-rotate (P01 F7).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 2077,
-          "end": 2077,
-          "sha256": "616a434854547b3ceb4ed8608c126c4b25769ef9a0ba3327b666b53d80a4068a"
         }
       ]
     },
@@ -28250,13 +27417,6 @@
       ]
     },
     {
-      "id": "a2925cc2c681a54222e275e69ba6e5f1a133b94e34d08be545a0b5bbe012f0f9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
-    },
-    {
       "id": "7ed4d9f68b5237fde64e698be4f15ad9b91726dafd376a7d6e16aff49b4ab8e3",
       "disposition": "pending",
       "contracts": [],
@@ -28292,134 +27452,6 @@
           "start": 14049,
           "end": 14049,
           "sha256": "30a411e12d7d5c4ac0c7b933df9dc74a926ca1aeea2b0e52ccd2306f4ad2aa9a"
-        }
-      ]
-    },
-    {
-      "id": "f6e69b914d253e9c6e25f925c74f5ee2d64ae12292668df22f396afdadb1977a",
-      "disposition": "mapped",
-      "contracts": [
-        "org-read.disk-list"
-      ],
-      "reason": "GET /api/orgs/{slug}/disk: org-read.disk-list (P01 F6).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14158,
-          "end": 14158,
-          "sha256": "f3ec903661c792fb1108f16e782e919d21d165411548056b6311a088409f5841"
-        }
-      ]
-    },
-    {
-      "id": "5e2b74680b80d7803b6c0b652a5ca1e86b4b0fc1a2cecc458653221bbf68c2ff",
-      "disposition": "mapped",
-      "contracts": [
-        "org-read.disk-dir"
-      ],
-      "reason": "GET /api/orgs/{slug}/disk/dir: org-read.disk-dir (P01 F6).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14213,
-          "end": 14213,
-          "sha256": "6dad8c04d4b68b2880a87ef216dc842c2a09e3ba158d48f40f03f49e917e60c8"
-        }
-      ]
-    },
-    {
-      "id": "80bec218982ea1ceca95a680cefc56d5a605c3fef7d5089e8b47a1757813618d",
-      "disposition": "mapped",
-      "contracts": [
-        "org-read.disk-file"
-      ],
-      "reason": "GET /api/orgs/{slug}/disk/file: org-read.disk-file (P01 F6).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14249,
-          "end": 14249,
-          "sha256": "a01a57ee7151a0ef05b2a4a5336a65bc3966496e4253cd6c3f1be6e46c68be66"
-        }
-      ]
-    },
-    {
-      "id": "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f",
-      "disposition": "mapped",
-      "contracts": [
-        "org-admin.disk-delete"
-      ],
-      "reason": "POST /api/orgs/{slug}/disk/delete: org-admin.disk-delete (P01 F7).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14291,
-          "end": 14291,
-          "sha256": "63ca691bf08e6114e4cc245979206b6d2f775bd6d76adf80cb7ed99294bcf292"
-        }
-      ]
-    },
-    {
-      "id": "6efa8fe24f914e1b64f92a701ac6fd426b6b1dbde20e4d3f8e69161909ff63a8",
-      "disposition": "mapped",
-      "contracts": [
-        "org-admin.disk-resize"
-      ],
-      "reason": "POST /api/orgs/{slug}/disk/resize: org-admin.disk-resize (P01 F7).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14377,
-          "end": 14377,
-          "sha256": "f05c335858a69de1da9dde0a4c703c0e3060ebf4ad07e19d92adc72fa98d2381"
-        }
-      ]
-    },
-    {
-      "id": "11523cde8191de8f0b53d33661abf08d4cb8be1f06f8330a4060c375ef38b759",
-      "disposition": "mapped",
-      "contracts": [
-        "org-admin.disk-resize-apply"
-      ],
-      "reason": "POST /api/orgs/{slug}/disk/resize/apply: org-admin.disk-resize-apply (P01 F7).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14427,
-          "end": 14427,
-          "sha256": "e0c911a533f2463bc58dd0e673c79536de5999ddd71c6fa0ffe465c2053e05de"
-        }
-      ]
-    },
-    {
-      "id": "f5c06e89664d0e0f9fdc70f5e9521385ef3b63e73406dd672c8b9720b93a36f5",
-      "disposition": "mapped",
-      "contracts": [
-        "org-admin.sweep-preview"
-      ],
-      "reason": "GET /api/orgs/{slug}/sweep-legacy: org-admin.sweep-preview (P01 F7).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14492,
-          "end": 14492,
-          "sha256": "298a93ce472e713969533ed496e88a0ba968b98301371459d6ba4b70f895a085"
-        }
-      ]
-    },
-    {
-      "id": "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda",
-      "disposition": "mapped",
-      "contracts": [
-        "org-admin.sweep"
-      ],
-      "reason": "POST /api/orgs/{slug}/sweep-legacy: org-admin.sweep (P01 F7).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 14512,
-          "end": 14512,
-          "sha256": "c192e79625309234e02614cf6c7109a652eba89094f236b10114665b5bfaf25b"
         }
       ]
     },
@@ -28836,20 +27868,6 @@
       "contracts": [],
       "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
       "source_refs": []
-    },
-    {
-      "id": "cd375b45d1211eea08fc2f9ae20cfd14129fc7dc24c10409a701dd3b3cb388ae",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not a registration: mount(slug) mounts a sandboxed org's virtual disk inside the Docker Desktop distro; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/disk.py",
-          "start": 226,
-          "end": 226,
-          "sha256": "1fd7c572b132d38abaa27da5471c15861c11fa178d477e54cd3fda89c7f4a587"
-        }
-      ]
     },
     {
       "id": "2a2ef8f2c4f0ad133537dffbed8182b3aa37cd9dbffb567cdd075256e5ea74a2",
@@ -30112,55 +29130,6 @@
       "source_refs": []
     },
     {
-      "id": "fc16f0ec4f28045a3f5aa058a9fe35155bd4df5fafa3d7349c96c7531788c6f4",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not a registration: dsk.mount(slug) mounts a sandboxed org's virtual disk; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 898,
-          "end": 898,
-          "sha256": "8f5b7efe93347835fdd63c26838a61be716b0a037b5f8f908248b0ef406e663c"
-        }
-      ]
-    },
-    {
-      "id": "f4d8c124760d46c10b32ae5355715e073cdca5432caa8044c955f5423e6cdada",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not a registration: dsk.mount(slug) remounts a sandboxed org's virtual disk after a resize; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 1038,
-          "end": 1038,
-          "sha256": "5d6dacd9d8f2cbbafacc4d0a134da52f68335b1e27c656fab202e025215a7b54"
-        }
-      ]
-    },
-    {
-      "id": "839f6c4f84bd6af95c94355c4ee9623d21366b10b4a68a57ba86d91c649c3eb1",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not a registration: dsk.mount(slug) remounts a sandboxed org's virtual disk after a resize; the inventory's 'mount' heuristic mistook the call for a route mount. No handler is registered here. P01 W1.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/sandbox.py",
-          "start": 1047,
-          "end": 1047,
-          "sha256": "7aa50f886c839afdc5357ba0d7e385b767ac82e1849c7397ae78a557bb5224cb"
-        }
-      ]
-    },
-    {
-      "id": "92a598ac7578db2ecf914a374dec9b56deb539f3dc69dc26a8c680fe46bb9157",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W2): the sandbox warm-up runs ensure_container for a sandboxed org (its container, mounted disk and chowned paths), the org's runtime environment. Owner: the runtime (P08).",
-      "source_refs": []
-    },
-    {
       "id": "883d2b38a427fdf99ea8b30ecee40c54c5dd9dab14f854bde3fda964634af267",
       "disposition": "pending",
       "contracts": [],
@@ -30300,24 +29269,10 @@
       "source_refs": []
     },
     {
-      "id": "7484e6c45c1c373e29bf1d30da5ecbdcf5e614f28a1697eb51315a8f388931a8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W3): the storage check (storage_check) loads the org and can block or unblock its storage. Org state. Owner: the runtime (P08).",
-      "source_refs": []
-    },
-    {
       "id": "9ca814e7782a90221bee1ddc9c4be577885fb5a0300316d2761ff1b7eb78a4f0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W3): an immediate session command (for example /compact) runs against the node's session. Org state. Owner: the runtime (P08).",
-      "source_refs": []
-    },
-    {
-      "id": "9fbf9ea3a4b497a07b92c08a8d7867df6bc4f3fd53cc147487b0d87b77223b11",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W3): the storage watchdog's loop runs storage checks over the orgs (cached_org). Org state. Owner: the runtime (P08).",
       "source_refs": []
     },
     {
@@ -30795,13 +29750,6 @@
           "sha256": "54ee8e10e6b10b6dc01bac76ec5730ce7901c8536948009bdcc2db1daab48ce1"
         }
       ]
-    },
-    {
-      "id": "4b6088d7d07b48646feaa9631509cf90e3b782c9b59d9c1cd913a3c2b4ddc75f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 item p01-inventory-misses-middleware-add-middleware-c): under a deployment policy without allow_admin_exposure, the FrozenAdminBoundary middleware refuses an HTTP or websocket request from a non-loopback client that the bridge gateway has not marked (no bridge_slug in the request scope) before any route runs: 403 JSON 'the frozen deployment profile exposes the admin API to loopback clients only', or websocket close 4403. It is a request-wide authority predicate that no contract or shared facet states yet. Owner: the runtime (P08).",
-      "source_refs": []
     },
     {
       "id": "62320f511c44f17f2aa59621e047350864b32bae5e8cb103dc221d3ff58ee9e8",
@@ -34405,7 +33353,7 @@
       ]
     },
     {
-      "id": "6e5106032f645a9b816765a88c436b0671fcfc5f9828c837b255c34ddb9de085",
+      "id": "5c9fc0b78491d3e92590320962b4bbdc07aee10d3e640698ee21924f65d0ac4e",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -34414,8 +33362,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/filedelivery.py",
-          "start": 45,
-          "end": 45,
+          "start": 43,
+          "end": 43,
           "sha256": "d115d107e5a570e1dbd0a6065c098174cb85a2de98520e665dd07f90a53c5d31"
         }
       ]

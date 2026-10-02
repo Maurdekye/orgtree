@@ -58,7 +58,7 @@ FUNDING_SECTIONS = ("notices",)
 REQUESTS = "credit_requests"
 RESERVATIONS = "reservations"
 WATCHDOG_SECTIONS = ("watchdogs", "watchdog_tombs")
-WATCHDOG_SETTINGS = ("sandbox", "workspace", "slug")
+WATCHDOG_SETTINGS = ("workspace", "slug")
 
 TOOLS = ("orgtree_reallocate", "orgtree_request_credits", "orgtree_status",
          "orgtree_reservation", "orgtree_resource_reservation",
@@ -392,13 +392,13 @@ def _reservation_body(tx: Any) -> Any:
 
 def _watchdog_body(tx: Any) -> Any:
     """The orgtree_watchdog branch of api.agent_call on the door (plan
-    decision 22). Its host checks (sandbox, the file containment, finding a
-    bash) only read, so they may re-run with the body; the smoke run spawns
+    decision 22). Its host checks (the file containment, finding a bash)
+    only read, so they may re-run with the body; the smoke run spawns
     a real child and waits seconds for it, so it runs in `after.then`, once,
     after the commit — the same place the cycle ran it (after the save)."""
     import os
 
-    from . import sandbox, supervisor
+    from . import supervisor
     from .ledger import LedgerError
     org, node, a = tx.org, tx.node, tx.args
     act = str(a.get("action") or "")
@@ -419,12 +419,6 @@ def _watchdog_body(tx: Any) -> Any:
     if kind == "file":
         # capability containment — see api.agent_call's copy of this branch
         # for the reasoning; the rule itself is `wd_file_contained`
-        if sandbox.is_sandboxed(org):
-            raise LedgerError(
-                "sandboxed agents watch files with a STREAM "
-                "watchdog instead (e.g. target: tail -n0 -f "
-                "<path>) — it runs inside your container "
-                "with your own hands")
         wroot = os.path.realpath(supervisor.scratch_dir(tx.call.org, node))
         full = os.path.realpath(tgt if os.path.isabs(tgt)
                                 else os.path.join(wroot, tgt))
@@ -438,12 +432,6 @@ def _watchdog_body(tx: Any) -> Any:
     shell = str(a.get("shell") or "native").strip().lower()
     if shell == "bash" and kind in ("command", "stream"):
         # ☠ REFUSE, NEVER FALL BACK — see api.agent_call's copy
-        if sandbox.is_sandboxed(org):
-            raise LedgerError(
-                "shell='bash' is for host orgs — your dogs "
-                "already run in a POSIX shell (`sh -lc`) "
-                "inside your container, so the full idiom "
-                "works without it. Omit `shell`.")
         if supervisor.wd_bash_exe() is None:
             raise LedgerError(
                 "shell='bash' was asked for but no bash can "

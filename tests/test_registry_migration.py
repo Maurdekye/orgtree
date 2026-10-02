@@ -129,14 +129,17 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(cond["nodes"]["m"]["account"],
                          report["ambient_rows"]["claude"])
 
-    def test_sandboxed_and_openrouter_are_declared_exemptions(self):
-        sandboxed = self._org("boxed", {"s": {"model": "opus"}},
-                              sandbox={"image": "x"})
+    def test_openrouter_is_the_declared_exemption_and_a_legacy_sandbox_key_is_not(self):
+        # a stored legacy `sandbox` key no longer exempts an org: it runs on
+        # the host, so its nodes bind like any other org's
+        legacy = self._org("boxed", {"s": {"model": "opus"}},
+                           sandbox={"image": "x"})
         orr = self._org("routed", {"r": {"model": "or-foo/bar"}})
         report = self.migration.run_migration(
-            [sandboxed, orr], self._ambient())
-        self.assertEqual(report["skipped_sandboxed"], ["boxed"])
-        self.assertNotIn("account", sandboxed["nodes"]["s"])
+            [legacy, orr], self._ambient())
+        self.assertNotIn("skipped_sandboxed", report)
+        self.assertEqual(legacy["nodes"]["s"]["account"],
+                         report["ambient_rows"]["claude"])
         self.assertEqual(report["skipped_openrouter"], ["routed/r"])
         self.assertNotIn("account", orr["nodes"]["r"])
 

@@ -345,7 +345,6 @@ class TurnRendersFromADetachedOrg(unittest.TestCase):
     def test_the_turn_block_shows_the_saved_state_not_a_concurrent_unsaved_write(self):
         build, seen = self._race_then_build(sup._envelope_state_block)
         with mock.patch.object(sup, "spawn_env", return_value={}), \
-                mock.patch.object(sup, "_deployment_org_gate"), \
                 mock.patch.object(sup, "_envelope_state_block", side_effect=build):
             try:
                 sup._run_one_turn_recorded(self.slug, "worker", "go")

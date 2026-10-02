@@ -113,8 +113,6 @@ FIXTURES["runtime.report_stalled"]["fields"].update(cause="terminal", audience="
 FIXTURES["runtime.report_parked"]["fields"]["audience"] = "superior"
 FIXTURES["runtime.report_limited"]["fields"]["audience"] = "superior"
 FIXTURES["runtime.subagent_died"]["fields"].update(count=1)
-FIXTURES["runtime.storage"]["fields"].update(level="over", scope="disk", used_mb=920.0,
-                                             cap_mb=1000.0)
 FIXTURES["runtime.delivery_unread"]["fields"]["boundary_for"] = "4s"
 FIXTURES["reminder.idle_docket"]["fields"]["more"] = 1
 FIXTURES["context.deep_reach"]["fields"]["kind"] = "message"

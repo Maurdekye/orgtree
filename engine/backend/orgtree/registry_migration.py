@@ -17,13 +17,12 @@ evidence order, and what it deliberately does not:
     ON — the key is a spare) is the HELD case: nodes bind to their normal
     ambient lane, the key mints nothing, and the report documents the org for
     a decision. Ambiguity is never inferred as a fallback switch.
-  · UNIVERSAL BINDINGS — every node of every NON-SANDBOXED org gets an
-    explicit `account` binding: its provider's ambient row id, or the literal
+  · UNIVERSAL BINDINGS — every node of every org gets an explicit
+    `account` binding: its provider's ambient row id, or the literal
     sentinel `missing:<provider>` when that provider has no observed login —
     a deliberate, visible fleet-park listed in the report, resolvable by
-    registering an account and reassigning. Sandboxed orgs take NO binding
-    (declared exemption: the container env owns the credential). OpenRouter
-    nodes take NO binding (D6: that lane is not an account).
+    registering an account and reassigning. OpenRouter nodes take NO
+    binding (D6: that lane is not an account).
   · INERT DECLARATION — with nothing to observe and nothing to migrate the
     report SAYS it was inert rather than passing quietly.
 
@@ -197,12 +196,6 @@ _CUTOVER_FIELDS = ("api_key", "api_fallback", "fable_api_fallback",
                    "api_fallback_until", "api_fallback_since")
 
 
-def _sandboxed(doc: dict[str, Any]) -> bool:
-    # sandbox._cfg's fields, readable off the raw doc (a top-level sandbox
-    # config); no Org construction needed here.
-    return bool(doc.get("sandbox") or {})
-
-
 def _node_provider(node: dict[str, Any]) -> str:
     return providers.provider_of(str(node.get("model") or ""))
 
@@ -273,7 +266,7 @@ def run_migration(org_docs: list[dict[str, Any]],
     report: dict[str, Any] = {
         "inert": False, "ambient_rows": {}, "key_rows": [],
         "org_key_rows": {}, "org_key_held": [], "missing_bindings": [],
-        "skipped_sandboxed": [], "skipped_openrouter": [],
+        "skipped_openrouter": [],
         "bound_nodes": 0, "changed_orgs": [],
     }
 
@@ -308,9 +301,6 @@ def run_migration(org_docs: list[dict[str, Any]],
     # 3 + 4. org keys by durable-config evidence, then universal bindings
     for org in org_docs:
         slug = str(org.get("slug") or "")
-        if _sandboxed(org):
-            report["skipped_sandboxed"].append(slug)
-            continue
         org_key_id: str | None = None
         if str(org.get("api_key") or ""):
             if org.get("api_fallback"):
@@ -385,17 +375,14 @@ def run_apikey_cutover() -> dict[str, Any] | None:
       · an orphaned org-key row (org gone, or loaded and keyless) is marked
         unauthenticated and reported: its secret no longer exists anywhere,
         which is a fact to surface, not a repair to invent;
-      · every non-sandboxed org drops api_key / api_fallback /
-        fable_api_fallback / api_fallback_until / api_fallback_since.
-        Sandboxed orgs are skipped whole, like the S2 cutover — their
-        container auth is its own world, and the desktop build forbids
-        creating them at all."""
+      · every org drops api_key / api_fallback /
+        fable_api_fallback / api_fallback_until / api_fallback_since."""
     from . import apikey_accounts, store, tokens
     if apikey_cutover_done():
         return None
     report: dict[str, Any] = {"converted_rows": {}, "minted_rows": {},
                               "fallback_was_on": [], "orphaned_rows": [],
-                              "cleaned_orgs": [], "skipped_sandboxed": [],
+                              "cleaned_orgs": [],
                               "errors": {}}
     with store.DOC_LOCK:
         try:
@@ -431,19 +418,15 @@ def run_apikey_cutover() -> dict[str, Any] | None:
                     # with none of the fields this pass converts or removes
                     # needs no whole load and no save (engine-startup-cost-
                     # must-not-grow-with-retired-h). Same outcome as the walk
-                    # below: a keyless, unsandboxed org counts as loaded.
+                    # below: a keyless org counts as loaded.
                     view = store.doc_keys_view(slug)
-                    if not _sandboxed(view) and not any(
-                            f in view for f in _CUTOVER_FIELDS):
+                    if not any(f in view for f in _CUTOVER_FIELDS):
                         loaded.add(slug)
                         continue
                 org = store.load_org(slug)
             except Exception as e:                           # noqa: BLE001
                 report["errors"][slug] = f"{type(e).__name__}: {e}"
                 clean = False
-                continue
-            if _sandboxed(org.d):
-                report["skipped_sandboxed"].append(slug)
                 continue
             loaded.add(slug)
             d = org.d

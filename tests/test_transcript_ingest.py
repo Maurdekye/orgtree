@@ -599,10 +599,9 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(calls, [slug])
         self.assertEqual(view.node('agent')['session_id'], self.org.node('agent')['session_id'])
 
-    def test_source_projection_preserves_sandbox_and_bound_account(self):
+    def test_source_projection_preserves_bound_account(self):
         slug = self.org.d['slug']
         org = store.load_org(slug)
-        org.d['sandbox'] = {'enabled': True, 'secret': 'test-only'}
         org.node('agent')['account'] = 'missing-profile-test-only'
         store.save_org(org)
         with patch.object(store, 'cached_org', side_effect=AssertionError('whole Org')):

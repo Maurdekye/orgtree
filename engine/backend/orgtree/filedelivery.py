@@ -20,7 +20,7 @@ _lock = threading.Lock()
 
 
 def snapshot(org, nid, args, *, max_bytes):
-    from . import api, sandbox
+    from . import api
     key = str(args.get('delivery_id') or '')
     if not re.fullmatch(r'[a-zA-Z0-9_-]{16,128}', key):
         raise LedgerError('delivery_id must be 16-128 letters, digits, hyphens or underscores; reuse it only for this delivery')
@@ -32,8 +32,6 @@ def snapshot(org, nid, args, *, max_bytes):
     size = os.path.getsize(src)
     if not size or max_bytes is not None and size > max_bytes:
         raise LedgerError('file is empty or exceeds the direct-delivery size limit')
-    if org.d.get('storage_blocked'):
-        raise LedgerError('the org is over its storage limit; file delivery is paused')
     identity = hashlib.sha256(f'{org.d["slug"]}:{seat}:{key}'.encode()).hexdigest()
     fingerprint = json.dumps([os.path.normcase(src), str(args.get('note') or '')])
     outdir = Path(scratch) / 'outbox'
@@ -62,7 +60,6 @@ def snapshot(org, nid, args, *, max_bytes):
                     raise LedgerError('delivered snapshot is missing or changed; inspect it and use a new delivery_id to send again')
                 return sent
             target.parent.mkdir(parents=True, exist_ok=True)
-            sandbox.chown_agent(org, nid)
             if not target.exists():
                 temporary = target.with_name(target.name + '.part')
                 # Exclusive creation refuses a link planted at the partial
@@ -73,7 +70,6 @@ def snapshot(org, nid, args, *, max_bytes):
                     dest.flush()
                     os.fsync(dest.fileno())
                 os.replace(temporary, target)
-                sandbox.chown_agent(org, nid)
             sent = {'name': safe, 'path': 'outbox/' + relative,
                     'bytes': target.stat().st_size, 'delivery_id': identity,
                     'sha256': _hash(target)}

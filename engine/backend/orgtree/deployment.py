@@ -2,9 +2,9 @@
 """Machine-wide deployment policy selection.
 
 Every component consumes :func:`current_policy`; no caller should parse the
-selector environment variable itself.  The selector is intentionally small:
-an unknown security profile is a configuration error, never a request to fall
-back to the more permissive standard policy.
+selector environment variable itself.  Only the "standard" profile exists.
+The removed "frozen" profile and any unknown value are configuration errors,
+never a request to fall back silently to the standard policy.
 """
 
 from __future__ import annotations
@@ -15,7 +15,10 @@ from typing import Literal
 
 
 PROFILE_ENV = "ORGTREE_DEPLOYMENT_PROFILE"
-DeploymentProfileName = Literal["standard", "frozen"]
+DeploymentProfileName = Literal["standard"]
+
+#: Profiles that existed once and are now refused by name at startup.
+_REMOVED_PROFILES = frozenset({"frozen"})
 
 
 class DeploymentConfigError(RuntimeError):
@@ -24,58 +27,32 @@ class DeploymentConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class DeploymentPolicy:
-    """Security decisions that must agree across the whole installation."""
+    """The install-wide deployment policy."""
 
     name: DeploymentProfileName
-    require_sandboxed_orgs: bool
-    allow_agent_restart: bool
-    allow_admin_exposure: bool
-    allow_legacy_sandbox_credentials: bool
-    allow_sandbox_internet: bool
-    allow_broad_anthropic_proxy: bool
 
 
-STANDARD = DeploymentPolicy(
-    name="standard",
-    require_sandboxed_orgs=False,
-    allow_agent_restart=True,
-    allow_admin_exposure=True,
-    allow_legacy_sandbox_credentials=True,
-    allow_sandbox_internet=True,
-    allow_broad_anthropic_proxy=True,
-)
-
-FROZEN = DeploymentPolicy(
-    name="frozen",
-    require_sandboxed_orgs=True,
-    allow_agent_restart=False,
-    allow_admin_exposure=False,
-    allow_legacy_sandbox_credentials=False,
-    allow_sandbox_internet=False,
-    allow_broad_anthropic_proxy=False,
-)
-
-_PROFILES: dict[str, DeploymentPolicy] = {
-    STANDARD.name: STANDARD,
-    FROZEN.name: FROZEN,
-}
+STANDARD = DeploymentPolicy(name="standard")
 
 
 def current_policy() -> DeploymentPolicy:
     """Return the authoritative install-wide policy.
 
-    Unset or blank preserves the existing standard deployment.  Unknown
-    values fail closed so a typo cannot silently disable hardening.
+    Unset or blank selects the standard deployment.  The removed "frozen"
+    profile and unknown values raise, so a stale or mistyped selector stops
+    startup instead of being silently ignored.
     """
 
     raw = os.environ.get(PROFILE_ENV, "")
     name = raw.strip().lower() or STANDARD.name
-    try:
-        return _PROFILES[name]
-    except KeyError as e:
-        shown = raw if len(raw) <= 80 else raw[:77] + "..."
+    if name == STANDARD.name:
+        return STANDARD
+    if name in _REMOVED_PROFILES:
         raise DeploymentConfigError(
-            f"{PROFILE_ENV} must be 'standard' or 'frozen'; got {shown!r}. "
-            "Refusing to use a less restrictive fallback for an unknown "
-            "deployment profile."
-        ) from e
+            f"{PROFILE_ENV}={name!r}: the {name!r} deployment profile has "
+            "been removed; 'standard' is the only supported profile. Unset "
+            f"{PROFILE_ENV} or set it to 'standard', then start orgtree again.")
+    shown = raw if len(raw) <= 80 else raw[:77] + "..."
+    raise DeploymentConfigError(
+        f"{PROFILE_ENV} must be 'standard'; got {shown!r}. Refusing to "
+        "guess a deployment profile from an unknown value.")

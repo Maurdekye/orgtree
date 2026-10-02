@@ -1158,7 +1158,7 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
         if not seen:
             body = str(m.get("body") or "")
             # F-06 D: fetch attachments to a temp dir; deliver_org_inbox does
-            # the per-recipient uploads/ copy + sandbox chown. A fetch failure
+            # the per-recipient uploads/ copy. A fetch failure
             # is NOTED in the body, never a lost message.
             tmp_dir = ""
             att_paths: list[str] = []

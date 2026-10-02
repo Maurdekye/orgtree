@@ -16,7 +16,7 @@ import { TreeViewReader } from './treeview'
 import type { TreeSelection } from './treeview'
 import type {
   AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
-  DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
+  EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, MailEntry,
   McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
@@ -25,7 +25,7 @@ import type {
   RuntimeSettingsPayload,
   ScopeRequest, ScratchPayload,
   SendMessageResult,
-  SettingsRequest, SettingsResult, SweepPreview, SweepResult, TreePayload,
+  SettingsRequest, SettingsResult, TreePayload,
   AccountsPayload, AccountUsage, UsageAllPayload,
   AccountRegistryPayload, RegisteredAccountUsage,
   UploadResult, UsagePayload, UsagePeek,
@@ -1107,46 +1107,6 @@ export const saveHireDefaults = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(opts),
   })
-
-// the org-disk recovery browser (its own surface, deliberately not /api/fs)
-export const getDisk = (slug: string, offset = 0, limit = 200): Promise<DiskPayload> =>
-  req(`/api/orgs/${slug}/disk?offset=${offset}&limit=${limit}`)
-export const diskDelete = (slug: string, paths: string[]): Promise<DiskDeleteResult> =>
-  req(`/api/orgs/${slug}/disk/delete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paths }),
-  })
-export interface DiskResizeResult {
-  size_mb: number
-  pending_mb: number | null
-  used?: number | null
-  total?: number | null
-}
-// grow applies online immediately (and clears any pending shrink); a shrink
-// stages a PENDING request applied when the org's container is next down
-export const diskResize = (slug: string, size_mb: number): Promise<DiskResizeResult> =>
-  req(`/api/orgs/${slug}/disk/resize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ size_mb }),
-  })
-export const diskResizeCancel = (slug: string): Promise<DiskResizeResult> =>
-  req(`/api/orgs/${slug}/disk/resize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cancel: true }),
-  })
-export const diskResizeApply = (slug: string): Promise<DiskResizeResult> =>
-  req(`/api/orgs/${slug}/disk/resize/apply`, { method: 'POST' })
-export const getDiskDir = (slug: string, path = ''): Promise<DiskDirPayload> =>
-  req(`/api/orgs/${slug}/disk/dir?path=${encodeURIComponent(path)}`)
-export const getSweepPreview = (slug: string): Promise<SweepPreview> =>
-  req(`/api/orgs/${slug}/sweep-legacy`)
-export const sweepLegacy = (slug: string): Promise<SweepResult> =>
-  req(`/api/orgs/${slug}/sweep-legacy`, { method: 'POST' })
-export const diskFileUrl = (slug: string, path: string): string =>
-  `/api/orgs/${slug}/disk/file?path=${encodeURIComponent(path)}`
 
 /* This window's id on the org websocket (`?win=`), so the engine can count one
    window's reconnects across its sockets for the Developer › engine debug

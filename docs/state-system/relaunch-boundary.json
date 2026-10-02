@@ -712,38 +712,6 @@
         ]
       ],
       "maintenance": null
-    },
-    "df_self_relaunch": {
-      "status": 403,
-      "results": null,
-      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
-      "sections": [],
-      "events": [],
-      "maintenance": null
-    },
-    "df_prime_status": {
-      "status": 403,
-      "results": null,
-      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
-      "sections": [],
-      "events": [],
-      "maintenance": null
-    },
-    "df_update": {
-      "status": 403,
-      "results": null,
-      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
-      "sections": [],
-      "events": [],
-      "maintenance": null
-    },
-    "ndf_update": {
-      "status": 403,
-      "results": null,
-      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
-      "sections": [],
-      "events": [],
-      "maintenance": null
     }
   },
   "receipts": {
@@ -773,7 +741,6 @@
       "orgtree_self_relaunch": "orgtree_self_relaunch is available only to the desktop-managed V2 profile",
       "orgtree_prime_relaunch": "orgtree_prime_relaunch is available only to the desktop-managed V2 profile"
     },
-    "frozen_refusal": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
     "legacy_restart_refusal": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
     "legacy_update_refusal": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch"
   },

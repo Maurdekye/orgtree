@@ -22,7 +22,7 @@ const rows = [
 const tools = { bash: true, edit: true, web: false, subagents: false, mcp: [] }
 const tree = { slug: 'org', dirs: [], tiers: { haiku: 1, opus: 5, luna: 0.2, astra: 10 },
   max_top_grant: 100, default_effort: '', effort_default: 'high', cascade_hire: true,
-  default_tools: tools, sandboxed: false } as unknown as TreePayload
+  default_tools: tools } as unknown as TreePayload
 const noop = () => {}
 const select = (el: HTMLElement, label = 'Account') =>
   (el.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)

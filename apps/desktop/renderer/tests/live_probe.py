@@ -23,8 +23,7 @@ HARD CONSTRAINTS OBSERVED
   orgs game-club/resonite — this is a wholly separate backend process with
   its own ORGTREE_DATA/HOME, started exactly like
   backend/tests/test_message_visibility_live.py's start_backend() (same env
-  vars, same ORGTREE_BRIDGE_PORT=0 to avoid colliding with the real
-  sandbox-bridge listener).
+  vars).
 - Never rebuilds frontend/dist.
 - Uses ORGTREE_CLAUDE_CLI=backend/tests/fakecli.js — no real model call,
   never the fable tier.
@@ -191,8 +190,7 @@ def start_backend() -> None:
     """Copied verbatim in spirit from
     backend/tests/test_message_visibility_live.py's start_backend(): its own
     ORGTREE_DATA/HOME, its own port, ORGTREE_CLAUDE_CLI pointed at the fake
-    CLI, ORGTREE_BRIDGE_PORT=0 so the sandbox bridge listener (which defaults
-    to 0.0.0.0:7362) never fights the user's real backend for that port."""
+    CLI."""
     global PROC
     env = dict(os.environ)
     env.update({
@@ -204,7 +202,6 @@ def start_backend() -> None:
         "ORGTREE_TURN_TIMEOUT": "60",
         "PYTHONPATH": os.path.join(_REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",
-        "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })

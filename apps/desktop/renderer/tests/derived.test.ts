@@ -23,7 +23,7 @@ import path from 'node:path'
 declare const __SRC_DIR__: string
 const SRC = __SRC_DIR__
 const read = (p: string) => readFileSync(path.join(SRC, p), 'utf8')
-const uiFiles = ['App.tsx', 'DiskBrowser.tsx', 'picker.tsx', 'forms.tsx',
+const uiFiles = ['App.tsx', 'picker.tsx', 'forms.tsx',
   ...readdirSync(path.join(SRC, 'canvas')).filter((f) => f.endsWith('.tsx'))
     .map((f) => `canvas/${f}`)]
 

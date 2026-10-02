@@ -146,7 +146,7 @@ def start_backend(tmp: str, *, claude: bool, codex: bool, codex_auth: bool,
         "ANTIGRAVITY_HOME": os.path.join(data, "ghome"),
         "ORGTREE_CLAUDE": (fake_cli if claude
                            else os.path.join(data, "no", "claude.exe")),
-        "ORGTREE_PORT": str(PORT), "ORGTREE_BRIDGE_PORT": "0",
+        "ORGTREE_PORT": str(PORT),
         "ORGTREE_EXPOSE_ADMIN": "0",
         "PYTHONPATH": os.path.join(REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",

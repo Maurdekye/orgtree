@@ -31,7 +31,6 @@ function tree(defaultAccount: string | null = null, slug = 'test-org'): TreePayl
     default_effort: '',
     effort_default: 'high',
     cascade_hire: true,
-    sandboxed: false,
     default_account: defaultAccount,
   } as unknown as TreePayload
 }
@@ -235,7 +234,7 @@ test('draft modal fetches live accounts from /api/accounts?org=${slug} when not 
     requestedUrls.push(String(url))
     const payload = String(url).includes('/api/accounts')
       ? { accounts: sampleAccounts }
-      : { servers: [], sandbox_mcp: false }
+      : { servers: [] }
     return Promise.resolve({
       ok: true,
       status: 200,

@@ -1,13 +1,10 @@
 # pyright: strict
-"""Proxied-subscription auth for sandboxed orgs (user spec).
+"""Claude subscription OAuth token access for the host.
 
-The sandbox never holds a credential: the in-container CLI points its
-ANTHROPIC_BASE_URL at the bridge, and the HOST attaches the subscription
-OAuth token to each upstream request (api.BridgeGateway gates who may ask;
-api.anthropic_proxy does the attach). This module owns the token: it reads
-the host's own Claude Code credentials file and refreshes the OAuth token
-in place when it nears expiry — writing back ATOMICALLY so the host CLI and
-the proxy share one copy and never drift.
+This module owns the token: it reads the host's own Claude Code credentials
+file and refreshes the OAuth token in place when it nears expiry — writing
+back ATOMICALLY so the host CLI and this module share one copy and never
+drift.
 
 ⚠ Semi-documented surface: the refresh endpoint, the public client id, and
 OAuth-over-API acceptance (`anthropic-beta: oauth-2025-04-20` + Bearer) are
@@ -195,7 +192,7 @@ def available() -> bool:
 
 
 def _write(doc: dict[str, Any], creds_path: str = CREDS) -> None:
-    """Atomic in-place replace — the host CLI and this proxy share one copy
+    """Atomic in-place replace — the host CLI and this module share one copy
     (per credentials file: the ambient one, or a profile directory's own).
     A failed write must leave neither a half-file nor a stray temp beside the
     real credentials, and it must surface as the RuntimeError every caller
@@ -370,7 +367,7 @@ def _access_token_at(creds_path: str) -> str:
         # writes it) and nothing here used to touch it. After a rotation it
         # then described a refresh token that no longer exists, drifting
         # further into the past with every refresh — and both the CLI and
-        # this proxy read the one shared copy. Three honest cases:
+        # this module read the one shared copy. Three honest cases:
         #   • the endpoint reports a lifetime → record it
         #   • the refresh token ROTATED and no lifetime came back → the old
         #     value belongs to the replaced token; drop it rather than lie

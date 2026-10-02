@@ -88,8 +88,7 @@ class StartupExemptions(unittest.TestCase):
     def test_lifespan_reports_ready_only_after_migrations_and_arming(self) -> None:
         # S9 (plan decision 44 (3)): "before serving". uvicorn accepts no
         # connection until the app's lifespan answers startup.complete, and
-        # the admin server serves `api.app` itself (the public and bridge
-        # gateways swallow lifespan precisely so it runs once, here). So drive
+        # the admin server serves `api.app` itself. So drive
         # api.app's real ASGI lifespan and pin where startup.complete lands.
         seen: list[str] = []
 
@@ -130,8 +129,9 @@ class StartupExemptions(unittest.TestCase):
                                     'tripwire_armed', 'lifespan.startup.complete'], seen)
         # and the admin listener serves the app whose lifespan that is (source pin)
         import inspect
-        # (9ea99e8 added **LOCAL_UVICORN_OPTIONS after PORT: the local websocket skips deflate)
-        self.assertIn('uvicorn.Config(app, host=host, port=PORT,', inspect.getsource(api.main))
+        # (9ea99e8 added **LOCAL_UVICORN_OPTIONS after PORT: the local websocket skips deflate;
+        # a single listener since the second gateway was removed, so uvicorn.run serves it)
+        self.assertIn('uvicorn.run(app, host=host, port=PORT,', inspect.getsource(api.main))
 
     def test_migrate_pending_runs_before_any_server_exists(self) -> None:
         import uvicorn

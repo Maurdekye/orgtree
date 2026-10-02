@@ -1,19 +1,13 @@
 """PG-3r: the residual DOC_LOCK sites no family owns, converted to org_tx / org_read.
 
 What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
-  * bridge credential rotation commits through ONE org_tx that names only the
-    two credential sections, never waits on DOC_LOCK, bumps the org revision
-    by one, and still verifies that the previous credential is refused;
   * gitworkspace.org_facts and history_page read without DOC_LOCK (a reader
     completes while another thread holds DOC_LOCK);
-  * an applied pending shrink commits only the `disk` section, lock-free;
   * the reply and transcript incarnation mints are row transactions (reply
     ids, then the transcript id), keep a value once minted, and a caller
     inside a legacy DOC_LOCK hold keeps the legacy mint;
   * an Antigravity billing-route change cuts the lineage in ONE row
     transaction over the seat and its `nid@<gen>` bearer row, lock-free;
-  * the disk-migration flip is ONE whole-org transaction (nodes=ALL) that
-    carries the floored-cap notice;
   * api.py's unclaimed routes: document_dismiss, the forced self-restart's
     gate and cost record, and `unstick_rows` (the release in
     _continue_on_account) are row transactions that never wait on DOC_LOCK.
@@ -39,7 +33,7 @@ os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import bridgeauth, gitworkspace, orgtx, store  # noqa: E402
+from orgtree import gitworkspace, orgtx, store  # noqa: E402
 
 # PG-0b turns the transition fence ON by default (plan decision 19). This suite
 # proves ROW-lock behaviour (converted writers that do not wait on DOC_LOCK),
@@ -93,39 +87,6 @@ def _while_doc_lock_is_held(fn):
     return finished, out.get('v')
 
 
-class BridgeRotation(unittest.TestCase):
-    def setUp(self) -> None:
-        self.slug = _fresh_org('Bridge Rot')
-        self.key = b'k' * 32
-        self.patches = [patch.object(bridgeauth, 'legacy_credentials_allowed', return_value=False),
-                        patch.object(bridgeauth, 'install_key', return_value=self.key),
-                        patch.object(bridgeauth, '_is_sandboxed', return_value=True)]
-        for p in self.patches:
-            p.start()
-
-    def tearDown(self) -> None:
-        for p in self.patches:
-            p.stop()
-
-    def test_rotation_is_one_row_transaction_and_refuses_the_old_credential(self):
-        before = bridgeauth.org_credential(store.load_org(self.slug))
-        self.assertEqual(bridgeauth.resolve_org_credential(before), self.slug)
-        seen = []
-        orgtx.commit_listeners.append(seen.append)
-        try:
-            finished, receipt = _while_doc_lock_is_held(lambda: bridgeauth.rotate_org_credential(self.slug))
-        finally:
-            orgtx.commit_listeners.remove(seen.append)
-        self.assertTrue(finished, 'rotation waited on DOC_LOCK')
-        self.assertEqual(len(seen), 1, 'exactly one commit')
-        self.assertEqual(receipt['previous_generation'] + 1, receipt['generation'])
-        self.assertTrue(receipt['old_credential_rejected'])
-        self.assertIsNone(bridgeauth.resolve_org_credential(before))
-        after = bridgeauth.org_credential(store.load_org(self.slug))
-        self.assertEqual(bridgeauth.resolve_org_credential(after), self.slug)
-        self.assertEqual(store.load_org(self.slug).d['bridge_credential_generation'], receipt['generation'])
-
-
 class LockFreeReads(unittest.TestCase):
     def test_org_facts_reads_without_doc_lock(self):
         slug = _fresh_org('Facts Org')
@@ -141,71 +102,6 @@ class LockFreeReads(unittest.TestCase):
         finished, page = _while_doc_lock_is_held(lambda: history.history_page(slug, section))
         self.assertTrue(finished, 'history_page waited on DOC_LOCK')
         self.assertIn('items', page)
-
-
-class PendingShrink(unittest.TestCase):
-    def test_applied_shrink_commits_only_the_disk_section_without_doc_lock(self):
-        from orgtree import disk, sandbox
-        slug = _fresh_org('Shrink Org')
-        org = store.load_org(slug)
-        org.d['disk'] = {'size_mb': 4096, 'pending_size_mb': 2048}
-        store.save_org(org)
-        seen = []
-        orgtx.commit_listeners.append(seen.append)
-        try:
-            with patch.object(disk, 'mount'), patch.object(disk, 'usage', return_value=(10 * 1048576, 0)), \
-                    patch.object(disk, 'shrink_image') as shrink:
-                finished, note = _while_doc_lock_is_held(
-                    lambda: sandbox.try_apply_pending_resize(store.load_org(slug)))
-        finally:
-            orgtx.commit_listeners.remove(seen.append)
-        self.assertTrue(finished, 'the pending shrink waited on DOC_LOCK')
-        self.assertIsNone(note)
-        shrink.assert_called_once_with(slug, 2048)
-        self.assertEqual(len(seen), 1)
-        self.assertEqual(store.load_org(slug).d['disk'], {'size_mb': 2048})
-
-
-class DiskMigrationFlip(unittest.TestCase):
-    def test_flip_is_one_whole_org_row_transaction_without_doc_lock(self):
-        from types import SimpleNamespace
-        from orgtree import disk, sandbox
-        slug = _fresh_org('Migrate Org')
-        ws = Path(_temp.name) / 'old-ws'
-        ws.mkdir(exist_ok=True)
-        org = store.load_org(slug)
-        org.d['workspace'] = str(ws)
-        org.d['dirs'] = [{'path': str(ws), 'mode': 'rw'}]
-        org.d['sandbox'] = {'limit_mb': 256}                # floored to 4096: the inbox notice path
-        org.d['storage_frozen'] = True
-        org.node('a')['frozen'] = {'storage': True, 'storage_error': 'full'}
-        org.node('a').setdefault('scope', {})['add_dirs'] = [{'path': str(ws), 'mode': 'rw'}]
-        store.save_org(org)
-        ok = SimpleNamespace(returncode=0, stdout='MIGRATED', stderr='')
-        seen = []
-        orgtx.commit_listeners.append(seen.append)
-        try:
-            with patch.object(disk, 'create'), patch.object(sandbox, '_docker', return_value=ok), \
-                    patch.object(sandbox, 'ensure_image', return_value='img'), \
-                    patch.object(disk, 'windows_sub', return_value='Z:\\\\new-ws'), \
-                    patch.object(disk, 'mount_path', return_value='/mnt/probe/orgtree-disk/x'):
-                # mount_path is patched too: unpatched it shells out to `wsl` on the host
-                # (disk.mount_root), which took 1-2 s idle and passed the 5 s bound under load.
-                finished, _ = _while_doc_lock_is_held(lambda: sandbox.migrate_to_disk(store.load_org(slug)))
-        finally:
-            orgtx.commit_listeners.remove(seen.append)
-        self.assertTrue(finished, 'the disk flip waited on DOC_LOCK')
-        self.assertEqual(len(seen), 1)
-        after = store.load_org(slug)
-        self.assertEqual(after.d['disk']['size_mb'], 4096)
-        self.assertEqual(after.d['workspace'], 'Z:\\\\new-ws')
-        self.assertEqual(after.d['dirs'][0]['path'], 'Z:\\\\new-ws')
-        self.assertNotIn('storage_frozen', after.d)
-        self.assertNotIn('frozen', after.node('a'))
-        self.assertEqual(after.node('a')['scope']['add_dirs'][0]['path'], 'Z:\\\\new-ws')
-        mailed = list(after.d.get('user_inbox') or []) + list(after.d.get('user_mail_log') or [])
-        self.assertTrue(any('256' in str(m.get('body', '')) for m in mailed),
-                        'the floored-cap notice reached the operator inbox in the same commit')
 
 
 class ApiResidualSites(unittest.TestCase):

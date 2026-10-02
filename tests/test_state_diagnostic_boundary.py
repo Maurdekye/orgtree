@@ -316,34 +316,17 @@ class DiagnosticBoundary(DiagnosticFixture,unittest.TestCase):
         self.refused(self.call('orgtree_reallocate',args={'node':'outside','delta':1}),'authority')
         self.refused(self.call(CAPABILITIES,envelope={'node':ledger.USER}),'identity',403)
 
-    def test_capability_install_policy_and_desktop_alias_matrix(self):
-        for profile in ('standard','frozen'):
-            for desktop in ('0','1'):
-                with self.subTest(profile=profile,desktop=desktop), patch.dict(os.environ,
-                        ORGTREE_DEPLOYMENT_PROFILE=profile,ORGTREE_DESKTOP_MANAGED=desktop):
-                    names = self.okay(self.call(CAPABILITIES))['operations']
-                    self.assertEqual(names,[t['name'] for t in mcptool.available_tools() if t['name'].startswith('orgtree_')])
-                    self.assertNotIn('orgtree_move_batch',names)
-                    for first,second in [('orgtree_self_restart','orgtree_self_relaunch'),('orgtree_prime_restart','orgtree_prime_relaunch')]:
-                        self.assertEqual(first in names,profile=='standard' and desktop=='0')
-                        self.assertEqual(second in names,profile=='standard' and desktop=='1')
-                    self.assertIn('orgtree_move',names)
-
-    def test_invalid_deployment_profile_cannot_return_permissive_catalogue(self):
-        with patch.dict(os.environ,ORGTREE_DEPLOYMENT_PROFILE='typo-permissive'):
-            response = self.call(CAPABILITIES)
-        self.assertEqual(response.status_code,500,response.text)
-        self.assertNotIn('operations',response.text)
-
-    def test_frozen_profile_refuses_non_loopback_before_diagnostic(self):
-        client = TestClient(app,raise_server_exceptions=False,client=('192.0.2.20',41000))
-        self.addCleanup(client.close)
-        with patch.dict(os.environ,ORGTREE_DEPLOYMENT_PROFILE='frozen'), \
-                patch.object(statepreview,'inspect_state',side_effect=AssertionError('projected')) as project:
-            response = client.post('/api/agent',json=dict(org=self.slug,node='reader',tool=INSPECT,args={}),
-                headers={'X-Orgtree-Agent-Token':self.token})
-            self.refused(response,'loopback',403)
-            project.assert_not_called()
+    def test_capability_desktop_alias_matrix(self):
+        for desktop in ('0','1'):
+            with self.subTest(desktop=desktop), patch.dict(os.environ,
+                    ORGTREE_DEPLOYMENT_PROFILE='standard',ORGTREE_DESKTOP_MANAGED=desktop):
+                names = self.okay(self.call(CAPABILITIES))['operations']
+                self.assertEqual(names,[t['name'] for t in mcptool.available_tools() if t['name'].startswith('orgtree_')])
+                self.assertNotIn('orgtree_move_batch',names)
+                for first,second in [('orgtree_self_restart','orgtree_self_relaunch'),('orgtree_prime_restart','orgtree_prime_relaunch')]:
+                    self.assertEqual(first in names,desktop=='0')
+                    self.assertEqual(second in names,desktop=='1')
+                self.assertIn('orgtree_move',names)
 
     def test_missing_visibility_is_backfilled_full_but_empty_uses_team(self):
         def missing(org):

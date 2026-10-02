@@ -41,7 +41,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402
-from orgtree import agentauth, api, deployment, desktop_maintenance, ledger, opreceipts, store  # noqa: E402
+from orgtree import agentauth, api, desktop_maintenance, ledger, opreceipts, store  # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == _data.resolve(), 'this process would have written to the live root'
 assert os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1', 'the desktop-managed profile is the app under test'
@@ -175,7 +175,6 @@ class RelaunchBoundary(unittest.TestCase):
         spy(api, 'mail_notify')
         self.hub = spy(api, 'hub_changed')
         spy(sup, 'notify')
-        spy(sup, 'maybe_storage_check')
         self.quiesce = spy(sup, 'force_quiesce_for_restart',
                            return_value={'ok': True, 'hold_token': 'fixture', 'cut': [], 'not_settled': []})
 
@@ -232,17 +231,6 @@ class RelaunchBoundary(unittest.TestCase):
                 yield
         finally:
             os.environ['ORGTREE_DESKTOP_MANAGED'] = saved
-
-    @contextlib.contextmanager
-    def frozen(self):
-        """The frozen deployment profile for the duration of one request."""
-        with patch.object(api.deployment, 'current_policy', return_value=deployment.FROZEN):
-            yield
-
-    @contextlib.contextmanager
-    def frozen_non_desktop(self):
-        with self.frozen(), self.non_desktop():
-            yield
 
     # -- fixture states --------------------------------------------------------------------------------------------
     def pending(self):
@@ -387,17 +375,6 @@ class RelaunchBoundary(unittest.TestCase):
         for name, args, actor in (('nd_update_force_noreason', {'force': True}, 'top'), ('nd_update_mid', {}, 'mid')):
             self.case(name, self.agent(U, args, actor), wrap=nd)
             self.launch.assert_not_called()
-
-    def test_frozen_profile_refuses_before_any_write(self):
-        # the frozen profile serves the admin API to loopback clients only, so these calls come from 127.0.0.1
-        # (never entered, so it starts no second app lifespan, and never closed by the per-case reset)
-        loop = TestClient(app, raise_server_exceptions=False, client=('127.0.0.1', 50000))
-        self.case('df_self_relaunch', self.agent(S, {}, 'top', loop), wrap=self.frozen)
-        self.case('df_prime_status', self.agent(P, {'action': 'status'}, 'top', loop), wrap=self.frozen)
-        self.case('df_update', self.agent(U, {}, 'top', loop), wrap=self.frozen)
-        self.case('ndf_update', self.agent(U, {}, 'top', loop), wrap=self.frozen_non_desktop)
-        self.launch.assert_not_called()
-        self.assertEqual(self.spec['profiles']['frozen_refusal'], self.spec['cases']['df_update']['detail'])
 
     # -- receipts --------------------------------------------------------------------------------------------------
     def test_receipt_classes_and_what_they_keep(self):

@@ -157,8 +157,8 @@ def _schema_enums(tool: "dict[str, Any]") -> "dict[str, frozenset[str]]":
 
 
 def _vocabulary() -> "dict[str, dict[str, frozenset[str]]]":
-    """Every verb an agent can actually be dispatched, under EITHER deployment
-    policy.
+    """Every verb an agent can actually be dispatched, under EITHER tool
+    catalogue (standard or desktop-managed).
 
     ⚠ SCHEMA 2: `mcptool.TOOLS` IS NOT THE SET OF VERBS AN AGENT IS OFFERED,
     and schema 1's assumption that it was left two real verbs permanently

@@ -49,7 +49,7 @@
   --org-accent: var(--accent);
   --org-accent-hover: var(--accent-hover);
   --org-accent-soft: var(--accent-soft);
-  --sandbox: #7ea8cc;       /* sandboxed-org canvas border (light steel blue) */
+  --steel: #7ea8cc;         /* light steel blue (lifecycle events) */
   --teal: #4ba3c7;
   --ok: #6fd377;            /* == the done status green (one green, one meaning) */
   --bad: #f14c4c;
@@ -475,8 +475,6 @@ main {
   user-select: text; -webkit-user-select: text;
 }
 .viewport:active { cursor: grabbing; }
-/* sandboxed orgs: the office border wears a light blue instead of the grey */
-.viewport.sandboxed { border-color: var(--sandbox); }
 /* the dot grid rides its OWN layer, separate from .space, so a pan can move it
    at a slightly slower rate than the foreground (see the parallax factor
    where its backgroundPosition is set) — a tiny bit of depth, not a distinct
@@ -4698,9 +4696,6 @@ span.ref-chip.ref-chip {
   display: flex; gap: 8px; align-items: center; font-size: 12.5px; cursor: pointer;
 }
 .checkline input { accent-color: var(--accent); }
-/* greyed capability: exists but cannot reach this org (e.g. a host stdio MCP
-   server granted to a sandboxed org) */
-.checkline.dead { opacity: .45; cursor: default; }
 
 /* in-page confirmation (never a native OS dialog — user ruling) */
 .confirm-box { width: 430px; gap: 12px; }
@@ -4873,7 +4868,7 @@ button:hover { background: var(--panel-2); border-color: var(--line-hover); }
    Ordinary hover frames always follow the button's provider scope; leave their
    idle frames, fills and text alone. Danger and native window controls retain
    their existing feedback. Keep the same exclusions as the focus rule. */
-button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.kill-latch):not(.resume-all.notyet):not(.disk-del):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):not(.window-control):not(.disk-alert button):not(:disabled):hover {
+button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.kill-latch):not(.resume-all.notyet):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):not(.window-control):not(:disabled):hover {
   border-color: var(--button-accent);
 }
 button.primary {
@@ -4903,7 +4898,7 @@ input::placeholder, textarea::placeholder { color: #6e6e6e; }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 1px solid var(--accent); outline-offset: -1px;
 }
-button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.kill-latch):not(.disk-del):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):not(.window-control):not(.disk-alert button):focus-visible {
+button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.kill-latch):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):not(.window-control):focus-visible {
   outline-color: var(--button-accent);
 }
 
@@ -5001,94 +4996,6 @@ button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.kill-latch
 }
 
 /* -------------------------------------------------------------------- toasts */
-/* ------ the org-disk recovery browser + hard-full alert ------ */
-/* the alert is a persistent STATE banner, deliberately not a toast: screen-
-   wide, error-styled, above the canvas and scrims, below toasts (z 100) */
-.disk-alert {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 90;
-  display: flex; align-items: center; gap: 10px; justify-content: center;
-  padding: 10px 16px; font-size: 13px;
-  background: color-mix(in srgb, var(--bad) 18%, var(--panel));
-  border-bottom: 2px solid var(--bad); color: var(--bad);
-}
-.disk-alert b { color: inherit; }
-.disk-alert button {
-  border: 1px solid var(--bad); color: var(--bad); background: none;
-  border-radius: 4px; padding: 3px 12px; font-size: 12px;
-}
-.disk-alert button:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.disk-overlay { z-index: 55; }   /* above modals (20), below the picker (60) */
-.disk-browser { width: min(760px, 92vw); display: flex; flex-direction: column; }
-/* height only, in a compound selector: same reasoning as `.doc-reader` */
-.settings.disk-browser { height: 84vh; }
-.disk-usage { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 2px 0 8px; }
-.disk-usage.warn { color: var(--work); }
-.disk-usage.bad { color: var(--bad); }
-.disk-bar {
-  flex: 1; height: 8px; border-radius: 4px; background: var(--input);
-  border: 1px solid var(--line); overflow: hidden;
-}
-.disk-bar-fill { height: 100%; background: var(--accent); }
-.disk-usage.warn .disk-bar-fill { background: var(--work); }
-.disk-usage.bad .disk-bar-fill { background: var(--bad); }
-.disk-list { overflow-y: auto; flex: 1; min-height: 120px; border-top: 1px solid var(--line-soft); }
-.disk-row {
-  display: flex; align-items: center; gap: 8px; padding: 3px 6px;
-  font-size: 12px; border-bottom: 1px solid var(--line-soft); cursor: pointer;
-}
-.disk-row:hover { background: var(--panel-2); }
-.disk-row.blocked { opacity: .55; cursor: default; }
-.disk-size { width: 72px; text-align: right; flex: none; }
-.disk-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.disk-cls { font-size: 10.5px; color: var(--dim); flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.disk-cls.ok { color: var(--agent-accent-text, var(--accent)); }
-.disk-del {
-  border: 1px solid var(--bad); color: var(--bad); background: none;
-  border-radius: 4px; padding: 3px 10px; font-size: 12px;
-}
-.disk-del.armed { background: var(--bad); color: var(--panel); }
-.disk-grow { width: 110px; }
-.disk-grow-note { font-size: 10.5px; }
-/* the pending-shrink divergence chip — amber from the existing warn hue
-   (var(--work), the validated palette), both numbers visible at a glance */
-.disk-pending {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
-  padding: 2px 8px; border: 1px solid var(--work); color: var(--work);
-  border-radius: 4px; background: color-mix(in srgb, var(--work) 10%, transparent);
-}
-.disk-pending button {
-  border: 1px solid var(--work); color: var(--work); background: none;
-  border-radius: 3px; padding: 1px 6px; font-size: 10.5px;
-}
-.disk-pending button:hover { background: color-mix(in srgb, var(--work) 15%, transparent); }
-.disk-vmcap {
-  font-size: 11px; padding: 4px 8px; margin-bottom: 6px;
-  border-left: 2px solid var(--work); background: var(--panel-2);
-  border-radius: 0 4px 4px 0;
-}
-.disk-tabs { display: inline-flex; gap: 2px; margin-left: 12px; }
-.disk-tabs button {
-  border: 1px solid var(--line); background: none; border-radius: 4px;
-  padding: 2px 10px; font-size: 11px; color: var(--dim);
-}
-.disk-tabs button.on { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }
-.disk-crumbs {
-  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
-  font-size: 11.5px; padding: 2px 0 6px; color: var(--dim);
-}
-.disk-crumbs .crumb {
-  border: none; background: none; padding: 1px 3px; font-size: inherit;
-  color: var(--agent-accent-text, var(--accent)); border-radius: 3px;
-}
-.disk-crumbs .crumb:hover { background: var(--panel-2); }
-.disk-dirlink {
-  border: none; background: none; text-align: left; padding: 0;
-  color: inherit; font-size: inherit; cursor: pointer;
-}
-.disk-dirlink:hover { color: var(--agent-accent-text, var(--accent)); }
-.disk-chip { cursor: pointer; }
-.disk-chip.pend { border-color: var(--work); color: var(--work); }
-
 /* above every scrim (18-20) and the folder picker (60): a toast's
    click-to-dismiss must stay reachable while a modal is open */
 .toasts {
@@ -5251,8 +5158,8 @@ svg.MuiSvgIcon-root {
   filter: drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 80%, transparent));
 }
 .ctxbtn:hover { background: none; }
-.org-sbx { font-size: 11px; color: var(--dim); gap: 6px; align-items: center; }
-.org-sbx input { width: auto; }
+.org-check { font-size: 11px; color: var(--dim); gap: 6px; align-items: center; }
+.org-check input { width: auto; }
 /* the token-streamed growing reply: a typing caret at its end */
 .msg.draft::after {
   content: "\258D"; color: var(--agent-accent-text, var(--accent)); margin-left: 2px;
@@ -6864,10 +6771,6 @@ label.set-row { cursor: pointer; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.settings .hire-mcp-tags .chip.dead {
-  opacity: 0.5;
-  text-decoration: line-through;
-}
 /* org.md is a document editor, not a form field. Its viewport grows with the
    window, remains vertically resizable, and is capped so the modal itself
    stays scrollable on a short display. React owns the buffer above this node,
@@ -7342,13 +7245,6 @@ label.set-row { cursor: pointer; }
    whose backdrop covers that window. Pinned, PinFrame's own inline z-index
    wins over this and the dialog joins the band like any other window. */
 .modalpin-over > .overlay { z-index: 31; }
-/* the disk browser's mode tabs and close button, lifted out of its title h3 so
-   a pinned window does not hide them with the duplicated heading. A row of its
-   own under the title — the same shape the settings panels' tab strips already
-   have — and the `.spacer` that was inert inside a block-level h3 now does
-   what the markup always said it did. */
-.disk-head { display: flex; align-items: center; margin: 0 0 6px; }
-.disk-head .disk-tabs { margin-left: 0; }
 /* mobile presents these surfaces as full-screen sheets and has no window to
    pin to (D-125). The store is not honoured there (modalPinsAvailable), and
    the control is not offered either. */
@@ -7422,7 +7318,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-status { --event-color: var(--ok); }
 .event-answer_decision { --event-color: var(--backlog); }
 .event-access_resources { --event-color: var(--warn); }
-.event-lifecycle { --event-color: var(--sandbox); }
+.event-lifecycle { --event-color: var(--steel); }
 .event-monitor { --event-color: var(--teal); }
 .event-runtime_recovery { --event-color: var(--bad); }
 .event-reminder { --event-color: var(--warn); }
@@ -7596,7 +7492,7 @@ html.mobile .popout-button { display: none; }
 /* ------------------------------------------------------------------------
    THE APPLICATION CONTEXT MENU (canvas/contextmenu.tsx, 2026-09-07). Screen-
    space, fixed, portaled to the surface's overlay root. z-index sits above the
-   pinned bands (21–29), the dialog-over-pins layer (31), the disk browser (55)
+   pinned bands (21–29), the dialog-over-pins layer (31)
    and the picker (60), below the lightbox (95) and toasts (100): a menu is
    raised from whatever is on top and must paint over it. */
 .ctxmenu {

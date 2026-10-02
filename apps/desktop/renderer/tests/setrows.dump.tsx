@@ -121,7 +121,7 @@ const ORG: TreePayload = {
   fable_limit_policy: 'halt', fable_filter_policy: 'halt',
   auto_cheap_compact: { enabled: true, occ: 0.5 },
   auto_resume_compact: false,
-  sandboxed: false, disk: null, net: { hubs: [] },
+  net: { hubs: [] },
 } as unknown as TreePayload
 
 const g = globalThis as unknown as Record<string, unknown>

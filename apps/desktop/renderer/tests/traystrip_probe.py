@@ -46,7 +46,7 @@ HARD CONSTRAINTS OBSERVED
 -------------------------
 - Binds ONLY port 7405 by default (--port to override). Never 7360/7361/7362
   (the live deployment) and never 7401 (the backend test rig).
-- Its own ORGTREE_DATA/HOME under a temp dir, ORGTREE_BRIDGE_PORT=0, and
+- Its own ORGTREE_DATA/HOME under a temp dir, and
   ORGTREE_CLAUDE_CLI=backend/tests/fakecli.js — no real model call ever.
 - Deletes every org it creates.
 - Never rebuilds `frontend/dist`. Build it yourself first (`npm run build`) or
@@ -190,7 +190,6 @@ def start_backend() -> None:
         "ORGTREE_TURN_TIMEOUT": "60",
         "PYTHONPATH": os.path.join(_REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",
-        "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })

@@ -127,7 +127,7 @@ def discard(org, nid: str, ids) -> None:
 
 #: The org-level sections the gate reads. The reclaim transaction holds them
 #: FOR SHARE, so the gate it re-decides on the locked Org holds until commit.
-GATE_SECTIONS = ('killswitch', 'storage_blocked')
+GATE_SECTIONS = ('killswitch',)
 
 
 def _gated(org, nid: str, slug: str) -> bool:
@@ -138,12 +138,10 @@ def _gated(org, nid: str, slug: str) -> bool:
     any admission (fence-off S2, p01's review condition b): the DOC_LOCK
     this replaced kept a freeze or spend write from committing between the
     gate read and the thread start."""
-    from . import supervisor as sup
     n = org.nodes.get(nid)
     return bool(n is None or n['state'] != 'live' or n.get('halt')
                 or org.d.get('killswitch') or n.get('frozen')
-                or n.get('limit_locked') or n.get('remote_controlled')
-                or (org.d.get('storage_blocked') and sup.sbx.on_disk(slug)))
+                or n.get('limit_locked') or n.get('remote_controlled'))
 
 
 def _write_demand(slug: str, nid: str, fn, default=None) -> None:

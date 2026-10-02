@@ -41,7 +41,6 @@ test('ordinary icon/preset hover and focus use provider tokens, while deliberate
   }
   assert.match(css,/button\.danger:hover\s*\{\s*border-color:\s*var\(--bad\)/)
   assert.match(css,/\.cc-send\.stop\s*\{[^}]*border-color:\s*var\(--bad\)/)
-  assert.match(css,/\.disk-del\s*\{[^}]*border:\s*1px solid var\(--bad\)/)
 })
 
 test('primary and other ordinary accent hover frames follow provider or neutral without changing their fill', () => {
@@ -60,7 +59,7 @@ test('primary and other ordinary accent hover frames follow provider or neutral 
 })
 
 test('ordinary state and provider-settings hover frames outrank idle accent borders', () => {
-  const match = css.match(/(button:not\(\.danger\)[^{]*:not\(\.disk-alert button\):not\(:disabled\):hover)\s*\{([^}]*)\}/)
+  const match = css.match(/(button:not\(\.danger\)[^{]*:not\(\.window-control\):not\(:disabled\):hover)\s*\{([^}]*)\}/)
   assert.ok(match, 'ordinary hover rule excludes danger and native controls')
   assert.ok(match[2]!.includes('border-color: var(--button-accent)'))
   assert.ok(!/background:|(?:^|;)\s*color:/.test(match[2]!), 'override changes the frame only')

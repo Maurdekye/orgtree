@@ -163,7 +163,7 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
             <div className="field-label">also grant existing folders</div>
             <DirList dirs={dirs} onChange={setDirs} />
             <div className="field-label adv-sep">mail hub</div>
-            <label className="row org-sbx"
+            <label className="row org-check"
               title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
               <input type="checkbox" checked={netAuto}
                 onChange={(e) => setNetAuto(e.target.checked)} />

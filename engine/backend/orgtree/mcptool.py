@@ -20,22 +20,12 @@ import urllib.error
 import urllib.request
 from typing import Any, cast
 
-if __package__:
-    from . import deployment, opreceipts, toolargs, workfields
-else:
-    # Sandboxed Claude runs this dependency-free server by its mounted file
-    # path rather than with ``-m``. Preserve that supported entry point while
-    # sharing the one authoritative policy parser.
-    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from orgtree import deployment, opreceipts, toolargs, workfields
+from . import opreceipts, toolargs, workfields
 
 ORG: str = os.environ.get("ORGTREE_ORG", "")
 NODE: str = os.environ.get("ORGTREE_NODE", "")
 PORT: str = os.environ.get("ORGTREE_PORT", "7360")
-# sandboxed orgs (containers) reach the backend through the bridge
-# listener instead of loopback: an explicit base URL + the org's secret
 BASE: str = os.environ.get("ORGTREE_BASE") or f"http://127.0.0.1:{PORT}"
-BRIDGE_SECRET: str = os.environ.get("ORGTREE_BRIDGE_SECRET", "")
 
 # ⚠ THE SHELL A WATCHDOG'S TARGET ACTUALLY GETS (2026-08-22).
 #
@@ -50,8 +40,7 @@ BRIDGE_SECRET: str = os.environ.get("ORGTREE_BRIDGE_SECRET", "")
 # up to nine days before anyone could tell.
 #
 # `os.name` here is the right proxy: this server runs beside the shell its
-# dogs get — on the host for a host org, inside the container for a sandboxed
-# one. Both idioms are spelled out anyway, so a wrong guess still leaves the
+# dogs get, on the host. Both idioms are spelled out anyway, so a wrong guess still leaves the
 # reader informed rather than confidently mistaken.
 _WD_SHELL_WARNING: str = (
     ("On Windows (THIS MACHINE) the target runs in cmd.exe with the backend "
@@ -1123,7 +1112,7 @@ TOOLS: list[dict[str, Any]] = [
             "output fires), process (pid:N or port:N; fires when it goes DOWN), "
             "stream (a persistent command such as a tail; each matching line "
             "fires at once; downtime output lost). command/stream dogs run with "
-            "your authority (need bash; inside your sandbox if any) but ⚠ NOT IN "
+            "your authority (need bash) but ⚠ NOT IN "
             "YOUR SHELL. " + _WD_SHELL_WARNING +
             "shell:\"bash\" uses `bash -lc` and is refused at create if bash is "
             "missing. Create SMOKE-RUNS the target once and returns output and "
@@ -2143,11 +2132,6 @@ _DESKTOP_RELAUNCH_CARDS: tuple[dict[str, Any], dict[str, Any]] = (
     },
 )
 
-_AGENT_RESTART_TOOLS = frozenset({
-    "orgtree_self_restart", "orgtree_prime_restart",
-})
-
-
 def _desktop_relaunch_catalogue(
         tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Replace standard deployment cards with the V2 relaunch surface."""
@@ -2179,17 +2163,14 @@ MANAGED_WAIT_TOOLS = frozenset({'orgtree_staff', 'orgtree_hire', 'orgtree_rehire
 
 
 def available_tools() -> list[dict[str, Any]]:
-    """The tool catalogue permitted by the install-wide deployment policy."""
+    """The tool catalogue."""
 
-    tools = TOOLS if deployment.current_policy().allow_agent_restart else [
-        tool for tool in TOOLS
-        if str(tool.get("name") or "") not in _AGENT_RESTART_TOOLS]
     tools = [{**tool, 'description': tool['description'] +
               ' If this call takes over ten seconds, it may return state=running '
               'with an operation_id. That is not completion: the original backend '
               'operation continues once, independently of your turn, and sends its '
               'result as durable mail. Handle incoming mail; do not repeat the call.'}
-             if tool['name'] in MANAGED_WAIT_TOOLS else tool for tool in tools]
+             if tool['name'] in MANAGED_WAIT_TOOLS else tool for tool in TOOLS]
     if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
         return tools
     tools = json.loads(json.dumps(_desktop_relaunch_catalogue(tools)))
@@ -2240,8 +2221,6 @@ def _post(payload: dict[str, Any], timeout: float = 30) -> tuple[str, str]:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if os.environ.get("ORGTREE_AGENT_TOKEN"):
         headers["X-Orgtree-Agent-Token"] = os.environ["ORGTREE_AGENT_TOKEN"]
-    if BRIDGE_SECRET:
-        headers["X-Orgtree-Bridge"] = BRIDGE_SECRET
     req = urllib.request.Request(f"{BASE}/api/agent",
                                  data=json.dumps(payload).encode(),
                                  headers=headers, method="POST")

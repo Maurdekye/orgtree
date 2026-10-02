@@ -61,7 +61,7 @@ from fastapi import HTTPException                       # noqa: E402
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import api, halt, ledger, sandbox, store   # noqa: E402
+from orgtree import api, halt, ledger, store   # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
@@ -227,7 +227,6 @@ class ToolCallSingleLoad(unittest.TestCase):
         loads = dict(store.full_load_counts)
         for i in range(3):
             self.status(f"write {i}")
-            sandbox._disk_flag.pop(self.slug, None)   # its 10 s cache must not hide a load
             with _LoadCounter() as c:
                 c.reset()
                 self.call("orgtree_chart", {})

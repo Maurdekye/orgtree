@@ -55,14 +55,8 @@ class PolicyReads(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn('no longer holds bash', reason)
 
-    def test_storage_fields_and_unknown_node_blob_fallback(self):
+    def test_unknown_node_blob_fallback(self):
         org = self.configure()
-        org.d.update(sandbox={'enabled': False, 'limit_mb': 3}, storage_blocked={'at': 'x'})
-        store.save_org(org)
-        got = policy_reads.storage_org(self.slug)
-        self.assertEqual(got.d['sandbox'], org.d['sandbox'])
-        self.assertEqual(got.d['storage_blocked'], org.d['storage_blocked'])
-        self.assertEqual(got.nodes, {})
         with store._POOL.acquire(self.slug) as conn:
             conn.execute("INSERT INTO doc(key,val) VALUES('nodes','{}')")
         with patch.object(store, 'cached_org', return_value=org) as fallback:
@@ -80,10 +74,9 @@ class PolicyReads(unittest.TestCase):
             return real(conn, sql, params)
         with patch.object(pgstore.PgConn, 'execute', runtime):
             self.assertEqual(set(policy_reads.watchdog_org(self.slug).nodes), {'worker'})
-            self.assertEqual(policy_reads.storage_org(self.slug).nodes, {})
-        self.assertEqual(len(roles), 2)
+        self.assertEqual(len(roles), 1)
 
-    def test_file_roots_lineage_sandbox_and_bound_account_match_full_org(self):
+    def test_file_roots_lineage_and_bound_account_match_full_org(self):
         org = self.configure()
         org.d['workspace'] = root.name
         org.node('worker')['scope']['add_dirs'] = [{'path': root.name, 'mode': 'ro'}]
@@ -92,18 +85,12 @@ class PolicyReads(unittest.TestCase):
         full = store.load_org(self.slug)
         got = policy_reads.watchdog_org(self.slug)
         with patch.object(store, 'load_org', side_effect=AssertionError('full read')), \
-                patch.object(store, 'load_runtime_org', side_effect=AssertionError('full read')), \
-                patch.object(sup.sbx, 'on_disk', side_effect=AssertionError('disk full read')):
+                patch.object(store, 'load_runtime_org', side_effect=AssertionError('full read')):
             self.assertEqual(sup.wd_file_roots(got, 'worker'), sup.wd_file_roots(full, 'worker'))
             self.assertEqual(sup.scratch_dir(self.slug, 'worker@2', policy_org=got),
                              sup.scratch_dir(self.slug, 'worker', policy_org=got))
             with self.assertRaisesRegex(RuntimeError, 'bound to no account'):
                 sup.spawn_env(got, bind_node='worker')
-        org.d['sandbox'] = {'enabled': True}
-        store.save_org(org)
-        got = policy_reads.watchdog_org(self.slug)
-        dog = dict(got.d['watchdogs'][0], kind='file', target=root.name)
-        self.assertIn('now runs sandboxed', sup._wd_owner_lost(got, dog))
 
     def test_owner_and_watchdog_use_one_statement_snapshot(self):
         self.configure()
@@ -144,10 +131,8 @@ class PolicyReads(unittest.TestCase):
         with patch.object(pgstore.PgConn, 'execute', observed), \
                 patch.object(store, 'cached_org', side_effect=AssertionError('full Org read')):
             got = policy_reads.watchdog_org(self.slug)
-            storage = policy_reads.storage_org(self.slug)
         self.assertEqual(set(got.nodes), {'worker'})
-        self.assertEqual(storage.nodes, {})
-        self.assertEqual(len(plans), 2)
+        self.assertEqual(len(plans), 1)
         def walk(node):
             if node.get('Relation Name') == 'nodes':
                 self.assertLessEqual(node['Actual Rows'], 1)
@@ -189,8 +174,7 @@ class PolicyReads(unittest.TestCase):
             # Exactly the cached_list per-org summary and ensuing loop read.
             store._summary_row(self.slug, store.cached_org(self.slug).d)
             store.cached_org(self.slug)
-        for loop, reader in [('watchdog', policy_reads.watchdog_org),
-                             ('storage', policy_reads.storage_org)]:
+        for loop, reader in [('watchdog', policy_reads.watchdog_org)]:
             with store._doc_cache_lock: store._doc_cache.pop(self.slug, None)
             volume(loop + '-old-cold', old_tick_reads)
             volume(loop + '-old-warm', old_tick_reads)

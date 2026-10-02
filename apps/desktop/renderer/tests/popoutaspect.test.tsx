@@ -336,7 +336,7 @@ test('§13 modal minimum dimensions are authoritatively defined and distinguisha
   // Generic pinned default (320x240) applies across all standard and dynamic pinnable surfaces
   for (const modalKind of [
     'inbox', 'org-inbox', 'node-inbox', 'docket', 'agent-docket', 'usage',
-    'disk', 'lineage', 'connections', 'gallery', 'agent-gallery', 'doc',
+    'lineage', 'connections', 'gallery', 'agent-gallery', 'doc',
     'doc-docket', 'doc:report-preview-123', 'compose', 'watchdog', 'node-config',
     'app-settings', 'defaults', 'org-settings', 'add-secondary-account'
   ]) {

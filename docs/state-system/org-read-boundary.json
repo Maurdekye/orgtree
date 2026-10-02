@@ -16,11 +16,7 @@
     "org-read.events": "bbe594a2e113",
     "org-read.orgmd": "eb6f7c1b9cf3",
     "org-read.net": "03d5d6642669",
-    "org-read.bridge-credential": "882ab383a88f",
-    "org-read.aggregates": "8ef7d8729bce",
-    "org-read.disk-list": "f6e69b914d25",
-    "org-read.disk-dir": "5e2b74680b80",
-    "org-read.disk-file": "80bec218982e"
+    "org-read.aggregates": "8ef7d8729bce"
   },
   "cases": {
     "chat_no_transcript": {
@@ -538,36 +534,6 @@
       "sections": [],
       "spies": {}
     },
-    "bridge_standard": {
-      "status": 409,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "rotatable bridge credentials are active only in the frozen deployment profile",
-      "sections": [],
-      "spies": {}
-    },
-    "bridge_frozen": {
-      "status": 503,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "org '{slug}' is not sandboxed and gets no bridge credential",
-      "sections": [],
-      "spies": {}
-    },
-    "bridge_frozen_no_org": {
-      "status": 404,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "no such org: 'nope-org'",
-      "sections": [],
-      "spies": {}
-    },
     "aggregates": {
       "status": 200,
       "ctype": "application/json",
@@ -603,96 +569,6 @@
       "spies": {}
     },
     "aggregates_no_org": {
-      "status": 404,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "no such org: 'nope-org'",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_none": {
-      "status": 409,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_dir_none": {
-      "status": 409,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_file_none": {
-      "status": 409,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_fake": {
-      "status": 503,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "org '{slug}' disk is not mounted",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_dir_fake": {
-      "status": 503,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "org '{slug}' disk is not mounted",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_dir_escape": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "path escapes the org disk",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_file_escape": {
-      "status": 422,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "path escapes the org disk",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_file_missing": {
-      "status": 404,
-      "ctype": "application/json",
-      "keys": [
-        "detail"
-      ],
-      "detail": "no such file: 'home/none.txt'",
-      "sections": [],
-      "spies": {}
-    },
-    "disk_no_org": {
       "status": 404,
       "ctype": "application/json",
       "keys": [

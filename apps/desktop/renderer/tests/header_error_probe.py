@@ -37,11 +37,11 @@ TREE = {
     "roots": [], "cost_usd_total": 0,
     "audit": {"live_nodes": 2, "top_level_holds": 0, "no_overdraft": True, "problems": []},
     "user_inbox_count": 0, "user_inbox_newest": None, "fable_lock": None,
-    "storage_blocked": False, "auto_resume": False,
+    "auto_resume": False,
     "fable_limit_policy": "freeze", "fable_filter_policy": "halt",
-    "cascade_hire": False, "cascade_alloc": True, "sandboxed": False,
+    "cascade_hire": False, "cascade_alloc": True,
     "audience_requests": [], "org_inbox": None, "net": None,
-    "disk": None, "headless": False,
+    "headless": False,
 }
 
 

@@ -143,12 +143,8 @@ class MaterialFixture:
                        for n in ('boss','first','reader','peer','outsider','deep')}
         self.client = TestClient(app,raise_server_exceptions=False)
         self.addCleanup(self.client.close)
-        # Prevent a scratch creation path from invoking any container command.
-        self.chown = self.enterContext(patch.object(supervisor.sbx,'chown_agent'))
-        self.enterContext(patch.object(supervisor.sbx,'on_disk',return_value=False))
         self.base = Path(supervisor.scratch_dir(self.slug,'first'))
         (self.base/'notes.txt').write_text('private handover material',encoding='utf-8')
-        self.chown.reset_mock()
 
     def cleanup_org(self):
         store._POOL.close_all(self.slug)
@@ -357,14 +353,13 @@ class MaterialReads(MaterialFixture,unittest.TestCase):
         with patch.object(api.os.path,'realpath',side_effect=resolved):
             self.refused(self.call(args={'path':'link'}),'path escapes')
 
-    def test_first_scratch_read_can_create_directory_and_attempt_ownership(self):
+    def test_first_scratch_read_can_create_directory(self):
         target = Path(store.scratch_root(self.slug))/'outsider'
         self.assertFalse(target.exists())
         seq = store.org_seq(self.slug)
         got = self.okay(self.call(actor='outsider',target='outsider',args={'path':''}))
         self.shape(got,'scratch_directory')
         self.assertTrue(target.is_dir())
-        self.chown.assert_called_once()
         self.assertEqual(store.org_seq(self.slug),seq)
 
     def test_lineage_scratch_resolves_to_shared_successor_directory(self):

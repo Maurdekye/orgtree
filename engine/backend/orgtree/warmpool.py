@@ -1230,8 +1230,7 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
              ) -> tuple[bool, str]:
     """May this node hold a warm process at all? Everything outside this set
     keeps today's spawn-per-turn behaviour, which is also the universal
-    fallback. The sandbox remains excluded (its spawn is a docker exec whose
-    parking is untested), as do preserving oracles (each consult forks).
+    fallback. Preserving oracles remain excluded (each consult forks).
     Codex and Antigravity persistence share this keeper."""
     from . import supervisor as sup                 # noqa: PLC0415
     from . import providers                         # noqa: PLC0415
@@ -1257,8 +1256,6 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
         return False, "terminal-failure-before-transcript"
     if not ignore_exclusion and node_excluded(org.d["slug"], nid):
         return False, "excluded-by-flag"
-    if sup.sbx.is_sandboxed(org):
-        return False, "sandboxed"
     model = str(n.get("model") or "")
     if n.get("bearer_state") == "preserving":
         return False, "preserving-oracle"
@@ -1276,7 +1273,6 @@ def _warm_eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
     warm-process fallback semantics. Manual start uses ``ignore_exclusion``
     only to test the seat behind its own persistent stop flag.
     """
-    from . import supervisor as sup                 # noqa: PLC0415
     ok, why = (eligible(org, nid, ignore_exclusion=True)
                if ignore_exclusion else eligible(org, nid))
     if not ok:
@@ -1296,12 +1292,6 @@ def _warm_eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
         return False, "inflight"
     if (org.d.get("delivering") or {}).get(nid):
         return False, "delivery-in-progress"
-    if org.d.get("storage_blocked") and sup.sbx.on_disk(org.d["slug"]):
-        return False, "storage-blocked"
-    try:
-        sup._deployment_org_gate(org)
-    except RuntimeError:
-        return False, "deployment-gate"
     return True, ""
 
 
@@ -1377,10 +1367,7 @@ def _control_eligibility_text(reason: str) -> str:
         "bearer-state": "the agent is in a bearer lifecycle state",
         "inflight": "the agent has a turn pending recovery",
         "delivery-in-progress": "the agent has a delivery in progress",
-        "storage-blocked": "the organization storage gate is closed",
-        "deployment-gate": "the current deployment profile blocks this org",
         "provider-lane": "this provider lane cannot keep a parked process",
-        "sandboxed": "sandboxed process warming is unavailable",
         "preserving-oracle": "preserving oracle processes are not reusable",
         "not-live": "the agent is not live",
         "excluded-by-flag": "the agent is manually stopped",
@@ -1523,8 +1510,7 @@ def process_control(slug: str, nid: str, action: str,
         # is changed. A turn that reached the state lock first wins and this
         # request refuses. No org row is written here.
         with orgtx.org_tx(slug, share_nodes=[nid],
-                          share_sections=["delivering",
-                                          "storage_blocked"]) as tx:
+                          share_sections=["delivering"]) as tx:
             org = tx.org
             n = org.node(nid)
             status = process_control_status(org, nid)
@@ -1710,7 +1696,6 @@ _RELAUNCH_LABELS = {
     "excluded-by-flag": "this agent was excluded from warming",
     "not-live": "the agent is no longer live",
     "provider-lane": "the agent changed provider lane",
-    "sandboxed": "the agent changed to sandboxed execution",
     "preserving-oracle": "the agent changed to a preserving oracle",
     "halted": "the agent is halted — unhalt it first",
     "killswitch": "the org killswitch is latched — release it first",
@@ -1838,7 +1823,7 @@ KILL_REASON_CLASS = {
     "identity-changed": "prompt-change",
     "renamed": "prompt-change",          # a rename changes nid → prompt+argv
     "provider-lane": "prompt-change",    # eligibility flips are model/scope
-    "sandboxed": "prompt-change",        # changes, i.e. identity changes
+                                         # changes, i.e. identity changes
     "preserving-oracle": "prompt-change",
     "frozen": "prompt-change",           # lifecycle gate closed
     "limit-locked": "prompt-change",

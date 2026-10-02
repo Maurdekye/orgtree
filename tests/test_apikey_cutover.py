@@ -8,7 +8,6 @@ Covers run_apikey_cutover:
   · the S2 "held" api_fallback case mints a fresh org-scoped apikey row,
     reports fallback_was_on, binds nobody
   · an orphaned org-key row is marked unauthenticated and reported
-  · sandboxed orgs are skipped whole
   · the pass is idempotent (registry marker short-circuits the second run)
 """
 import os
@@ -108,14 +107,6 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(registry.get_account(row["id"])["auth"],
                          "unauthenticated")
         self.assertTrue(registry_migration.apikey_cutover_done())
-
-    def test_sandboxed_org_skipped_whole(self):
-        _org("cv-sbx", api_key=KEY[:-1] + "s", sandbox={"image": "x"})
-        report = registry_migration.run_apikey_cutover()
-        self.assertIn("cv-sbx", report["skipped_sandboxed"])
-        reloaded = store.load_org("cv-sbx")
-        self.assertEqual(reloaded.d.get("api_key"), KEY[:-1] + "s")
-        self.assertNotIn("cv-sbx", report["cleaned_orgs"])
 
 
 if __name__ == "__main__":

@@ -23,9 +23,9 @@ class CompatibilityRequired(RuntimeError):
 SETTINGS = tuple('''slug name workspace dirs max_top_grant default_top_grant compact_at
  default_tools default_visibility default_account permission_mode default_effort
  tiers models deleted_cost_usd deleted_cost_usd_unknown api_cost_usd fable_lock
- killswitch storage_blocked storage_frozen storage_full disk
+ killswitch
  fable_limit_policy fable_filter_policy fable_filter_model cascade_hire cascade_alloc
- sandbox auto_resume auto_resume_compact auto_resume_last auto_cheap_compact
+ auto_resume auto_resume_compact auto_resume_last auto_cheap_compact
  account_fallback_default net_hubs net_state org_inbox_multi_holder
  external_inbox_multi_holder _migrations _actors_typed whole_grants_v1
  headless max_children max_depth created version'''.split())

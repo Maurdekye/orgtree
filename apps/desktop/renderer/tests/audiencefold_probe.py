@@ -71,7 +71,7 @@ def start_backend() -> None:
     env = dict(os.environ)
     env.update({
         "ORGTREE_DATA": DATA, "USERPROFILE": HOME, "HOME": HOME,
-        "ORGTREE_PORT": str(PORT), "ORGTREE_BRIDGE_PORT": "0",
+        "ORGTREE_PORT": str(PORT),
         "ORGTREE_CLAUDE": os.path.join(REPO, "backend", "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(REPO, "backend", "tests", "fakecli.js"),
         "FAKECLI_CONFIG": CFG, "PYTHONPATH": os.path.join(REPO, "backend"),

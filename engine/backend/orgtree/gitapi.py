@@ -7,19 +7,14 @@ import os
 import time
 from typing import Any, Iterator
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from . import gitworkspace as gw, gitsettings as settings
 from .ledger import LedgerError
 
 
-def operator(request: Request) -> None:
-    if getattr(request.state, "bridge_slug", None):
-        raise HTTPException(403, "Git workspace is available only to the host operator")
-
-
-router = APIRouter(prefix="/api/orgs/{slug}/git", dependencies=[Depends(operator)])
+router = APIRouter(prefix="/api/orgs/{slug}/git")
 
 
 @contextmanager

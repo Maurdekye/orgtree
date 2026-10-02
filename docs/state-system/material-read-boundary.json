@@ -141,5 +141,5 @@
     "chat-window-index.sqlite3",
     "reply-events.sqlite3"
   ],
-  "scope": "Legacy HTTP adapter, synthetic local SQLite/files, selected real transcript sidecars. No live census, complete call graph, sandbox/provider discovery, native or Rust execution, or concurrency qualification."
+  "scope": "Legacy HTTP adapter, synthetic local SQLite/files, selected real transcript sidecars. No live census, complete call graph, provider discovery, native or Rust execution, or concurrency qualification."
 }

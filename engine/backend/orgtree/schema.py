@@ -1255,32 +1255,12 @@ class OrgDoc(TypedDict):
     reservations: NotRequired[list[dict[str, Any]]]
     org_inbox: NotRequired[list[OrgInboxEntry]]
     org_inbox_read: NotRequired[int]
-    sandbox: NotRequired[dict[str, Any]]    # api: {enabled, secret, limit_mb?}
-    # Frozen per-org bridge credential rotation state. Both are non-secret;
-    # the host-only signing key is a separate install file.
-    bridge_credential_generation: NotRequired[int]
-    bridge_credential_rotated_at: NotRequired[str]
-    sandbox_vols_base: NotRequired[int]     # HISTORICAL (pre-disk legacy
-                                            # enforcement, retired D-063) —
-                                            # system-volume image seed (bytes);
-                                            # storage accounting charges growth only
     fable_lock: NotRequired[dict[str, Any] | None]
     killswitch: NotRequired[dict[str, Any] | None]  # org-level emergency latch
                                         # {at, by}: while present EVERY agent
                                         # is non-runnable regardless of its own
                                         # `halt`; cleared only by explicit
                                         # release (halt.killswitch_release)
-    storage_frozen: NotRequired[bool]   # HISTORICAL (pre-disk legacy breach) —
-                                        # never set since D-063; cleared at
-                                        # disk migration
-    storage_blocked: NotRequired[bool]  # ACL block (legacy) / turn pause (disk ≥90%)
-    storage_full: NotRequired[bool]     # disk ≥99% — the persistent UI alert state
-    disk: NotRequired[dict[str, Any]]   # {size_mb, migrated_at,
-                                        #  pending_size_mb?} — org rides its
-                                        # virtual disk (sandbox.migrate_to_disk);
-                                        # pending = staged shrink, applied when
-                                        # the org's container is next down
-    storage_warned: NotRequired[bool]
     account_fallback_default: NotRequired[bool]
     auto_resume: NotRequired[bool]
     auto_resume_last: NotRequired[float]
@@ -1320,10 +1300,7 @@ class OrgDoc(TypedDict):
     org_inbox_multi_holder: NotRequired[bool]
     # ── V1 org-key remnants (user redesign 2026-09-12). The startup cutover
     # (registry_migration.run_apikey_cutover) pops all four from every
-    # NON-SANDBOXED doc after moving the secret into the account registry.
-    # SANDBOXED docs are skipped whole: `api_key` remains live there as a
-    # container-auth selector (sandbox.container_auth), while the three
-    # fallback fields are inert history nothing reads or writes any more.
+    # doc after moving the secret into the account registry.
     api_key: NotRequired[str]
     api_fallback: NotRequired[bool]
     api_fallback_until: NotRequired[float]

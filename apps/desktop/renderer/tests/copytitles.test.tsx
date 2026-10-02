@@ -47,7 +47,7 @@ const tree = (roots = [agent()]): TreePayload => ({
   slug: 'mine', name: 'mine', roots, dirs: [], max_top_grant: 1000,
   default_top_grant: 50, compact_at: 0, credit_requests: [], tiers: { haiku: 1 }, audiences: [],
   cost_usd_total: 0, audit: { live_nodes: roots.length, top_level_holds: 0, no_overdraft: true, problems: [] },
-  user_inbox_count: 0, fable_lock: null, storage_blocked: false,
+  user_inbox_count: 0, fable_lock: null,
   audience_requests: [], org_inbox: null, net: null, asks: [],
 } as unknown as TreePayload)
 const ticket = (extra: Partial<WorkItem> = {}): WorkItem => ({

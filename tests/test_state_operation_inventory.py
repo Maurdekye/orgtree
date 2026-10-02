@@ -361,7 +361,9 @@ def b():
         # door tool tuple); unresolved_tool_refs 0 -> 2 since the last anchor is recorded here, not
         # triaged
         # 351 -> 349: a removed product feature takes its operator route and the workspace-usage worker
-        self.assertEqual(summary["registration_sites"], 349)
+        # 349 -> 330: a second removed product feature takes eleven operator routes, its admission middleware, four
+        # volume mount calls and three workers, with the five modules that held most of them
+        self.assertEqual(summary["registration_sites"], 330)
         self.assertEqual(summary["registration_kinds"]["task"], 15)
         self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
                           summary["unresolved_tool_refs"]), (53, 7, 2))

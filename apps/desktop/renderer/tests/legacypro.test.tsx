@@ -141,8 +141,7 @@ test('§2 hire sheet: no Gemini Pro button, then one labelled legacy',
 
 function config(node: CanvasNode) {
   const tree = { slug: 'org', dirs: [], tiers: SEATS, max_top_grant: 100,
-    default_effort: '', effort_default: 'high', cascade_hire: true,
-    sandboxed: false } as unknown as TreePayload
+    default_effort: '', effort_default: 'high', cascade_hire: true } as unknown as TreePayload
   const google: ProviderInfo = { id: 'google', label: 'Antigravity', cli: 'agy', tiers: [],
     status: { installed: true, connected: true, kind: 'google' },
     hire_enabled: true, reason: null }

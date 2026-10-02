@@ -104,6 +104,9 @@ MARKER_EXT = ".pg"
 #: and every top-level access in the backend at bb44eb3 (see the tests), plus
 #: ledger.NODE_KEYED_SECTIONS, the backend's own census of every top-level
 #: section (test_principal_identity fails on a key missing from it).
+#: Keys of removed features (kiosk, spend_frozen, sandbox, disk, storage_*,
+#: bridge_credential_*) stay listed: old data still carries them, the engine
+#: ignores them on load (ledger.IGNORED_LEGACY_KEYS), and they import as is.
 KNOWN_DOC_KEYS = frozenset("""
 version slug name created tiers models workspace dirs permission_mode default_tools
 default_visibility max_top_grant default_top_grant credit_requests compact_at

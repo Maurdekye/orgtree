@@ -280,8 +280,9 @@ the caller's own fence.
 584 is two fewer than that 586 (P01 S2j): the coordinator ruled that P02's reviewed probe-level
 record meets `diagnostic.instrumentation`'s clause, so it is specified. Three P02 facets are
 narrowed to what the probe cannot reach: `org-view.instrumentation` to the ASGI wrapper's
-every-org read (since removed with its feature, which closed the facet), `material.reads` to a disk-backed sandboxed org, and `material.effects` to a successful
-chown. The lookup's warm reload is now measured, not inferred (the reviewer's mutant on S2i).
+every-org read (since removed with its feature, which closed the facet), `material.reads` to one storage
+placement and `material.effects` to one ownership effect (both since removed with a second feature, which
+closed those facets too). The lookup's warm reload is now measured, not inferred (the reviewer's mutant on S2i).
 580 is four fewer than that 584 (P01 S2k): of the 15 storage candidates, source reading excludes
 the four that are not org state, each with a covering source reference: a share URL's
 LAN-address socket (since removed with its feature, leaving three), the liveness port probe, and the two read-only opens of the Antigravity CLI's
@@ -292,7 +293,8 @@ every pending candidate now says why.
 triage W1-W8, whose rules are decision 1 on its item): of 21 plumbing registrations, source reading
 excludes 13 that are not org-state operations: three router includes whose routes are inventoried
 on their own, the static asset mount, two exception handlers, the shutdown hook and the git
-scheduler stop, four disk mount calls the scanner took for route mounts, and the CLI tool-name
+scheduler stop, four volume mount calls the scanner took for route mounts (since removed with their
+feature), and the CLI tool-name
 vocabulary. Eight stay pending with an owner: the startup hook, the three stdout pumps that feed a
 turn's events, and the four stderr pumps, whose tails a failed turn reads into its failure record
 (a usage-limit failure freezes the node).
@@ -309,7 +311,8 @@ the inventoried backend module set.
 the Antigravity status probe fills a process-wide cache that the hire gate and the turn launcher
 read (the review fix). All 30 stay pending with an owner: the status probe, Codex and Antigravity event
 callbacks and steer pumps, the cold MCP pump, warm-pool prewarm and keeper, the credential watcher and
-usage loop, the freeze-reset refresh, the sandbox warm-up, the workspace-usage walk and the git
+usage loop, the freeze-reset refresh, a warm-up and the workspace-usage walk (both since removed with
+their features) and the git
 workspace reads and fetch (P08 or the git workspace feature), and the @net: mail hub loops (P07).
 `tests/test_state_operation_contracts.py` now also checks that every excluded witness belongs to a
 reviewed triage step.
@@ -472,12 +475,12 @@ Recorded legacy defects:
 15 org and agent read routes on a new `org-read.*` facet family:
 - node chat, file, scratch, tool image and history;
 - the history sources and entries (history.py);
-- events, org.md, the network identity and the bridge-credential status;
-- the diagnostics aggregates (diagnostics.py);
-- the three org-disk routes.
+- events, org.md and the network identity;
+- the diagnostics aggregates (diagnostics.py).
 
+Four more (a credential status and three volume reads) were later removed with their feature, leaving 11 contracts.
 They are pinned by `tests/test_state_org_read_boundary.py` against `docs/state-system/org-read-boundary.json`
-(57 cases, a node's transcript being a fixture file).
+(44 cases, a node's transcript being a fixture file).
 
 Three of these GETs write:
 - the chat route and the history chat section mint the node's reply and transcript-record incarnations on their
@@ -487,8 +490,7 @@ Three of these GETs write:
 The scratch, tool-image and orgmd reads leave the file open (recorded legacy defect). Both defects and the
 reads that write are docketed as org-reads-that-write-chat-gets-mint-on-first-rea.
 
-The disk routes answer 409 under the desktop-managed profile, which creates no sandboxed org. The
-bridge-credential status answers 409 unless the deployment profile is frozen. With the chat route and the history
+With the chat route and the history
 chat section contracted, every reader of the transcript's `orgtree_present` and `orgtree_send_file` card branches
 has a contract, so both map (rule 1).
 
@@ -510,23 +512,17 @@ expected: 11 entries are mapped and each new contract opens conflicts, wire and 
 11 org administration routes on a new `org-admin.*` facet family:
 - org create and delete;
 - settings and the hire defaults;
-- the org.md write and the bridge-credential rotation;
-- disk delete, resize and resize apply;
-- the legacy sweep preview and the sweep.
+- the org.md write.
 
-They are pinned by `tests/test_state_org_admin_boundary.py` against `docs/state-system/org-admin-boundary.json`
-(67 cases). The WSL command runner is a recorded fake, a mounted org disk is a temp folder, and hub, net,
-sandbox, container and docker calls are spies. The desktop-managed profile refuses a sandboxed create,
-so the standard-profile cases cover that branch. The frozen profile gates the rotation, which the probe
-reaches only as refusals.
+Six more (a credential rotation, three volume writes and a legacy sweep with its preview) were later removed with
+their feature, leaving 5 contracts. They are pinned by `tests/test_state_org_admin_boundary.py` against
+`docs/state-system/org-admin-boundary.json` (32 cases). Hub and net calls are spies.
 
 A refused settings call writes nothing, even when earlier fields had already been applied to the cached document:
-the outermost lock release discards a document that changed without a save. The sweep deletes the sandbox root,
-the org's host workspace and its scratch root.
+the outermost lock release discards a document that changed without a save.
 
-Recorded legacy defects (both docketed as org-admin-orgmd-put-reports-characters-as-bytes):
-- the org.md write reports the character count as `bytes`;
-- disk delete returns the raw OSError text, host path included.
+Recorded legacy defect (docketed as org-admin-orgmd-put-reports-characters-as-bytes): the org.md write reports the
+character count as `bytes`.
 
 Entries contracted: 99 of 194.
 
@@ -598,9 +594,10 @@ adds five entry witnesses:
 - the P03 door's `_Router` (`p03_door.py`) is excluded while it is inert: it passes every request through while
   `SLICE_TOOLS` is empty, and a test fails once that set names a verb, because the door then becomes a second
   `/api/agent` dispatch path;
-- `RecoveryBarrier` (every mutating request waits for startup recovery and gets 503 if it failed) and
-  `FrozenAdminBoundary` (a non-loopback, unbridged request is refused 403 under the frozen profile) stay pending
-  with the runtime as owner: they are request-wide admission predicates that no contract or shared facet states yet.
+- `RecoveryBarrier` (every mutating request waits for startup recovery and gets 503 if it failed) stays pending
+  with the runtime as owner: it is a request-wide admission predicate that no contract or shared facet states yet.
+  A second admission layer, which refused remote requests under a deployment profile, was later removed with that
+  profile.
 
 752 is eight more than that 744 (P01 F9, p01-f9-contracts-for-the-desktop-v1-import-route). The rise is expected. 6
 entries and 4 storage sites are mapped, and each of the 6 new contracts opens conflicts, wire and instrumentation.
@@ -636,30 +633,39 @@ S2k had excluded. Its ASGI wrapper's every-org read was the only part of `org-vi
 could not attribute, so that facet is now specified, which closes one open occurrence on each of `org.tree` and
 `org.node-detail`. Facts that described the feature's request path were removed from the facets they appeared in.
 
-Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
+739 is thirty-nine fewer than that 778. A second removed product feature took its ten operator routes (two
+credential routes, three volume reads, three volume writes, and a legacy sweep with its preview) and their ten
+contracts (182 contracts, 142 mapped entries), with their 30 open dimension occurrences (conflicts, wire and
+instrumentation on each). It also took five pending entry rows (its relay route, its warm-up worker, two
+storage-limit workers and its admission middleware) and four excluded ones (volume mount calls). The inventory now
+records 330 registration sites in 138 modules. The one open clause of `material.reads` and of `material.effects`
+named that feature's placement and ownership effect, so both facets are now specified, which closes one open
+occurrence each on `material.scratch` and `material.transcript`. The `file_deliveries` storage witness was re-keyed
+to its shifted source line. Facts that described the feature were removed from the facets they appeared in.
+
+Of the 37 open dimension occurrences on the sixteen legacy-family contracts, 21 (7 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45
 and 29 (12 facets). It said 43 and 27 (10 facets) until S2j closed
-`diagnostic.instrumentation`.) Their questions need observed runtime contacts (P02) or the
+`diagnostic.instrumentation`, and 41 and 25 (9 facets) until the removed feature
+closed `material.reads` and `material.effects`.) Their questions need observed runtime contacts (P02) or the
 qualification of the approved native design r7 at P03/P05. Each such facet keeps its original
 question and adds one line naming its owner, the evidence that would close it,
 and why the available evidence does not. The P02 real-data replay
 (20260924T063643Z) does not replay these tools, so it closes none of them. The
 per-operation probe closes `wrapper-reads`, `contacts` and (S2j) `diagnostic.instrumentation`.
-Every other P02-owned facet still has a clause the probe cannot meet: a disk-backed sandbox
-(`material.reads`), a successful sandbox chown (`material.effects`), or production-grade records
+Every other P02-owned facet still has a clause the probe cannot meet: production-grade records
 with a product-side drift refusal (`material.contacts`). `material.writes` waits on native
 placement (P04). The remaining 16 are the
 four wire facets. Their legacy parity is now fixtured at the public door:
 - malformed-argument matrices, with the 500 serializer's exception-echo body
-- the agent/operator/bridge door matrix for every P01 tool
+- the agent/operator door matrix for every P01 tool
 - the preview per-operation matrix
 - diagnostic behaviour over corrupt stored nodes
 
 Recorded defects are kept as legacy behaviour, not approved. Examples: NaN
-`stale_s` accepted, a corrupt node failing the whole-org inspection,
-`revoke_dir` accepting any `dir`, and a bridge org secret acting as any node
-(`p05-authority-review-bridge-org-secret-acts-as-a`). Each wire facet stays open
+`stale_s` accepted, a corrupt node failing the whole-org inspection and
+`revoke_dir` accepting any `dir`. Each wire facet stays open
 for its native/Rust clause. `material.wire`'s legacy transcript projector is
 fixtured too (`p01-transcript-projector-legacy-fixtures`): every row type
 `supervisor._read_chat_source` handles, as an agent sees it through
@@ -776,11 +782,8 @@ for the feed. Unresolved with an owner: the view's reads, cold/migration writes
 and instrumentation (P02), conflicts for both (native change-feed design) and
 wire for both (native/Rust), and the feed's instrumentation (P02). Recorded legacy
 behaviour: the first ETag a cold org serves is already stale, a valid agent
-credential on these GETs is refused as "invalid or expired", the socket route
-accepts an organization that does not exist, and in desktop-managed mode an org
-document carrying `sandbox` makes the tree and node detail answer 500 (the
-warm-process eligibility check catches only `RuntimeError`, but the desktop
-policy raises `ValueError`).
+credential on these GETs is refused as "invalid or expired", and the socket route
+accepts an organization that does not exist.
 
 Candidate 3 (F2, agent mail) adds `mail.message` (`orgtree_message`) and
 `mail.notice` (`orgtree_send_notice`), which share one set of `agent-mail`

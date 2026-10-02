@@ -34,7 +34,7 @@ function tree(over: Record<string, unknown> = {}): TreePayload {
     fable_limit_policy: 'halt', fable_filter_policy: 'halt',
     auto_cheap_compact: { enabled: false, occ: 0.5 },
     auto_resume_compact: false,
-    sandboxed: false, disk: null, net: { hubs: [] },
+    net: { hubs: [] },
     ...over,
   } as unknown as TreePayload
 }
@@ -52,7 +52,7 @@ function stubFetch(
     const payload = path.startsWith('/api/orgs/acme/orgmd')
       ? { content: '# Acme\n' }
       : path.startsWith('/api/orgs/acme/net') ? { hubs: [], identity: null }
-        : path === '/api/mcp-servers' ? { servers: mcpServers ?? [], sandbox_mcp: false }
+        : path === '/api/mcp-servers' ? { servers: mcpServers ?? [] }
           : path === '/api/accounts' ? { accounts: accounts ?? [] }
             : {}
     return Promise.resolve({
@@ -380,7 +380,7 @@ test('⑧  Hire defaults handles empty server list and updates when registered s
     const payload = path.startsWith('/api/orgs/acme/orgmd')
       ? { content: '# Acme\n' }
       : path.startsWith('/api/orgs/acme/net') ? { hubs: [], identity: null }
-        : path === '/api/mcp-servers' ? { servers: currentServers, sandbox_mcp: false }
+        : path === '/api/mcp-servers' ? { servers: currentServers }
           : {}
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),

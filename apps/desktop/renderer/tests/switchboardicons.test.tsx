@@ -378,7 +378,7 @@ function tree(over: Record<string, unknown> = {}): TreePayload {
     fable_limit_policy: 'halt', fable_filter_policy: 'halt',
     auto_cheap_compact: { enabled: false, occ: 0.5 },
     auto_resume_compact: false,
-    sandboxed: false, disk: null, net: { hubs: [] },
+    net: { hubs: [] },
     workspace: 'C:\\ws',
     dirs: [{ path: 'C:\\ws', mode: 'rw' }, { path: 'C:\\shared', mode: 'ro' }],
     default_tools: { bash: false, web: true, edit: true, subagents: false,
@@ -398,7 +398,7 @@ function stubFetch(seen: { method: string; path: string; body: unknown }[]) {
     const payload = path.startsWith('/api/orgs/acme/orgmd')
       ? { content: '# Acme\n' }
       : path.startsWith('/api/mcp-servers')
-        ? { servers: ['alpha-mcp'], sandbox_mcp: false }
+        ? { servers: ['alpha-mcp'] }
         : {}
     return Promise.resolve({
       ok: true, status: 200, headers: new Headers(),

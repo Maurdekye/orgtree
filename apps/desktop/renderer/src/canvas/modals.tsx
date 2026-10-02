@@ -292,12 +292,9 @@ export const orgDefaultTools = (tree: TreePayload): ToolGrant => ({
   mcp: [...(tree.default_tools?.mcp ?? ['*'])],
 })
 
-export function McpCurrentServers({ servers, sandboxed, sandboxMcp }: {
+export function McpCurrentServers({ servers }: {
   servers: string[]
-  sandboxed?: boolean
-  sandboxMcp?: boolean
 }) {
-  const dead = !!sandboxed && !sandboxMcp
   return (
     <div className="hire-mcp-current">
       <span className="hire-mcp-current-label">
@@ -305,16 +302,10 @@ export function McpCurrentServers({ servers, sandboxed, sandboxMcp }: {
           ? 'currently registered: none'
           : 'currently registered:'}
       </span>
-      {dead && servers.length > 0 && (
-        <div className="hint">
-          sandboxed org — MCP servers are external contact points the sandbox restricts
-        </div>
-      )}
       {servers.length > 0 && (
         <div className="hire-mcp-tags" role="list" aria-label="currently registered MCP servers">
           {servers.map((s) => (
-            <span key={s} className={'chip mono' + (dead ? ' dead' : '')} role="listitem"
-              title={dead ? 'unavailable in a sandboxed org' : undefined}>
+            <span key={s} className="chip mono" role="listitem">
               {s}
             </span>
           ))}
@@ -329,7 +320,6 @@ export function HireDefaultsTab({ tree, slug, toast, close,
   servers: propServers, account, setAccount, accounts: propAccounts }: HireDefaultsTabProps) {
   const [asking, setAsking] = useState(false)   // dissolve-all confirmation
   const [servers, setServers] = useState<string[]>(propServers ?? [])
-  const [sandboxMcp, setSandboxMcp] = useState(false)
   const [newPath, setNewPath] = useState('')
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
   // who `default` IS, straight off the same payload as the rows — the host
@@ -347,7 +337,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
     const fetchServers = () => {
       getMcpServers().then((r) => {
         if (!active) return
-        setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
+        setServers(r.servers ?? [])
       }).catch(() => {})
     }
     if (propServers === undefined) {
@@ -454,11 +444,9 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             all registered servers (current and future)
           </label>
           {allMcp && (
-            <McpCurrentServers servers={servers}
-              sandboxed={!!tree.sandboxed} sandboxMcp={sandboxMcp} />
+            <McpCurrentServers servers={servers} />
           )}
-          {!allMcp && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
-            sandboxed={!!tree.sandboxed}
+          {!allMcp && <McpChecklist servers={servers}
             checked={(s) => tools.mcp.includes(s)}
             onToggle={(s, on) => setTools({
               ...tools,
@@ -610,7 +598,6 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   }
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
-  const [sandboxMcp, setSandboxMcp] = useState(false)
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
   const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
   useEffect(() => {
@@ -676,7 +663,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
 
   useEffect(() => {
     getMcpServers().then((r) => {
-      setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
+      setServers(r.servers ?? [])
     }).catch(() => {})
   }, [])
   const allMcp = tools.mcp.includes('*')
@@ -732,8 +719,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
               ...tools, mcp: e.target.checked ? ['*'] : [...servers] })} />
           all registered servers (current and future)
         </label>
-        {!allMcp && <McpChecklist servers={servers} sandboxMcp={sandboxMcp}
-          sandboxed={!!tree.sandboxed}
+        {!allMcp && <McpChecklist servers={servers}
           checked={(s) => tools.mcp.includes(s)}
           onToggle={(s, on) => setTools({
             ...tools,
@@ -790,36 +776,21 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
 }
 // ------------------------------------------------------------ node ⚙ config
 // MCP server checklist shared by the org / per-agent / pre-hire scope panels.
-// In a SANDBOXED org, ALL servers grey out (user ruling): they are points of
-// external contact the sandbox is explicitly designed to restrict. The
-// experimental ORGTREE_SANDBOX_MCP env var re-enables them (url + portable
-// stdio passthrough, no full support).
 interface McpChecklistProps {
   servers: string[]
-  sandboxed: boolean
-  sandboxMcp: boolean
   checked: (s: string) => boolean
   onToggle: (s: string, on: boolean) => void
 }
 
-function McpChecklist({ servers, sandboxed, sandboxMcp, checked, onToggle }: McpChecklistProps) {
-  const dead = sandboxed && !sandboxMcp
+function McpChecklist({ servers, checked, onToggle }: McpChecklistProps) {
   return (
     <>
-      {dead && (
-        <div className="hint">
-          sandboxed org — MCP servers are external contact points the sandbox
-          restricts, so none reach its agents (the ORGTREE_SANDBOX_MCP env var
-          enables URL/portable servers experimentally)
-        </div>
-      )}
       {servers.length === 0 && (
         <div className="hint dim">none registered</div>
       )}
       {servers.map((s) => (
-        <label className={'checkline' + (dead ? ' dead' : '')} key={s}
-          title={dead ? 'unavailable in a sandboxed org' : undefined}>
-          <input type="checkbox" disabled={dead} checked={checked(s)}
+        <label className="checkline" key={s}>
+          <input type="checkbox" checked={checked(s)}
             onChange={(e) => onToggle(s, e.target.checked)} />
           <span className="mono">{s}</span>
         </label>
@@ -1035,7 +1006,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       ? { prefer_reserve: preferReserve } : {}
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
-  const [sandboxMcp, setSandboxMcp] = useState(false)
   // multi-account (D5): the node's binding — chosen WITH a cross-provider
   // switch (atomic, backend-required) or reassigned on its own; disclosure
   // (billing/standing) surfaces in the toast at the point of action
@@ -1046,7 +1016,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const [initInfo, setInitInfo] = useState<ChatInit | null>(null)   // №14: the CLI's own resolution
   useEffect(() => {
     getMcpServers().then((r) => {
-      setServers(r.servers ?? []); setSandboxMcp(!!r.sandbox_mcp)
+      setServers(r.servers ?? [])
     }).catch(() => {})
     getChat(slug, node.id, 1).then((c) => setInitInfo(c.init ?? null))
       .catch(() => {})
@@ -1344,21 +1314,12 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           Editing the global registry itself (outside orgtree) restarts every
           agent granted "*", in every org on this machine.</div>
         {servers.length === 0 && <div className="hint">none registered</div>}
-        {!!tree.sandboxed && !sandboxMcp && servers.length > 0 && (
-          <div className="hint">
-            sandboxed org — MCP servers are external contact points the sandbox
-            restricts, so none reach its agents (the ORGTREE_SANDBOX_MCP env
-            var enables URL/portable servers experimentally)
-          </div>
-        )}
         {servers.map((s) => {
-          const dead = !!tree.sandboxed && !sandboxMcp
           return (
-            <label className={'checkline' + (dead ? ' dead' : '')} key={s}
-              title={dead ? 'unavailable in a sandboxed org' : undefined}>
+            <label className="checkline" key={s}>
               <input type="checkbox"
                 checked={(holdsAllMcp || tools.mcp.includes(s)) && parentHoldsMcp(s)}
-                disabled={!parentHoldsMcp(s) || dead}
+                disabled={!parentHoldsMcp(s)}
                 onChange={(e) => setTools({
                   ...tools,
                   // unchecking under "*" materializes the concrete server list

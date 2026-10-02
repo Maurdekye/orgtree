@@ -2914,7 +2914,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
 
   // file uploads (user spec 2026-07-31): the file lands in the agent's own
-  // uploads/ scratch folder — same relative path sandboxed or not
+  // uploads/ scratch folder
   const fileRef = useRef<HTMLInputElement | null>(null)
   // attachments STAGE onto the next message (user spec 2026-07-31: mail
   // carries files) — the bytes upload immediately, the mail links them

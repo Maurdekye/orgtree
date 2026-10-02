@@ -8,7 +8,6 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
-import { DiskBrowser } from '../src/DiskBrowser'
 import { NewOrg, InboxPanel } from '../src/App'
 import { DraftScopeModal, PilePicker } from '../src/canvas/modals'
 import { CurrentOrg } from '../src/popout'
@@ -42,46 +41,6 @@ function stubFetch(handlers: Record<string, (url: string) => unknown>) {
     ;(globalThis as unknown as { fetch: typeof fetch }).fetch = prevFetch
   }
 }
-
-test('DiskBrowser renders normalized Sentence Case heading, PinFrame title, and mode tabs', async () => {
-  const restoreFetch = stubFetch({
-    '/disk': () => ({
-      used: 200,
-      total: 1000,
-      blocked: false,
-      full: false,
-      files: [],
-      offset: 0,
-      limit: 200,
-    }),
-  })
-
-  try {
-    const view = await mountView(
-      <CurrentOrg.Provider value="test-org">
-        <DiskBrowser slug="test-org" toast={noop} close={noop} />
-      </CurrentOrg.Provider>,
-      (el) => el
-    )
-    await flush()
-
-    const h3 = view.el.querySelector('h3')
-    assert.ok(h3, 'h3 heading exists')
-    assert.match(h3.textContent ?? '', /Org disk/)
-    assert.doesNotMatch(h3.textContent ?? '', /org disk/)
-
-    const tabs = view.el.querySelectorAll('.disk-tabs button')
-    assert.equal(tabs.length, 2)
-    assert.equal(tabs[0].textContent, 'Largest files')
-    assert.notEqual(tabs[0].textContent, 'largest files')
-    assert.equal(tabs[1].textContent, 'Browse')
-    assert.notEqual(tabs[1].textContent, 'browse')
-
-    await view.unmount()
-  } finally {
-    restoreFetch()
-  }
-})
 
 test('NewOrg renders "+ New organization" button and AdvancedOrgModal tabs use Sentence Case', async () => {
   const view = await mountView(<NewOrg onCreate={noop} />, (el) => el)

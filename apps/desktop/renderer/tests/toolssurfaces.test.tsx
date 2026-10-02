@@ -70,7 +70,7 @@ const treeFixture = (): TreePayload => ({
     sol: 5, flash: 1, pro: 2, 'or-v-full': 1, 'or-v-textonly': 1,
     'or-v-silent': 1, 'or-v-mixed': 1, 'or-v-deselected': 1 },
   max_top_grant: 100, default_effort: '', effort_default: 'high',
-  cascade_hire: true, sandboxed: false,
+  cascade_hire: true,
 } as unknown as TreePayload)
 
 const nodeFixture = (tierId = 'haiku'): CanvasNode => ({

@@ -25,9 +25,9 @@ class _View:
 def _read(slug, watchdogs):
     if store.STORE_BACKEND != 'postgres':
         return None
-    keys = ('nodes', 'sandbox', 'storage_blocked')
+    keys = ('nodes',)
     if watchdogs:
-        keys += ('watchdogs', 'workspace', 'disk')
+        keys += ('watchdogs', 'workspace')
 
     def body(conn):
         sql = ('WITH settings AS MATERIALIZED (SELECT key,val FROM doc WHERE key IN ('
@@ -68,10 +68,6 @@ def _read(slug, watchdogs):
 
 def watchdog_org(slug):
     return _read(slug, True) or store.cached_org(slug)
-
-
-def storage_org(slug):
-    return _read(slug, False) or store.cached_org(slug)
 
 
 def poll_orgs(reader):

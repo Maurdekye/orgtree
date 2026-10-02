@@ -200,15 +200,12 @@ def diagnose_target(
     grants: Iterable[Any] = (),
     provider: str | None = None,
     provider_restrictions: Mapping[str, Any] | None = None,
-    sandboxed: bool = False,
-    sandbox_roots: Iterable[str] = (),
     tool_grants: Mapping[str, Any] | None = None,
     git_owner: str | None = None,
 ) -> dict[str, Any]:
     """Explain the effective decision for one target and one operation.
 
-    ``provider_restrictions`` and ``sandbox_roots`` are observations supplied
-    by the caller.  They are intentionally not inferred from a provider name,
+    ``provider_restrictions`` are observations supplied by the caller.  They are intentionally not inferred from a provider name,
     an environment variable, or a failed command.  A read-only grant blocks a
     write, while the agent's own scratch remains writable even when an ancestor
     folder was also supplied as read-only.
@@ -238,11 +235,6 @@ def diagnose_target(
     provider_limit = _restriction(provider_restrictions, operation)
     if operation == "shell" and provider_limit["status"] == "none":
         provider_limit = _restriction(provider_restrictions, "bash")
-    sandbox_limit = {"status": "none", "reason": None}
-    if sandboxed and operation in _PATH_OPERATIONS:
-        roots = [_norm(scratch), *(_norm(p) for p in sandbox_roots)]
-        if not any(_under(requested, root) for root in roots):
-            sandbox_limit = {"status": "restricted", "reason": "target is not mounted in the sandbox"}
     tool_limit = {"status": "none", "reason": None}
     if operation in {"shell", "mcp"} and isinstance(tool_grants, Mapping):
         # The stored grant calls the shell capability ``bash`` while the
@@ -275,15 +267,13 @@ def diagnose_target(
     if reparse and not _under(resolved, grant["path"] or scratch):
         reasons.append("link or junction resolves outside the applicable grant")
         org_allowed = False
-    restrictions = [provider_limit, sandbox_limit, tool_limit]
+    restrictions = [provider_limit, tool_limit]
     for item in restrictions:
         if item["status"] == "restricted" and item["reason"]:
             reasons.append(str(item["reason"]))
     allowed = org_allowed and all(x["status"] == "none" for x in restrictions)
     if allowed:
         code = "allowed"
-    elif sandbox_limit["status"] == "restricted":
-        code = "sandbox_restricted"
     elif provider_limit["status"] == "restricted":
         code = "provider_restricted"
     elif tool_limit["status"] == "restricted":
@@ -303,7 +293,6 @@ def diagnose_target(
         "operation": {"name": operation, "allowed": allowed},
         "org_grant": grant,
         "provider": {"name": provider, **provider_limit},
-        "sandbox": {"enabled": bool(sandboxed), **sandbox_limit},
         "tool": tool_limit,
         "git": {"root": git_root, "owner": git_owner,
                 "owner_source": "explicit" if git_owner else "unknown",

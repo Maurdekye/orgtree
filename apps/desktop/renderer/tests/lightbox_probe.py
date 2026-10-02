@@ -379,7 +379,6 @@ def start_backend() -> None:
         "ORGTREE_TURN_TIMEOUT": "60",
         "PYTHONPATH": _BACKEND,
         "PYTHONIOENCODING": "utf-8",
-        "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE": os.path.join(_BACKEND, "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_BACKEND, "tests", "fakecli.js"),
     })

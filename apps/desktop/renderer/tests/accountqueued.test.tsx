@@ -29,8 +29,7 @@ test('a mid-turn account change is queued: the save shows no error and still sav
     }, org_visibility: 'team' }, charter: '', team_charter: '', turns: [], audiences_held: [],
   } as CanvasNode
   const tree = { slug: 'org', dirs: [], tiers: { haiku: 1, sonnet: 2, opus: 5, fable: 10 },
-    max_top_grant: 100, default_effort: '', effort_default: 'high', cascade_hire: true,
-    sandboxed: false } as unknown as TreePayload
+    max_top_grant: 100, default_effort: '', effort_default: 'high', cascade_hire: true } as unknown as TreePayload
   const view = await mountView(<NodeConfig node={node} map={new Map([[node.id, node]])}
     tree={tree} slug="org" op={async () => ({})} toast={(lines) => saved.push(...lines)} close={() => {}} />,
     el => el)

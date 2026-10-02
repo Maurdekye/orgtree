@@ -168,7 +168,6 @@ class Spies:
         add(supervisor, "delivery_note", return_value="fixture carrier")
         add(supervisor, "mail_spark")
         add(supervisor, "notify")
-        add(supervisor, "maybe_storage_check")
         add(api, "hub_changed")
         add(api, "mail_notify")
         add(api.net, "kick")
@@ -176,7 +175,7 @@ class Spies:
 
     def calls(self):
         return {k: [[repr(x)[:50] for x in c.args[:3]] for c in m.call_args_list]
-                for k, m in self.s.items() if m.call_count and k not in ("delivery_note", "maybe_storage_check")}
+                for k, m in self.s.items() if m.call_count and k not in ("delivery_note",)}
 
     def __exit__(self, *e):
         for p in reversed(self.ps):
@@ -266,12 +265,6 @@ def scratch_file(c):
     (p / "other.txt").write_text("other", encoding="utf-8")
 
 
-def storage_blocked(c):
-    org = store.load_org(CUR["slug"])
-    org.d["storage_blocked"] = True
-    store.save_org(org)
-
-
 def dyn(fn):
     return lambda c: fn()(c)
 
@@ -332,7 +325,6 @@ CASES = [
     ("node_upload_empty", op("POST", "/api/orgs/{slug}/nodes/mid/upload", params={"name": "a.txt"}, content=b""),
      None),
     ("node_upload_ghost", op("POST", "/api/orgs/{slug}/nodes/ghost/upload", content=b"x"), None),
-    ("node_upload_blocked", op("POST", "/api/orgs/{slug}/nodes/mid/upload", content=b"x"), storage_blocked),
     ("reply_events", op("GET", "/api/orgs/{slug}/nodes/mid/reply-events"), None),
     ("reply_events_ghost_node", op("GET", "/api/orgs/{slug}/nodes/ghost/reply-events"), None),
     ("reply_events_no_org", op("GET", "/api/orgs/nope-org/nodes/mid/reply-events"), None),
@@ -358,8 +350,6 @@ CASES = [
     ("send_file_once", agent("orgtree_send_file_once", {"path": "report.txt", "delivery_id": DID}), scratch_file),
     ("send_file_once_no_id", agent("orgtree_send_file_once", {"path": "report.txt"}), scratch_file),
     ("send_file_keyed", keyed("orgtree_send_file", {"path": "report.txt"}), scratch_file),
-    ("send_file_blocked", agent("orgtree_send_file", {"path": "report.txt", "delivery_id": DID}),
-     lambda c: (scratch_file(c), storage_blocked(c))),
 ]
 
 
@@ -490,8 +480,7 @@ class ExchangeBoundary(unittest.TestCase):
 
     # -- node files, reply events and retraction ----------------------------------------------------------------
     def test_node_upload_reply_events_and_retraction(self):
-        self.check('node_upload', 'node_upload_dup', 'node_upload_empty', 'node_upload_ghost', 'node_upload_blocked',
-                   'reply_events', 'reply_events_clear', 'retract', 'retract_gone')
+        self.check('node_upload', 'node_upload_dup', 'node_upload_empty', 'node_upload_ghost', 'reply_events', 'reply_events_clear', 'retract', 'retract_gone')
 
     def test_reply_events_answer_500_for_an_unknown_org_or_node(self):
         # recorded legacy defect (docket reply-events-get-and-delete-answer-a-raw-500-for)
@@ -502,8 +491,7 @@ class ExchangeBoundary(unittest.TestCase):
     def test_send_file_and_the_retryable_delivery(self):
         got = self.check('send_file', 'send_file_missing', 'send_file_no_path', 'send_file_escape',
                          'send_file_delivery', 'send_file_delivery_replay', 'send_file_delivery_conflict',
-                         'send_file_bad_id', 'send_file_once', 'send_file_once_no_id', 'send_file_keyed',
-                         'send_file_blocked')
+                         'send_file_bad_id', 'send_file_once', 'send_file_once_no_id', 'send_file_keyed')
         # filesystem only: no call writes the org document, and a keyed call files no receipt (class NONE)
         for name, (seen, _, _, _) in got.items():
             self.assertEqual((seen['sections'], seen['sections_other']), ([], []), name)

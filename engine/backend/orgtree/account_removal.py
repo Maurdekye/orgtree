@@ -174,12 +174,6 @@ def _plan_org(slug: str, org: Any, aid: str, removed: dict[str, Any],
               plan: dict[str, Any]) -> None:
     """Record everything in ONE org that names `aid`, and every reason the
     removal cannot proceed. Mutates nothing."""
-    from . import sandbox as sbx
-    sandboxed = False
-    try:
-        sandboxed = sbx.is_sandboxed(org)
-    except Exception:                                        # noqa: BLE001
-        sandboxed = False
     primary = registry.primary_name(removed["provider"])
     live: list[dict[str, Any]] = []
     archived: list[str] = []
@@ -190,33 +184,24 @@ def _plan_org(slug: str, org: Any, aid: str, removed: dict[str, Any],
         nid = str(nid)
         if str(node.get("account") or "") == aid:
             if str(node.get("state") or "") == "live":
-                if sandboxed:
-                    # Migration binds no sandboxed node at all (the container
-                    # owns the credential), so this is a document that should
-                    # not exist — say so rather than rebinding into a refusal.
+                boundary = needs_session_boundary(node, removed)
+                busy = _is_busy(slug, nid, node)
+                if busy and boundary:
                     plan["blockers"].append(
-                        f"{slug}/{nid} is in a sandboxed organization, where "
-                        f"accounts do not apply — its binding must be "
-                        f"cleared by hand")
+                        f"{slug}/{nid} is running a turn and its provider "
+                        f"requires a session boundary to change accounts "
+                        f"— removal will succeed once that turn ends")
                 else:
-                    boundary = needs_session_boundary(node, removed)
-                    busy = _is_busy(slug, nid, node)
-                    if busy and boundary:
+                    try:
+                        registry.validate_selection(
+                            slug, str(node.get("model") or ""), primary)
+                    except Exception as e:                   # noqa: BLE001
                         plan["blockers"].append(
-                            f"{slug}/{nid} is running a turn and its provider "
-                            f"requires a session boundary to change accounts "
-                            f"— removal will succeed once that turn ends")
+                            f"{slug}/{nid} cannot be moved to {primary}: "
+                            f"{e}")
                     else:
-                        try:
-                            registry.validate_selection(
-                                slug, str(node.get("model") or ""), primary)
-                        except Exception as e:               # noqa: BLE001
-                            plan["blockers"].append(
-                                f"{slug}/{nid} cannot be moved to {primary}: "
-                                f"{e}")
-                        else:
-                            live.append({"node": nid, "busy": busy,
-                                         "allow_frozen": _limit_frozen(node)})
+                        live.append({"node": nid, "busy": busy,
+                                     "allow_frozen": _limit_frozen(node)})
             else:
                 archived.append(nid)
         pa = node.get("pending_account")
@@ -240,7 +225,7 @@ def _plan_org(slug: str, org: Any, aid: str, removed: dict[str, Any],
 #: unioned in below when present so the two can never drift apart).
 _SECTIONS = ("default_account", "asks", "credit_requests", "scope_requests",
              "notices", "work_items")
-_SHARE = ("sandbox",)
+_SHARE: tuple[str, ...] = ()
 _LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
 #: how many times a plan that moved under the transaction is re-made
 _ATTEMPTS = 4

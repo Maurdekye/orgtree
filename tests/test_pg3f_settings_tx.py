@@ -10,7 +10,7 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
     section does not stop it;
   * each writer's result is the same as before the conversion.
 
-Converted so far: api._disk_doc_update (disk), api.org_net's two lazy
+Converted so far: api.org_net's two lazy
 writes (net_identity/net_hubs/net_autoconnect; net_hubs),
 net._record_hub_name (net_hubs), net._clear_registration (net_state).
 
@@ -123,12 +123,6 @@ class Writers:
 
     @staticmethod
     def all() -> list[tuple]:
-        def disk_w(slug):
-            api._disk_doc_update(slug, size_mb=8192, pending_size_mb=None)
-
-        def disk_ok(d):
-            return d['disk'] == {'size_mb': 8192, 'keep': 1}
-
         def backfill_w(slug):
             return api.org_net(slug, _request())
 
@@ -246,8 +240,6 @@ class Writers:
             ('attachment-vanished', spool(attachments=[gone]), vanished_w,
              'net_spool', vanished_ok),
             ('inbound-seen', {}, inbound_w, 'net_state', inbound_ok),
-            ('disk', dict(disk={'pending_size_mb': 9000, 'keep': 1}),
-             disk_w, 'disk', disk_ok),
             ('net-backfill', {}, backfill_w, 'net_hubs', backfill_ok),
             ('net-scrub', dict(net_identity=ident, net_autoconnect=True,
                                net_hubs=[{'id': 'h1', 'address': 'http://x',
@@ -564,12 +556,6 @@ class OrgsCreate(unittest.TestCase):
         from unittest import mock
         real = store.save_org
         saved: list = []
-        # the desktop build refuses sandbox creation at admission
-        # (desktop_policy); the create path itself is what is tested here
-        env = mock.patch.dict(os.environ, {'ORGTREE_DESKTOP_MANAGED': '0'})
-        env.start()
-        self.addCleanup(env.stop)
-
         def counting(org, *a, **kw):
             saved.append(dict(org.d))
             return real(org, *a, **kw)
@@ -663,11 +649,6 @@ class PlanStampHeal(unittest.TestCase):
 
 
 class Semantics(unittest.TestCase):
-    def test_disk_none_pops_and_other_keys_survive(self) -> None:
-        slug = _fresh_org(disk={'size_mb': 4096, 'pending_size_mb': 5000})
-        api._disk_doc_update(slug, pending_size_mb=None)
-        self.assertEqual(_doc(slug)['disk'], {'size_mb': 4096})
-
     def test_backfill_is_idempotent(self) -> None:
         slug = _fresh_org()
         first = api.org_net(slug, _request())

@@ -3880,38 +3880,6 @@
       ],
       "additionalProperties": false
     },
-    "LifecycleDiskMigrated": {
-      "type": "object",
-      "properties": {
-        "v": {
-          "const": 1
-        },
-        "variant": {
-          "const": "lifecycle.disk_migrated"
-        },
-        "actor": {
-          "$ref": "#/$defs/Actor"
-        },
-        "engine_authored": {
-          "type": "boolean"
-        },
-        "object": {
-          "$ref": "#/$defs/OrgRef"
-        },
-        "floored_from": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "v",
-        "variant",
-        "actor",
-        "engine_authored",
-        "object",
-        "floored_from"
-      ],
-      "additionalProperties": false
-    },
     "PolicyFableFlagged": {
       "type": "object",
       "properties": {
@@ -4800,64 +4768,6 @@
       ],
       "additionalProperties": false
     },
-    "RuntimeStorage": {
-      "type": "object",
-      "properties": {
-        "v": {
-          "const": 1
-        },
-        "variant": {
-          "const": "runtime.storage"
-        },
-        "actor": {
-          "$ref": "#/$defs/Actor"
-        },
-        "engine_authored": {
-          "type": "boolean"
-        },
-        "object": {
-          "$ref": "#/$defs/OrgRef"
-        },
-        "level": {
-          "enum": [
-            "heads_up",
-            "over",
-            "cleared"
-          ]
-        },
-        "used_mb": {
-          "type": "number"
-        },
-        "cap_mb": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "scope": {
-          "enum": [
-            "disk",
-            "storage"
-          ]
-        }
-      },
-      "required": [
-        "v",
-        "variant",
-        "actor",
-        "engine_authored",
-        "object",
-        "level",
-        "used_mb",
-        "cap_mb",
-        "scope"
-      ],
-      "additionalProperties": false
-    },
     "RuntimeTokenExpiry": {
       "type": "object",
       "properties": {
@@ -5719,9 +5629,6 @@
           "$ref": "#/$defs/LifecycleRenamed"
         },
         {
-          "$ref": "#/$defs/LifecycleDiskMigrated"
-        },
-        {
           "$ref": "#/$defs/PolicyFableFlagged"
         },
         {
@@ -5765,9 +5672,6 @@
         },
         {
           "$ref": "#/$defs/RuntimeRestartNotice"
-        },
-        {
-          "$ref": "#/$defs/RuntimeStorage"
         },
         {
           "$ref": "#/$defs/RuntimeTokenExpiry"

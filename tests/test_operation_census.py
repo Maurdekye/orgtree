@@ -1132,73 +1132,18 @@ class PermissionSplitTests(CensusCase):
         self.assertTrue(on.json()['enabled'])
         self.assertTrue(census.enabled())
 
-    def test_a_non_operator_caller_is_refused_the_toggle(self):
-        """`_profile_operator_only` refuses a public or bridge-scoped caller.
-        Exercised through the dependency directly, because forging that scope
-        state through the client would test the gateway, not this gate."""
-        from fastapi import HTTPException
-        from orgtree import api
-
-        class _Req:
-            def __init__(self, state):
-                self.scope = {'state': state}
-
-        for denied in ({'public_slug': 'x'}, {'bridge_slug': 'x'}):
-            with self.assertRaises(HTTPException) as caught:
-                api._profile_operator_only(_Req(denied))
-            self.assertEqual(caught.exception.status_code, 403)
-        # THE POSITIVE HALF: the operator is NOT refused, so the two cases
-        # above are a real gate rather than a function that always raises.
-        api._profile_operator_only(_Req({}))
-
-    def test_the_gate_is_actually_wired_onto_every_census_route(self):
-        """⚠ THE GAP THE TEST ABOVE LEAVES, closed deliberately. Calling
-        `_profile_operator_only` directly proves the FUNCTION refuses a
-        non-operator; it proves nothing about whether any route runs it.
-        Deleting `dependencies=[Depends(_profile_operator_only)]` from the
-        toggle would leave every other test in this file green while handing
-        process-wide capture control to any caller — so the wiring is asserted
-        against the live route table, not against the source.
-        """
-        from orgtree import api
-        wanted = {
-            ('/api/diagnostics/operation-census', 'GET'),
-            ('/api/diagnostics/operation-census', 'POST'),
-            ('/api/diagnostics/operation-census/reset', 'POST'),
-        }
-        seen = set()
-        # `api.app`, not the module-level `app`: `load_app()` returns the
-        # TokenGate-wrapped ASGI callable, which has no route table.
-        for route in api.app.routes:
-            path, methods = getattr(route, 'path', None), getattr(route, 'methods', None)
-            if not path or not methods:
-                continue
-            for method in methods:
-                if (path, method) not in wanted:
-                    continue
-                seen.add((path, method))
-                names = [getattr(d.dependency, '__name__', '')
-                         for d in (getattr(route, 'dependencies', None) or [])]
-                self.assertIn(api._profile_operator_only.__name__, names,
-                              f'{method} {path} has NO operator gate: {names}')
-        self.assertEqual(seen, wanted,
-                         f'a census route is missing from the app entirely: '
-                         f'{sorted(wanted - seen)}')
-
     def test_an_agent_token_is_refused_at_transport_on_the_operator_route(self):
         """⚠ N04(b) — THE BOUNDARY THE COMMENTS CREDITED TO THE WRONG PLACE.
 
-        `_profile_operator_only` rejects only a caller carrying `public_slug`
-        or `bridge_slug`; it is not a desktop-token check. The REAL gate is one
-        layer out: `launch.TokenGate` requires the desktop token on every
+        The operator gate on the census routes is `launch.TokenGate`: it
+        requires the desktop token on every
         request EXCEPT `POST /api/agent` and the node-steer routes, which may
         instead present a live agent token. So an agent credential cannot reach
         the operator census route at all — it is refused 401 at transport,
         before any dependency runs.
 
-        The test above asserts the DEPENDENCY. A change to `TokenGate`'s
-        allowlist would break the real boundary with that test still green, so
-        this one goes through the gate with a REAL, VALID agent credential and
+        A change to `TokenGate`'s allowlist would break that boundary, so this
+        test goes through the gate with a REAL, VALID agent credential and
         proves the same credential works where it is supposed to.
         """
         from orgtree import agentauth, census

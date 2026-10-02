@@ -1,4 +1,4 @@
-"""Pin watchdog/storage tick decisions before replacing their read strategy."""
+"""Pin watchdog tick decisions before replacing their read strategy."""
 from contextlib import ExitStack
 import copy
 import os
@@ -94,29 +94,6 @@ class PollBehavior(unittest.TestCase):
         self.assertEqual(command.call_count, 1)
         self.assertEqual(command.call_args.args[1]['id'], 'due')
         poll.assert_not_called()
-
-    def test_storage_idle_blocked_busy_and_sandbox_decisions(self):
-        cases = [({}, False, False), ({'storage_blocked': {'at': 'x'}}, False, True),
-                 ({'sandbox': {'enabled': True}}, True, True),
-                 ({'sandbox': {'enabled': True}, 'storage_blocked': {'at': 'x'}}, False, True),
-                 ({'sandbox': {'enabled': True}}, False, False), ({}, True, False)]
-        for settings, busy, expected in cases:
-            with self.subTest(settings=settings, busy=busy), ExitStack() as stack:
-                captured = []
-                class Thread:
-                    def __init__(self, target, **kwargs): captured.append(target)
-                    def start(self): pass
-                stack.enter_context(patch.object(sup, '_watchdog_started', False))
-                stack.enter_context(patch.object(sup.threading, 'Thread', Thread))
-                stack.enter_context(patch.object(store, 'cached_list', return_value=[{'slug': 'fixture'}]))
-                stack.enter_context(patch.object(store, 'org_slugs', return_value=['fixture']))
-                stack.enter_context(patch.object(store, 'cached_org', return_value=view(**settings)))
-                stack.enter_context(patch.object(sup, '_state', {('fixture', 'owner'): {'busy': busy}}))
-                walk = stack.enter_context(patch.object(sup, 'storage_check'))
-                sup.start_storage_watchdog()
-                with patch.object(sup.time, 'sleep', side_effect=[None, StopIteration]):
-                    with self.assertRaises(StopIteration): captured[0]()
-                self.assertEqual(walk.call_count, int(expected))
 
 
 def tearDownModule():

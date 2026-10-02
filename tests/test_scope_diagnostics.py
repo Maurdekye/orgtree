@@ -130,7 +130,7 @@ class ScopeDiagnosticsTests(unittest.TestCase):
             self.assertEqual(got["git"]["root"].casefold(), str(nested).casefold())
             self.assertEqual(got["git"]["owner_source"], "explicit")
 
-    def test_provider_and_sandbox_restrictions_are_distinct(self) -> None:
+    def test_provider_restriction_is_its_own_layer(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             scratch, mounted = root / "scratch", root / "mounted"
@@ -139,11 +139,11 @@ class ScopeDiagnosticsTests(unittest.TestCase):
                 str(mounted / "x"), "execute", scratch=str(scratch),
                 grants=[{"path": str(mounted), "mode": "rw"}], provider="codex",
                 provider_restrictions={"execute": "provider does not expose this operation"},
-                sandboxed=True, sandbox_roots=[],
             )
-            self.assertEqual(got["decision"]["reason_code"], "sandbox_restricted")
+            self.assertFalse(got["operation"]["allowed"])
+            self.assertEqual(got["decision"]["reason_code"], "provider_restricted")
             self.assertEqual(got["provider"]["status"], "restricted")
-            self.assertEqual(got["sandbox"]["status"], "restricted")
+            self.assertNotIn("sandbox", got)
 
     def test_shell_result_preserves_exit_and_stderr_without_retry(self) -> None:
         got = sd.shell_result(127, "", "'grep' is not recognized", started=True, boundary=True)

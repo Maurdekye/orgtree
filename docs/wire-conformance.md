@@ -138,7 +138,7 @@ not prove detection of every possible authorization or recovery failure.
 
 This is the smallest cross-engine foundation, not an exhaustive API inventory.
 It does not qualify provider execution, real startup/guardian ownership, artifact
-transfer, every MCP verb/schema, notification delivery, bridge doors,
+transfer, every MCP verb/schema, notification delivery,
 WebSocket transcript segment projection, ETag races, process restart/receipt
 retention, loss of a response during transmission, disk crash recovery, concurrent
 transactions, migration, PostgreSQL or Rust. Existing launcher auth coverage is

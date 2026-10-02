@@ -947,7 +947,7 @@ class ContactFacets(unittest.TestCase):
         self.assertEqual(len(names), 12)
         for name in names:
             self.assertEqual({r["condition"] for r in rows if r["contract"] == name}, {"cold", "warm"}, name)
-        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 27)
+        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 25)
         for r in rows:
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["unknown_contacts"], [])
@@ -1124,7 +1124,7 @@ class ContactFacets(unittest.TestCase):
         control = self.exact("receipt.lookup", "control:receipt-lookup-third-agent", "warm")["agents"]
         self.assertEqual(control["logical"]["mail"], {"rl-sib": "third"})
 
-    # -- S2j: diagnostic instrumentation closed; the sandbox remainder narrowed ----------
+    # -- S2j: diagnostic instrumentation closed ----------
     def test_every_diagnostic_row_carries_a_drift_aware_profiled_record(self):
         rows = [r for r in self.doc["rows"] if r["contract"].startswith("diagnostic.")]
         self.assertEqual({r.get("backend") for r in rows}, {"sqlite", "json"})
@@ -1142,26 +1142,6 @@ class ContactFacets(unittest.TestCase):
                 self.assertEqual((r["unknown_contacts"], r["expected_unknown_missing"]), ([], []))
                 deltas = census.get("counter_deltas", {})
                 self.assertEqual((deltas.get("db_unattributed", 0), deltas.get("db_late", 0)), (0, 0))
-
-    def test_sandbox_rows_read_the_host_placed_org_and_stop_at_the_disk_backed_path(self):
-        by = {(r["contract"], r["variant"], r["condition"]): r for r in self.doc["rows"]
-              if r["variant"].startswith("sandbox:")}
-        for condition in ("cold", "warm"):
-            transcript = by[("material.transcript", "sandbox:host-placed", condition)]
-            scratch = by[("material.scratch", "sandbox:host-placed", condition)]
-            for r in (transcript, scratch):
-                self.assertEqual((r["http_status"], r["unknown_contacts"], r["guard_refusals"]), (200, [], {}))
-            self.assertTrue(any(k.startswith("data:sandbox@") for k in transcript["audit"]["file_read"]))
-            self.assertTrue(any(k.startswith("data:scratch@") for k in scratch["audit"]["file_read"]))
-        # disk-backed: the path resolves through wsl, which the guard refuses, before any data file is read
-        for contract in ("material.scratch", "material.transcript"):
-            r = by[(contract, "sandbox:on-disk", "warm")]
-            self.assertEqual((r["http_status"], r["guard_refusals"]), (500, {"process/subprocess.Popen": 1}))
-            self.assertIn("(process: wsl)", str(r.get("detail")))
-            self.assertFalse(any(k.startswith("data:") for k in r["audit"].get("file_read", {})))
-        # the chown is ATTEMPTED (a docker exec the guard refuses) and its failure swallowed: the read answers 200
-        chown = by[("material.scratch", "sandbox:chown-new-dir", "warm")]
-        self.assertEqual((chown["http_status"], chown["guard_refusals"]), (200, {"process/subprocess.Popen": 1}))
 
     def test_no_token_rows_are_the_only_rows_without_a_census_record(self):
         # a loss-accounted record for every S2e row but the ones refused before any attempt

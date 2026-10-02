@@ -30,8 +30,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--grant", action="append", default=[], metavar="PATH[=ro|rw]")
     parser.add_argument("--provider")
     parser.add_argument("--provider-restriction", action="append", default=[], metavar="OP=REASON")
-    parser.add_argument("--sandbox", action="store_true")
-    parser.add_argument("--sandbox-root", action="append", default=[])
     parser.add_argument("--tool-grants", default="{}", help="JSON object such as {\"bash\":false}")
     parser.add_argument("--git-owner")
     parser.add_argument("--command", nargs=argparse.REMAINDER,
@@ -50,8 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         report = diagnostics.diagnose_target(
             args.target, args.operation, scratch=args.scratch,
             grants=[_grant(value) for value in args.grant], provider=args.provider,
-            provider_restrictions=provider_restrictions, sandboxed=args.sandbox,
-            sandbox_roots=args.sandbox_root, tool_grants=tool_grants,
+            provider_restrictions=provider_restrictions, tool_grants=tool_grants,
             git_owner=args.git_owner,
         )
         if args.command:

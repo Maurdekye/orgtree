@@ -191,7 +191,6 @@ net._poll_client = _mk_client                  # type: ignore[assignment]
 net.POLL_WAIT_S = 0.0                          # no long poll in a test
 supervisor.chatq_register_org = lambda slug: None
 supervisor.chatq_deregister_org = lambda slug: None
-supervisor.storage_check = lambda slug: None
 supervisor.send_message = lambda *a, **k: {"accepted": True}   # never drive a CLI
 
 _n = [0]

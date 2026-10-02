@@ -370,18 +370,6 @@ class RetiredRowsStillReached(StartupReadsLiveRows):
         self.assertNotIn((self.slug, 'r16'), sent)
         self.assertNotIn(key, restart_wake._wakes_read().get('wakes') or {})
 
-    def test_cutover_still_skips_a_sandboxed_keyless_org(self):   # S17
-        self.edit(lambda org: org.d.__setitem__('sandbox', {'image': 'x'}))
-        row = registry.create_account(
-            'claude', f'org key ({self.slug})',
-            {'kind': 'token', 'token_ref': f'org-api-key:{self.slug}'},
-            origin_org=self.slug)
-        with patch.object(registry_migration, 'apikey_cutover_done', return_value=False):
-            report = registry_migration.run_apikey_cutover()
-        self.assertIn(self.slug, report['skipped_sandboxed'])
-        self.assertNotIn(row['id'], report['orphaned_rows'])
-        self.assertNotEqual(registry.get_account(row['id']).get('auth'), 'unauthenticated')
-
     def test_a_row_changed_here_so_it_no_longer_qualifies_is_excluded(self):   # S3
         self.edit(lambda org: org.nodes['w1'].__setitem__('halt', {'phase': 'halting'}))
         with self.assertRaises(self.Abort):

@@ -3442,7 +3442,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
     <DeskDogsProvider value={deskDogs}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
-      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
+      map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport'
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
       /* ⚠ THE PAN HANDLERS IGNORE THE HIDDEN CANVAS. `visibility: hidden`

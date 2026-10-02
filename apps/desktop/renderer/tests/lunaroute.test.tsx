@@ -202,7 +202,7 @@ function tree(preferReserve = true): TreePayload {
     slug: 'org', dirs: [], tiers: {
       haiku: 1, sonnet: 2, opus: 5, fable: 10, luna: 0.2, terra: 2, sol: 5,
     }, max_top_grant: 100, default_effort: '', effort_default: 'high',
-    cascade_hire: true, sandboxed: false,
+    cascade_hire: true,
     prefer_reserve_default: preferReserve,
   } as unknown as TreePayload
 }

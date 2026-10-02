@@ -86,7 +86,7 @@ LOSS_KEYS = ("db_unbound", "db_late", "db_unattributed", "db_hidden_unattributed
 #: deliberate provocations and the negative controls), and a declared class
 #: that does not occur is reported too — the probe-level drift refusal.
 KNOWN_CATEGORIES = ("code", "descriptor", "data:org-db:own", "data:org-db:temp",
-                    "data:sidecar-db", "data:scratch", "data:sandbox", "data:other",
+                    "data:sidecar-db", "data:scratch", "data:other",
                     "home:provider", "run:other")
 KNOWN_GROUPS = ("file_read", "file_write", "dir_list", "fs_mutation", "sqlite_connect", "stat")
 LIMITS = [
@@ -431,8 +431,6 @@ def install_audit_counter(root: Path, data: Path, home: Path) -> None:
                 return "data:org-db:own" if stem == own.lower() else "data:org-db:foreign"
             if rest.startswith("scratch\\"):
                 return "data:scratch"
-            if rest.startswith("sandboxes\\"):
-                return "data:sandbox"
             head = rest.split("\\", 1)[0]
             if head.endswith((".sqlite3", ".db", "-wal", "-shm", "-journal")):
                 return "data:sidecar-db"
@@ -676,13 +674,12 @@ class Probe:
         self.app, *_ = load_app()
         from fastapi.testclient import TestClient
         from orgtree import (agentauth, api, appsettings, census, census_contacts, ledger,
-                             opreceipts, openrouter, providers, reservations, sandbox,
+                             opreceipts, openrouter, providers, reservations,
                              statepreview, store, supervisor)
         self.m = dict(agentauth=agentauth, api=api, appsettings=appsettings, census=census,
                       contacts=census_contacts, ledger=ledger, opreceipts=opreceipts,
                       openrouter=openrouter, providers=providers, reservations=reservations,
-                      sandbox=sandbox, statepreview=statepreview, store=store,
-                      supervisor=supervisor)
+                      statepreview=statepreview, store=store, supervisor=supervisor)
         if store.STORE_BACKEND != self.backend:
             raise RuntimeError(f"store backend is {store.STORE_BACKEND!r}, not {self.backend!r}")
         import orgtree
@@ -1488,77 +1485,6 @@ class Probe:
                     self.m["store"]._invalidate_snapshot(s)
                 else:
                     self.mutate(s, restore)
-
-    # -- sandboxed organization (material.reads / material.effects) -------------
-    def build_sandbox(self) -> None:
-        """A synthetic SANDBOXED organization (``d.sandbox.enabled``): its
-        transcript store is the sandbox home under the data root, its scratch
-        the ordinary scratch root until ``d.disk`` moves it onto the org's
-        virtual disk. Nothing here starts a container: every docker/wsl
-        process the product attempts is refused by the guards."""
-        store, ledger = self.m["store"], self.m["ledger"]
-        org = store.create_org("p02-contacts-sandbox")
-        self.sslug = str(org.d["slug"])
-        org.hire(ledger.USER, None, "haiku", 20, "boss")
-        for name in ("first", "reader", "second"):
-            org.hire(ledger.USER, "boss", "haiku", 2, name)
-        item = org.work_create(ledger.USER, "Sandbox material", "Preserve handover",
-                               owner="first")["slug"]
-        org.work_assign(ledger.USER, item, "reader")
-        org.d["mail"] = {}
-        org.d["sandbox"] = {"enabled": True, "secret": "p02-fixture"}
-        store.save_org(org)
-        for n in ("boss", "reader"):
-            self.tokens[(self.sslug, n)] = self.m["agentauth"].child_env(
-                self.sslug, n)["ORGTREE_AGENT_TOKEN"]
-        # scratch made directly (scratch_dir would try the chown at build time)
-        first = Path(store.scratch_root(self.sslug)) / "first"
-        first.mkdir(parents=True, exist_ok=True)
-        (first / "notes.txt").write_text("synthetic sandboxed material", encoding="utf-8")
-        sid = str(store.load_org(self.sslug).node("first").get("session_id") or "")
-        home = Path(self.m["sandbox"].sandbox_root(self.sslug)) / "home"
-        tdir = home / ".claude" / "projects" / "p02-fixture"
-        tdir.mkdir(parents=True, exist_ok=True)
-        if sid:
-            with open(tdir / (sid + ".jsonl"), "w", encoding="utf-8") as f:
-                for i in range(1, 5):
-                    role = "user" if i % 2 else "assistant"
-                    f.write(json.dumps({"type": role, "uuid": f"sb-{i}",
-                                        "timestamp": f"2026-09-24T09:00:{i:02d}Z",
-                                        "message": {"id": f"sb-m-{i}", "role": role,
-                                                    "content": f"sandboxed message {i}"}}) + "\n")
-        else:
-            self.warnings.append("sandbox fixture node has no session_id")
-
-    def sandboxed(self) -> None:
-        s, sandbox = self.sslug, self.m["sandbox"]
-        read = {"orgtree_read_scratch": "material.scratch",
-                "orgtree_read_transcript": "material.transcript"}
-        # host-placed sandbox: transcript from the sandbox home, scratch as usual
-        for tool, contract in read.items():
-            for condition in ("cold", "warm"):
-                self.run(contract, "sandbox:host-placed", condition, s, "reader", tool,
-                         {"node": "first", "path": "notes.txt"})
-        # material.effects: a read that mints a node's scratch directory hands it
-        # to the container user (sandbox.chown_agent -> docker exec); the guard
-        # refuses the process and the product swallows the failure by design
-        self.run("material.scratch", "sandbox:chown-new-dir", "warm", s, "boss",
-                 "orgtree_read_scratch", {"node": "second", "path": ""},
-                 refusal="sandbox chown_agent refused (best-effort by design)",
-                 expected_unknown=("guard:process/subprocess.Popen",))
-        # disk-backed placement: scratch and transcript resolve through the
-        # org's virtual disk (disk.windows_path -> `wsl -l -q`), refused here
-        self.mutate(s, lambda o: o.d.update(disk=True))
-        sandbox._disk_flag.pop(s, None)
-        try:
-            for tool, contract in read.items():
-                self.run(contract, "sandbox:on-disk", "warm", s, "reader", tool,
-                         {"node": "first", "path": "notes.txt"},
-                         refusal="disk-backed sandbox path resolution (wsl refused)",
-                         expected_unknown=("guard:process/subprocess.Popen",))
-        finally:
-            self.mutate(s, lambda o: o.d.pop("disk", None))
-            sandbox._disk_flag.pop(s, None)
 
     # -- legacy JSON migration (diagnostic.writes/effects, preview.writes) -------
     def legacy_org(self, slug: str, actors: tuple[str, ...], state: str) -> str:
@@ -2982,8 +2908,8 @@ class Probe:
         node never read before), each with a fixture transcript of its own
         (or-noimg's has no image); or-leaf has none; or-third is never named.
         The main org has a workspace with a CLAUDE.md. Separate orgs: two
-        for the /net identity backfill (it writes on an org's first reveal),
-        a bare org (no workspace) and one with an unmounted disk."""
+        for the /net identity backfill (it writes on an org's first reveal)
+        and a bare org (no workspace)."""
         store, ledger = self.m["store"], self.m["ledger"]
         user = ledger.USER
         org = store.create_org("p02-contacts-orgread")
@@ -3028,13 +2954,11 @@ class Probe:
         (scratch / "notes.txt").write_text("notes", encoding="utf-8")
         (scratch / "sub" / "deep.txt").write_text("deep", encoding="utf-8")
         self.or_other: dict[str, str] = {}
-        for role in ("net-cold", "net-warm", "bare", "disk"):
+        for role in ("net-cold", "net-warm", "bare"):
             org = store.create_org(f"p02-contacts-orgread-{role}")
             self.or_other[role] = str(org.d["slug"])
             org.hire(user, None, "haiku", 2, f"or{role[0]}{role[-1]}-top", add_dirs=[], tools={},
                      charter="fixture")
-            if role == "disk":
-                org.d["disk"] = {"size_mb": 1024}
             org.d["mail"], org.d["audiences"] = {}, []
             store.save_org(org)
 
@@ -3042,7 +2966,7 @@ class Probe:
         """Every F6 read, cold and warm. As in the P01 fixture, a node's
         transcript is a fixture file (supervisor.transcript_path and
         transcript_path_for_node resolve the node's session id to it), and
-        notify, the storage check and turn delivery are spies; hub_changed is
+        notify and turn delivery are spies; hub_changed is
         real and counted. Reads that WRITE (the chat mint, the history chat
         section, the /net identity backfill) have a first-read row and a
         repeat row. Each row also records `resource_warnings`: the
@@ -3070,7 +2994,6 @@ class Probe:
             return paths.get(str((org.nodes.get(nid) or {}).get("session_id") or ""))
         family = [(api, "hub_changed", hub_counted),
                   (supervisor, "notify", spy("notify")),
-                  (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
                   (supervisor, "transcript_path", by_session),
                   (supervisor, "transcript_path_for_node", by_node)]
         saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
@@ -3083,10 +3006,8 @@ class Probe:
                 setattr(obj, name, value)
 
     def _org_read_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
-        from orgtree import deployment
         user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
         o = self.or_other
-        frozen = [(api.deployment, "current_policy", lambda *_a, **_k: deployment.FROZEN)]
 
         def route(contract: str, variant: str, condition: str, path: str,
                   params: Any = None, slug: str = s, headers: Any = op,
@@ -3138,21 +3059,6 @@ class Probe:
             route("org-read.net", "org-read.net", cond, f"/api/orgs/{net}/net", slug=net)
             route("org-read.aggregates", "org-read.aggregates", cond,
                   f"{base}/diagnostics/aggregates")
-            # no sandboxed org and no virtual disk here: these answer their
-            # refusal in the standard profile (their success paths need a
-            # sandbox, which a synthetic root does not have)
-            route("org-read.bridge-credential", "refusal:bridge-standard-profile", cond,
-                  f"{base}/bridge-credential",
-                  refusal="409 rotatable credentials are active only in the frozen profile")
-            route("org-read.bridge-credential", "refusal:bridge-frozen-not-sandboxed", cond,
-                  f"{base}/bridge-credential", patches=frozen,
-                  refusal="503 frozen profile: the org is not sandboxed")
-            route("org-read.disk-list", "refusal:disk-list-no-disk", cond, f"{base}/disk",
-                  refusal="409 no virtual disk")
-            route("org-read.disk-dir", "refusal:disk-dir-no-disk", cond, f"{base}/disk/dir",
-                  refusal="409 no virtual disk")
-            route("org-read.disk-file", "refusal:disk-file-no-disk", cond, f"{base}/disk/file",
-                  params={"path": "home/x"}, refusal="409 no virtual disk")
 
         # the second read of a node / an org: nothing left to mint
         route("org-read.chat", "org-read.chat:repeat", "warm", f"{base}/nodes/or-chat-warm/chat",
@@ -3174,16 +3080,6 @@ class Probe:
               slug=o["bare"])
         (self.root / "or-workspace" / "CLAUDE.md").write_text("x" * 70000, encoding="utf-8")
         route("org-read.orgmd", "org-read.orgmd:long", "warm", f"{base}/orgmd")
-        # an org whose disk is configured but not mounted: the read shells out
-        # to WSL (disk._run: `wsl -l -q`, `wsl -d <distro> -e sh -c ...`) to find
-        # the mount, so a GET starts a process; the guard refuses it (500 here)
-        disk = o["disk"]
-        wsl = dict(expected_unknown=("guard:process/subprocess.Popen",),
-                   refusal="the read starts wsl.exe (disk._run): refused by the guard, 500 here")
-        route("org-read.disk-list", "refusal:disk-list-unmounted", "warm", f"/api/orgs/{disk}/disk",
-              slug=disk, **wsl)
-        route("org-read.disk-dir", "refusal:disk-dir-unmounted", "warm",
-              f"/api/orgs/{disk}/disk/dir", slug=disk, **wsl)
         # recorded legacy: the chat mint runs before the cursor check, so a
         # read refused 422 still writes (a node never read before)
         route("org-read.chat", "refusal:chat-bad-cursor", "warm", f"{base}/nodes/or-cursor/chat",
@@ -3235,21 +3131,8 @@ class Probe:
                 ("org-read.aggregates", "refusal:aggregates-bad", f"{base}/diagnostics/aggregates",
                  {"collections": "bogus"}, s, "422 unsupported collection"),
                 ("org-read.aggregates", "refusal:aggregates-no-org",
-                 "/api/orgs/nope-org/diagnostics/aggregates", None, s, "404 no such org"),
-                ("org-read.disk-list", "refusal:disk-no-org", "/api/orgs/nope-org/disk", None, s,
-                 "404 no such org"),
-                ("org-read.disk-dir", "refusal:disk-dir-escape", f"/api/orgs/{disk}/disk/dir",
-                 {"path": "../x"}, disk, "422 escapes the org disk"),
-                ("org-read.disk-file", "refusal:disk-file-escape", f"/api/orgs/{disk}/disk/file",
-                 {"path": "../x"}, disk, "422 escapes the org disk"),
-                ("org-read.disk-file", "refusal:disk-file-missing", f"/api/orgs/{disk}/disk/file",
-                 {"path": "home/none.txt"}, disk, "the read starts wsl.exe (disk._run): refused by "
-                 "the guard, 500 here")):
-            route(contract, variant, "warm", path, params=params, slug=slug, refusal=refusal,
-                  expected_unknown=(("guard:process/subprocess.Popen",)
-                                    if variant == "refusal:disk-file-missing" else ()))
-        route("org-read.bridge-credential", "refusal:bridge-frozen-no-org", "warm",
-              "/api/orgs/nope-org/bridge-credential", patches=frozen, refusal="404 no such org")
+                 "/api/orgs/nope-org/diagnostics/aggregates", None, s, "404 no such org")):
+            route(contract, variant, "warm", path, params=params, slug=slug, refusal=refusal)
         route("org-read.events", "refusal:org-read-agent-token", "warm", f"{base}/events",
               headers={"X-Orgtree-Agent-Token": self.tokens[(s, "or-mid")]},
               refusal="401 an agent credential is refused here")
@@ -3278,12 +3161,12 @@ class Probe:
     def build_exchange(self) -> None:
         """tests/test_state_exchange_boundary.py's shape (distinctive `ex-*` ids):
         the main org (ex-top and ex-top2 top-level, ex-mid under ex-top, ex-leaf
-        under ex-mid, ex-third under ex-top and never named), the OTHER org an
-        @org: send reaches, and a STORAGE-BLOCKED org (the flag is org-wide) for the blocked upload and send_file refusals."""
+        under ex-mid, ex-third under ex-top and never named) and the OTHER org an
+        @org: send reaches."""
         store, ledger = self.m["store"], self.m["ledger"]
         user = ledger.USER
         self.ex: dict[str, str] = {}
-        for role in ("main", "other", "blocked"):
+        for role in ("main", "other"):
             org = store.create_org(f"p02-contacts-exchange-{role}")
             slug = str(org.d["slug"])
             self.ex[role] = slug
@@ -3294,11 +3177,9 @@ class Probe:
             org.hire(user, None, "haiku", 5, f"{x}-top2", add_dirs=[], tools={}, charter="fixture")
             if role == "main":
                 org.hire("ex-top", "ex-top", "haiku", 0, "ex-third", **self.SCOPE)
-            if role == "blocked":
-                org.d["storage_blocked"] = True
             org.d["mail"], org.d["audiences"] = {}, []
             store.save_org(org)
-            if role in ("main", "blocked"):
+            if role == "main":
                 self.tokens[(slug, f"{x}-mid")] = self.m["agentauth"].child_env(
                     slug, f"{x}-mid")["ORGTREE_AGENT_TOKEN"]
                 scratch = Path(self.m["supervisor"].scratch_dir(slug, f"{x}-mid"))
@@ -3308,7 +3189,7 @@ class Probe:
 
     def exchange(self) -> None:
         """Every F4 contract, cold and warm. As in the P01 fixture, turn
-        delivery, the mail spark, supervisor.notify, the storage check and the
+        delivery, the mail spark, supervisor.notify and the
         mail-hub kick are counting spies
         (`spies`); hub_changed is real and counted. The external-chat routes
         (/api/extern/*), their MCP server (externtool) and @mcp: sends were
@@ -3331,7 +3212,6 @@ class Probe:
         family = [(api, "hub_changed", hub_counted),
                   (supervisor, "mail_spark", spy("mail_spark")),
                   (supervisor, "notify", spy("notify")),
-                  (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
                   (api.net, "kick", spy("net_kick"))]
         saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
         for obj, name, value in family:
@@ -3345,7 +3225,7 @@ class Probe:
     def _exchange_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
         store, opreceipts = self.m["store"], self.m["opreceipts"]
         user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
-        other, blocked = self.ex["other"], self.ex["blocked"]
+        other = self.ex["other"]
         peers = iter(range(1, 1000))
         stmt = ("statement:data:org-db:foreign",)
 
@@ -3521,9 +3401,6 @@ class Probe:
                  "422 empty upload"),
                 ("exchange.node-upload", "refusal:node-upload-ghost", "POST",
                  f"{base}/nodes/ghost/upload", {"content": b"x"}, "404 unknown node"),
-                ("exchange.node-upload", "refusal:node-upload-blocked", "POST",
-                 f"/api/orgs/{blocked}/nodes/exb-mid/upload", {"content": b"x", "slug": blocked},
-                 "storage blocked"),
                 ("exchange.reply-events-count", "refusal:reply-events-ghost-node", "GET",
                  f"{base}/nodes/ghost/reply-events", {}, "500 legacy: raw LedgerError"),
                 ("exchange.reply-events-count", "refusal:reply-events-no-org", "GET",
@@ -3548,9 +3425,7 @@ class Probe:
                 ("refusal:send-file-once-no-id", "orgtree_send_file_once", {"path": "report.txt"},
                  s, "ex-mid"),
                 ("refusal:send-file-delivery-conflict", "orgtree_send_file",
-                 {"path": "other.txt", "delivery_id": did}, s, "ex-mid"),
-                ("refusal:send-file-blocked", "orgtree_send_file",
-                 {"path": "report.txt", "delivery_id": "p02-delivery-0003"}, blocked, "exb-mid")):
+                 {"path": "other.txt", "delivery_id": did}, s, "ex-mid")):
             run("exchange.send-file", variant, "warm", actor, tool, args, slug=slug,
                 refusal="refused")
 
@@ -3917,7 +3792,7 @@ class Probe:
         spy (`spies`), as in the P01 fixture: halt's process cut, turn
         interrupts, the killswitch sweep, the warm-pool process control,
         remote control, the restart launch, the prime arm/cancel, continue-
-        on's live provider read, the storage check. The probe never halts,
+        on's live provider read. The probe never halts,
         restarts or kills a real process; the guards refuse any process
         start in any case."""
         from orgtree import halt
@@ -3949,7 +3824,6 @@ class Probe:
                   (supervisor, "interrupt_turn", spy("interrupt_turn",
                                                      {"interrupted": False, "reason": "spy"})),
                   (supervisor, "interrupt_all", spy("interrupt_all", {"interrupted": []})),
-                  (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
                   (api, "_continue_on_account", spy("continue_on_account", {"switched": True})),
                   (api.warmpool, "process_control", spy("process_control", {"process": "spy"})),
                   (halt, "_cut", spy("halt_cut"))]
@@ -4815,7 +4689,6 @@ class Probe:
         json_backend = self.backend == "json"
         self.build()
         if not json_backend:
-            self.build_sandbox()
             self.build_status()
             self.build_org_view()
             self.build_mail()
@@ -4833,7 +4706,7 @@ class Probe:
             self.build_orgreads()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
-                     (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
+                     (self.rslug, self.mslug, self.dslug, self.pslug,
                       self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
                       self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug,
                       self.lcslug, *self.lc_all.values(), self.vxslug,
@@ -4850,7 +4723,6 @@ class Probe:
         else:
             self.reservation()
             self.material()
-            self.sandboxed()
             self.diagnostic()
             self.migration()
             self.preview()

@@ -172,7 +172,6 @@ class ControlBoundary(unittest.TestCase):
         spy(sup, 'remote_control_stop', return_value={'stopped': True})
         self.interrupt = spy(sup, 'interrupt_turn', return_value={'interrupted': False, 'reason': 'spy'})
         self.sweep = spy(sup, 'interrupt_all', return_value={'interrupted': []})
-        spy(sup, 'maybe_storage_check')
         self.cont = spy(api, '_continue_on_account', return_value={'switched': True})
         self.process = spy(api.warmpool, 'process_control', return_value={'process': 'spy'})
         self.cut = spy(halt, '_cut')

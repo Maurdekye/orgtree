@@ -20,7 +20,7 @@ and scope family (S7-LOCK-PLAN.md §3, reviewed by p01 2026-09-26 13:39Z).
   L2): the target seat and the `target@<gen>` row a provider-crossing
   rebind archives into (FOR UPDATE), `supervisor._ASSIGN_SECTIONS`
   (asks/credit_requests/scope_requests mooted, notices folded, work_items
-  rewritten by the docket reconcile), `_ASSIGN_SHARE` (sandbox) and
+  rewritten by the docket reconcile), `_ASSIGN_SHARE` and
   `_ASSIGN_LOGS` — the row set `account_removal._lock_spec` and
   `_agent_door`'s `_account_selection` already hold — plus the target's
   ancestor chain up to the caller FOR SHARE (`is_ancestor`). The chain and

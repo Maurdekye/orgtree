@@ -82,7 +82,6 @@ class TurnInputsPG(unittest.TestCase):
             for owner,name,value in [(sup,'_codex_leg',adapter),(sup,'_after_turn',adapter.finish)]:
                 stack.enter_context(patch.object(owner,name,value))
             stack.enter_context(patch.object(sup,'spawn_env',return_value={}))
-            stack.enter_context(patch.object(sup,'_deployment_org_gate'))
             stack.enter_context(patch.object(sup.subprocess,'Popen',side_effect=FileNotFoundError('external process forbidden')))
             stack.enter_context(patch.object(turn_inputs,'load',side_effect=observed))
             sup._run_one_turn(self.slug,'worker',sup._mark_ping('mail',mail_ids=[self.message['id']]))
@@ -98,7 +97,7 @@ class TurnInputsPG(unittest.TestCase):
 
     def test_locked_admission_still_rejects_halt_freeze_and_killswitch(self):
         adapter=SimulatedProvider(sup,halt,slug=self.slug,nodes=['worker'],seconds=0)
-        with patch.object(sup,'_codex_leg',adapter), patch.object(sup,'_after_turn',adapter.finish), patch.object(sup,'_deployment_org_gate'), patch.object(sup,'spawn_env',return_value={}), patch.object(sup.subprocess,'Popen',side_effect=FileNotFoundError('external process forbidden')):
+        with patch.object(sup,'_codex_leg',adapter), patch.object(sup,'_after_turn',adapter.finish), patch.object(sup,'spawn_env',return_value={}), patch.object(sup.subprocess,'Popen',side_effect=FileNotFoundError('external process forbidden')):
             for gate in ('halt','frozen','killswitch'):
                 with self.subTest(gate=gate):
                     with orgtx.org_tx(self.slug,whole=True) as tx:

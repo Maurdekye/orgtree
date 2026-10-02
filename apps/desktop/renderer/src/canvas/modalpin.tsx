@@ -54,8 +54,8 @@ export const modalZIndex = (z: number): number =>
   Math.min(MODAL_Z_TOP, MODAL_Z_BASE + Math.max(0, z))
 
 /** one step above the whole pinned band, for a dialog raised FROM a pinned
- *  window (see ModalOverPins). Still below the disk browser's own centred
- *  layer (55), the folder picker (60), the lightbox (95) and toasts (100). */
+ *  window (see ModalOverPins). Still below the folder picker (60), the
+ *  lightbox (95) and toasts (100). */
 export const MODAL_OVER_PINS_Z = 31
 
 export const MODAL_PINS_KEY = 'orgtree-modal-pins'
@@ -516,11 +516,6 @@ export interface PinFrameProps {
   title: ReactNode
   /** the panel's own classes, exactly the ones it had before it was wrapped */
   panel: string
-  /** extra classes for the OVERLAY, for the one surface that had them: the
-   *  disk browser's `.disk-overlay` carries its centred layer (z-index 55).
-   *  Pinning overrides that with the band's inline z-index, so the class can
-   *  stay exactly as it was and the centred layer is untouched. */
-  overlayClass?: string
   /** dismiss the surface (the same `close` the panel already had) */
   close: () => void
   children: ReactNode
@@ -562,7 +557,7 @@ export function PinFrame(props: PinFrameProps) {
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
-function PinFrameInner({ kind, title, panel, overlayClass, close, children,
+function PinFrameInner({ kind, title, panel, close, children,
   onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
@@ -758,7 +753,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     : undefined
   const preview = live && rect && gesture.current ? candidate(rect, freePlacement) : null
   return (
-    <div className={(inPlace ? 'surface-inline' : 'overlay') + (overlayClass ? ' ' + overlayClass : '')
+    <div className={(inPlace ? 'surface-inline' : 'overlay')
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}
       style={pinned && bounds ? { zIndex: layout.z, inset:'auto', left:bounds.x, top:bounds.y,
         width:bounds.w, height:bounds.h, overflow:'clip' } : undefined}

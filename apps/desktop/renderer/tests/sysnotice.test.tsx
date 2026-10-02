@@ -60,7 +60,7 @@ const row = (over: Partial<MailRow> = {}): MailRow => ({
 } as MailRow)
 
 const sysNotice = (id = 's1') =>
-  row({ id, from: SYSTEM, kind: 'notice', body: 'a turn failed in a sandbox' })
+  row({ id, from: SYSTEM, kind: 'notice', body: 'a turn failed' })
 const agentNotice = (id = 'a1') =>
   row({ id, from: 'alpha', kind: 'notice', body: 'fyi, the build is green' })
 

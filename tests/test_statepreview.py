@@ -88,19 +88,6 @@ class TransitionPreviewTests(unittest.TestCase):
                 api.agent_call(body, request)
         self.assertEqual(raised.exception.status_code, 422)
 
-    def test_agent_retool_preview_runs_directory_translation(self) -> None:
-        org = _fixture()
-        body = api.AgentCall(
-            org="w19-test", node="manager", tool="orgtree_preview",
-            args={"operation": "retool", "args": {
-                "node": "child", "add_dirs": [{"path": "/container/grant"}]}})
-        request = SimpleNamespace(state=SimpleNamespace())
-        with patch.object(api.store, "load_org", return_value=org), \
-                patch.object(api.supervisor, "sandbox_dirs_to_host",
-                             return_value=([], [])) as translated:
-            api.agent_call(body, request)
-        translated.assert_called_once_with(org, [{"path": "/container/grant"}])
-
     def test_agent_switch_preview_keeps_account_gate(self) -> None:
         org = _fixture()
         body = api.AgentCall(

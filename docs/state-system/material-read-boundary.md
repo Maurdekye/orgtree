@@ -81,7 +81,7 @@ still applies. A no-receipt classification says nothing about physical writes.
 | Transcript records | `transcript-records.sqlite3` ingestion, retained rows, ordering and assistant data | Separate SQLite transactions; these include authoritative retained data. |
 | Transcript projection | `chat-window-index.sqlite3` derived cache rows | Separate connection and commits. |
 | Reply snapshots | `reply-events.sqlite3` retained quote identities | Separate connection and commits; not all data is reconstructable projection. |
-| Scratch | File/directory reads, conditional directory creation and sandbox ownership attempt | No database transaction covers the filesystem action or disclosure. |
+| Scratch | File/directory reads and conditional directory creation | No database transaction covers the filesystem action or disclosure. |
 
 The synthetic real transcript test observes connection destinations and SQL
 statement verbs only, without collecting SQL values. It confirms INSERT and
@@ -90,7 +90,7 @@ then proves the subsequent pre-minted warm fixture does not save the org.
 Existing pooled connections are not comprehensively observed by that hook;
 the save spy supplies the organization-write witness. This is a lower-bound
 contact witness, not production logging, a call-graph census or a performance
-measurement. P02 must still measure all branch/cache/provider/disk variants,
+measurement. P02 must still measure all branch/cache/provider variants,
 physical transactions, wait/hold time and actual contact drift.
 
 ## Legacy behavior the native design must assess explicitly
@@ -126,6 +126,6 @@ message slice likewise fails the normal response-limit assertion. Each unsafe
 branch has an execution marker. Missing contract data and false gate elevations
 are independently rejected. The tests alter only their own synthetic process.
 
-No PostgreSQL, Rust, actual sandbox ownership, live profiling/census, complete
+No PostgreSQL, Rust, live profiling/census, complete
 transitive contact closure, crash recovery, native concurrency, migration or
 release qualification is claimed. The frozen v6 packet remains unchanged.

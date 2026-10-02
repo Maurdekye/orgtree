@@ -7755,7 +7755,7 @@ def read_runtime_node(slug: str, nid: str, sections: Iterable[str] = ()) -> dict
     mutations on their locked rows. The fixed allowlist excludes large docs.
     """
     selected = tuple(sections)
-    if isinstance(sections, str) or not set(selected) <= {"killswitch", "storage_blocked"}:
+    if isinstance(sections, str) or not set(selected) <= {"killswitch"}:
         raise ValueError("unsupported runtime node section")
     def body(conn: sqlite3.Connection) -> dict[str, Any] | None:
         keys = ("nodes", *selected)
@@ -7861,7 +7861,7 @@ def read_transcript_source(slug: str, nid: str) -> dict[str, Any] | None:
                if STORE_BACKEND == 'postgres' else
                "CASE WHEN json_type(val,'$.desktop_import') IS NOT NULL THEN '1' ELSE '0' END ")
             + "FROM nodes WHERE id=? UNION ALL SELECT key,val FROM doc "
-            "WHERE key IN ('nodes','reply_incarnation','sandbox')"
+            "WHERE key IN ('nodes','reply_incarnation')"
             + (" UNION ALL SELECT '__source_revision',revision::text FROM public.orgs WHERE org_id=?"
                if cache_key is not None else ""),
             (nid, nid, cast(Any, conn).org_id) if cache_key is not None else (nid, nid)).fetchall())
@@ -9148,7 +9148,7 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
     in the org's default capability set.
 
     PG-3f: `prepare(org)` runs on the new Org BEFORE its one creating save,
-    so everything the caller adds (defaults, sandbox, net identity) is
+    so everything the caller adds (defaults, net identity) is
     born in that same atomic write — no later load-modify-save, no DOC_LOCK,
     and no window where another reader sees a half-made org. If it raises,
     nothing is saved."""

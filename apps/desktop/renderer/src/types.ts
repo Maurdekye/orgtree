@@ -703,87 +703,6 @@ export type ToastFn = (
   lines: string[] | null | undefined, undo?: ToastUndo | null,
 ) => void
 
-export interface TreeDisk {
-  used_mb: number | null
-  total_mb: number | null
-  blocked: boolean
-  full: boolean
-  /** staged shrink target — the yellow divergence: requested vs actual */
-  pending_mb?: number | null
-}
-
-export interface DiskFile {
-  path: string
-  bytes: number
-  class: 'content' | 'reclaimable' | 'blocked'
-  reason?: string
-}
-
-export interface DiskPayload {
-  used: number | null
-  total: number | null
-  blocked: boolean
-  full: boolean
-  /** admin only; null = Docker Desktop's VM disk cap is UNSET on the host */
-  vm_cap_mib?: number | null
-  /** admin only: configured size + staged shrink target (null = none) */
-  size_mb?: number
-  pending_mb?: number | null
-  files: DiskFile[]
-  offset: number
-  limit: number
-}
-
-export interface DiskDeleteResult {
-  /** dir deletes report their subtree tally (files, bytes) */
-  results: { path: string; ok: boolean; error?: string
-             files?: number; bytes?: number }[]
-  used: number | null
-  total: number | null
-  blocked: boolean
-  full: boolean
-}
-
-/** explorer mode: one directory level, intermixed by size descending */
-export interface DiskDirEntry {
-  name: string
-  path: string
-  dir: boolean
-  bytes: number
-  files: number
-  class: 'content' | 'reclaimable' | 'blocked'
-  reason?: string
-}
-
-export interface DiskDirPayload {
-  path: string
-  entries: DiskDirEntry[]
-  used: number | null
-  total: number | null
-  blocked: boolean
-  full: boolean
-  /** admin only; null = Docker Desktop's VM disk cap is UNSET on the host */
-  vm_cap_mib?: number | null
-  /** admin only: configured size + staged shrink target (null = none) */
-  size_mb?: number
-  pending_mb?: number | null
-}
-
-/** pre-migration backup accounting (admin sweep) */
-export interface SweepPreview {
-  volumes: string[]
-  volumes_bytes: number
-  host_dirs: string[]
-  host_bytes: number
-  total_bytes: number
-}
-
-export interface SweepResult {
-  removed_volumes: string[]
-  removed_dirs: string[]
-  failures: string[]
-}
-
 export interface TreePayload {
   /** Client projection boundary. Omission from roots is unknown, not deletion.
    * Includes identities on the separate lineage axis as well as org rows. */
@@ -872,10 +791,6 @@ export interface TreePayload {
    *  chat banner and the release control all read THIS key — per-node `halt`
    *  never implies it. Absent from an older engine, which only interrupted. */
   killswitch?: { at: string; by: string } | null
-  storage_blocked: boolean
-  /** the org's virtual disk (sandboxed, migrated orgs only) — the persistent
-   *  hard-full alert and the storage chip render from this state */
-  disk?: TreeDisk
   /** FR-18: the org's watchdogs (canvas satellites + detail panels) */
   watchdogs?: Watchdog[]
   /** cache-protective compaction; provider/auth expiry is derived server-side */
@@ -889,7 +804,6 @@ export interface TreePayload {
   fable_filter_model?: string | null
   cascade_hire: boolean
   cascade_alloc: boolean
-  sandboxed: boolean
   audience_requests: AudienceRequest[]
   org_inbox: {
     /** ⚠ A PREVIEW — the newest few only (ledger.ORG_INBOX_PREVIEW). The
@@ -1321,13 +1235,10 @@ export interface CharterTemplateDirsPayload {
 // GET /api/mcp-servers
 export interface McpServersPayload {
   servers: string[]
-  sandbox_mcp: boolean
 }
 
 // GET /api/host
 export interface HostPayload {
-  docker: boolean
-  sandbox_mcp: boolean
   // the commit (and branch, when not main/detached) the running backend was
   // started from — frozen at process start, so it never goes stale from an
   // on-disk `git pull` alone

@@ -496,19 +496,22 @@ class DesktopImportTests(unittest.TestCase):
 
     def test_disabled_features_and_account_registry_are_reported_and_archived(self) -> None:
         doc = self.fixture(sqlite=False)
+        # `disk` is left out: a disk-backed V1 org keeps its scratch outside
+        # the data root, so the importer refuses it outright (by design)
+        legacy = tuple(k for k in IGNORED_LEGACY_KEYS if k != "disk")
+        doc.update(dict.fromkeys(legacy, True))
         doc.update(sandbox={"enabled": True},
                    net_identity={"slug": "source-identity", "secret": "fixture-secret"})
-        doc.update(dict.fromkeys(IGNORED_LEGACY_KEYS, True))
         (self.source / "accounts.json").write_text('{"fallback":"fixture-only"}')
         (self.source / "orgs/acme.json").write_text(json.dumps(doc))
         before = fingerprint(self.source)
         result = self.run_import()
         imported = self.read()
-        for key in (*IGNORED_LEGACY_KEYS, "sandbox", "net_identity"):
+        for key in (*legacy, "net_identity"):
             self.assertNotIn(key, imported)
         self.assertFalse((self.dest / "accounts.json").exists())
         warnings = " ".join(result["imported"][0]["warnings"])
-        for word in ("accounts.json skipped", *IGNORED_LEGACY_KEYS, "sandbox", "network identity"):
+        for word in ("accounts.json skipped", *legacy, "network identity"):
             self.assertIn(word, warnings)
         self.assertEqual(json.loads((self.dest / "imports/acme/original.json").read_text()), doc)
         self.assertEqual(fingerprint(self.source), before)

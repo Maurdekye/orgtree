@@ -1063,12 +1063,6 @@ export default function App() {
         if (data.event === 'frozen') {   // usage-limit / network popup
           toast([`${data.node} is FROZEN (usage limit or network interruption) — the resume button in the top bar releases it once the wait passes; auto-resume handles it for you if enabled`])
         }
-        if (data.event === 'storage_blocked') {
-          toast(['WORKSPACE STORAGE LIMIT reached — file writes are blocked until enough files are deleted (agents keep running)'])
-        }
-        if (data.event === 'storage_cleared') {
-          toast(['workspace back under its storage limit — writes unblocked'])
-        }
       }
       refreshTree(slug)
       // the client's G2 (livebus.ts): a 'changed' means SOMEONE saved the
@@ -2238,7 +2232,7 @@ export function NewOrg({ onCreate }: {
             ) },
             { label: 'Mail hub', content: (
               <>
-                <label className="row org-sbx"
+                <label className="row org-check"
                   title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
                   <input type="checkbox" checked={netAuto}
                     onChange={(e) => setNetAuto(e.target.checked)} />

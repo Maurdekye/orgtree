@@ -45,7 +45,7 @@ KEY = b'seat-credential-fixture-key'
 _SERIAL = itertools.count()
 SLUGS = []
 #: every agent-credential issuer in the backend, per file (census)
-ISSUERS = {'supervisor.py': 8, 'warmpool.py': 1, 'antigravity_session.py': 2}
+ISSUERS = {'supervisor.py': 7, 'warmpool.py': 1, 'antigravity_session.py': 2}
 
 
 def tearDownModule():

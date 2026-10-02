@@ -48,8 +48,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMappin
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
-from . import (clipin, deployment, events, events_render, lifecycle,
-               opreceipts, toolmarkup, workfields)
+from . import (clipin, events, events_render, lifecycle, opreceipts,
+               toolmarkup, workfields)
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
                      UserMailEntry, WorkActor, WorkItem, WorkScopeRecord,
@@ -1093,28 +1093,29 @@ NODE_KEYED_SECTIONS: Final[dict[str, tuple[str, str, str]]] = {
         "whole_grants_v1", "work_deleted_names", "work_scope_log",
         "api_fallback", "api_fallback_since", "api_fallback_until", "api_key",
         "auto_cheap_compact", "auto_resume", "auto_resume_compact", "auto_resume_last",
-        "bridge_credential_generation", "bridge_credential_rotated_at", "cascade_alloc",
-        "cascade_hire", "compact_at", "created", "cred_warned_at", "default_dirs",
+        "cascade_alloc", "cascade_hire", "compact_at", "created", "cred_warned_at", "default_dirs",
         "default_effort", "default_tools", "default_top_grant", "default_visibility",
-        "deleted_cost_usd", "deleted_cost_usd_unknown", "dirs", "disk",
+        "deleted_cost_usd", "deleted_cost_usd_unknown", "dirs",
         "external_inbox_multi_holder", "fable_api_fallback", "fable_filter_model",
         "fable_filter_policy", "fable_limit_policy", "fable_lock", "headless", "killswitch",
         "mail_drain_version", "max_children", "max_depth", "max_top_grant",
         "models", "name", "net_autoconnect", "net_hubs", "net_identity", "net_spool",
         "net_state", "op_receipts_meta", "org_inbox_multi_holder", "org_inbox_read",
-        "permission_mode", "reservations", "sandbox", "sandbox_vols_base", "slug",
-        "storage_blocked", "storage_frozen", "storage_full",
-        "storage_warned", "tiers", "tool_result_receipts", "version", "work_identity",
-        "workspace")},
+        "permission_mode", "reservations", "slug", "tiers", "tool_result_receipts",
+        "version", "work_identity", "workspace")},
 }
 
-#: Top-level org-document keys left behind by a removed feature. Legacy
+#: Top-level org-document keys left behind by removed features (the kiosk;
+#: the per-org container, its disk and its bridge credential). Legacy
 #: fields; ignored: stored documents may still carry
 #: them, loading tolerates them and keeps them as-is in memory (so a save never
 #: drops stored data), and nothing reads or writes them for behaviour.
-IGNORED_LEGACY_KEYS: Final[tuple[str, ...]] = ("kiosk", "spend_frozen")
-#: Node freeze kind flags (`node.frozen`) left behind by the same removed
-#: feature. Stored records keep them; they own nothing any more, so ▶ resume
+IGNORED_LEGACY_KEYS: Final[tuple[str, ...]] = (
+    "kiosk", "spend_frozen", "sandbox", "sandbox_vols_base", "disk",
+    "storage_blocked", "storage_warned", "storage_full", "storage_frozen",
+    "bridge_credential_generation", "bridge_credential_rotated_at")
+#: Node freeze kind flags (`node.frozen`) left behind by the removed
+#: kiosk. Stored records keep them; they own nothing any more, so ▶ resume
 #: treats a freeze carrying only these like a provider-scoped one and clears it.
 IGNORED_LEGACY_FREEZE_FLAGS: Final[tuple[str, ...]] = ("spend",)
 
@@ -8630,9 +8631,9 @@ class Org:
                    alternative to a cadence); dies with orgtree, re-armed by
                    the engine at startup — downtime output is honestly lost
         Capability rule (ruling): a dog runs with its OWNER's hands —
-        command/stream require the owner to hold bash and run inside the
-        owner's sandbox when sandboxed; file paths are containment-checked
-        at the API boundary against the owner's readable roots.
+        command/stream require the owner to hold bash; file paths are
+        containment-checked at the API boundary against the owner's readable
+        roots.
 
         `notice=True` (user ruling 2026-08-21) makes the fire PASSIVE: the
         mail lands in the owner's box exactly as before, but no turn is
@@ -10323,11 +10324,6 @@ class Org:
         machine-wide restart a few minutes later. Each caller still logs its
         OWN event, because "restarted the machine" and "armed a restart" are
         different facts about who did what."""
-        if not deployment.current_policy().allow_agent_restart:
-            raise LedgerError(
-                "the frozen deployment profile disables agent-triggered "
-                "self-update, self-restart, and primed restart; deploy this "
-                "installation through an operator-controlled path")
         self._require_live(nid)
         n = self.node(nid)
         if n["parent"] is not None and not self._has_audience(nid, USER):
@@ -11819,7 +11815,6 @@ class Org:
             # outline, the all-cards-red cascade and the release control all
             # read THIS key — per-node `halt` above never says it
             "killswitch": self.d.get("killswitch") or None,
-            "storage_blocked": bool(self.d.get("storage_blocked")),
             "account_fallback_default": bool(self.d.get("account_fallback_default", False)),
             "auto_resume": bool(self.d.get("auto_resume")),
             "auto_resume_compact": bool(self.d.get("auto_resume_compact")),
@@ -11853,7 +11848,6 @@ class Org:
             "fable_filter_model": self.d.get("fable_filter_model", "opus"),
             "cascade_hire": bool(self.d.get("cascade_hire", True)),
             "cascade_alloc": bool(self.d.get("cascade_alloc", True)),
-            "sandboxed": bool((self.d.get("sandbox") or {}).get("enabled")),
             "audience_requests": self.d.get("audience_requests", []),
             # the docket toolbar badge (docket-final-spec.md): two counts over
             # the FULL item set, always present - the modal fetches the list
@@ -15254,7 +15248,7 @@ class Org:
                 and not done and not nxt:
             raise LedgerError("a docket update needs at least one entry in "
                               "done_so_far or working_on_next")
-        from . import workitems       # noqa: PLC0415  (sandbox->store->ledger cycle)
+        from . import workitems       # noqa: PLC0415
         # THE NAME IS THE ONLY KEY. It is minted here, once, against every
         # name already in use across the active list and the archive, and it
         # never changes again — not even when the title is edited.

@@ -102,8 +102,7 @@ class OrgList(unittest.TestCase):
     def counted_reads(self, slug):
         """Rows and value bytes the listing request itself fetched for this
         org. Only this thread counts, like the preflight's per-request
-        counters: the storage walk it may start runs in a background thread
-        and reads no node rows (workspace/scratch/sandbox paths only)."""
+        counters."""
         import json
         import threading
         import psycopg

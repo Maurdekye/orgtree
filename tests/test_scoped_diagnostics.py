@@ -6,8 +6,6 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from fastapi import HTTPException
-
 # Keep this module fixture-only and independent of a live installation.  The
 # production data root is never imported or opened by this test process.
 _root = tempfile.TemporaryDirectory(prefix="w14-diagnostics-")
@@ -59,18 +57,6 @@ class AggregateFixtureTests(unittest.TestCase):
     def test_unknown_collection_is_refused(self):
         with self.assertRaises(ValueError):
             aggregate_document({}, ("prompt",))
-
-
-class DiagnosticsAuthorizationTests(unittest.TestCase):
-    def test_bridge_scope_is_not_operator_authority(self):
-        from orgtree.diagnostics import _operator_only
-
-        request = type("Request", (), {"scope": {"state": {"bridge_slug": "org"}}})()
-        with self.assertRaises(HTTPException) as caught:
-            _operator_only(request)  # type: ignore[arg-type]
-        self.assertEqual(caught.exception.status_code, 403)
-        # CONTROL: the host operator (no bridge scope) is let through
-        _operator_only(type("Request", (), {"scope": {"state": {}}})())  # type: ignore[arg-type]
 
 
 class LiveTimingControlTests(unittest.TestCase):

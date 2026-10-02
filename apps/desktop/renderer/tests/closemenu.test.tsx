@@ -11,7 +11,7 @@
 //   A. THE PANEL'S Close — the entry on a surface's own title bar menu
 //      (canvas/modalpin.tsx, PinFrameInner). One implementation shared by
 //      every panel: docket, usage, the galleries, the inboxes, settings, the
-//      agents list, the disk browser, connections, the readers. It dismisses
+//      agents list, connections, the readers. It dismisses
 //      the WHOLE surface. Each panel's only contribution is the `close` prop
 //      it passes, so the way to audit it is to drive real panels rather than
 //      the frame on its own — and in all three display modes, because
@@ -49,7 +49,6 @@ import { savedWindows, WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 import { MailList, NodeInboxModal, OrgInboxModal } from '../src/canvas/mail'
 import { AgentGalleryModal, AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { DocReader } from '../src/canvas/docs'
-import { DiskBrowser } from '../src/DiskBrowser'
 import { ConnectionsPanel } from '../src/canvas/connections'
 import { AgentDocketModal } from '../src/canvas/agentdocket'
 import { DraftScopeModal, NodeConfig, WatchdogPanel } from '../src/canvas/modals'
@@ -106,8 +105,8 @@ const tree = (slug: string) => ({ slug, name: slug, workspace: null, dirs: [],
   credit_requests: [], tiers: { haiku: 1 }, audiences: [], roots: [agent('a1')],
   cost_usd_total: 0, audit: { live_nodes: 1, top_level_holds: 0, no_overdraft: true, problems: [] },
   user_inbox_count: 0, user_inbox_newest: null, fable_lock: null,
-  storage_blocked: false, auto_resume: false, fable_limit_policy: 'freeze',
-  fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true, sandboxed: false,
+  auto_resume: false, fable_limit_policy: 'freeze',
+  fable_filter_policy: 'halt', cascade_hire: false, cascade_alloc: true,
   audience_requests: [], org_inbox: null, net: null, epoch: 1, rev: 1,
   work_items_summary: { attention: 0, active: 0 }, asks: [], asks_open: 0, watchdogs: [] })
 
@@ -357,7 +356,7 @@ test('§6 a surface that cannot be pinned offers Close ALONE — with no '
   assert.equal(panelBy('.usage-modal'), null, 'and it still closes')
 })
 
-test('§7 the same Close on two panels reached outside the header, and on a '
+test('§7 the same Close on a panel reached outside the header, and on a '
   + 'reader that has not loaded yet', async (t) => {
   const g = globalThis as unknown as Record<string, unknown>
   const had = g.fetch
@@ -367,23 +366,12 @@ test('§7 the same Close on two panels reached outside the header, and on a '
   g.fetch = (() => new Promise(() => {})) as unknown as typeof fetch
   t.after(() => { g.fetch = had })
 
-  let diskClosed = 0
-  const disk = await mountView(<DiskBrowser slug="org" toast={noop}
-    close={() => { diskClosed += 1 }} />, (h) => h)
-  // ⚠ REGISTERED BEFORE THE FIRST ASSERTION, not after the last one: a
-  // section that throws in the middle must still take its panel down, or the
-  // next section inherits a live surface and an open menu.
-  t.after(() => disk.unmount())
-  await flush(3)
-  assert.ok(panelBy('.disk-browser'), 'POSITIVE CONTROL: the disk browser is up')
-  await rightClick(barOf('.disk-browser'))
-  assert.ok(labels().includes('Close'), 'the disk browser offers Close')
-  await pick('Close')
-  assert.equal(diskClosed, 1, 'the disk browser ran its own close')
-
   let connClosed = 0
   const conn = await mountView(<ConnectionsPanel tree={tree('org') as never} toast={noop}
     close={() => { connClosed += 1 }} />, (h) => h)
+  // ⚠ REGISTERED BEFORE THE FIRST ASSERTION, not after the last one: a
+  // section that throws in the middle must still take its panel down, or the
+  // next section inherits a live surface and an open menu.
   t.after(() => conn.unmount())
   await flush(3)
   const connPanel = [...document.querySelectorAll('.settings.wide')]

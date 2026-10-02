@@ -151,8 +151,7 @@ test('§2/§3 hire sheet: no Terra row button, then one labelled legacy',
 
 function config(node: CanvasNode) {
   const tree = { slug: 'org', dirs: [], tiers: SEATS, max_top_grant: 100,
-    default_effort: '', effort_default: 'high', cascade_hire: true,
-    sandboxed: false } as unknown as TreePayload
+    default_effort: '', effort_default: 'high', cascade_hire: true } as unknown as TreePayload
   const codex: ProviderInfo = { id: 'openai', label: 'Codex', cli: 'Codex CLI', tiers: [],
     status: { installed: true, connected: true, kind: 'chatgpt' },
     hire_enabled: true, reason: null }

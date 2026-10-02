@@ -153,8 +153,7 @@ test('§2 hire sheet: no Argon button until the payload offers it', async (t: Te
 
 function config(node: CanvasNode, argon: boolean) {
   const tree = { slug: 'org', dirs: [], tiers: SEATS, max_top_grant: 100,
-    default_effort: '', effort_default: 'high', cascade_hire: true,
-    sandboxed: false } as unknown as TreePayload
+    default_effort: '', effort_default: 'high', cascade_hire: true } as unknown as TreePayload
   const provider: ProviderInfo = { id: 'google', label: 'Antigravity', cli: 'agy',
     tiers: rows(argon), status: { installed: true, connected: true, kind: 'google' },
     hire_enabled: true, reason: null } as unknown as ProviderInfo

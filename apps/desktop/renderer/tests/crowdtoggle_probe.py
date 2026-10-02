@@ -38,7 +38,7 @@ HARD CONSTRAINTS OBSERVED
 -------------------------
 - Binds ONLY port 7407 by default (--port to override). Never 7360/7361/7362
   (the live deployment) and never 7401 (the backend test rig).
-- Own ORGTREE_DATA/HOME under a temp dir, ORGTREE_BRIDGE_PORT=0, fakecli —
+- Own ORGTREE_DATA/HOME under a temp dir, fakecli —
   no real model call. Deletes both orgs it creates.
 
 WHAT IT ASSERTS
@@ -152,7 +152,6 @@ def start_backend() -> None:
         "ORGTREE_TURN_TIMEOUT": "60",
         "PYTHONPATH": os.path.join(_REPO, "backend"),
         "PYTHONIOENCODING": "utf-8",
-        "ORGTREE_BRIDGE_PORT": "0",
         "ORGTREE_CLAUDE": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
         "ORGTREE_CLAUDE_CLI": os.path.join(_REPO, "backend", "tests", "fakecli.js"),
     })

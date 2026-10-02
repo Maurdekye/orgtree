@@ -623,11 +623,8 @@ class ReservationBoundary(unittest.TestCase):
         'orgtree_preview':{'operation':'reallocate','args':{'node':'child','delta':1}},
     }
 
-    def test_every_p01_tool_shares_the_agent_operator_and_bridge_door_shapes(self):
-        from fastapi.testclient import TestClient
+    def test_every_p01_tool_shares_the_agent_and_operator_door_shapes(self):
         c, op = self.client, {'X-Orgtree-Desktop-Token':'operator'}
-        bridge = TestClient(api.BridgeGateway(api.app),raise_server_exceptions=False)
-        self.addCleanup(bridge.close)
         def detail(response):
             return (response.status_code,response.json().get('detail'))
         for tool,args in self.DOOR_TOOLS.items():
@@ -647,15 +644,6 @@ class ReservationBoundary(unittest.TestCase):
                 self.assertEqual((response.status_code,response.json()['detail'][0]['type']),(422,'dict_type'))
                 with patch.object(api.supervisor.halt,'blocked',return_value='halt'):
                     self.assertEqual(detail(self.call(args,tool=tool)),(409,'agent is halted — tools cannot execute until unhalt'))
-                # BridgeGateway (started only by the standalone api.main, never by
-                # engine/launch.py): an org secret acts as ANY node of that org,
-                # with or without an agent credential; recorded, not approved.
-                with patch.object(api.bridgeauth,'resolve_org_credential',side_effect=lambda s:self.slug if s=='S' else None), \
-                     patch.object(api.sandbox,'container_auth',return_value=None):
-                    self.okay(bridge.post('/api/agent',json=good,headers={'x-orgtree-bridge':'S'}))
-                    self.assertEqual(detail(bridge.post('/api/agent',json=dict(good,org='other-org'),headers={'x-orgtree-bridge':'S'})),
-                                     (403,'bridge secret is scoped to its own org'))
-                    self.assertEqual(detail(bridge.post('/api/agent',json=good,headers={'x-orgtree-bridge':'nope'})),(403,'forbidden'))
 
     def assert_replay_skips_helper(self):
         row = self.acquire()

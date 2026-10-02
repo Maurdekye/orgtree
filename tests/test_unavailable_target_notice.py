@@ -79,11 +79,10 @@ def tearDownModule():
 
 class _ReqState:
     agent_identity = None
-    bridge_slug = None
 
 
 class _Req:
-    """The only two attributes `agent_identity` reads off a Request."""
+    """The only attribute `agent_identity` reads off a Request."""
     def __init__(self):
         self.state = _ReqState()
 

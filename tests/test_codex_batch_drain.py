@@ -51,7 +51,6 @@ class CodexBatchDrainTests(unittest.TestCase):
         self.patches = [patch.object(sup, "_codex_leg", self.adapter),
                         patch.object(sup, "_after_turn", self.adapter.finish),
                         patch.object(sup, "spawn_env", return_value={}),
-                        patch.object(sup, "_deployment_org_gate"),
                         patch.object(sup, "_phantom_log"),
                         patch.object(sup, "_native_context_hold", return_value=None),
                         patch.object(sup, "_cancel_working_cache"),
@@ -329,7 +328,6 @@ class ClaudeLaneUnchangedTests(unittest.TestCase):
         try:
             with patch.object(sup, "_absorb_queued_pointers", spy),                     patch.object(sup, "_take_delivery_mail", take_spy),                     patch.object(sup, "_native_context_hold", return_value=None), \
                     patch.object(sup, "spawn_env", return_value={}), \
-                    patch.object(sup, "_deployment_org_gate"), \
                     patch.object(sup.subprocess, "Popen",
                                  side_effect=FileNotFoundError("external process forbidden")):
                 sup._run_one_turn(slug, "worker",

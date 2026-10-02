@@ -750,8 +750,7 @@ class AgentHaltTests(unittest.TestCase):
             return proc
 
         results = []
-        with patch.object(sup.sbx, "is_sandboxed", return_value=False), \
-             patch.object(sup, "_claude_argv", return_value=["fixture"]), \
+        with patch.object(sup, "_claude_argv", return_value=["fixture"]), \
              patch.object(sup.subprocess, "Popen", side_effect=spawn), \
              patch.object(sup, "_leash"), \
              patch.object(sup, "_wd_kill_tree", side_effect=lambda p: closed.set()):

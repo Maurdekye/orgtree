@@ -216,7 +216,7 @@ def main() -> int:
             "CODEX_HOME": codex_home,
             "ORGTREE_CODEX": os.path.join(
                 REPO, "backend", "tests", "fakecodex.py"),
-            "ORGTREE_PORT": str(PORT), "ORGTREE_BRIDGE_PORT": "0",
+            "ORGTREE_PORT": str(PORT),
             "ORGTREE_EXPOSE_ADMIN": "0",
             "PYTHONPATH": os.path.join(REPO, "backend"),
             "PYTHONIOENCODING": "utf-8",

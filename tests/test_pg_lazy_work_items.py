@@ -338,7 +338,7 @@ class LazyRows(unittest.TestCase):
         with orgtx.org_tx(self.slug,nodes=['a']) as tx:
             tx.org.nodes['a'].update(state='live',generation=0,seat_id='fixture-seat')
         body=SimpleNamespace(org=self.slug,node='a')
-        state=SimpleNamespace(agent_identity=None,bridge_slug=None)
+        state=SimpleNamespace(agent_identity=None)
         request=SimpleNamespace(state=state)
         seen,watch=self.watch()
         with watch, patch.object(store,'cached_org',side_effect=AssertionError('eager identity')), \
@@ -426,7 +426,7 @@ class LazyRows(unittest.TestCase):
     def test_runtime_node_projection_excludes_work_and_preserves_legacy_fallback(self):
         seen,watch=self.watch()
         with watch:
-            row=store.read_runtime_node(self.slug,'a',('storage_blocked',))
+            row=store.read_runtime_node(self.slug,'a',('killswitch',))
         self.assertEqual(row['node']['id'],'a')
         self.assertEqual(len(seen),1,seen)
         self.assertIn('UNION ALL',seen[0][0])
