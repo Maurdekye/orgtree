@@ -1,388 +1,845 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 2)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 3)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
-This design is the target. It must be read by the coordinator, and presented to the user, before
-any code beyond the first prototype is written (decisions 7 and 8 on the item). The companion
-[`pg-columns-audit.md`](pg-columns-audit.md) measures today's costs on a copy of the live data. The
-numbers here come from that audit, or from the prototype tables described in §8.
+This is the target design. The coordinator presents it to the user before any code beyond the first
+prototype is written (decisions 7, 8 and 10 on the item). The companion
+[`pg-columns-audit.md`](pg-columns-audit.md) measures today's costs on a copy of the live data.
 
-**Rev 2 replaces rev 1** (commit `e86d209`).
+**What changed:**
 
-- **Rev 1** kept the engine's in-memory org dictionary and mapped it onto tables.
-- **Rev 2 follows decision 7 (user, 2026-10-02 12:23Z).** It designs the backend as if it had
-  been built for PostgreSQL from the start: the database is the only source of truth, and every
-  action is one short transaction over its own rows.
-- **Carried over from rev 1:** the measurements, the table design and the conversion plan, where
-  they still fit.
-- **Answers already given** (decision 7 and the coordinator's mail): Q1 (one JSON column per
-  shapeless payload), Q2 (`timestamptz`), Q3 (keep the old tables for one release), Q4 (`numeric`
-  for mixed numbers) and Q5 (stages land on v3 one at a time; no build or publish until the whole
-  data-model rewrite is in, decision 6).
+- **Rev 3 replaces rev 2** (commit `833f6a2`). It follows decision 10 (one PostgreSQL database per
+  org, plus a minimal shared app database) and decision 11 (adding or deleting a whole org is adding
+  or dropping one body of data).
+- **Kept from rev 2:** the ground-up architecture (decision 7), the table design, the conversion
+  checks and the release plan.
+- **Changed:** where the tables live, and everything that follows from it: connections, migrations,
+  the screen feed, jobs, cross-org reads, the org lifecycle, the conversion and multi-process.
+
+**Answers already given:**
+
+| Question | Answer |
+|---|---|
+| Q1 | one JSON column per shapeless payload that nothing filters inside |
+| Q2 | `timestamptz` |
+| Q3 | keep the old data for one release |
+| Q4 | `numeric` for mixed numbers |
+| Q5 | stages land on v3 one at a time |
+| Q6 | surrogate keys and tombstones |
+| Q7 | a dedicated schema; with a database per org this becomes "dedicated databases" |
+| Q8 | change log kept 24 h, and at least 10,000 revisions |
+
+Decision 6 still stands: no build or publish until the whole data-model rewrite is in, apart from
+the local alpha. Decision 9: the release line is 3.2.0, and the local alpha build is
+3.2.0-alpha.0.
 
 ## 0. Summary
 
-**What changes for the user.** One upgrade converts all of an org's data into a new set of
-tables. It runs automatically on the first start, from either a 3.x install or a 2.1.14 install.
-It is checked record by record, and refuses to start if anything does not match. After it:
+**Layout** (§2.10):
 
-- reshaping the org, the docket, the inbox, the history panel, the per-turn prompt and the tree
-  feed stop slowing down as archived history grows;
-- the engine stops doing whole-org work in the background every few seconds;
-- the backend becomes able to run as several processes.
+- **One database per org** (`orgtree_org_<n>`). It holds everything the org owns: agents, docket,
+  mail, questions, audiences, watchdogs, documents, reservations, logs, its change log, its jobs,
+  and the org-owned rows that today sit in machine-level side files (reply events, file
+  deliveries).
+- **One small app database** (`orgtree_app`). It holds only what cannot live in any org's database:
 
-**The target, in ten points** (decision 7's list, each mapped to a mechanism in §2):
+  | Table | Holds |
+  |---|---|
+  | `orgs` | the registry of orgs and their databases |
+  | `accounts` | the machine-wide billing accounts, their limit marks and spend |
+  | `turn_tickets`, `turn_admission` | the machine-wide fair turn queue |
+  | `engine_instances` | engine processes, for leases |
 
-| # | Point | Mechanism |
-|---|---|---|
-| 1 | PostgreSQL is the source of truth | Each action is one short transaction that locks and writes only its own rows. No whole-org dictionary. |
-| 2 | Normalized tables | One table per kind of record, with typed columns. Many-to-one links are foreign-key columns, many-to-many links are link tables, and history is rows. JSON only for shapeless provider payloads that nothing filters on. |
-| 3 | Integrity in the database | Foreign keys, `CHECK`s on every status, unique names per org, at most one held reservation per resource, and a tree-loop check in the transaction that moves an agent. |
-| 4 | History costs nothing | Partial indexes cover active rows only: live agents, open items, unread mail, queued jobs. Archived rows never enter a hot path. |
-| 5 | Concurrency | Row locks, a `row_version` column for compare-and-set, and turn admission as a `SKIP LOCKED` queue. |
-| 6 | Screen feed | Every transaction appends to a numbered `changes` table and sends `NOTIFY`. The UI catches up by number, and a gap means a missed update. This replaces whole-tree rebuilds and polling. |
-| 7 | Reads are targeted queries | The docket access rule in SQL; header counts by indexed count; the prompt reads only the agent's neighbourhood. |
-| 8 | Background work as job rows | Delivery, watchdog checks, turn starts, retries, reminders and resumes become rows in a `jobs` table with a due time, not 5–30 s scans. |
-| 9 | Domain modules | agents, docket, mail, questions, scheduling, feed, providers, accounts, org. Each module owns its tables and queries. |
-| 10 | A stateless engine | Several engine processes can serve at once. Large texts live outside the hot rows. One shared set of tables with an `org_id` column, not a copy per org. |
+  An org's whole footprint there is its registry row, plus its tickets and its org-key account rows
+  while they exist. All of them are removed in the same step as the org.
+- **Importing an org** is creating one database and adding one registry row. **Deleting** it moves
+  that database and the org's folder to the trash; purging the trash drops them (§2.13).
 
-**One data migration.** The schema in §3 is the complete end state. It includes the tables that
-later engine work uses (`jobs`, `turn_queue`, `changes`). Everything that ships after the migration
-release changes code only, never user data (§6).
+**Architecture** (unchanged from rev 2):
 
-**First prototype** (decision 8, defined in §6.2). It contains:
+- PostgreSQL is the only source of truth.
+- Each action is one short transaction over only its rows.
+- Integrity is enforced by the database.
+- Partial indexes keep history out of hot paths.
+- Turn admission and background work are `SKIP LOCKED` queues.
+- A numbered change log drives the screen feed.
+- Code is split into domain modules.
+- The engine is stateless.
 
-- the full schema;
-- the full conversion of real data from both starting points;
-- the whole app running on nothing but the new tables, with the agents and docket modules native.
+**One data migration.**
 
-It is the point at which the local alpha build is made, after both rehearsals pass.
+- On upgrade, the engine creates the app database and one database per org.
+- It converts each org from today's layout, reads everything back, and refuses to start if anything
+  does not match.
+- Today's database is not modified at all, so rolling back to 3.1.0 is "run 3.1.0 again" (§5.3).
+- A 2.1.14 install takes the same path after the existing first-launch import.
 
-**Expected gains** (measured on prototype tables built from the live data, §8):
+**What the move to one database per org costs** (measured on my dev cluster, §8):
 
-| Operation | Today | New tables |
-|---|---|---|
-| Re-parent 400 agents | 1.0 s | 6 ms |
-| The docket counts every tree rebuild pays | 1.0–1.2 s | 0.2 ms |
-| Docket "items I can read" | 58–71 ms | 0.5–2 ms |
-| History lookups | 112 ms | 0.3 ms |
-| Delivering 200 mails | 243 ms | 2.4 ms |
-
-On the live copy, the SQL access rule returns exactly the engine's 5,041 (item, reader) answers
-(measured, §3.4).
+| Cost | Value |
+|---|---|
+| Opening a connection | ≈17 ms |
+| Memory per idle connection | ≈4 MB private |
+| Creating an empty database | 0.63 s |
+| Dropping a database | 0.26 s |
+| Dumping one org / restoring it | 2.2 s / 5.7 s |
+| Every org-internal lookup and write | the same as in rev 2's prototype, re-measured inside a dedicated database |
 
 ## 1. Starting point and constraints
 
-- **The engine today.** About 70,000 lines (`ledger.py`, `supervisor.py`, `api.py`) operate on one
-  dictionary per org. `store.py` loads it lazily from five key+JSON tables per org, and saves it by
-  comparing serialized JSON. Eighteen per-row triggers keep side tables (`node_index`,
-  `work_read_*`, `mail_sent` …) so that a few reads avoid unpacking JSON. The audit measures the
-  cost.
-- **The user's rules for this item** (decisions 2–8):
-  - foreign keys for many-to-one, link tables for many-to-many, no embedded lists;
-  - a standard normalized design;
-  - conversion from v3.0.9 and from v2.1.14, both rehearsed on real data;
-  - no build or publish until the whole rewrite is in;
-  - the ground-up architecture above;
-  - a local alpha build after the first prototype, once both rehearsals pass.
+- **Today.** One PostgreSQL database (`orgtree`), with one schema per org (`org_<n>`) holding five
+  key+JSON tables and 18 trigger-kept side tables, plus `public.orgs`, `public.receipts` and the
+  migration bookkeeping. Around it sit machine-level files:
+  - `accounts-registry.json`, `app-settings.json`;
+  - `reply-events.sqlite3`, `file-deliveries.db`, `chat-window-index.sqlite3`;
+  - the mail hub's folder;
+  - each org's marker in `orgs/` and its workspace and scratch folders.
+- **The user's rules** (decisions 2–11). Foreign keys for many-to-one; link tables for many-to-many;
+  no embedded lists; a normalized design. Conversion from v3.0.9 and from v2.1.14, rehearsed on
+  real data. No build or publish until the rewrite is in, apart from a local alpha after the first
+  prototype. The ground-up architecture. One database per org and a minimal app database, with an
+  org being one body of data.
 - **Hard constraints.**
   - Old data must not be lost.
-  - Every migration must refuse to start, with a clear reason, if a check fails.
-  - The first-launch importer for 2.1.14 data (`tools/pypg/pgimport.py`) writes into today's tables
-    (§5.1).
+  - Every migration refuses to start, with a clear reason, if a check fails.
+  - The 2.1.14 first-launch importer (`tools/pypg/pgimport.py`) writes into today's layout.
 
-## 2. The target architecture
+## 2. Target architecture
 
-### 2.1 The unit of work: one short transaction per action
+### 2.1 The unit of work: one short transaction per action, inside one org
 
-Every operation (an API call, an agent tool call, a job) is one function in a domain module, with
-this shape:
+Every operation (an API call, an agent tool call, a job) is a function in a domain module. It runs
+in one transaction **on its org's database**:
 
 ```python
-def move_agent(t: Tx, agent: AgentRef, new_parent: AgentRef | None, actor: Actor) -> MoveResult:
+def move_agent(t: OrgTx, agent: AgentRef, new_parent: AgentRef | None, actor: Actor) -> MoveResult:
     a = t.agents.lock(agent)                 # SELECT … FOR UPDATE on the rows it will change
-    p = t.agents.get(new_parent)             # plain read, or FOR SHARE if the decision depends on it
+    p = t.agents.get(new_parent)
     rules.check_move(a, p, actor)            # the business rule, in Python, on these rows only
     t.agents.set_parent(a, p)                # UPDATE agents SET parent_id = …, row_version + 1
     t.feed.changed("agent", a.id)            # appended to `changes` at commit (§2.5)
     return MoveResult(...)
 ```
 
-- **`Tx`** is a database transaction (READ COMMITTED), opened by the request or job runner.
-- **Committing** bumps the org's revision and writes the change-log rows (§2.5).
-- **Retries.** A serialization failure or deadlock retries the whole function. Functions are pure
+- **`OrgTx`** is a transaction (READ COMMITTED) on a connection from that org's pool (§2.11).
+- **Committing** bumps the org's revision and writes the change-log rows.
+- **Retries.** Serialization failures and deadlocks retry the whole function. Functions are pure
   apart from the database, as `org_tx_call` already requires.
-- **Idempotency.** Operation keys stay (`public.receipts`, `op_receipts`), written in the same
-  transaction.
-- **Locks are taken in one order:** org row (shared), then agents by id, then items by id, then
-  mailboxes, then other rows. This is the lock-plan idea `orgtx` already uses, applied to named
-  rows instead of whole sections.
-- **The business rules stay in Python** (hire limits, grants, docket rules, visibility). They run
-  on the rows the function read, not on a whole-org dictionary. Rules that need a set ("is X an
-  ancestor of Y", "the free credits under P", "the items X can read") ask the database (§2.6).
+- **Idempotency.** Operation keys (today `public.receipts`, keyed by org) move into the org's own
+  database.
+- **Locks are taken in one order:** agents by id, then items by id, then mailboxes, then other rows.
+- **Business rules stay in Python** and run on the rows the function read. Rules over sets
+  (ancestry, free credits, docket access) ask the org database (§2.6).
+
+**No transaction ever spans two databases.** The few actions that touch two (cross-org mail,
+starting a turn) are written as two steps. The first step records the intent durably, and the
+second is an idempotent job (§2.7). Nothing relies on both commits happening together.
 
 ### 2.2 Integrity enforced by the database
 
-| Rule | How |
+| Rule | How (inside one org database) |
 |---|---|
-| Every link points at a real row of the same org | Composite foreign keys `(org_id, x_id) → (org_id, id)`. A cross-org link is impossible by construction. |
-| Valid statuses and kinds | `CHECK (state IN …)` on every enumerated column (agent state, bearer state, item status and kind, mail state, job state, reservation state …) |
-| Agent names unique per org | `UNIQUE (org_id, name) WHERE state <> 'deleted'`. A deleted agent keeps a tombstone row, so historical references stay valid keys, and its name can be reused (§3.2). |
-| Docket slugs unique per org, never reused | `UNIQUE (org_id, slug)` on items, plus `retired_slugs(org_id, slug)`. The create function refuses a retired name, inside the same transaction. |
-| No overlapping reservations | `UNIQUE (org_id, resource) WHERE state = 'held'` (today's rule: one held reservation per resource), and `UNIQUE (org_id, integration_key)` |
-| No loop in the tree | A statement-level constraint trigger on `agents`, run when `parent_id` changes. For each moved row it walks up from the new parent (at most the tree depth, 6 today) and raises if it meets the row. It runs in the moving transaction, at commit. It derives no data; it only refuses. |
-| One running turn per agent; one queued delivery per mailbox | Partial unique indexes on `turn_queue` / `jobs` (§2.4, §2.7) |
-| Counts never negative, sequences monotonic | `CHECK`s on counter and sequence columns |
+| Every link points at a real row | foreign keys. The database itself scopes everything to the org, so keys carry no `org_id` |
+| Valid statuses and kinds | `CHECK (… IN …)` on every enumerated column |
+| Agent names unique | `UNIQUE (name) WHERE state <> 'deleted'`. A deleted agent keeps a tombstone row, so historical references stay valid keys (§3.0) |
+| Docket slugs unique and never reused | `UNIQUE (slug)` + `retired_slugs(slug)`, checked in the create transaction |
+| No overlapping reservations | `UNIQUE (resource) WHERE state = 'held'` (today's rule), `UNIQUE (integration_key)` |
+| No loop in the tree | a statement-level constraint trigger on `agents` when `parent_id` changes: walk up from the new parent (at most the tree depth, 6 today) and raise on meeting the moved row. It refuses; it derives nothing. |
+| The database belongs to this org | a one-row `org_identity(org_uuid, slug)` table. The engine compares it with the registry row on every pool open, so a database restored under the wrong name is refused, not served. |
+| Counts and sequences sane | `CHECK`s |
+
+Across databases, integrity is by construction. The app database never holds org content, so there
+is nothing to keep consistent with it except the registry row and the small references listed in
+§2.10. All of those are deleted with the org.
 
 ### 2.3 History costs nothing
 
-Hot paths only ever see active rows, through partial indexes:
+Partial indexes cover active rows only:
 
-| Table | Partial indexes |
+| Table | Active rows indexed |
 |---|---|
-| `agents` | `WHERE state = 'live'`; children `(org_id, parent_id, ui_order, created, …)`; retired pile `WHERE state = 'archived' AND successor_id IS NULL` |
-| `work_items` | `WHERE archived_at IS NULL` (status, attention, order) |
-| `mail` | `WHERE state <> 'delivered'` (the inbox queue) |
-| `jobs` | `WHERE state = 'queued'` |
-| `turn_queue` | `WHERE state = 'waiting'` |
-| `asks` | `WHERE status IN ('open', 'pending')` |
+| agents | live |
+| docket items | open (`archived_at IS NULL`) |
+| mail | not yet delivered |
+| jobs | queued |
+| questions | open |
 
-Archived and historical rows are reached only by key (one item, one agent's history page) or by a
-`LIMIT`ed index range ("newest 50 events of this agent").
-
-The tests (§9) seed 10× archived history and require the same statement count and rows read on
-every hot path. Partitioning the append-only logs by time stays possible later without a data
-change, and is not needed at today's sizes.
+Archived rows are reached only by key, or by `LIMIT`ed index ranges. The tests seed 10× history and
+require the same statement counts and rows read (§9).
 
 ### 2.4 Concurrency
 
-- **Row locks** (`FOR UPDATE` / `FOR SHARE`) on exactly the rows an action changes or decides on.
-- **Compare-and-set.** Every mutable row carries `row_version`. A save is
-  `UPDATE … WHERE id = $1 AND row_version = $2`. An editor that read an old version gets a
-  conflict, never a silent overwrite. The docket's user-visible `rev` stays as its own column.
-- **Turn admission.** The fair queue becomes rows. `turnslots.FairSlots` is in memory today: a
-  machine-wide limit of 16, first come first served within an org, round-robin across orgs.
-  - `turn_queue(org_id, agent_id, enqueued_at, state, lane, …)` holds one waiting row per agent
-    (`UNIQUE … WHERE state IN ('waiting', 'running')`).
+- **Inside an org:** row locks on exactly the rows an action changes or decides on, plus
+  `row_version` compare-and-set on every mutable row. The docket's visible `rev` stays its own
+  column.
+- **Across orgs: turn admission.** Today `turnslots.FairSlots` is in memory: at most 16 turns at
+  once across all orgs, first come first served within an org, round-robin across orgs. This is
+  the one scheduling decision that is machine-wide by definition, so it lives in the app database:
+  - `turn_tickets` holds one row per waiting or running turn (org, agent, lane, enqueued_at,
+    state, lease owner, lease_until), with `UNIQUE (org_id, agent_id) WHERE state IN ('waiting',
+    'running')`.
   - The admitting function locks the single `turn_admission` row (the limit and the org served
-    last), counts running rows, and picks the next waiting row in fair order with
-    `FOR UPDATE SKIP LOCKED`. It marks that row running, with a lease.
-  - The process running the turn renews the lease. An expired lease frees the slot after a crash.
-  - Interrupt, halt and retire mark the row cancelled in their own transaction. Today they must call
-    `wake()`; here they need nothing more.
+    last), counts running tickets, and picks the next waiting ticket in fair order with
+    `FOR UPDATE SKIP LOCKED`. It marks the ticket running, with a lease.
+  - The engine process running the turn renews the lease. A crashed process's lease expires and
+    frees the slot.
+- **Starting a turn takes two steps.** The org transaction that decides an agent should run writes a
+  `start_turn` job in the org database. The job inserts the ticket in the app database: `INSERT …
+  ON CONFLICT DO NOTHING` on the unique key, so a retry never queues twice.
+- **Interrupt, halt and retire** cancel the ticket in the same idempotent way. Today's
+  `wake()`-after-cancel calls disappear.
 
-### 2.5 The change log and the screen feed
+### 2.5 The change log and the screen feed: per org database
 
-`changes(org_id, rev, pos, entity, entity_id, op)` holds one row per record a transaction changed.
-`rev` is the org's commit revision (`orgs.revision`, which exists today and is bumped once per
-commit).
+- **Each org database has `changes(rev, pos, entity, entity_id, op)`** and a one-row
+  `org_revision(rev)`. A transaction takes the revision row's lock **last**, just before commit. So
+  revisions are handed out in commit order with no gaps, and the lock lasts only the commit.
+- **`NOTIFY` is per database**, which suits this layout. Each org's transactions send
+  `NOTIFY org_rev, '<rev>'` in their own database.
+- **Listening.** An engine process holds one `LISTEN` connection per org it is actively serving: an
+  org with a desktop client watching it, or with agents running in that process. It pushes frames
+  carrying `rev` to that org's websocket clients.
+- **Catching up.** A client that sees a gap, or reconnects, calls
+  `GET /api/orgs/{slug}/changes?after=N`. It receives the changed `(entity, id, op)` list and
+  refetches only those records through the targeted endpoints. A client older than the retention
+  window does one full load.
+- **The org list** (orgs created, deleted, renamed, failed) is the app database's own feed:
+  `NOTIFY app_orgs` from the registry transactions, and one listener per engine process.
+- **This replaces** the per-process frame `rev` (`api._sync_revs`), the coalesced `changed`
+  broadcast, and the whole-tree rebuild after every commit (1.2–1.45 s on the live copy today).
+- **Retention:** 24 h, and at least the last 10,000 revisions (Q8), pruned by a job in each org.
 
-- **Ordering.** The transaction takes the org's revision-row lock **last**, just before commit. So
-  revisions are handed out in commit order with no gaps, and the lock is held only for the commit
-  itself.
-- **Notification.** `NOTIFY org_rev, '<org>:<rev>'` (the channel `pgfeed.py` already listens on).
-  The engine pushes a frame carrying `rev` to the org's websocket clients.
-- **Catching up.** A client that sees rev N+2 after N, or reconnects, asks
-  `GET /api/orgs/{slug}/changes?after=N`. It gets the changed `(entity, id, op)` list and fetches
-  just those records through the targeted read endpoints. A client too far behind (older than the
-  retention window) does one full load.
-- **This replaces three mechanisms:**
-  - the per-process frame `rev` (`api._sync_revs`): it lives in one process, so it cannot serve
-    several;
-  - the coalesced `changed` broadcast;
-  - the whole-tree rebuild after every commit (1.2–1.45 s on the live copy today).
-- **Retention.** Change rows older than a window (default 24 h, and at least the last 10,000
-  revisions) are deleted by a job.
+### 2.6 Targeted reads, and reads that cross orgs
 
-### 2.6 Reads are targeted queries
+**Inside an org,** every screen and agent read is one or a few indexed queries, never a whole-org
+load (rev 2 §2.6, unchanged):
 
-Each screen and each agent read is one or a few queries over indexed columns. It never loads an
-org. Examples, with prototype costs (§8):
+| Read | How | Cost |
+|---|---|---|
+| Docket list | the access rule as SQL with the list-order index | 0.2–1.6 ms in a dedicated database (§8) |
+| Header counts | `count(*)` over the active partial indexes | |
+| Per-turn prompt | only the agent's neighbourhood: its row, at most 6 ancestors, children, peers, its chain's free credits, its open questions and audiences | |
+| Lineage | a recursive query over `predecessor_id` | |
 
-- **Docket list.** The access rule as SQL (§3.4) with the list order index: 0.2–2.1 ms.
-- **Header counts.** `count(*)` over the active partial indexes: open items by status, unread mail,
-  open questions, live agents. All are cheap because the active sets are small: 12 open items, 6
-  live agents. A counter row updated in the same transaction is reserved for a count over a large
-  set, if one ever appears.
-- **The per-turn prompt.** It reads only the agent's neighbourhood: its row; its ancestors (at most
-  6); its children and peers; the free credits of its chain (`sum(credit_grant)` per parent); its
-  open questions and audiences. Today it decodes every agent (≈140 ms).
-- **Tree screens.**
-  - The canvas loads live agents plus, per seat, a page of the retired pile.
-  - Changes arrive through the feed (§2.5).
-  - Lineage is a recursive query over `predecessor_id` (0.19 ms for 62 generations).
+**Across orgs,** a read is a fan-out: one targeted query per org database, run in parallel through
+each org's pool and merged in Python. There are three such reads today.
 
-### 2.7 Background work as job rows
+| Read | Today | Rev 3 |
+|---|---|---|
+| `GET /api/accounts` (which agents are bound to which account) | loads every org's whole document and walks every agent (audit §3.4) | per org: `SELECT account, count(*) FROM agents WHERE state = 'live' AND account IS NOT NULL GROUP BY account` (partial index), merged with the `accounts` rows from the app database |
+| `GET /api/orgs` (the org list with summary counts) | the registry and per-org summaries | the registry from the app database, plus one summary query per org (live agents, open items, unread mail, all by partial index) |
+| `list_orgs_with_docs` (public and bridge traffic, 5 s TTL) | loads every org | the registry plus the needed per-org columns |
 
-`jobs(org_id, job_id, kind, agent_id, item_id, watchdog_id, run_at, state, attempts, lease_owner,
-lease_until, last_error, dedupe_key)`, with a partial index on queued jobs by `run_at`, and
-`UNIQUE (org_id, kind, dedupe_key) WHERE state IN ('queued', 'running')` so the same work is never
-queued twice.
+**Cost** (measured, §8): about 0.05 ms per query once a pool connection exists, and about 17 ms per
+org whose pool is cold, in parallel. With 4 orgs that is under 2 ms warm and about 20 ms cold. With
+50 orgs: about 3 ms warm, about 100–200 ms cold, bounded by a fan-out concurrency of 8.
 
-- **Who writes a job.** The transaction that creates the condition: a deposit to an idle agent
-  queues `deliver(mailbox)`; a freeze queues `resume(agent)` at its until-time; a watchdog queues
-  its next `check` at `now + interval`; a status of "working" queues `checkup(agent)` at +20 min; an
-  item becoming archivable queues `archive(item)` at its deadline.
-- **Who runs it.** Workers in any engine process take due jobs with
-  `FOR UPDATE SKIP LOCKED … ORDER BY run_at LIMIT n`, lease them, run each as its own transaction
-  (§2.1), and finish or reschedule them.
-- **What it replaces:** the 30 s auto-resume scan (it decodes every agent, audit §3.4), the 20 s
-  keeper passes, the 5 s watchdog tick, the 1 s mail-drain loop, and the docket reminder scans.
-  Nothing scans for work; the work is a row with a due time.
+### 2.7 Background work as job rows, per org database
+
+Each org database has `jobs(id, kind, agent_id, item_id, watchdog_id, run_at, state, attempts,
+lease_owner, lease_until, last_error, dedupe_key)`. It has a partial index on queued jobs by
+`run_at`, and `UNIQUE (kind, dedupe_key) WHERE state IN ('queued', 'running')`.
+
+- **Who writes a job:** the org transaction that creates the condition. Examples:
+  - a deposit to an idle agent → `deliver`;
+  - a freeze → `resume` at its until-time;
+  - a watchdog → its next `check`;
+  - a "working" status → `checkup` at +20 min;
+  - an archivable item → `archive` at its deadline;
+  - a decision to run an agent → `start_turn` (§2.4);
+  - a cross-org mail → `deliver_external` (below).
+- **Who runs it.** Each engine process runs a scheduler per org it serves.
+  - It keeps the org's next due time from `SELECT min(run_at) … WHERE state = 'queued'`, and wakes
+    on that time or on `NOTIFY org_jobs` from the org database.
+  - It claims due jobs with `FOR UPDATE SKIP LOCKED … ORDER BY run_at LIMIT n`, leases them, and
+    runs each as its own org transaction.
+  - Several processes can schedule the same org: `SKIP LOCKED` hands each job to exactly one.
+- **Orgs nobody is serving** (no desktop client, no running agent) still have due jobs: a freeze
+  ending, a watchdog. A slow sweep reads `min(run_at)` from every registered org: one cheap query,
+  every 60 s. It starts serving an org whose next job is due within the sweep interval. Idle orgs
+  therefore cost one connection-minute check, not a held connection.
+- **Cross-org mail** (`@org:<slug>`) already happens in two separate writes today. The sender's org
+  transaction records the outgoing row; then `supervisor.deliver_org_inbox` writes the receiver.
+  Here:
+  1. The sender's transaction writes the outgoing row and a `deliver_external` job, in the sender's
+     database.
+  2. The job inserts into the receiver's `org_inbox`, keyed by the message's global id
+     (`UNIQUE (message_id)`, so a retry is a no-op).
+  3. The job marks the sender's row delivered.
+
+  This needs no shared table.
+- **What jobs replace:** the 30 s auto-resume scan (it decodes every agent), the 20 s keeper
+  passes, the 5 s watchdog tick, the 1 s mail-drain loop and the docket reminder scans.
 
 ### 2.8 Domain modules
 
-`engine/backend/orgtree/domain/`:
-
 | Module | Owns |
 |---|---|
-| `agents.py` | the tree, hire / retire / move / swap / promote / insert / dissolve / rename, scope and grants, lineage |
-| `docket.py` | items, access, list, update, review and acceptance, evidence, archive |
-| `mail.py` | mail, mailboxes, notices, delivery batches, steer records, user mail, org inbox |
-| `questions.py` | asks, credit and scope requests |
-| `audiences.py` | grants and requests |
-| `watchdogs.py` | dogs and their events |
-| `documents.py` | presentations |
-| `reservations.py` | reservations |
-| `scheduling.py` | jobs, turn queue, leases, workers |
-| `feed.py` | the change log and catch-up |
-| `org.py` | settings, tiers, kiosk, net |
-| existing `providers` / `accounts` modules | provider and account state; they keep their own stores |
+| `agents` | tree and lifecycle, scope and grants, lineage |
+| `docket` | items, access, list, update, reviews, archive |
+| `mail` | mail, mailboxes, notices, delivery, steer records, user mail, org inbox, cross-org delivery jobs |
+| `questions` | asks, credit and scope requests |
+| `audiences` | grants and requests |
+| `watchdogs` | dogs and their events |
+| `documents` | presentations |
+| `reservations` | reservations |
+| `scheduling` | org jobs, the scheduler, turn tickets |
+| `feed` | the change log and catch-up |
+| `org` | settings, tiers, kiosk, net |
+| `registry` (new, app database) | org lifecycle, accounts, engine instances |
+| existing provider modules | provider and usage logic |
 
-Each module owns its tables. Others call its functions inside the same `Tx`, never its SQL.
+Each module owns its tables. Others call its functions inside the same transaction, never its SQL.
+The ledger's rules move into the modules. Today's behaviour suites are the contract for each move.
 
-`ledger.py`'s rules move into the modules as plain functions over row objects. The test suites that
-assert today's behaviour (lifecycle, docket, mail, visibility) are the contract for each move.
+### 2.9 Stateless engine, several processes, large texts out of hot rows
 
-### 2.9 A stateless engine; large texts out of hot rows
+- **No process holds org state.** Caches are allowed only when keyed by `(org, rev)` and dropped
+  when that org's feed moves past them.
+- **Several engine processes coordinate only through the databases:**
+  - **Row locks and `SKIP LOCKED`** inside org databases.
+  - **The app database** holds the turn tickets, the `engine_instances` heartbeats that leases
+    refer to, and the registry state, which every process watches through `NOTIFY app_orgs`.
+  - **Turn processes** (provider CLIs) are owned by the engine process that started them. Their
+    ticket records the owner and lease, so no second process starts a second turn for that agent,
+    and a dead owner's tickets expire.
+- **Each process has its own pools** (§2.11). With P processes the connection budget is P times the
+  per-process one.
+- **Large texts** (charters, descriptions, mail and document bodies, steer texts) live in one-to-one
+  content tables, and provider JSON payloads in `agent_runtime`. Hot rows stay about 200 bytes.
+  Transcripts stay on disk in the org's folder.
 
-- **No process holds org state.** Process memory may cache read results only when they are keyed by
-  `(org, rev)` and dropped when the feed moves past them. Turn processes (provider CLIs) are owned
-  by the engine process that started them. Their `turn_queue` row records the owner and a lease, so
-  another process never starts a second turn for that agent, and cleans up after a dead owner.
-- **Several processes** can then serve requests, run jobs and run turns at once. Coordination goes
-  only through rows, locks and `NOTIFY`.
-- **Large texts live in one-to-one content tables, not in the hot rows:** charters, docket
-  descriptions, mail bodies, document bodies and steer texts. Session transcripts stay on disk as
-  today. The provider-reported JSON payloads of an agent go to `agent_runtime`. A row the tree or a
-  list scans stays small (≈200 bytes for an agent instead of 12 KB).
+### 2.10 One database per org, and a minimal app database
 
-### 2.10 One shared set of tables, keyed by org
+**Names.** `orgtree_app` is the app database. `orgtree_org_<n>` is one database per org; `<n>` is
+the registry's `org_id`, so a rename never renames a database. Today's `orgtree` database becomes
+the frozen legacy store: it is not modified, and is dropped one release after conversion (§5.3).
 
-Recommendation: **shared tables, `org_id` leading every key and index.** It is preferred by
-decision 7, and nothing measured argues for keeping a copy per org.
+**The app database holds exactly these tables.** For each, why it cannot live in an org's database:
 
-| | Per-org schemas (today) | Shared tables with `org_id` |
-|---|---|---|
-| Migrations | a creator function re-wrapped by most migrations (14 of 0004–0019 wrap `orgtree_create_org_schema`) and a loop per org | one DDL statement per table |
-| Queries | schema name built into SQL text; plans cached per schema | fixed SQL text, prepared once, shared by every org |
-| Cross-org reads | `GET /api/accounts` loads every org's whole document (audit §3.4) | one query |
-| Several engine processes | each process resolves schemas | nothing to resolve |
-| Isolation between orgs | physical | `org_id` in every composite key and foreign key, so a cross-org link cannot be written. Every query takes `org_id` |
-| Deleting an org | `DROP SCHEMA` | `DELETE FROM orgs WHERE org_id = $1` with `ON DELETE CASCADE` |
-| Exporting one org | `pg_dump -n org_N` | the existing `export_json` path (by query) |
+| Table | Holds | Why it cannot be per-org | Org footprint |
+|---|---|---|---|
+| `orgs` | `org_id`, `slug` (`UNIQUE … WHERE state <> 'trashed'`, so a trashed org's name can be reused as today, and a restore picks a free name if it was), `org_uuid UNIQUE`, `database UNIQUE`, `state CHECK (provisioning, converting, active, trashed, purging, failed)`, `state_reason`, `created_at`, `trashed_at` | The engine must find an org's database before it can open it. A row inside the org's own database cannot answer "which database is org X". | one row |
+| `accounts` | `id` (the stable account slug), `provider`, `harness`, `credential_ref` (a path or token-store reference, never key material), `mode`, `enabled`, `tint_ordinal`, `origin_org_id` → orgs (`ON DELETE CASCADE`), plus `account_marks(account_id, pool, until, window, observed_at, provenance)` and `account_spend(account_id, usd_total, turns, since, updated_at)` | `registry.py` defines accounts as "machine-global, every provider together". One account serves agents in every org. A limit mark set by a turn in org A must stop turns in org B, and spend is metered machine-wide. Today this is `accounts-registry.json`; it moves here so several processes can update marks and spend in transactions. | org-key account rows (legacy org keys bound to one org) |
+| `turn_tickets`, `turn_admission` | the machine-wide fair queue (§2.4) | the slot limit and round-robin fairness are defined across orgs | transient tickets (`ON DELETE CASCADE`) |
+| `engine_instances` | `id`, `host`, `pid`, `started_at`, `heartbeat_at` | a process is not owned by any org; leases in every database refer to it | none |
+| `schema_migrations` | the app database's own migrations | bookkeeping | none |
 
-Today's data: 4 orgs, and one holds 93% of the rows. An `(org_id, …)` index prefix costs nothing
-measurable at this size. If a future install holds very large orgs, `LIST` partitioning by `org_id`
-can be added without changing the data model.
+**Deliberately not in the app database:**
+
+| What | Why not |
+|---|---|
+| Provider usage readouts | caches of provider answers, kept in memory as today; not data that must exist |
+| Cross-org mail routing | the sender's and receiver's databases plus an idempotent job (§2.7) are enough |
+| Operation receipts | move into each org's database. Org creation and deletion are idempotent by slug and registry state |
+| `app-settings.json` | stays a file. It is written rarely, by the UI, and read on change |
+| Credentials | stay in their profile folders, never in a database |
+| The mail hub's store | separate infrastructure, unchanged |
+| `chat-window-index.sqlite3` | stays a per-machine cache (it is rebuildable). Its keys include the org's `org_uuid`, so a purged or re-imported org can never read another's cache |
+| `reply-events.sqlite3`, `file-deliveries.db` | **move into each org's database**: they are org-owned durable records keyed by org and agent, and decision 11 makes an org one body of data |
+
+**An org's whole body** is therefore its database plus its folder (workspace and scratch,
+including transcripts). Its registry row, org-key accounts and live tickets are the only traces in
+the app database, and the org lifecycle removes them in the same step (§2.13).
+
+### 2.11 Connections
+
+**Measured** on my dev cluster (§8):
+
+| Fact | Value |
+|---|---|
+| Opening a connection, first query included | 16.7 ms median |
+| An idle backend | 4.2 MB private memory (19.8 MB working set, mostly shared pages) |
+| `max_connections` | 40, on both my cluster and the live one (`instance.json`) |
+
+**Pools.** One small pool per org database per engine process, opened lazily on the org's first use
+and closed after 10 idle minutes:
+
+- 0 connections while idle;
+- 1 kept while serving;
+- at most 4.
+
+Plus one `LISTEN` connection per org the process actively serves (§2.5), and one pool plus one
+listener for the app database.
+
+**Budget:**
+
+| Situation | Connections |
+|---|---|
+| Today's 4 orgs, all active, one process | about 4 × (1 listener + 1–2 pooled) + 2 for the app database = 10–14 |
+| A heavy day: 10 active orgs, 2 processes | up to 2 × (10 × 3 + 2) = 64, which needs `max_connections` raised |
+
+An idle org costs nothing.
+
+**Proposal:** raise the custodian's `max_connections` to 100 (Q11). Memory cost: about 4 MB private
+per backend, so 0.4 GB at the full 100. The engine enforces a global per-process cap and queues
+requests for a connection rather than failing.
+
+### 2.12 Migrations, once per database
+
+- **The app database** has its own migration folder (`pg_migrations/app/`), applied by
+  `pgstore.migrate` at start exactly as today: one transaction per file, an advisory lock, and drift
+  refusal.
+- **Every org database** has the org migration folder (`pg_migrations/org/`). Each org database
+  records its own `schema_migrations`.
+  - At start, the engine migrates every registered `active` org, one org at a time, each file in
+    its own transaction under that org's advisory lock.
+  - An org created later is born at the current level.
+  - An org whose migration fails becomes `failed`, with the reason in its registry row, and the
+    start is refused with that org named (the same refusal rule as the conversion).
+- **A partly migrated set is safe by construction.** Every org database is always at exactly one
+  migration level: each file commits in its own transaction, and its row in `schema_migrations`
+  commits with it. So a crash between orgs leaves some orgs at N+1 and others at N, and the next
+  start finishes the rest. The engine never serves an org whose level differs from the one it
+  expects:
+
+  | Org's level | What the engine does |
+  |---|---|
+  | lower than expected | migrates it before serving |
+  | higher than the engine knows (a newer build ran) | refuses it by name (`MigrationDrift`, as today) |
+
+### 2.13 The org lifecycle, end to end
+
+Every step is idempotent and driven by the registry's `state`. A crash at any point is finished by
+the next start, which finds the row in its intermediate state.
+
+**Create** (≈1 s; measured: `CREATE DATABASE` 0.63 s, plus the schema):
+
+1. App transaction: insert the registry row (`provisioning`, new `org_id`, `org_uuid`, database
+   name). `UNIQUE (slug)` makes a retried create a no-op.
+2. `CREATE DATABASE orgtree_org_<n>`, as the provisioning role (Q10).
+3. Org transaction: apply the org migrations, insert `org_identity(org_uuid, slug)` and the
+   org's default settings, and grant the runtime role its rights.
+4. App transaction: `active`; `NOTIFY app_orgs`.
+5. Create the org's workspace folder.
+
+**Delete (to the trash, reversible as today).** Today's `delete_org` renames the org's file into
+`<data>/deleted/`, and putting it back is the restore. In rev 3:
+
+1. App transaction: `trashed`, `trashed_at`; `NOTIFY app_orgs`. Every process closes the org's
+   pools and listeners.
+2. The org's turn tickets are cancelled. Its org-key accounts are disabled; they stay attached to
+   the trashed org until purge.
+3. The org's folder moves into `<data>/deleted/<slug>-<stamp>/`.
+
+The database itself stays. Once its connections are closed it is renamed to
+`orgtree_trash_<n>_<stamp>`, so its name shows its state and the slug is free for a new org, as
+today. A crash after this step is completed at the next start, from the registry state.
+
+**Restore:** reverse the rename and the folder move, then `active`.
+
+**Purge** (empty the trash):
+
+1. `purging`.
+2. `DROP DATABASE … WITH (FORCE)` (0.26 s, measured).
+3. Remove the trash folder.
+4. Delete the registry row, which cascades the org-key accounts and any tickets.
+
+After purge nothing of the org remains.
+
+**Export** (≈2–3 s for the largest org, measured):
+
+1. `pg_dump -Fc` of the org database: 2.2 s for the live org's tables, 25 MB.
+2. Plus the org's folder.
+3. Plus a manifest:
+   - `org_uuid`, slug and schema level;
+   - per-table counts and checksums;
+   - the org-key account rows;
+   - the account ids its agents are bound to.
+
+The existing human-readable `export_json` stays, built from queries.
+
+**Import / move** (≈6–8 s for the largest org, measured):
+
+1. Read the manifest. If the `org_uuid` is already registered, refuse, or import under a new slug
+   with a new uuid if the user chooses. Pick a free slug and database name.
+2. Registry row `provisioning` → `CREATE DATABASE` → `pg_restore` (5.7 s measured for the live
+   org).
+3. Migrate the org database forward if its level is older; refuse it if newer.
+4. Check the counts and checksums against the manifest, and `org_identity` against the registry
+   row.
+5. Restore the folder.
+6. Recreate the org-key accounts.
+7. Report the account ids bound in the org but unknown here. Those agents show as unbound and fall
+   back by the existing rules; nothing is silently rebound.
+8. `active`.
 
 ## 3. The schema
 
-All tables live in `public`, or in a `orgtree` schema if the coordinator prefers.
-
 ### 3.0 Conventions
 
-- **Keys.** Every record table has a surrogate key, `id bigint GENERATED ALWAYS AS IDENTITY`, plus
-  `org_id bigint NOT NULL`, with `UNIQUE (org_id, id)` as the target of composite foreign keys. The
-  names users and agents see stay natural keys with their own unique constraints:
-  - agent `name` (today's node id: `drag-opus`, `coordinator-opus@61`);
-  - item `slug`;
-  - mail `public_id`.
+These are rev 2's conventions, with one change: **no table in an org database carries `org_id`**,
+because the database is the org.
 
-  Renaming an agent is then one `UPDATE agents SET name`. Today `ledger.rename` rewrites every
-  reference in the org (parent, predecessor, successor, items, mail, audiences, asks, documents …).
-- **Timestamps** are `timestamptz` (Q2 answer), kept to the millisecond. API output keeps today's
-  spelling (`YYYY-MM-DDTHH:MM:SS.mmmZ`). The 1,843 stored values with a `+HH:MM` offset (all restart
-  notices) convert to the same instant and print in UTC.
-- **Numbers.**
-  - `bigint` / `integer` for whole numbers.
-  - `double precision` for always-float values (exact round trip).
-  - `numeric` where stored values mix ints and floats (Q4 answer). One example is `grant`: on the
-    live copy 1,198 values are ints and 10 are floats such as `62.0`. The mapper keeps the stored
-    form exactly.
-- **Absent versus null.** For the fields stored both ways on real data, a `<field>_null` boolean
-  marks a present null. These are:
+- **Keys.** Every record table has a surrogate key, `id bigint GENERATED ALWAYS AS IDENTITY`. Visible
+  names stay unique natural keys: agent `name` (today's node id), item `slug`, mail `public_id`.
+  Renaming an agent is one `UPDATE agents SET name` (Q6).
+- **Timestamps** are `timestamptz`, kept to the millisecond. API output keeps today's
+  `YYYY-MM-DDTHH:MM:SS.mmmZ`. The 1,843 offset-stamped restart notices convert to the same instant.
+- **Numbers.** `bigint`/`integer` for integers, `double precision` for floats, and `numeric` where
+  stored values mix the two. For example, `grant` holds 1,198 ints and 10 floats on the live copy.
+- **Absent versus null.** A `<field>_null` boolean marks a present null for the fields stored both
+  ways on real data. For JSON columns, SQL `NULL` means absent and JSON `null` means null.
+- **Strings containing U+0000** (17 records on the live copy) go to the record's `extra` JSON, and the
+  conversion report counts them.
+- **`extra json`** holds unknown top-level keys and is expected to be empty. **`row_version`** is on
+  every mutable row.
+- **Principals.** `<role>_kind CHECK (agent, user, engine, outside)` + `<role>_id` → agents +
+  `<role>_ref` (outside address).
+- **Deleting an agent** erases its own records and keeps a tombstone row (`state = 'deleted'`) for
+  historical references (Q6).
+- **`org_identity(org_uuid, slug)`** is a one-row table. The engine checks it against the registry
+  on every pool open.
 
-  | Record | Fields |
-  |---|---|
-  | agents | `occupancy`, `cli_compactions`, `team_charter`, `last_status`, `prev_status` |
-  | docket items | `waiting_reason`, `dropped_reason`, `parent`, `reviewer`, the latest verdict and packet |
+### 3.1 The app database
 
-  For JSON payload columns, SQL `NULL` means absent and JSON `null` means present null.
-- **Strings containing U+0000.** Neither text nor `jsonb` can hold them. 17 records on the live copy
-  have one, in mail bodies, steer logs and archived items. Such a field goes into the record's
-  `extra` (JSON text, where `\u0000` is legal), its column stays `NULL`, and the conversion report
-  counts it.
-- **Unknown fields.** Each record table has `extra json` for top-level keys the schema does not know
-  (legacy or future). It is expected to be empty; the conversion reports every key it puts there.
-- **`row_version bigint NOT NULL DEFAULT 1`** on every mutable table (§2.4).
-- **Who did something.** A table names its principal with a set of columns:
+| Table | Columns | Notes |
+|---|---|---|
+| `orgs` | as §2.10 | `NOTIFY app_orgs` on every change |
+| `accounts` | as §2.10 | |
+| `account_marks` | as §2.10 | PK `(account_id, pool)` |
+| `account_spend` | as §2.10 | PK `account_id` |
+| `turn_tickets` | `id`, `org_id` → orgs `ON DELETE CASCADE`, `agent_id` (the org database's surrogate key), `agent_name` (for display), `lane`, `enqueued_at`, `state CHECK (waiting, running, done, cancelled)`, `lease_owner` → engine_instances, `lease_until` | `UNIQUE (org_id, agent_id) WHERE state IN ('waiting', 'running')`; partial index on waiting by `(org_id, enqueued_at)` |
+| `turn_admission` | `singleton`, `slot_limit` (today's setting, default 16), `last_org_id` | |
+| `engine_instances` | `id`, `host`, `pid`, `started_at`, `heartbeat_at` | |
+| `schema_migrations` | | |
 
-  | Column | Meaning |
-  |---|---|
-  | `actor_kind CHECK (agent, user, engine, outside)` | which kind of principal |
-  | `actor_id` | a foreign key to `agents`, when the principal is an agent |
-  | `actor_ref` | the address of an outside party (`@org:…`, `@net:…`) |
+### 3.2–3.8 The org database
 
-  The engine principal is called `system` today. So "sent by the user" is a value, not a magic
-  string, and agent references stay real keys.
-- **Deleting an agent** (user-only, permanent today) erases the agent's own records: mail, notices,
-  turns, grants, audiences, questions (`ON DELETE CASCADE` from a tombstone purge). It keeps a
-  tombstone `agents` row (`state = 'deleted'`, the name, no content), so historical references
-  remain valid keys and still show the name: docket owner, holders, history, events. This matches
-  what the product shows today: the item keeps `{node: name, deleted: true}`.
+Every table of rev 2 §3.1–§3.8 moves into each org database **without its `org_id` column**: agents
+and their cold, child and link tables; the docket; mail, notices and delivery; questions; audiences;
+watchdogs; documents; reservations; events and receipts; jobs; and `changes`. Every index loses its
+`(org_id, …)` prefix, and every composite foreign key becomes a plain one.
 
-### 3.1 Orgs and settings
+Rev 2's per-org settings table (`org_settings`, plus the lists `org_dirs`, `org_tiers` …) becomes
+the org database's settings tables, unchanged apart from the key.
 
-- `orgs` (exists): `org_id`, `slug`, `revision` (the commit counter of §2.5), `created_at`,
-  `deleted_at`.
-- `org_settings(org_id PK)`: one row of typed columns for the scalar settings in `OrgDoc`:
-  - name, version, workspace;
-  - permission_mode, default_visibility, default_effort;
-  - max_top_grant, default_top_grant, compact_at;
-  - fable policies, cascade switches, max_depth, max_children;
-  - auto-resume fields, storage flags, net switches, API-key fallback fields;
-  - cost accumulators and heal markers.
+Additions:
 
-  The object-valued settings (`killswitch`, `kiosk`, `sandbox`, `disk`, `net_identity`,
-  `fable_lock`, `auto_cheap_compact`) are flattened into columns where their shape is fixed;
-  otherwise they are one JSON column each.
-- Setting lists (one row each):
+| Table | Contents |
+|---|---|
+| `org_identity` | §3.0 |
+| `org_revision(rev)` | §2.5 |
+| `op_receipts` | today's `public.receipts` rows for this org, plus today's `op_receipts` log |
+| `reply_events(agent_id, generation, id, text, scope)` | today's `reply-events.sqlite3` rows for this org |
+| `file_deliveries(id, agent_id, fingerprint, result)` | today's `file-deliveries.db` rows for this org |
+| `conversion_runs` | §5.2 |
 
-  | Table | Holds |
-  |---|---|
-  | `org_dirs(org_id, path, mode)` | folder grants |
-  | `org_tiers(org_id, tier, price, model)` | today's `tiers` and `models` |
-  | `org_default_mcp(org_id, server)` | default MCP servers |
-  | `org_kiosk_dirs`, `org_kiosk_mcp` | kiosk limits |
-  | `net_hubs(org_id, id, address, enabled, name)` | hubs |
-  | `net_hub_seen(org_id, hub_id, message_id)` | seen hub messages |
-  | `net_spool(org_id, hub_id, seq, …)` | outgoing hub spool |
-  | `retired_slugs(org_id, slug)` | docket names that can't be reused |
+Appendix A gives the full detail: the tables, column groups, indexes, child and link tables, the
+measured reasons (the turns table, the tool lists, the access rule) and the deliberate duplicates.
+It is rev 2 §3.2–§3.10 with `org_id` removed.
 
-### 3.2 Agents
+### 3.9 What is removed
 
-**`agents`.** Hot columns only, one row per agent generation. It replaces `nodes`, `node_index`,
-`foreground_meta`, `foreground_parents` and `node_tree_val`.
+These go:
+
+- the 18 per-row triggers and their side tables;
+- the JSON expression indexes;
+- `json_extract`;
+- `public.receipts`;
+- the per-org schema creator chain (`orgtree_create_org_schema` and its 14 wrappers);
+- the org markers in `orgs/`. The registry is the only record of which orgs exist; today the markers
+  and `public.orgs` must agree.
+
+The legacy `orgtree` database stays untouched for one release (Q3), then is dropped.
+
+## 4. How today's code maps onto the target
+
+| Today | Rev 3 |
+|---|---|
+| `store` / `pgstore`: one database, org schemas, `LazyDoc`, compare-on-save | `db.org_pool(org)` (§2.11), `OrgTx`, domain modules. During the transition, a compatibility view (the rev 1 mappers, §6.2) presents the old dictionary over one org's database for code not yet moved. |
+| `orgtx.org_tx` lock plans | `OrgTx` row locks inside the org database |
+| `ledger.Org` methods (≈400) | domain functions over rows. Audit §3.3 is the checklist. |
+| Supervisor loops (30 s, 20 s, 5 s, 1 s) | per-org jobs + scheduler (§2.7) |
+| `turnslots.FairSlots` (memory) | `turn_tickets` in the app database (§2.4) |
+| `api._sync_revs`, `hub_changed`, whole-tree refetch | per-org `changes` + `NOTIFY` + catch-up (§2.5) |
+| `registry.py` + `accounts-registry.json` | the `accounts` tables in the app database (§2.10) |
+| `reply_events.py`, `filedelivery.py` side SQLite files | tables in each org database |
+| `pgfeed.RevisionFeed` (one listener) | one listener per actively served org + one for the app database |
+| `store.create_org` / `delete_org` / markers / `pgstore.revive_marked` | the registry lifecycle (§2.13) |
+| `GET /api/accounts`, `GET /api/orgs`, `list_orgs_with_docs` whole-org loads | fan-out queries (§2.6) |
+
+## 5. Converting existing data: one data migration
+
+### 5.1 One path for every starting version
+
+| Starting point | Route |
+|---|---|
+| **v3.0.9, 3.1.0 and the other 3.0.x** (one database, per-org schemas) | Start the engine. It migrates the legacy database only if it is behind 0020 (0020 on 3.0.9), as every release has. **Measured:** importing at 0017 and then migrating to 0020 leaves the five base tables of all 4 orgs unchanged, and equal to an import made at 0020, by count and sha256 (`probe/v3x-states-0017.json`). So every 3.0.x and 3.1.0 state gives the converter identical input. |
+| **v2.1.14** (SQLite) | The first-launch import (`tools/pypg/pgimport.py`, unchanged) writes the SQLite rows into the legacy layout, with its counts and checksums. Then the engine starts and runs the same converter. **Rehearsed, step 1:** the user's real pre-conversion SQLite data, copied with SQLite's backup API, imported with pgimport's own code (4 orgs, byte-for-byte read-back, 39 s). The same was done with a v2.1.14 re-save of it (§5.4). |
+
+### 5.2 The converter
+
+It runs at engine start, after the app database's migrations, and before anything serves.
+
+1. **Create the app database** if it is missing, and migrate it.
+2. **For each org in the legacy database not yet `active` in the registry:**
+   1. Registry row `converting`. `CREATE DATABASE orgtree_org_<n>`. Apply the org migrations and
+      `org_identity`.
+   2. Read every record of the org's legacy schema, with the heal a new build's first load applies
+      today. One `REPEATABLE READ` snapshot of the legacy database; nothing in it is written.
+   3. Map each record to rows (the rev 1 mappers) and `COPY` them into the org database.
+      - Timestamps are parsed. One that cannot be parsed keeps its original text in `extra`, and
+        is reported, never dropped (Q2).
+      - Today's `public.receipts` rows for the org move into its `op_receipts`.
+      - Its rows from `reply-events.sqlite3` and `file-deliveries.db` are read read-only and
+        copied in.
+   4. Read everything back and compare each record with step 2, as canonical JSON with exact types,
+      and timestamps as instants. Count and checksum per kind. Write `conversion_runs` in the org
+      database.
+   5. App transaction: registry row `active`. **This is the commit point.** Before it, the new
+      database is disposable. A failure drops it and records `failed` with the reason, and the
+      engine refuses to start, naming the org, kind, record, field and both values.
+3. **Accounts.** `accounts-registry.json` is read and inserted into the app database, read back and
+   compared, in the app database's first transaction. The file is kept, untouched.
+
+**A partly converted set** (a crash, or a failure in one org): converted orgs are `active` and are
+skipped next time; the rest are retried from scratch. The legacy database is never written, so a
+retry always starts from the same input.
+
+**Time** (inferred from the audit's decode costs, plus measured database creation): about 1 s to
+create each database, 1–2 s to read and decode the largest org, a few seconds to `COPY`, about the
+same to read back. Under a minute for the whole machine, once, with the existing "updating the
+database" progress.
+
+### 5.3 Old data and rollback
+
+**Nothing old is modified.** The legacy `orgtree` database (with its `schema_migrations`),
+`accounts-registry.json` and the side files stay exactly as they were. So **a rollback to 3.1.0 is
+simply running 3.1.0**: it opens the legacy database it always used, and does not know the new
+databases exist. Writes made after the conversion are lost, as `pgimport`'s rollback already
+states. A cleanup tool drops the new databases if the user wants the space back.
+
+One release later, the cleanup release drops the legacy database and the old side files (Q3).
+
+### 5.4 Rehearsals (decisions 4 and 8)
+
+Every input is ready, built from copies in my dev cluster and recorded on the item:
+
+| Input | Contents |
+|---|---|
+| 3.x | a read-only `pg_dump` of the live cluster (3.0.9 data, migrations up to 0019), restored as `livecopy` |
+| 2.1.12/13 | the user's real pre-conversion SQLite orgs (backup-API copy) imported by pgimport, as `v2import` |
+| 2.1.14 | the same copy loaded and saved once through tag v2.1.14's own store code, then imported, as `v2114import` |
+| 3.0.x states | an import at 0017 migrated to 0020, as `v3x0017`; base tables identical to `v2import` |
+
+The 2.1.14 input is a **synthetic re-save**, approved by the coordinator. No copy written by exactly
+2.1.14 exists: the user's last v2 writer was 2.1.12/13. From v2.1.12 to v2.1.14, `store.py` and
+`schema.py` do not change; `ledger.py` only adds load-time value heals. Measured, the re-save
+changed exactly `models.sol` and the Sol agents' version pins (46 / 38 / 2 agents), and nothing
+else.
+
+Each rehearsal runs the converter on every input and records:
+
+- per org and kind, counts and checksums before and after;
+- heals, `extra` keys, U+0000 fields and unparseable timestamps;
+- the time taken;
+- the tests;
+- the read and reshape benchmarks on the result.
+
+## 6. Release plan
+
+### 6.1 What ships with the migration (3.2.0), and what comes later
+
+The schema is complete in 3.2.0: both migration folders and every table. Later releases change
+code, and add only empty tables if any.
+
+| Target point | In 3.2.0 | Later, no data change |
+|---|---|---|
+| Schema, integrity, partial indexes; one database per org; the app database | all | – |
+| Database as the source of truth; one transaction per action | all writes go through domain functions; every hot read is targeted. The compatibility view remains only for rare paths not yet moved, each listed in the release notes. | moving those; deleting the compatibility view |
+| Domain modules | agents, docket, mail, questions, audiences, documents, reservations, feed, org, registry | – |
+| Change log + `NOTIFY` | per-org `changes`, listeners per served org, frames carry `rev`, the renderer refetches the changed records | the renderer applies changes with no refetch; polling removed |
+| Jobs | per-org jobs, scheduler, sweep; delivery, watchdogs and cross-org mail as jobs | auto-resume, keepers, reminders and retries move one by one |
+| Turn queue | tables ship; `turnslots` stays in memory while there is one process | `turn_tickets` take over with the leases of multi-process |
+| Several processes | no process holds org state; pools per database; accounts in the app database | run a second process |
+
+### 6.2 The first prototype (decision 8)
+
+**Definition: the smallest slice that converts real data and runs the app on the new databases.**
+
+1. Both migration folders (app and org) and the provisioning path (`CREATE DATABASE` per org).
+2. The converter for every kind of record, the accounts registry and the two side files, with the
+   read-back check, the report and the refusal.
+3. The compatibility view: the storage layer loads and saves every kind of record through the rev 1
+   mappers on the org's own database, through a per-org pool. All existing engine code therefore
+   runs on the new databases, and the legacy database is never read again after conversion.
+4. Native agents and docket modules: reshaping, tree reads, the per-turn neighbourhood, and docket
+   access, list, get and counts, as targeted queries and short transactions.
+5. The registry lifecycle for create, delete-to-trash and purge (used by the converter and the
+   tests), and the `/api/accounts` and `/api/orgs` fan-outs.
+6. Tests (§9) for all of the above.
+
+When those pass, the rehearsals run on every input (§5.4). Then I report to the coordinator, who
+gives p03-ws4-rcfamilies the go for the local 3.2.0-alpha.0 build.
+
+### 6.3 Landing order on v3 (no release in between)
+
+| Step | Contents |
+|---|---|
+| 1 | App and org migrations, provisioning, the converter and the compatibility view. Lands as one step, because a conversion is all or nothing per org. |
+| 2 | The native agents module. |
+| 3 | The native docket module, the lifecycle and the fan-outs. **This completes the first prototype: rehearsals, then the alpha build.** |
+| 4 | The mail and watchdogs modules with their jobs; cross-org mail jobs. |
+| 5 | Questions, audiences, documents, reservations, events and org settings modules. |
+| 6 | The per-org change log driving the websocket frames. |
+| 7 | **3.2.0 release candidate:** final rehearsals, then the coordinator's build and publish. |
+
+## 7. Effort and risk (inferred)
+
+| Part | Size | Main risk |
+|---|---|---|
+| Two migration folders, provisioning | small–medium | privileges for `CREATE DATABASE` (Q10); connection limits (Q11) |
+| Converter + mappers (about 40 kinds) + accounts + side files | large | a legacy shape the mapper did not foresee (refused, never lost) |
+| Compatibility view per org database | medium | a whole-collection walk left on a hot path (the growth tests catch it) |
+| Native agents and docket modules | large | behaviour drift (today's suites are the contract) |
+| Org lifecycle, fan-outs, listeners per org | medium | a pool or listener leak (tests count open connections) |
+| Mail, jobs, the other modules, the feed | large | delivery ordering and duplicates (the custody tests stay) |
+| Turn tickets and multi-process (later) | medium | lease handling |
+
+## 8. Measurements
+
+### 8.1 What does not change
+
+**Inside an org.** All 25 lookups and 4 writes of the rev 2 prototype were re-run inside a dedicated
+database holding only the live org's prototype tables (`porg2`, restored from a one-org dump).
+Results are in `probe/proto-cost-porg2.json`; the "shared tables" column is the rev 2 prototype
+(`probe/proto-cost.json`).
+
+| Lookup or write | Today (audit) | Shared tables (rev 2) | Own database (rev 3) |
+|---|---|---|---|
+| Re-parent 400 agents | 1,006 ms with triggers; 657 ms engine CAS | 6.2 ms | **6.4 ms** |
+| Generation change on 400 agents | 1,788 ms | 5.1 ms | **4.3 ms** |
+| Cost-only change on 400 agents | 717 ms | 4.3 ms | **4.1 ms** |
+| Deliver 200 mails | 243 ms | 2.4 ms | **1.9 ms** |
+| Children of the 483-child seat | 1.2 ms | 0.20 ms | 0.18 ms |
+| Ancestors / descendants (1,145) | – | 0.23 / 3.6 ms | 0.11 / 3.1 ms |
+| Live / frozen-live / halted / accounts | 0.24 / 153 / 40 / 93 ms | 0.04 / 0.07 / 0.05 / 0.03 ms | 0.06 / 0.04 / 0.04 / 0.03 ms |
+| Cost total | 54 ms | 0.13 ms | 0.13 ms |
+| Lineage count (62 generations) | trigger-kept | 0.19 ms | 0.16 ms |
+| Docket counts by status | 1,000–1,183 ms | 0.22 ms | **0.18 ms** |
+| Docket readable, first page (leaf / coordinator / user) | 58–71 ms | 0.46 / 2.1 / 0.2 ms | **0.38 / 1.6 / 0.19 ms** |
+| Archived item by slug / by owner | 108 / 130 ms | 0.05 / 0.03 ms | 0.02 / 0.03 ms |
+| History: events / notices | 74 / 38 ms | 0.14–0.20 / 0.07 ms | 0.13–0.24 / 0.04 ms |
+| Sent, newest 50 | 0.06 ms (side table) / 293 ms (JSON) | 0.07 ms | 0.05 ms |
+
+As expected, nothing moves: every query was already per org. Without the `org_id` prefix the
+indexes are slightly smaller.
+
+### 8.2 What is new
+
+| Cost | Measured | Where it matters |
+|---|---|---|
+| Opening a connection (first query included) | 16.7 ms median (15.5–22.7) | the first request to a cold org; the fan-outs (§2.6) |
+| An idle backend | 4.2 MB private, 19.8 MB working set | the connection budget (§2.11) |
+| `CREATE DATABASE` (empty) | 0.63 s | create, import, conversion |
+| `DROP DATABASE` | 0.26 s | purge |
+| One-org dump (the live org's tables, compressed) | 2.2 s, 25 MB | export, move |
+| One-org restore (into a new database, indexes included) | 5.7 s, 112 MB on disk | import, move |
+| `max_connections` | 40 (dev and live) | Q11 |
+
+### 8.3 Expected end to end
+
+The same estimates as rev 2 (inferred, replaced by measurements at the first prototype):
+
+| Screen or operation | Today | Expected |
+|---|---|---|
+| Tree after a commit | 1.2–1.45 s | under 50 ms (change-log catch-up) |
+| Docket list | 66–87 ms | 5–15 ms |
+| History panel | about 150 ms | under 10 ms |
+| Per-turn prompt | ≈140 ms | 10–30 ms |
+| Desk chat | 158–244 ms | under 60 ms |
+| Big reshape | 0.74–0.96 s | 0.1–0.3 s |
+| `GET /api/accounts` | loads every org whole | under 2 ms warm / about 20 ms cold for 4 orgs |
+| The first request to a cold org | – | +17 ms to open its pool |
+
+## 9. Tests
+
+Rev 2's tests, unchanged:
+
+- round trip per kind;
+- no JSON in lookups (`EXPLAIN` guards and a source scan);
+- no growth with history at 1× and 10×;
+- integrity refusals;
+- concurrency;
+- access equivalence with `_work_can_read`;
+- the behaviour suites as the contract;
+- mutants on the risky code.
+
+Added for rev 3:
+
+1. **Per-database migrations.** A partly migrated set (org A at N+1, org B at N) is finished at the
+   next start. An org newer than the build is refused by name. A failing org migration refuses
+   start and names the org.
+2. **Lifecycle.** Each step of create, trash, restore, purge, export and import is killed at every
+   intermediate state and finished by the next start. After purge, no row in the app database and
+   no database or folder of the org remains. An import of an `org_uuid` already registered is
+   refused. `org_identity` mismatch refuses to serve.
+3. **Connections.** Pools open lazily and close when idle. A fan-out over N orgs opens at most its
+   concurrency limit of connections. The per-process cap queues rather than failing.
+4. **Cross-database steps.** A crash between the sender's commit and the delivery job, retried,
+   delivers exactly once. Likewise a crash between the `start_turn` job and the ticket insert.
+5. **Conversion.** Fixtures for both starting points, including the accounts file and the side
+   files. Every planted fault is refused with its message, nothing is written to the legacy store,
+   and the partly converted set resumes correctly.
+
+## 10. Questions still open
+
+- **Q10. Creating databases at runtime needs `CREATE DATABASE`.** The engine's runtime role does not
+  have that privilege; today only the admin role (used for migrations) does. Proposal: the engine's
+  host hands the admin connection only to the org-lifecycle module, which uses it for create,
+  import and purge. The alternative is a custodian command that creates and drops org databases.
+- **Q11. `max_connections`.** Raise the custodian's setting from 40 to 100 (§2.11)?
+- **Q12. When one org fails conversion,** refuse to start the whole app (the rule today, and this
+  design's default), or start with the failed org shown as unavailable and its reason?
+- **Q9** (from rev 2) still stands: the release-1 scope of §6.1.
+
+## Appendix A. The org database's tables in full
+
+This is rev 2 §3.1–§3.10 with `org_id` removed. Every key is a plain surrogate `id`; every foreign key
+is a plain one inside the org database.
+
+### A.1 Settings
+
+**`org_settings`** is one row of typed columns for the scalar settings in `OrgDoc`:
+
+- name, version, workspace;
+- permission_mode, default_visibility, default_effort;
+- max_top_grant, default_top_grant, compact_at;
+- fable policies, cascade switches, max_depth, max_children;
+- auto-resume fields, storage flags, net switches, API-key fallback fields;
+- cost accumulators and heal markers.
+
+The object-valued settings (`killswitch`, `kiosk`, `sandbox`, `disk`, `net_identity`, `fable_lock`,
+`auto_cheap_compact`) are flattened into columns where their shape is fixed; otherwise they are one
+JSON column each.
+
+Setting lists, one row each:
+
+| Table | Holds |
+|---|---|
+| `org_dirs(path, mode)` | folder grants |
+| `org_tiers(tier, price, model)` | today's `tiers` and `models` |
+| `org_default_mcp(server)` | default MCP servers |
+| `org_kiosk_dirs`, `org_kiosk_mcp` | kiosk limits |
+| `net_hubs(id, address, enabled, name)` | hubs |
+| `net_hub_seen(hub_id, message_id)` | seen hub messages |
+| `net_spool(hub_id, seq, …)` | outgoing hub spool |
+| `retired_slugs(slug)` | docket names that can't be reused |
+
+### A.2 Agents
+
+**`agents`** holds hot columns only, one row per agent generation. It replaces `nodes`,
+`node_index`, `foreground_meta`, `foreground_parents` and `node_tree_val`.
 
 | Group | Columns |
 |---|---|
-| keys | `id`; `org_id`; `name`; `ord` (the stable display order today's walks produce) |
-| tree | `parent_id` → agents (NULL = top level); `ui_order double precision`; `created`; `archived_at`; `rescinded_at` |
+| keys | `id`; `name`; `ord` (the stable display order today's walks produce) |
+| tree | `parent_id` → agents (NULL = top level); `ui_order`; `created`; `archived_at`; `rescinded_at` |
 | state | `state CHECK (live, archived, unrecoverable, deleted)`; `title`; `model`; `credit_grant numeric` |
 | lineage | `seat_id`; `lineage`; `generation`; `predecessor_id` → agents; `successor_id` → agents; `bearer_state CHECK`; `lost_reason` |
 | session | `session_id`; `transcript_incarnation`; `reply_incarnation`; `pid`; `session_began_at`; `session_unrun`; `cheap_compacted`; `compacted_unrun` |
-| accounts | `account`; `account_primary`; `codex_account`; `codex_thread`; `antigravity_account`; `antigravity_conversation` |
+| accounts | `account`; `account_primary`; `codex_account`; `codex_thread`; `antigravity_account`; `antigravity_conversation`. These name accounts in the app database by their stable id: a soft reference, since it crosses databases. |
 | mail | `mailbox_id UNIQUE`; `mail_seq` |
 | scope (flattened) | `permission_mode`; `org_visibility`; `effort`; `account_fallback`; `model_version`; `prefer_reserve`; `tool_bash`, `tool_web`, `tool_edit`, `tool_subagents`; `cheap_compact_enabled`, `cheap_compact_occ` |
 | usage | `cost_usd`; `cost_usd_unknown`; `context_window`; `occupancy`; `occupancy_est`; `cli_compactions`; `cli_boundary_offset`; `turn_seq`; the two estimate tuples as columns |
@@ -392,21 +849,18 @@ All tables live in `public`, or in a `orgtree` schema if the coordinator prefers
 | presence flags (partial-index targets) | `is_frozen`, `is_halted`, `is_remote_controlled`, `has_pending_switch`, `is_inflight` |
 | bookkeeping | `extra`; `row_version` |
 
-The presence flags are set in the same statement as their payload (in `agent_runtime`) by the one
-function that writes both. A `CHECK`-style test asserts they agree (§9). See §3.10, duplicate 1.
-
 **Indexes on `agents`:**
 
 | Index | Serves |
 |---|---|
-| `(org_id, parent_id, ui_order, created, ord)` | children in display order |
-| `(org_id, ord) WHERE state = 'live'` | live agents |
-| `(org_id, parent_id, ui_order, created, ord) WHERE state = 'archived' AND successor_id IS NULL` | the retired pile under a seat |
-| `(org_id, predecessor_id)`, `(org_id, successor_id)` | lineage walks |
-| `(org_id, seat_id)`, `(org_id, session_id)` | lookups by seat and session |
-| `UNIQUE (org_id, name) WHERE state <> 'deleted'` | names |
+| `(parent_id, ui_order, created, ord)` | children in display order |
+| `(ord) WHERE state = 'live'` | live agents |
+| `(parent_id, ui_order, created, ord) WHERE state = 'archived' AND successor_id IS NULL` | the retired pile under a seat |
+| `(predecessor_id)`, `(successor_id)` | lineage walks |
+| `(seat_id)`, `(session_id)` | lookups by seat and session |
+| `UNIQUE (name) WHERE state <> 'deleted'` | names |
 | partial indexes per presence flag | "which agents are frozen, halted …" |
-| `(org_id, account) WHERE account IS NOT NULL` | distinct accounts |
+| `(account) WHERE account IS NOT NULL` | distinct accounts |
 | a name gram index (today's `orgtree_id_grams`) | canvas search |
 
 **One-to-one cold tables:**
@@ -417,45 +871,44 @@ function that writes both. A `CHECK`-style test asserts they agree (§9). See §
   `last_wall`, `cache_continuity`, `envelope`, `codex_route_last`, `codex_usage_total`,
   `codex_usage_reset`, `desktop_import`, `mail_drain_state` (its id list moves to a link table).
 
-**Child and link tables** (counts are from the audit's §4.1):
+**Child and link tables:**
 
 | Table | Kind | Notes |
 |---|---|---|
-| `agent_dir_grants(agent_id, pos, path, mode CHECK (rw, ro))` | many-to-many agent ↔ folder | index (org_id, path) |
-| `agent_mcp_servers(agent_id, pos, server)` | many-to-many agent ↔ server | index (org_id, server) |
+| `agent_dir_grants(agent_id, pos, path, mode CHECK (rw, ro))` | many-to-many agent ↔ folder | index (path) |
+| `agent_mcp_servers(agent_id, pos, server)` | many-to-many agent ↔ server | index (server) |
 | `agent_tool_prompts(agent_id, kind CHECK (denial, approval), pos, tool, arg, cwd)` | owned list | `last_denials`, `last_approvals` |
-| `tool_lists(id, sha256 UNIQUE)`, `tool_list_items(list_id, pos, tool)` | a value shared by many agents | 40 distinct lists over 1,045 agents (measured): 71,000 stored names become about 2,700 rows |
+| `tool_lists(id, sha256 UNIQUE)`, `tool_list_items(list_id, pos, tool)` | a value shared by many agents | measured: 40 distinct lists over 1,045 agents, so 71,000 stored names become about 2,700 rows |
 | `agent_carriers(agent_id, pos, halt_id, text, view, ping, ping_reason, from_*, at, delivery_id, claim json)`, `carrier_mail(carrier_id, mail_id)`, `carrier_tokens(carrier_id, tok)` | owned list + links | `halt_queue`, `native_held_carriers` |
 | `agent_mail_drain(agent_id, mail_id)` | many-to-many | the waking mail ids |
 | `agent_turns(agent_id, n, at, cost, ms, toks, denials, approvals, ran_as, killed, estimated, cost_complete, cost_source, route json, reported json, …)` | owned log | PK (agent_id, n); index (agent_id, n DESC). One table for **both** the agent's `turns` list and the `turn_log`. Measured: for 1,106 of 1,187 agents, the stored list is exactly the log's last 8 rows; the other 81 predate the log. The tree reads `LIMIT 8` from the index; `node_tree_val` goes away. |
-| `agent_turn_errors(agent_id, seq, at, text, ran_as)` | owned log | today `turn_error_log` |
+| `agent_turn_errors(agent_id, seq, at, text, ran_as)` | owned log | today's `turn_error_log` |
 | `agent_external_handles`, `agent_oracle_exchanges` | owned lists | retired and rare fields, kept exactly |
 
-**Tree queries.** All are plain indexed SQL; times on the prototype (§8).
+**Tree queries** (indexed SQL; times in a dedicated database, §8):
 
 | Query | Time |
 |---|---|
-| children of the 483-child seat | 0.2 ms |
-| top level | 0.09 ms |
-| ancestors (recursive, at most 6 levels on live data) | 0.23 ms |
-| descendants of the 1,145-agent subtree | 3.6 ms |
-| lineage count of 62 generations | 0.19 ms |
+| children of the 483-child seat | 0.18 ms |
+| ancestors (at most 6 levels on live data) | 0.11 ms |
+| descendants of the 1,145-agent subtree | 3.1 ms |
+| lineage count of 62 generations | 0.16 ms |
 
-**No closure table.** The tree is at most 6 levels deep (average 1.9). Maintaining a closure would
-rewrite up to 1,145 × depth rows on a big move, which would turn today's trigger cost into
-closure-maintenance cost. Decision 3 asks for a justification; this is it.
+**No closure table.** The tree is at most 6 levels deep (average 1.9). A closure table would rewrite
+up to 1,145 × depth rows on a big move: today's trigger cost again, under another name. Decision 3
+asks for this justification.
 
-### 3.3 Docket
+### A.3 Docket
 
-**`work_items`.** Active and archived together. It replaces the active `doc` rows, the archive
-log rows, `work_index`, `work_list_summary` and all `work_read_*`.
+**`work_items`** holds active and archived items together. It replaces the active `doc` rows, the
+archive log rows, `work_index`, `work_list_summary` and all of `work_read_*`.
 
 | Group | Columns |
 |---|---|
-| keys | `id`; `org_id`; `slug UNIQUE (org_id, slug)`; `rev` |
+| keys | `id`; `slug UNIQUE`; `rev` |
 | identity | `kind CHECK`; `title` |
 | status | `status CHECK`; `status_at`; `blocked_reason`; `waiting_reason`; `dropped_reason` |
-| people | `owner_id` → agents (+ `owner_generation`); creator principal columns (§3.0); `reviewer_id` (+ `reviewer_generation`); `last_updater_*` |
+| people | `owner_id` → agents (+ `owner_generation`); creator principal columns; `reviewer_id` (+ `reviewer_generation`); `last_updater_*` |
 | times | `created`; `updated_at`; `docket_at`; `archived_at` (NULL = active) |
 | links | `parent_item_id` → work_items; `superseded_by_id` → work_items |
 | attention | `attention_reason`, `attention_at`, `attention_by_*`, `attention_set_rev`; `manual_attention_rev`; `notification_attention_active`, `notification_attention_epoch` |
@@ -469,12 +922,12 @@ The description (`objective`) lives in `work_item_texts(item_id PK, objective)`.
 
 | Index | Serves |
 |---|---|
-| `(org_id, coalesce(docket_at, updated_at) DESC, slug DESC)` | the list order |
-| `(org_id, status) WHERE archived_at IS NULL` | active-only filters |
-| `(org_id, owner_id)`, `(org_id, reviewer_id)`, `(org_id, created_by_id)` | lookups by person |
-| `(org_id, coalesce(owner_id, created_by_id))` | the access rule's anchor |
-| `(org_id, parent_item_id)`, `(org_id, superseded_by_id)` | child items and supersessions |
-| `(org_id, attention_set_rev) WHERE attention_reason IS NOT NULL` | attention raises |
+| `(coalesce(docket_at, updated_at) DESC, slug DESC)` | the list order |
+| `(status) WHERE archived_at IS NULL` | active-only filters |
+| `(owner_id)`, `(reviewer_id)`, `(created_by_id)` | lookups by person |
+| `(coalesce(owner_id, created_by_id))` | the access rule's anchor |
+| `(parent_item_id)`, `(superseded_by_id)` | child items and supersessions |
+| `(attention_set_rev) WHERE attention_reason IS NOT NULL` | attention raises |
 
 **Child and link tables:**
 
@@ -485,45 +938,41 @@ The description (`objective`) lives in `work_item_texts(item_id PK, objective)`.
 | `work_item_holders(item_id, seq, agent_id, generation, from_at, by_*, derived)` | owned list; index (agent_id) for the item-scoped read grant |
 | `work_item_acceptance(item_id, idx, text)` + `work_item_acceptance_checks(item_id, idx, seq, …)` | owned list + its list |
 | `work_item_progress(item_id, list CHECK (done, next), pos, text)` | owned list |
-| `work_item_events(item_id, seq, at, by_*, kind CHECK (history, evidence, decision, scope, verdict, review_packet, dismissal, …), …)` | the item's **append-only history as rows** (decision 7 point 2): one sequence of typed events instead of today's lists. Kind-specific columns hold each kind's fields; free text sits in a content column. The latest verdict and review packet are "the newest event of that kind": measured, 420 of 740 stored `candidate_verdict` values equal the last list entry and the other 320 are null, and all 52 non-null `review_packet` values equal the last entry. |
+| `work_item_events(item_id, seq, at, by_*, kind CHECK (history, evidence, decision, scope, verdict, review_packet, dismissal, …), …)` | the item's **append-only history as rows** (decision 7 point 2): one sequence of typed events, with kind-specific columns and a content column for free text. The latest verdict and review packet are the newest event of that kind. Measured: 420 of 740 stored `candidate_verdict` values equal the last list entry and the other 320 are null; all 52 non-null `review_packet` values equal the last entry. |
 | `work_item_review_seats(item_id, seq, reviewer_id, holder_id, …)`, `work_item_review_seat_requests(item_id, seq, …)` | owned lists with state |
 | `work_item_artifacts(item_id, artifact_id, …)` + `work_item_artifact_grants(item_id, artifact_id, agent_id)` | owned list + many-to-many |
 | `work_item_findings(item_id, finding_id, …)` + `work_item_finding_decisions(…)` | owned list + its list |
 | `work_item_delivery(item_id, stage, …)` | owned, at most 5 stages |
 | `work_item_quick_staff_receipts(item_id, receipt_id, …)` | owned list |
 
-### 3.4 Docket access is a query
-
-The rule (`Org._work_can_read`) lets these read an item: the user; the owner; the creator; the
-reviewer; a participant; a strict ancestor of the owner (of the creator when there is no owner).
-As SQL:
+**Docket access is a query.** The rule (`Org._work_can_read`) is that these may read an item: the
+user; the owner; the creator; the reviewer; a participant; a strict ancestor of the owner (of the
+creator when there is no owner). As SQL:
 
 ```sql
-WITH RECURSIVE down(id) AS (SELECT id FROM agents WHERE org_id = $org AND parent_id = $viewer
+WITH RECURSIVE down(id) AS (SELECT id FROM agents WHERE parent_id = $viewer
                             UNION SELECT a.id FROM agents a JOIN down d ON a.parent_id = d.id)
 SELECT i.* FROM work_items i
-WHERE i.org_id = $org AND ($viewer_is_user
+WHERE $viewer_is_user
    OR i.owner_id = $viewer OR i.created_by_id = $viewer OR i.reviewer_id = $viewer
    OR EXISTS (SELECT 1 FROM work_item_participants p WHERE p.item_id = i.id AND p.agent_id = $viewer)
-   OR coalesce(i.owner_id, i.created_by_id) IN (SELECT id FROM down))
+   OR coalesce(i.owner_id, i.created_by_id) IN (SELECT id FROM down)
 ORDER BY coalesce(i.docket_at, i.updated_at) DESC, i.slug DESC
 ```
 
-**Measured:** run against the old JSON rows of the live copy, it returns exactly the engine's
-5,041 (item, reader) pairs, with 0 differences either way (`probe/access_rule_check.sql`).
-
-On the prototype tables it costs:
+**Measured:** against the old JSON rows of the live copy, it returns exactly the engine's 5,041 (item,
+reader) pairs, with 0 differences (`probe/access_rule_check.sql`). In a dedicated database it costs:
 
 | Viewer | Time |
 |---|---|
-| a leaf agent | 0.46 ms |
-| the 1,145-descendant coordinator | 2.1 ms |
-| the user | 0.2 ms |
+| a leaf agent | 0.38 ms |
+| the coordinator (1,145 descendants) | 1.6 ms |
+| the user | 0.19 ms |
 
 The seven `work_read_*` tables, their triggers and the per-save refresh go away. The Python
 predicate stays as the test oracle.
 
-### 3.5 Mail, notices and delivery
+### A.4 Mail, notices and delivery
 
 - **`mailboxes(agent_id PK, next_recv_seq)`.** The row a delivery locks; it replaces
   `mail_archive_bounds`.
@@ -531,7 +980,7 @@ predicate stays as the test oracle.
   recipients). Columns:
   - `id`, `public_id UNIQUE`;
   - `recipient_id` → agents;
-  - sender principal (§3.0);
+  - sender principal;
   - `kind`, `relationship`, `at`;
   - `state CHECK (queued, delivering, delivered)`;
   - `recv_seq`, `seq_origin`, `mailbox`, `message_id UNIQUE`, `operation_id`, `client_op`;
@@ -540,15 +989,15 @@ predicate stays as the test oracle.
   - `extra`, `row_version`.
 
   The body lives in `mail_bodies(mail_id PK, body)`. Today's unread list, `delivering` batches and
-  `mail_log` archive are the three states of one row: mail no longer moves between sections.
+  `mail_log` archive are three states of one row: mail no longer moves between sections.
 - **Indexes on `mail`:**
 
   | Index | Serves |
   |---|---|
-  | `(org_id, recipient_id, recv_seq) WHERE state <> 'delivered'` | the inbox queue |
-  | `(org_id, recipient_id, id DESC)` | the archive tail |
-  | `(org_id, sender_id, at DESC, id DESC)` | Sent; replaces `mail_sent` and its trigger |
-  | `(org_id, recipient_id, recv_seq DESC) WHERE recv_seq IS NOT NULL` | the next sequence number |
+  | `(recipient_id, recv_seq) WHERE state <> 'delivered'` | the inbox queue |
+  | `(recipient_id, id DESC)` | the archive tail |
+  | `(sender_id, at DESC, id DESC)` | Sent; replaces `mail_sent` and its trigger |
+  | `(recipient_id, recv_seq DESC) WHERE recv_seq IS NOT NULL` | the next sequence number |
 
 - **Delivery.**
   - `mail_attachments(mail_id, pos, name, path, bytes, missing)`.
@@ -559,297 +1008,57 @@ predicate stays as the test oracle.
   - `manual_attempts` + `manual_attempt_mail`, `manual_chunk_calls`, `manual_chunks`.
 - **Steer records.**
   - `steer_records(id, agent_id, at, level, visible_id, delivery_id, attempts, retried,
-    confirmed_duplicate, fold, where_, outcome)`, with the text in `steer_texts` and
+    confirmed_duplicate, fold, where_, outcome)`, with the text in `steer_texts`, plus
     `steer_record_segments`, `steer_record_mail(steer_id, mail_id)` and
     `steer_record_deliveries(steer_id, delivery_id, role)`. The chat tail index
-    `(org_id, agent_id, at DESC, id DESC)` is kept (0016's shape).
+    `(agent_id, at DESC, id DESC)` is kept (0016's shape).
   - `steer_attempts` + `steer_attempt_mail`, `steer_attempt_tokens`.
-- **`notices(id, agent_id, at, text, ev json, state CHECK (pending, delivered))`.** Today's
-  pending notices and `notice_log` are two states of one table. Indexes
-  `(org_id, agent_id, id) WHERE state = 'pending'` and `(org_id, agent_id, at DESC, id DESC)`.
+- **`notices(id, agent_id, at, text, ev json, state CHECK (pending, delivered))`.** Today's pending
+  notices and `notice_log` are two states of one table. Indexes `(agent_id, id) WHERE state =
+  'pending'` and `(agent_id, at DESC, id DESC)`.
 - **User mail and the org inbox:**
   - `user_mail(id, public_id, sender_*, kind, at, urgent, urgent_reason, read_at, ev json)` +
-    `user_mail_bodies`; today's inbox and the dismissed archive are its states;
+    `user_mail_bodies`;
   - `user_outbox(id, recipient_id, …)` + bodies;
-  - `org_inbox(id, public_id, dir, peer, by_*, at, state, state_at, net_id)` + body +
-    `org_inbox_attachments`.
+  - `org_inbox(id, public_id, dir, peer, by_*, at, state, state_at, net_id, message_id UNIQUE)` +
+    body + `org_inbox_attachments`. The `message_id` uniqueness is what makes cross-org delivery
+    idempotent (§2.7).
 
-### 3.6 Questions, audiences, watchdogs, documents, reservations
+### A.5 Questions, audiences, watchdogs, documents, reservations
 
 | Table | Replaces | Notes |
 |---|---|---|
-| `asks(id, public_id, agent_id, kind CHECK (ask, credit, scope), status CHECK, at, resolved_at, rev, reason, header, question, answer_mail, old_grant, new_grant, granted, notice)` | three doc blobs, each rewritten whole on every change | with `ask_questions(ask_id, pos, …)`, `ask_question_options(…)`, `ask_answer_selections(…)`, `ask_work_items(ask_id, item_id)` (many-to-many) and `scope_request_items(ask_id, pos, kind, path, mode, tool, decision)`. Indexes `(org_id, agent_id, status)`, `(org_id, status) WHERE status IN ('open', 'pending')`, and the resolved-recent order (0018's shape). |
+| `asks(id, public_id, agent_id, kind CHECK (ask, credit, scope), status CHECK, at, resolved_at, rev, reason, header, question, answer_mail, old_grant, new_grant, granted, notice)` | three doc blobs, each rewritten whole on every change | with `ask_questions`, `ask_question_options`, `ask_answer_selections`, `ask_work_items(ask_id, item_id)` (many-to-many) and `scope_request_items`. Indexes `(agent_id, status)`, `(status) WHERE status IN ('open', 'pending')`, and the resolved-recent order (0018's shape). |
 | `audience_grants(grantee_id, grantor_*, granted_at, reason, delegated_by_id)` | the audiences blob | PK (grantee, grantor); index (grantor). `_has_audience` on every send becomes one key probe. |
 | `audience_requests(…)` | the requests blob | |
-| `watchdogs(id, public_id, owner_id, name, kind CHECK, target, pattern, interval_s, state CHECK, notice, once, at, fired, last_check, checks_run, last_output, last_exit, last_fired, paused_why, history_retained, spent_at, high_water json)` | `watchdogs` and `watchdog_tombs` | Each live dog has one `check` job (§2.7). |
+| `watchdogs(id, public_id, owner_id, name, kind CHECK, target, pattern, interval_s, state CHECK, notice, once, at, fired, last_check, checks_run, last_output, last_exit, last_fired, paused_why, history_retained, spent_at, high_water json)` | `watchdogs` and `watchdog_tombs` | Each live dog has one `check` job. |
 | `watchdog_events(watchdog_id, seq, at, gist, body)` | each dog's ring and the history log | |
 | `documents(id, public_id, agent_id, at, title, format, file, bytes)` + `document_bodies(document_id PK, body)` | the presentations log | The gallery lists columns; opening a document is a key read. |
-| `reservations(id, public_id, owner_id, item_id, resource, candidate, base, state CHECK, created_at, updated_at, expires_at, heartbeat_at, stale_s, integration_key, integration_receipt, landed_at, release_receipt, successor)` + `reservation_paths(reservation_id, path)` | the reservations blob (never pruned) | `UNIQUE (org_id, resource) WHERE state = 'held'` and `UNIQUE (org_id, integration_key)` (§2.2) |
+| `reservations(id, public_id, owner_id, item_id, resource, candidate, base, state CHECK, created_at, updated_at, expires_at, heartbeat_at, stale_s, integration_key, integration_receipt, landed_at, release_receipt, successor)` + `reservation_paths(reservation_id, path)` | the reservations blob (never pruned) | `UNIQUE (resource) WHERE state = 'held'`, `UNIQUE (integration_key)` |
 
-### 3.7 Logs and receipts
+### A.6 Logs, receipts, scheduling, feed
 
 - **`events(id, at, op, actor_*, item_id, detail json)`**, with `event_agents(event_id, agent_id,
   role)` (many-to-many: actor, node, to, grantee, from and list members) and
-  `event_warnings(event_id, pos, text)`. Index `(org_id, agent_id, event_id DESC)` on
-  `event_agents`, so the history panel takes 0.14–0.2 ms (74 ms today). `detail` keeps each
-  operation's own payload (70 distinct operations; Q1).
+  `event_warnings(event_id, pos, text)`. Index `(agent_id, event_id DESC)` on `event_agents`: the
+  history panel takes 0.13–0.24 ms (74 ms today). `detail` keeps each operation's own payload (70
+  distinct operations on the live copy; Q1).
 - **`op_receipts(id, public_id, agent_id, gen, tool, key, fp, cls, outcome, at, mint_ms, targets
-  json, result json)`** + `op_receipt_effects`. Index `(org_id, agent_id, key)`.
-- **`lifecycle(id, operation_id, kind, state, at, …)`.** Index `(org_id, operation_id, state)`.
-- **The custody receipts** (0013: `receipts`, `receipt_owners`, `receipt_carriers`) are already
-  relational. They move to the shared layout with `org_id`.
+  json, result json)`** + `op_receipt_effects`. Index `(agent_id, key)`. Today's `public.receipts`
+  rows for the org move here too.
+- **`lifecycle(id, operation_id, kind, state, at, …)`.** Index `(operation_id, state)`.
+- **The custody receipts** (0013: `receipts`, `receipt_owners`, `receipt_carriers`). Already
+  relational; they move into the org database unchanged apart from the key.
+- **`jobs`** (§2.7), **`changes`** and **`org_revision`** (§2.5).
 
-### 3.8 Scheduling and the feed
+### A.7 Deliberate duplicates (denormalization), with the reason for each
 
-| Table | Purpose |
-|---|---|
-| `jobs(id, org_id, kind CHECK, agent_id, item_id, watchdog_id, run_at, state CHECK (queued, running, done, failed, cancelled), attempts, lease_owner, lease_until, last_error, dedupe_key)` | §2.7 |
-| `turn_queue(id, org_id, agent_id, lane, enqueued_at, state CHECK (waiting, running, done, cancelled), lease_owner, lease_until, pid)` + `turn_admission(singleton, slot_limit, last_org_id)` | §2.4 |
-| `engine_instances(id, host, pid, started_at, heartbeat_at)` | the process leases refer to it |
-| `changes(org_id, rev, pos, entity, entity_id, op CHECK (insert, update, delete))` | PK (org_id, rev, pos); §2.5 |
-
-### 3.9 What is removed
-
-These go, along with their triggers and functions:
-
-- the side tables of migrations 0004–0019: `node_index`, `foreground_*`, `node_tree_val`,
-  `work_index`, `work_read_*`, `work_list_*`, `mail_sent`, `mail_archive_bounds`;
-- the JSON expression indexes;
-- `json_extract`.
-
-The old per-org schemas (`org_N.doc`, `nodes`, `log_d`, `log_l`, `meta`) stay, unchanged and
-unused, for one release (Q3 answer). The release after drops them.
-
-### 3.10 Deliberate duplicates (denormalization), with the reason for each
-
-1. **The agent presence flags** (`is_frozen` …) beside their payload in `agent_runtime`. The hot
-   row must answer "is it frozen" without the cold row. One function writes both in one statement,
-   and a test asserts they agree.
+1. **The agent presence flags** (`is_frozen` …) beside their payload in `agent_runtime`. The hot row
+   must answer "is it frozen" without reading the cold row. One function writes both in one
+   statement, and a test asserts they agree.
 2. **`agents.ord`.** The stable display order the product has today.
-3. **`orgs.revision` and `changes`.** The commit log the feed needs (§2.5).
+3. **`org_revision` and `changes`.** The commit log the feed needs (§2.5).
+4. **`turn_tickets.agent_name`** in the app database. Copied so the admission view can show who is
+   waiting without opening every org database. It is refreshed when the ticket is written.
 
 Nothing else is stored twice.
-
-## 4. How today's code maps onto the target
-
-| Today | Target |
-|---|---|
-| `store.load_org` / `cached_org` / `LazyDoc` / compare-on-save; `orgtx.org_tx` lock plans | `Tx` + domain modules. During the transition, a compatibility view (rev 1's mappers, §6.2) presents the old dictionary for code not yet moved |
-| `ledger.Org` methods (≈400) | domain functions over rows. Rules kept; whole-org walks replaced (audit §3.3 is the checklist) |
-| supervisor loops (30 s auto-resume, 20 s keeper, 5 s watchdogs, 1 s drain) | jobs (§2.7) |
-| `turnslots.FairSlots` (in memory) | `turn_queue` (§2.4) |
-| `api._sync_revs` frame revs, `hub_changed` coalescing, whole-tree refetch | the change log, catch-up by rev (§2.5) |
-| `node_index`, `work_index`, `work_read_*`, `work_list_*`, `mail_sent` … read models | the base tables' own columns and partial indexes |
-| `workread.refresh` / `worklistmeta.refresh` on every save | gone (§3.4) |
-| per-process `cached_org` snapshots | gone. Reads are targeted; caches are `(org, rev)`-keyed |
-| `rename` rewriting every reference | `UPDATE agents SET name` |
-
-## 5. Converting existing data: one data migration
-
-### 5.1 One path for every starting version
-
-| Starting point | Route to the converter |
-|---|---|
-| **v3.0.9, 3.1.0 and the other 3.0.x** (PostgreSQL, per-org key+JSON schemas) | `pgstore.migrate` applies what is pending (0020 on 3.0.9, then the new migration), as every release does. The 3.0.x releases differ only in which of 0001–0020 they have applied, and all are applied before the converter runs. |
-| **v2.1.14** (SQLite) | The first-launch import (`tools/pypg/pgimport.py`) applies every migration, creates each org's legacy schema, and COPYs the SQLite rows into the old tables with counts and checksums. It is unchanged, so **the new migration only adds the shared tables and never alters or drops the old per-org layout**. Then the engine starts and runs the same converter. |
-
-**Rehearsed (measured, today):** the user's real pre-conversion SQLite data (4 orgs, 242 MB for the
-largest) was copied with SQLite's backup API into a throwaway root and imported with the product's
-own `pgimport` code into my dev cluster. All four orgs imported, every row was read back byte for
-byte, in 39 s (`probe/v2import-report.json`). The converter is the next step of the same rehearsal.
-
-### 5.2 The converter
-
-`orgtree/convert/` runs at engine start, after `pgstore.migrate` and before anything serves. For
-each org not yet converted, in **one transaction**:
-
-1. **Read** every record of every kind from the legacy schema, with the heal a new build's first
-   load applies today (`Org.__init__` heals, `heal_decoded_box`), so the new rows hold what the
-   engine would see.
-2. **Map** each record to rows (rev 1's mappers: `split`), resolve names to surrogate keys, and
-   `COPY` the rows into the shared tables.
-3. **Read everything back** through the inverse mapping (`join`). Compare each record with step 1,
-   as canonical JSON with exact types. Timestamps compare as instants at millisecond precision. A
-   timestamp that cannot be parsed is not dropped: its column stays `NULL`, its original text goes
-   to the record's `extra`, and the report lists it (Q2 answer).
-4. **Check the old rows** by checksum, before and after (they are never written).
-5. **Record** the result in `conversion_runs(org_id, format, started_at, finished_at, per-kind
-   counts, source_sha256, result_sha256, healed, extra_keys, nul_fields, bad_timestamps)` and in
-   `public.receipts`.
-6. **Commit.** If any check fails, roll back. The org stays on the old layout, and the engine
-   refuses to start with the org, kind, record, field and both values. They are also written to
-   `diagnostics/model-conversion.json`.
-
-**Time** (inferred from the audit's decode costs; measured in each rehearsal). The largest org has
-about 165,000 rows and 190 MB of JSON text. Reading and decoding it takes 1–2 s, `COPY` a few
-seconds, and the read-back about the same: under a minute in total, once, with the host's existing
-"updating the database" progress.
-
-### 5.3 Old data and rollback
-
-The legacy per-org schemas are never written after conversion and stay for one release. A rollback
-to 3.1.0 is the offline tool `tools/pypg/model_rollback.py` (operator only, refuses while the engine
-runs). It:
-
-1. drops the shared tables;
-2. deletes the new migration's `schema_migrations` row;
-3. deletes the `conversion_runs` rows.
-
-The previous release then runs on the untouched legacy schemas. Writes made after the conversion
-are lost, which is the rule `pgimport`'s rollback already states.
-
-### 5.4 Rehearsals (decisions 4 and 8)
-
-Before the local alpha build, and again before the release:
-
-- **3.x data.** A fresh `pg_dump` of the live cluster (read-only, coordinator-approved). It is
-  restored into my dev cluster, migrated (0020 = 3.1.0, then the new migration) and converted. The
-  intermediate 3.0.x states are the same layout with fewer migrations applied, and are shown
-  identical by also converting a clone migrated only to 0017 (the state of the 2026-09-29 import).
-- **2.1.14 data.** The pre-conversion SQLite files, copied with the backup API, then `pgimport`,
-  then the converter (step 1 done today, §5.1).
-- **For each rehearsal, recorded on the item:**
-  - per org and kind, record counts and checksums before and after;
-  - heal counts, `extra` keys, U+0000 fields and unparseable timestamps;
-  - the time taken;
-  - the tests.
-
-## 6. Release plan
-
-### 6.1 What ships with the migration, and what comes later
-
-There is **one data migration**: the release that converts data (the first published after 3.1.0;
-decision 6) contains the whole schema of §3. Later releases change code only.
-
-| Target point (decision 7) | In the migration release | Later, with no data change |
-|---|---|---|
-| 2, 3, 4: schema, integrity, partial indexes | **all** | – |
-| 1: database as the source of truth, one transaction per action | **all writes** go through domain functions over rows, and every hot read (§2.6) is targeted. The compatibility view (§4) remains only for rare paths not yet moved, each listed in the release notes. | moving the remaining rare paths; deleting the compatibility view |
-| 9: domain modules | agents, docket, mail, questions, audiences, documents, reservations, feed, org (those §2.8 lists as owning tables) | providers and accounts keep their stores |
-| 7: targeted reads | every screen in the before/after table, the per-turn prompt, the agent tools | – |
-| 6: change log + `NOTIFY` | the engine writes `changes` in every transaction, and the websocket frames carry `rev`. The renderer keeps "refetch on change", through the targeted endpoints, so no whole-tree rebuild. | the renderer applies changes by rev with no refetch, and the polling goes away |
-| 8: jobs | the table ships. Delivery and watchdog checks move in this release; their 1 s and 5 s scans are the ones that wake on idle orgs. | auto-resume, keepers, reminders and retries move one by one. The scans they replace are already cheap on the new tables (partial indexes), so this is architecture, not speed. |
-| 5: turn queue | the table ships | `turnslots` moves to `turn_queue` together with the leases of point 10 |
-| 10: stateless engine, several processes | no whole-org snapshots; large texts out of hot rows | run a second process: needs the turn queue and job leases first |
-
-### 6.2 The first prototype (decision 8)
-
-**Definition: the smallest slice that converts real data and runs the app on the new tables.**
-
-1. **The schema.** The migration that creates all of §3 (shared tables, constraints, indexes).
-2. **The converter.** For every kind of record, with the read-back check, the report and the
-   refusal (§5.2).
-3. **The compatibility view.** The storage layer loads and saves every kind of record through the
-   rev 1 mappers onto the new tables. All existing engine code therefore runs unchanged on the new
-   tables, and the old tables are never read again.
-4. **Native agents and docket modules.** Reshaping, the tree reads, the per-turn neighbourhood, the
-   docket access, list, get and counts run as targeted queries and short transactions. These are the
-   paths that motivated the item, and the first proof of the module pattern.
-5. **Tests.** Round trip, the conversion tests, the access-equivalence test, the
-   no-JSON-in-lookups `EXPLAIN` guards and the history-growth tests (§9), for the parts above.
-
-When (1)–(5) pass, both rehearsals (§5.4) run. I report to the coordinator, who gives
-p03-ws4-rcfamilies the go for a local alpha build (decision 8). The before/after table in §8 is
-measured on the prototype at that point.
-
-### 6.3 Landing order on v3 (no release in between; decision 6)
-
-| Step | Contents |
-|---|---|
-| 1 | The schema migration and the converter, with the compatibility view, so the app runs on the new tables. It lands only when all three are complete, because the converter leaves no org half-converted. |
-| 2 | The native agents module (reshapes, tree, prompt neighbourhood). |
-| 3 | The native docket module. **This completes the first prototype: rehearsals, then the alpha build.** |
-| 4 | The mail module and delivery jobs; the watchdogs module and its jobs. |
-| 5 | Questions, audiences, documents, reservations, events and org settings modules. |
-| 6 | The change log driving the websocket frames. |
-| 7 | **The release candidate:** final rehearsals, then the coordinator's build and publish. |
-
-Each step is reviewed separately, with targeted tests, and its before/after numbers are recorded on
-the item.
-
-## 7. Effort and risk (inferred)
-
-| Part | Size | Main risk |
-|---|---|---|
-| Schema and migration | small | getting a constraint wrong on real data (the rehearsals catch it) |
-| Converter + mappers for about 40 record kinds | large | a legacy shape the mapper did not foresee (refused, never lost) |
-| Compatibility view | medium | one whole-collection walk left on a hot path (the growth tests catch it) |
-| Native agents and docket modules | large | behaviour drift (today's suites are the contract) |
-| Mail, delivery jobs, the other modules, the feed | large | delivery ordering and duplicates (the custody-receipt tests stay) |
-| Turn queue and multi-process (later) | medium | lease handling |
-
-The first prototype (§6.2) is the large majority of the risk. Everything after it moves paths
-already running on the new tables.
-
-## 8. Expected gains
-
-**Measured** on prototype tables (`probe/proto_schema.sql`, a clone of the live copy, with the
-columns and indexes these lookups need). Median of 5, warm. Writes run in rolled-back transactions
-with deferred constraints fired.
-
-| Lookup or write | Today (audit) | Prototype |
-|---|---|---|
-| Re-parent 400 agents (with FK checks) | 1,006 ms with triggers; 657 ms engine CAS (440 ms without triggers) | **6.2 ms** |
-| Generation change on 400 agents | 1,788 ms | **5.1 ms** |
-| Cost-only change on 400 agents | 717 ms | **4.3 ms** |
-| Deliver 200 mails | 243 ms | **2.4 ms** |
-| Children of the 483-child seat | 1.2 ms (`node_index`) | 0.2 ms |
-| Descendants of the big seat (1,145) | one statement per generation | 3.6 ms |
-| Live / frozen-live / halted agents; distinct accounts | 0.24 / 153 / 40 / 93 ms | 0.04 / 0.07 / 0.05 / 0.03 ms |
-| Cost total | 54 ms | 0.13 ms |
-| Lineage count of 62 generations | trigger-kept | 0.19 ms |
-| Docket counts by status | 1,000–1,183 ms (archive projection) | **0.22 ms** |
-| Docket readable by viewer, first page (leaf / coordinator / user) | 58–71 ms | 0.46 / 2.1 / 0.2 ms |
-| Archived item by slug / by owner | 108 / 130 ms (without the side table) | 0.05 / 0.03 ms |
-| History: events / notices of an agent | 74 / 38 ms | 0.14–0.2 / 0.07 ms |
-| Sent, newest 50 | 0.06 ms (side table + trigger) / 293 ms (JSON) | 0.07 ms (plain index) |
-
-**Expected end to end** (inferred: the measured total today minus the storage part removed;
-replaced by measurements at the first prototype):
-
-| Screen or operation | Today | Expected |
-|---|---|---|
-| Tree after a commit | 1.2–1.45 s full rebuild | a change-log catch-up plus refetch of the changed records: under 50 ms |
-| Docket list / archive page / agent `orgtree_work list` | 66–87 ms | 5–15 ms |
-| History panel | 148–168 ms | under 10 ms |
-| Per-turn prompt | ≈140 ms | 10–30 ms |
-| Desk chat open (big seat) | 158–244 ms | under 60 ms |
-| Big reshape (move, demote, insert-above, self-subjugate) | 0.74–0.96 s | 0.1–0.3 s |
-| Unreachable top-level swap | 1.64 s | under 0.3 s |
-| Background idle cost | whole-agent decodes every 30 s per org; scans every 1–20 s | none: a worker sleeps until the next due job or `NOTIFY` |
-
-## 9. Tests
-
-1. **Round trip** per record kind: property tests, every live-copy record in the rehearsals, and
-   edge cases. The edge cases are absent versus null, int versus float, U+0000, unknown keys,
-   timestamp offsets, and the legacy shapes `heal` handles.
-2. **No JSON in lookups.** Every repository query under `EXPLAIN` on a seeded org with 10× history
-   fails on a sequential scan of a growing table or on a JSON operator. A source scan in
-   `tools/source-audits.py` refuses `->>`, `::json` and `json_extract` in query strings outside the
-   converter.
-3. **No growth with history.** Statement counts and rows read, at 1× and 10× archived agents, items,
-   mail and events, for every hot path and every reshape. This extends `test_reshape_history_pg.py`.
-4. **Integrity.** Each constraint refuses its violation inside the transaction: a tree loop, a second
-   held reservation, a cross-org link, a duplicate slug, a reused retired slug.
-5. **Concurrency.** Two writers on the same row are stopped by `row_version`. A turn-queue fairness
-   test (first come within an org, round-robin across orgs) and a lease-expiry test.
-6. **Conversion.** Fixtures for both starting points. Every planted fault is refused with its
-   message and nothing written: a mismatched row, a dangling parent, a bad type, an extra key, an
-   unparseable timestamp. Rollback-tool tests.
-7. **Access equivalence.** The SQL rule against `_work_can_read` for every (viewer, item) pair.
-8. **The behaviour suites** (lifecycle, docket, mail, visibility, receipts) stay green at every
-   landing step: they are the contract for moving rules into modules.
-9. **Mutants on the risky code**, for the reviewer: the converter, compare-and-set, the access rule,
-   the tree-loop check, and leases.
-
-## 10. Questions still open
-
-- **Q6. Surrogate keys and tombstones** (§3.0). This makes rename trivial and keeps every reference
-  a real key. The cost is one name-to-id lookup at the API boundary. Deleting an agent keeps a
-  tombstone row; today the row is removed outright and items keep a name with a `deleted` mark.
-  Same visible result. Agreed?
-- **Q7. Shared tables in `public`, or in a dedicated `orgtree` schema?** I recommend a dedicated
-  schema: it separates the engine's tables from the custodian's bookkeeping.
-- **Q8. Change-log retention.** 24 h and at least 10,000 revisions?
-- **Q9. Scope of the migration release** (§6.1). Is it right that the jobs move for delivery and
-  watchdogs only, the renderer keeps refetching, and multi-process comes in a later release?
