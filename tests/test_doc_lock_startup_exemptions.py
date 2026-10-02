@@ -8,8 +8,8 @@ arms the tripwire earlier) fails here instead of silently reclassifying it:
 
   * store.migrate_pending (inside store.claim_data_root) is main()'s FIRST
     act: no uvicorn server exists yet when it runs;
-  * registry_migration.run_startup_migration, run_apikey_cutover and
-    run_former_sandbox_catchup run in
+  * registry_migration.run_startup_migration, run_former_sandbox_catchup
+    and run_apikey_cutover run in
     the startup handler with the tripwire still off (raise mode would trip
     on their DOC_LOCK otherwise), and the tripwire is armed before the
     background recovery starts — so recovery (reconcile included) is NOT
@@ -60,7 +60,7 @@ class StartupExemptions(unittest.TestCase):
         seen: list[tuple[str, str]] = []
 
         def migration(name: str):
-            def run() -> None:
+            def run(*_args) -> None:
                 seen.append((name, store.doc_lock_tripwire_report()['mode']))
                 with store.DOC_LOCK:            # what the real ones take
                     pass
@@ -75,16 +75,17 @@ class StartupExemptions(unittest.TestCase):
                     patch.object(api, '_deployment_preflight', lambda: None), \
                     patch.object(registry_migration, 'run_startup_migration',
                                  migration('startup_migration')), \
-                    patch.object(registry_migration, 'run_apikey_cutover',
-                                 migration('apikey_cutover')), \
                     patch.object(registry_migration, 'run_former_sandbox_catchup',
                                  migration('former_sandbox_catchup')), \
+                    patch.object(registry_migration, 'run_apikey_cutover',
+                                 migration('apikey_cutover')), \
                     patch.object(startup.recovery, 'start', recovery_start):
                 asyncio.run(api._wire_notify())
         finally:
             store.on_save, supervisor.notify, supervisor.stream, supervisor.mail_spark = saved
-        self.assertEqual(seen, [('startup_migration', 'off'), ('apikey_cutover', 'off'),
-                                ('former_sandbox_catchup', 'off'), ('recovery', 'raise')])
+        self.assertEqual(seen, [('startup_migration', 'off'),
+                                ('former_sandbox_catchup', 'off'), ('apikey_cutover', 'off'),
+                                ('recovery', 'raise')])
         rep = store.doc_lock_tripwire_report()
         self.assertEqual((rep['mode'], rep['total']), ('raise', 0))
 
@@ -96,7 +97,7 @@ class StartupExemptions(unittest.TestCase):
         seen: list[str] = []
 
         def migration(name: str):
-            return lambda: seen.append(name)
+            return lambda *_args: seen.append(name)
 
         real_arm = store.arm_doc_lock_tripwire_from_env
 
@@ -121,17 +122,17 @@ class StartupExemptions(unittest.TestCase):
             with patch.object(api, '_deployment_preflight', lambda: None), \
                     patch.object(registry_migration, 'run_startup_migration',
                                  migration('startup_migration')), \
-                    patch.object(registry_migration, 'run_apikey_cutover',
-                                 migration('apikey_cutover')), \
                     patch.object(registry_migration, 'run_former_sandbox_catchup',
                                  migration('former_sandbox_catchup')), \
+                    patch.object(registry_migration, 'run_apikey_cutover',
+                                 migration('apikey_cutover')), \
                     patch.object(store, 'arm_doc_lock_tripwire_from_env', arm), \
                     patch.object(startup.recovery, 'start', lambda _r: None):
                 asyncio.run(lifespan())
         finally:
             store.on_save, supervisor.notify, supervisor.stream, supervisor.mail_spark = saved
-        self.assertEqual(seen[:5], ['startup_migration', 'apikey_cutover',
-                                    'former_sandbox_catchup', 'tripwire_armed',
+        self.assertEqual(seen[:5], ['startup_migration', 'former_sandbox_catchup',
+                                    'apikey_cutover', 'tripwire_armed',
                                     'lifespan.startup.complete'], seen)
         # and the admin listener serves the app whose lifespan that is (source pin)
         import inspect

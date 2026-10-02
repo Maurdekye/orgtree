@@ -14,12 +14,19 @@ gives exactly them what each finished cutover gave every other org:
     the later API-key cutover converts that row in place (same id)
   · no cutover done: nothing happens (the cutovers themselves cover it)
   · the pass is idempotent (marker short-circuits the second run)
+  · the REAL startup order (run_credential_passes: catch-up, then the
+    API-key cutover) keeps the key lane when only the registry cutover had
+    finished, and an org the catch-up failed on is held back from the
+    API-key cutover so its key survives to the retry
+  · an existing apikey row for the key is reused, and a retry after a
+    failed org save reuses the row the failed attempt made (no duplicate)
 """
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -57,6 +64,21 @@ def _org(slug, nodes, **d):
     org.d.update(d)
     store.save_org(org)
     return org
+
+
+def _rows_for(token_ref):
+    return [r["id"] for r in registry.load()["accounts"]
+            if (r.get("credential") or {}).get("token_ref") == token_ref]
+
+
+def _failing_save_for(slug):
+    real = store.save_org
+
+    def save(org, *a, **kw):
+        if org.d.get("slug") == slug:
+            raise OSError("injected save failure")
+        return real(org, *a, **kw)
+    return save
 
 
 def _markers(**fields):
@@ -161,6 +183,88 @@ class CatchupTests(unittest.TestCase):
         self.assertNotIn("account", fresh.node("root"))
         self.assertFalse(registry.load().get(
             registry_migration.FORMER_SANDBOX_MARKER))
+
+    def test_real_startup_order_with_registry_cutover_only_keeps_key_lane(self):
+        key = _key("e")
+        _org("fs-e", {"root": {"model": "opus"}},
+             sandbox={"enabled": True}, api_key=key)
+        _markers(migrated_at=1.0)
+
+        registry_migration.run_credential_passes()
+
+        fresh = store.load_org("fs-e")
+        rid = fresh.node("root")["account"]
+        self.assertNotEqual(rid, self.ambient)
+        row = registry.get_account(rid)
+        self.assertEqual(row["credential"], {
+            "kind": "apikey",
+            "token_ref": apikey_accounts._key_row_id(key)})
+        self.assertEqual(row.get("origin_org"), "fs-e")
+        self.assertNotIn("api_key", fresh.d)
+        self.assertTrue(registry_migration.apikey_cutover_done())
+
+    def test_existing_apikey_row_for_the_key_is_reused(self):
+        key = _key("f")
+        kid = apikey_accounts._key_row_id(key)
+        existing = registry.create_account(
+            "claude", "org key (fs-f)", {"kind": "apikey", "token_ref": kid},
+            origin_org="fs-f", mode="apikey")["id"]
+        _org("fs-f", {"root": {"model": "opus"}},
+             sandbox={"enabled": True}, api_key=key)
+        _markers(migrated_at=1.0, apikey_cutover_at=2.0)
+
+        report = registry_migration.run_former_sandbox_catchup(AMBIENT)
+
+        self.assertEqual(report["org_key_rows"]["fs-f"], existing)
+        self.assertEqual(_rows_for(kid), [existing])
+        self.assertEqual(store.load_org("fs-f").node("root")["account"],
+                         existing)
+
+    def test_retry_after_org_save_failure_reuses_the_row(self):
+        key = _key("g")
+        kid = apikey_accounts._key_row_id(key)
+        _org("fs-g", {"root": {"model": "opus"}},
+             sandbox={"enabled": True}, api_key=key)
+        _markers(migrated_at=1.0, apikey_cutover_at=2.0)
+
+        with patch.object(store, "save_org", _failing_save_for("fs-g")):
+            first = registry_migration.run_former_sandbox_catchup(AMBIENT)
+        self.assertIn("fs-g", first["errors"])
+        self.assertFalse(registry.load().get(
+            registry_migration.FORMER_SANDBOX_MARKER))
+        made = _rows_for(kid)
+        self.assertEqual(len(made), 1)
+        self.assertEqual(store.load_org("fs-g").d.get("api_key"), key)
+
+        second = registry_migration.run_former_sandbox_catchup(AMBIENT)
+
+        self.assertEqual(second["errors"], {})
+        self.assertEqual(_rows_for(kid), made)
+        fresh = store.load_org("fs-g")
+        self.assertEqual(fresh.node("root")["account"], made[0])
+        self.assertNotIn("api_key", fresh.d)
+
+    def test_failed_catchup_holds_the_org_back_from_the_apikey_cutover(self):
+        key = _key("h")
+        _org("fs-h", {"root": {"model": "opus"}},
+             sandbox={"enabled": True}, api_key=key)
+        _markers(migrated_at=1.0)
+
+        with patch.object(store, "save_org", _failing_save_for("fs-h")):
+            registry_migration.run_credential_passes()
+        held = store.load_org("fs-h")
+        self.assertEqual(held.d.get("api_key"), key)   # the cutover held it
+        self.assertNotIn("account", held.node("root"))
+        self.assertFalse(registry_migration.apikey_cutover_done())
+
+        registry_migration.run_credential_passes()
+
+        fresh = store.load_org("fs-h")
+        rid = fresh.node("root")["account"]
+        self.assertEqual(registry.get_account(rid)["credential"]["token_ref"],
+                         apikey_accounts._key_row_id(key))
+        self.assertNotIn("api_key", fresh.d)
+        self.assertTrue(registry_migration.apikey_cutover_done())
 
 
 if __name__ == "__main__":

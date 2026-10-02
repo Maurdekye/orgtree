@@ -238,15 +238,21 @@ def _reuse_or_create(provider: str, label: str, credential: dict[str, Any],
                                    registered_from=registered_from)
 
 
-def _find_row(provider: str, credential: dict[str, Any]
-              ) -> dict[str, Any] | None:
-    """The existing row for this credential evidence, or None."""
+def _find_row(provider: str, credential: dict[str, Any],
+              *, bindable_in: str | None = None) -> dict[str, Any] | None:
+    """The existing row for this credential evidence, or None. Token and
+    apikey rows are identified by their token_ref, imported rows by path.
+    `bindable_in` skips org-key rows scoped to a DIFFERENT org (origin_org
+    rows are bindable only within their own org)."""
     kind = str(credential.get("kind") or "")
     for row in registry.load(strict=True)["accounts"]:
         c = row.get("credential") or {}
         if row.get("provider") != provider or c.get("kind") != kind:
             continue
-        if kind == "token":
+        if (bindable_in is not None and row.get("origin_org")
+                and row["origin_org"] != bindable_in):
+            continue
+        if kind in ("token", "apikey"):
             if str(c.get("token_ref") or "") == str(
                     credential.get("token_ref") or ""):
                 return row
@@ -361,7 +367,8 @@ def apikey_cutover_done() -> bool:
     return bool(registry.load().get("apikey_cutover_at"))
 
 
-def run_apikey_cutover() -> dict[str, Any] | None:
+def run_apikey_cutover(hold: frozenset[str] | set[str] = frozenset()
+                       ) -> dict[str, Any] | None:
     """Every V1 org key becomes an ordinary org-scoped API-key ACCOUNT, and
     the org documents drop the V1 fields — the migration half of "completely
     replace the V1 path; do not retain competing systems".
@@ -385,13 +392,16 @@ def run_apikey_cutover() -> dict[str, Any] | None:
         unauthenticated and reported: its secret no longer exists anywhere,
         which is a fact to surface, not a repair to invent;
       · every org drops api_key / api_fallback /
-        fable_api_fallback / api_fallback_until / api_fallback_since."""
+        fable_api_fallback / api_fallback_until / api_fallback_since.
+    `hold` names orgs to leave untouched this time (the former-sandbox
+    catch-up failed on them and must see their key first); holding any
+    keeps the marker unset so the next boot finishes them."""
     from . import apikey_accounts, store, tokens
     if apikey_cutover_done():
         return None
     report: dict[str, Any] = {"converted_rows": {}, "minted_rows": {},
                               "fallback_was_on": [], "orphaned_rows": [],
-                              "cleaned_orgs": [],
+                              "cleaned_orgs": [], "held": sorted(hold),
                               "errors": {}}
     with store.DOC_LOCK:
         try:
@@ -418,9 +428,11 @@ def run_apikey_cutover() -> dict[str, Any] | None:
             if slug and slug not in seen and not f.endswith(".premigration"):
                 seen.add(slug)
                 slugs.append(slug)
-        clean = True
+        clean = not hold
         loaded: set[str] = set()
         for slug in slugs:
+            if slug in hold:
+                continue
             try:
                 if store.STORE_BACKEND == "postgres":
                     # the settings keys first (no node row decoded): an org
@@ -555,7 +567,9 @@ def run_former_sandbox_catchup(ambient: dict[str, str | None] | None = None
         row is reused, never duplicated) and the org drops the V1 fields.
 
     A cutover that is NOT complete yet is left to do its own work (its skip
-    branch is gone). Idempotent: rows come back by evidence and bound nodes
+    branch is gone). Startup runs this BEFORE run_apikey_cutover and holds
+    back from that cutover every org this pass failed on: the cutover drops
+    api_key, and with it the evidence that the key was the nodes' lane. Idempotent: rows come back by evidence and bound nodes
     are left alone; the marker is set only after a clean pass. Never raises
     (the app must come up); the report lands beside the registry.
     Returns the report, or None when there is nothing to do."""
@@ -618,11 +632,16 @@ def run_former_sandbox_catchup(ambient: dict[str, str | None] | None = None
                 if key and keys:
                     kid = apikey_accounts._key_row_id(key)
                     tokens.put(kid, key)      # durable before anything else
+                    # reuse, never duplicate: the row for this key (a
+                    # retry after a failed org save finds the one it made)
+                    # or the org's S2 token row
                     row = (_find_row("claude", {"kind": "apikey",
-                                                "token_ref": kid})
+                                                "token_ref": kid},
+                                     bindable_in=slug)
                            or _find_row("claude", {
                                "kind": "token",
-                               "token_ref": f"org-api-key:{slug}"}))
+                               "token_ref": f"org-api-key:{slug}"},
+                               bindable_in=slug))
                     if row is None:
                         row = registry.create_account(
                             "claude", f"org key ({slug})",
@@ -706,3 +725,29 @@ def run_former_sandbox_catchup(ambient: dict[str, str | None] | None = None
           f"key_rows={len(report['org_key_rows'])} "
           f"errors={len(report['errors'])}")
     return report
+
+
+def run_credential_passes() -> None:
+    """The startup order of the two credential passes; never raises.
+
+    The former-sandbox catch-up runs FIRST: the V2 API-key cutover drops
+    api_key, and with it the evidence that the key was a formerly sandboxed
+    org's lane. Any org the catch-up failed on is held back from the cutover
+    until a later boot catches it up; if the catch-up itself crashed the
+    cutover waits for the next boot too. The API-key cutover is otherwise
+    unconditional and idempotent (user redesign 2026-09-12): the V1 org-key
+    path no longer exists, so a stored key not yet moved into the account
+    registry is a stranded key."""
+    try:
+        catchup = run_former_sandbox_catchup()
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[orgtree] former-sandbox catch-up error (will retry next "
+              f"startup; apikey cutover deferred with it): "
+              f"{type(e).__name__}: {e}")
+        return
+    hold = set((catchup or {}).get("errors") or {})
+    try:
+        run_apikey_cutover(hold)
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[orgtree] apikey cutover error (will retry next startup): "
+              f"{type(e).__name__}: {e}")

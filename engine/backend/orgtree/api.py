@@ -1053,24 +1053,10 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
               f"bindings already written are preserved and reused when it "
               f"reruns at next startup with the flag set")
         raise
-    try:
-        # the V2 API-key cutover (user redesign 2026-09-12): unconditional
-        # and idempotent — the V1 org-key path no longer exists, so a stored
-        # key not yet moved into the account registry is a stranded key.
-        # Never blocks startup: a partial pass leaves its marker unset and
-        # the next boot finishes the remainder (report beside the registry).
-        registry_migration.run_apikey_cutover()
-    except Exception as e:                                   # noqa: BLE001
-        print(f"[orgtree] apikey cutover error (will retry next startup): "
-              f"{type(e).__name__}: {e}")
-    try:
-        # orgs both cutovers skipped while they were sandboxed now run on
-        # the host: give them what each finished cutover gave every other
-        # org. One-time, idempotent, never blocks startup.
-        registry_migration.run_former_sandbox_catchup()
-    except Exception as e:                                   # noqa: BLE001
-        print(f"[orgtree] former-sandbox catch-up error (will retry next "
-              f"startup): {type(e).__name__}: {e}")
+    # the V2 API-key cutover and the catch-up for orgs it (and the S2
+    # migration) skipped while sandboxed. Never blocks startup: a partial
+    # pass leaves its marker unset and the next boot finishes the remainder.
+    registry_migration.run_credential_passes()
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
     if store.STORE_BACKEND == "postgres":
