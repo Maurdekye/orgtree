@@ -163,6 +163,16 @@ test('partial sets keep missing parents unknown; cycles and duplicate names are 
     [{ slug: 'unavailable', state: 'unavailable' }])
 })
 
+test('tree selector preserves the engine-provided archived defaults and row overrides', () => {
+  const records = table([{ entity: 'org', id: 'org', body: { slug: 'org',
+    archived_defaults: { busy: false, documents: [], mail_pending: 0 } } },
+    { entity: 'agent', id: '1', body: { id: 'summary', parent_id: null, detail: false, mail_pending: 3 } }])
+  const row = projectTree(records).roots[0]
+  assert.equal(row.busy, false)
+  assert.equal(row.mail_pending, 3)
+  assert.deepEqual(row.documents, [])
+})
+
 /** Coalescing server oracle: changes name keys; bodies always come from the to snapshot. */
 class FakeServer {
   rev = 0

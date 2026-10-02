@@ -1,5 +1,6 @@
 import type { OrgListEntry, TreeNode, TreePayload } from './types'
 import type { RecordTable } from './recordfeed'
+import { hydrateTree } from './archived'
 
 /** Compatibility records contain renderer values, never PostgreSQL column layouts. */
 export function projectTree(records: RecordTable): TreePayload {
@@ -44,7 +45,7 @@ export function projectTree(records: RecordTable): TreePayload {
     return { ...fields, children: (children.get(id) ?? []).map(build) } as TreeNode
   }
   const roots = (children.get(null) ?? []).map(build)
-  return { ...top, roots } as TreePayload
+  return hydrateTree({ ...top, roots } as TreePayload)
 }
 
 export function projectOrgs(records: RecordTable): OrgListEntry[] {
