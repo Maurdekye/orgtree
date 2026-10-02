@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.1)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,10 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 7.1: review-sol approved rev 7 (`c083f85`)**, with one listed fix, which rev 7.1 makes:
+  decision 20's test case in §5.2 (a snapshot folder copied by hand, its original deleted). Rev
+  7.1 also cites decisions 19 (f13's fallback withdrawn, the benchmark mandatory) and 20 (the copy
+  limit accepted). The coordinator then gave GO for the implementation.
 - **Rev 7 answers review-sol's fourth review (of rev 6).**
   - The fourth review accepted f2, f11 and f17. It accepted f13's direct query (subject to its
     timing condition) and f15's option X, and reopened each of them on one point.
@@ -1391,13 +1395,14 @@ So a converted org that is later trashed or purged is never converted again. The
        - Nothing consults it any more, so a later retry with that key behaves like a new delivery.
        - That is decision 18 (option X). It keeps every org one body of data, with no live shared
          store.
-     - **A limit of evidence 1.** If someone copies a snapshot folder into another org's scratch
-       folder and then deletes the original, evidence 1 follows the copy. While the original still
-       exists, the row is ambiguous and stays. When it follows the copy, the row is inert in its
-       new org: no call there can produce its id, which contains the sending org's slug. What
-       that org gains is the source path and caption of a file it already holds. The sending org
-       is left as under option X. The report names the evidence used for every row, so such a
-       case can be found.
+     - **A limit of evidence 1 (accepted as decision 20).** If someone copies a snapshot folder
+       into another org's scratch folder and then deletes the original, evidence 1 follows the
+       copy. While the original still exists, the row is ambiguous and stays. When it follows the
+       copy, the row is inert in its new org: no call there can produce its id, which contains the
+       sending org's slug. What that org gains is the source path and caption of a file it
+       already holds, and they travel with it in that org's export. The sending org is left as
+       under option X. The report names the evidence used for every row, so such a case can be
+       found.
      - The report counts the rows moved, by which evidence, and the rows left.
      - **Measured** (read-only, on the side copy; `probe/receipt_evidence.py`): 56 rows, all
        completed. 52 have their snapshot folder under one agent's scratch folder in the main org,
@@ -1410,6 +1415,11 @@ So a converted org that is later trashed or purged is never converted again. The
          lost answer; a completed receipt whose folder is gone; a snapshot folder copied into a
          second org while the original remains; a row with no evidence. For each, a retry with
          the original fingerprint and with a changed caption, before and after conversion;
+       - **decision 20's case (rev 7.1):** a snapshot folder copied by hand into another org's
+         agent scratch folder, its original deleted, with a private caption. The row, with its
+         source path and caption, moves to the copy's org. It is inert there: no call in that org
+         recomputes its id. The sender's retry with the same key behaves like a new delivery
+         (option X);
        - **review round 4's case:** agent B sends a file from org A's workspace through a grant
          that is later removed, and crashes before the snapshot folder exists, with no recorded
          key. The row must not move to A. It stays in the old file, untouched, is listed in the
@@ -2151,10 +2161,10 @@ the rule and changes the direction of the walk:
       its direct items (archived items it owns, created, reviews or takes part in), not only in
       another branch.
     - **If the direct pass fails that condition, no fallback is approved in advance (rev 7, review
-      round 4).** The prototype stops at that point, and I take the measured numbers to the
-      coordinator for a new ruling.
-      - Decision 18 names a maintained counter for the direct part as the fallback. Every form of
-        it found so far must, on a tree move, change one counter for each distinct creator,
+      round 4; decision 19).** The prototype stops at that point, and I take the measured numbers
+      to the coordinator for a new ruling. The benchmark itself is mandatory.
+      - Decision 18 named a maintained counter for the direct part as the fallback, and decision
+        19 withdrew it. Every form of it found so far must, on a tree move, change one counter for each distinct creator,
         reviewer and participant name in the moved subtree, or one for each moved descendant.
         Both numbers grow with archived items and retired agents. That breaks the same decision's
         first sentence: tree moves stay free of history.
