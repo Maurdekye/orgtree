@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.1)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.2)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,19 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 7.2: decision 21 (the user's ruling, 2026-10-02), replacing decision 19's f13 part.**
+  - The docket list header and the `orgtree_work list` totals show counts of items that are not
+    archived only. An archived total comes only from an explicit archive request
+    (`include_archived`), and is then the number of archived items served.
+  - So an agent's totals no longer need the direct-item pass over its archived items (an early
+    measurement grew in step with the viewer's own archived history: 10× gave about +10 ms). The
+    three counter tables (`docket_counters`, `docket_subtree_counts`, `docket_anchor_counts`) and
+    their upkeep go too, and a tree move touches no counter at all.
+  - The history-growth rule (10× inactive history, a heavy agent's list call at most 5% slower at
+    p95) still applies to the list call, and its benchmark is still run (Appendix A.3).
+  - Also in rev 7.2: the converter keeps the org-level `sandbox` key (§5.2, "Keys the engine no
+    longer uses"), because the former-sandbox credential catch-up that landed with the sandbox
+    removal reads it after the upgrade.
 - **Rev 7.1: review-sol approved rev 7 (`c083f85`)**, with one listed fix, which rev 7.1 makes:
   decision 20's test case in §5.2 (a snapshot folder copied by hand, its original deleted). Rev
   7.1 also cites decisions 19 (f13's fallback withdrawn, the benchmark mandatory) and 20 (the copy
@@ -1139,7 +1152,6 @@ Additions:
 | `org_extra(key PK, val json)` | a top-level section outside the engine's key registry, kept exactly (rev 4, §5.2) |
 | `turn_requests` | durable turn identities (rev 4, f2; §2.4) |
 | `org_topology` | the one-row topology lock (rev 4, f1; §2.2) |
-| `docket_counters` | archived and backlog totals (rev 4, f13; A.3) |
 
 Appendix A gives the full detail: the tables, column groups, indexes, child and link tables, the
 measured reasons (the turns table, the tool lists, the access rule) and the deliberate duplicates.
@@ -1331,13 +1343,19 @@ So a converted org that is later trashed or purged is never converted again. The
      - Kiosk mode and the per-org Docker sandbox are both removed from 3.2.0
        (v3-remove-the-leftover-kiosk-feature, v3-remove-the-per-org-docker-sandbox-feature).
      - Their stored fields become ignored legacy fields, which the converter does not map:
-       `kiosk`, the spend freeze, `sandbox`, `disk` and the storage-limit flags, and any
-       agent-level field the removals add.
-     - The exact lists are the engine's own constants, which both removals fill:
-       `ledger.IGNORED_LEGACY_KEYS` (top-level keys) and `ledger.IGNORED_LEGACY_NODE_KEYS` (keys
-       inside agent records). The converter imports both.
-     - When such a key holds anything but null, the report lists the org and the key. The value
-       stays where it is, in the untouched legacy data.
+       `kiosk`, the spend freeze, `disk`, the storage-limit flags, `sandbox_vols_base` and the
+       bridge credential stamps.
+     - The exact list is the engine's own constant, which both removals filled:
+       `ledger.IGNORED_LEGACY_KEYS` (top-level keys; as landed, 11 keys). The removals added no
+       agent-level key (the kiosk's node freeze flag stays inside the `frozen` value, which is
+       kept as is). The converter imports the constant.
+     - **Except `sandbox` (rev 7.2).** The sandbox removal also landed a one-time credential
+       catch-up (`registry_migration.run_former_sandbox_catchup`). It finds the orgs it still
+       has to catch up by their stored `sandbox` key, and in 3.2.0 it runs after the conversion,
+       on the new databases. So the converter keeps `sandbox` exactly, as an org setting (a JSON
+       value). The engine otherwise ignores it, as today.
+     - When an ignored key holds anything but null, the report lists the org and the key. The
+       value stays where it is, in the untouched legacy data.
      - The completeness test compares the mappers with `NODE_KEYED_SECTIONS` together with
        `IGNORED_LEGACY_KEYS`.
    - **Two paths can still write a key outside the registry**: `api.py:2191` copies every key of
@@ -1750,10 +1768,15 @@ The same estimates as rev 2 (inferred, replaced by measurements at the first pro
 
 ## 9. Tests
 
+**Rev 7.2 (decision 21):** the list calls carry no archived total unless the archive is
+requested, so rev 2's "no growth with history" test below holds for every docket path again,
+with no exception (A.3). The list payload tests change with it: an archived count appears only
+with `include_archived`.
+
 **Rev 7 adds the tests of review round 4**: the receipt cases in §5.2 (a source path is not
-evidence, with its mutant), and the split guards and the tree-move guard in Appendix A.3. It also
-narrows rev 2's "no growth with history" test below: the direct pass of an agent's totals has
-decision 18's timing condition instead (A.3).
+evidence, with its mutant), and the split guards and the tree-move guard in Appendix A.3. (It
+also gave an agent's direct pass a timing condition instead of the row bound; decision 21 removed
+that pass.)
 
 **Rev 6 adds the tests named under each finding of review round 3** (§2.4, §3.0, A.3, §5.2).
 
@@ -1887,6 +1910,10 @@ reopened:
 | f13 | should-fix | the history-dependent fallback counter is withdrawn: if the direct pass fails its timing condition in the prototype, the coordinator rules again on the measured numbers; the guards are split into the row bound (every other path), the timing condition (the direct pass only) and a tree-move guard | A.3, §2.3 |
 | f15 | blocking | a source path is no longer evidence; a row moves only on its snapshot folder (in one org only, with the file matching the result) or on a delivery key that recomputes its id with the org's slug and an agent's lineage token; review round 4's grant case is a test, with a mutant | §5.2 |
 
+**After the approval (rev 7.2): decision 21** removed f13's direct pass, its timing condition and
+the three docket counter tables. List calls carry no archived total unless the archive is
+requested (Appendix A.3).
+
 ## 10.1 Questions: all answered
 
 Q9–Q12 are answered (see the table at the top) and folded in.
@@ -1921,7 +1948,8 @@ is a plain one inside the org database.
 - cost accumulators and heal markers.
 
 No kiosk, sandbox, disk, storage-limit or spend-freeze setting exists in 3.2.0 (decision 17). The
-converter does not carry them (§5.2).
+converter does not carry them (§5.2), except the stored `sandbox` value, which it keeps as a JSON
+column for the former-sandbox credential catch-up to read (rev 7.2); nothing else reads it.
 
 The object-valued settings (`killswitch`, `net_identity`, `fable_lock`, `auto_cheap_compact`) are flattened into columns where their shape is fixed; otherwise they are one
 JSON column each.
@@ -2119,70 +2147,44 @@ the rule and changes the direction of the walk:
 
   Rows read are bounded by the active items: 12 to 102 on the four orgs measured, never the 1,075
   archived ones.
-- **Totals (rev 5–7, finding f13; decision 18, option B).** A total counts only what its viewer
-  may read.
-  - *The desktop*, the user, reads everything.
-    - Active counts per status come from `count(*) … WHERE archived_at IS NULL` over the partial
-      index.
-    - The archived and backlog totals come from `docket_counters(kind, n)`, updated in the
-      transaction that archives, unarchives, backlogs or unbacklogs an item.
-    - They are O(1), and nothing reads the archive.
-  - *An agent's `work_list` totals* include the archived group when archived items are not listed
-    (ledger.py:14799–14824, 14895–14918, 14948–14975). They are the size of its readable set, A ∪
-    D:
-    - A is the items anchored at its strict descendants;
-    - D is the items that name it in a direct role (owner, creator, reviewer, participant).
-
-    They are computed as |A| + |D \ A|:
-    1. **|A| comes from a maintained hierarchical counter**, `docket_subtree_counts(agent_id,
-       kind, n)`: the items whose anchor row is a strict descendant of that agent. Reading it is
-       one key lookup, so retired descendants are never walked.
-    2. **|D \ A| comes from one indexed query**: the viewer's direct items, through the four
-       name indexes in one `UNION ALL`, each item once, minus those whose anchor row is a strict
-       descendant of the viewer. That check is a walk up of at most the tree depth per item.
-  - **Maintenance of `docket_subtree_counts`.** Each change is bounded by the tree depth, never by
-    history:
-    - creating, archiving, unarchiving, backlogging, unbacklogging or deleting an item: ±1 on each
-      strict ancestor of its anchor row (at most 6 rows);
-    - a change of an item's anchor (a new owner, or a new creator when there is no owner): −1 on
-      the old anchor's ancestors, +1 on the new one's;
-    - a tree move of node M: M's own total (the items anchored at M, read from
-      `docket_anchor_counts` by M's name, plus `docket_subtree_counts(M)`) is subtracted from M's
-      old strict ancestors and added to its new ones, in the move's transaction. That is a fixed
-      number of key lookups and updates per kind, whatever is archived under M;
-    - a name that starts or stops resolving (a node deleted, a same-name agent hired, a rename):
-      the items anchored on that name move with it in the same way. A per-name counter
-      `docket_anchor_counts(anchor_name, kind, n)`, kept in the same transactions, supplies their
-      totals.
-  - **The ruling's condition** (decision 18: option B).
-    - The user's history-growth rule must hold for the list call of a heavy agent such as
-      coordinator-opus: 10× inactive history may make it at most 5% slower at p95.
-    - The guard seeds that history inside the viewer's own subtree (retired descendants) and among
-      its direct items (archived items it owns, created, reviews or takes part in), not only in
-      another branch.
-    - **If the direct pass fails that condition, no fallback is approved in advance (rev 7, review
-      round 4; decision 19).** The prototype stops at that point, and I take the measured numbers
-      to the coordinator for a new ruling. The benchmark itself is mandatory.
-      - Decision 18 named a maintained counter for the direct part as the fallback, and decision
-        19 withdrew it. Every form of it found so far must, on a tree move, change one counter for each distinct creator,
-        reviewer and participant name in the moved subtree, or one for each moved descendant.
-        Both numbers grow with archived items and retired agents. That breaks the same decision's
-        first sentence: tree moves stay free of history.
-      - So that counter is not part of this design. It can come back only with a ruling that
-        makes an exception for it, or in a form whose move cost is bounded.
-    - Option C (no archived totals for agents) is rejected.
+- **Totals (rev 7.2, decision 21; it replaces rev 5–7's counters and decisions 18–19's f13
+  part).** A total counts only what its viewer may read, and only items that are not archived.
+  - The docket list header and the `orgtree_work list` totals carry `attention`, `active` and
+    `backlogged`. They carry **no archived total**: the archived group's line says only how to ask
+    for it (`include_archived`). An archived total comes only from an explicit archive request,
+    and is then the number of archived items served.
+  - *The desktop*, the user, reads everything: counts per status from `count(*) … WHERE
+    archived_at IS NULL` over the partial index.
+  - *An agent's totals* are the sizes of its readable set among the same rows, from the active
+    list's own pass (the point check per row, above). They are bounded by the active items.
+  - A row that is in the archive but still holds attention is served on the main list, as today
+    (attention outranks the archive in `_work_archived`). A partial index on the archived rows
+    that hold attention finds them, bounded by the rows holding attention, not by the archive.
+  - Nothing keeps a counter. Creating, archiving, moving or renaming changes no total row, and a
+    tree move touches only the moved agent rows.
+  - **What changes from today (decision 21):** an agent's `work_list` totals and `groups` stated
+    the archived count even when the archive was not listed (`ledger.work_list`,
+    `_work_list_payload`), and the desktop's header showed the archived total. Both now show it
+    only when the archive is requested. The tests that expected the count change with it.
+  - **Why (measured 2026-10-02, `probe/d19_probe.py` on the converted main org):** the
+    agent-side archived total needed a pass over the viewer's own direct items, and it grew in
+    step with them: for coordinator-opus, 0.96 ms at p95 1.75 ms with its 344 archived direct
+    items, 10.7 ms at p95 14.2 ms with ten times as many. Rev 7's alternatives were a counter
+    whose upkeep on a tree move grows with history (withdrawn by decision 19), or no archived
+    total (rev 6's option C, now chosen).
   - **Guards:**
     - The authorization oracle checks every total and group count.
     - The seeds include hidden archived and backlog rows, anchors at archived bearers, and access
       changes that involve no archive transition: a move, a new participant, a new owner, a
       rename, a delete followed by a same-name hire.
-    - The performance guards are under "Guards (§9, rev 7)" below.
-- **Archive pages are cold reads**, opened explicitly.
+    - The performance guards are under "Guards (§9, rev 7.2)" below.
+- **Archive requests are cold reads**, opened explicitly (`include_archived`, archive pages).
   - For the user: a keyset page over the archived index, so rows read are bounded by the page
     size.
   - For an agent: the direct-principal lookups by key, plus the archived items anchored in its
     subtree through `(anchor_name, archived_at)`. Rows read are bounded by what that agent may
     see, never by the whole archive.
+  - The archived total such a request returns counts the archived items it serves.
 - **`anchor_name`** is `coalesce(owner_name, created_by_name)`, a stored generated column over
   two columns of the same row (rev 5, f13).
 
@@ -2194,21 +2196,25 @@ input, plus fixtures for a delete followed by a same-name hire. That is a test (
 Python predicate as the oracle. Where the two would differ, today's answer wins unless the user
 rules otherwise.
 
-**Guards (§9, rev 7).** Each docket path is checked with `EXPLAIN` and a rows-examined count.
+**Guards (§9, rev 7.2).** Each docket path is checked with `EXPLAIN` and a rows-examined count.
 Archived agents and archived items are seeded at 1× and 10×, and archived rows are interleaved
-ahead of active ones in the sort order. Then three rules apply:
+ahead of active ones in the sort order. Then four rules apply:
 
-- **The row bound, for every path but one.** List, get, the account fan-out, the desktop's
-  counts, an agent's subtree total (|A|), and the counter maintenance of every item change: the
-  statement counts and rows read must not change between 1× and 10×.
-- **The timing condition, for the direct pass only** (decision 18). An agent's direct-item pass
-  is one SQL statement at 1× and at 10×, and its rows read may grow only with the viewer's own
-  direct items. It passes when the heavy agent's whole list call is at most 5% slower at p95 at
-  10× than at 1×, with the history seeded inside the viewer's subtree and among its direct items.
-- **Tree moves** (decision 18: moves stay free of history). Moving a fixed live subtree, whose
-  retired descendants and inactive items are seeded at 1× and 10× with distinct creator,
-  reviewer and participant names inside it, must not change the move's statement count or rows
-  read.
+- **The row bound, for every path.** List and its totals (without the archive), get, the account
+  fan-out, the desktop's counts, and every item change: the statement counts and rows read must
+  not change between 1× and 10×. (Rev 7 exempted an agent's direct pass over its archived items;
+  decision 21 removed that pass.)
+- **The history-growth benchmark** (decisions 18, 19 and 21; mandatory). A heavy agent's whole
+  list call (coordinator-opus on the converted main org) may be at most 5% slower at p95 at 10×
+  inactive history than at 1×. The history is seeded inside the viewer's own subtree (retired
+  descendants) and among its direct items (archived items it owns, created, reviews or takes part
+  in), not only in another branch. It runs in step 3; if it fails, the prototype stops there and
+  the measured numbers go to the coordinator.
+- **Tree moves** (moves stay free of history). Moving a fixed live subtree, whose retired
+  descendants and inactive items are seeded at 1× and 10× with distinct creator, reviewer and
+  participant names inside it, must not change the move's statement count or rows read.
+- **Explicit archive requests** are cold reads: their rows read are bounded by what the viewer
+  may see, and they are outside the history-growth rule.
 
 The seven `work_read_*` tables, their triggers and the per-save refresh go away. The Python
 predicate stays as the test oracle.
@@ -2308,8 +2314,5 @@ predicate stays as the test oracle.
      are kept exactly.
    - A name can outlive its agent, so it is not a foreign key.
    - A rename updates both in one transaction, as today's rename updates the stored references.
-6. **`docket_counters`, `docket_subtree_counts` and `docket_anchor_counts`.** These are totals that the header and
-   `work_list` would otherwise compute by reading the archive (rev 5, f13). They are updated in the
-   same transaction as the change they count, and a test compares them with a full count.
-
-Nothing else is stored twice.
+Nothing else is stored twice. (Rev 5–7 also kept three docket counter tables for archived
+totals; decision 21 removed the archived totals, and the counters with them.)
