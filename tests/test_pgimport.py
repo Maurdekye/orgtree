@@ -811,5 +811,72 @@ class Progress(Base):
         self.assertIn("--progress needs --out", proc.stderr)
 
 
+class HoldBack(Base):
+    """3.2.0's hold-back (orgdb design §5.1, Q12): an org the dry run refuses on its
+    own is held back while the others import and switch; a refusal that is not one
+    org's still refuses everything."""
+
+    def sink(self, **kw) -> FakeSink:
+        return FakeSink(self.sink_path, orgs_dir=self.orgs(), **kw)
+
+    def populate(self) -> None:
+        write_db(self.orgs() / "acme.db", sample_doc())
+        (self.orgs() / "beta.json").write_text(json.dumps(sample_doc("Beta")), encoding="utf-8")
+        doc = sample_doc("Gamma")
+        doc["brand_new_section"] = 1
+        (self.orgs() / "gamma.json").write_text(json.dumps(doc), encoding="utf-8")
+        (self.root / pgimport.PROTOTYPE_MARKER).write_text("{}")
+
+    def test_only_the_refused_org_is_held_back(self) -> None:
+        self.populate()
+        before = tree_digest(self.orgs())
+        dry = pgimport.dry_run(self.root)
+        held, other = pgimport.split_refusals(dry)
+        self.assertEqual(list(held), ["gamma"])
+        self.assertIn("unrecognised section 'brand_new_section'", held["gamma"][0])
+        self.assertEqual(other, [])
+        plan = pgimport.without_held(dry, held)
+        self.assertEqual((plan["refused"], sorted(plan["orgs"])), ([], ["acme", "beta"]))
+        imported = pgimport.import_root(self.root, self.sink(), plan=plan, only=list(plan["orgs"]))
+        self.assertEqual(sorted(imported["orgs"]), ["acme", "beta"])
+        info = {"gamma": {"reasons": held["gamma"], "source": dry["orgs"]["gamma"]["source"]}}
+        record = pgimport.write_cutover(self.root, plan, imported, "first-launch-conversion",
+                                        held_back=info)
+        on_disk = json.loads((self.root / pgimport.CUTOVER_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["held_back"], info)
+        self.assertEqual(sorted(on_disk["orgs"]), ["acme", "beta"])
+        # every old file moved aside unchanged, the held-back one too; no marker for it
+        self.assertEqual(tree_digest(self.root / pgimport.ROLLBACK_DIR), before)
+        self.assertEqual(sorted(p.name for p in self.orgs().iterdir()), ["acme.pg", "beta.pg"])
+        self.assertIn("gamma.json", record["moved"])
+
+    def test_a_refusal_that_is_not_one_orgs_still_refuses_everything(self) -> None:
+        self.populate()
+        (self.orgs() / "stray-folder").mkdir()
+        held, other = pgimport.split_refusals(pgimport.dry_run(self.root))
+        self.assertEqual(list(held), ["gamma"])
+        self.assertTrue(other and other[0].startswith("orgs/stray-folder"))
+
+    def test_without_the_flag_nothing_changes(self) -> None:
+        self.populate()
+        dry = pgimport.dry_run(self.root)
+        with self.assertRaisesRegex(ImportRefused, "not clean"):
+            pgimport.write_cutover(self.root, dry, pgimport.import_root(
+                self.root, self.sink(), plan=pgimport.without_held(dry, {"gamma": {}}),
+                only=["acme", "beta"]))
+        self.assertFalse((self.root / pgimport.CUTOVER_FILE).exists())
+
+    def test_dry_run_exit_codes_with_the_flag(self) -> None:
+        self.populate()
+        out = self.tmp / "dry.json"
+        self.assertEqual(pgimport.main(["dry-run", "--root", str(self.root), "--out", str(out)]), 3)
+        self.assertEqual(pgimport.main(["dry-run", "--root", str(self.root), "--out", str(out),
+                                        "--hold-back"]), 0)
+        self.assertEqual(list(json.loads(out.read_text(encoding="utf-8"))["held_back"]), ["gamma"])
+        (self.orgs() / "stray-folder").mkdir()
+        self.assertEqual(pgimport.main(["dry-run", "--root", str(self.root), "--out", str(out),
+                                        "--hold-back"]), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

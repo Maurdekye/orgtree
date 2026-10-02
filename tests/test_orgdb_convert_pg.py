@@ -181,6 +181,11 @@ class FirstPass(unittest.TestCase):
         cls.twin = make_org('Twin')
         shutil.copy(DATA / 'orgs' / f'{cls.twin}.pg', DATA / 'orgs' / 'twin-copy.pg')
         cls.want = {s: legacy_document(s) for s in (cls.alpha, cls.beta)}
+        # what a 2.1.14 first-launch import with --hold-back records (pgimport.write_cutover)
+        (DATA / 'store-backend.json').write_text(json.dumps({
+            'schema': 'orgtree.store-backend/v1', 'backend': 'postgres',
+            'held_back': {'held': {'reasons': ["unrecognised section 'x'"],
+                                   'source': str(DATA / 'orgs' / 'held.json')}}}), encoding='utf-8')
         cls.report = convert('first-pass')
         cls.rows = registry()
 
@@ -235,6 +240,12 @@ class FirstPass(unittest.TestCase):
     def test_orphan_is_listed_and_not_converted(self) -> None:
         self.assertNotIn(self.orphan, self.rows)
         self.assertIn(self.orphan, [o['slug'] for o in self.report['not_converted']])
+
+    def test_an_org_the_first_launch_import_held_back_is_unavailable_at_import(self) -> None:
+        row = self.rows['held']
+        self.assertEqual((row['state'], row['unavailable_step']), ('unavailable', 'import'))
+        self.assertIn("unrecognised section 'x'", row['state_reason'])
+        self.assertEqual(Path(row['legacy_file']), DATA / 'pre-postgres' / 'orgs' / 'held.json')
 
     def test_duplicate_markers_make_the_org_unavailable(self) -> None:
         dup = [r for r in self.rows.values() if 'twin' in r['slug']]

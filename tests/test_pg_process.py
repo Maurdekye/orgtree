@@ -825,6 +825,22 @@ class BracketTests(unittest.TestCase):
         self.assertEqual(result["orgs"], ["acme"])
         self.assertEqual(result["set_aside"], ["gone", "old", "old"])
 
+    def test_the_orgdb_switch_asks_the_importer_to_hold_back_refused_orgs(self) -> None:
+        # 3.2.0 (orgdb design §5.1, Q12): an org refused on its own is held back,
+        # the others import and switch; only with the storage switch on
+        root, env, _ = self.converting(**{bracket.ORGDB_SWITCH_ENV: "orgdb"})
+        result = bracket.convert_existing_root(root, env)
+        args = {c["args"][0]: c["args"] for c in self.importer_calls()}
+        self.assertIn("--hold-back", args["dry-run"])
+        self.assertIn("--hold-back", args["import"])
+        self.assertNotIn("--hold-back", args["prepare"])
+        self.assertEqual(result["held_back"], [])
+
+    def test_without_the_switch_the_importer_is_called_as_before(self) -> None:
+        root, env, _ = self.converting()
+        bracket.convert_existing_root(root, env)
+        self.assertFalse(any("--hold-back" in c["args"] for c in self.importer_calls()))
+
     def test_a_root_whose_only_orgs_are_in_the_trash_converts(self) -> None:
         # store.delete_org leaves orgs/ in place, but a root may lack it: the
         # importer needs it, so the conversion makes an empty one

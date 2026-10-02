@@ -97,6 +97,9 @@ BOOTSTRAP_ENV = "ORGTREE_PG_BOOTSTRAP"
 BOOTSTRAP_VIA = "fresh-bootstrap"
 CUSTODIAN_ENV = "ORGTREE_PG_CUSTODIAN"
 CONNINFO_ENV = "ORGTREE_PG_CONNINFO"
+#: 3.2.0's one-database-per-org storage switch (orgtree.orgdb.SWITCH_ENV), off
+#: until landing step 3 of the rewrite
+ORGDB_SWITCH_ENV = "ORGTREE_STORAGE"
 MARKER_FILE = "orgtree-p03-prototype-root.json"
 PRODUCT_FILE = "orgtree-product-root.json"
 CUTOVER_FILE = "store-backend.json"
@@ -722,9 +725,13 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
     (root / "orgs").mkdir(exist_ok=True)
     child = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV, STORE_ENV)}
     child.update({"ORGTREE_DATA": str(root), "PYTHONUNBUFFERED": "1"})
+    # 3.2.0's storage (orgdb): an org the dry run refuses on its own is held back,
+    # and the converter shows it unavailable with a Retry, while the rest start
+    # (design §5.1, Q12). A refusal that is not one org's still refuses below.
+    hold = ["--hold-back"] if env.get(ORGDB_SWITCH_ENV, "").strip().lower() == "orgdb" else []
     step(f"{CONVERT_PHASE}: checking your data")
-    code, err = _run_importer(["dry-run", "--root", str(root), "--out", str(logdir / "dry-run.json")],
-                              child, logdir, "dry-run", step)
+    code, err = _run_importer(["dry-run", "--root", str(root), "--out", str(logdir / "dry-run.json"),
+                               *hold], child, logdir, "dry-run", step)
     if code != 0:
         reason = _last_line(err)
         try:
@@ -740,8 +747,8 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
     if code != 0:
         raise ConversionFailed(_convert_message(root, _last_line(err), logdir))
     code, err = _run_importer(["import", "--root", str(root), "--custodian", str(custodian), "--cutover",
-                               "--via", CONVERT_VIA, "--progress", "--out", str(logdir / "import.json")],
-                              child, logdir, "import", step)
+                               "--via", CONVERT_VIA, "--progress", "--out", str(logdir / "import.json"),
+                               *hold], child, logdir, "import", step)
     record = read_cutover(root)
     if code != 0 or record is None or record.get("backend") != "postgres" or record.get("via") != CONVERT_VIA:
         raise ConversionFailed(_convert_message(root, _last_line(err) if code != 0 else
@@ -750,7 +757,8 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
     step(f"{CONVERT_PHASE}: switched to the new database")
     set_aside = record.get("set_aside") or {}
     return {"logdir": str(logdir), "orgs": sorted(record.get("orgs", {})),
-            "set_aside": sorted(o.get("slug", "") for o in set_aside.get("orgs", []))}
+            "set_aside": sorted(o.get("slug", "") for o in set_aside.get("orgs", [])),
+            "held_back": sorted(record.get("held_back") or {})}
 
 
 def finish_interrupted_conversion(root: Path, env: Mapping[str, str]) -> list[str]:

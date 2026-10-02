@@ -259,6 +259,17 @@ def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
                  if r["legacy_org_id"] is not None}
     report: dict[str, Any] = {"legacy_database": _legacy_db(cfg), "legacy_level": level,
                               "build": cfg.build, "orgs": [], "not_converted": []}
+    held_files = {r["legacy_file"] for r in lc.rows() if r["legacy_file"]}
+    for slug, info in sorted(held_back(cfg.data_root).items()):
+        # the 2.1.14 first-launch import held this org back (design §5.1): unavailable
+        # at step 'import' until a Retry imports its file and converts it
+        path = str(Path(cfg.data_root) / "pre-postgres" / "orgs" / Path(str(info.get("source") or slug)).name)
+        if path not in held_files:
+            reason = "the first-launch import held it back: " + "; ".join(info.get("reasons") or [])
+            org_id = lc.register_org(slug, state="unavailable", unavailable_step="import",
+                                     state_reason=reason[:300], legacy_file=path)
+            report["orgs"].append({"slug": slug, "org_id": org_id, "outcome": "unavailable",
+                                   "reason": reason})
     for org in orgs:
         if org.status == "orphaned":
             report["not_converted"].append(org.record())
@@ -284,6 +295,16 @@ def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
                   (_legacy_db(cfg), level, cfg.build, cfg.report_dir))
     report["finished"] = True
     return report
+
+
+def held_back(data_root: str) -> dict[str, Any]:
+    """{slug: {reasons, source}} the first-launch import's cutover record held back."""
+    try:
+        record = json.loads((Path(data_root) / "store-backend.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    held = record.get("held_back") if isinstance(record, dict) else None
+    return held if isinstance(held, dict) else {}
 
 
 def _register(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg) -> int:

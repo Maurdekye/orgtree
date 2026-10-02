@@ -797,8 +797,36 @@ def trash_set_aside(root: Path) -> dict[str, Any]:
                    "for a rollback and are not in the new version's trash"}
 
 
+def split_refusals(plan: Mapping[str, Any]) -> tuple[dict[str, list[str]], list[str]]:
+    """Orgdb (3.2.0) hold-back, design §5.1: the dry run's refusals of the form
+    ``<slug>: ...`` for an org it read belong to that org alone, which is held
+    back while the others import; every other refusal (a layout problem in
+    orgs/, a stray file or folder) is not about one org and still refuses the
+    whole import. Returns ({slug: [reasons]}, [other refusals])."""
+    orgs = set(plan.get("orgs", {}))
+    held: dict[str, list[str]] = {}
+    other: list[str] = []
+    for r in plan.get("refused", []):
+        slug, sep, why = str(r).partition(": ")
+        if sep and slug in orgs:
+            held.setdefault(slug, []).append(why)
+        else:
+            other.append(str(r))
+    return held, other
+
+
+def without_held(plan: Mapping[str, Any], held: Mapping[str, Any]) -> dict[str, Any]:
+    """The dry run as if the held-back orgs were not there: what the import and the
+    cutover check against."""
+    return {**plan, "refused": [r for r in plan.get("refused", [])
+                                if str(r).partition(": ")[0] not in held],
+            "orgs": {s: v for s, v in plan.get("orgs", {}).items() if s not in held},
+            "importable": True}
+
+
 def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any],
-                  via: str | None = None) -> dict[str, Any]:
+                  via: str | None = None, held_back: Mapping[str, Any] | None = None
+                  ) -> dict[str, Any]:
     """Record that ``root`` now runs on PostgreSQL (decision 18.1: the engine
     reads this record when ``ORGTREE_STORE`` is unset) and move the old files
     aside. Refuses unless the dry run was clean and EVERY org in it was
@@ -847,6 +875,11 @@ def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any
         # who switched (the engine's first-launch conversion finishes an
         # interrupted file move by itself only for its own record)
         record["via"] = via
+    if held_back:
+        # orgdb hold-back (design §5.1): these orgs were not imported; their files
+        # move to pre-postgres/orgs like every other, and the converter registers
+        # each as unavailable (step 'import') until a Retry imports it
+        record["held_back"] = {s: dict(v) for s, v in sorted(held_back.items())}
     target = root / CUTOVER_FILE
     tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -960,6 +993,9 @@ def main(argv: list[str] | None = None) -> int:
     dry = sub.add_parser("dry-run", help="counts, checksums and refusals for every org; writes nothing")
     dry.add_argument("--root", type=Path, required=True)
     dry.add_argument("--out", type=Path)
+    dry.add_argument("--hold-back", action="store_true",
+                     help="3.2.0: an org's own refusal holds back only that org (exit 0 when "
+                          "every refusal is one org's)")
     prep = sub.add_parser("prepare", help="bind the engine's own data root for the custodian's product mode")
     prep.add_argument("--root", type=Path, required=True)
     prep.add_argument("--custodian", type=Path, required=True)
@@ -971,6 +1007,9 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--via", help="recorded in the cutover record as who switched")
     imp.add_argument("--progress", action="store_true",
                      help="print one JSON progress line per real step on stdout (needs --out)")
+    imp.add_argument("--hold-back", action="store_true",
+                     help="3.2.0: import every org the dry run did not refuse; an org's own refusal "
+                          "holds back only that org, recorded in the cutover record")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     progress: Progress | None = None
@@ -986,8 +1025,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "dry-run":
             report = dry_run(root)
-            code = 0 if report["importable"] else 3
-            summary = {"orgs": len(report["orgs"]), "importable": report["importable"], "refused": len(report["refused"])}
+            importable = report["importable"]
+            if args.hold_back:
+                held, other = split_refusals(report)
+                report["held_back"] = held
+                importable = not other
+            code = 0 if importable else 3
+            summary = {"orgs": len(report["orgs"]), "importable": importable,
+                       "refused": len(report["refused"]), "held_back": len(report.get("held_back") or {})}
         elif args.command == "prepare":
             pp = _pg_process()
             workdir = Path(tempfile.mkdtemp(prefix="orgtree-pgimport-custodian-"))
@@ -1007,6 +1052,13 @@ def main(argv: list[str] | None = None) -> int:
                     code, summary = 0, {"cutover_completed": True, "moved": len(report["moved"])}
                 else:
                     plan = dry_run(root, progress)
+                    held: dict[str, Any] = {}
+                    if plan["refused"] and args.hold_back:
+                        reasons, other = split_refusals(plan)
+                        if not other:
+                            held = {s: {"reasons": r, "source": plan["orgs"][s].get("source")}
+                                    for s, r in reasons.items()}
+                            plan = without_held(plan, held)
                     if plan["refused"]:
                         # before the database is touched: nothing is written
                         raise ImportRefused("the dry run refused: " + "; ".join(plan["refused"][:20])
@@ -1017,8 +1069,10 @@ def main(argv: list[str] | None = None) -> int:
                     with database(root, _custodian(args.custodian), os.environ) as admin:
                         sink = PgSink(admin, root / "orgs")
                         try:
-                            report = import_root(root, sink, plan=plan, progress=progress)
+                            report = import_root(root, sink, plan=plan, progress=progress,
+                                                 only=list(plan["orgs"]) if held else None)
                             report["migrations"] = sink.migrations
+                            report["held_back"] = held
                         finally:
                             sink.close()
                         if progress:
@@ -1027,7 +1081,8 @@ def main(argv: list[str] | None = None) -> int:
                     if args.cutover:
                         if progress:
                             progress("switching to PostgreSQL and moving the old files aside")
-                        report["cutover"] = write_cutover(root, plan, report, args.via)
+                        report["cutover"] = write_cutover(root, plan, report, args.via,
+                                                          held_back=held)
                     code = 0
                     summary = {"orgs": len(report["orgs"]), "cutover": bool(args.cutover)}
     except ImportRefused as exc:
