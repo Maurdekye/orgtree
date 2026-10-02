@@ -40,6 +40,9 @@ export function orgActivityRows(raw: unknown): OrgActivityRow[] | null {
     if (!Number.isInteger(row.live) || (row.live as number) < 0) return null
     const working = Number.isInteger(row.working) && (row.working as number) >= 0
       ? row.working as number : 0
+    // This scriptless popup can only open orgs. Retry lives in the renderer
+    // org list, so unavailable orgs must not become tray navigation links.
+    if (row.state === 'unavailable') continue
     out.push({ slug: row.slug, name: row.name || row.slug, working, live: row.live as number })
   }
   return out

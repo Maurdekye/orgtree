@@ -46,6 +46,19 @@ test('org rows validate the admin listing and refuse malformed payloads whole', 
     [{ slug: 'a', name: 'n', working: 0, live: 1 }])
 })
 
+test('unavailable orgs never become tray navigation links', () => {
+  const parsed = orgActivityRows([
+    { ...rows[0], state: 'active' },
+    { slug: 'held', name: 'Held', state: 'unavailable', live: 0, working: 0 },
+    rows[1],
+  ])
+  assert.deepEqual(parsed, rows)
+  assert.doesNotMatch(trayListHtml(parsed), /open\/held/)
+  assert.deepEqual(orgActivityRows([
+    { slug: 'held', name: 'Held', state: 'unavailable', live: 0 },
+  ]), [])
+})
+
 test('the popup document has one aligned grid, spinners only for active orgs, n/m always', () => {
   const html = trayListHtml(rows)
   // one grid holds every row and each row is a SUBGRID of it, so the three

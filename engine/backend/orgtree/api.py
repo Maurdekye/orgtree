@@ -1570,6 +1570,11 @@ async def _orgs_list_route(request: Request) -> list[dict[str, Any]]:
 
 
 def orgs_list(request: Request) -> list[dict[str, Any]]:
+    from . import orgdb
+    if orgdb.enabled():
+        from .orgdb import registry as org_registry
+        return _orgdb_fanout(_orgdb_org_row, [r for r in org_registry.rows()
+                                            if r['state'] in ('active', 'unavailable')])
     from . import org_summary
     # Current-format orgs use coherent totals and active funding rows; legacy
     # settings or exceptional cost shapes use the complete per-org reader.
@@ -1580,6 +1585,89 @@ def orgs_list(request: Request) -> list[dict[str, Any]]:
                "working": supervisor.working_count(o["slug"])}
         out.append(row)
     return out
+
+
+def _orgdb_fanout(read: Any, rows: list[dict[str, Any]]) -> list[Any]:
+    """Bound cross-org reads to eight pooled connections; preserve registry order."""
+    from concurrent.futures import ThreadPoolExecutor
+    if not rows:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(rows)), thread_name_prefix='orgdb-list') as pool:
+        return list(pool.map(read, rows))
+
+
+def _orgdb_org_row(reg: dict[str, Any]) -> dict[str, Any]:
+    from .orgdb import registry as org_registry
+    try:
+        return _orgdb_org_row_read(reg)
+    except org_registry.OrgUnavailable:
+        # A registry read can race the lifecycle fence. Refresh its state rather
+        # than opening the old database or making every other org disappear.
+        current = next((r for r in org_registry.rows() if r['org_id'] == reg['org_id']), None)
+        if current is None or current['state'] == 'active':
+            raise
+        return _orgdb_org_row_read(current)
+
+
+def _orgdb_org_row_read(reg: dict[str, Any]) -> dict[str, Any]:
+    from .orgdb import codec
+    from .orgdb import registry as org_registry
+    from .orgdb.mappers.settings import SETTINGS
+    from psycopg.rows import dict_row
+    slug = reg['slug']
+    row: dict[str, Any] = {'slug': slug, 'name': slug, 'nodes': 0, 'live': 0, 'created': None,
+           'net_slug': None, 'cost_usd_total': 0.0, 'working': 0,
+           **{k: reg.get(k) for k in ('state', 'unavailable_step', 'state_reason',
+                                     'attempts', 'report_path')}}
+    if reg['state'] != 'active':
+        return row
+    with org_registry.connection(slug) as c, c.transaction():
+        c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        with c.cursor(row_factory=dict_row) as cur:
+            raw = cur.execute('SELECT name, created, created_text, net_identity, '
+                              'deleted_cost_usd, extra FROM orgtree.org_settings').fetchone()
+        fields = tuple(f for f in SETTINGS.fields
+                       if f.key in ('name', 'created', 'net_identity', 'deleted_cost_usd'))
+        settings = codec.decode(codec.Spec('org_settings', fields), raw or {}, None, ())
+        total, live = c.execute("SELECT count(*), count(*) FILTER (WHERE state = 'live') "
+                                'FROM orgtree.agents WHERE NOT tombstone').fetchone()
+        # The order and Python float sum are part of the API's existing answer;
+        # PostgreSQL numeric SUM can differ in the fourth displayed decimal.
+        costs = c.execute("SELECT cost_usd, extra->'cost_usd' FROM orgtree.agents "
+                          'WHERE NOT tombstone ORDER BY ord').fetchall()
+    row.update(name=settings.get('name', slug), created=settings.get('created'),
+               net_slug=(settings.get('net_identity') or {}).get('slug'),
+               nodes=int(total), live=int(live),
+               cost_usd_total=round(sum(float((extra if extra is not None else cost) or 0.0)
+                                        for cost, extra in costs)
+                                   + float(settings.get('deleted_cost_usd') or 0.0), 4),
+               working=supervisor.working_count(slug))
+    return row
+
+
+@app.post('/api/orgs/{slug}/retry')
+async def orgs_retry(slug: str) -> dict[str, Any]:
+    from starlette.concurrency import run_in_threadpool
+    from . import orgdb
+    if not orgdb.enabled():
+        raise HTTPException(404, 'Organization retry requires org database storage.')
+    from .orgdb import lifecycle
+    from .orgdb import registry as org_registry
+    rows = await run_in_threadpool(org_registry.rows)
+    row = next((r for r in rows if r['slug'] == slug and r['state'] != 'trashed'), None)
+    if row is None:
+        raise HTTPException(404, 'Organization not found.')
+    if row['state'] != 'unavailable':
+        raise HTTPException(409, 'Only an unavailable organization can be retried.')
+    try:
+        await run_in_threadpool(org_registry.retry, row['org_id'])
+    except lifecycle.Busy as e:
+        raise HTTPException(409, str(e)) from e
+    rows = await run_in_threadpool(org_registry.rows)
+    current = next((r for r in rows if r['org_id'] == row['org_id']), None)
+    if current is None:
+        raise HTTPException(404, 'Organization no longer exists.')
+    return await run_in_threadpool(_orgdb_org_row, current)
 
 
 @app.post("/api/orgs")
@@ -4632,6 +4720,15 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
     placement identify the selected account"). A doc that fails to load is
     SKIPPED, not treated as unbound: this feeds a refusal, and a load error
     must not make a bound account look free."""
+    from . import orgdb
+    if orgdb.enabled():
+        from .orgdb import registry as org_registry
+        out: dict[str, list[dict[str, str]]] = {}
+        for bindings in _orgdb_fanout(_orgdb_bound_rows, [r for r in org_registry.rows()
+                                                       if r['state'] == 'active']):
+            for account, placed in bindings:
+                out.setdefault(account, []).append(placed)
+        return out
     out: dict[str, list[dict[str, str]]] = {}
     try:
         names = sorted(os.listdir(store._orgs_dir()))
@@ -4655,6 +4752,18 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
                     {"org": slug, "node": str(nid),
                      "state": str((node or {}).get("state") or "")})
     return out
+
+
+def _orgdb_bound_rows(row: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
+    from .orgdb import registry as org_registry
+    try:
+        with org_registry.connection(row['slug']) as c:
+            bound = c.execute('SELECT name, account, state FROM orgtree.agents '
+                              'WHERE account IS NOT NULL AND NOT tombstone ORDER BY ord').fetchall()
+    except org_registry.OrgUnavailable:
+        return []                     # a lifecycle operation fenced it during this fan-out
+    return [(str(account), {'org': row['slug'], 'node': str(node), 'state': str(state or '')})
+            for node, account, state in bound if account and not str(account).startswith('missing:')]
 
 
 def _ambient_covered(row: dict[str, Any], primary: str,
@@ -4706,10 +4815,11 @@ async def accounts_list(org: str | None = None) -> dict[str, Any]:
     `email unavailable` about an account the usage modal was naming by
     address (see `accountusage.host_identities`). Display metadata; the
     selector still submits `provider/primary`."""
+    from starlette.concurrency import run_in_threadpool
     from .registry_migration import observe_ambient
     from . import accountusage
     rows = registry.list_accounts(org)
-    bindings = _account_bindings()
+    bindings = await run_in_threadpool(_account_bindings)
     primary = registry.resolve_alias("primary")
     ambient_paths = observe_ambient()
     return {"accounts": [
