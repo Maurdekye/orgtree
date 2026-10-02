@@ -58,7 +58,8 @@ def document():
         'killswitch': None, 'tiers': {'opus': 15, 'haiku': 0.25}, 'models': {'opus': 'o-5'},
         'kiosk': {'token': 'old'}, 'spend_frozen': None,
         'nodes': {
-            'boss': node(last_turn_mcp_tools=tools, mailbox_id='mb1', mail_seq=3),
+            'boss': node(last_turn_mcp_tools=tools, mailbox_id='mb1', mail_seq=3, halt={},
+                         inflight=False),
             'x': node(parent='boss', successor='x@0', last_turn_mcp_tools=list(tools),
                       frozen={'until': 1}, charter='do it', team_charter=None,
                       halt_queue=[{'_halt_id': 'h', 'toks': ['t1'], 'mail_ids': [], 'at': 1.5}]),
@@ -125,6 +126,9 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(agents['x@0']['parent_id'], agents['gone-boss']['id'])
         self.assertTrue(agents['gone-boss']['tombstone'])
         self.assertTrue(agents['x']['is_frozen'])
+        # present but empty is not set: the engine reads these fields by truthiness
+        self.assertEqual((agents['boss']['is_halted'], agents['boss']['is_inflight'],
+                          agents['boss']['is_frozen']), (False, False, False))
         self.assertIsNotNone(agents['x@0']['extra'])                 # surprise_field, exact
         sect = {r['key']: r['state'] for r in rows['org_sections']}
         self.assertEqual((sect['audiences'], sect['asks'], sect['killswitch']), ('n', 'v', 'v'))

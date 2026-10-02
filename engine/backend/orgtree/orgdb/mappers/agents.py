@@ -22,7 +22,8 @@ Derived columns, recomputed from the record and never read back as data:
                   is read back from the row it points at
   tool_list_id    the shared list holding ``last_turn_mcp_tools``
   is_frozen, is_halted, is_inflight, is_remote_controlled, has_pending_switch
-                  presence flags for the partial indexes of Appendix A.2
+                  presence flags for the partial indexes of Appendix A.2: ``bool(value)``,
+                  the test the engine itself applies to these fields
 
 Tombstone rows (``tombstone`` true) carry only a name: they are what a by-agent section's key,
 or a parent, names when no node does. They are never nodes.
@@ -293,7 +294,7 @@ class Nodes(Section):
             derived["tool_list_id"] = lid
             del hot[TOOL_KEY]
         for key, col in FLAGS.items():
-            derived[col] = rec.get(key) is not None
+            derived[col] = bool(rec.get(key))
         codec.encode(HOT, hot, {"id": aid}, out, link=AGENTS.link)
         row = out["agents"][-1]
         row.update({"name": name, "ord": i, "tombstone": False, **derived})
