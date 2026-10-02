@@ -879,7 +879,7 @@ class Migration(unittest.TestCase):
         from orgtree.orgdb.convert import accounts
         want: dict[str, list[str]] = {}
         for t in (sidefiles.REPLY_EVENTS, sidefiles.FILE_DELIVERIES, accounts.ORG_ACCOUNTS,
-                  accounts.ORG_MARKS, accounts.ORG_SPENDS):
+                  accounts.ORG_MARKS, accounts.ORG_SPENDS, accounts.ORG_ALIASES, accounts.ORG_AUDITS):
             want.update(table_columns(t))
         got = migration_columns(MIGRATION.read_text(encoding='utf-8'))
         self.assertEqual({k: sorted(v) for k, v in got.items()}, {k: sorted(v) for k, v in want.items()})
@@ -889,7 +889,7 @@ class Migration(unittest.TestCase):
         order = rowio.tables(mappers.sections() + [sidefiles.ReplyEvents(), accounts.OrgAccounts(),
                                                    sidefiles.FileDeliveries('acme', [], {})])
         for t in ('reply_events', 'file_deliveries', 'org_accounts', 'org_account_marks',
-                  'org_account_spend'):
+                  'org_account_spend', 'org_account_aliases', 'org_account_mark_audit'):
             self.assertGreater(order.index(t), order.index('agents'))
         self.assertGreater(order.index('org_account_marks'), order.index('org_accounts'))
 

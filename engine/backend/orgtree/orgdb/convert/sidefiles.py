@@ -681,7 +681,7 @@ class SideFiles:
         self._transcript_roots = None if transcript_roots is None else list(transcript_roots)
         self._events: dict[Any, list[dict[str, Any]]] | None = None
         self._deliveries: list[dict[str, Any]] | None = None
-        self._restricted: dict[str, list[dict[str, Any]]] | None = None
+        self._restricted: dict[str, dict[str, Any]] | None = None
         self._profiles: list[str] = []
         self._index: dict[str, str] | None = None
         self._file_checks: dict[tuple[str, str, int, str], bool] = {}
@@ -703,7 +703,8 @@ class SideFiles:
             self._deliveries = read_deliveries(os.path.join(self.data_root, DELIVERIES_FILE))
         return self._deliveries
 
-    def restricted(self) -> dict[str, list[dict[str, Any]]]:
+    def restricted(self) -> dict[str, dict[str, Any]]:
+        """{org slug: its part of the accounts registry} (``accounts.split_registry``)."""
         if self._restricted is None:
             from . import accounts                  # noqa: PLC0415
             doc = accounts.read_registry(os.path.join(self.data_root, accounts.REGISTRY_FILE))
@@ -768,21 +769,24 @@ class SideFiles:
         report: dict[str, Any] = {}
         rows = self.deliveries()
         assigned = assign_deliveries(rows, orgs, report=report, file_checks=self._file_checks)
-        restricted = self.restricted().get(slug, [])
+        part = self.restricted().get(slug)
         if trashed and os.path.exists(os.path.join(self.data_root, "orgs", f"{slug}.pg")):
-            restricted = []           # the live org of this name is the one that binds them
+            part = None               # the live org of this name is the one that binds them
+        accounts = OrgAccounts(part)
         delivered = [r for r in rows if r.get("id") in assigned]
         self.sources[self.key(org)] = {"slug": slug, "reply_events": events,
-                                       "file_deliveries": delivered, "org_accounts": restricted}
+                                       "file_deliveries": delivered, "org_accounts": accounts.part}
         self.reports[self.key(org)] = {"reply_events": len(events), "file_deliveries": report,
-                                       "org_accounts": len(restricted)}
-        return [ReplyEvents(events), FileDeliveries(slug, rows, assigned), OrgAccounts(restricted)]
+                                       "org_accounts": len(accounts.part["accounts"]),
+                                       "org_account_aliases": len(accounts.part["aliases"]),
+                                       "org_account_mark_audit": len(accounts.part["mark_audit"])}
+        return [ReplyEvents(events), FileDeliveries(slug, rows, assigned), accounts]
 
     def check(self, org: Any, rows: Mapping[str, list[Mapping[str, Any]]]) -> list[dict[str, Any]]:
         """Mismatches between the side rows read back and their sources ([] when exact)."""
         from .accounts import check_org_accounts    # noqa: PLC0415
         src = self.sources.get(self.key(org), {"reply_events": [], "file_deliveries": [],
-                                               "org_accounts": []})
+                                               "org_accounts": None})
         return (check_reply_events(src["reply_events"], rows)
                 + check_file_deliveries(src["file_deliveries"], rows)
                 + check_org_accounts(src["org_accounts"], rows))

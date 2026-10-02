@@ -218,8 +218,12 @@ class FirstPass(unittest.TestCase):
         cls.accounts = {'version': 1, 'accounts': [
             {'id': 'claude-1', 'provider': 'claude', 'label': 'everywhere', 'enabled': True},
             {'id': 'claude-2', 'provider': 'claude', 'origin_org': cls.alpha, 'mode': 'apikey'}],
-            'aliases': {'primary': 'claude-1'}, 'id_counters': {'claude': 2},
-            'tint_counters': {'claude': 2}}
+            'aliases': {'primary': 'claude-1', 'alpha-key': 'claude-2'}, 'id_counters': {'claude': 2},
+            'tint_counters': {'claude': 2},
+            # review f19: a clear of the alpha-only account, with a private reason
+            'mark_audit': [{'at': 1.5, 'actor': 'lead', 'org': cls.alpha, 'via': 'agent',
+                            'account': 'claude-2', 'pool': 'pooled', 'cleared': {}, 'kept': {},
+                            'reason': 'for Dana only'}]}
         (DATA / 'accounts-registry.json').write_text(json.dumps(cls.accounts), encoding='utf-8')
         cls.report = convert('first-pass')
         cls.rows = registry()
@@ -250,6 +254,13 @@ class FirstPass(unittest.TestCase):
         with conn.connect(RUNTIME, self.rows[self.alpha]['database']) as c:
             self.assertEqual(c.execute('SELECT id, origin_org FROM org_accounts').fetchall(),
                              [('claude-2', self.alpha)])
+            self.assertEqual(c.execute('SELECT alias, account_id FROM org_account_aliases').fetchall(),
+                             [('alpha-key', 'claude-2')])
+            self.assertEqual(c.execute('SELECT reason FROM org_account_mark_audit').fetchall(),
+                             [('for Dana only',)])
+        with conn.connect(RUNTIME, names.app(PREFIX)) as c:     # no trace in the app database
+            self.assertEqual(c.execute('SELECT alias FROM account_aliases').fetchall(), [('primary',)])
+            self.assertEqual(c.execute('SELECT count(*) FROM account_mark_audit').fetchone()[0], 0)
         with conn.connect(RUNTIME, self.rows[self.beta]['database']) as c:
             self.assertEqual(c.execute('SELECT count(*) FROM org_accounts').fetchone()[0], 0)
         self.assertEqual(self.outcome(self.alpha)['side']['org_accounts'], 1)

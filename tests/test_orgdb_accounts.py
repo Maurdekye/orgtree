@@ -30,6 +30,7 @@ import re
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
@@ -113,8 +114,10 @@ class RegistryRoundTrip(unittest.TestCase):
         self.assertEqual(canon(back), canon(machine))
         self.assertEqual(list(back), list(doc))                       # top-level order kept
         self.assertEqual([a['id'] for a in back['accounts']], ['openai-1', 'claude-1', 'claude-4', 'google-1'])
-        self.assertEqual({k: [r['id'] for r in v] for k, v in restricted.items()},
+        self.assertEqual({k: [r['id'] for r in v['accounts']] for k, v in restricted.items()},
                          {'acme': ['claude-2'], 'beta': ['claude-3']})
+        self.assertEqual(restricted['acme']['aliases'], {'acme-key': 'claude-2'})   # moved with it
+        self.assertEqual(list(back['aliases']), ['primary', 'odd'])                   # order kept
         self.assertEqual(canon(restricted), canon(by_org))
         app_ids = {r.get('id') or r.get('account_id') for t in ('accounts', 'account_marks', 'account_spend')
                    for r in rows[t]}
@@ -123,7 +126,9 @@ class RegistryRoundTrip(unittest.TestCase):
         self.assertEqual(report['accounts'], 6)
         self.assertEqual(report['restricted'], {'acme': 1, 'beta': 1})
         self.assertEqual(report['kept_whole'], ['future_top'])
-        self.assertEqual(report['aliases_to_restricted'], ['acme-key'])
+        self.assertEqual(report['restricted_aliases'], {'acme': 1})
+        self.assertEqual(report['aliases_unresolved'], ['odd'])           # kept, never guessed
+        self.assertEqual(report['mark_audit_unattributed'], [])
         self.assertEqual(report['rows_with_extra'], {'accounts': 2, 'account_marks': 1,
                                                      'account_aliases': 1, 'account_counters': 1,
                                                      'account_mark_audit': 1})
@@ -206,9 +211,9 @@ class RegistryRoundTrip(unittest.TestCase):
 
 class OrgAccounts(unittest.TestCase):
     def test_restricted_rows_round_trip_and_a_change_is_reported(self) -> None:
-        source = accounts.split_registry(registry())[1]['acme'] + [
-            {'id': 'claude-9', 'origin_org': 'acme', 'marks': None, 'spend': {'turns': 'many'},
-             'surprise': True, 'label': 'z\x00'}]
+        source = accounts.split_registry(registry())[1]['acme']
+        source['accounts'].append({'id': 'claude-9', 'origin_org': 'acme', 'marks': None,
+                                   'spend': {'turns': 'many'}, 'surprise': True, 'label': 'z\x00'})
         sec = accounts.OrgAccounts(source)
         rows, _, _ = sections.encode_document({}, [sec])
         self.assertEqual([r['ord'] for r in rows['org_accounts']], [0, 1])
@@ -226,7 +231,86 @@ class OrgAccounts(unittest.TestCase):
         self.assertEqual(found[0]['missing'], ['claude-2'])
         self.assertEqual(found[0]['unexpected'], ['claude-2'])
         with self.assertRaises(codec.ShapeError):
-            accounts.OrgAccounts([{'id': 'a'}, {'id': 'a'}])
+            accounts.OrgAccounts({'accounts': [{'id': 'a'}, {'id': 'a'}]})
+
+
+PRIVATE = 'for Dana only: next year salaries'
+
+
+def traced(registry_doc: dict) -> dict:
+    """A registry where org acme's restricted account claude-2 has two aliases and two manual
+    mark clears (registry.clear_mark's shape: the clearing org, actor and a private reason),
+    interleaved with machine-wide ones, plus an alias and a clear that name no account."""
+    doc = copy.deepcopy(registry_doc)
+    doc['aliases'] = {'primary': 'claude-1', 'acme-key': 'claude-2', 'ghost': 'claude-99',
+                      'acme-backup': 'claude-2'}
+    doc['mark_audit'] = [
+        {'at': 1.5, 'actor': 'boss', 'org': 'acme', 'via': 'agent', 'account': 'claude-2',
+         'source': 'registry', 'pool': 'pooled', 'cleared': {'pooled': mark(2.0)}, 'kept': {},
+         'reason': PRIVATE},
+        {'at': 2.5, 'actor': 'user', 'org': 'acme', 'via': 'ui', 'account': 'claude-1',
+         'source': 'registry', 'pool': 'pooled', 'cleared': {}, 'kept': {}, 'reason': 'stale'},
+        {'at': 3.5, 'actor': 'user', 'org': 'acme', 'via': 'ui', 'account': 'claude-2',
+         'source': 'registry', 'pool': 'fable', 'cleared': {}, 'kept': {'pooled': mark(4.0)},
+         'reason': 'second'},
+        {'at': 4.5, 'actor': 'user', 'org': 'beta', 'via': 'ui', 'account': 'claude-99',
+         'source': 'registry', 'pool': 'pooled', 'cleared': {}, 'kept': {}, 'reason': 'unknown'}]
+    return doc
+
+
+def app_traces(rows: dict) -> list:
+    """Where the app database's rows still mention claude-2 or the private reason."""
+    found = []
+    for table, rs in rows.items():
+        for r in rs:
+            text = json.dumps(r, default=lambda v: getattr(v, 'obj', str(v)), ensure_ascii=False)
+            if 'claude-2' in text or PRIVATE in text:
+                found.append(table)
+    return sorted(set(found))
+
+
+class RestrictedTraces(unittest.TestCase):
+    """Review f19: an org's restricted account leaves no trace in the app database. Its aliases
+    and its manual mark-clear audit entries (private reasons included) go to that org's own
+    database with it, in file order; machine-wide ones stay global; an alias or a clear that
+    names no account stays global and is reported."""
+
+    def test_aliases_and_audit_entries_follow_the_restricted_account(self) -> None:
+        doc = traced(registry())
+        rows, parts, report = accounts.encode_registry(copy.deepcopy(doc))
+        self.assertEqual(app_traces(rows), [])
+        self.assertNotIn(PRIVATE, json.dumps(report, ensure_ascii=False))
+        acme = parts['acme']
+        self.assertEqual(acme['aliases'], {'acme-key': 'claude-2', 'acme-backup': 'claude-2'})
+        self.assertEqual(canon(acme['mark_audit']),
+                         canon([doc['mark_audit'][0], doc['mark_audit'][2]]))   # exact, in order
+        self.assertEqual(parts['beta']['aliases'], {})
+        back = accounts.decode_registry(rows)
+        self.assertEqual(list(back['aliases']), ['primary', 'ghost'])
+        self.assertEqual([e['reason'] for e in back['mark_audit']], ['stale', 'unknown'])
+        self.assertEqual(report['aliases_unresolved'], ['ghost'])
+        self.assertEqual(report['mark_audit_unattributed'], [1])        # claude-99's, kept
+        self.assertEqual((report['restricted_aliases'], report['restricted_mark_audit']),
+                         ({'acme': 2}, {'acme': 2}))
+        # the org's own database holds them exactly
+        sec = accounts.OrgAccounts(acme)
+        org_rows, _, _ = sections.encode_document({}, [sec])
+        self.assertEqual([r['ord'] for r in org_rows['org_account_aliases']], [0, 1])
+        self.assertEqual(canon(accounts.decode_org_accounts(org_rows)), canon(acme))
+        self.assertEqual(accounts.check_org_accounts(acme, org_rows), [])
+        bad = copy.deepcopy(org_rows)
+        bad['org_account_mark_audit'][0]['reason'] = 'changed'
+        self.assertTrue(accounts.check_org_accounts(acme, bad)[0]['mark_audit_differs'])
+
+    def test_the_rule_that_left_them_global_fails(self) -> None:
+        def old_split(doc):
+            """The candidate's rule (89c75d5): only the account rows moved."""
+            machine = dict(doc)
+            machine['accounts'] = [r for r in doc['accounts'] if not r.get('origin_org')]
+            return machine, {}
+        with mock.patch.object(accounts, 'split_registry', old_split):
+            rows, _, _ = accounts.encode_registry(traced(registry()))
+        self.assertEqual(app_traces(rows), ['account_aliases', 'account_mark_audit'])
 
 
 class RegistryFile(unittest.TestCase):

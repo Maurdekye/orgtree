@@ -98,3 +98,29 @@ CREATE TABLE orgtree.org_account_spend (
   "updated_at" double precision,
   "extra" json
 );
+
+-- the aliases naming one of this org's restricted accounts ({alias: account id}, in the
+-- registry file's order), and the manual mark clears of those accounts (registry.clear_mark:
+-- the clearing org, actor and reason), oldest first. The app database keeps no trace of them
+-- (review f19); both mirror the app database's account_aliases and account_mark_audit
+CREATE TABLE orgtree.org_account_aliases (
+  alias text PRIMARY KEY,
+  ord integer NOT NULL UNIQUE,
+  "account_id" text,
+  "extra" json
+);
+
+CREATE TABLE orgtree.org_account_mark_audit (
+  ord integer PRIMARY KEY,
+  "at" double precision,
+  "actor" text,
+  "org" text,
+  "via" text,
+  "account" text,
+  "source" text,
+  "pool" text,
+  "cleared" json,
+  "kept" json,
+  "reason" text,
+  "extra" json
+);

@@ -104,7 +104,7 @@ class ThroughTheAppDatabase(unittest.TestCase):
         with conn.connect(RUNTIME, app, autocommit=False) as c:
             out = accounts.convert_accounts(c, str(path))
             c.commit()
-        self.assertEqual({k: [r['id'] for r in v] for k, v in out['restricted'].items()},
+        self.assertEqual({k: [r['id'] for r in v['accounts']] for k, v in out['restricted'].items()},
                          {'acme': ['claude-2'], 'beta': ['claude-3']})
         self.assertEqual(out['report']['verified']['source'], out['report']['verified']['dest'])
 

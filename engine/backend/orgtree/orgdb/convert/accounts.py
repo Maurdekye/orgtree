@@ -71,13 +71,16 @@ ORG_ACCOUNT = Spec("org_accounts", _ACCOUNT_FIELDS + (F("origin_org", "text"),))
 ORG_MARK = Spec("org_account_marks", _MARK_FIELDS)
 ORG_SPEND = Spec("org_account_spend", _SPEND_FIELDS)
 ALIAS = Spec("account_aliases", (F("account_id", "text"),))
+ORG_ALIAS = Spec("org_account_aliases", (F("account_id", "text"),))
 COUNTER = Spec("account_counters", (F("id_counter", "int"), F("tint_counter", "int")))
-AUDIT = Spec("account_mark_audit", (
+_AUDIT_FIELDS = (
     F("at", "float"), F("actor", "text"), F("org", "text"), F("via", "text"),
     F("account", "text"), F("source", "text"), F("pool", "text"),
     F("cleared", "json"), F("kept", "json"),       # the marks as they were: whole snapshots
     F("reason", "text"),
-))
+)
+AUDIT = Spec("account_mark_audit", _AUDIT_FIELDS)
+ORG_AUDIT = Spec("org_account_mark_audit", _AUDIT_FIELDS)
 
 def _checked(t: Table) -> Table:
     check(t)
@@ -115,18 +118,30 @@ SPENDS = _spend_table(SPEND, "accounts")
 ORG_ACCOUNTS = _account_table(ORG_ACCOUNT)
 ORG_MARKS = _marks_table(ORG_MARK, "org_accounts")
 ORG_SPENDS = _spend_table(ORG_SPEND, "org_accounts")
-ALIASES = _checked(Table(ALIAS, (("alias", "text"),), {"alias": "alias"},
-                         ("alias text PRIMARY KEY",)))
+def _alias_table(spec: Spec) -> Table:
+    """{alias: account id}, in the file's order (ord). No foreign key: the registry keeps an
+    alias exactly as written."""
+    return _checked(Table(spec, (("alias", "text"), ("ord", "integer")), {"alias": "alias"},
+                          ("alias text PRIMARY KEY", "ord integer NOT NULL UNIQUE")))
+
+
+def _audit_table(spec: Spec) -> Table:
+    return _checked(Table(spec, (("ord", "integer"),), {"ord": "ord"}, ("ord integer PRIMARY KEY",)))
+
+
+ALIASES = _alias_table(ALIAS)
+ORG_ALIASES = _alias_table(ORG_ALIAS)
 COUNTERS = _checked(Table(COUNTER, (("provider", "text"),), {"provider": "provider"},
                           ("provider text PRIMARY KEY",)))
-AUDITS = _checked(Table(AUDIT, (("ord", "integer"),), {"ord": "ord"},
-                        ("ord integer PRIMARY KEY",)))
+AUDITS = _audit_table(AUDIT)
+ORG_AUDITS = _audit_table(ORG_AUDIT)
 KEYS_TABLE = "account_registry_keys"
 
 # the app database's account tables, parents first (the order COPY writes them in)
 APP_TABLES = ("accounts", "account_marks", "account_spend", "account_aliases",
               "account_counters", "account_mark_audit", KEYS_TABLE)
-ORG_TABLES = ("org_accounts", "org_account_marks", "org_account_spend")
+ORG_TABLES = ("org_accounts", "org_account_marks", "org_account_spend", "org_account_aliases",
+              "org_account_mark_audit")
 
 # registry key -> app_settings column (a timestamptz plus its _text)
 EPOCHS = {"apikey_cutover_at": "apikey_cutover_at", "migrated_at": "accounts_migrated_at"}
@@ -187,22 +202,57 @@ def _check_rows(rows: Iterable[Any]) -> None:
         seen.add(rid)
 
 
-def split_registry(doc: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
-    """(the machine-wide document: ``doc`` without the restricted rows, {org slug: its
-    restricted rows, in file order}). ``accounts`` that is not a list stays whole in the
-    machine-wide part (today's engine reads no account from it)."""
+def org_part() -> dict[str, Any]:
+    """One org's part of the registry: its restricted account rows, the aliases naming them
+    ({alias: account id}) and the manual mark-clear audit entries about them, in file order."""
+    return {"accounts": [], "aliases": {}, "mark_audit": []}
+
+
+def split_registry(doc: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """(the machine-wide document, {org slug: that org's part (``org_part``)}).
+
+    An account restricted to one org (origin_org) goes to that org together with every alias
+    that names it and every manual mark-clear audit entry about it (registry.clear_mark writes
+    the clearing org, actor and a free-text reason): the app database keeps no trace of it
+    (design §2.10, decisions 10-11, review f19). Everything else stays machine-wide, in order,
+    including an alias or audit entry that names no account of the file: those are listed in
+    the report, never guessed. A container of another shape stays whole in the machine-wide
+    part (``accounts`` that is not a list: today's engine reads no account from it)."""
     accounts = doc.get("accounts")
+    machine = dict(doc)
     if not isinstance(accounts, list):
-        return dict(doc), {}
+        return machine, {}
     _check_rows(accounts)
-    restricted: dict[str, list[dict[str, Any]]] = {}
+    parts: dict[str, dict[str, Any]] = {}
+    owner: dict[str, str] = {}
     for row in accounts:
         org = restricted_to(row)
         if org is not None:
-            restricted.setdefault(org, []).append(row)
-    machine = dict(doc)
+            parts.setdefault(org, org_part())["accounts"].append(row)
+            owner[row["id"]] = org
     machine["accounts"] = [r for r in accounts if restricted_to(r) is None]
-    return machine, restricted
+    aliases = doc.get("aliases")
+    if owner and _text_keyed(aliases):
+        kept: dict[str, Any] = {}
+        for alias, target in aliases.items():
+            org = owner.get(target) if isinstance(target, str) else None
+            if org is None:
+                kept[alias] = target
+            else:
+                parts[org]["aliases"][alias] = target
+        machine["aliases"] = kept
+    audit = doc.get("mark_audit")
+    if owner and isinstance(audit, list) and all(isinstance(e, dict) for e in audit):
+        kept_audit = []
+        for entry in audit:
+            account = entry.get("account")
+            org = owner.get(account) if isinstance(account, str) else None
+            if org is None:
+                kept_audit.append(entry)
+            else:
+                parts[org]["mark_audit"].append(entry)
+        machine["mark_audit"] = kept_audit
+    return machine, parts
 
 
 def claude_profiles(doc: Mapping[str, Any]) -> list[str]:
@@ -319,8 +369,8 @@ def encode_registry(doc: Mapping[str, Any]
             for n, row in enumerate(v):
                 _encode_account(ACCOUNT, MARK, SPEND, row, n, out)
         elif k == "aliases" and _text_keyed(v):
-            for alias, target in v.items():
-                codec.encode(ALIAS, {"account_id": target}, {"alias": alias}, out,
+            for n, (alias, target) in enumerate(v.items()):
+                codec.encode(ALIAS, {"account_id": target}, {"alias": alias, "ord": n}, out,
                              link=ALIASES.link)
         elif k in ("id_counters", "tint_counters") and _text_keyed(v):
             counters[k] = v
@@ -348,12 +398,18 @@ def encode_registry(doc: Mapping[str, Any]
         codec.encode(COUNTER, rec, {"provider": provider}, out, link=COUNTERS.link)
     out["app_settings"] = [settings]
     accounts = machine.get("accounts") if isinstance(machine.get("accounts"), list) else []
-    ids_restricted = {r["id"] for rows in restricted.values() for r in rows}
+    ids_restricted = {r["id"] for part in restricted.values() for r in part["accounts"]}
+    known = {r["id"] for r in accounts} | ids_restricted
     aliases = machine.get("aliases") if isinstance(machine.get("aliases"), dict) else {}
+    audit = machine.get("mark_audit") if isinstance(machine.get("mark_audit"), list) else []
     report = {
         "accounts": len(accounts) + len(ids_restricted),
         "machine_wide": len(accounts),
-        "restricted": {org: len(rows) for org, rows in restricted.items()},
+        "restricted": {org: len(part["accounts"]) for org, part in restricted.items()},
+        "restricted_aliases": {org: len(part["aliases"]) for org, part in restricted.items()
+                               if part["aliases"]},
+        "restricted_mark_audit": {org: len(part["mark_audit"]) for org, part in restricted.items()
+                                  if part["mark_audit"]},
         "aliases": len(out["account_aliases"]),
         "counters": len(out["account_counters"]),
         "mark_audit": len(out["account_mark_audit"]),
@@ -361,7 +417,11 @@ def encode_registry(doc: Mapping[str, Any]
         "rows_with_extra": {t: sum(1 for r in rs if r.get("extra") is not None)
                             for t, rs in out.items() if t != KEYS_TABLE and t != "app_settings"
                             and any(r.get("extra") is not None for r in rs)},
-        "aliases_to_restricted": sorted(a for a, t in aliases.items() if t in ids_restricted),
+        # kept machine-wide because they name no account of the file (never guessed)
+        "aliases_unresolved": sorted(a for a, t in aliases.items()
+                                     if not (isinstance(t, str) and t in known)),
+        "mark_audit_unattributed": [n for n, e in enumerate(audit) if not (
+            isinstance(e, dict) and isinstance(e.get("account"), str) and e["account"] in known)],
     }
     return out, restricted, report
 
@@ -384,7 +444,7 @@ def decode_registry(rows: Mapping[str, list[Mapping[str, Any]]]) -> dict[str, An
             doc[k] = _decode_accounts(ACCOUNT, MARK, SPEND, rows)
         elif k == "aliases":
             doc[k] = {}
-            for a in sorted(rows.get(ALIAS.table, []), key=lambda a: a["alias"]):
+            for a in sorted(rows.get(ALIAS.table, []), key=lambda a: a["ord"]):
                 rec = codec.decode(ALIAS, a, None, ())
                 doc[k][a["alias"]] = rec.get("account_id")
         elif k in ("id_counters", "tint_counters"):
@@ -449,37 +509,60 @@ def convert_accounts(app_conn: Any, registry_path: str) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- an org's own accounts
 
-class OrgAccounts(Section):
-    """One org's restricted accounts (``convert_accounts(...)["restricted"][slug]``) into its
-    ``org_accounts``, ``org_account_marks`` and ``org_account_spend``, in file order.
-    ``decode`` leaves the rows it reads back in ``read_back``."""
-    keys: tuple[str, ...] = ()
-    tables = (ORG_ACCOUNTS, ORG_MARKS, ORG_SPENDS)
+def _part(part: Mapping[str, Any] | None) -> dict[str, Any]:
+    part = part or {}
+    return {"accounts": list(part.get("accounts") or ()), "aliases": dict(part.get("aliases") or {}),
+            "mark_audit": list(part.get("mark_audit") or ())}
 
-    def __init__(self, rows: Iterable[Mapping[str, Any]] = ()) -> None:
-        self.rows = list(rows)
-        _check_rows(self.rows)
-        self.read_back: list[dict[str, Any]] = []
+
+class OrgAccounts(Section):
+    """One org's part of the registry (``split_registry(doc)[1][slug]``, ``org_part``): its
+    restricted accounts into ``org_accounts``, ``org_account_marks`` and ``org_account_spend``,
+    the aliases naming them into ``org_account_aliases`` and the manual mark-clear audit entries
+    about them into ``org_account_mark_audit``, each in file order. ``decode`` leaves the part
+    it reads back in ``read_back``."""
+    keys: tuple[str, ...] = ()
+    tables = (ORG_ACCOUNTS, ORG_MARKS, ORG_SPENDS, ORG_ALIASES, ORG_AUDITS)
+
+    def __init__(self, part: Mapping[str, Any] | None = None) -> None:
+        self.part = _part(part)
+        _check_rows(self.part["accounts"])
+        self.read_back: dict[str, Any] = org_part()
 
     def encode(self, doc: Mapping[str, Any], ctx: Context, out: Rows) -> None:
-        for i, row in enumerate(self.rows):
+        for i, row in enumerate(self.part["accounts"]):
             _encode_account(ORG_ACCOUNT, ORG_MARK, ORG_SPEND, row, i, out)
+        for n, (alias, target) in enumerate(self.part["aliases"].items()):
+            codec.encode(ORG_ALIAS, {"account_id": target}, {"alias": alias, "ord": n}, out,
+                         link=ORG_ALIASES.link)
+        for n, entry in enumerate(self.part["mark_audit"]):
+            codec.encode(ORG_AUDIT, entry, {"ord": n}, out, link=ORG_AUDITS.link)
 
     def decode(self, rows, ctx, present, doc) -> None:
         self.read_back = decode_org_accounts(rows)
 
 
-def decode_org_accounts(rows: Mapping[str, list[Mapping[str, Any]]]) -> list[dict[str, Any]]:
-    """The restricted account rows back from an org database's rows, in file order."""
-    return _decode_accounts(ORG_ACCOUNT, ORG_MARK, ORG_SPEND, rows)
+def decode_org_accounts(rows: Mapping[str, list[Mapping[str, Any]]]) -> dict[str, Any]:
+    """The org's part of the registry back from its database's rows, in file order."""
+    aliases = {}
+    for a in sorted(rows.get(ORG_ALIAS.table, []), key=lambda a: a["ord"]):
+        aliases[a["alias"]] = codec.decode(ORG_ALIAS, a, None, ()).get("account_id")
+    return {"accounts": _decode_accounts(ORG_ACCOUNT, ORG_MARK, ORG_SPEND, rows),
+            "aliases": aliases,
+            "mark_audit": [codec.decode(ORG_AUDIT, e, None, ())
+                           for e in sorted(rows.get(ORG_AUDIT.table, []), key=lambda e: e["ord"])]}
 
 
-def check_org_accounts(source: list[Mapping[str, Any]],
+def check_org_accounts(source: Mapping[str, Any] | None,
                        rows: Mapping[str, list[Mapping[str, Any]]]) -> list[dict[str, Any]]:
-    """[] when the org database's accounts are exactly ``source``; else the mismatch."""
-    got = decode_org_accounts(rows)
-    if canon(got) == canon(source):
+    """[] when the org database holds exactly the org's part ``source``; else the mismatch."""
+    want, got = _part(source), decode_org_accounts(rows)
+    if canon(got) == canon(want):
         return []
-    return [{"path": "side/org_accounts", "want": _digest(source), "got": _digest(got),
-             "missing": [r.get("id") for r in source if canon(r) not in {canon(g) for g in got}][:5],
-             "unexpected": [g.get("id") for g in got if canon(g) not in {canon(r) for r in source}][:5]}]
+    have = {canon(g) for g in got["accounts"]}
+    wanted = {canon(r) for r in want["accounts"]}
+    return [{"path": "side/org_accounts", "want": _digest(want), "got": _digest(got),
+             "missing": [r.get("id") for r in want["accounts"] if canon(r) not in have][:5],
+             "unexpected": [g.get("id") for g in got["accounts"] if canon(g) not in wanted][:5],
+             "aliases_differ": canon(got["aliases"]) != canon(want["aliases"]),
+             "mark_audit_differs": canon(got["mark_audit"]) != canon(want["mark_audit"])}]

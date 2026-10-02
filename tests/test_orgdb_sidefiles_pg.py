@@ -137,7 +137,10 @@ class ThroughAnOrgDatabase(unittest.TestCase):
             {'id': 'claude-7', 'origin_org': 'acme', 'label': 'key \x00 label', 'marks': None,
              'spend': 'junk', 'future': {'x': 1}}]
         side = [sidefiles.ReplyEvents(events), sidefiles.FileDeliveries('acme', receipts, assigned),
-                accounts.OrgAccounts(restricted)]
+                accounts.OrgAccounts({'accounts': restricted,
+                                      'aliases': {'acme-key': 'claude-2'},
+                                      'mark_audit': [{'at': 1.5, 'actor': 'boss', 'org': 'acme',
+                                                      'account': 'claude-2', 'reason': 'private'}]})]
         secs = mappers.sections() + side
         lc = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX, build='test')
         lc.bootstrap()
@@ -156,14 +159,17 @@ class ThroughAnOrgDatabase(unittest.TestCase):
         with conn.connect(RUNTIME, build.database) as c:
             back = rowio.read(c, order=order)
             for t in (sidefiles.REPLY_EVENTS, sidefiles.FILE_DELIVERIES, accounts.ORG_ACCOUNTS,
-                      accounts.ORG_MARKS, accounts.ORG_SPENDS):
+                      accounts.ORG_MARKS, accounts.ORG_SPENDS, accounts.ORG_ALIASES,
+                      accounts.ORG_AUDITS):
                 got = dict(c.execute("SELECT column_name, data_type FROM information_schema.columns "
                                      "WHERE table_schema = 'orgtree' AND table_name = %s",
                                      (t.spec.table,)).fetchall())
                 self.assertEqual(got, expected_columns(t), t.spec.table)
         self.assertEqual(sidefiles.check_reply_events(events, back), [])
         self.assertEqual(sidefiles.check_file_deliveries(receipts[:2], back), [])
-        self.assertEqual(accounts.check_org_accounts(restricted, back), [])
+        self.assertEqual(accounts.check_org_accounts(side[2].part, back), [])
+        self.assertEqual(counts['org_account_aliases'], 1)
+        self.assertEqual(counts['org_account_mark_audit'], 1)
         names = {r['id']: r['name'] for r in back['agents']}
         by_text = {r['text']: r for r in sidefiles.decode_reply_events(back, names)}
         self.assertEqual(by_text['quote \x00 with nul']['agent'], 'x')

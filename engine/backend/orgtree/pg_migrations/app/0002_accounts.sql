@@ -66,10 +66,12 @@ CREATE TABLE orgtree.account_spend (
   "extra" json
 );
 
--- {alias: account id} ('primary' -> the Claude machine login's row). No foreign key: the
--- registry keeps an alias exactly as written
+-- {alias: account id} ('primary' -> the Claude machine login's row), in the file's order (ord).
+-- No foreign key: the registry keeps an alias exactly as written. An alias naming an account
+-- restricted to one org lives in that org's database instead (org_account_aliases)
 CREATE TABLE orgtree.account_aliases (
   alias text PRIMARY KEY,
+  ord integer NOT NULL UNIQUE,
   "account_id" text,
   "extra" json
 );
@@ -86,7 +88,8 @@ CREATE TABLE orgtree.account_counters (
 );
 
 -- the manual mark clears, oldest first (registry.clear_mark keeps the last 200); cleared and
--- kept are the marks as they were, whole
+-- kept are the marks as they were, whole. A clear of an account restricted to one org lives in
+-- that org's database instead (org_account_mark_audit)
 CREATE TABLE orgtree.account_mark_audit (
   ord integer PRIMARY KEY,
   "at" double precision,
