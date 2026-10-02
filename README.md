@@ -10,6 +10,48 @@ Give agents jobs, see what they are doing, and keep their conversations, files a
 
 This is **Orgtree 3**, the current desktop application. It follows Orgtree 2 and replaces [claude-orgtree (V1)](https://github.com/Maurdekye/claude-orgtree).
 
+## Screenshots
+
+![Orgtree 3 Canvas: an interactive circular org chart of agents, with the Needs attention list, a Usage panel and an open agent desk](docs/images/orgtree-3-canvas.png)
+
+**Orgtree 3 (current).** The Canvas shows your team as a circular organization chart. Beside it are the "Needs attention" list of tickets and questions waiting for you, a Usage panel, and an agent's desk open for reading its conversation.
+
+### Orgtree 2 and earlier
+
+These screenshots come from earlier versions. The layout differs in places, but the same ideas carry into Orgtree 3.
+
+![Orgtree 2 workspace with the Work docket, usage limits, the Agents drawer, the org chart and a chat at an agent's desk](docs/images/orgtree-2-workspace.webp)
+
+**Orgtree 2: the workspace.** One window holds the docket of tickets, account usage limits, a drawer listing the agents, the org chart, and a conversation with an agent.
+
+![Orgtree 2 Work docket with tickets grouped by status and one ticket's details open](docs/images/orgtree-2-docket.png)
+
+**Orgtree 2: the Work docket.** Tickets are grouped by status, and opening one shows its owner, progress and notes.
+
+![Orgtree 2 presented documents window showing a performance audit report from an agent](docs/images/orgtree-2-presented.png)
+
+**Orgtree 2: presented documents.** When an agent finishes a report, it can show it to you in its own reading window. Here it is a performance audit.
+
+![Orgtree 2 App settings on the Providers page, listing model tiers, signed-in accounts and seats](docs/images/orgtree-2-providers.png)
+
+**Orgtree 2: providers.** App settings lists the model tiers each provider offers, the accounts you have signed in to, and how many seats each account is using.
+
+![A small example organization chart with you at the top, a coordinator, an implementer, a researcher and two explorers](docs/images/orgtree-org-chart.png)
+
+**Earlier version: the org chart.** A small example team as a tree: you at the top, a coordinator under you, and specialists beneath the coordinator.
+
+![Several agent desks open side by side as tabs in one window](docs/images/orgtree-desks.png)
+
+**Earlier version: agent desks.** Several agents' desks open side by side as tabs, so you can follow more than one conversation at once.
+
+![An inbox window showing who holds each audience and a list of messages](docs/images/orgtree-inbox.png)
+
+**Earlier version: your inbox.** A window listing who holds each audience and the messages sent to you. It shows real host names and message text from the author's own setup.
+
+![A mail hub window showing message traffic between hosts in a read-only view](docs/images/orgtree-mail-hub.png)
+
+**Earlier version: the mail hub.** A read-only view of message traffic between hosts. It also shows real host names and messages from the author's own setup.
+
 ## New in Orgtree 3
 
 - **A real database for your organizations.** Organizations are now stored in a PostgreSQL database that comes inside the installer, instead of one file per organization. Saving a change updates only the records involved.
