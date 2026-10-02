@@ -457,7 +457,7 @@ def record_refusal(reason: str, root: Path) -> bool:
 #: What an org store left in ``orgs/`` looks like (the SQLite store, its WAL
 #: files, a legacy JSON org, an interrupted JSON->SQLite migration, and the
 #: store's own rollback copies of migrated JSON).
-_SOURCE_SUFFIXES = (".db", ".db-wal", ".db-shm", ".json", ".db.migrating")
+_SOURCE_SUFFIXES = (".db", ".db-wal", ".db-shm", ".db-journal", ".json", ".db.migrating")
 
 
 def _is_source(name: str) -> bool:

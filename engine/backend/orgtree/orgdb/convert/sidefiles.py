@@ -32,13 +32,12 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sqlite3
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from ... import sqlitesnap
 from .. import codec
 from ..codec import Field, Rows, ShapeError, Spec
 from ..sections import Context, Section, Table, check, table
@@ -48,67 +47,10 @@ DELIVERIES_FILE = "file-deliveries.db"
 
 # ---------------------------------------------------------------- reading SQLite, read-only
 
-_HOT_JOURNAL = bytes.fromhex("d9d505f920a163d7")      # a rollback journal's header magic
-
-
-def _hot_journal(journal: Path) -> bool:
-    """A rollback journal a writer left behind mid-transaction. A journal whose header is
-    zeroed (PERSIST) or empty (TRUNCATE) holds nothing to roll back."""
-    try:
-        with open(journal, "rb") as f:
-            return f.read(8) == _HOT_JOURNAL
-    except FileNotFoundError:
-        return False
-
-
-def _backup_into(uri: str, mem: sqlite3.Connection) -> None:
-    src = sqlite3.connect(uri, uri=True)
-    try:
-        src.backup(mem)
-    finally:
-        src.close()
-
-
-def snapshot_sqlite(path: str | os.PathLike[str]) -> sqlite3.Connection | None:
-    """An in-memory copy of the SQLite database at ``path``, read through the backup API without
-    writing the file or any file beside it; None when there is no file.
-
-    A plain ``mode=ro`` open is NOT read-only for a WAL database (measured, SQLite 3.50): it
-    rewrites the ``-shm`` index, and when the WAL files are absent it creates ``-wal`` and
-    ``-shm``. So:
-
-    * ``-wal`` and ``-shm`` present: ``mode=ro&readonly_shm=1`` reads the WAL, committed frames
-      not yet checkpointed included, and writes neither file;
-    * no ``-wal`` and no hot rollback journal: the file alone is the whole database, and
-      ``mode=ro&immutable=1`` reads it without creating anything;
-    * a ``-wal`` without its ``-shm``, or a hot journal (a writer died mid-transaction): every
-      open that honours them writes (it builds the index, or rolls the journal back). The files
-      are copied into a private temporary folder and opened there, so SQLite recovers the copy
-      exactly as the old build would recover the original at its next open.
-
-    The caller holds the data root's owner lock (design §5.2), so no writer runs meanwhile."""
-    p = Path(path)
-    if not p.is_file():
-        return None
-    wal, shm, journal = (Path(f"{p}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
-    mem = sqlite3.connect(":memory:")
-    try:
-        if wal.exists() and shm.exists():
-            _backup_into(p.resolve().as_uri() + "?mode=ro&readonly_shm=1", mem)
-        elif not wal.exists() and not _hot_journal(journal):
-            _backup_into(p.resolve().as_uri() + "?mode=ro&immutable=1", mem)
-        else:
-            with tempfile.TemporaryDirectory(prefix="orgdb-sqlite-") as tmp:
-                copy = Path(tmp) / p.name
-                shutil.copyfile(p, copy)
-                for side in (wal, journal):
-                    if side.exists():
-                        shutil.copyfile(side, Path(f"{copy}{side.name[len(p.name):]}"))
-                _backup_into(copy.as_uri(), mem)
-    except BaseException:
-        mem.close()
-        raise
-    return mem
+#: The old files are read as of their last committed state without writing them or any
+#: file beside them: a hot rollback journal or a WAL are replayed on a private copy
+#: (orgtree.sqlitesnap, shared with the 2.1.14 first-launch import).
+snapshot_sqlite = sqlitesnap.snapshot_sqlite
 
 
 def _text_or_bytes(raw: bytes) -> str | bytes:

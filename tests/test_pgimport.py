@@ -18,12 +18,13 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import importlib.util
 
-from orgtree import ledger, store
+from orgtree import ledger, sqlitesnap, store
 
 _SPEC = importlib.util.spec_from_file_location(
     "pgimport", Path(__file__).resolve().parents[1] / "tools" / "pypg" / "pgimport.py")
@@ -113,6 +114,9 @@ class FakeSink:
                     for t, c in pgimport.COLUMNS.items()}
         finally:
             conn.close()
+
+    def close(self):
+        """PgSink's: nothing held between calls here."""
 
 
 def sample_doc(name: str = "Acme") -> dict:
@@ -882,6 +886,98 @@ class HoldBack(Base):
         (self.orgs() / "stray-folder").mkdir()
         self.assertEqual(pgimport.main(["dry-run", "--root", str(self.root), "--out", str(out),
                                         "--hold-back"]), 3)
+
+
+class HotJournal(Base):
+    """Review f20: a 2.x writer stopped mid-transaction leaves pages it had already spilled into
+    the main file, and a hot rollback journal that undoes them (the 2.x store opens a new
+    database in rollback mode before it switches to WAL, store._remove_db_files). The first-
+    launch extraction and the Retry of a held-back org (import-held) must import the last
+    COMMITTED state, through a private recovered copy, and leave every original file as it was."""
+
+    N = 502
+    COMMITTED, UNCOMMITTED = "c" * 1000, "u" * 1000
+
+    def crashed_mid_transaction(self, folder: Path, name: str = "acme.db") -> Path:
+        """``folder/name`` and its hot ``-journal``, copied while a same-size update of every node
+        is in progress with a cache too small to hold it, so its pages spill first."""
+        work = self.tmp / "writer"
+        work.mkdir(exist_ok=True)
+        db = work / name
+        doc = sample_doc()
+        doc["nodes"] = {f"n{i:03d}": {"id": f"n{i:03d}", "name": f"agent-{i:03d}", "state": "live",
+                                      "title": self.COMMITTED} for i in range(self.N)}
+        write_db(db, doc)
+        c = sqlite3.connect(db, isolation_level=None)
+        self.assertEqual(c.execute("PRAGMA journal_mode=DELETE").fetchone()[0], "delete")
+        c.close()
+        w = sqlite3.connect(db, isolation_level=None)
+        try:
+            w.execute("PRAGMA cache_size=10")
+            w.execute("BEGIN IMMEDIATE")
+            for nid, val in w.execute("SELECT id, val FROM nodes").fetchall():
+                w.execute("UPDATE nodes SET val = ? WHERE id = ?",
+                          (val.replace(self.COMMITTED, self.UNCOMMITTED), nid))
+            journal = Path(f"{db}-journal")
+            self.assertTrue(sqlitesnap.hot_journal(journal), "the transaction must have a hot journal")
+            folder.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(db, folder / name)               # what a crash leaves on disk
+            shutil.copyfile(journal, folder / f"{name}-journal")
+        finally:
+            w.execute("ROLLBACK")
+            w.close()
+        # the control: the main file alone holds pages of the unfinished transaction
+        ro = sqlite3.connect((folder / name).resolve().as_uri() + "?mode=ro&immutable=1", uri=True)
+        try:
+            spilled = sum(self.UNCOMMITTED in v for (v,) in ro.execute("SELECT val FROM nodes"))
+        finally:
+            ro.close()
+        self.assertGreater(spilled, 0, "no uncommitted page spilled: the fixture would prove nothing")
+        return folder / name
+
+    def titles(self, nodes) -> dict[str, int]:
+        return {"rows": len(nodes),
+                "committed": sum(self.COMMITTED in r[-1] for r in nodes),
+                "uncommitted": sum(self.UNCOMMITTED in r[-1] for r in nodes)}
+
+    def test_the_first_launch_extraction_reads_the_committed_state(self) -> None:
+        db = self.crashed_mid_transaction(self.orgs())
+        before = tree_digest(self.orgs())
+        self.assertIn("acme.db-journal", before)
+        plan = pgimport.classify_orgs_dir(self.root)
+        self.assertEqual((plan["refused"], list(plan["orgs"])), ([], ["acme"]))   # its journal is its own
+        got = pgimport.extract_sqlite("acme", db)
+        self.assertEqual(self.titles(got.rows["nodes"]),
+                         {"rows": self.N, "committed": self.N, "uncommitted": 0})
+        self.assertEqual(tree_digest(self.orgs()), before)              # nothing written, journal kept
+        # the mutant that ignores the journal (the f20 rule) imports the unfinished transaction
+        with mock.patch.object(sqlitesnap, "hot_journal", return_value=False):
+            naive = pgimport.extract_sqlite("acme", db)
+        self.assertGreater(self.titles(naive.rows["nodes"])["uncommitted"], 0,
+                           "a journal-blind extraction must fail this test")
+
+    def test_retry_of_a_held_back_org_imports_the_committed_state(self) -> None:
+        held = self.root / "pre-postgres" / "orgs"
+        db = self.crashed_mid_transaction(held)
+        before = tree_digest(held)
+        with mock.patch.dict(os.environ, {pgimport.HELD_CONNINFO_ENV: "the fake sink needs none"}), \
+                mock.patch.object(pgimport, "PgSink",
+                                  lambda conninfo, orgs_dir: FakeSink(self.sink_path, orgs_dir=orgs_dir)):
+            self.assertEqual(pgimport.import_held(db, "acme", self.orgs()), 0)
+        nodes = FakeSink(self.sink_path).read_org("acme")["nodes"]
+        self.assertEqual(self.titles(nodes), {"rows": self.N, "committed": self.N, "uncommitted": 0})
+        self.assertEqual(tree_digest(held), before)                     # the held file and its journal
+        self.assertTrue((self.orgs() / "acme.pg").is_file())
+
+    def test_a_cold_journal_is_not_replayed(self) -> None:
+        # a journal whose header is zeroed (PERSIST after its commit) holds nothing to roll back:
+        # the file alone is the database, read in place
+        write_db(self.orgs() / "acme.db", sample_doc())
+        (self.orgs() / "acme.db-journal").write_bytes(b"\0" * 512)
+        before = tree_digest(self.orgs())
+        got = pgimport.extract_sqlite("acme", self.orgs() / "acme.db")
+        self.assertEqual(len(got.rows["nodes"]), 2)
+        self.assertEqual(tree_digest(self.orgs()), before)
 
 
 if __name__ == "__main__":

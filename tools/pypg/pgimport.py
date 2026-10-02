@@ -74,7 +74,7 @@ if str(_REPO / "engine" / "backend") not in sys.path:
 # The tool READS SQLite/JSON sources through the store's SQLite code; an
 # operator shell that already says postgres must not change how it reads.
 os.environ["ORGTREE_STORE"] = "sqlite"
-from orgtree import ledger, store, workrows  # noqa: E402  (after the backend is on the path)
+from orgtree import ledger, sqlitesnap, store, workrows  # noqa: E402  (after the backend is on the path)
 
 SCHEMA = "orgtree.pgimport/v1"
 TABLES: tuple[str, ...] = ("doc", "nodes", "log_d", "log_l", "meta")
@@ -211,26 +211,19 @@ def _scratch_db() -> Iterator[Path]:
 
 
 def extract_sqlite(slug: str, path: Path) -> OrgRows:
-    """Rows of ``orgs/<slug>.db`` via an online-backup COPY: consistent under
-    WAL, and the source is opened read-only and never written."""
+    """Rows of ``orgs/<slug>.db`` as of its last committed state, via an
+    online-backup COPY (``orgtree.sqlitesnap``): a WAL's committed frames are
+    included, and a hot rollback journal (a 2.x writer stopped mid-
+    transaction) is rolled back on a private copy, so pages that transaction
+    had already spilled into the main file are never imported (review f20).
+    The source and every file beside it are never written."""
     fingerprint = _file_sha256(path)
-    # At rest (a cleanly closed WAL database has no -wal/-shm) the file is
-    # complete, and ``immutable=1`` reads it without creating either sidecar,
-    # so the orgs folder stays byte-for-byte as it was. With a sidecar
-    # present the WAL may hold committed rows: read-only the ordinary way
-    # (the sidecars exist already).
-    at_rest = not any(Path(str(path) + s).exists() for s in ("-wal", "-shm"))
-    mode = "?mode=ro&immutable=1" if at_rest else "?mode=ro"
     with _scratch_db() as copy:
-        src = sqlite3.connect(path.resolve().as_uri() + mode, uri=True, timeout=30)
+        dst = sqlite3.connect(copy)
         try:
-            dst = sqlite3.connect(copy)
-            try:
-                src.backup(dst)
-            finally:
-                dst.close()
+            sqlitesnap.snapshot_into(path, dst)
         finally:
-            src.close()
+            dst.close()
         conn = sqlite3.connect(copy)
         try:
             rows, extra, extra_cols = _read_tables(conn)
@@ -415,8 +408,8 @@ def manifest_digest(m: Mapping[str, Any]) -> str:
 def classify_orgs_dir(root: Path) -> dict[str, Any]:
     """Which file is each org's authority, and what else lies in ``orgs/``.
 
-    ``<slug>.db`` is the authority when present (``-wal``/``-shm`` belong to
-    it); otherwise ``<slug>.json``. The store's own rollback copies
+    ``<slug>.db`` is the authority when present (``-wal``/``-shm``/``-journal``
+    belong to it); otherwise ``<slug>.json``. The store's own rollback copies
     (``.json.premigration*``) are listed and ignored. A ``.db`` beside a
     ``.json`` (the store's backend-mismatch shape), an interrupted
     migration (``.db.migrating``) and any other file REFUSE."""
@@ -433,8 +426,8 @@ def classify_orgs_dir(root: Path) -> dict[str, Any]:
         if ".json.premigration" in name:
             out["ignored"].append(f"orgs/{name}")
             continue
-        if name.endswith((".db-wal", ".db-shm")):
-            continue
+        if name.endswith((".db-wal", ".db-shm", ".db-journal")):
+            continue                     # its database's: read with it (sqlitesnap)
         if name.endswith(MARKER_EXT):
             # PG-0's marker, left by an earlier (possibly interrupted) run of
             # this import. It belongs to a source beside it; alone it is an
@@ -993,7 +986,9 @@ def import_held(file: Path, slug: str, orgs_dir: Path) -> int:
     work = Path(tempfile.mkdtemp(prefix="orgtree-import-held-"))
     try:
         (work / "orgs").mkdir()
-        for name in (file.name, file.name + "-wal", file.name + "-shm"):
+        # the companions travel with the file: a hot -journal must roll back an
+        # interrupted 2.x transaction, and the WAL holds committed rows (f20)
+        for name in (file.name, file.name + "-wal", file.name + "-shm", file.name + "-journal"):
             if (file.parent / name).is_file():
                 shutil.copy2(file.parent / name, work / "orgs" / name)
         plan = dry_run(work)
