@@ -1974,18 +1974,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       return
     }
     const to = focusView(id, z)
-    // w14aace89: a camera command that cannot be honoured must SAY SO. Silence
-    // here is the bad outcome the whole item exists to fix — the old code
-    // animated somewhere the card was invisible; refusing to move without a
-    // word would be no better, just quieter.
-    if (!to) {
-      const vp = viewportRef.current?.getBoundingClientRect()
-      if (vp && regionOf(vp).status === 'blocked') {
-        toast(['the pinned windows cover the whole canvas — '
-          + 'move or close one to focus there'])
-      }
-      return
-    }
+    // no room to focus (the pinned windows leave no free region): the camera
+    // stays put, silently — the user asked for that popup to go (2026-10-02)
+    if (!to) return
     // THE READABLE-DESK MINIMUM IS KEPT, NOT NEGOTIATED. focusView floors the
     // zoom at Z_DESK on purpose (audit 2026-08-01: overflowing beats a focus
     // gesture that cannot focus), so a cramped region does not silently
@@ -2142,21 +2133,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [regionOf])
   const fitAll = useCallback((animate = true, ms = 320) => {
     const to = fitView()
-    if (!to) {
-      // same rule as centerOn: only the fully-covered case is worth a word,
-      // and only when a viewport exists at all (fitView also returns null
-      // before first layout and for an empty org, which are not obstructions)
-      const vp = viewportRef.current?.getBoundingClientRect()
-      if (vp && regionOf(vp).status === 'blocked') {
-        toast(['the pinned windows cover the whole canvas — '
-          + 'move or close one to fit the org here'])
-      }
-      return
-    }
+    // nothing to fit, or the pinned windows leave no free region: stay put,
+    // silently, like centerOn
+    if (!to) return
     if (animate) animateTo(to, ms)
     else { viewRef.current = to; setView(to) }
     camIntent.current = { kind: 'org' }
-  }, [animateTo, fitView, regionOf, toast])
+  }, [animateTo, fitView])
   // mobile zoom range (spec §5.1): compact retires Z_DESK — the map never
   // reaches desk zoom, so the camera-derived focusId never fires and the
   // sheet is the only desk. Desktop keeps [0.24, Z_MAX] untouched.

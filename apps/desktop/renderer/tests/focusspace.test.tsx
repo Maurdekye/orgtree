@@ -47,13 +47,16 @@ import {
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { HUD_FIT, OrgCanvas } from '../src/canvas/OrgCanvas'
 import { addPin, forgetPins } from '../src/canvas/pins'
 import { USER_W } from '../src/canvas/shared'
 import { resetConvos } from '../src/convo'
-import type { TreePayload } from '../src/types'
+import type { ToastFn, TreePayload } from '../src/types'
 
 const noop = () => {}
+/** every toast the canvas raised during the current test */
+const toasts: string[] = []
+const recordToast: ToastFn = (lines) => { toasts.push((lines ?? []).join('')) }
 const asTree = (v: unknown) => v as TreePayload
 
 const VP_W = 1000, VP_H = 800
@@ -220,6 +223,7 @@ function uiTest(name: string, body: (k: Kit) => Promise<void>): void {
     const unstub = stubPointerCapture()
     localStorage.clear()
     forgetPins()
+    toasts.length = 0
     const open: { unmount: () => Promise<void> }[] = []
     t.after(async () => {
       for (const m of open) { try { await m.unmount() } catch { /* gone */ } }
@@ -227,7 +231,7 @@ function uiTest(name: string, body: (k: Kit) => Promise<void>): void {
     })
     const v = await mountView(
       <OrgCanvas tree={tree(['ceo', 'cto', 'qa', 'ops'])} op={() => Promise.resolve({} as never)}
-        slug="mine" toast={noop} mailEvt={null} />, (el) => el)
+        slug="mine" toast={recordToast} mailEvt={null} />, (el) => el)
     open.push(v)
     await flush()
     const viewport = v.el.querySelector('.viewport') as HTMLElement | null
@@ -415,4 +419,15 @@ uiTest('§6 a fully covered canvas leaves the camera exactly where it is',
     await recentre(host)
     assert.deepEqual(cam(host), panned,
       'with no free space at all the camera must stay where the user left it')
+    // the fit button too: no room to fit the org, so it stays put as well
+    const fit = host.querySelector(`button[title="${HUD_FIT}"]`) as HTMLButtonElement | null
+    assert.ok(fit, 'the fit button rendered')
+    await inAct(() => { fit.click() })
+    await flush()
+    await advance(1200)
+    assert.deepEqual(cam(host), panned,
+      'fitting the org with no free space must not move the camera either')
+    // and SILENTLY: the user asked for the "pinned windows cover the whole
+    // canvas" popup to go (2026-10-02)
+    assert.deepEqual(toasts, [], 'a fully covered canvas raises no popup')
   })
