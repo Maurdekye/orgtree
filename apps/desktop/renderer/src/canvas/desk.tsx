@@ -255,7 +255,8 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *  the account authoritative, does this provider even have a second account,
  *  is the viewer a kiosk visitor — is applied server-side, where the registry
  *  lives (see `ServingAccount`). A null field is the backend saying "do not
- *  show this", so the whole rule here is one guard. Re-deriving any of it
+ *  show this", so the whole rule here is one guard — plus one more: the
+ *  provider's PRIMARY account wears no badge (`servedByPrimary`). Re-deriving any of it
  *  would be a second definition to drift.
  *
  *  ⚠ NOT RENDERED AT FAR ZOOM. Both call sites gate it; at that scale the
@@ -285,7 +286,7 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *  pointerdown keep it from submitting anything or swallowing the press that
  *  focuses the agent — the same two guards `ActionBadge` uses. */
 export function ServingAccountBadge({ account }: { account?: ServingAccount | null }) {
-  if (!account) return null
+  if (!account || servedByPrimary(account)) return null
   const display = account.display || account.id
   // ⚠ A WHITELIST, NOT A SERIALISATION. Only these two fields are ever read
   // off the object, so a field added to the payload later — or one that
@@ -306,6 +307,17 @@ export function ServingAccountBadge({ account }: { account?: ServingAccount | nu
       {display}
     </button>
   )
+}
+
+/** True when the serving account is the provider's PRIMARY (ambient)
+ *  account. The badge shows only for a secondary account (user ruling
+ *  2026-10-02: "an account card only shows up when an agent is on a secondary
+ *  account"), so a primary-bound agent that fell back to a secondary still
+ *  wears it. The backend's public token for the primary is exactly `default`
+ *  (accountusage.card_display); its canonical id is `<provider>/primary`. */
+export function servedByPrimary(account: ServingAccount): boolean {
+  return (account.display || account.id) === 'default'
+    || account.id === `${account.provider}/primary`
 }
 
 /** FR-23's authoritative completed-turn age, shared by cards and desks.

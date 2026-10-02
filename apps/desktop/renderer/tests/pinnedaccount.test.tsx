@@ -30,11 +30,12 @@ declare const __SRC_DIR__: string
 
 const asTree = (v: unknown) => v as TreePayload
 
-/** the exact Codex token contract: the ambient account's card token is the
- *  word `default`, never `openai/…` and never `primary` */
+/** a Codex SECONDARY account serving: since 2026-10-02 the primary
+ *  (`default`) account wears no badge at all, so the surfaces below are
+ *  exercised with a secondary — see `primaryServing` for the primary case */
 function serving(): ServingAccount {
   return {
-    id: 'default', display: 'default', provider: 'openai', label: null,
+    id: 'openai-1', display: 'openai-1', provider: 'openai', label: null,
     email: null, auth: 'subscription', state: 'ready', active: false,
   } as unknown as ServingAccount
 }
@@ -42,6 +43,14 @@ function serving(): ServingAccount {
 /** the operator's live Fable shape: a managed Claude secondary serving —
  *  the provider-generic half of the same requirement (2026-09-14: the card
  *  was OpenAI-only in the backend, so Fable agents never wore one) */
+/** the ambient account: its public token is the word `default` */
+function primaryServing(): ServingAccount {
+  return {
+    id: 'openai/primary', display: 'default', provider: 'openai', label: null,
+    email: null, auth: 'subscription', state: 'ready', active: false,
+  } as unknown as ServingAccount
+}
+
 function claudeServing(): ServingAccount {
   return {
     id: 'claude-4', display: 'claude-4', provider: 'claude', label: null,
@@ -121,7 +130,7 @@ test('a pinned desk renders the account ID EXACTLY ONCE, in the token list', asy
 
   // the token's own contract is untouched: the exact spelling, never the
   // provider-qualified form, never `primary`, and its detail reveal intact
-  assert.equal(token!.textContent, 'default')
+  assert.equal(token!.textContent, 'openai-1')
   assert.doesNotMatch(token!.textContent ?? '', /openai\/|primary/)
   // the detail rides along as before — as the plain `title` that replaced the
   // hover/focus panel on 2026-09-17, carrying the id and the email only
@@ -205,7 +214,7 @@ test('CONTROL: an UNPINNED desk still shows the account ID on its canvas node', 
   const view = await mountCanvas(t, true)
   const onNode = view.el.querySelector<HTMLElement>('.sq-badges .badge.serving-account')
   assert.ok(onNode, 'the canvas node card keeps its account ID — this change touched only the pinned title bar')
-  assert.equal(onNode!.textContent, 'default')
+  assert.equal(onNode!.textContent, 'openai-1')
   // and nothing was pinned, so no pinned window exists to have taken it
   assert.equal(view.el.querySelector('.pinwin'), null)
 })
@@ -217,4 +226,12 @@ test('CONTROL: pinning MOVES nothing — the node keeps its card while pinned', 
   const win = await mountPinned(t, true)
   assert.ok(win.querySelector('.pinwin-body .cc-head-meta .badge.serving-account'),
     'the pinned desk shows it in the token list')
+})
+
+test('a pinned desk on the PRIMARY account shows no account badge anywhere', async (t: TestContext) => {
+  // user ruling 2026-10-02: the badge is for secondary accounts only
+  const win = await mountPinned(t, true, primaryServing())
+  assert.equal(win.querySelectorAll('.badge.serving-account').length, 0,
+    'no account badge in the pinned window')
+  assert.doesNotMatch(win.textContent ?? '', /default/)
 })

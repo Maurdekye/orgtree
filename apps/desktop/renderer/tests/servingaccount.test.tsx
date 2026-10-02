@@ -151,8 +151,10 @@ test('idle Codex card identifies the configured account', async (t: TestContext)
   assert.equal(badge!.getAttribute('aria-label'), 'openai-1 · second@example.test')
 })
 
-test('Codex cards render exact default, secondary, and API-key display tokens',
+test('Codex cards render secondary and API-key display tokens, and NOTHING for default',
   async (t: TestContext) => {
+    // the PRIMARY account wears no badge at all (user ruling 2026-10-02: "an
+    // account card only shows up when an agent is on a secondary account")
     const defaultView = await card(agent({
       busy: false, tier: 'luna', model_id: 'luna', account: 'openai/primary',
       serving_account: serving({id: 'openai/primary', provider: 'openai',
@@ -160,14 +162,8 @@ test('Codex cards render exact default, secondary, and API-key display tokens',
     }), 'norm')
     t.after(() => defaultView.unmount())
     await flush()
-    const defaultBadge = onCard(defaultView.el)!
-    assert.equal(defaultBadge.textContent, 'default')
-    assert.doesNotMatch(defaultBadge.textContent ?? '', /openai\/|primary/)
-    // the tooltip carries the DISPLAY token too, never the qualified id — the
-    // detail panel used to be the place this could leak, and now the `title`
-    // is, so the assertion moved with it rather than being dropped
-    assert.doesNotMatch(defaultBadge.getAttribute('title') ?? '', /openai\/|primary/)
-    assert.doesNotMatch(defaultBadge.getAttribute('aria-label') ?? '', /openai\/|primary/)
+    assert.ok(!onCard(defaultView.el), 'the primary account wears no badge')
+    assert.doesNotMatch(defaultView.el.textContent ?? '', /default|openai\/|primary/)
 
     const keyView = await card(agent({
       busy: true, tier: 'luna', model_id: 'luna',
@@ -180,6 +176,39 @@ test('Codex cards render exact default, secondary, and API-key display tokens',
     assert.equal(keyBadge.textContent, 'sk-live-')
     assert.doesNotMatch(keyView.el.textContent ?? '', /openai\/|primary/)
   })
+
+test('the primary account wears NO badge on card or desk, whichever provider; '
+  + 'a fallback to a secondary still does', async (t: TestContext) => {
+  installFetch(new FakeServer())
+  const primaries: Partial<ServingAccount>[] = [
+    { id: 'claude/primary', provider: 'claude', display: 'default', label: null },
+    { id: 'openai/primary', provider: 'openai', display: 'default', label: null },
+    // an older payload with no `display`: the canonical id alone decides
+    { id: 'claude/primary', provider: 'claude', display: null, label: null },
+  ]
+  for (const p of primaries) {
+    const n = agent({ busy: true, serving_account: serving(p) })
+    const c = await card(n, 'norm')
+    const d = await mountView(desk(n), (el) => el)
+    t.after(async () => { await c.unmount(); await d.unmount() })
+    await flush()
+    assert.ok(!onCard(c.el), `no card badge for ${p.id}`)
+    assert.ok(!onDesk(d.el), `no desk badge for ${p.id}`)
+    assert.ok(!d.el.querySelector('.badge.serving-account'),
+      `nothing anywhere on the desk for ${p.id}`)
+  }
+  // CONTROL: a primary-BOUND agent whose turn fell back to a secondary
+  // account still wears it, on both surfaces — so the absence above is the
+  // primary rule, not the badge having vanished altogether
+  const fell = agent({ busy: true, account: 'claude/primary',
+    serving_account: serving({ id: 'claude-4', display: 'claude-4' }) })
+  const c = await card(fell, 'norm')
+  const d = await mountView(desk(fell), (el) => el)
+  t.after(async () => { await c.unmount(); await d.unmount() })
+  await flush()
+  assert.equal(onCard(c.el)?.textContent, 'claude-4')
+  assert.equal(onDesk(d.el)?.textContent, 'claude-4')
+})
 
 test('a busy Codex agent wears its card BESIDE the reserve badge, and a busy '
   + 'Claude agent keeps its own in the same org', async (t: TestContext) => {
