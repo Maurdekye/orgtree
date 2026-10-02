@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .. import conn, mappers, names, sections
-from ..lifecycle import Build, Claim, Lifecycle
+from ..lifecycle import Build, Busy, Claim, Lifecycle, LostClaim
 from . import legacy, rowio
 
 REPORT_VALUE_LIMIT = 2000      # characters of a value quoted in a mismatch report
@@ -168,16 +168,25 @@ def _one_line(e: BaseException) -> str:
 def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, *,
                 claim: Claim | None = None, kind: str = "convert") -> dict[str, Any]:
     """Convert one classified legacy org into its registry row's database (see the module
-    docstring). Returns the outcome; never raises for a failure of this org."""
+    docstring). Returns the outcome; never raises for a failure of this org (Q12).
+
+    Every step after the claim is this org's: building or resuming its staging database,
+    reading, writing, checking, and publishing (also a build renamed before a crash). A
+    failure there writes the org's report and leaves it unavailable through its own claim.
+    What is not this org's raises: a claim another operation holds (Busy) or that moved on
+    (LostClaim) is never cleaned up here, and when recording the org unavailable fails too,
+    the shared app database is failing, so the run stops and the host refuses to start."""
     started = _dt.datetime.now(_dt.timezone.utc)
-    build = lc.resume_build(claim) if claim is not None else lc.open_build(org_id, kind)
+    if claim is None:
+        claim = lc.claim(org_id, kind)       # Busy propagates: not ours to clean up
     state = "trashed" if org.status == "trashed" else "active"
-    if build.ready:                      # renamed before a crash: only publishing remains
-        lc.publish(build, state=state, trashed_at=org.deleted_at)
-        return {"slug": org.slug, "org_id": org_id, "outcome": state, "resumed": "publish"}
     report: dict[str, Any] = {"org": org.record(), "org_id": org_id, "build": cfg.build,
                               "started_at": started.isoformat(), "step": "conversion"}
     try:
+        build = lc.resume_build(claim)
+        if build.ready:                  # renamed before a crash: only publishing remains
+            lc.publish(build, state=state, trashed_at=org.deleted_at)
+            return {"slug": org.slug, "org_id": org_id, "outcome": state, "resumed": "publish"}
         doc, before = legacy.load_document(org)
         report["inventory_before"] = before
         secs = mappers.sections()
@@ -211,8 +220,6 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
             raise LegacyChanged(f"the legacy data changed during conversion: {changed[:10]}")
         digest = section_digest(want)
         _record_run(cfg, build, org, started, digest, report)
-        lc.mark_filled(build)
-        lc.publish(build, state=state, trashed_at=org.deleted_at)
         out = {"slug": org.slug, "org_id": org_id, "outcome": state,
                "rows": sum(report["rows_written"].values()),
                "ignored_with_values": report["ignored_with_values"],
@@ -220,14 +227,26 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
                "kept_in_extra": report["kept_in_extra"]}
         if cfg.side is not None and cfg.side.report_for is not None:
             out["side"] = cfg.side.report_for(org)
-        return out
+        lc.mark_filled(build)
+        lc.publish(build, state=state, trashed_at=org.deleted_at)   # the last step: nothing
+        return out                                                  # after it can fail
+    except (Busy, LostClaim):
+        raise                            # the claim is not ours (any more)
     except Exception as e:   # noqa: BLE001  one org's failure is that org's (Q12)
         report["error"] = _one_line(e)
         report["traceback"] = traceback.format_exc()
         if isinstance(e, Mismatch):
             report["mismatches"] = e.details
-        path = write_report(cfg, org, report)
-        lc.abandon(build.claim, step="conversion", reason=report["error"], report_path=path)
+        try:
+            path: str | None = write_report(cfg, org, report)
+        except OSError as w:
+            path = None                  # the reason still reaches the registry row
+            report["error"] += f" (the report could not be written: {_one_line(w)})"
+        try:
+            lc.abandon(claim, step="conversion", reason=report["error"], report_path=path)
+        except Exception as a:   # noqa: BLE001
+            raise RuntimeError(f"org {org.slug!r}: {report['error']}; recording it unavailable "
+                               f"failed too: {_one_line(a)}") from a
         return {"slug": org.slug, "org_id": org_id, "outcome": "unavailable",
                 "reason": report["error"], "report": path}
 

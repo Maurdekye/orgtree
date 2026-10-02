@@ -444,6 +444,21 @@ class Lifecycle:
         ident = self.read_identity(final)
         return bool(ident) and ident["org_uuid"] == str(row["org_uuid"])
 
+    def _drop_unpublished(self, row: dict[str, Any]) -> None:
+        """An org that is not active can still have a database under its final name: a build
+        renamed there whose publication failed, when a crash interrupted the cleanup (review
+        f18). It holds only that unpublished build, so a new build replaces it. A database of
+        that name that is not this org's is refused, never dropped."""
+        final = str(row["database"])
+        with self._admin(MAINTENANCE_DB) as c:
+            if not self._exists(c, final):
+                return
+        ident = self.read_identity(final)
+        if not ident or ident["org_uuid"] != str(row["org_uuid"]):
+            raise LifecycleError(f"{final} exists and is not org {row['org_id']}'s unpublished "
+                                 "build: refusing to replace it")
+        self._drop_db(final)
+
     def _prepare(self, claim: Claim, row: dict[str, Any], *, writer: bool) -> str:
         """A fresh staging database for this claim: any earlier attempt's is
         dropped first (only the one its claim recorded, never the current
@@ -458,6 +473,8 @@ class Lifecycle:
         self._step(claim, "claimed", op_target_db=stage)
         if old and old != final and names.kind(old, self.prefix) == "stage" and old != stage:
             self._drop_db(old)
+        if writer and row["state"] != "active":
+            self._drop_unpublished(row)
         self._drop_db(stage)            # an earlier try of this very epoch
         self._create_db(stage)
         self._step(claim, "database")
@@ -541,6 +558,11 @@ class Lifecycle:
         stage = row["op_target_db"]
         if stage and stage != row["database"] and names.kind(stage, self.prefix) == "stage":
             self._drop_db(stage)
+        if (claim.kind in ("convert", "retry", "import") and row["op_step"] == "renamed"
+                and row["state"] != "active"):
+            # renamed to the final name but never published: that database holds only this
+            # failed build, and a Retry starts from scratch (review f18)
+            self._drop_db(str(row["database"]))
         with self._app() as c:
             self._release(c, claim, "unavailable", attempts_up=True, unavailable_step=step,
                           state_reason=reason[:500], report_path=report_path,

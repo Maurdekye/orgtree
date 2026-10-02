@@ -25,6 +25,12 @@ What it proves:
   * the accounts registry converts in the first pass: the machine-wide account to the app
     database, the one restricted to an org to that org's database; a resumed pass checks them
     against the file again, and a file that no longer matches refuses.
+  * review f18 (OrgFaultIsolation, in this process): a failure while building one org's
+    staging database leaves only that org unavailable, with its report and no staging
+    database left, the other active, the cutover marker written and the legacy inputs
+    unchanged; Retry converts it. A crash after the rename, then a failing publication by the
+    next engine instance, leaves the org unavailable without its unpublished build; Retry
+    converts and publishes it. A claim another operation holds is never cleaned up (Busy).
 
 Run:  python tools/run-python-verification.py --timeout 1200 tests/test_orgdb_convert_pg.py
 """
@@ -37,6 +43,7 @@ import subprocess
 import tempfile
 import types
 import unittest
+from unittest import mock
 from urllib.parse import urlsplit, urlunsplit
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
@@ -324,6 +331,153 @@ class FirstPass(unittest.TestCase):
         self.assertEqual(len(dup), 1)
         self.assertEqual(dup[0]['state'], 'unavailable')
         self.assertIn('twin-copy.pg', dup[0]['state_reason'])
+
+
+class Crash(BaseException):
+    """A process dying mid-step: no handler in the converter catches it."""
+
+
+@unittest.skipUnless(ADMIN and RUNTIME, 'needs ORGTREE_TEST_PG_ADMIN_URL and ORGTREE_TEST_PG_RUNTIME_URL')
+class OrgFaultIsolation(unittest.TestCase):
+    """Review finding f18: every step after an org's claim is that org's (Q12). A failure
+    while building one org's staging database, or while publishing a build renamed before a
+    crash, leaves only that org unavailable with its report, and Retry recovers it. The
+    converter runs in this process, so the faults can be planted; its registry (prefix) and
+    data root (markers of its own orgs only) are its own."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from orgtree.orgdb import lifecycle
+        from orgtree.orgdb.convert import run
+        cls.prefix = PREFIX + 'f_'
+        cls.steady, cls.brittle, cls.resumed = make_org('Steady'), make_org('Brittle'), make_org('Resumed')
+        tmp = Path(tempfile.mkdtemp(dir=_temp.name))
+        cls.root = tmp / 'data'
+        (cls.root / 'orgs').mkdir(parents=True)
+        for slug in (cls.steady, cls.brittle):
+            shutil.copy(DATA / 'orgs' / f'{slug}.pg', cls.root / 'orgs' / f'{slug}.pg')
+        cls.cfg = run.Config(data_root=str(cls.root), work_root=str(tmp / 'work'),
+                             report_dir=str(tmp / 'conversion'), build='f18',
+                             legacy_base=_with_db(RUNTIME, LEGACY), runtime_base=RUNTIME)
+        cls.lc = cls.lifecycle()
+        cls.before = cls.inventory()
+        real = lifecycle.Lifecycle._migrate_org_db
+        brittle = cls.brittle
+
+        def flaky(self, dbname):
+            out = real(self, dbname)
+            if [r['slug'] for r in self.rows() if r['op_target_db'] == dbname] == [brittle]:
+                raise RuntimeError('planted: migrating the staging database failed')
+            return out
+
+        with mock.patch.object(lifecycle.Lifecycle, '_migrate_org_db', flaky):
+            cls.report = run.first_pass(cls.lc, cls.cfg)
+
+    @classmethod
+    def lifecycle(cls):
+        """A new engine instance on this class's registry."""
+        from orgtree.orgdb import lifecycle
+        lc = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=cls.prefix,
+                                 build='f18')
+        lc.bootstrap()
+        return lc
+
+    @classmethod
+    def inventory(cls) -> dict:
+        from orgtree.orgdb.convert import legacy
+        ids = {s: pgstore.read_marker(str(DATA / 'orgs' / f'{s}.pg'))
+               for s in (cls.steady, cls.brittle, cls.resumed)}
+        with conn.connect(_with_db(RUNTIME, LEGACY), LEGACY, autocommit=False) as c:
+            c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            try:
+                return {s: legacy.inventory(c, i) for s, i in ids.items()}
+            finally:
+                c.rollback()
+
+    def databases(self) -> set:
+        with conn.connect(ADMIN, 'postgres') as c:
+            return {d for (d,) in c.execute('SELECT datname FROM pg_database WHERE datname LIKE %s',
+                                            (self.prefix + '%',)).fetchall()}
+
+    def test_a_failing_staging_database_leaves_only_that_org_unavailable(self) -> None:
+        from orgtree.orgdb.convert import run
+        self.assertTrue(self.report['finished'])
+        bad = next(o for o in self.report['orgs'] if o['slug'] == self.brittle)
+        self.assertEqual(bad['outcome'], 'unavailable', bad)
+        self.assertIn('planted', bad['reason'])
+        self.assertTrue(Path(bad['report']).is_file())
+        rows = {r['slug']: r for r in self.lc.rows()}
+        row = rows[self.brittle]
+        self.assertEqual((row['state'], row['unavailable_step'], row['op_kind']),
+                         ('unavailable', 'conversion', None))
+        self.assertEqual(row['report_path'], bad['report'])
+        self.assertEqual(rows[self.steady]['state'], 'active')
+        self.assertEqual(canon(new_document(rows[self.steady]['database'])),
+                         canon(legacy_document(self.steady)))
+        self.assertFalse([d for d in self.databases() if '_stage_' in d])   # no lingering stage
+        with conn.connect(RUNTIME, names.app(self.prefix)) as c:
+            self.assertIsNotNone(c.execute('SELECT legacy_cutover_at FROM app_settings').fetchone()[0])
+        self.assertEqual(self.inventory(), self.before)                    # legacy inputs untouched
+        # Retry, with nothing planted, converts it
+        out = run.retry(self.lc, self.cfg, int(row['org_id']))
+        self.assertEqual(out['outcome'], 'active', out)
+        self.assertEqual(canon(new_document(self.lc.row(int(row['org_id']))['database'])),
+                         canon(legacy_document(self.brittle)))
+
+    def test_a_failing_resumed_publication_is_that_orgs_and_retry_recovers(self) -> None:
+        from orgtree.orgdb import lifecycle
+        from orgtree.orgdb.convert import legacy, run
+        shutil.copy(DATA / 'orgs' / f'{self.resumed}.pg', self.root / 'orgs' / f'{self.resumed}.pg')
+        with conn.connect(self.cfg.legacy_base, LEGACY) as c:
+            org = next(o for o in legacy.classify(c, str(self.root)) if o.slug == self.resumed)
+        legacy.prepare_root(self.cfg.work_root, [org])
+        org_id = run._register(self.lc, self.cfg, org)
+        # 1. the process dies right after the rename: the claim stays at step 'renamed'
+        with mock.patch.object(lifecycle.Lifecycle, '_release', side_effect=Crash('died')), \
+                self.assertRaises(Crash):
+            run.convert_org(self.lc, self.cfg, org, org_id)
+        row = self.lc.row(org_id)
+        self.assertEqual((row['state'], row['op_step']), ('converting', 'renamed'))
+        self.assertIn(row['database'], self.databases())
+        # 2. the next engine instance takes it over, and publishing the renamed build fails
+        lc2 = self.lifecycle()
+        claim = next(c for c in lc2.take_over() if c.org_id == org_id)
+        with mock.patch.object(lifecycle.Lifecycle, 'publish',
+                               side_effect=RuntimeError('planted: publishing failed')):
+            out = run.convert_org(lc2, self.cfg, org, org_id, claim=claim)
+        self.assertEqual(out['outcome'], 'unavailable', out)
+        self.assertIn('planted', out['reason'])
+        row = lc2.row(org_id)
+        self.assertEqual((row['state'], row['unavailable_step'], row['op_kind']),
+                         ('unavailable', 'conversion', None))
+        left = self.databases()
+        self.assertNotIn(row['database'], left)          # the unpublished build went with it
+        self.assertFalse([d for d in left if '_stage_' in d])
+        # 3. Retry converts it again and publishes it
+        out = run.retry(lc2, self.cfg, org_id)
+        self.assertEqual(out['outcome'], 'active', out)
+        row = lc2.row(org_id)
+        self.assertEqual(row['state'], 'active')
+        self.assertEqual(canon(new_document(row['database'])), canon(legacy_document(self.resumed)))
+
+    def test_a_claim_another_operation_holds_is_not_cleaned_up(self) -> None:
+        from orgtree.orgdb import lifecycle
+        from orgtree.orgdb.convert import legacy, run
+        with conn.connect(self.cfg.legacy_base, LEGACY) as c:
+            org = next(o for o in legacy.classify(c, str(self.root)) if o.slug == self.steady)
+        org_id = next(int(r['org_id']) for r in self.lc.rows() if r['slug'] == self.steady)
+        other = self.lifecycle().claim(org_id, 'retry')          # another operation's claim
+        before = self.lc.row(org_id)
+        try:
+            with self.assertRaises(lifecycle.Busy):
+                run.convert_org(self.lc, self.cfg, org, org_id, kind='retry')
+            self.assertEqual(self.lc.row(org_id), before)        # untouched
+            self.assertEqual((before['op_kind'], before['op_epoch']), (other.kind, other.epoch))
+            self.assertEqual(before['state'], 'active')
+        finally:                                                 # that other operation ends
+            with conn.connect(ADMIN, names.app(self.prefix)) as c:
+                c.execute('UPDATE orgtree.orgs SET op_kind = NULL, op_step = NULL, op_owner = NULL, '
+                          'op_target_db = NULL, op_started_at = NULL WHERE org_id = %s', (org_id,))
 
 
 if __name__ == '__main__':
