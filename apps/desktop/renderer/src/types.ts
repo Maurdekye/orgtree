@@ -860,6 +860,9 @@ export interface OrgListEntry {
   created: string | null
   cost_usd_total?: number
   working?: number             // F-09: agents with a running turn (admin list only)
+  state?: string
+  state_reason?: string | null
+  unavailable_step?: string | null
 }
 
 // --------------------------------------------------------------------- chat

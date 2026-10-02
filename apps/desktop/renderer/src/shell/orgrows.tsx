@@ -3,6 +3,8 @@
 // Moved out of App.tsx so the Homepage view and the compact menu can render
 // them without importing App.tsx, which renders both. App.tsx re-exports the
 // component, so every existing importer is unaffected.
+import { useEffect, useRef, useState } from 'react'
+import { retryOrg } from '../api'
 import { AutorenewIcon, DeleteIcon } from '../icons'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
@@ -40,6 +42,8 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
     : `active / hired agents — from ${Math.round(ageMs / 1000)}s ago, not refreshing`
   return <>
     {orgs.map((o) => {
+      if (o.state === 'unavailable') return <UnavailableOrgRow key={o.slug}
+        org={o} onPick={onPick} onDelete={onDelete} />
       const already = openLabel?.(o.slug) ?? null
       return (
       <div key={o.slug} role="button" tabIndex={0}
@@ -70,4 +74,40 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
     })}
     {!orgs.length && <div className="dim pad">no organizations yet</div>}
   </>
+}
+
+/** An unavailable org cannot be opened or deleted. Only the lifecycle retry
+ * can make it available again; the returned row also refreshes this view. */
+function UnavailableOrgRow({ org, onPick, onDelete }: {
+  org: OrgListEntry; onPick: (slug: string) => void
+  onDelete: (org: OrgListEntry) => void
+}) {
+  const [row, setRow] = useState(org)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const pending = useRef(false)
+  useEffect(() => { setRow(org) }, [org])
+  if (row.state === 'active') return <OrgRows orgs={[row]} slug={null}
+    onPick={onPick} onDelete={onDelete} />
+  const retry = async () => {
+    if (pending.current) return
+    pending.current = true
+    setBusy(true)
+    setError(null)
+    try { setRow(await retryOrg(org.slug)) }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { pending.current = false; setBusy(false) }
+  }
+  const reason = error || row.state_reason || 'Could not make this organization available.'
+  return <div className="org org-unavailable">
+    <span className="org-activity" />
+    <span className="org-name" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+      <span className="org-name-text">{row.name}</span>
+      <span className="org-name-text dim" title={reason} role="status">Unavailable — {reason}</span>
+    </span>
+    <span className="org-counts" />
+    <button type="button" disabled={busy} onClick={() => { void retry() }}>
+      {busy ? 'Retrying…' : 'Retry'}
+    </button>
+  </div>
 }

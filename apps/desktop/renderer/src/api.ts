@@ -202,6 +202,8 @@ export const req = <T,>(path: string, init?: RequestInit,
   })
 
 export const listOrgs = (): Promise<OrgListEntry[]> => req('/api/orgs')
+export const retryOrg = (slug: string): Promise<OrgListEntry> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/retry`, { method: 'POST' }, SLOW_TIMEOUT_MS)
 export const createOrg = (
   name: string, dirs: string[],
   netAutoconnect = true, netHubs: string[] = [],
