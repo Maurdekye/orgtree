@@ -118,6 +118,25 @@ def differences(want: Any, got: Any, path: str = "", out: list[dict[str, Any]] |
     return out
 
 
+def kept_in_extra(rows: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, int]]:
+    """{table: {field: rows}} for the values the codec kept in a row's ``extra``
+    (an unparseable time, a U+0000, a value of an unexpected type, an unknown field).
+    They convert exactly; the report counts them (design §5.4: planted faults whose
+    outcome is 'report' convert and are counted). Field names only, never values."""
+    out: dict[str, dict[str, int]] = {}
+    for table, rs in rows.items():
+        counts: dict[str, int] = {}
+        for r in rs:
+            e = r.get("extra") if isinstance(r, dict) else None
+            obj = getattr(e, "obj", e)
+            if isinstance(obj, dict):
+                for k in obj:
+                    counts[k] = counts.get(k, 0) + 1
+        if counts:
+            out[table] = counts
+    return out
+
+
 def section_digest(doc: dict[str, Any]) -> dict[str, list[Any]]:
     """{top-level key: [entries, sha256 of its canonical JSON]} for conversion_runs."""
     out = {}
@@ -164,6 +183,7 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         report["ignored_with_values"] = sorted(k for k, set_ in rep["ignored"].items() if set_)
         report["unregistered_keys"] = rep["extra_keys"]
         report["tombstones"] = len(ctx.tombstones)
+        report["kept_in_extra"] = kept_in_extra(rows)
         order = rowio.tables(secs + side_secs)
         with conn.connect(cfg.runtime_base, build.database, autocommit=False) as c:
             report["rows_written"] = rowio.write(c, rows, order=order)
@@ -192,7 +212,8 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         return {"slug": org.slug, "org_id": org_id, "outcome": state,
                 "rows": sum(report["rows_written"].values()),
                 "ignored_with_values": report["ignored_with_values"],
-                "unregistered_keys": report["unregistered_keys"]}
+                "unregistered_keys": report["unregistered_keys"],
+                "kept_in_extra": report["kept_in_extra"]}
     except Exception as e:   # noqa: BLE001  one org's failure is that org's (Q12)
         report["error"] = _one_line(e)
         report["traceback"] = traceback.format_exc()
@@ -323,11 +344,25 @@ def retry(lc: Lifecycle, cfg: Config, org_id: int) -> dict[str, Any]:
     org again and convert it in a new staging database. Step 'import' is the first-launch
     import's (it imports the held-back file, then calls this)."""
     row = lc.row(org_id)
-    if row["state"] != "unavailable" or row["unavailable_step"] != "conversion":
-        raise ValueError(f"org {org_id} is not unavailable at step 'conversion'")
+    if row["state"] != "unavailable" or row["unavailable_step"] not in ("conversion", "import"):
+        raise ValueError(f"org {org_id} is not unavailable at step 'conversion' or 'import'")
+    if row["unavailable_step"] == "import":
+        got = lc.import_held_back(str(row["slug"]), str(row["legacy_file"]),
+                                  legacy_database=_legacy_db(cfg),
+                                  orgs_dir=str(Path(cfg.data_root) / "orgs"))
+        if not got["imported"]:
+            claim = lc.claim(org_id, "retry")
+            lc.abandon(claim, step="import", reason="the import refused it again: " + got["reason"])
+            return {"org_id": org_id, "outcome": "unavailable", "reason": got["reason"]}
     with conn.connect(cfg.legacy_base, _legacy_db(cfg)) as legacy_conn:
         orgs = {o.org_id: o for o in legacy.classify(legacy_conn, cfg.data_root)}
-    org = orgs.get(int(row["legacy_org_id"]))
+    if row["legacy_org_id"] is None:      # imported just now: find it by its marker's name
+        found = [o for o in orgs.values() if o.slug == row["slug"] and o.status == "active"]
+        org = found[0] if len(found) == 1 else None
+        if org is not None:
+            lc.set_legacy_source(org_id, legacy_database=_legacy_db(cfg), legacy_org_id=org.org_id)
+    else:
+        org = orgs.get(int(row["legacy_org_id"]))
     if org is None or org.status not in ("active", "trashed"):
         reason = ("the legacy org is gone" if org is None else
                   f"the legacy org is {org.status}: {org.note}")

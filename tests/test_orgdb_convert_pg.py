@@ -108,6 +108,17 @@ def convert(*args: str) -> dict:
     return json.loads((report / 'run.json').read_text(encoding='utf-8'))
 
 
+def write_v2_org(path: Path, name: str) -> None:
+    """A 2.x SQLite org file, written by today's SQLite store in a child process (this
+    process's store is configured for PostgreSQL)."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('ORGTREE_', 'PYTHON'))}
+    env.update(ORGTREE_DATA=str(Path(_temp.name) / 'v2data'), HOME=str(HOME), USERPROFILE=str(HOME))
+    code = ('import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; '
+            'import test_pgimport as t; t.write_db(Path(sys.argv[2]), t.sample_doc(sys.argv[3]))')
+    subprocess.run(child_python.argv('-c', code, str(Path(__file__).resolve().parent), str(path), name),
+                   env=env, check=True, capture_output=True, timeout=120)
+
+
 def registry() -> dict:
     with conn.connect(RUNTIME, names.app(PREFIX)) as c:
         cur = c.execute('SELECT * FROM orgs ORDER BY org_id')
@@ -181,11 +192,17 @@ class FirstPass(unittest.TestCase):
         cls.twin = make_org('Twin')
         shutil.copy(DATA / 'orgs' / f'{cls.twin}.pg', DATA / 'orgs' / 'twin-copy.pg')
         cls.want = {s: legacy_document(s) for s in (cls.alpha, cls.beta)}
-        # what a 2.1.14 first-launch import with --hold-back records (pgimport.write_cutover)
+        # what a 2.1.14 first-launch import with --hold-back records (pgimport.write_cutover);
+        # `later` has a real 2.x file that this build's importer accepts (a Retry imports it)
+        later = DATA / 'pre-postgres' / 'orgs' / 'later.db'
+        later.parent.mkdir(parents=True, exist_ok=True)
+        write_v2_org(later, 'Later')
         (DATA / 'store-backend.json').write_text(json.dumps({
             'schema': 'orgtree.store-backend/v1', 'backend': 'postgres',
             'held_back': {'held': {'reasons': ["unrecognised section 'x'"],
-                                   'source': str(DATA / 'orgs' / 'held.json')}}}), encoding='utf-8')
+                                   'source': str(DATA / 'orgs' / 'held.json')},
+                          'later': {'reasons': ["refused by an older importer"],
+                                    'source': str(DATA / 'orgs' / 'later.db')}}}), encoding='utf-8')
         cls.report = convert('first-pass')
         cls.rows = registry()
 
@@ -200,6 +217,8 @@ class FirstPass(unittest.TestCase):
         with conn.connect(RUNTIME, names.app(PREFIX)) as c:
             self.assertIsNotNone(c.execute('SELECT legacy_cutover_at FROM app_settings').fetchone()[0])
         self.assertTrue(self.report['finished'])
+        # these test nodes carry fields real agents do not (`children`): kept exactly, counted
+        self.assertEqual(self.outcome(self.alpha)['kept_in_extra']['agents'].get('children'), 1)
 
     def test_a_second_pass_does_nothing(self) -> None:
         self.assertIn('skipped', convert('first-pass'))
@@ -246,6 +265,22 @@ class FirstPass(unittest.TestCase):
         self.assertEqual((row['state'], row['unavailable_step']), ('unavailable', 'import'))
         self.assertIn("unrecognised section 'x'", row['state_reason'])
         self.assertEqual(Path(row['legacy_file']), DATA / 'pre-postgres' / 'orgs' / 'held.json')
+
+    def test_retry_imports_a_held_back_org_and_converts_it(self) -> None:
+        row = self.rows['later']
+        self.assertEqual((row['state'], row['unavailable_step']), ('unavailable', 'import'))
+        out = convert('retry', '--org-id', str(row['org_id']))
+        self.assertEqual(out['outcome'], 'active', out)
+        now = registry()['later']
+        self.assertEqual(now['state'], 'active')
+        self.assertIsNotNone(now['legacy_org_id'])
+        self.assertTrue((DATA / 'orgs' / 'later.pg').is_file())         # its marker, new
+        self.assertEqual(sorted(new_document(now['database'])['nodes']), ['n1', 'n2'])
+        # a file the importer still refuses stays unavailable at 'import', with the reason
+        held = self.rows['held']
+        out = convert('retry', '--org-id', str(held['org_id']))
+        self.assertEqual(out['outcome'], 'unavailable')
+        self.assertEqual(registry()['held']['unavailable_step'], 'import')
 
     def test_duplicate_markers_make_the_org_unavailable(self) -> None:
         dup = [r for r in self.rows.values() if 'twin' in r['slug']]

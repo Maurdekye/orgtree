@@ -73,7 +73,8 @@ def _side_inputs(data_root: str):
         from . import sidefiles                     # noqa: PLC0415
     except ImportError:
         return None
-    return sidefiles.side_inputs(data_root)
+    build = getattr(sidefiles, "side_inputs", None)
+    return build(data_root) if build is not None else None
 
 
 if __name__ == "__main__":

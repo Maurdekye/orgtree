@@ -385,6 +385,13 @@ class Lifecycle:
                     raise LifecycleError(f"an org named {slug!r} (or with that uuid) exists") from e
         return org_id
 
+    def set_legacy_source(self, org_id: int, *, legacy_database: str, legacy_org_id: int) -> None:
+        """Record where an org's legacy data now is (a held-back org imported by Retry)."""
+        with self._app() as c:
+            c.execute("UPDATE orgtree.orgs SET legacy_database = %s, legacy_org_id = %s, "
+                      "row_version = row_version + 1 WHERE org_id = %s",
+                      (legacy_database, legacy_org_id, org_id))
+
     def _mark_unavailable(self, org_id: int, step: str, reason: str) -> bool:
         """An unclaimed active org becomes unavailable (migration, identity)."""
         with self._app() as c:
@@ -590,6 +597,36 @@ class Lifecycle:
         if row["state"] == "active" and self._mark_unavailable(org_id, "identity", why):
             self.fence_runtime(db)
         return False
+
+    def import_held_back(self, slug: str, path: str, *, legacy_database: str,
+                         orgs_dir: str) -> dict[str, Any]:
+        """Retry of step 'import' (design §5.1, §2.13): the 2.1.14 first-launch import held
+        ``slug`` back. Check its file again with THIS build's importer (the reason a new
+        build retries once by itself); when it passes, import that one org into the legacy
+        database and write its marker in ``orgs_dir``. Nothing already in the legacy
+        database changes. Here because the importer connects as the admin role (Q10); it
+        runs in a child process because it sets the store to SQLite for itself, which must
+        not leak into this process (pg_process._run_importer's rule).
+        Returns {"imported": bool, "reason": str}."""
+        import subprocess       # noqa: PLC0415
+        import sys              # noqa: PLC0415
+        from pathlib import Path   # noqa: PLC0415
+        tool = Path(__file__).resolve().parents[4] / "tools" / "pypg" / "pgimport.py"
+        if not tool.is_file():
+            return {"imported": False, "reason": f"the bundled importer is missing ({tool})"}
+        env = {k: v for k, v in os.environ.items()
+               if k not in (ADMIN_ENV, "ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_STORAGE")}
+        env["ORGTREE_PGIMPORT_CONNINFO"] = _conn.with_db(self._admin_base, legacy_database)
+        env["ORGTREE_DATA"] = str(Path(orgs_dir).parent)
+        r = subprocess.run([sys.executable, str(tool), "import-held", "--file", str(path),
+                            "--slug", slug, "--orgs-dir", str(orgs_dir)],
+                           env=env, cwd=str(tool.parent), capture_output=True, text=True,
+                           timeout=3600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode == 0:
+            return {"imported": True, "reason": ""}
+        lines = [l for l in (r.stderr or "").splitlines() if l.strip()]
+        reason = lines[-1] if lines else f"the importer exited {r.returncode}"
+        return {"imported": False, "reason": reason.split("REFUSED: ", 1)[-1][:300]}
 
     def retry_in_place(self, org_id: int) -> bool:
         """Retry an org that is unavailable at step 'migration' or 'identity'

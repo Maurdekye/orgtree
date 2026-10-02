@@ -61,6 +61,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -967,6 +968,51 @@ def _custodian(path: Path) -> Path:
 
 # ---------------------------------------------------------------- command line
 
+HELD_CONNINFO_ENV = "ORGTREE_PGIMPORT_CONNINFO"
+
+
+def import_held(file: Path, slug: str, orgs_dir: Path) -> int:
+    """3.2.0 Retry of step 'import' (orgdb design §5.1): import ONE org the
+    first-launch import held back, from its file in pre-postgres/orgs, into
+    the existing database whose conninfo is in ``ORGTREE_PGIMPORT_CONNINFO``,
+    and write its marker in ``orgs_dir``. The file is checked again with this
+    build's dry run first; nothing already in the database changes. The
+    engine's org lifecycle runs this in a child process, under the engine's
+    own data-root lock (so there is no custodian here and no owner lock).
+    Exit 0 imported, 3 still refused (the reason on stderr)."""
+    conninfo = os.environ.get(HELD_CONNINFO_ENV, "").strip()
+    if not conninfo:
+        print(f"pgimport import-held: {HELD_CONNINFO_ENV} is not set", file=sys.stderr)
+        return 2
+    if not file.is_file():
+        print(f"pgimport import-held: REFUSED: its file is gone: {file}", file=sys.stderr)
+        return 3
+    work = Path(tempfile.mkdtemp(prefix="orgtree-import-held-"))
+    try:
+        (work / "orgs").mkdir()
+        for name in (file.name, file.name + "-wal", file.name + "-shm"):
+            if (file.parent / name).is_file():
+                shutil.copy2(file.parent / name, work / "orgs" / name)
+        plan = dry_run(work)
+        if plan["refused"] or slug not in plan["orgs"]:
+            reason = "; ".join(plan["refused"][:3]) or f"no org {slug!r} in {file.name}"
+            print(f"pgimport import-held: REFUSED: {reason}", file=sys.stderr)
+            return 3
+        sink = PgSink(conninfo, orgs_dir)
+        try:
+            report = import_root(work, sink, plan=plan, only=[slug])
+        finally:
+            sink.close()
+        print(json.dumps({"schema": SCHEMA, "kind": "import_held", "slug": slug,
+                          "orgs": report["orgs"]}, sort_keys=True))
+        return 0
+    except ImportRefused as exc:
+        print(f"pgimport import-held: REFUSED: {exc}", file=sys.stderr)
+        return 3
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Three commands, all run by coordinator-opus alone, with the engine
     stopped:
@@ -1010,7 +1056,14 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--hold-back", action="store_true",
                      help="3.2.0: import every org the dry run did not refuse; an org's own refusal "
                           "holds back only that org, recorded in the cutover record")
+    held = sub.add_parser("import-held", help="3.2.0 Retry: import ONE held-back org's file into the "
+                                              "existing database (conninfo in ORGTREE_PGIMPORT_CONNINFO)")
+    held.add_argument("--file", type=Path, required=True)
+    held.add_argument("--slug", required=True)
+    held.add_argument("--orgs-dir", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command == "import-held":
+        return import_held(args.file, args.slug, args.orgs_dir)
     root = args.root.resolve()
     progress: Progress | None = None
     if getattr(args, "progress", False):
