@@ -16,6 +16,10 @@ This is **Orgtree 3**, the current desktop application. It follows Orgtree 2 and
 
 **Orgtree 3 (current).** The Canvas shows your team as a circular organization chart. Beside it are the "Needs attention" list of tickets and questions waiting for you, a Usage panel, and an agent's desk open for reading its conversation.
 
+![Orgtree 3 window with the Work docket and the Usage panel pinned on the left, and the canvas of agents beside them](docs/images/orgtree-3-docket-usage.png)
+
+**Orgtree 3: docket and usage beside the canvas.** The Work docket on the left lists tickets grouped by status, such as in progress, agent review and done. Next to it, the Usage panel shows how much of each provider account's limits is used and when they reset. The canvas to the right shows the agents, with you at the centre. Account emails and the OpenRouter key are blurred in this picture.
+
 ### Orgtree 2 and earlier
 
 These screenshots come from earlier versions. The layout differs in places, but the same ideas carry into Orgtree 3.
