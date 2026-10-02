@@ -424,7 +424,11 @@ with the desktop token (admin), or a websocket. The fixture follows `tests/test_
   `disclosed`. Refusals: `refusal:tree-no-token` (401) and
   `refusal:detail-unknown-node` (404).
 - **Feed** (`org.feed`, a websocket): `org.feed` (admin), cold and warm;
-  `org.feed:fanout` (two admin subscribers, two broadcasts);
+  `org.feed:fanout` (two admin subscribers, two broadcasts; this arrangement
+  replaced an admin-plus-public pair and was re-measured on its own at dba5f5c
+  by `tests/test_p02_operation_contacts.py`
+  `test_org_feed_subscriptions_and_fan_out`, which runs the probe and found
+  2 subscribers and 2 frames each; the rest of this report is the earlier run);
   `refusal:feed-no-token` (close 4401). Each row's `feed` records:
   - subscribers in the slug's room;
   - frames received per subscriber after `hub.changed`.
