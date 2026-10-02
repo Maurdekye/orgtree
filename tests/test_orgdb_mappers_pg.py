@@ -63,7 +63,7 @@ class ThroughAnOrgDatabase(unittest.TestCase):
         self.assertEqual(counts['agents'], 5)                      # 3 nodes + 2 tombstones
         with conn.connect(RUNTIME, build.database) as c:
             back = sections.decode_document(rowio.read(c), mappers.sections(), sections.Context())
-        want = {k: v for k, v in doc.items() if k not in ledger.IGNORED_LEGACY_KEYS}
+        want = {k: v for k, v in doc.items() if k not in mappers.ignored_keys()}
         self.assertEqual(canon(back), canon(want))
         self.assertEqual(list(back), list(want))
         lc.mark_filled(build)

@@ -6,7 +6,8 @@ What it proves:
     fact nothing outside the standard library and psycopg; the scan itself is shown to catch
     each of those forms in a planted source;
   * completeness: the verifier handles exactly ledger.NODE_KEYED_SECTIONS plus the two
-    legacy-only keys, and ignores exactly ledger.IGNORED_LEGACY_KEYS by default;
+    legacy-only keys and the kept `sandbox`, and ignores exactly the rest of
+    ledger.IGNORED_LEGACY_KEYS by default;
   * its correspondence matches the destination schema (org migrations 0001 and 0002): every
     column it names exists with the type of its declared kind, and every column of every
     document table is one it reads, so a new column cannot go unverified;
@@ -108,11 +109,16 @@ class SourceScan(unittest.TestCase):
 class Completeness(unittest.TestCase):
     def test_sections_are_the_engine_registry(self) -> None:
         self.assertEqual(set(ov.SECTIONS),
-                         set(ledger.NODE_KEYED_SECTIONS) | {'chain_notices', 'release'})
+                         set(ledger.NODE_KEYED_SECTIONS) | {'chain_notices', 'release'}
+                         | set(ov.KEPT_LEGACY))
 
     def test_ignored_keys_are_the_engine_constant(self) -> None:
-        self.assertEqual(tuple(ov.IGNORED_DEFAULT), tuple(ledger.IGNORED_LEGACY_KEYS))
+        # the engine's removed-feature keys, but the one the converter keeps (design rev 7.2)
+        self.assertEqual(set(ov.IGNORED_DEFAULT) | set(ov.KEPT_LEGACY),
+                         set(ledger.IGNORED_LEGACY_KEYS))
+        self.assertTrue(set(ov.IGNORED_DEFAULT).isdisjoint(ov.KEPT_LEGACY))
         self.assertTrue(set(ov.IGNORED_DEFAULT).isdisjoint(ov.SECTIONS))
+        self.assertEqual(ov.KEPT_LEGACY, ('sandbox',))
 
     def test_every_by_node_section_is_read_per_agent(self) -> None:
         by_node = {k for k, (_c, shape, _d) in ledger.NODE_KEYED_SECTIONS.items()

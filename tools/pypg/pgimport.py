@@ -108,6 +108,9 @@ MARKER_EXT = ".pg"
 #: Keys of removed features (kiosk, spend_frozen, sandbox, disk, storage_*,
 #: bridge_credential_*) stay listed: old data still carries them, the engine
 #: ignores them on load (ledger.IGNORED_LEGACY_KEYS), and they import as is.
+#: Every key of that constant is known, so none of them can hold an org back
+#: at the first-launch import (storage_frozen and sandbox_vols_base left the
+#: registry with the sandbox removal and were missing here).
 KNOWN_DOC_KEYS = frozenset("""
 version slug name created tiers models workspace dirs permission_mode default_tools
 default_visibility max_top_grant default_top_grant credit_requests compact_at
@@ -125,7 +128,7 @@ watchdogs watchdog_history watchdog_tombs work_items work_items_archive work_ide
 work_deleted_names user_outbox op_receipts scope_requests reservations repositories
 wakes executing max_depth max_children running_commit running_backend_pid
 _migrations _actors_typed whole_grants_v1 lifecycle
-""".split()) | frozenset(ledger.NODE_KEYED_SECTIONS) | frozenset({
+""".split()) | frozenset(ledger.NODE_KEYED_SECTIONS) | frozenset(ledger.IGNORED_LEGACY_KEYS) | frozenset({
     # seeded by older engines and READ BY NOTHING (ledger.py's Org.create
     # comment); found in the real data's dry run 2026-09-26. Imported as it
     # is: refusing it would mean editing the user's data to get past it.

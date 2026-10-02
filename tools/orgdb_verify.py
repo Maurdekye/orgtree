@@ -76,7 +76,14 @@ import sys
 from typing import Any, Iterable
 
 SCHEMA = 'orgtree'
-IGNORED_DEFAULT = ('kiosk', 'spend_frozen')
+#: The removed features' top-level keys, which the converter must NOT carry (decision 17 and the
+#: per-org sandbox removal): the engine's IGNORED_LEGACY_KEYS minus KEPT_LEGACY.
+IGNORED_DEFAULT = ('kiosk', 'spend_frozen', 'sandbox_vols_base', 'disk', 'storage_blocked',
+                   'storage_warned', 'storage_full', 'storage_frozen',
+                   'bridge_credential_generation', 'bridge_credential_rotated_at')
+#: A removed feature's key the converter still carries exactly, as an org setting (design rev
+#: 7.2): the former-sandbox credential catch-up reads it after the upgrade.
+KEPT_LEGACY = ('sandbox',)
 
 TEXT, INT, FLOAT, NUM, BOOL, TS, JSON = 'text', 'int', 'float', 'num', 'bool', 'ts', 'json'
 SQL_TYPES = {TEXT: {'text'}, INT: {'bigint', 'integer'}, FLOAT: {'double precision'},
@@ -444,15 +451,13 @@ SETTINGS = [
     Col('whole_grants_v1', BOOL), Col('_actors_typed', BOOL, col='actors_typed'),
     Col('deleted_cost_usd', NUM), Col('deleted_cost_usd_unknown', BOOL), Col('api_cost_usd', NUM),
     *_jsons('api_fallback', 'api_fallback_since', 'api_fallback_until', 'api_key'),
-    Col('bridge_credential_generation', INT),
-    *_jsons('bridge_credential_rotated_at', 'cred_warned_at', 'headless', 'desktop_import',
-            'op_receipts_meta', 'tool_result_receipts', 'sandbox', 'sandbox_vols_base', 'disk',
-            'storage_blocked', 'storage_frozen', 'storage_full', 'storage_warned',
-            'chain_notices', 'release'),
+    *_jsons('cred_warned_at', 'headless', 'desktop_import', 'op_receipts_meta',
+            'tool_result_receipts', 'sandbox', 'chain_notices', 'release'),
 ]
 
 #: Every top-level key the verifier knows, and how the destination holds it. Together these
-#: are ledger.NODE_KEYED_SECTIONS plus 'chain_notices' and 'release' (the static test asserts it).
+#: are ledger.NODE_KEYED_SECTIONS plus 'chain_notices', 'release' and KEPT_LEGACY (the static
+#: test asserts it).
 SECTIONS: dict[str, tuple] = {
     'nodes': ('nodes',),
     'work_items': ('docket', 'active'), 'work_items_archive': ('docket', 'archive'),

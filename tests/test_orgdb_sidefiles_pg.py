@@ -172,7 +172,7 @@ class ThroughAnOrgDatabase(unittest.TestCase):
         delivered = {r['id']: r for r in sidefiles.decode_file_deliveries(back, names)}
         self.assertEqual((delivered['b' * 64]['result'], delivered['b' * 64]['agent']), (None, 'gone-sender'))
         back_doc = sections.decode_document(back, mappers.sections(), sections.Context())
-        want = {k: v for k, v in doc.items() if k not in ledger.IGNORED_LEGACY_KEYS}
+        want = {k: v for k, v in doc.items() if k not in mappers.ignored_keys()}
         self.assertEqual(canon(back_doc), canon(want))
         # a planted change is found
         planted = {**back, 'reply_events': [dict(r) for r in back['reply_events']]}

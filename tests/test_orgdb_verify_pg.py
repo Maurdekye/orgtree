@@ -111,7 +111,7 @@ def document():
         'api_fallback_until': None, 'api_key': {'k': 'v'}, 'bridge_credential_generation': 4,
         'bridge_credential_rotated_at': T2, 'cred_warned_at': None, 'headless': False,
         'desktop_import': {'source_root': 'r', 'warnings': ['w']}, 'op_receipts_meta': {'v': 1},
-        'tool_result_receipts': {}, 'sandbox': None, 'sandbox_vols_base': 'b', 'disk': {'gb': 1},
+        'tool_result_receipts': {}, 'sandbox': {'enabled': True}, 'sandbox_vols_base': 'b', 'disk': {'gb': 1},
         'storage_blocked': False, 'storage_frozen': None, 'storage_full': False,
         'storage_warned': T2, 'chain_notices': [], 'release': '3.1.0',
         'tiers': {'opus': 15, 'haiku': 0.25}, 'models': {'opus': 'o-5', 'haiku': 'h-4'},

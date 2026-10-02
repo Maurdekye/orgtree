@@ -6,10 +6,11 @@ the real rehearsal inputs; a key none of them holds is typed from its writers wh
 plain, else JSON. A value of another type than its column's goes to ``extra`` exactly (codec),
 so a wrong guess never loses anything.
 
-The removed features' keys (kiosk, spend freeze: ``ledger.IGNORED_LEGACY_KEYS``) are not here:
-the converter does not carry them (decision 17). The sandbox, disk and storage-limit keys stay
-here until the sandbox removal adds them to that list (v3-remove-the-per-org-docker-sandbox-
-feature); then they leave this spec in the same change.
+The removed features' keys (``ledger.IGNORED_LEGACY_KEYS``: the kiosk, the spend freeze, the
+per-org sandbox, its disk, storage limits and bridge credential) are not here: the converter
+does not carry them (decision 17 and the sandbox removal). The exception is ``sandbox`` itself
+(``mappers.KEPT_LEGACY``, design rev 7.2), kept as a JSON column for the former-sandbox
+credential catch-up to read after the conversion.
 """
 
 from __future__ import annotations
@@ -65,20 +66,13 @@ SETTINGS = Spec("org_settings", (
     F("api_fallback_since", "json", nullable=True),
     F("api_fallback_until", "json", nullable=True),
     F("api_key", "json", nullable=True),
-    F("bridge_credential_generation", "int"),
-    F("bridge_credential_rotated_at", "json", nullable=True),
     F("cred_warned_at", "json", nullable=True),
     F("headless", "json", nullable=True),
     F("desktop_import", "json", nullable=True),
     F("op_receipts_meta", "json", nullable=True),
     F("tool_result_receipts", "json", nullable=True),
+    # a removed feature's key, kept for the former-sandbox catch-up (mappers.KEPT_LEGACY)
     F("sandbox", "json", nullable=True),
-    F("sandbox_vols_base", "json", nullable=True),
-    F("disk", "json", nullable=True),
-    F("storage_blocked", "json", nullable=True),
-    F("storage_frozen", "json", nullable=True),
-    F("storage_full", "json", nullable=True),
-    F("storage_warned", "json", nullable=True),
     # read by older builds, written by none today (design §5.2 "106 keys")
     F("chain_notices", "json", nullable=True),
     F("release", "json", nullable=True),

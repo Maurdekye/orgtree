@@ -5,7 +5,8 @@ it through a real org database.
 
 What it proves:
   * completeness: the sections own exactly the engine's registered keys (NODE_KEYED_SECTIONS
-    plus the two legacy-only keys) minus IGNORED_LEGACY_KEYS, and no key twice;
+    plus the two legacy-only keys) minus IGNORED_LEGACY_KEYS, but for the kept `sandbox`, and
+    no key twice;
   * the org migration 0002_document.sql is exactly the schema the mappers generate;
   * a synthetic document exercising every section kind round-trips exactly as canonical JSON,
     with its top-level key order: settings (present, absent, null), nodes with parent,
@@ -13,8 +14,9 @@ What it proves:
     by-agent lists with an orphan key, an empty list and a null owner value, by-agent maps,
     maps of records and of scalars, string lists, both docket lists with nested children,
     a null container, an empty container, and an unregistered key (org_extra);
-  * the removed features' keys (kiosk, spend freeze) are not converted and are reported when
-    they hold a value;
+  * the removed features' keys (kiosk, spend freeze, disk...) are not converted and are
+    reported when they hold a value; `sandbox` is converted exactly (the former-sandbox
+    catch-up reads it after the upgrade);
   * unforeseen shapes raise ShapeError: a list section that is not a list, a record that is
     not an object, a node id twice.
 
@@ -56,7 +58,8 @@ def document():
     return {
         'version': 3, 'slug': 'acme', 'name': 'Acme', 'created': '2026-01-01T00:00:00Z',
         'killswitch': None, 'tiers': {'opus': 15, 'haiku': 0.25}, 'models': {'opus': 'o-5'},
-        'kiosk': {'token': 'old'}, 'spend_frozen': None,
+        'kiosk': {'token': 'old'}, 'spend_frozen': None, 'disk': {'quota_gb': 5},
+        'sandbox': {'enabled': True, 'image': 'orgtree/agent'},
         'nodes': {
             'boss': node(last_turn_mcp_tools=tools, mailbox_id='mb1', mail_seq=3, halt={},
                          inflight=False),
@@ -101,7 +104,10 @@ class Completeness(unittest.TestCase):
         owned = [k for s in mappers.sections() for k in s.keys]
         self.assertEqual(len(owned), len(set(owned)))
         self.assertEqual(set(owned), mappers.registered_keys())
-        self.assertTrue(set(ledger.IGNORED_LEGACY_KEYS).isdisjoint(owned))
+        self.assertTrue(set(mappers.ignored_keys()).isdisjoint(owned))
+        self.assertIn('sandbox', owned)                              # kept (KEPT_LEGACY)
+        self.assertEqual(set(mappers.ignored_keys()) | set(mappers.KEPT_LEGACY),
+                         set(ledger.IGNORED_LEGACY_KEYS))
 
     def test_migration_is_the_generated_schema(self):
         text = MIGRATION.read_text(encoding='utf-8')
@@ -114,11 +120,12 @@ class RoundTrip(unittest.TestCase):
     def test_every_section_kind(self):
         doc = document()
         back, rows, ctx, report = round_trip(copy.deepcopy(doc))
-        want = {k: v for k, v in doc.items() if k not in ledger.IGNORED_LEGACY_KEYS}
+        want = {k: v for k, v in doc.items() if k not in mappers.ignored_keys()}
         self.assertEqual(canon(back), canon(want))
         self.assertEqual(list(back), list(want))                     # key order kept
         self.assertEqual(sorted(ctx.tombstones), ['gone-boss', 'x#orphan-abc123def456'])
-        self.assertEqual(report['ignored'], {'kiosk': True, 'spend_frozen': False})
+        self.assertEqual(report['ignored'], {'kiosk': True, 'spend_frozen': False, 'disk': True})
+        self.assertEqual(back['sandbox'], doc['sandbox'])
         self.assertEqual(report['extra_keys'], ['hand_edited_default'])
         self.assertEqual(len(rows['tool_lists']), 1)                 # one shared list
         agents = {r['name']: r for r in rows['agents']}

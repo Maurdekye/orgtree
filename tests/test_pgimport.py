@@ -261,6 +261,12 @@ class Recognition(Base):
             org.rows["doc"].append((key, "{}"))
             self.assertEqual(pgimport.problems(org), [], key)
         self.assertTrue(set(ledger.NODE_KEYED_SECTIONS) <= pgimport.KNOWN_DOC_KEYS)
+        # the removed features' keys still import as they are (old files carry them)
+        self.assertTrue(set(ledger.IGNORED_LEGACY_KEYS) <= pgimport.KNOWN_DOC_KEYS)
+        for key in ("storage_frozen", "sandbox_vols_base"):
+            org = self.rows_for(sample_doc())
+            org.rows["doc"].append((key, "true"))
+            self.assertEqual(pgimport.problems(org), [], key)
 
     def test_only_logs_that_used_to_be_document_rows_may_be_one(self) -> None:
         org = self.rows_for(sample_doc())
