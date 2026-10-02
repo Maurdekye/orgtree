@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 6)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,17 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 7 answers review-sol's fourth review (of rev 6).**
+  - The fourth review accepted f2, f11 and f17. It accepted f13's direct query (subject to its
+    timing condition) and f15's option X, and reopened each of them on one point.
+  - f15: a source path no longer counts as evidence of which org sent a file. A receipt moves
+    only on its snapshot folder, or on a delivery key that recomputes its id (§5.2).
+  - f13: the fallback counter for an agent's direct items is withdrawn, because it would make tree
+    moves depend on history. If the direct query fails its timing condition in the prototype, the
+    coordinator rules again on the measured numbers. The guards now say which paths keep the
+    strict row bound, which one has the timing condition, and that tree moves are checked too
+    (Appendix A.3).
+  - Each answer is marked "rev 7" where it lives; §10 has the round-4 table.
 - **Rev 6 answers review-sol's third review (of rev 5).**
   - The third review accepted f1, f6, f8, f10 and f16 (f9 moot), reopened f2, f11, f13 and f15,
     and added f17.
@@ -269,7 +280,9 @@ Partial indexes cover active rows only:
 | questions | open |
 
 Archived rows are reached only by key, or by `LIMIT`ed index ranges. The tests seed 10× history and
-require the same statement counts and rows read (§9).
+require the same statement counts and rows read (§9). One read is the exception (rev 7, decision
+18): the pass over an agent's own direct docket items, for its totals, is held to a timing
+condition instead (Appendix A.3).
 
 ### 2.4 Concurrency
 
@@ -671,7 +684,7 @@ the frozen legacy store: it is not modified, and is dropped one release after co
 | Credentials | stay in their profile folders, never in a database |
 | The mail hub's store | separate infrastructure, unchanged |
 | `chat-window-index.sqlite3` | stays a per-machine cache (it is rebuildable). Its keys include the org's `org_uuid`, so a purged or re-imported org can never read another's cache |
-| `reply-events.sqlite3`, `file-deliveries.db` | **move into each org's database**: they are org-owned durable records keyed by org and agent, and decision 11 makes an org one body of data |
+| `reply-events.sqlite3`, `file-deliveries.db` | **move into each org's database**: they are org-owned durable records keyed by org and agent, and decision 11 makes an org one body of data. A delivery receipt with no evidence of its org stays in the kept old file, untouched (decision 18, option X; §5.2) |
 
 **An org's whole body** is therefore its database plus its folder (workspace and scratch,
 including transcripts). Its registry row and live tickets are the only traces in the app database,
@@ -1337,29 +1350,75 @@ So a converted org that is later trashed or purged is never converted again. The
      the old file and is counted in the report. **Measured** on a copy: 481,066 rows, 469,019 of
      them for the main org (159 MB of text). `COPY` took 15.3 s and the read-back 2.5 s. 7 rows
      carry U+0000, which goes to `extra`.
-   - **`file-deliveries.db` (rev 5–6, finding f15; the coordinator's ruling X)** has no org
-     column: `id = sha256(slug:seat:key)`, a fingerprint (source path and caption) and the result.
-     Every row is accounted for, none is guessed, and none is deleted:
-     - **A row moves into its org's `file_deliveries`, before that org is published, when durable
-       evidence names exactly one org.** The evidence is checked in this order:
-       1. its `outbox/delivery-<id>/` folder exists under exactly one agent's scratch folder, in
-          one org;
-       2. its source path lies inside exactly one org's own folders (its workspace, or an agent's
-          scratch folder of that org); a granted shared folder decides nothing;
-       3. that org's transcripts record an `orgtree_send_file` call whose slug, agent seat and
-          `delivery_id` hash to the row's id.
+   - **`file-deliveries.db` (rev 5–7, finding f15; decision 18, option X)** has no org column.
+     Each row holds `id = sha256(slug:seat:key)` (filedelivery.py:37), a fingerprint (the source
+     path and caption) and the saved result. The slug is the **calling** org's, the seat is the
+     calling agent's lineage token, and the key is the call's `delivery_id`. Every row is accounted
+     for, none is guessed, and none is deleted:
+     - **A row moves into an org's `file_deliveries`, before that org is published, only on
+       evidence that names the calling org (rev 7).** Two kinds count, checked in this order:
+       1. **Its snapshot folder.** `snapshot()` creates `outbox/delivery-<id>/` only inside the
+          calling agent's own scratch folder, which comes from the calling org's slug
+          (api.py:14785–14786), behind a containment check (filedelivery.py:39–58). The row moves
+          to org O when that folder exists under O's scratch root and under no other scratch root,
+          whether or not that other org converts, with links resolved. For a completed row, the
+          file in it must also match the saved result: name, size and SHA-256.
+       2. **A delivery key that recomputes the id.** While converting org O, the converter looks
+          for keys in the transcripts of O's agents (`supervisor.transcript_path_for_node`), in
+          two places:
+          - the `delivery_id` argument of an `orgtree_send_file` call;
+          - the key that the agent's bridge returns with a lost or unsent answer
+            (mcptool.py:2366–2373). That is the case of a crash before the snapshot folder exists.
+
+          A key K moves the row to O when `sha256(slug:seat:K)` equals the row's id, with O's slug
+          and the `lineage_born` of one of O's agent rows. The hash contains the calling org's
+          slug, so a key that some O agent merely read, from another org's call, cannot recompute
+          the id with O's slug. Otherwise the bridge makes up the key itself and returns only the
+          id, so most completed deliveries have no recorded key and rely on evidence 1. The search
+          runs only for the rows that evidence 1 left, and reads only `orgtree_send_file` calls and
+          their answers.
+       - A folder or transcript the converter cannot read gives no evidence.
+       - A row whose evidence names an org that is `unavailable` stays in the old file until that
+         org's retry converts it, and then moves with it.
+     - **A source path is never evidence (rev 7, review round 4).** `_node_reachable_file`
+       (api.py:14769–14836) lets an agent send from its own scratch folder, its org's workspace,
+       and any folder granted to it. A grant can reach another org's folders, and can be removed
+       later. A source inside org A's folders therefore does not show that A sent it. The path is
+       only printed in the report.
      - **A row with no such evidence** stays in the kept old file, untouched, and **is never
        deleted**: the cleanup release keeps the file while it holds such a row.
        - It is listed in the conversion report.
        - Nothing consults it any more, so a later retry with that key behaves like a new delivery.
-       - That is the coordinator's ruling (option X). It keeps every org one body of data, with no
-         live shared store.
+       - That is decision 18 (option X). It keeps every org one body of data, with no live shared
+         store.
+     - **A limit of evidence 1.** If someone copies a snapshot folder into another org's scratch
+       folder and then deletes the original, evidence 1 follows the copy. While the original still
+       exists, the row is ambiguous and stays. When it follows the copy, the row is inert in its
+       new org: no call there can produce its id, which contains the sending org's slug. What
+       that org gains is the source path and caption of a file it already holds. The sending org
+       is left as under option X. The report names the evidence used for every row, so such a
+       case can be found.
      - The report counts the rows moved, by which evidence, and the rows left.
-     - **Measured:** 56 rows, all completed, so evidence 1 is expected to resolve them.
+     - **Measured** (read-only, on the side copy; `probe/receipt_evidence.py`): 56 rows, all
+       completed. 52 have their snapshot folder under one agent's scratch folder in the main org,
+       and in all 52 the file matches the saved result. The other 4 have no folder there. I could
+       read only the main org's scratch root, so they are either in another org's folders or
+       deleted; the rehearsal classifies them. 33 of the 56 sources lie outside the main org's
+       scratch root (its workspace or granted folders).
      - **Tests:**
-       - each of: a pending receipt before its outbox exists; a source folder shared by two orgs; a
-         completed receipt whose outbox is gone; a row with no evidence. For each, a retry with the
-         original fingerprint and with a changed caption, before and after conversion;
+       - each of: a pending receipt before its snapshot folder exists, whose key is only in the
+         lost answer; a completed receipt whose folder is gone; a snapshot folder copied into a
+         second org while the original remains; a row with no evidence. For each, a retry with
+         the original fingerprint and with a changed caption, before and after conversion;
+       - **review round 4's case:** agent B sends a file from org A's workspace through a grant
+         that is later removed, and crashes before the snapshot folder exists, with no recorded
+         key. The row must not move to A. It stays in the old file, untouched, is listed in the
+         report and is no longer consulted. A mutant that accepts the source path as evidence
+         must fail this test;
+       - a key from org B's lost answer that also appears in an org-A agent's transcript (the
+         agent read it) does not move B's row to A;
+       - a row whose evidence names an org that fails conversion stays, and moves at that org's
+         successful retry;
        - the converted org exported and imported onto a clean root with **no** old file, then the
          same retries and the missing-snapshot refusal;
        - delete and purge of the org, with the kept old file untouched.
@@ -1681,6 +1740,11 @@ The same estimates as rev 2 (inferred, replaced by measurements at the first pro
 
 ## 9. Tests
 
+**Rev 7 adds the tests of review round 4**: the receipt cases in §5.2 (a source path is not
+evidence, with its mutant), and the split guards and the tree-move guard in Appendix A.3. It also
+narrows rev 2's "no growth with history" test below: the direct pass of an agent's totals has
+decision 18's timing condition instead (A.3).
+
 **Rev 6 adds the tests named under each finding of review round 3** (§2.4, §3.0, A.3, §5.2).
 
 **Rev 5 adds the tests named under each finding of review round 2** (§2.2, §2.4, §2.5, §2.13,
@@ -1803,6 +1867,15 @@ moot. Rev 6 answers the rest:
 | f13 | should-fix | the coordinator's ruling B: `docket_subtree_counts` maintained in O(depth) per change, moves included, for the subtree part; one indexed query for the direct part; the 10×/5% p95 condition, with a maintained direct counter if it fails | A.3 |
 | f15 | blocking | the coordinator's ruling X: rows move into their org before publish on durable evidence (outbox folder, org-private source path, transcript hash match); a row with none stays in the kept old file, never deleted, listed, and not consulted | §5.2 |
 | f17 | blocking | one `agents` row per legacy node, each its own principal and mailbox; `lineage_born` is a non-unique lineage token; no seat table; current-holder references resolved to the node by today's continuity rule; historical ones typed as recorded | §3.0, A.2, A.3 |
+
+**Review round 4 (review-sol's review of rev 6, 2026-10-02).** Accepted: f2, f11 and f17, f13's
+direct query (subject to its timing condition), and f15's option X. Rev 7 answers the two points
+reopened:
+
+| Finding | Severity | Rev 7's answer | Where |
+|---|---|---|---|
+| f13 | should-fix | the history-dependent fallback counter is withdrawn: if the direct pass fails its timing condition in the prototype, the coordinator rules again on the measured numbers; the guards are split into the row bound (every other path), the timing condition (the direct pass only) and a tree-move guard | A.3, §2.3 |
+| f15 | blocking | a source path is no longer evidence; a row moves only on its snapshot folder (in one org only, with the file matching the result) or on a delivery key that recomputes its id with the org's slug and an agent's lineage token; review round 4's grant case is a test, with a mutant | §5.2 |
 
 ## 10.1 Questions: all answered
 
@@ -2036,8 +2109,8 @@ the rule and changes the direction of the walk:
 
   Rows read are bounded by the active items: 12 to 102 on the four orgs measured, never the 1,075
   archived ones.
-- **Totals (rev 5–6, finding f13; the coordinator's ruling B).** A total counts only what its
-  viewer may read.
+- **Totals (rev 5–7, finding f13; decision 18, option B).** A total counts only what its viewer
+  may read.
   - *The desktop*, the user, reads everything.
     - Active counts per status come from `count(*) … WHERE archived_at IS NULL` over the partial
       index.
@@ -2063,28 +2136,37 @@ the rule and changes the direction of the walk:
       strict ancestor of its anchor row (at most 6 rows);
     - a change of an item's anchor (a new owner, or a new creator when there is no owner): −1 on
       the old anchor's ancestors, +1 on the new one's;
-    - a tree move of node M: M's own total (the items anchored at M, plus
-      `docket_subtree_counts(M)`) is subtracted from M's old strict ancestors and added to its new
-      ones, in the move's transaction;
+    - a tree move of node M: M's own total (the items anchored at M, read from
+      `docket_anchor_counts` by M's name, plus `docket_subtree_counts(M)`) is subtracted from M's
+      old strict ancestors and added to its new ones, in the move's transaction. That is a fixed
+      number of key lookups and updates per kind, whatever is archived under M;
     - a name that starts or stops resolving (a node deleted, a same-name agent hired, a rename):
       the items anchored on that name move with it in the same way. A per-name counter
       `docket_anchor_counts(anchor_name, kind, n)`, kept in the same transactions, supplies their
       totals.
-  - **The ruling's condition** (coordinator, f13: option B).
+  - **The ruling's condition** (decision 18: option B).
     - The user's history-growth rule must hold for the list call of a heavy agent such as
       coordinator-opus: 10× inactive history may make it at most 5% slower at p95.
     - The guard seeds that history inside the viewer's own subtree (retired descendants) and among
       its direct items (archived items it owns, created, reviews or takes part in), not only in
       another branch.
-    - If the direct pass breaks the rule, the direct part gets a maintained counter too. It is
-      keyed by name, kept in the same transactions, and updated on a move for each distinct
-      creator, reviewer and participant name of the moved subtree.
+    - **If the direct pass fails that condition, no fallback is approved in advance (rev 7, review
+      round 4).** The prototype stops at that point, and I take the measured numbers to the
+      coordinator for a new ruling.
+      - Decision 18 names a maintained counter for the direct part as the fallback. Every form of
+        it found so far must, on a tree move, change one counter for each distinct creator,
+        reviewer and participant name in the moved subtree, or one for each moved descendant.
+        Both numbers grow with archived items and retired agents. That breaks the same decision's
+        first sentence: tree moves stay free of history.
+      - So that counter is not part of this design. It can come back only with a ruling that
+        makes an exception for it, or in a form whose move cost is bounded.
     - Option C (no archived totals for agents) is rejected.
   - **Guards:**
     - The authorization oracle checks every total and group count.
     - The seeds include hidden archived and backlog rows, anchors at archived bearers, and access
       changes that involve no archive transition: a move, a new participant, a new owner, a
       rename, a delete followed by a same-name hire.
+    - The performance guards are under "Guards (§9, rev 7)" below.
 - **Archive pages are cold reads**, opened explicitly.
   - For the user: a keyset page over the archived index, so rows read are bounded by the page
     size.
@@ -2102,13 +2184,21 @@ input, plus fixtures for a delete followed by a same-name hire. That is a test (
 Python predicate as the oracle. Where the two would differ, today's answer wins unless the user
 rules otherwise.
 
-**Guards (§9).** Each docket hot path (list, get, header counts, the account fan-out) is checked
-with `EXPLAIN` and a rows-examined count:
+**Guards (§9, rev 7).** Each docket path is checked with `EXPLAIN` and a rows-examined count.
+Archived agents and archived items are seeded at 1× and 10×, and archived rows are interleaved
+ahead of active ones in the sort order. Then three rules apply:
 
-- archived agents and archived items are seeded at 1× and 10×;
-- archived rows are interleaved ahead of active ones in the sort order.
-
-Statement counts and rows read must not change between 1× and 10×.
+- **The row bound, for every path but one.** List, get, the account fan-out, the desktop's
+  counts, an agent's subtree total (|A|), and the counter maintenance of every item change: the
+  statement counts and rows read must not change between 1× and 10×.
+- **The timing condition, for the direct pass only** (decision 18). An agent's direct-item pass
+  is one SQL statement at 1× and at 10×, and its rows read may grow only with the viewer's own
+  direct items. It passes when the heavy agent's whole list call is at most 5% slower at p95 at
+  10× than at 1×, with the history seeded inside the viewer's subtree and among its direct items.
+- **Tree moves** (decision 18: moves stay free of history). Moving a fixed live subtree, whose
+  retired descendants and inactive items are seeded at 1× and 10× with distinct creator,
+  reviewer and participant names inside it, must not change the move's statement count or rows
+  read.
 
 The seven `work_read_*` tables, their triggers and the per-save refresh go away. The Python
 predicate stays as the test oracle.
