@@ -32,9 +32,9 @@ These screenshots come from earlier versions. The layout differs in places, but 
 
 **Orgtree 2: presented documents.** When an agent finishes a report, it can show it to you in its own reading window. Here it is a performance audit.
 
-![Orgtree 2 App settings on the Providers page, listing model tiers, signed-in accounts and seats](docs/images/orgtree-2-providers.png)
+![Orgtree 2 App settings on the Providers page, listing model tiers, signed-in accounts, agents per account and model seat prices](docs/images/orgtree-2-providers.png)
 
-**Orgtree 2: providers.** App settings lists the model tiers each provider offers, the accounts you have signed in to, and how many seats each account is using.
+**Orgtree 2: providers.** App settings lists the model tiers each provider offers, the accounts you have signed in to, the agents using each account, and the seat price of each model.
 
 ![A small example organization chart with you at the top, a coordinator, an implementer, a researcher and two explorers](docs/images/orgtree-org-chart.png)
 
@@ -46,7 +46,7 @@ These screenshots come from earlier versions. The layout differs in places, but 
 
 ![An inbox window showing who holds each audience and a list of messages](docs/images/orgtree-inbox.png)
 
-**Earlier version: your inbox.** A window listing who holds each audience and the messages sent to you. It shows real host names and message text from the author's own setup.
+**Earlier version: your inbox.** A window listing who holds each audience and the messages sent to you. It shows real agent names and message text from the author's own setup.
 
 ![A mail hub window showing message traffic between hosts in a read-only view](docs/images/orgtree-mail-hub.png)
 
