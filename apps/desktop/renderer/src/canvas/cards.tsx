@@ -1941,7 +1941,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               badge row as on the desk's — the SAME component, reading the same
               org default from context, so the two surfaces cannot disagree
               about the level, the wording, or when it appears at all. Absent
-              whenever the agent is unset or at the ordinary default, and
+              whenever the agent has no effort of its own (shown even when it equals the org default), and
               absent as NOTHING rather than as an empty chip, so the row
               reserves no space for it. Its far-zoom and map exclusions are the
               ones this whole `.sq-badges` block already carries. */}
