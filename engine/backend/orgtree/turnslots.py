@@ -54,6 +54,15 @@ class _Ticket:
 
 
 class FairSlots:
+    def __new__(cls, limit: int = DEFAULT_LIMIT) -> Any:
+        # Keep the existing constructor at the supervisor seam. Durable
+        # identity comes from the start_turn job's bind_request context.
+        if cls is FairSlots:
+            from .orgdb import enabled
+            if enabled():
+                return DatabaseSlots()
+        return super().__new__(cls)
+
     def __init__(self, limit: int = DEFAULT_LIMIT) -> None:
         self._cond = threading.Condition(threading.Lock())
         self._limit = _clamp(limit)
@@ -175,3 +184,230 @@ def _clamp(limit: Any) -> int:
     # 0 is legal HERE (a closed gate — tests use it); the user-facing
     # setting refuses anything below 1 (appsettings.MAX_TURNS_MIN)
     return max(0, min(MAX_LIMIT, n))
+
+
+# The orgdb adapter is deliberately lazy: importing the supervisor must not
+# open a connection or register another engine instance. The host configures
+# its existing instance after bootstrap and drives its heartbeat every 5 s.
+_database_queue: Any = None
+_database_instance: int | None = None
+_database_resolver: Callable[[str, str], tuple[int, int]] | None = None
+_request_context = threading.local()
+
+
+def configure(instance_id: int, connect: Callable[[], Any] | None = None,
+              resolve: Callable[[str, str], tuple[int, int]] | None = None) -> None:
+    """Host startup: install its existing registered instance and runtime DB.
+
+    The instance heartbeat belongs to the host, never to a waiting thread:
+    a paused owner must not look alive because some unrelated waiter runs.
+    """
+    from .turnqueue import Queue
+    global _database_queue, _database_instance, _database_resolver
+    if _database_instance is not None and _database_instance != instance_id:
+        raise RuntimeError("turn queue already configured for another engine instance")
+    _database_queue = Queue(connect) if connect is not None else Queue()
+    _database_instance = instance_id
+    _database_resolver = resolve
+
+
+def bind_agent(org: str, agent: str, lane: str = "turn") -> Any:
+    """Transitional caller identity until durable org start_turn jobs land.
+
+    The host resolver reads registry.org_id and the org agents.id by name.
+    A UUID is minted once per attempt, not each enqueue retry. Legacy callers
+    take the same slot path without requesting any database identity.
+    """
+    from contextlib import nullcontext
+    from .orgdb import enabled
+    if not enabled():
+        return nullcontext()
+    _configured()
+    if _database_resolver is None:
+        raise RuntimeError("orgdb turn admission needs the host's org/agent identity resolver")
+    from .turnqueue import Request
+    from uuid import uuid4
+    org_id, agent_id = _database_resolver(org, agent)
+    return bind_request(Request(str(uuid4()), org_id, agent_id, agent, lane))
+
+
+def bind_request(request: Any) -> Any:
+    """Around a start_turn handler/turn: supply its durable turnqueue.Request.
+
+    The org request must already be queued. This context never mints an id.
+    It must cover acquire and release on the same thread. Host/job wiring
+    supplies the org CAS at start and its finish/stop acknowledgement.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def bound() -> Any:
+        previous = getattr(_request_context, "request", None)
+        _request_context.request = request
+        try:
+            yield
+        finally:
+            _request_context.request = previous
+    return bound()
+
+
+def _configured() -> tuple[Any, int]:
+    if _database_queue is None or _database_instance is None:
+        raise RuntimeError("orgdb turn admission needs turnslots.configure after host bootstrap")
+    return _database_queue, _database_instance
+
+
+class DatabaseSlots:
+    """Existing blocking slot interface over durable tickets.
+
+    A single shared listener versions wakeups; its catch-up after LISTEN
+    covers startup. NOTIFY is only a hint; each wake re-reads the ticket.
+    At the 5 s process-lease boundary we re-check too, covering reconnects/
+    missed notices. No thread here refreshes a lease or reclaims a worker.
+    The host drives those actions separately.
+    """
+    def __init__(self) -> None:
+        self._held = threading.local()
+        self._cond = threading.Condition()
+        self._version = 0
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _changed(self) -> None:
+        with self._cond:
+            self._version += 1
+            self._cond.notify_all()
+
+    def _listen(self) -> None:
+        from .turnqueue import HEARTBEAT_SECONDS
+        while not self._stop.is_set():
+            try:
+                queue, _ = _configured()
+                with queue.connect() as c:
+                    c.execute("LISTEN turn_tickets")
+                    c.commit()
+                    self._changed()  # catch-up after connect before any sleep
+                    while not self._stop.is_set():
+                        for _notice in c.notifies(timeout=HEARTBEAT_SECONDS, stop_after=1):
+                            break
+                        self._changed()  # also reread at the lease boundary
+            except Exception:
+                self._changed()  # callers re-read and receive their DB error
+                self._stop.wait(1)
+
+    def _start(self) -> None:
+        with self._cond:
+            if self._stop.is_set():
+                raise RuntimeError("turn-slot listener is closed")
+            if self._thread is None:
+                self._thread = threading.Thread(target=self._listen, name="turn-slot-listener", daemon=True)
+                self._thread.start()
+
+    def close(self) -> None:
+        """Host shutdown; also used by verification to join the listener."""
+        self._stop.set()
+        self._changed()
+        if self._thread is not None:
+            self._thread.join(10)
+            if self._thread.is_alive():
+                raise RuntimeError("turn-slot listener did not stop")
+
+    @property
+    def limit(self) -> int:
+        return self.snapshot()["limit"]
+
+    def set_limit(self, limit: int) -> None:
+        queue, _ = _configured()
+        queue.set_limit(limit)
+
+    def snapshot(self) -> dict[str, Any]:
+        queue, _ = _configured()
+        return queue.snapshot()
+
+    def wake(self) -> None:
+        self._changed()
+        queue, _ = _configured()
+        with queue.connect() as c:
+            c.execute("SELECT pg_notify('turn_tickets', 'wake')")
+
+    def acquire(self, org: str, cancelled: Callable[[], bool] = lambda: False,
+                on_queued: Callable[[dict[str, Any]], None] | None = None,
+                max_wait: float | None = None) -> None:
+        from .turnqueue import LostClaim
+        queue, instance = _configured()
+        request = getattr(_request_context, "request", None)
+        if request is None:
+            raise RuntimeError("orgdb turn admission needs a durable bind_request context")
+        if getattr(self._held, "ticket", None) is not None:
+            raise RuntimeError("this thread already holds a turn slot")
+        self._start()
+        ticket = queue.enqueue(request, instance)
+        acquired = False
+        try:
+            announced_limit: int | None = None
+            since = time.time()
+            while True:
+                with self._cond:
+                    version = self._version
+                if self._stop.is_set():
+                    raise Cancelled()
+                if ticket.state == "running":
+                    # A duplicate request/job cannot launch this claim again.
+                    raise LostClaim("request was already admitted")
+                if ticket.state != "waiting":
+                    raise Cancelled()
+                if ticket.owner != instance:
+                    raise LostClaim("another engine owns this waiting attempt")
+                if cancelled():
+                    queue.cancel(request)
+                    raise Cancelled()
+                claimed = queue.claim(instance, request.request_id)
+                if claimed is not None:
+                    if cancelled():
+                        queue.cancel_before_start(claimed)
+                        raise Cancelled()
+                    self._held.ticket = claimed
+                    acquired = True
+                    return
+                if on_queued is not None:
+                    view = queue.snapshot()
+                    if view["limit"] != announced_limit:
+                        announced_limit = view["limit"]
+                        on_queued({"since": since, "limit": view["limit"], "waiting": view["waiting"]})
+                with self._cond:
+                    # Any commit between the read and wait increments version.
+                    # The listener's catch-up after LISTEN covers startup too.
+                    if version == self._version and not self._stop.is_set():
+                        self._cond.wait(max_wait)
+                ticket = queue.get(request.request_id)
+                if ticket is None:
+                    raise LostClaim("org or turn ticket was removed")
+        finally:
+            if not acquired:
+                # Callback errors and local abandonment must not strand an
+                # otherwise-live instance's waiting ticket.
+                current = queue.get(request.request_id)
+                if current is not None and current.state == "waiting" and current.owner == instance:
+                    queue.cancel(request)
+
+    @property
+    def current_claim(self) -> Any:
+        """Start/finish wiring reads this thread's admitted numbered claim."""
+        return getattr(self._held, "ticket", None)
+
+    def release(self) -> None:
+        queue, _ = _configured()
+        ticket = getattr(self._held, "ticket", None)
+        if ticket is None:
+            raise RuntimeError("turn slot released more times than acquired")
+        self._held.ticket = None
+        from .turnqueue import LostClaim
+        if not queue.finish(ticket):
+            # Exiting the provider scope confirms it is stopped. Cancellation
+            # revoked its old running epoch; acknowledge the current stopping
+            # epoch instead of accepting an obsolete finish.
+            current = queue.get(ticket.request_id)
+            if (current is None or current.state != "stopping" or current.owner != ticket.owner
+                    or current.epoch != ticket.epoch + 1
+                    or not queue.acknowledge_stop(current.request_id, current.owner, current.epoch)):
+                raise LostClaim("turn finished after its claim was lost")

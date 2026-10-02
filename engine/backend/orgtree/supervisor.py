@@ -1127,9 +1127,11 @@ class _InterruptibleTurnSlot:
     then never held around `_state_lock`, so the interrupt paths may call
     `_turn_slots.wake()` from anywhere without a lock-order inversion."""
 
-    def __init__(self, state: dict[str, Any], org: str = "") -> None:
+    def __init__(self, state: dict[str, Any], org: str = "", agent: str = "", lane: str = "turn") -> None:
         self._state = state
         self._org = org
+        self._agent = agent
+        self._lane = lane
         self._token = object()
         self._acquired = False
 
@@ -1153,7 +1155,8 @@ class _InterruptibleTurnSlot:
             self._state["admission_waiting"] = True
             self._state["admission_wait_token"] = self._token
         try:
-            _turn_slots.acquire(self._org, self._cancelled, self._queued)
+            with turnslots.bind_agent(self._org, self._agent, self._lane):
+                _turn_slots.acquire(self._org, self._cancelled, self._queued)
         except turnslots.Cancelled:
             with _state_lock:
                 self._state.pop("admission_cancel_token", None)
@@ -20923,7 +20926,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
         _g_org = _g_node = None                 # turn-locals: the gate is done
         st["waiting"] = True
         _slot_wait_t0 = time.monotonic()
-        with _InterruptibleTurnSlot(st, slug):
+        with _InterruptibleTurnSlot(st, slug, nid):
             st["waiting"] = False
             turnlog.emit(_trec, "start",
                          slot_wait_ms=int((time.monotonic() - _slot_wait_t0) * 1000))
@@ -27702,7 +27705,7 @@ def manual_compact(slug: str, nid: str) -> None:
         # `waiting` is the established "blocked on a slot, not running" flag
         # (№12 — the UI draws it hollow).
         st["waiting"] = True
-        with _InterruptibleTurnSlot(st, slug):
+        with _InterruptibleTurnSlot(st, slug, nid, "compaction"):
             st["waiting"] = False
             _compact_split(slug, nid)
     except (_AdmissionCancelled, halt.Cancelled):
