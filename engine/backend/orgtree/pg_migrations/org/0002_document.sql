@@ -1010,6 +1010,10 @@ CREATE TABLE orgtree.watchdogs (
   "notice" boolean,
   "once" boolean,
   "shell" text,
+  "fire_mode" text,
+  "quiet_period_s" bigint,
+  "silence_since" timestamptz,
+  "silence_since_text" text,
   "extra" json
 );
 
@@ -1041,6 +1045,15 @@ CREATE TABLE orgtree.watchdog_tombs (
   "spent_at_text" text,
   "fired" bigint,
   "orphaned_from" text,
+  "notice" boolean,
+  "state" text,
+  "superseded_by" text,
+  "reason" text,
+  "once" boolean,
+  "fire_mode" text,
+  "quiet_period_s" bigint,
+  "silence_since" timestamptz,
+  "silence_since_text" text,
   "extra" json
 );
 

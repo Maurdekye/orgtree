@@ -331,10 +331,13 @@ WATCHDOG = [Col('id', TEXT, col='public_id'), *_texts('owner', 'name', 'kind', '
             Col('high_water', JSON), Col('last_check', TS),
             Col('_last_check_ts', FLOAT, col='last_check_ts'), Col('checks_run', INT),
             *_texts('last_output', 'paused_why'), Col('last_exit', INT), Col('last_fired', TS),
-            *_bools('history_retained', 'notice', 'once'), Col('shell', TEXT)]
+            *_bools('history_retained', 'notice', 'once'), Col('shell', TEXT),
+            Col('fire_mode', TEXT), Col('quiet_period_s', INT), Col('silence_since', TS)]
 WATCHDOG_TOMB = [Col('id', TEXT, col='public_id'), *_texts('owner', 'name', 'kind', 'target'),
                  Col('interval_s', INT), *_stamps('at', 'spent_at'), Col('fired', INT),
-                 Col('orphaned_from', TEXT)]
+                 Col('orphaned_from', TEXT), Col('notice', BOOL),
+                 *_texts('state', 'superseded_by', 'reason'), Col('once', BOOL),
+                 Col('fire_mode', TEXT), Col('quiet_period_s', INT), Col('silence_since', TS)]
 WATCHDOG_HISTORY = [Col('at', TS), *_texts('gist', 'watchdog', 'node', 'body')]
 RESERVATION = [Col('id', TEXT, col='public_id'),
                *_texts('owner', 'item', 'resource', 'candidate', 'base'),

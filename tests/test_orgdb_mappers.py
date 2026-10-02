@@ -160,5 +160,57 @@ class RoundTrip(unittest.TestCase):
                 round_trip(doc)
 
 
+class WatchdogSilence(unittest.TestCase):
+    """watchdog-sol's silence alarms (watchdog_config): fire_mode, quiet_period_s and
+    silence_since convert into typed columns, sparse as the engine writes them."""
+
+    T = '2026-10-02T10:00:00.000Z'               # ledger.now()'s canonical text
+
+    def document(self):
+        from orgtree import watchdog_config
+        silence = {'id': 'w2', 'owner': 'x', 'name': 'quiet', 'kind': 'activity', 'target': 'x',
+                   'interval_s': 60, 'state': 'armed', 'at': self.T,
+                   **watchdog_config.settings('silence', 600, self.T)}
+        event = {'id': 'w1', 'owner': 'x', 'name': 'logs', 'kind': 'file', 'target': 'a.log',
+                 'interval_s': 60, 'state': 'armed', 'at': self.T,
+                 **watchdog_config.settings(None, None, self.T)}
+        tomb = {'id': 'w3', 'owner': 'x', 'name': 'once', 'kind': 'file', 'target': 'b.log',
+                'interval_s': 60, 'at': self.T, **watchdog_config.projection(event),
+                'spent_at': self.T, 'fired': 1}
+        superseded = {'id': 'w4', 'owner': 'x', 'name': 'wait', 'kind': 'activity', 'target': 'x',
+                      'interval_s': 60, 'at': self.T, **watchdog_config.projection(silence),
+                      'spent_at': self.T, 'state': 'superseded', 'superseded_by': 'boss',
+                      'reason': 'obsolete', 'once': True}
+        return {'nodes': {'x': node()}, 'watchdogs': [event, silence],
+                'watchdog_tombs': [tomb, superseded], 'watchdog_history': []}
+
+    def test_the_fields_are_typed_columns_and_round_trip_exactly(self):
+        doc = self.document()
+        self.assertNotIn('fire_mode', doc['watchdogs'][0])        # event mode writes nothing
+        self.assertEqual(doc['watchdog_tombs'][0]['fire_mode'], 'event')   # a tomb says so
+        back, rows, _, _ = round_trip(copy.deepcopy(doc))
+        self.assertEqual(canon(back), canon(doc))
+        dogs = {r['public_id']: r for r in rows['watchdogs']}
+        tombs = {r['public_id']: r for r in rows['watchdog_tombs']}
+        for r in [*dogs.values(), *tombs.values()]:
+            self.assertIsNone(r.get('extra'), r['public_id'])     # nothing left untyped
+        self.assertEqual((dogs['w2']['fire_mode'], dogs['w2']['quiet_period_s']), ('silence', 600))
+        self.assertEqual(dogs['w2']['silence_since'], codec.parse_ts(self.T))
+        self.assertIsNone(dogs['w2'].get('silence_since_text'))  # canonical: no text kept
+        self.assertEqual([dogs['w1'].get(c) for c in ('fire_mode', 'quiet_period_s', 'silence_since')],
+                         [None, None, None])
+        self.assertEqual((tombs['w3']['fire_mode'], tombs['w3'].get('quiet_period_s')), ('event', None))
+        self.assertEqual((tombs['w4']['fire_mode'], tombs['w4']['quiet_period_s'],
+                          tombs['w4']['state'], tombs['w4']['once']), ('silence', 600, 'superseded', True))
+
+    def test_a_non_canonical_stamp_keeps_its_text(self):
+        doc = self.document()
+        doc['watchdogs'][1]['silence_since'] = '2026-10-02T10:00:00Z'
+        back, rows, _, _ = round_trip(copy.deepcopy(doc))
+        self.assertEqual(canon(back), canon(doc))
+        dog = next(r for r in rows['watchdogs'] if r['public_id'] == 'w2')
+        self.assertEqual(dog['silence_since_text'], '2026-10-02T10:00:00Z')
+
+
 if __name__ == '__main__':
     unittest.main()

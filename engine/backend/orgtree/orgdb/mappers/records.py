@@ -61,12 +61,19 @@ WATCHDOGS = Spec("watchdogs", (
     F("checks_run", "int"), F("last_output", "text"), F("paused_why", "text"),
     F("last_exit", "int"), F("last_fired", "ts"), F("history_retained", "bool"),
     F("notice", "bool"), F("once", "bool"), F("shell", "text"),
+    # silence alarms (watchdog_config): written only in silence mode, never as nulls
+    F("fire_mode", "text"), F("quiet_period_s", "int"), F("silence_since", "ts"),
 ))
 
 WATCHDOG_TOMBS = Spec("watchdog_tombs", (
     F("id", "text", col="public_id"), F("owner", "text"), F("name", "text"), F("kind", "text"),
     F("target", "text"), F("interval_s", "int"), F("at", "ts"), F("spent_at", "ts"),
-    F("fired", "int"), F("orphaned_from", "text"),
+    F("fired", "int"), F("orphaned_from", "text"), F("notice", "bool"),
+    # a superseded one-shot dog's tomb (Org.watchdog_control "supersede")
+    F("state", "text"), F("superseded_by", "text"), F("reason", "text"), F("once", "bool"),
+    # watchdog_config.projection: fire_mode always ("event" for an event dog), the other two
+    # only when the dog had them
+    F("fire_mode", "text"), F("quiet_period_s", "int"), F("silence_since", "ts"),
 ))
 
 WATCHDOG_HISTORY = Spec("watchdog_history", (
