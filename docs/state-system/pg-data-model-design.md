@@ -1,20 +1,36 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 3)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 3.1)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
-This is the target design. The coordinator presents it to the user before any code beyond the first
-prototype is written (decisions 7, 8 and 10 on the item). The companion
+This is the target design. The user approved rev 3 on 2026-10-02 (decision 12 on the item), with
+one condition. review-sol (Sol 6.1, effort max) reviews this design before the build starts, and
+reviews the implementation again before the local alpha build. The companion
 [`pg-columns-audit.md`](pg-columns-audit.md) measures today's costs on a copy of the live data.
 
 **What changed:**
 
-- **Rev 3 replaces rev 2** (commit `833f6a2`). It follows decision 10 (one PostgreSQL database per
+- **Rev 3.1 is rev 3 plus the answers** (rev 3 is commit `9cfb8b1`). It adds the user's answers to
+  Q9 and Q12 and the coordinator's rulings on Q10 and Q11, and what follows from them. Nothing
+  else in the design changed. Sections touched:
+  - §0 summary, §1 constraints;
+  - §2.2 and §2.10–§2.13 (the `unavailable` org state, the admin connection, `max_connections`,
+    migration failures, retry);
+  - §2.4 (the turn queue is live; requests reach the process that owns a turn);
+  - §2.5 (the screen feed carries the changed records);
+  - §2.7 (every polling loop becomes a job);
+  - §2.9 (the second engine process);
+  - §4 (the mapping table);
+  - §5 (a failed org no longer stops the start);
+  - §6 (the release scope and landing order);
+  - §7, §8.2, §9, §10.
+- **Rev 3 replaced rev 2** (commit `833f6a2`). It followed decision 10 (one PostgreSQL database per
   org, plus a minimal shared app database) and decision 11 (adding or deleting a whole org is adding
   or dropping one body of data).
-- **Kept from rev 2:** the ground-up architecture (decision 7), the table design, the conversion
-  checks and the release plan.
-- **Changed:** where the tables live, and everything that follows from it: connections, migrations,
-  the screen feed, jobs, cross-org reads, the org lifecycle, the conversion and multi-process.
+  - **Kept from rev 2:** the ground-up architecture (decision 7), the table design and the
+    conversion checks.
+  - **Changed in rev 3:** where the tables live, and everything that follows from it: connections,
+    migrations, the screen feed, jobs, cross-org reads, the org lifecycle, the conversion and
+    multi-process.
 
 **Answers already given:**
 
@@ -28,6 +44,10 @@ prototype is written (decisions 7, 8 and 10 on the item). The companion
 | Q6 | surrogate keys and tombstones |
 | Q7 | a dedicated schema; with a database per org this becomes "dedicated databases" |
 | Q8 | change log kept 24 h, and at least 10,000 revisions |
+| Q9 (user) | **everything at once.** 3.2.0 converts the data and also ships the live turn queue with leases, a second engine process, a renderer that applies changes without refetching, and every remaining polling loop moved to jobs (§6.1) |
+| Q10 (coordinator) | only the org-lifecycle module gets the admin connection, and only inside the engine host (§2.11) |
+| Q11 (coordinator) | `max_connections` 100, written by the custodian for fresh installs and upgrades (§2.11) |
+| Q12 (user) | **start without the failed org.** The converted orgs start. The failed org is shown as unavailable with the reason and can be retried later. Its old data stays untouched (§2.13, §5.2) |
 
 Decision 6 still stands: no build or publish until the whole data-model rewrite is in, apart from
 the local alpha. Decision 9: the release line is 3.2.0, and the local alpha build is
@@ -69,10 +89,17 @@ the local alpha. Decision 9: the release line is 3.2.0, and the local alpha buil
 **One data migration.**
 
 - On upgrade, the engine creates the app database and one database per org.
-- It converts each org from today's layout, reads everything back, and refuses to start if anything
-  does not match.
+- It converts each org from today's layout and reads everything back.
+- An org that does not convert, or does not match on read-back, is left out (Q12). It shows as
+  unavailable with the reason and can be retried. The other orgs start. Only a failure that no org
+  can run without (the app database, the accounts) still stops the start.
 - Today's database is not modified at all, so rolling back to 3.1.0 is "run 3.1.0 again" (§5.3).
-- A 2.1.14 install takes the same path after the existing first-launch import.
+- A 2.1.14 install takes the same path after the existing first-launch import. That import now
+  holds back only the org that fails, instead of refusing every org (§5.1).
+
+**What ships in 3.2.0: everything** (Q9, §6.1). That means the new data model, plus the live turn
+queue, a second engine process, a screen feed the renderer applies without refetching, and jobs in
+place of every polling loop.
 
 **What the move to one database per org costs** (measured on my dev cluster, §8):
 
@@ -101,7 +128,9 @@ the local alpha. Decision 9: the release line is 3.2.0, and the local alpha buil
   org being one body of data.
 - **Hard constraints.**
   - Old data must not be lost.
-  - Every migration refuses to start, with a clear reason, if a check fails.
+  - A check that fails stops what it covers, with a clear reason. One org's failure keeps that org
+    from starting while the others start (Q12). A failure in the app database or the accounts
+    stops the whole start.
   - The 2.1.14 first-launch importer (`tools/pypg/pgimport.py`) writes into today's layout.
 
 ## 2. Target architecture
@@ -145,7 +174,7 @@ second is an idempotent job (§2.7). Nothing relies on both commits happening to
 | Docket slugs unique and never reused | `UNIQUE (slug)` + `retired_slugs(slug)`, checked in the create transaction |
 | No overlapping reservations | `UNIQUE (resource) WHERE state = 'held'` (today's rule), `UNIQUE (integration_key)` |
 | No loop in the tree | a statement-level constraint trigger on `agents` when `parent_id` changes: walk up from the new parent (at most the tree depth, 6 today) and raise on meeting the moved row. It refuses; it derives nothing. |
-| The database belongs to this org | a one-row `org_identity(org_uuid, slug)` table. The engine compares it with the registry row on every pool open, so a database restored under the wrong name is refused, not served. |
+| The database belongs to this org | a one-row `org_identity(org_uuid, slug)` table. The engine compares it with the registry row on every pool open, so a database restored under the wrong name is not served: the org becomes `unavailable` (step `identity`, §2.13). |
 | Counts and sequences sane | `CHECK`s |
 
 Across databases, integrity is by construction. The app database never holds org content, so there
@@ -183,11 +212,23 @@ require the same statement counts and rows read (§9).
     `FOR UPDATE SKIP LOCKED`. It marks the ticket running, with a lease.
   - The engine process running the turn renews the lease. A crashed process's lease expires and
     frees the slot.
+  - This queue is live in 3.2.0 (Q9): `turnslots.FairSlots` is removed, with the same limit and
+    the same fairness.
 - **Starting a turn takes two steps.** The org transaction that decides an agent should run writes a
   `start_turn` job in the org database. The job inserts the ticket in the app database: `INSERT …
   ON CONFLICT DO NOTHING` on the unique key, so a retry never queues twice.
 - **Interrupt, halt and retire** cancel the ticket in the same idempotent way. Today's
   `wake()`-after-cancel calls disappear.
+- **Requests reach the process that owns the turn through the database.**
+  - Mid-task mail is already pulled by the running turn: its hook calls the engine's steer door,
+    or the lane's own loop asks in-process. Both read the pending rows from the org database, so
+    any process can serve them.
+  - An interrupt, halt or retire must act on the provider process itself. It is written as the
+    ticket's new state and announced with `NOTIFY turn_tickets` in the app database. The process
+    named in `lease_owner` stops the provider process it started.
+  - Nothing depends on a request reaching the right process directly.
+  - Per-turn memory that today lives in `supervisor.state(slug, nid)` stays in the owning process
+    only while it is a cache. Anything another process must see becomes a row.
 
 ### 2.5 The change log and the screen feed: per org database
 
@@ -197,13 +238,20 @@ require the same statement counts and rows read (§9).
 - **`NOTIFY` is per database**, which suits this layout. Each org's transactions send
   `NOTIFY org_rev, '<rev>'` in their own database.
 - **Listening.** An engine process holds one `LISTEN` connection per org it is actively serving: an
-  org with a desktop client watching it, or with agents running in that process. It pushes frames
-  carrying `rev` to that org's websocket clients.
+  org with a desktop client watching it, or with agents running in that process. The engine host
+  (§2.9) pushes frames to that org's websocket clients.
+- **Frames carry the changed records (Q9).** For each new revision, the host reads the changed
+  records once, by id, with the same targeted reads the screens use. It pushes one frame:
+  `{rev, changes: [{entity, id, op, record}]}`. A deleted record carries no body. The renderer
+  applies the frame to its store with no refetch, and no screen polls any more.
 - **Catching up.** A client that sees a gap, or reconnects, calls
-  `GET /api/orgs/{slug}/changes?after=N`. It receives the changed `(entity, id, op)` list and
-  refetches only those records through the targeted endpoints. A client older than the retention
-  window does one full load.
-- **The org list** (orgs created, deleted, renamed, failed) is the app database's own feed:
+  `GET /api/orgs/{slug}/changes?after=N`. It returns the same frame shape: every record changed
+  after N, once each, in its current state. A client older than the retention window does one full
+  load.
+- **Who sees what.** The desktop is the user, who can read everything in the org. Any other
+  audience of the feed receives only the records its own reads would return. For the docket, that
+  is the access rule.
+- **The org list** (orgs created, deleted, renamed, unavailable) is the app database's own feed:
   `NOTIFY app_orgs` from the registry transactions, and one listener per engine process.
 - **This replaces** the per-process frame `rev` (`api._sync_revs`), the coalesced `changed`
   broadcast, and the whole-tree rebuild after every commit (1.2–1.45 s on the live copy today).
@@ -268,8 +316,23 @@ lease_owner, lease_until, last_error, dedupe_key)`. It has a partial index on qu
   3. The job marks the sender's row delivered.
 
   This needs no shared table.
-- **What jobs replace:** the 30 s auto-resume scan (it decodes every agent), the 20 s keeper
-  passes, the 5 s watchdog tick, the 1 s mail-drain loop and the docket reminder scans.
+- **What jobs replace: every polling loop, in 3.2.0 (Q9).** The supervisor loops of audit §3.4:
+
+  | Loop today | Job |
+  |---|---|
+  | auto-resume, every 30 s per org (decodes every agent) | `resume` at each freeze's until-time; `start_turn` from the transaction that makes an agent runnable |
+  | working-cache keeper, every 20 s (abandoned docket items, idle reminders, checkup and keepalive) | `archive`, `remind` and `checkup` at their own due times, written by the transaction that sets them up |
+  | watchdog engine, every 5 s | each watchdog's next `check` |
+  | storage watchdog, every 20 s | a `storage_check` that requeues itself, only for orgs that have a storage limit (kiosk and sandbox orgs). Disk use changes outside the database, so this one stays periodic, as a job |
+  | mail drain, every 1 s or when kicked | `deliver` from the transaction that deposits the mail |
+  | docket reminder scans, retries | `remind`, and a retry `run_at` on the failed job itself |
+
+  The renderer's polling (the tree about every 6 s, the desk chat, notifications every 5 s) is
+  replaced by the feed (§2.5).
+
+  Timers that read state outside Orgtree (provider usage, update checks, the mail hub) are not
+  database polling and have no due time in any org. They stay timers in the engine host, which is
+  one process (§2.9). The stage that moves the loops lists every remaining timer and why it stays.
 
 ### 2.8 Domain modules
 
@@ -305,6 +368,24 @@ The ledger's rules move into the modules. Today's behaviour suites are the contr
     and a dead owner's tickets expire.
 - **Each process has its own pools** (§2.11). With P processes the connection budget is P times the
   per-process one.
+- **The two processes of 3.2.0 (Q9).** Today one engine process holds the data root's owner lock
+  (`claim_data_root`), serves the loopback port and runs everything. In 3.2.0:
+
+  | | Engine host (process 1) | Worker (process 2) |
+  |---|---|---|
+  | Started by | the desktop or the boot host, as today | the engine host, as its child; it exits when the host exits |
+  | Data root owner lock | holds it | does not take it |
+  | Loopback port, HTTP, websocket, agents' tool calls | serves them | none |
+  | Admin connection (Q10) | the org-lifecycle module only | never |
+  | Per-org schedulers and jobs | runs them | runs them |
+  | Admits and runs turns | yes | yes |
+  | Timers for outside state (§2.7) | runs them | none |
+
+  - Both processes are registered in `engine_instances` with a heartbeat. Work is shared only
+    through `SKIP LOCKED` and leases.
+  - If the worker dies, the host restarts it. Its leases expire, so its jobs and tickets go back
+    to the queue, and the host takes them meanwhile.
+  - The design allows more workers; 3.2.0 runs exactly one.
 - **Large texts** (charters, descriptions, mail and document bodies, steer texts) live in one-to-one
   content tables, and provider JSON payloads in `agent_runtime`. Hot rows stay about 200 bytes.
   Transcripts stay on disk in the org's folder.
@@ -319,7 +400,7 @@ the frozen legacy store: it is not modified, and is dropped one release after co
 
 | Table | Holds | Why it cannot be per-org | Org footprint |
 |---|---|---|---|
-| `orgs` | `org_id`, `slug` (`UNIQUE … WHERE state <> 'trashed'`, so a trashed org's name can be reused as today, and a restore picks a free name if it was), `org_uuid UNIQUE`, `database UNIQUE`, `state CHECK (provisioning, converting, active, trashed, purging, failed)`, `state_reason`, `created_at`, `trashed_at` | The engine must find an org's database before it can open it. A row inside the org's own database cannot answer "which database is org X". | one row |
+| `orgs` | `org_id`, `slug` (`UNIQUE … WHERE state <> 'trashed'`, so a trashed org's name can be reused as today, and a restore picks a free name if it was), `org_uuid UNIQUE`, `database UNIQUE`, `state CHECK (provisioning, converting, active, unavailable, trashed, purging)`, `unavailable_step CHECK (import, conversion, migration, identity)` (set only while `unavailable`), `state_reason` (one line for the org list), `report_path` (the full report under `<data>/conversion/`), `attempts`, `attempted_build`, `state_at`, `created_at`, `trashed_at` | The engine must find an org's database before it can open it. A row inside the org's own database cannot answer "which database is org X". | one row |
 | `accounts` | `id` (the stable account slug), `provider`, `harness`, `credential_ref` (a path or token-store reference, never key material), `mode`, `enabled`, `tint_ordinal`, `origin_org_id` → orgs (`ON DELETE CASCADE`), plus `account_marks(account_id, pool, until, window, observed_at, provenance)` and `account_spend(account_id, usd_total, turns, since, updated_at)` | `registry.py` defines accounts as "machine-global, every provider together". One account serves agents in every org. A limit mark set by a turn in org A must stop turns in org B, and spend is metered machine-wide. Today this is `accounts-registry.json`; it moves here so several processes can update marks and spend in transactions. | org-key account rows (legacy org keys bound to one org) |
 | `turn_tickets`, `turn_admission` | the machine-wide fair queue (§2.4) | the slot limit and round-robin fairness are defined across orgs | transient tickets (`ON DELETE CASCADE`) |
 | `engine_instances` | `id`, `host`, `pid`, `started_at`, `heartbeat_at` | a process is not owned by any org; leases in every database refer to it | none |
@@ -369,11 +450,21 @@ listener for the app database.
 | Today's 4 orgs, all active, one process | about 4 × (1 listener + 1–2 pooled) + 2 for the app database = 10–14 |
 | A heavy day: 10 active orgs, 2 processes | up to 2 × (10 × 3 + 2) = 64, which needs `max_connections` raised |
 
-An idle org costs nothing.
+An idle org costs nothing. With 3.2.0's two processes (§2.9), today's 4 orgs use about 20–28.
 
-**Proposal:** raise the custodian's `max_connections` to 100 (Q11). Memory cost: about 4 MB private
-per backend, so 0.4 GB at the full 100. The engine enforces a global per-process cap and queues
-requests for a connection rather than failing.
+**`max_connections` is 100 (Q11, decided).** The custodian writes it into the cluster settings it
+owns, for fresh installs and on upgrade. Memory cost: about 4 MB private per backend, so 0.4 GB at
+the full 100. The engine enforces a global per-process cap and queues requests for a connection
+rather than failing.
+
+**The admin connection (Q10, decided).** Creating, renaming and dropping databases needs the
+cluster's admin role; the runtime role cannot do it.
+
+- The engine host opens the admin connection and gives it only to the org-lifecycle module.
+- That module does create, trash and restore (rename), purge (drop), import (restore), the
+  conversion's database creation, and the migrations of the app and org databases.
+- No other module, and never the worker process, holds it.
+- A source scan test fails if any other module reads the admin URL or opens that connection.
 
 ### 2.12 Migrations, once per database
 
@@ -385,8 +476,11 @@ requests for a connection rather than failing.
   - At start, the engine migrates every registered `active` org, one org at a time, each file in
     its own transaction under that org's advisory lock.
   - An org created later is born at the current level.
-  - An org whose migration fails becomes `failed`, with the reason in its registry row, and the
-    start is refused with that org named (the same refusal rule as the conversion).
+  - An org whose migration fails becomes `unavailable` (step `migration`), with the reason, and the
+    other orgs start (the Q12 rule, applied to migrations too). The failed file rolled back, so
+    its database stays exactly at its last good level. It is retried as in §2.13.
+  - A failure of the **app** database's migrations still refuses the start: no org can run without
+    it.
 - **A partly migrated set is safe by construction.** Every org database is always at exactly one
   migration level: each file commits in its own transaction, and its row in `schema_migrations`
   commits with it. So a crash between orgs leaves some orgs at N+1 and others at N, and the next
@@ -396,7 +490,7 @@ requests for a connection rather than failing.
   | Org's level | What the engine does |
   |---|---|
   | lower than expected | migrates it before serving |
-  | higher than the engine knows (a newer build ran) | refuses it by name (`MigrationDrift`, as today) |
+  | higher than the engine knows (a newer build ran) | does not serve it: `unavailable` (step `migration`, "written by a newer Orgtree"), with the other orgs starting. The app database at a newer level still refuses the start (`MigrationDrift`, as today) |
 
 ### 2.13 The org lifecycle, end to end
 
@@ -407,7 +501,8 @@ the next start, which finds the row in its intermediate state.
 
 1. App transaction: insert the registry row (`provisioning`, new `org_id`, `org_uuid`, database
    name). `UNIQUE (slug)` makes a retried create a no-op.
-2. `CREATE DATABASE orgtree_org_<n>`, as the provisioning role (Q10).
+2. `CREATE DATABASE orgtree_org_<n>`, through the admin connection that only this module holds
+   (Q10, §2.11).
 3. Org transaction: apply the org migrations, insert `org_identity(org_uuid, slug)` and the
    org's default settings, and grant the runtime role its rights.
 4. App transaction: `active`; `NOTIFY app_orgs`.
@@ -463,6 +558,42 @@ The existing human-readable `export_json` stays, built from queries.
 7. Report the account ids bound in the org but unknown here. Those agents show as unbound and fall
    back by the existing rules; nothing is silently rebound.
 8. `active`.
+
+**Unavailable, and retry (Q12).** An org becomes `unavailable` when one of four steps fails for it:
+
+| Step | What failed |
+|---|---|
+| `import` | the 2.1.14 first-launch import held it back (§5.1) |
+| `conversion` | converting or reading it back (§5.2) |
+| `migration` | an org migration, or its database is newer than the build (§2.12) |
+| `identity` | its `org_identity` does not match its registry row |
+
+What happens then:
+
+- **Its old data stays untouched.** A failed conversion drops only the half-built new database. The
+  legacy schema and the old files are never written. A failed migration rolls back its file.
+- **The other orgs start and run normally.**
+- **What the user sees.** The org list shows the org as unavailable, with the one-line reason and
+  a **Retry** action. The full report (org, step, kind, record, field, both values) is in
+  `<data>/conversion/<time>-<pid>/`, and the org list links to it. Nothing else opens the org.
+- **Its traces elsewhere.**
+  - Its turn tickets are cancelled.
+  - Mail sent to it from another org waits in the sender's outbox as a `deliver_external` job that
+    backs off (1 minute, doubling, at most 1 hour) until the org is `active`.
+  - `/api/accounts` and `/api/orgs` list it as unavailable instead of counting its agents.
+- **Retry** runs the failed step again for that org alone, from the untouched old data:
+  - `import`: the per-org import from `pre-postgres/orgs/<slug>.db`, then the conversion;
+  - `conversion`: the conversion from the legacy schema;
+  - `migration`: the pending migrations;
+  - `identity`: the check again.
+
+  If it succeeds, the org becomes `active` and starts. If not, it stays unavailable with the new
+  reason, and `attempts` goes up by one.
+- **When retry runs.** It runs when the user asks. It also runs once automatically when a
+  different build starts (`attempted_build` differs), because the new build may contain the fix.
+  It does not run at every restart.
+- **What 3.2.0 does not offer** for an unavailable org: trash and purge. Its data is not in the new
+  layout yet.
 
 ## 3. The schema
 
@@ -552,7 +683,7 @@ The legacy `orgtree` database stays untouched for one release (Q3), then is drop
 | `ledger.Org` methods (≈400) | domain functions over rows. Audit §3.3 is the checklist. |
 | Supervisor loops (30 s, 20 s, 5 s, 1 s) | per-org jobs + scheduler (§2.7) |
 | `turnslots.FairSlots` (memory) | `turn_tickets` in the app database (§2.4) |
-| `api._sync_revs`, `hub_changed`, whole-tree refetch | per-org `changes` + `NOTIFY` + catch-up (§2.5) |
+| `api._sync_revs`, `hub_changed`, whole-tree refetch, renderer polling | per-org `changes` + `NOTIFY`; frames carry the changed records; catch-up (§2.5) |
 | `registry.py` + `accounts-registry.json` | the `accounts` tables in the app database (§2.10) |
 | `reply_events.py`, `filedelivery.py` side SQLite files | tables in each org database |
 | `pgfeed.RevisionFeed` (one listener) | one listener per actively served org + one for the app database |
@@ -566,7 +697,26 @@ The legacy `orgtree` database stays untouched for one release (Q3), then is drop
 | Starting point | Route |
 |---|---|
 | **v3.0.9, 3.1.0 and the other 3.0.x** (one database, per-org schemas) | Start the engine. It migrates the legacy database only if it is behind 0020 (0020 on 3.0.9), as every release has. **Measured:** importing at 0017 and then migrating to 0020 leaves the five base tables of all 4 orgs unchanged, and equal to an import made at 0020, by count and sha256 (`probe/v3x-states-0017.json`). So every 3.0.x and 3.1.0 state gives the converter identical input. |
-| **v2.1.14** (SQLite) | The first-launch import (`tools/pypg/pgimport.py`, unchanged) writes the SQLite rows into the legacy layout, with its counts and checksums. Then the engine starts and runs the same converter. **Rehearsed, step 1:** the user's real pre-conversion SQLite data, copied with SQLite's backup API, imported with pgimport's own code (4 orgs, byte-for-byte read-back, 39 s). The same was done with a v2.1.14 re-save of it (§5.4). |
+| **v2.1.14** (SQLite) | The first-launch import (`tools/pypg/pgimport.py`, driven by `pg_process.convert_existing_root`) writes the SQLite rows into the legacy layout, with its counts and checksums. Then the engine starts and runs the same converter. **Rehearsed, step 1:** the user's real pre-conversion SQLite data, copied with SQLite's backup API, imported with pgimport's own code (4 orgs, byte-for-byte read-back, 39 s). The same was done with a v2.1.14 re-save of it (§5.4). |
+
+**One change to the first-launch import, for Q12.** Today it is all or nothing:
+
+- one refused org refuses the whole dry run;
+- the cutover requires every org;
+- the engine does not start, and the user is told to reinstall 2.1.14.
+
+In 3.2.0 it holds back only the failing org:
+
+1. The dry run's refusals are already per org (`<slug>: …`). An org with a refusal is held back;
+   the others are imported (`import_root(only=…)` exists today).
+2. The cutover record lists each held-back org with its reason. The cutover still moves every old
+   file, held back or not, unchanged, to `pre-postgres/orgs`.
+3. The converter registers each held-back org as `unavailable` (step `import`).
+4. Retry imports that one file and then converts it. On success, the legacy database gains that
+   org's schema; nothing already in it changes.
+
+A failure that is not about one org still refuses the start, with today's message: the database
+will not start, the importer is missing, the root is wrong.
 
 ### 5.2 The converter
 
@@ -588,14 +738,26 @@ It runs at engine start, after the app database's migrations, and before anythin
       and timestamps as instants. Count and checksum per kind. Write `conversion_runs` in the org
       database.
    5. App transaction: registry row `active`. **This is the commit point.** Before it, the new
-      database is disposable. A failure drops it and records `failed` with the reason, and the
-      engine refuses to start, naming the org, kind, record, field and both values.
+      database is disposable.
+   6. **A failure in one org** (any exception, or any mismatch in step 4) drops that org's new
+      database. It writes the report (org, kind, record, field and both values) to
+      `<data>/conversion/<time>-<pid>/`. The registry row becomes `unavailable` (step
+      `conversion`) with a one-line reason. **The converter then goes on to the next org, and the
+      engine starts with the orgs that converted (Q12).** Retry is described in §2.13.
 3. **Accounts.** `accounts-registry.json` is read and inserted into the app database, read back and
    compared, in the app database's first transaction. The file is kept, untouched.
+   - A failure here still refuses the start: accounts are machine-wide, and every org's turns
+     need them.
+   - An account bound only to an org that is unavailable is still converted, because it lives in
+     the app database.
 
-**A partly converted set** (a crash, or a failure in one org): converted orgs are `active` and are
-skipped next time; the rest are retried from scratch. The legacy database is never written, so a
-retry always starts from the same input.
+**A partly converted set** (a crash, or failures in some orgs):
+
+- converted orgs are `active` and are skipped next time;
+- orgs the crash interrupted (`converting`) are converted again from scratch at the next start;
+- `unavailable` orgs wait for their retry (§2.13).
+
+The legacy database is never written, so a retry always starts from the same input.
 
 **Time** (inferred from the audit's decode costs, plus measured database creation): about 1 s to
 create each database, 1–2 s to read and decode the largest org, a few seconds to `COPY`, about the
@@ -611,6 +773,8 @@ databases exist. Writes made after the conversion are lost, as `pgimport`'s roll
 states. A cleanup tool drops the new databases if the user wants the space back.
 
 One release later, the cleanup release drops the legacy database and the old side files (Q3).
+It does not drop them while any org is still `unavailable` from the import or the conversion. That
+org's old data is the only copy, so the cleanup keeps it and says why.
 
 ### 5.4 Rehearsals (decisions 4 and 8)
 
@@ -639,63 +803,85 @@ Each rehearsal runs the converter on every input and records:
 
 ## 6. Release plan
 
-### 6.1 What ships with the migration (3.2.0), and what comes later
+### 6.1 What ships in 3.2.0: everything (Q9)
 
-The schema is complete in 3.2.0: both migration folders and every table. Later releases change
-code, and add only empty tables if any.
+The user chose to ship the whole target at once. 3.2.0 converts the data and contains every part
+of decision 7. Nothing is left for a later release.
 
-| Target point | In 3.2.0 | Later, no data change |
-|---|---|---|
-| Schema, integrity, partial indexes; one database per org; the app database | all | – |
-| Database as the source of truth; one transaction per action | all writes go through domain functions; every hot read is targeted. The compatibility view remains only for rare paths not yet moved, each listed in the release notes. | moving those; deleting the compatibility view |
-| Domain modules | agents, docket, mail, questions, audiences, documents, reservations, feed, org, registry | – |
-| Change log + `NOTIFY` | per-org `changes`, listeners per served org, frames carry `rev`, the renderer refetches the changed records | the renderer applies changes with no refetch; polling removed |
-| Jobs | per-org jobs, scheduler, sweep; delivery, watchdogs and cross-org mail as jobs | auto-resume, keepers, reminders and retries move one by one |
-| Turn queue | tables ship; `turnslots` stays in memory while there is one process | `turn_tickets` take over with the leases of multi-process |
-| Several processes | no process holds org state; pools per database; accounts in the app database | run a second process |
+| Target point | In 3.2.0 |
+|---|---|
+| Schema, integrity, partial indexes; one database per org; the app database | all of it: both migration folders and every table |
+| Database as the source of truth; one transaction per action | every read and write goes through domain functions. **The compatibility view is deleted before the release:** a second process must not hold org state, so no path may still use it |
+| Domain modules | all of §2.8 |
+| Change log + `NOTIFY` | per-org `changes` and listeners. Frames carry the changed records, and the renderer applies them with no refetch (§2.5). Every renderer poll is removed |
+| Jobs | per-org jobs, schedulers and the sweep. Every polling loop of §2.7 is a job: delivery, watchdogs, cross-org mail, auto-resume, keepers, reminders, storage checks, retries |
+| Turn queue | `turn_tickets` with leases replace `turnslots.FairSlots` (§2.4) |
+| Several processes | the engine host and one worker process (§2.9) |
+| Failed orgs | the `unavailable` state, its report and retry (§2.13) |
+
+The compatibility view still exists during development. The first prototype (§6.2) and the local
+alpha use it, with one process.
 
 ### 6.2 The first prototype (decision 8)
 
 **Definition: the smallest slice that converts real data and runs the app on the new databases.**
 
-1. Both migration folders (app and org) and the provisioning path (`CREATE DATABASE` per org).
+1. Both migration folders (app and org) and the provisioning path (`CREATE DATABASE` per org,
+   through the lifecycle module's admin connection).
 2. The converter for every kind of record, the accounts registry and the two side files, with the
-   read-back check, the report and the refusal.
+   read-back check and the report. One failing org becomes `unavailable` while the others convert
+   (Q12). The 2.1.14 first-launch import holds back only a failing org (§5.1). Retry works.
 3. The compatibility view: the storage layer loads and saves every kind of record through the rev 1
    mappers on the org's own database, through a per-org pool. All existing engine code therefore
    runs on the new databases, and the legacy database is never read again after conversion.
 4. Native agents and docket modules: reshaping, tree reads, the per-turn neighbourhood, and docket
    access, list, get and counts, as targeted queries and short transactions.
 5. The registry lifecycle for create, delete-to-trash and purge (used by the converter and the
-   tests), and the `/api/accounts` and `/api/orgs` fan-outs.
+   tests), and the `/api/accounts` and `/api/orgs` fan-outs. The org list shows an unavailable
+   org with its reason and Retry.
 6. Tests (§9) for all of the above.
 
-When those pass, the rehearsals run on every input (§5.4). Then I report to the coordinator, who
-gives p03-ws4-rcfamilies the go for the local 3.2.0-alpha.0 build.
+The prototype runs as one process, with today's in-memory turn slots and today's frames. The other
+3.2.0 parts (§6.1) follow in landing steps 4–8.
+
+When the prototype passes:
+
+1. review-sol reviews the implementation (decision 12).
+2. The rehearsals run on every input (§5.4).
+3. I report to the coordinator, who gives p03-ws4-rcfamilies the go for the local 3.2.0-alpha.0
+   build.
 
 ### 6.3 Landing order on v3 (no release in between)
 
+Each step is reviewed (`approve_stage`) before it lands.
+
 | Step | Contents |
 |---|---|
-| 1 | App and org migrations, provisioning, the converter and the compatibility view. Lands as one step, because a conversion is all or nothing per org. |
+| 1 | App and org migrations, provisioning, the converter with the `unavailable` state and retry, the first-launch import's hold-back, and the compatibility view. Lands as one step, because a conversion is all or nothing per org. |
 | 2 | The native agents module. |
-| 3 | The native docket module, the lifecycle and the fan-outs. **This completes the first prototype: rehearsals, then the alpha build.** |
+| 3 | The native docket module, the lifecycle and the fan-outs, and the org list's unavailable entry. **This completes the first prototype:** review-sol's implementation review, the rehearsals, then the alpha build. |
 | 4 | The mail and watchdogs modules with their jobs; cross-org mail jobs. |
-| 5 | Questions, audiences, documents, reservations, events and org settings modules. |
-| 6 | The per-org change log driving the websocket frames. |
-| 7 | **3.2.0 release candidate:** final rehearsals, then the coordinator's build and publish. |
+| 5 | Questions, audiences, documents, reservations, events and org settings modules. Every remaining polling loop becomes a job (§2.7). |
+| 6 | The per-org change log. Frames carry the changed records, and the renderer applies them with no refetch; renderer polling is removed. |
+| 7 | The turn queue goes live: `turn_tickets` with leases and `start_turn` jobs replace `turnslots`. |
+| 8 | The worker process (§2.9). The compatibility view is deleted, since no path uses it any more. |
+| 9 | **3.2.0 release candidate:** final rehearsals, then the coordinator's build and publish. |
 
 ## 7. Effort and risk (inferred)
 
 | Part | Size | Main risk |
 |---|---|---|
-| Two migration folders, provisioning | small–medium | privileges for `CREATE DATABASE` (Q10); connection limits (Q11) |
-| Converter + mappers (about 40 kinds) + accounts + side files | large | a legacy shape the mapper did not foresee (refused, never lost) |
+| Two migration folders, provisioning | small–medium | the admin connection leaking past the lifecycle module (a source scan test, Q10) |
+| Converter + mappers (about 40 kinds) + accounts + side files | large | a legacy shape the mapper did not foresee (that org is unavailable, never lost) |
+| The `unavailable` state, retry, the first-launch import's hold-back | medium | an org left half-converted (the next start redoes `converting` orgs from scratch) |
 | Compatibility view per org database | medium | a whole-collection walk left on a hot path (the growth tests catch it) |
 | Native agents and docket modules | large | behaviour drift (today's suites are the contract) |
 | Org lifecycle, fan-outs, listeners per org | medium | a pool or listener leak (tests count open connections) |
-| Mail, jobs, the other modules, the feed | large | delivery ordering and duplicates (the custody tests stay) |
-| Turn tickets and multi-process (later) | medium | lease handling |
+| Mail, jobs, the other modules | large | delivery ordering and duplicates (the custody tests stay) |
+| Every polling loop as a job | medium | a condition that no transaction schedules (each loop's behaviour test must pass with the loop removed) |
+| Feed frames with records; the renderer applying them | medium–large | the renderer drifting from the database (a test compares its state after frames with a full load) |
+| Turn tickets with leases; the worker process | medium–large | lease handling; a turn started twice; a request that never reaches the owning process |
+| Deleting the compatibility view | medium | a rare path still on it (a source scan test: no import of it remains) |
 
 ## 8. Measurements
 
@@ -736,7 +922,7 @@ indexes are slightly smaller.
 | `DROP DATABASE` | 0.26 s | purge |
 | One-org dump (the live org's tables, compressed) | 2.2 s, 25 MB | export, move |
 | One-org restore (into a new database, indexes included) | 5.7 s, 112 MB on disk | import, move |
-| `max_connections` | 40 (dev and live) | Q11 |
+| `max_connections` | 40 today (dev and live); 100 from 3.2.0 | Q11, decided |
 
 ### 8.3 Expected end to end
 
@@ -769,8 +955,9 @@ Rev 2's tests, unchanged:
 Added for rev 3:
 
 1. **Per-database migrations.** A partly migrated set (org A at N+1, org B at N) is finished at the
-   next start. An org newer than the build is refused by name. A failing org migration refuses
-   start and names the org.
+   next start. An org newer than the build, or with a failing migration, becomes `unavailable`
+   with its reason while the other orgs start. Its database stays at its last good level. A
+   failing or newer app database refuses the start.
 2. **Lifecycle.** Each step of create, trash, restore, purge, export and import is killed at every
    intermediate state and finished by the next start. After purge, no row in the app database and
    no database or folder of the org remains. An import of an `org_uuid` already registered is
@@ -780,19 +967,50 @@ Added for rev 3:
 4. **Cross-database steps.** A crash between the sender's commit and the delivery job, retried,
    delivers exactly once. Likewise a crash between the `start_turn` job and the ticket insert.
 5. **Conversion.** Fixtures for both starting points, including the accounts file and the side
-   files. Every planted fault is refused with its message, nothing is written to the legacy store,
-   and the partly converted set resumes correctly.
+   files. For every planted fault:
+   - the faulty org becomes `unavailable` with its message, and its half-built database is gone;
+   - the other orgs convert and start;
+   - nothing is written to the legacy store or the old files (checksums before and after);
+   - the partly converted set resumes correctly.
 
-## 10. Questions still open
+   A fault in the accounts file refuses the start.
+6. **Failed orgs (Q12).**
+   - The first-launch import holds back only the faulty SQLite org, and its file still moves to
+     `pre-postgres/orgs` unchanged.
+   - After the fault is removed, Retry converts the org for each of the four steps.
+   - Automatic retry happens once per new build and not at every restart.
+   - Mail to an unavailable org waits and is delivered once after retry.
+   - The org list and `/api/accounts` show the org as unavailable.
+7. **Jobs instead of loops.** With every polling loop removed, each loop's behaviour test still
+   passes, driven only by jobs. A test fails if any process sleeps in a loop that reads org
+   tables.
+8. **Feed.** After any sequence of frames, the renderer's store equals a full load. A missed
+   frame is detected as a gap and caught up. Other audiences receive only what their reads would
+   return.
+9. **Turn queue and two processes.**
+   - Fairness across orgs and the slot limit hold, as in today's `turnslots` tests.
+   - A killed worker's leases expire, and its jobs and tickets run once elsewhere.
+   - No turn is started twice.
+   - An interrupt sent to the host stops a turn the worker owns.
+10. **Admin connection (Q10).** A source scan fails if any module other than the org-lifecycle
+    module reads the admin URL or opens that connection, or if the worker can reach it.
 
-- **Q10. Creating databases at runtime needs `CREATE DATABASE`.** The engine's runtime role does not
-  have that privilege; today only the admin role (used for migrations) does. Proposal: the engine's
-  host hands the admin connection only to the org-lifecycle module, which uses it for create,
-  import and purge. The alternative is a custodian command that creates and drops org databases.
-- **Q11. `max_connections`.** Raise the custodian's setting from 40 to 100 (§2.11)?
-- **Q12. When one org fails conversion,** refuse to start the whole app (the rule today, and this
-  design's default), or start with the failed org shown as unavailable and its reason?
-- **Q9** (from rev 2) still stands: the release-1 scope of §6.1.
+## 10. Questions: all answered
+
+Q9–Q12 are answered (see the table at the top) and folded in.
+
+**Details I filled in while folding in the answers.** These are mine, not the user's. The
+coordinator may overrule any of them.
+
+| # | Detail | Where |
+|---|---|---|
+| D1 | The Q12 rule also covers an org whose later migration fails, whose database is newer than the build, or whose identity check fails. A failure in the app database or the accounts still refuses the start, because no org can run without them. | §2.12, §5.2 |
+| D2 | The 2.1.14 first-launch import holds back only the failing org, instead of refusing every org. The held-back org's file still moves, unchanged, to `pre-postgres/orgs`. | §5.1 |
+| D3 | Retry runs when the user asks, and once automatically when a different build starts. It does not run at every restart. | §2.13 |
+| D4 | An unavailable org offers only Retry in 3.2.0, with no trash or purge, because its data is not in the new layout. | §2.13 |
+| D5 | The cleanup release keeps the legacy database and the old files while any org is still unavailable from the import or the conversion. | §5.3 |
+| D6 | The second process is one worker, a child of the engine host, with no port, no owner lock and no admin connection. Both processes run jobs and turns. | §2.9 |
+| D7 | Timers that read outside state (provider usage, update checks, the mail hub) stay timers in the engine host. They do not scan the database for work. | §2.7 |
 
 ## Appendix A. The org database's tables in full
 
