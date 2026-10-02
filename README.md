@@ -36,6 +36,10 @@ These screenshots come from earlier versions. The layout differs in places, but 
 
 **Orgtree 2: providers.** App settings lists the model tiers each provider offers, the accounts you have signed in to, the agents using each account, and the seat price of each model.
 
+![Orgtree 2 canvas with you at the top, one coordinator beneath you and a long row of agents below it](docs/images/orgtree-2-org.png)
+
+**Orgtree 2: a large team on the canvas.** You sit at the top, a single coordinator reports to you, and a row of about two dozen agents works beneath it. The bar along the top shows how many agents are live, and small icons give quick access to mail, tickets and settings.
+
 ![A small example organization chart with you at the top, a coordinator, an implementer, a researcher and two explorers](docs/images/orgtree-org-chart.png)
 
 **Earlier version: the org chart.** A small example team as a tree: you at the top, a coordinator under you, and specialists beneath the coordinator.
