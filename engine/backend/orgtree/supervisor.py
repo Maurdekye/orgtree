@@ -984,8 +984,39 @@ def cli_diagnosis() -> str | None:
 #   this distinguishes "wedged" from "working", which a wall-clock cannot.
 # · TURN_TIMEOUT — the absolute ceiling per message (re-based at each result
 #   event, "fresh budget per message"). A backstop, not the thing that fires.
-TURN_TIMEOUT = int(os.environ.get("ORGTREE_TURN_TIMEOUT", "14400"))  # seconds
-TURN_IDLE = int(os.environ.get("ORGTREE_TURN_IDLE", "600"))          # seconds
+#
+# Both limits are USER SETTINGS (App settings > Runtime; 2026-10-02: a 4 h
+# total limit killed a productive 4 h turn). `TURN_TIMEOUT` / `TURN_IDLE` hold
+# only the ENVIRONMENT override (None when unset; 0 = off) and win over the
+# stored setting. Read the effective value with `turn_timeout()` /
+# `turn_idle()` ONCE at the start of a turn — a change applies from the next
+# turn and a running turn keeps the limit it started with. None = no limit.
+def _env_limit(name: str) -> int | None:
+    raw = os.environ.get(name)
+    return int(raw) if raw not in (None, "") else None
+
+
+TURN_TIMEOUT: float | None = _env_limit("ORGTREE_TURN_TIMEOUT")  # seconds
+TURN_IDLE: float | None = _env_limit("ORGTREE_TURN_IDLE")        # seconds
+
+
+def _effective_limit(override: float | None, stored: int) -> float | None:
+    value = override if override is not None else stored
+    return None if value <= 0 else value
+
+
+def turn_timeout() -> float | None:
+    """Total per-message limit in seconds for a turn starting now, or None
+    when turned off."""
+    return _effective_limit(TURN_TIMEOUT, appsettings.turn_timeout_s())
+
+
+def turn_idle() -> float | None:
+    """Silence limit in seconds for a turn starting now, or None when off."""
+    return _effective_limit(TURN_IDLE, appsettings.turn_idle_s())
+
+
+LIMIT_SETTING_HINT = "(change it in App settings > Runtime)"
 # …but stdout silence only means "wedged" when NOTHING IS RUNNING. A
 # backgrounded Task/Agent keeps working INSIDE this CLI process after the
 # turn's own result event — the tool_result returns at once, the turn ends,
@@ -18345,6 +18376,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         int((time.monotonic() - spawn_t0) * 1000),
         warm_lbl)
     t0 = time.time()
+    turn_ceiling = turn_timeout()   # fixed for this turn
     stop = threading.Event()
     res_raw: dict[str, Any] = {}
     parked = False
@@ -18755,7 +18787,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
             target=_steer_pump, daemon=True,
             name=f"codexsteer-{slug}-{nid}")
         steer_thread.start()
-        res_raw = turn.wait(timeout=TURN_TIMEOUT,
+        res_raw = turn.wait(timeout=turn_ceiling,
                             close_client=wp_turn is None)
     finally:
         # Leg-local cleanup only; `_run_one_turn` still owns the shared queue
@@ -18862,7 +18894,8 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                         reason = "limit-frozen"
                     elif (status_now in ("", codexrun.STATUS_FAILED)
                           and not detail_now
-                          and time.time() - t0 >= TURN_TIMEOUT):
+                          and turn_ceiling is not None
+                          and time.time() - t0 >= turn_ceiling):
                         reason = "turn-timeout"
                     else:
                         reason = "stdin-closed"
@@ -18972,15 +19005,16 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         # writes nothing to stderr at all, which is why the tail was empty and
         # the old message could only name the notification it thought it saw.
         detail = codexrun.error_text(res_raw.get("error"))
-        if not detail and time.time() - t0 >= TURN_TIMEOUT:
+        if (not detail and turn_ceiling is not None
+                and time.time() - t0 >= turn_ceiling):
             # only when the CLI gave no reason: a turn that ran to the ceiling
             # AND came back with a real error is that error, not a timeout
             turnlog.emit(trec, "watchdog", why="ceiling",
                          elapsed_ms=int((time.time() - t0) * 1000))
             if trec is not None:
                 trec.dispose("killed")
-            raise RuntimeError(f"turn killed: exceeded the {TURN_TIMEOUT}s "
-                               "per-message ceiling")
+            raise RuntimeError(f"turn killed: exceeded the {turn_ceiling:g}s "
+                               f"per-message ceiling {LIMIT_SETTING_HINT}")
         tail = " | ".join(turn.client.stderr_tail[-3:])[:300]
         blob = detail or tail
         # ── WHAT KIND OF FAILURE, and may it be re-sent elsewhere? ────────
@@ -19701,6 +19735,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     except Exception:                                      # noqa: BLE001
         turn_mcp_fingerprint = None
     t0 = time.time()
+    turn_ceiling = turn_timeout()   # fixed for this turn
     stop = threading.Event()
     # bound before the try: the `finally` joins it (see the codex leg)
     steer_thread: threading.Thread | None = None
@@ -19801,7 +19836,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         steer_thread = threading.Thread(target=_steer_pump, daemon=True,
                                         name=f"agysteer-{slug}-{nid}")
         steer_thread.start()
-        res_raw = turn.wait(timeout=TURN_TIMEOUT)
+        res_raw = turn.wait(timeout=turn_ceiling)
         turn_finished = True
     finally:
         # NESTED, and the sweep is the inner `finally`: every statement below
@@ -19915,7 +19950,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         # A recognized usage wall retains its freeze treatment whether or not
         # it names a reset; ordinary failures still obey the ceiling.
         _agy_elapsed = time.time() - t0
-        _agy_ceiling = not walled and _agy_elapsed >= TURN_TIMEOUT
+        _agy_ceiling = (not walled and turn_ceiling is not None
+                        and _agy_elapsed >= turn_ceiling)
         try:
             # the redacted fixture (failfix): recording only, after every
             # predicate, fail-open — the lane's boundary facts beside the
@@ -19928,7 +19964,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                              antigravity_limits.reset_in_seconds(reason or tail)),
                          schedule="observed-deadline" if reset_ts else "probe")
             turnlog.emit(trec, "agy_ceiling", elapsed_s=int(_agy_elapsed),
-                         ceiling_s=int(TURN_TIMEOUT), killed=_agy_ceiling)
+                         ceiling_s=int(turn_ceiling or 0), killed=_agy_ceiling)
             _fxp = failfix.record(
                 store.DATA_ROOT, slug, nid, lane="antigravity",
                 site="antigravity",
@@ -19945,7 +19981,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                      "reset_in_s": antigravity_limits.reset_in_seconds(
                          reason or tail),
                      "elapsed_s": int(_agy_elapsed),
-                     "ceiling_s": int(TURN_TIMEOUT),
+                     "ceiling_s": int(turn_ceiling or 0),
                      "walled_recorded": walled,
                      "reset_known_recorded": reset_ts is not None,
                      "schedule_recorded": ("observed-deadline" if reset_ts
@@ -19961,8 +19997,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                          elapsed_ms=int(_agy_elapsed * 1000))
             if trec is not None:
                 trec.dispose("killed")
-            raise RuntimeError(f"turn killed: exceeded the {TURN_TIMEOUT}s "
-                               "per-message ceiling")
+            raise RuntimeError(f"turn killed: exceeded the {turn_ceiling:g}s "
+                               f"per-message ceiling {LIMIT_SETTING_HINT}")
         raise _ProviderTurnFailed(
             "turn failed: the Antigravity CLI reported an error"
             + (f" — {detail}" if detail else "")
@@ -21729,6 +21765,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
             dog_stop = threading.Event()
             last_ev = [time.monotonic()]
             budget_t0 = [time.monotonic()]
+            turn_ceiling = turn_timeout()
+            turn_idle_cap = turn_idle()
             saw_result = [False]   # a real (top-level) boundary was reached
             # …and did the CLI ever get an answer OUT of the API? The other
             # half of _died_in_flight's shape test: a turn that produced
@@ -21751,15 +21789,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     now = time.monotonic()
                     # live background work ⇒ silence is expected, not a wedge
                     nbg = _bg_count()
-                    idle_cap = BG_IDLE if nbg else TURN_IDLE
-                    if now - last_ev[0] > idle_cap:
+                    idle_cap = BG_IDLE if nbg else turn_idle_cap
+                    if idle_cap is not None and now - last_ev[0] > idle_cap:
                         # ⚠ say WHICH silence. A turn whose only result event
                         # was a sidechain one keeps producing nothing while
                         # orgtree — correctly — declines to close a live
                         # agent's stdin; blaming a "wedged process" sends the
                         # next debugger after the CLI (redteam 2026-08-19).
                         timeout_why[0] = (
-                            f"turn killed: no CLI output for {idle_cap}s "
+                            f"turn killed: no CLI output for {idle_cap:g}s "
                             + (f"(idle watchdog — {nbg} background subagent(s) "
                                "were still running and are killed with it)"
                                if nbg else
@@ -21767,15 +21805,17 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                if saw_result[0] else
                                "(idle watchdog — no top-level result event "
                                "ever arrived; the turn never reached a "
-                               "boundary)"))
+                               "boundary)")
+                            + f" {LIMIT_SETTING_HINT}")
                         turnlog.emit(_trec, "watchdog", why="idle",
                                      elapsed_ms=int((now - last_ev[0]) * 1000))
                         _expire()
                         return
-                    if now - budget_t0[0] > TURN_TIMEOUT:
+                    if (turn_ceiling is not None
+                            and now - budget_t0[0] > turn_ceiling):
                         timeout_why[0] = (
-                            f"turn killed: exceeded the {TURN_TIMEOUT}s "
-                            "per-message ceiling")
+                            f"turn killed: exceeded the {turn_ceiling:g}s "
+                            f"per-message ceiling {LIMIT_SETTING_HINT}")
                         turnlog.emit(_trec, "watchdog", why="budget",
                                      elapsed_ms=int((now - budget_t0[0]) * 1000))
                         _expire()
@@ -29020,7 +29060,7 @@ def interrupt_before_archive(slug: str, org: Org, nid: str,
     alive by design, retire/dissolve touch process state nowhere else, the
     warm pool refuses to disturb a mid-turn process and never sees a cold one
     at all — so after the archive commits the CLI would run on to
-    TURN_TIMEOUT (four hours), calling tools under a seat that no longer
+    the total turn limit (24 hours by default), calling tools under a seat that no longer
     exists. Both outcomes still return a warning, and the two warnings say
     DIFFERENT things: one that the turn was cut, one that its bookkeeping was
     still landing. Neither asserts a clean settlement.
@@ -29661,7 +29701,7 @@ def _claim_limit_probes(candidates: list[tuple[str, str, NodeDoc, FrozenInfo]],
             _limit_probes[key] = {
                 "token": token, "owner": pick,
                 "not_before": now + PROBE_FLOOR,
-                "expires": now + TURN_TIMEOUT + PROBE_FLOOR,
+                "expires": now + (turn_timeout() or 86400) + PROBE_FLOOR,
                 "waiters": waiters,
             }
             _limit_probe_last[key] = pick

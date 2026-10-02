@@ -1604,6 +1604,9 @@ export interface RuntimeSettingsPayload {
   /** The live machine-wide limit on concurrent agent turns (default 16) and
    *  the fair queue behind it. Absent from an older engine. */
   max_concurrent_turns?: number
+  /** Stored turn limits in seconds, 0 = off (defaults 86400 and 600). */
+  turn_timeout_s?: number
+  turn_idle_s?: number
   turn_slots?: { limit: number; held: number; waiting: number
     waiting_by_org: Record<string, number> }
 }

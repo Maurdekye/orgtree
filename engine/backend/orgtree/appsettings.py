@@ -478,6 +478,54 @@ def set_max_concurrent_turns(limit: int) -> None:
         _save(doc)
 
 
+TURN_TIMEOUT_DEFAULT_S: Final = 86400
+TURN_IDLE_DEFAULT_S: Final = 600
+TURN_LIMIT_MAX_S: Final = 31536000
+
+
+def _turn_limit(key: str, default: int) -> int:
+    """Stored seconds for a turn limit; 0 means off. Absent or invalid reads
+    as the default rather than being clamped into something not chosen."""
+    raw = load().get("runtime")
+    runtime = raw if isinstance(raw, dict) else {}
+    value = runtime.get(key)
+    if type(value) is int and 0 <= value <= TURN_LIMIT_MAX_S:
+        return value
+    return default
+
+
+def _set_turn_limit(key: str, seconds: int) -> None:
+    if type(seconds) is not int or not 0 <= seconds <= TURN_LIMIT_MAX_S:
+        raise ValueError(f"{key} must be an integer number of seconds from 0 "
+                         f"(off) to {TURN_LIMIT_MAX_S}")
+    with _LOCK:
+        doc = load(strict=True)
+        raw = doc.get("runtime")
+        runtime: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+        runtime[key] = seconds
+        doc["runtime"] = runtime
+        doc["version"] = VERSION
+        _save(doc)
+
+
+def turn_timeout_s() -> int:
+    """Total per-turn limit in seconds (default 24 h); 0 = off."""
+    return _turn_limit("turn_timeout_s", TURN_TIMEOUT_DEFAULT_S)
+
+
+def set_turn_timeout_s(seconds: int) -> None:
+    _set_turn_limit("turn_timeout_s", seconds)
+
+
+def turn_idle_s() -> int:
+    """Silence limit in seconds (default 10 min); 0 = off."""
+    return _turn_limit("turn_idle_s", TURN_IDLE_DEFAULT_S)
+
+
+def set_turn_idle_s(seconds: int) -> None:
+    _set_turn_limit("turn_idle_s", seconds)
+
+
 def set_idle_docket_reminders_enabled(enabled: bool) -> None:
     """Persist the machine-wide idle docket reminder choice."""
     with _LOCK:

@@ -544,7 +544,7 @@ class AppServerClient:
         #: `_pump`'s finally — but nothing has ever assigned it, so a killed
         #: or crashed app-server woke no waiter at all. `CodexTurn.wait()`
         #: blocks on an Event only a `turn/completed` notification sets, and
-        #: the supervisor passes TURN_TIMEOUT (four hours) to it, so a turn
+        #: the supervisor passes the total turn limit (24 hours by default) to it, so a turn
         #: whose server died sat in that wait for four hours — which is what
         #: kept halted agents in `halting` (docket
         #: fix-agents-stuck-halting-and-non-json-stop-error). These listeners
@@ -1349,7 +1349,7 @@ class CodexTurn:
                          on_tool_result=self._tool_result)
         #: ⚠ A DEAD SERVER ENDS THIS TURN'S WAIT. `wait()` blocks on `_done`,
         #: which only `turn/completed` or `turn/failed` sets, and the
-        #: supervisor hands it TURN_TIMEOUT — four hours. So a server that is
+        #: supervisor hands it the total turn limit (24 hours by default). So a server that is
         #: killed (a halt) or that crashes mid-turn used to leave this turn
         #: parked for four hours with no notification coming, holding its
         #: halt worker registration and pinning the node in `halting`.

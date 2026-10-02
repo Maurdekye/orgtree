@@ -273,6 +273,53 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.assertTrue(eventually(lambda: not windows_alive(int(self.marker.read_text()))),
                         "the watchdog must terminate the CLI child as well as the launcher")
 
+    def _limits(self, *, env_idle=None, env_total=None, idle=600, total=86400):
+        # env override None means "use the stored setting" (the real default path).
+        self.stack.enter_context(patch.object(sup, "TURN_IDLE", env_idle))
+        self.stack.enter_context(patch.object(sup, "TURN_TIMEOUT", env_total))
+        self.stack.enter_context(patch.object(sup.appsettings, "turn_idle_s", return_value=idle))
+        self.stack.enter_context(patch.object(sup.appsettings, "turn_timeout_s", return_value=total))
+        self.stack.enter_context(patch.object(sup, "TURN_DOG_POLL_S", .05))
+
+    def test_configured_silence_limit_kills_a_silent_turn(self):
+        self._limits(idle=.3)
+        self.start("silent")
+        self.assert_settled(timeout=7)
+        self.assertIn("idle watchdog", self.st["last_error"])
+        self.assertIn("App settings > Runtime", self.st["last_error"])
+        self.assertEqual(self.record["outcome"], "killed")
+
+    def test_silence_limit_off_never_kills_a_silent_turn(self):
+        self._limits(idle=0)
+        self.start("silent")
+        time.sleep(1.5)
+        self.assertIsNone(self.procs[0].poll(), "off must mean no silence kill")
+        self.assertIsNone(self.st.get("last_error"))
+        sup.interrupt_before_archive(self.slug, store.load_org(self.slug), self.nid, timeout=1)
+        self.assert_settled(timeout=7)
+
+    def test_configured_total_limit_kills_a_turn(self):
+        self._limits(idle=0, total=.3)
+        self.start("silent")
+        self.assert_settled(timeout=7)
+        self.assertIn("per-message ceiling", self.st["last_error"])
+        self.assertEqual(self.record["outcome"], "killed")
+
+    def test_total_limit_off_never_kills_a_turn(self):
+        self._limits(idle=0, total=0)
+        self.start("silent")
+        time.sleep(1.5)
+        self.assertIsNone(self.procs[0].poll(), "off must mean no total kill")
+        self.assertIsNone(self.st.get("last_error"))
+        sup.interrupt_before_archive(self.slug, store.load_org(self.slug), self.nid, timeout=1)
+        self.assert_settled(timeout=7)
+
+    def test_env_override_beats_the_stored_setting(self):
+        self._limits(env_idle=.3, idle=0)
+        self.start("silent")
+        self.assert_settled(timeout=7)
+        self.assertIn("idle watchdog", self.st["last_error"])
+
     def test_readiness_wait_also_drains_stderr_before_the_first_prompt(self):
         # Emit more than a pipeful before init. The readiness gate must be
         # able to see init without waiting for the child to finish the turn.

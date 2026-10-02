@@ -103,7 +103,7 @@ def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
     return {"argv_head": providers.antigravity_argv(exe), "cwd": cwd, "model": model,
             "effort": providers.antigravity_effort(n["model"], org.effective_effort(nid)),
             "conversation_id": resume, "env_extra": env, "yolo": True,
-            "log_file": os.path.join(log_dir, f"{nid}.log"), "turn_timeout": sup.TURN_TIMEOUT,
+            "log_file": os.path.join(log_dir, f"{nid}.log"), "turn_timeout": sup.turn_timeout() or AGY_NO_LIMIT_S,
             "identity": identity, "servers": servers, "rights": rights,
             "generation": n.get("generation", 1),
             "account": str(row["id"]) if row else sup._cache_antigravity_account_namespace()}
@@ -112,6 +112,9 @@ def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
 #: account namespaces that name NO account (supervisor.
 #: _cache_antigravity_account_namespace): the CLI is signed out, or its probe
 #: did not say who it is. Neither is evidence that the account changed.
+# the CLI's own --print-timeout defaults to 5 minutes, so "no orgtree limit"
+# must still pass the CLI a very large one (one year)
+AGY_NO_LIMIT_S = 31536000
 UNOBSERVED_ACCOUNTS = frozenset({"unobserved", "antigravity-oauth-account-unobserved"})
 
 

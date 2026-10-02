@@ -3,6 +3,7 @@ import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
+import { TurnLimitsSetting } from './turnlimitssetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useState } from 'react'
@@ -777,6 +778,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <DesktopSettings />
       <RunAsAdministratorSetting />
       <QuickStaffSetting />
+      <TurnLimitsSetting />
       <CharterDocumentsSetting />
       <CharterTemplateDirsSetting />
       <SetGroup title="Agent processes">

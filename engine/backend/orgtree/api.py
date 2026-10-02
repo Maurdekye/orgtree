@@ -4507,6 +4507,8 @@ class RuntimePreference(Body):
     blocked_docket_reminders_enabled: bool | None = None
     git_periodic_fetch_enabled: bool | None = None
     max_concurrent_turns: int | None = None
+    turn_timeout_s: int | None = None
+    turn_idle_s: int | None = None
 
 
 def _runtime_preferences() -> dict[str, Any]:
@@ -4525,6 +4527,9 @@ def _runtime_preferences() -> dict[str, Any]:
         # the LIVE limit (setting, else ORGTREE_MAX_TURNS, else 16) and the
         # queue behind it right now
         "max_concurrent_turns": supervisor._turn_slots.limit,
+        # stored seconds; 0 = off. An ORGTREE_TURN_* env var still overrides
+        "turn_timeout_s": appsettings.turn_timeout_s(),
+        "turn_idle_s": appsettings.turn_idle_s(),
         "turn_slots": supervisor._turn_slots.snapshot(),
     }
 
@@ -4554,7 +4559,9 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
             and body.git_periodic_fetch_enabled is None
             and body.quick_staff_behavior is None
             and body.quick_staff_request_accounts is None
-            and body.max_concurrent_turns is None):
+            and body.max_concurrent_turns is None
+            and body.turn_timeout_s is None
+            and body.turn_idle_s is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
         if body.quick_staff_behavior is not None:
@@ -4590,6 +4597,14 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
             except ValueError as e:
                 raise HTTPException(422, str(e)) from e
             supervisor.set_turn_limit(body.max_concurrent_turns)
+        for key, setter in (("turn_timeout_s", appsettings.set_turn_timeout_s),
+                            ("turn_idle_s", appsettings.set_turn_idle_s)):
+            value = getattr(body, key)
+            if value is not None:
+                try:
+                    await run_in_threadpool(setter, value)
+                except ValueError as e:
+                    raise HTTPException(422, str(e)) from e
         result = await run_in_threadpool(_runtime_preferences)
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
