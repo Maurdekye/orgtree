@@ -18,6 +18,19 @@ const node = (id: string, generation = 1): TreeNode => ({ id, generation,
 const frame = (id: string, count: number | null, rev = 1): NodeStreamFrame =>
   ({ type: 'node_stream', node: id, kind: 'mcp_tool_count', count, rev })
 
+test('record snapshots preserve live annotation frames but discard removed or replaced generations', async t => {
+  const org = 'record-metadata', a = node('a')
+  replaceNodeMetadata(org, [a])
+  function Probe() { return <span>{useNodeMetadata(org, a).mcp_tool_count}</span> }
+  const view = await mountView(<Probe />, el => el)
+  t.after(async () => { await view.unmount(); clearNodeMetadata(org) })
+  await inAct(() => publishNodeMetadata(org, frame('a', 9)))
+  await inAct(() => replaceNodeMetadata(org, [a], [], true))
+  assert.equal(view.el.textContent, '9', 'org records cannot rewind the annotation clock')
+  await inAct(() => replaceNodeMetadata(org, [node('a', 2)], [], true))
+  assert.equal(view.el.textContent, '2', 'old generation annotation does not leak')
+})
+
 test('metadata updates only their subscriber; later subscribers receive the latest value', async t => {
   const org = 'metadata-subscriptions', a = node('a'), b = node('b')
   replaceNodeMetadata(org, [a, b])

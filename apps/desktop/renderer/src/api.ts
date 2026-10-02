@@ -1126,11 +1126,13 @@ export function openWs(
   slug: string,
   onChanged: (ev: MessageEvent) => void,
   onClose?: () => void,
+  onOpen?: () => void,
 ): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const ws = new WebSocket(
     `${proto}://${location.host}/api/orgs/${slug}/ws?win=${encodeURIComponent(WINDOW_ID)}`)
   ws.onmessage = onChanged
+  ws.onopen = () => onOpen?.()
   const ping = setInterval(() => { if (ws.readyState === 1) ws.send('ping') }, 25000)
   ws.onclose = () => { clearInterval(ping); onClose?.() }
   return ws

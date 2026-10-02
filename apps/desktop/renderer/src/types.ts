@@ -707,6 +707,8 @@ export type ToastFn = (
 ) => void
 
 export interface TreePayload {
+  /** Transitional engine capability: normalized entity frames on the org socket. */
+  capabilities?: { record_changes_v1?: boolean }
   /** Client projection boundary. Omission from roots is unknown, not deletion.
    * Includes identities on the separate lineage axis as well as org rows. */
   foreground?: { catalog_revision: string; present: string[]; missing: string[];

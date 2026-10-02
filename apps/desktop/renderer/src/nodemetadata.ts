@@ -43,11 +43,13 @@ export function metadataPatch(node: NodeMetadata, frame: Frame): Partial<NodeMet
 
 /** Adopt the base and replay newer buffered frames BEFORE notifying readers.
  * Retain only small metadata snapshots, not nodes, charters or old generations. */
-export function replaceNodeMetadata(org: string, roots: TreeNode[], replay: Frame[] = []): void {
+export function replaceNodeMetadata(org: string, roots: TreeNode[], replay: Frame[] = [], keepLive = false): void {
   const previous = orgs.get(org)
   const next = new Map<string, Entry>()
   const visit = (node: TreeNode) => {
-    const value = Object.fromEntries(fields.map(key => [key, node[key]])) as NodeMetadata
+    const old = previous?.get(node.id)
+    const value = keepLive && old && old.generation === node.generation ? old.value
+      : Object.fromEntries(fields.map(key => [key, node[key]])) as NodeMetadata
     next.set(node.id, { generation: node.generation, value })
     node.children.forEach(visit)
   }

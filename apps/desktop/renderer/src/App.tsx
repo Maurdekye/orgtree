@@ -77,6 +77,9 @@ import { groupByProvider } from './usagegroups'
 import { bumpLive } from './livebus'
 import { applyPrimedAsks, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
+import { orgRecordFeed } from './recordtransport'
+import { projectTree, recordFeedCapable } from './recordprojection'
+import type { FeedAnswer, RecordFeed } from './recordfeed'
 import { TreeReadPacer } from './treepace'
 import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
@@ -660,6 +663,9 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null)
   // base+patch bookkeeping for the active org's ws stream (treesync.ts)
   const syncRef = useRef(newSync())
+  const [recordSlug, setRecordSlug] = useState<string | null>(null)
+  const recordMode = !!slug && recordSlug === slug
+  const recordController = useRef<{ slug: string; feed: RecordFeed<TreePayload> } | null>(null)
 
   // №17: a toast may carry an UNDO — a 12-second reverse on the gesture just
   // made (mis-drag reorders, accidental promotes, one-click retires)
@@ -790,6 +796,7 @@ export default function App() {
   treePacer.current ??= new TreeReadPacer(want => readTree.current(want))
   useEffect(() => () => treePacer.current?.dispose(), [])
   const refreshTree = useCallback((s: string | null, how?: TreeRequest) => {
+    if (s && recordController.current?.slug === s) return
     if (s) treePacer.current!.request(s, how)
   }, [])
   readTree.current = (want: string) => {
@@ -828,6 +835,9 @@ export default function App() {
       // not refresh the freshness stamp either. A 304 that yields the
       // applicable cached body IS a successful revalidation and does.
       if (t && wantSlug.current === want) {
+        // An older compatibility read cannot overwrite the record pipeline.
+        if (recordController.current?.slug === want) return
+        setRecordSlug(recordFeedCapable(t) ? want : null)
         const replay = onBase(syncRef.current,
           (t as TreePayload & { sync_rev?: number }).sync_rev)
         replaceNodeMetadata(want, t.roots,
@@ -852,6 +862,27 @@ export default function App() {
       fetchErr(e)
     })
   }
+  useEffect(() => {
+    if (!slug || !recordMode) return
+    const feed = orgRecordFeed(slug, {
+      project: projectTree,
+      publish: shown => {
+        if (wantSlug.current !== slug) return
+        // Runtime annotation frames have their own clock, outside the org revision.
+        replaceNodeMetadata(slug, shown.roots, [], true)
+        const visible = applyPrimedAsks(slug, shown, Date.now())
+        setTree(visible)
+        settleFromTree(slug, visible)
+        setTreeRead({ at: Date.now(), error: null })
+        openBootGate()
+        fetchOk()
+      },
+      error: e => { setTreeRead(r => ({ ...r, error: e.message })); fetchErr(e) },
+    })
+    recordController.current = { slug, feed }
+    void feed.resync()
+    return () => { feed.dispose(); recordController.current = null }
+  }, [slug, recordMode, fetchOk, fetchErr])
   // A user's own save through a direct route (scope, account) re-reads the
   // tree urgently too -- see markTreeStale in api.ts.
   useEffect(() => {
@@ -911,6 +942,7 @@ export default function App() {
     // 'changed' handler still refetches on real changes while hidden, so
     // nothing saved goes stale, and becoming visible refetches immediately
     // rather than waiting a beat — timer-only staleness cannot be seen.
+    if (recordMode) return
     let last = 0
     const tick = () => {
       if (document.hidden) return
@@ -927,7 +959,7 @@ export default function App() {
       clearInterval(t)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [slug, refreshTree])
+  }, [slug, refreshTree, recordMode])
   // the org list stays LIVE while visible. That interval is `useOrgStatus`'s
   // now, along with the leading call it used to be missing.
 
@@ -996,20 +1028,28 @@ export default function App() {
       // a fresh connection may have missed any number of frames — start
       // the base+patch bookkeeping over; the fetch establishes the base
       resetSync(syncRef.current)
-      refreshTree(slug)
+      if (!recordController.current) refreshTree(slug)
       wsRef.current = openWs(slug, handleWs,
-        () => { if (!dead) timer = setTimeout(connect, 1500) })
+        () => { if (!dead) timer = setTimeout(connect, 1500) },
+        () => { void recordController.current?.feed.reconnect() })
     }
     const handleWs = (ev: MessageEvent<string>) => {
       let data: WsEvent | null = null
+      const recordOn = recordController.current?.slug === slug
       try { data = JSON.parse(ev.data) as WsEvent } catch { /* ignore */ }
+      const answer = data as unknown as FeedAnswer | null
+      if (answer?.type === 'record_changes' || answer?.type === 'record_reset'
+          || answer?.type === 'record_snapshot') {
+        if (recordOn) recordController.current?.feed.receive(answer)
+        return
+      }
       if (data?.type === 'mail') {     // spark on the wire — pure animation
         setMailEvt({ from: data.from, to: data.to, t: Date.now() })
         return
       }
       // every state-bearing frame advances the sync revision; a GAP means
       // frames were missed (sleep, drop) and one full fetch catches up
-      const gap = data ? onFrame(syncRef.current, data).gap : false
+      const gap = !recordOn && data ? onFrame(syncRef.current, data).gap : false
       if (data?.type === 'node_stream') {
         if (data.kind === 'cache_forecast'
             || data.kind === 'mcp_tool_count'
@@ -1064,6 +1104,7 @@ export default function App() {
           toast([`${data.node} is FROZEN (usage limit or network interruption) — the resume button in the top bar releases it once the wait passes; auto-resume handles it for you if enabled`])
         }
       }
+      if (recordOn) return
       refreshTree(slug)
       // the client's G2 (livebus.ts): a 'changed' means SOMEONE saved the
       // org doc — agents, the supervisor, another tab — so every mounted
