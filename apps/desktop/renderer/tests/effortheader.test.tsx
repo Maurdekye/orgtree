@@ -72,14 +72,14 @@ test('§1a an agent with NO effort of its own reports nothing', () => {
   assert.equal(nonDefaultEffort(agent('', 'low'), 'low'), null)
 })
 
-test('§1b an agent pinned AT the ordinary default reports nothing either', () => {
-  // ⚠ THE CASE THE TICKET NAMES EXPLICITLY. `scope.effort` is set, so the
-  // agent was configured — but it was configured to the same level everyone
-  // else already runs at, which is not news and gets no card.
-  assert.equal(nonDefaultEffort(agent(ORG_DEFAULT, ORG_DEFAULT), ORG_DEFAULT), null)
+test('§1b an agent explicitly set AT the org default still reports its level', () => {
+  // ⚠ USER RULING 2026-10-02: "there's a difference between it inheriting the
+  // default effort and having its effort explicitly specified but still be the
+  // same as the default; should only not show if no effort specified."
+  assert.equal(nonDefaultEffort(agent(ORG_DEFAULT, ORG_DEFAULT), ORG_DEFAULT), ORG_DEFAULT)
 })
 
-test('§1c a pinned agent ABOVE or BELOW the default reports its level', () => {
+test('§1c a pinned agent reports its level, above, below or at the default', () => {
   assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), ORG_DEFAULT), 'xhigh')
   assert.equal(nonDefaultEffort(agent('max', 'max'), ORG_DEFAULT), 'max')
   assert.equal(nonDefaultEffort(agent('low', 'low'), ORG_DEFAULT), 'low')
@@ -94,8 +94,8 @@ test('§1d THE ORG DEFAULT IS THE ORG\'S, not a constant in the renderer',
     // pinned at high. A renderer that believed the default were always high
     // would badge every ordinary agent and stay silent about the unusual one.
     assert.equal(nonDefaultEffort(agent('high', 'high'), 'low'), 'high')
-    assert.equal(nonDefaultEffort(agent('low', 'low'), 'low'), null)
-    // …and the same agent, read against the other org, flips back
+    assert.equal(nonDefaultEffort(agent('low', 'low'), 'low'), 'low')
+    // …and the org default no longer changes the answer
     assert.equal(nonDefaultEffort(agent('low', 'low'), 'high'), 'low')
   })
 
@@ -118,34 +118,16 @@ test('§1e an UNSUPPORTED stored level is not a configuration and is not shown',
     // org, the same clamped-to level, but genuinely configured, DOES show
     assert.equal(nonDefaultEffort(agent('high', 'high'), 'low'), 'high')
 
-    // ⚠ READ THIS ONE CAREFULLY — IT IS NOT "A JUNK ORG DEFAULT MEANS
-    // SILENCE", AND IT USED TO BE. In the first candidate this line was
-    // commented as "an org-level junk value leaves this render with no default
-    // to compare against", and that reading was the defect: the reviewer's
-    // finding f4 was partly that this assertion pinned the wrong answer and
-    // would outlive the ticket. See §1x for what a junk ORG default actually
-    // does — it falls through to `effort_default` and the card still appears.
-    //
-    // What survives here is narrower and different: `nonDefaultEffort` takes
-    // the ALREADY-RESOLVED default, so an unsupported value reaching it means
-    // a CALL SITE skipped `resolveOrgDefault`. That is a programming error,
-    // and going quiet is the safe response to it — never a statement about
-    // how orgs with odd configuration are rendered.
-    assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), 'ludicrous'), null,
-      'an unresolved default was compared against as if it were a level')
-    // and the same agent, with that same org resolved PROPERLY, does show —
-    // so the line above can never again be mistaken for the org-default rule
-    assert.equal(
-      nonDefaultEffort(agent('xhigh', 'xhigh'), resolveOrgDefault('ludicrous', 'high')),
-      'xhigh')
+    // the org default no longer gates the tag, so even an unresolved or junk
+    // one leaves a configured agent visible
+    assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), 'ludicrous'), 'xhigh')
   })
 
-test('§1f with no org default in hand, nothing is claimed', () => {
-  // "non-default" is a comparison. A render that was never told the default
-  // cannot make it, and must not fall back to a level of its own.
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), ''), null)
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), null), null)
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), undefined), null)
+test('§1f with no org default in hand, a configured agent still reports', () => {
+  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), ''), 'xhigh')
+  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), null), 'xhigh')
+  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), undefined), 'xhigh')
+  assert.equal(nonDefaultEffort(agent('', 'xhigh'), undefined), null)
 })
 
 /* ─── §1x the org-default resolver ───────────────────────────────────────── */
@@ -190,12 +172,11 @@ test('§1x2 an unsupported ORG override is NOT the same rule as an unsupported '
     'a junk AGENT setting was advertised as a deliberate configuration')
 })
 
-test('§1x3 the resolved default is what silence is measured against', () => {
-  // an agent sitting at the level the org REALLY defaults to stays quiet, even
-  // though the org's own field is junk and only the fallback names that level
+test('§1x3 an agent at the resolved default still shows when set explicitly', () => {
   const org = resolveOrgDefault('ludicrous', 'high')
-  assert.equal(nonDefaultEffort(agent('high', 'high'), org), null,
-    'an agent at the resolved ordinary default was badged as non-default')
+  assert.equal(nonDefaultEffort(agent('high', 'high'), org), 'high',
+    'an explicitly set agent at the resolved default was hidden')
+  assert.equal(nonDefaultEffort(agent('', 'high'), org), null)
 })
 
 test('§1g the level list is the composer control\'s list, in order', () => {
@@ -238,10 +219,14 @@ test('§2a the zoomed-out card shows the configured level when it is non-default
     assert.equal(badge!.textContent, 'xhigh')
   })
 
-test('§2b default and unset agents get NO card and NO empty placeholder',
+test('§2b an agent at the default shows the card; an unset agent gets NO card and NO placeholder',
   async (t: TestContext) => {
+    const pinned = await card(agent(ORG_DEFAULT, ORG_DEFAULT), 'norm')
+    await flush()
+    assert.equal(onCard(pinned.el)?.getAttribute('data-effort-level'), ORG_DEFAULT,
+      'an agent explicitly set to the org default showed no effort card')
+    await pinned.unmount()
     for (const [label, n] of [
-      ['pinned at the default', agent(ORG_DEFAULT, ORG_DEFAULT)],
       ['never configured', agent('', ORG_DEFAULT)],
     ] as const) {
       const view = await card(n, 'norm')
@@ -320,7 +305,7 @@ test('§3a the desk header does NOT show the effort card, even non-default',
     assert.equal(view.el.querySelector('.cc-head [data-effort-level]'), null)
   })
 
-test('§3b the desk shows no card and no placeholder at default or unset',
+test('§3b the desk shows no card and no placeholder, set at default or unset',
   async (t: TestContext) => {
     installFetch(new FakeServer())
     for (const [label, n] of [
@@ -372,8 +357,9 @@ test('§4b changing the agent\'s effort changes BOTH surfaces, live',
     const d = await mountView(desk(agent(ORG_DEFAULT, ORG_DEFAULT)), (el) => el)
     t.after(() => d.unmount())
     await flush()
-    assert.equal(onCard(c.el), null, 'the card badged an agent at the default')
-    assert.equal(onDesk(d.el), null, 'the desk badged an agent at the default')
+    assert.equal(onCard(c.el)?.getAttribute('data-effort-level'), ORG_DEFAULT,
+      'the card hid an agent explicitly set to the default')
+    assert.equal(onDesk(d.el), null, 'the desk shows an effort card')
 
     const bumped = agent('max', 'max')
     await c.render(
@@ -400,6 +386,21 @@ test('§4b changing the agent\'s effort changes BOTH surfaces, live',
     await flush()
     assert.equal(onDesk(d.el), null, 'the effort card outlived the setting it described')
     assert.equal(d.el.querySelector('[data-effort-level]'), null)
+    // …and the card follows too once the setting is cleared (inherit)
+    await c.render(
+      <OrgDefaultEffort.Provider value={ORG_DEFAULT}>
+        <NodeSquare node={agent('', ORG_DEFAULT)} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
+          dragging={false} isDrop={false} seats={seats}
+          map={new Map([[bumped.id, agent('', ORG_DEFAULT)]])} op={op} slug="org" toast={noop}
+          pxc={1} zoom={1} compactAt={0.8}
+          maxTop={0} cascadeAlloc
+          onSpawn={noop} onSpawnSide={noop} onSpawnTop={noop} onConfig={noop}
+          onInbox={noop} onLineage={noop} onOpenDoc={noop}
+          onRecenter={noop} onJump={noop} onMailLink={noop} onWorkLink={noop}
+          onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+      </OrgDefaultEffort.Provider>)
+    await flush()
+    assert.equal(onCard(c.el), null, 'the card outlived the setting it described')
   })
 
 test('§4c changing the INHERITED org default changes both surfaces too',
@@ -418,8 +419,9 @@ test('§4c changing the INHERITED org default changes both surfaces too',
     const c = await card(n, 'norm', 'high')
     t.after(() => c.unmount())
     await flush()
-    assert.equal(onDesk(d.el), null, 'the desk badged an agent sitting at the org default')
-    assert.equal(onCard(c.el), null, 'the card badged an agent sitting at the org default')
+    assert.equal(onDesk(d.el), null, 'the desk shows an effort card')
+    assert.equal(onCard(c.el)?.getAttribute('data-effort-level'), 'high',
+      'the card hid an agent explicitly set to the org default')
 
     await d.render(desk(n, 'xhigh'))
     await c.render(

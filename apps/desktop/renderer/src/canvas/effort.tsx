@@ -132,33 +132,27 @@ function runningEffort(
  * THE WHOLE RULE, in one place: the level to show on the headers, or `null`
  * for "render nothing at all" — no card, and no reserved space for one.
  *
- * `null` covers four distinct cases, deliberately collapsed because the header
- * has the same thing to say about all of them (nothing):
+ * USER RULING 2026-10-02: the tag shows whenever the agent's OWN effort is set
+ * to a supported level, even when it equals the org default, because
+ * "inheriting the default" and "explicitly set to the same level" are different
+ * facts. `null` covers two cases, deliberately collapsed because the header has
+ * the same thing to say about both (nothing):
  *
  *   · the agent has no effort of its own — it follows the org default live,
  *     so there is no configured level to report;
  *   · what it carries is not a supported level, so it is not a configuration
- *     this card can report (see the clamp note at the top of the file);
- *   · its own level and the org default are the SAME — it is running at the
- *     ordinary default, which is not news;
- *   · this render was given no org default, so "non-default" is not a claim
- *     it can support.
+ *     this card can report (see the clamp note at the top of the file).
  *
- * `orgDefault` is the ALREADY-RESOLVED default (see `resolveOrgDefault`); it is
- * validated here rather than re-resolved, so a call site that hands over a raw
- * field goes quiet instead of comparing against something the runtime would
- * never use.
+ * The org default no longer gates the tag; the second argument is accepted and
+ * ignored so existing call sites keep working.
  */
 export function nonDefaultEffort(
   node: Pick<CanvasNode, 'scope' | 'effort_effective'>,
-  orgDefault: string | null | undefined,
+  _orgDefault?: string | null,
 ): string | null {
   const own = node.scope?.effort || ''
   if (!validLevel(own)) return null
-  if (!validLevel(orgDefault)) return null
-  const running = runningEffort(node, own)
-  if (!running || running === orgDefault) return null
-  return running
+  return runningEffort(node, own) || null
 }
 
 /**
@@ -180,8 +174,7 @@ export function EffortLevelBadge({ node }: {
 }) {
   const orgDefault = useOrgDefaultEffort()
   const level = nonDefaultEffort(node, orgDefault)
-  // `level` is non-null only once nonDefaultEffort has validated BOTH it and
-  // `orgDefault`, so everything below is working with supported levels.
+  // `level` is non-null only once nonDefaultEffort has validated it.
   if (!level) return null
   // ⚠ THE NAME, AND NOTHING ELSE. The first candidate also carried the
   // DIRECTION — an `above`/`below` class that coloured the chip, and a tooltip
@@ -189,8 +182,7 @@ export function EffortLevelBadge({ node }: {
   // ticket's problem statement is about telling when an agent runs "above or
   // below the default". The user ruled against it directly on the item
   // (2026-09-21): "no just the effort name no need for extra info". So the card
-  // states the level and stops, and `orgDefault` is used for the one thing it
-  // is still needed for — deciding whether to appear at all.
+  // states the level and stops.
   // The visible text is the level ALONE (user 2026-09-29, image-14: "Effort
   // medium" → "medium"); the tooltip and the accessible name still say what
   // the word is.
