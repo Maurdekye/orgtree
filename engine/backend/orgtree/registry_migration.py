@@ -230,6 +230,17 @@ def _reuse_or_create(provider: str, label: str, credential: dict[str, Any],
     return the EXISTING row, never mint a duplicate — the credential
     evidence (imported path / token ref) IS the row's identity here, so
     already-written `account` bindings keep pointing at a live id."""
+    row = _find_row(provider, credential)
+    if row is not None:
+        return row
+    return registry.create_account(provider, label, credential,
+                                   origin_org=origin_org,
+                                   registered_from=registered_from)
+
+
+def _find_row(provider: str, credential: dict[str, Any]
+              ) -> dict[str, Any] | None:
+    """The existing row for this credential evidence, or None."""
     kind = str(credential.get("kind") or "")
     for row in registry.load(strict=True)["accounts"]:
         c = row.get("credential") or {}
@@ -244,9 +255,7 @@ def _reuse_or_create(provider: str, label: str, credential: dict[str, Any],
             # The same directory with/without CLAUDE_CONFIG_DIR selects
             # different metadata, so those are different account identities.
             return row
-    return registry.create_account(provider, label, credential,
-                                   origin_org=origin_org,
-                                   registered_from=registered_from)
+    return None
 
 
 def run_migration(org_docs: list[dict[str, Any]],
@@ -502,5 +511,198 @@ def run_apikey_cutover() -> dict[str, Any] | None:
           f"minted={len(report['minted_rows'])} "
           f"orphaned={len(report['orphaned_rows'])} "
           f"fallback_was_on={report['fallback_was_on']} "
+          f"errors={len(report['errors'])}")
+    return report
+
+
+# ── catch-up for orgs the two cutovers skipped while sandboxed ──────────────
+#: Both cutovers above used to skip a sandboxed org whole (its container held
+#: its own credential) and still set their completion markers. The sandbox is
+#: gone (v3-remove-the-per-org-docker-sandbox-feature), so those orgs now run
+#: on the host, but a finished cutover never revisits them. This one-time
+#: pass gives exactly those orgs (the ones still storing the ignored legacy
+#: `sandbox` key) what each FINISHED cutover would have given them.
+FORMER_SANDBOX_MARKER = "former_sandbox_catchup_at"
+FORMER_SANDBOX_REPORT = "former-sandbox-catchup-report.json"
+
+
+def _org_slugs() -> list[str]:
+    from . import store
+    slugs: list[str] = []
+    seen: set[str] = set()
+    for f in sorted(os.listdir(store._orgs_dir())):
+        slug = f[:-5] if f.endswith(".json") else (
+            f[:-len(store.db_ext())] if f.endswith(store.db_ext()) else "")
+        if slug and slug not in seen and not f.endswith(".premigration"):
+            seen.add(slug)
+            slugs.append(slug)
+    return slugs
+
+
+def run_former_sandbox_catchup(ambient: dict[str, str | None] | None = None
+                               ) -> dict[str, Any] | None:
+    """For every org still storing a legacy `sandbox` key:
+
+      · when the registry cutover is complete (`migrated_at`): unbound nodes
+        get the binding run_migration gives — the org's key row when its key
+        was the lane (api_key set, api_fallback off), else the provider's
+        EXISTING machine-login row, else `missing:<provider>`. Nodes already
+        bound (or primary-pinned) are never touched; no ambient row is
+        minted and no alias moves.
+      · when the API-key cutover is complete (`apikey_cutover_at`): a stored
+        key moves into the token store FIRST, then becomes an org-scoped
+        apikey row (an existing row for the same key or the org's S2 token
+        row is reused, never duplicated) and the org drops the V1 fields.
+
+    A cutover that is NOT complete yet is left to do its own work (its skip
+    branch is gone). Idempotent: rows come back by evidence and bound nodes
+    are left alone; the marker is set only after a clean pass. Never raises
+    (the app must come up); the report lands beside the registry.
+    Returns the report, or None when there is nothing to do."""
+    from . import apikey_accounts, store, tokens
+    try:
+        reg = registry.load(strict=True)
+    except registry.RegistryUnreadable as e:
+        print(f"[orgtree] former-sandbox catch-up held: {e}")
+        return None
+    if reg.get(FORMER_SANDBOX_MARKER):
+        return None
+    bind = bool(reg.get("migrated_at"))
+    keys = bool(reg.get("apikey_cutover_at"))
+    if not bind and not keys:
+        return None
+    report: dict[str, Any] = {"orgs": [], "bound_nodes": 0,
+                              "missing_bindings": [], "org_key_rows": {},
+                              "fallback_was_on": [], "cleaned_orgs": [],
+                              "errors": {}}
+    clean = True
+    with store.DOC_LOCK:
+        ambient_ids: dict[str, str] = {}
+        if bind:
+            ambient = observe_ambient() if ambient is None else ambient
+            for provider, path in ambient.items():
+                if not path:
+                    continue
+                cred: dict[str, Any] = {"kind": "imported", "path": path}
+                if provider == "claude" and _claude_default_config(path):
+                    cred["default_config"] = True
+                found = _find_row(provider, cred)
+                if found is not None:
+                    ambient_ids[provider] = str(found["id"])
+        try:
+            slugs = _org_slugs()
+        except OSError as e:
+            print(f"[orgtree] former-sandbox catch-up held: "
+                  f"orgs dir unreadable: {e}")
+            return None
+        for slug in slugs:
+            try:
+                if store.STORE_BACKEND == "postgres":
+                    # settings keys only: an org that never was sandboxed
+                    # costs no whole load
+                    if not store.doc_keys_view(slug).get("sandbox"):
+                        continue
+                org = store.load_org(slug)
+            except Exception as e:                           # noqa: BLE001
+                report["errors"][slug] = f"{type(e).__name__}: {e}"
+                clean = False
+                continue
+            d = org.d
+            if not d.get("sandbox"):
+                continue
+            report["orgs"].append(slug)
+            changed = False
+            try:
+                key = str(d.get("api_key") or "")
+                key_row: str | None = None
+                if key and keys:
+                    kid = apikey_accounts._key_row_id(key)
+                    tokens.put(kid, key)      # durable before anything else
+                    row = (_find_row("claude", {"kind": "apikey",
+                                                "token_ref": kid})
+                           or _find_row("claude", {
+                               "kind": "token",
+                               "token_ref": f"org-api-key:{slug}"}))
+                    if row is None:
+                        row = registry.create_account(
+                            "claude", f"org key ({slug})",
+                            {"kind": "apikey", "token_ref": kid},
+                            origin_org=slug, mode="apikey",
+                            registered_from="migration:former-sandbox")
+                    elif (row.get("credential") or {}).get("kind") == "token":
+                        d2 = registry.load(strict=True)
+                        for r in d2["accounts"]:
+                            if r["id"] == row["id"]:
+                                r["credential"] = {"kind": "apikey",
+                                                   "token_ref": kid}
+                                r["mode"] = "apikey"
+                                r.setdefault("enabled", True)
+                        registry.save(d2)
+                    key_row = str(row["id"])
+                elif key and bind and not d.get("api_fallback"):
+                    # the API-key cutover has not run yet: an S2 token row,
+                    # which that cutover converts in place later
+                    key_row = str(_reuse_or_create(
+                        "claude", f"org key ({slug})",
+                        {"kind": "token", "token_ref": f"org-api-key:{slug}"},
+                        origin_org=slug,
+                        registered_from="migration:former-sandbox")["id"])
+                if key_row:
+                    report["org_key_rows"][slug] = key_row
+                # a spare (api_fallback on) never was the lane: bind nobody
+                lane = key_row if (key and not d.get("api_fallback")) else None
+                if bind:
+                    for nid, node in (d.get("nodes") or {}).items():
+                        if (not isinstance(node, dict) or node.get("account")
+                                or node.get("account_primary")):
+                            continue
+                        provider = _node_provider(node)
+                        if provider == "openrouter":
+                            continue
+                        if provider == "claude" and lane:
+                            node["account"] = lane
+                        elif provider in ambient_ids:
+                            node["account"] = ambient_ids[provider]
+                        else:
+                            node["account"] = f"missing:{provider}"
+                            report["missing_bindings"].append(f"{slug}/{nid}")
+                        report["bound_nodes"] += 1
+                        changed = True
+                if keys:
+                    if key and d.get("api_fallback"):
+                        report["fallback_was_on"].append(slug)
+                    for field in _CUTOVER_FIELDS:
+                        if field in d:
+                            d.pop(field, None)
+                            changed = True
+            except Exception as e:                           # noqa: BLE001
+                report["errors"][slug] = f"{type(e).__name__}: {e}"
+                clean = False
+                continue
+            if changed:
+                try:
+                    store.save_org(org)
+                    report["cleaned_orgs"].append(slug)
+                except Exception as e:                       # noqa: BLE001
+                    report["errors"][slug] = f"{type(e).__name__}: {e}"
+                    clean = False
+        if clean:
+            try:
+                d3 = registry.load(strict=True)
+                d3[FORMER_SANDBOX_MARKER] = time.time()
+                registry.save(d3)
+            except Exception as e:                           # noqa: BLE001
+                print(f"[orgtree] former-sandbox catch-up: marker write "
+                      f"failed: {e}")
+    try:
+        import json as _json
+        with open(os.path.join(store.DATA_ROOT, FORMER_SANDBOX_REPORT),
+                  "w", encoding="utf-8") as f:
+            _json.dump(report, f, indent=1)
+    except OSError:
+        pass
+    print(f"[orgtree] former-sandbox catch-up: orgs={report['orgs']} "
+          f"bound={report['bound_nodes']} "
+          f"key_rows={len(report['org_key_rows'])} "
           f"errors={len(report['errors'])}")
     return report

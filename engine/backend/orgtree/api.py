@@ -1063,6 +1063,14 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     except Exception as e:                                   # noqa: BLE001
         print(f"[orgtree] apikey cutover error (will retry next startup): "
               f"{type(e).__name__}: {e}")
+    try:
+        # orgs both cutovers skipped while they were sandboxed now run on
+        # the host: give them what each finished cutover gave every other
+        # org. One-time, idempotent, never blocks startup.
+        registry_migration.run_former_sandbox_catchup()
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[orgtree] former-sandbox catch-up error (will retry next "
+              f"startup): {type(e).__name__}: {e}")
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
     if store.STORE_BACKEND == "postgres":
