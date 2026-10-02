@@ -9,7 +9,7 @@ import { FOREGROUND_TREE_FORMAT as format } from '../src/foregroundtree'
 for (const enabled of [false, true]) test(`org record feed flag ${enabled}: socket, projection and polling`, async () => {
   const org = `record-socket-${enabled}`
   const agent = { id: 'agent', title: 'Agent', generation: 1, state: 'live', tier: 'haiku',
-    model_id: 'haiku', seat: 1, grant: 0, free: 0, children: [], turns: [],
+    model_id: 'haiku', seat: 1, grant: 0, free: 0, parent: null, children: [], turns: [],
     audiences_held: [], documents: [], mail_pending: 0, ui_order: 0,
     scope: { tools: {}, add_dirs: [], permission_mode: 'default', org_visibility: 'team' },
     axis: 'org', hidden_retired_children: 0, lineage_loaded: false, lineage_count: 0,
@@ -85,6 +85,7 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     assert.match(sockets[0].url, new RegExp(`/api/orgs/${org}/ws`))
     assert.equal([...intervals.values()].includes(6000), !enabled, 'only the legacy path has a tree polling timer')
     assert.equal(reads.some(p => p.endsWith('/records')), enabled)
+    if (!enabled) assert.match(document.title, new RegExp(org), 'legacy control loaded a valid tree')
     if (enabled) {
       assert.match(document.title, /Baseline/)
       const before = reads.filter(p => p.includes('/foreground-tree')).length

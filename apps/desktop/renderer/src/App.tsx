@@ -800,6 +800,7 @@ export default function App() {
     if (s) treePacer.current!.request(s, how)
   }, [])
   readTree.current = (want: string) => {
+    if (recordController.current?.slug === want) return Promise.resolve()
     // THE SELECTED TREE: what mounted surfaces registered, or — before any
     // registers — what the saved windows, pins and piles will need. An
     // answer for a selection that changed in flight is still one coherent

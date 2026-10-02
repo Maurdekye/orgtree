@@ -162,3 +162,77 @@ test('partial sets keep missing parents unknown; cycles and duplicate names are 
   assert.deepEqual(projectOrgs(table([{ entity: 'registry_org', id: '7', body: { slug: 'unavailable', state: 'unavailable' } }])),
     [{ slug: 'unavailable', state: 'unavailable' }])
 })
+
+/** Coalescing server oracle: changes name keys; bodies always come from the to snapshot. */
+class FakeServer {
+  rev = 0
+  rows = new Map<string, FeedRecord>()
+  changes: { rev: number; entity: string; id: string }[] = []
+  write(entity: string, id: string, body?: unknown) {
+    ++this.rev
+    const key = JSON.stringify([entity, id])
+    if (body === undefined) this.rows.delete(key)
+    else this.rows.set(key, { entity, id, body })
+    this.changes.push({ rev: this.rev, entity, id })
+  }
+  snapshot(): RecordSnapshot {
+    return { type: 'record_snapshot', cursor: cursor(this.rev), records: [...this.rows.values()] }
+  }
+  after(from: number): RecordChanges {
+    const changed = new Map(this.changes.filter(row => row.rev > from)
+      .map(row => [JSON.stringify([row.entity, row.id]), row]))
+    const upserts: FeedRecord[] = [], tombstones: RecordChanges['tombstones'] = []
+    for (const [key, row] of changed) {
+      const body = this.rows.get(key)
+      if (body) upserts.push(body)
+      else tombstones.push({ entity: row.entity, id: row.id })
+    }
+    return { type: 'record_changes', ...cursor(this.rev), from, to: this.rev, upserts, tombstones }
+  }
+}
+
+test('server-coalesced reordering, overlap and lost notifications converge exactly to a final full load', async () => {
+  const server = new FakeServer()
+  const errors: Error[] = []
+  const feed = new RecordFeed({ snapshot: async () => server.snapshot(),
+    catchup: async c => server.after(c.rev), project: r => r,
+    publish: () => {}, error: e => errors.push(e) })
+  await feed.resync()
+  for (let n = 0; n < 25; n++) {
+    const start = server.rev
+    server.write('a', String(n % 4), { value: n })
+    const older = server.after(start)
+    server.write('b', String(n % 3), [n])
+    if (n % 2 === 0) server.write('a', String(n % 4)) // update then delete becomes tombstone
+    const overlapping = server.after(Math.max(0, start - 2))
+    if (n % 3 !== 0) { // lose some notifications entirely
+      feed.receive(overlapping)
+      feed.receive(older)
+      feed.receive(overlapping)
+    }
+    await settle()
+  }
+  await feed.reconnect() // the final lost notification needs no later write
+  assert.deepEqual(feed.cursor, server.snapshot().cursor)
+  const serialized = (records: FeedRecord[]) => [...records].sort((a, b) =>
+    JSON.stringify([a.entity, a.id]).localeCompare(JSON.stringify([b.entity, b.id])))
+  const held = [...feed.records].flatMap(([entity, rows]) => [...rows].map(([id, body]) => ({ entity, id, body })))
+  assert.deepEqual(serialized(held), serialized(server.snapshot().records))
+  assert.deepEqual(errors, [])
+})
+
+test('invalid tree projection leaves both records and cursor at their previous baseline', async () => {
+  const initial: RecordSnapshot = { type: 'record_snapshot', cursor: cursor(1), records: [
+    { entity: 'org', id: 'org', body: { slug: 'org' } }, agent('1', 'a', null),
+  ] }
+  const feed = new RecordFeed({ snapshot: async () => initial, catchup: async () => initial,
+    project: projectTree, publish: () => {}, error: () => {} })
+  feed.receive(initial)
+  const prior = feed.records
+  feed.receive({ type: 'record_changes', ...cursor(2), from: 1, to: 2,
+    upserts: [agent('1', 'a', '1')], tombstones: [] })
+  assert.equal(feed.cursor?.rev, 1)
+  assert.equal(feed.records, prior)
+  await settle()
+  assert.equal(projectTree(feed.records).roots[0].id, 'a')
+})

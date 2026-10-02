@@ -52,9 +52,12 @@ export function projectOrgs(records: RecordTable): OrgListEntry[] {
 }
 
 export type AgentRecord = Omit<TreeNode, 'children'> & { parent_id: string | null; sibling_order?: number }
+const nameIndexes = new WeakMap<RecordTable, ReadonlyMap<string, string>>()
 
 /** UI nid lookup remains stable through a database-keyed rename. */
 export function agentRecordIds(records: RecordTable): ReadonlyMap<string, string> {
+  const cached = nameIndexes.get(records)
+  if (cached) return cached
   const names = new Map<string, string>()
   for (const [id, body] of records.get('agent') ?? []) {
     const row = body as AgentRecord
@@ -62,6 +65,7 @@ export function agentRecordIds(records: RecordTable): ReadonlyMap<string, string
       throw new Error('Feed agent name is invalid or duplicated')
     names.set(row.id, id)
   }
+  nameIndexes.set(records, names)
   return names
 }
 

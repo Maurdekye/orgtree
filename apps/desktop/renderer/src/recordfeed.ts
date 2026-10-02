@@ -95,6 +95,7 @@ export class RecordFeed<T> {
 
   /** A replacement invalidates old HTTP responses, even under the same slug. */
   resync(): Promise<void> {
+    if (this.disposed) return Promise.resolve()
     const run = ++this.generation
     this.buffering = true
     this.recovery = null
