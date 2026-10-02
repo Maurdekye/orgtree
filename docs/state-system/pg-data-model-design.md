@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 5)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 6)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,14 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 6 answers review-sol's third review (of rev 5).**
+  - The third review accepted f1, f6, f8, f10 and f16 (f9 moot), reopened f2, f11, f13 and f15,
+    and added f17.
+  - The biggest change is f17: an agent's identity is its own node, not the lineage it belongs to
+    (§3.0, Appendix A.2–A.3).
+  - The coordinator ruled on f13 (option B, with a performance condition) and f15 (option X).
+  - The ignored-key rule now covers the per-org Docker sandbox removal as well as kiosk.
+  - Each answer is marked "rev 6" where it lives; §10 has the round-3 table.
 - **Rev 5 answers review-sol's re-review of rev 4.1, and adds decision 17.**
   - The re-review accepted f3, f5, f7, f12 and f14, and reopened or added f1, f2, f6, f8, f9, f10,
     f11, f13, f15 and f16. Each answer is marked "rev 5" where it lives; §10 has the table.
@@ -281,23 +289,39 @@ its lease expired. Rev 4 gives every turn a durable identity, numbered claims an
 
 1. **A turn request is a row, in the org database.** The org transaction that decides an agent
    should run inserts `turn_requests(request_id uuid PK, agent_id, reason, state CHECK (pending,
-   queued, running, done, cancelled, lost), claim_epoch, created_at, ended_at, end_reason)`. In the
-   same transaction it writes a `start_turn` job whose dedupe key is the `request_id`. The id is
-   minted once and never reused.
-2. **The ticket is keyed by that id, forever.** `turn_tickets` in the app database has
-   `request_id UNIQUE`, with no partial condition, plus `UNIQUE (org_id, agent_id) WHERE state IN
-   ('waiting', 'running')`, so an agent never runs two turns at once.
-   - The job inserts with `INSERT … ON CONFLICT (request_id) DO NOTHING`.
-   - A retry of the job, at any time, even after the turn finished, can never queue the turn
-     again.
-   - Before inserting, the job checks that the request is still `pending` in the org database.
+   queued, running, stopping, done, cancelled, lost), claim_epoch, created_at, ended_at,
+   end_reason)`. In the same transaction it writes a `start_turn` job whose dedupe key is the
+   `request_id`. The id is minted once and never reused.
+2. **The ticket is keyed by that id, forever, and is made by a durable two-step handshake (rev 6).**
+   - `turn_tickets` in the app database has `request_id UNIQUE`, with no partial condition, plus
+     `UNIQUE (org_id, agent_id) WHERE state IN ('waiting', 'running', 'stopping')`, so an agent
+     never runs two turns at once (§3.1).
+   - The `start_turn` job runs two steps, and is retried as a whole until both are done:
+     1. *Org side:* compare-and-set the request from `pending` to `queued`. If it is already
+        `queued`, carry on: this is a retry of the same request. In any other state (cancelled,
+        or already running or finished) the job ends without a ticket.
+     2. *App side:* `INSERT … (request_id, state 'waiting') ON CONFLICT (request_id) DO NOTHING`.
+   - **Both crash points are safe.**
+     - A crash after step 1 leaves the request `queued` with no ticket. The retried job finds
+       `queued`, carries on, and inserts the ticket.
+     - A crash after step 2 leaves both. The retry's insert does nothing.
+     - A retry after the turn has finished meets a later state in step 1, and its insert could
+       not succeed anyway.
+   - **A ticket never exists for a `pending` request**, because step 1 always commits first. So
+     admission claims only tickets whose request is `queued`, or was cancelled after that, which
+     start catches (step 4).
 3. **Cancellation is durable for that request, and a running turn keeps its slot until it has
    stopped (rev 5).**
-   - *Before admission* (the ticket is `waiting`, or not inserted yet):
+   - *Before the provider is launched* (the request is `pending` or `queued`; the ticket is
+     missing, `waiting`, or admitted but not yet started):
      - The request becomes `cancelled` in the org database, and the ticket is upserted as
-       `cancelled` by `request_id`. Both are terminal.
-     - A delayed `start_turn` meets the cancelled ticket and does nothing, whichever order the two
-       run in.
+       `cancelled` by `request_id`. Both are terminal, and an admitted slot is freed at once:
+       nothing was launched, and start's compare-and-set (step 4) now fails.
+     - A delayed `start_turn` meets the cancelled request in its step 1, or the cancelled ticket in
+       its step 2, and does nothing, whichever order they run in.
+     - Cancellation and start both write the org request row, so they are serialized. If start's
+       compare-and-set commits first, the request is `running` and the cancellation takes the
+       running path below.
    - *While running*:
      - The request and the ticket become **`stopping`**, and `claim_epoch` is raised in the same
        step.
@@ -377,7 +401,11 @@ its lease expired. Rev 4 gives every turn a durable identity, numbered claims an
      - a cancellation at a full slot limit (the slot stays taken until the provider has stopped);
      - a cancellation between admission and start (nothing is launched);
      - an operation presented with the cancelled epoch (refused), and one already in progress
-       when the cancellation came (it finishes first).
+       when the cancellation came (it finishes first);
+   - added in rev 6, each with a barrier or an injected crash: immediately before and after the
+     org `pending → queued` step and the app insert; a retry of the job after completion; and a
+     cancellation at every boundary (pending, between the two steps, waiting, admitted but not
+     started, running).
 
 ### 2.5 The change log and the screen feed: per org database
 
@@ -499,7 +527,7 @@ each org's pool and merged in Python. There are three such reads today.
 
 | Read | Today | Rev 3 |
 |---|---|---|
-| `GET /api/accounts` (which agents are bound to which account) | loads every org's whole document and walks every agent (audit §3.4) | per org: `SELECT account, count(*) FROM agents WHERE state = 'live' AND is_head AND account IS NOT NULL GROUP BY account` (live-only partial index, rev 4 f13), plus the org's own `org_accounts`; merged with the machine-wide `accounts` rows from the app database |
+| `GET /api/accounts` (which agents are bound to which account) | loads every org's whole document and walks every agent (audit §3.4) | per org: `SELECT account, count(*) FROM agents WHERE state = 'live' AND account IS NOT NULL GROUP BY account` (live-only partial index, rev 4 f13), plus the org's own `org_accounts`; merged with the machine-wide `accounts` rows from the app database |
 | `GET /api/orgs` (the org list with summary counts) | the registry and per-org summaries | the registry from the app database, plus one summary query per org (live agents, open items, unread mail, all by partial index) |
 | `list_orgs_with_docs` (bridge traffic, 5 s TTL; the public kiosk traffic is gone, decision 17) | loads every org | the registry plus the needed per-org columns |
 
@@ -548,7 +576,7 @@ lease_owner, lease_until, last_error, dedupe_key)`. It has a partial index on qu
   | auto-resume, every 30 s per org (decodes every agent) | `resume` at each freeze's until-time; `start_turn` from the transaction that makes an agent runnable |
   | working-cache keeper, every 20 s (abandoned docket items, idle reminders, checkup and keepalive) | `archive`, `remind` and `checkup` at their own due times, written by the transaction that sets them up |
   | watchdog engine, every 5 s | each watchdog's next `check` |
-  | storage watchdog, every 20 s | its limits belong to the sandbox container and kiosk spend limits, which 3.2.0 no longer has (decision 17). Whatever the kiosk removal leaves of it becomes a `storage_check` job that requeues itself; disk use changes outside the database, so that one stays periodic |
+  | storage watchdog, every 20 s | none: its limits belong to the sandbox container and the kiosk spend limit, both removed from 3.2.0 (decision 17 and the sandbox removal). It goes with them; if the removals leave any storage check, it becomes a `storage_check` job that requeues itself |
   | mail drain, every 1 s or when kicked | `deliver` from the transaction that deposits the mail |
   | docket reminder scans, retries | `remind`, and a retry `run_at` on the failed job itself |
 
@@ -972,53 +1000,77 @@ because the database is the org.
   `<role>_ref` (outside address).
 - **Deleting an agent** erases its own records and keeps a tombstone row (`state = 'deleted'`) for
   historical references (Q6).
-- **Seats and generations (rev 4, finding f11).** Today an agent keeps its node id across every
-  generation advance (cheap compaction, a model switch, compaction split, reseed). The old session
-  is archived beside it as `name@gen`. Its mint id `seat_id` (`born`) is shared by the whole
-  lineage, and a same-name hire after a delete gets a new one (ledger.py:12792–12820,
-  13680–13739). Rev 4 models this with two tables:
-  - **`seats`**: one row per persistent agent identity. Columns: `id`, `born` UNIQUE (today's
-    `seat_id`), `name` (the current name), `deleted_at`, `is_tombstone`.
-  - **`agents`**: one row per generation. Columns: `seat_id` → seats, `generation`, `name`
-    (today's node id: `x` for the head, `x@3` for an archived generation), `is_head`.
-    `UNIQUE (seat_id) WHERE is_head`.
+- **Agent identity (rev 6, finding f17).** Revs 4 and 5 modelled a persistent "seat" keyed by
+  the legacy mint id `seat_id` (`born`), with one head per seat. That is wrong for today's data:
+  - **A generation advance makes a new agent.** Cheap compaction, a model switch, compaction split
+    and reseed all keep the agent's node id `x`, and copy the old session into a new node
+    `x@gen` that keeps the same `seat_id` (ledger.py:5505–5541).
+    - That copy is a **separately addressable** agent. Its first deposit mints its own mailbox
+      identity and sequence, while `x` keeps its own (3027–3047).
+  - **Two live agents can share one `seat_id`.**
+    - A knowledge bearer such as `x@0` can be rehired, even by `x` itself, as a subordinate
+      (5721–5729).
+    - Then both are live, with the same `seat_id` but different names, parents, mailboxes, turns
+      and ownership (5873–5877, 5947–5949).
+    - Backfill shares the lineage id on purpose (751–769), and
+      `tests/test_principal_identity.py:370–389` asserts it.
+
+  So `seat_id` is a **lineage token**, not an identity. Rev 6:
+
+  - **`agents` has one row per legacy node**: every independently addressable agent, `x` and each
+    `x@gen`, live or archived.
+    - `name` is the node id, unique among rows that are not deleted.
+    - `lineage_born` keeps the legacy `seat_id` exactly. It is shared by a lineage, indexed, **not
+      unique**, and never rewritten.
+    - `generation` is that node's own counter.
+    - `predecessor_id` and `successor_id` link a lineage's nodes.
+    - There is no seat table and no "head".
+  - **Each row is its own principal**, with its own mailbox (Appendix A.4, `mailboxes(agent_id PK,
+    next_recv_seq)`), parent, state, account bindings, turns and ownership.
+    - A compaction of `x` keeps `x`'s row (its id, mailbox and assignments). It adds a new row for
+      the archived session, copying fields and stripping mailbox authority, as today.
+    - A rehire makes the bearer's own row live again. It never merges into `x`.
 
   References come in two classes:
 
-  | Class | Meaning | Examples | Column |
+  | Class | Meaning | Examples | Columns |
   |---|---|---|---|
-  | **current-seat** | who has it now; follows the agent across generations; never binds to a namesake | docket owner and reviewer (for who holds the item; their names are kept too, for authorization, A.3), holders; mailbox owner; question asker and target; audience grantee and grantor; watchdog owner; reservation holder | `<role>_seat_id` → seats, plus the generation stored with it today (`owner_generation` …) for an exact round trip |
-  | **historical** | who did something then; never re-resolved | creator, last updater, history and event actors, mail senders, turn and steer logs, evidence and decision authors | `<role>_agent_id` → agents (the generation row), or the principal columns |
+  | **current holder** | who has it now; never binds to a namesake | docket owner and reviewer (plus their recorded names, for authorization, A.3), holders; mailbox owner; mail recipient; question asker and target; audience grantee and grantor; watchdog owner; reservation holder | `<role>_agent_id` → agents (that node's row), plus what the legacy record stored with it (`<role>_generation`, `<role>_born`, `<role>_deleted`), for an exact round trip and today's continuity states |
+  | **historical** | who did something then; never re-resolved | creator, last updater, history and event actors, mail senders, delivery batches, steer records, document authors, op receipts, turn logs | the principal kind plus the name and generation exactly as recorded, as typed columns with no foreign key: a name recorded long ago does not prove which row it meant |
 
-  **Converting a legacy reference** follows today's continuity rule (`_work_identity_state`):
-  1. With `born`: the seat whose `born` matches. If none exists (the agent was deleted), a
-     tombstone seat carrying that `born`.
-  2. Without `born`: the seat now holding the name, if its head generation is at or above the
-     stored generation and the reference is not marked `deleted`. Otherwise a tombstone seat.
-  3. Marked `deleted`: a tombstone seat.
+  **Converting a current-holder reference** `{node, generation, born, deleted}` follows today's
+  continuity rule (`_work_identity_state`, ledger.py:13680–13739). It is applied to the row that
+  now carries the name `node`:
+  1. Marked `deleted`, or no row carries that name: a tombstone row (state `deleted`, that name,
+     that `born`).
+  2. With `born`: that row, if its `lineage_born` equals `born`. Otherwise the reference names a
+     different agent that once wore the name, so a tombstone row.
+  3. Without `born`: that row, if its `generation` is at or above the stored one. Otherwise a
+     tombstone row.
 
-  The round trip reproduces the stored JSON exactly (`node`, `generation`, `born`, `deleted`). So
-  `_work_identity_state` gives the same answer before and after, and that is a test.
+  A tombstone is never a live namesake, so a stale reference stays stale, as today. The stored
+  values round-trip exactly, so `_work_identity_state` gives the same answer before and after,
+  and that is a test.
 
-  A historical reference names a generation row by its node id. If that id no longer exists, it
-  points at a tombstone generation row.
-
-  **Applied to the tables of Appendix A.4–A.6.** There, the columns written `agent_id`,
-  `owner_id`, `recipient_id` or `grantee_id` follow this classification:
-
-  | Class | Column name in rev 4 | Columns |
-  |---|---|---|
-  | current-seat | `…_seat_id` | `mailboxes` (the mailbox belongs to the seat); mail `recipient`; `notices` (pending and delivered, one table per seat); `asks` (the asking seat); `audience_grants` (grantee and grantor); `watchdogs.owner`; `reservations.owner` |
-  | historical | `…_agent_id`, the generation row | the mail sender; `delivery_batches`; `steer_records`; the author of `documents`; `events` and `event_agents`; `op_receipts` (with `gen`) |
-
-  The implementation lists every remaining role column in the same table before stage 1 lands,
-  and the round-trip tests cover each one.
+  **Applied to Appendix A.4–A.6.**
+  - The current-holder columns, each `→ agents`: the mailbox (`mailboxes.agent_id`), mail
+    `recipient`, `notices`, `asks` (the asker), `audience_grants` (grantee and grantor),
+    `watchdogs.owner`, `reservations.owner`.
+  - The historical ones: the mail sender, `delivery_batches`, `steer_records`, the author of
+    `documents`, `events` and `event_agents`, and `op_receipts` (with `gen`).
+  - The implementation lists every remaining role column in the same table before stage 1
+    lands, and the round-trip tests cover each one.
 
   **Tests (§9):**
-  - compaction and an account change with an open owned item;
-  - retire and rehire; rename;
+  - a head and its rehired predecessor both live, with different parents and account bindings,
+    independent mailbox ids and `recv_seq`, deposits to both, and separately owned docket items;
+  - retiring or deleting either while the other survives, then compacting or rehiring the bearer;
+  - compaction and an account change with an open owned item; retire and rehire; rename;
   - delete, then a same-name hire;
-  - legacy holders with and without `born`.
+  - legacy holders with and without `born`;
+  - semantic behaviour and the independent verifier's values (§5.4), not only row counts;
+  - a mutant that collapses a head and its live bearer into one principal, which must fail a
+    test.
 - **`org_identity(org_uuid, slug, incarnation)`** is a one-row table. The engine checks it against
   the registry on every pool open. `incarnation` is minted when the database is created and again
   when another database replaces it (§2.5, §2.13).
@@ -1068,7 +1120,6 @@ Additions:
 | `conversion_runs` | §5.2 |
 | `org_accounts`, `org_account_marks`, `org_account_spend` | the accounts restricted to this org (rev 4, f7); same columns as the app tables |
 | `org_extra(key PK, val json)` | a top-level section outside the engine's key registry, kept exactly (rev 4, §5.2) |
-| `seats` | persistent agent identities (rev 4, f11; §3.0) |
 | `turn_requests` | durable turn identities (rev 4, f2; §2.4) |
 | `org_topology` | the one-row topology lock (rev 4, f1; §2.2) |
 | `docket_counters` | archived and backlog totals (rev 4, f13; A.3) |
@@ -1258,12 +1309,16 @@ So a converted org that is later trashed or purged is never converted again. The
      the four rehearsal inputs, for example storage limits, sandbox, disk, headless, kiosk spend
      freeze, bridge credentials, and legacy API-key fields.
    - A test fails unless the mappers declare exactly the registry's keys.
-   - **Kiosk state is not converted (decision 17).** Kiosk mode is deprecated, and 3.2.0 has none.
-     The top-level keys that today's engine keeps only as ignored legacy fields are not mapped:
-     `kiosk`, the kiosk spend freeze, and the sandbox container with its storage limits.
-     - The exact lists are the engine's own constants, introduced by the kiosk removal
-       (v3-remove-the-leftover-kiosk-feature): `ledger.IGNORED_LEGACY_KEYS` (top-level keys) and
-       `ledger.IGNORED_LEGACY_NODE_KEYS` (keys inside agent records). The converter imports both.
+   - **Kiosk and sandbox state is not converted** (decision 17, and the user's sandbox ruling of
+     2026-10-02).
+     - Kiosk mode and the per-org Docker sandbox are both removed from 3.2.0
+       (v3-remove-the-leftover-kiosk-feature, v3-remove-the-per-org-docker-sandbox-feature).
+     - Their stored fields become ignored legacy fields, which the converter does not map:
+       `kiosk`, the spend freeze, `sandbox`, `disk` and the storage-limit flags, and any
+       agent-level field the removals add.
+     - The exact lists are the engine's own constants, which both removals fill:
+       `ledger.IGNORED_LEGACY_KEYS` (top-level keys) and `ledger.IGNORED_LEGACY_NODE_KEYS` (keys
+       inside agent records). The converter imports both.
      - When such a key holds anything but null, the report lists the org and the key. The value
        stays where it is, in the untouched legacy data.
      - The completeness test compares the mappers with `NODE_KEYED_SECTIONS` together with
@@ -1282,28 +1337,32 @@ So a converted org that is later trashed or purged is never converted again. The
      the old file and is counted in the report. **Measured** on a copy: 481,066 rows, 469,019 of
      them for the main org (159 MB of text). `COPY` took 15.3 s and the read-back 2.5 s. 7 rows
      carry U+0000, which goes to `extra`.
-   - **`file-deliveries.db` (rev 5, finding f15)** has no org column: `id = sha256(slug:seat:key)`,
-     a fingerprint (source path and caption) and the result. Every row is accounted for, and none
-     is guessed:
-     - **A row moves into an org's `file_deliveries` only on unique evidence:** its
-       `outbox/delivery-<id>/` folder exists under exactly one agent's scratch folder, in exactly
-       one org. The source path is not used to decide, because a granted shared folder can belong
-       to several orgs.
-     - **Every other row stays in the old file, unchanged, and stays live there.** That covers a
-       pending receipt whose outbox was never created, a completed one whose outbox is gone, and
-       anything ambiguous.
-       - 3.2.0's delivery code looks an id up in the org database first, then, read-only, in the
-         old file.
-       - A row found there moves into the calling org's database at that moment. The caller's own
-         slug and seat produced that id, so its owner is now certain.
-       - Today's behaviour is kept exactly, before and after conversion: the same id with the same
-         fingerprint returns the receipt; a different fingerprint is refused
-         (filedelivery.py:49–50); a damaged or missing completed snapshot is refused rather than
-         sent again (lines 59–62).
-     - The report counts the rows moved, the rows left in the old file, and why.
-     - **Cleanup never deletes the old file while it holds a row that is in no org database**
-       (§5.3).
-     - **Measured:** 56 rows, all completed.
+   - **`file-deliveries.db` (rev 5–6, finding f15; the coordinator's ruling X)** has no org
+     column: `id = sha256(slug:seat:key)`, a fingerprint (source path and caption) and the result.
+     Every row is accounted for, none is guessed, and none is deleted:
+     - **A row moves into its org's `file_deliveries`, before that org is published, when durable
+       evidence names exactly one org.** The evidence is checked in this order:
+       1. its `outbox/delivery-<id>/` folder exists under exactly one agent's scratch folder, in
+          one org;
+       2. its source path lies inside exactly one org's own folders (its workspace, or an agent's
+          scratch folder of that org); a granted shared folder decides nothing;
+       3. that org's transcripts record an `orgtree_send_file` call whose slug, agent seat and
+          `delivery_id` hash to the row's id.
+     - **A row with no such evidence** stays in the kept old file, untouched, and **is never
+       deleted**: the cleanup release keeps the file while it holds such a row.
+       - It is listed in the conversion report.
+       - Nothing consults it any more, so a later retry with that key behaves like a new delivery.
+       - That is the coordinator's ruling (option X). It keeps every org one body of data, with no
+         live shared store.
+     - The report counts the rows moved, by which evidence, and the rows left.
+     - **Measured:** 56 rows, all completed, so evidence 1 is expected to resolve them.
+     - **Tests:**
+       - each of: a pending receipt before its outbox exists; a source folder shared by two orgs; a
+         completed receipt whose outbox is gone; a row with no evidence. For each, a retry with the
+         original fingerprint and with a changed caption, before and after conversion;
+       - the converted org exported and imported onto a clean root with **no** old file, then the
+         same retries and the missing-snapshot refusal;
+       - delete and purge of the org, with the kept old file untouched.
    - Rows naming agents that no longer exist point at tombstones (§3.0).
 5. Read everything back and compare each section with step 2.
    - The comparison is canonical JSON with exact types, and timestamps as instants.
@@ -1622,6 +1681,8 @@ The same estimates as rev 2 (inferred, replaced by measurements at the first pro
 
 ## 9. Tests
 
+**Rev 6 adds the tests named under each finding of review round 3** (§2.4, §3.0, A.3, §5.2).
+
 **Rev 5 adds the tests named under each finding of review round 2** (§2.2, §2.4, §2.5, §2.13,
 A.3, §5.2, §5.4).
 
@@ -1711,7 +1772,7 @@ Added for rev 3:
 | f8 feed snapshot and cursor | blocking | the baseline and the cursor from one snapshot; catch-up with explicit from/to bounds in one snapshot; tombstones; a floor for retention; catch-up on every reconnect; the cursor carries `org_uuid` and `incarnation` | §2.5 |
 | f9 visibility changes in the feed | should-fix | record frames only for the desktop, which reads everything; every other audience gets revision-only frames and refetches its own view | §2.5 |
 | f10 export and import cut | blocking | export after quiescence, from one exported snapshot, with a file manifest, verified before completion; import verifies the source before migrating and rewrites a clone's identity explicitly; account-id collisions are re-keyed | §2.13 |
-| f11 seat versus generation identity | should-fix | a `seats` table; current-seat references point at seats and historical ones at generation rows; legacy references convert by today's continuity rule | §3.0, A.2, A.3 |
+| f11 seat versus generation identity | should-fix | (superseded in rev 6 by f17: one row per node, no seat table) a `seats` table; current-seat references point at seats and historical ones at generation rows; legacy references convert by today's continuity rule | §3.0, A.2, A.3 |
 | f12 microsecond timestamps | should-fix | native microseconds, plus the original text when it is not canonical | §3.0 |
 | f13 docket cost growing with history | should-fix | active rows only, a walk up from the anchor per row, a page limit, counter rows for archived totals, and a live-only account index; 1×/10× guards | A.3, A.2 |
 | f14 the dedicated schema | minor | schema `orgtree` in every database; rev 3.1's reinterpretation withdrawn | §3.0 |
@@ -1731,6 +1792,17 @@ Rev 5 answers the rest:
 | f13 | should-fix | desktop totals from global counters; agent totals from per-anchor counters over the subtree plus deduplicated direct items; maintenance rules; the generated anchor uses same-row name columns | A.3 |
 | f15 | blocking | a receipt moves only on unique evidence (its outbox folder); every other one stays live in the old file and moves on first use; cleanup keeps the file while any remain | §5.2, §5.3 |
 | f16 | should-fix | an independent destination verifier that reads the relational values with its own field map and no converter code; a planted destination corruption it must reject; file manifests of the old files | §5.4 |
+
+**Review round 3 (review-sol's review of rev 5, 2026-10-02).** Accepted: f1, f6, f8, f10, f16; f9
+moot. Rev 6 answers the rest:
+
+| Finding | Severity | Rev 6's answer | Where |
+|---|---|---|---|
+| f2 | blocking | the request states are aligned (`stopping` added, and the ticket index covers it); a durable two-step handshake: the job compare-and-sets `pending → queued` first and may continue on `queued`, then inserts the ticket idempotently, so no ticket exists for a `pending` request; cancellation by state at every boundary, serialized with start on the org request row | §2.4 |
+| f11 | should-fix | the ancestry anchor is the one non-deleted row with exactly that name, head or archived bearer, walking its own parent chain; no head filter | A.3 |
+| f13 | should-fix | the coordinator's ruling B: `docket_subtree_counts` maintained in O(depth) per change, moves included, for the subtree part; one indexed query for the direct part; the 10×/5% p95 condition, with a maintained direct counter if it fails | A.3 |
+| f15 | blocking | the coordinator's ruling X: rows move into their org before publish on durable evidence (outbox folder, org-private source path, transcript hash match); a row with none stays in the kept old file, never deleted, listed, and not consulted | §5.2 |
+| f17 | blocking | one `agents` row per legacy node, each its own principal and mailbox; `lineage_born` is a non-unique lineage token; no seat table; current-holder references resolved to the node by today's continuity rule; historical ones typed as recorded | §3.0, A.2, A.3 |
 
 ## 10.1 Questions: all answered
 
@@ -1785,15 +1857,13 @@ Setting lists, one row each:
 
 ### A.2 Agents
 
-**`seats`** holds one row per persistent agent identity (§3.0, rev 4): `id`, `born UNIQUE`,
-`name`, `deleted_at`, `is_tombstone`. Index `(name) WHERE NOT is_tombstone AND deleted_at IS NULL`.
-
-**`agents`** holds hot columns only, one row per agent generation. It replaces `nodes`,
+**`agents`** holds hot columns only, one row per legacy node: every independently addressable agent
+(§3.0, rev 6). It replaces `nodes`,
 `node_index`, `foreground_meta`, `foreground_parents` and `node_tree_val`.
 
 | Group | Columns |
 |---|---|
-| keys | `id`; `name` (today's node id); `seat_id` → seats; `generation`; `is_head`; `ord` (the stable display order today's walks produce) |
+| keys | `id`; `name` (today's node id); `lineage_born` (today's `seat_id`: a lineage token, not unique); `generation` (this node's own counter); `ord` (the stable display order today's walks produce) |
 | tree | `parent_id` → agents (NULL = top level); `ui_order`; `created`; `archived_at`; `rescinded_at` |
 | state | `state CHECK (live, archived, unrecoverable, deleted)`; `title`; `model`; `credit_grant numeric` |
 | lineage | `lineage`; `predecessor_id` → agents; `successor_id` → agents; `bearer_state CHECK`; `lost_reason` |
@@ -1816,10 +1886,10 @@ Setting lists, one row each:
 | `(ord) WHERE state = 'live'` | live agents |
 | `(parent_id, ui_order, created, ord) WHERE state = 'archived' AND successor_id IS NULL` | the retired pile under a seat |
 | `(predecessor_id)`, `(successor_id)` | lineage walks |
-| `(seat_id, generation)`, `UNIQUE (seat_id) WHERE is_head`, `(session_id)` | a seat's generations, its head, lookups by session |
+| `(lineage_born)`, `(session_id)` | a lineage's nodes, lookups by session |
 | `UNIQUE (name) WHERE state <> 'deleted'` | names |
 | partial indexes per presence flag | "which agents are frozen, halted …" |
-| `(account) WHERE state = 'live' AND is_head AND account IS NOT NULL` | the `/api/accounts` fan-out: live agents only (rev 4, f13) |
+| `(account) WHERE state = 'live' AND account IS NOT NULL` | the `/api/accounts` fan-out: live agents only (rev 4, f13) |
 | a name gram index (today's `orgtree_id_grams`) | canvas search |
 
 **One-to-one cold tables:**
@@ -1867,7 +1937,7 @@ archive log rows, `work_index`, `work_list_summary` and all of `work_read_*`.
 | keys | `id`; `slug UNIQUE`; `rev` |
 | identity | `kind CHECK`; `title` |
 | status | `status CHECK`; `status_at`; `blocked_reason`; `waiting_reason`; `dropped_reason` |
-| people | for authorization, by name (rev 5, f11): `owner_name`, `reviewer_name`, `created_by_name`, and `anchor_name`, generated as `coalesce(owner_name, created_by_name)` on the same row; for who holds the item, by seat (rev 4, f11): `owner_seat_id` → seats (+ `owner_generation`, `owner_deleted`), `reviewer_seat_id` → seats (+ `reviewer_generation`); historical: `created_by_agent_id` and `last_updater_*` (`*_agent_id` → agents) |
+| people | for authorization, by name (rev 5, f11): `owner_name`, `reviewer_name`, `created_by_name`, and `anchor_name`, generated as `coalesce(owner_name, created_by_name)` on the same row; for who holds the item (rev 6, f17): `owner_agent_id` → agents (+ `owner_generation`, `owner_born`, `owner_deleted` as recorded), `reviewer_agent_id` → agents (+ `reviewer_generation`, `reviewer_born`); historical, as recorded: `created_by_*`, `last_updater_*` (principal kind, name, generation) |
 | current pointers (rev 4, f5) | `current_verdict_event_id` → work_item_events, `current_review_packet_event_id` → work_item_events; both nullable |
 | times | `created`; `updated_at`; `docket_at`; `archived_at` (NULL = active) |
 | links | `parent_item_id` → work_items; `superseded_by_id` → work_items |
@@ -1886,7 +1956,7 @@ The description (`objective`) lives in `work_item_texts(item_id PK, objective)`.
 | `(archived_at DESC, id DESC) WHERE archived_at IS NOT NULL` | archive pages, keyset |
 | `(anchor_name, archived_at DESC) WHERE archived_at IS NOT NULL` | an agent's archive page through its subtree |
 | `(status) WHERE archived_at IS NULL` | active-only filters and header counts |
-| `(owner_name)`, `(reviewer_name)`, `(created_by_name)`, `(owner_seat_id)`, `(reviewer_seat_id)` | lookups by person, for authorization (names) and for assignment (seats) |
+| `(owner_name)`, `(reviewer_name)`, `(created_by_name)`, `(owner_agent_id)`, `(reviewer_agent_id)` | lookups by person, for authorization (names) and for assignment (agent rows) |
 | `(anchor_name)` | the access rule's anchor |
 | `(parent_item_id)`, `(superseded_by_id)` | child items and supersessions |
 | `(attention_set_rev) WHERE attention_reason IS NOT NULL` | attention raises |
@@ -1897,7 +1967,7 @@ The description (`objective`) lives in `work_item_texts(item_id PK, objective)`.
 |---|---|
 | `work_item_participants(item_id, agent_name)` | many-to-many by name, as today's authorization reads them (rev 5, f11); indexes both ways |
 | `work_item_dependencies(item_id, depends_on_id)` | many-to-many; indexes both ways |
-| `work_item_holders(item_id, seq, seat_id, generation, from_at, by_*, derived)` | owned list; index (seat_id) for the item-scoped read grant |
+| `work_item_holders(item_id, seq, agent_id, generation, born, from_at, by_*, derived)` | owned list; index (agent_id) for the item-scoped read grant |
 | `work_item_acceptance(item_id, idx, text)` + `work_item_acceptance_checks(item_id, idx, seq, …)` | owned list + its list |
 | `work_item_progress(item_id, list CHECK (done, next), pos, text)` | owned list |
 | `work_item_events(item_id, seq, at, by_*, kind CHECK (history, evidence, decision, scope, verdict, review_packet, dismissal, …), …)` | the item's **append-only history as rows** (decision 7 point 2): one sequence of typed events, with kind-specific columns and a content column for free text. **The current verdict and the current review packet are explicit pointers (rev 4, finding f5)**, not the newest event: `current_verdict_event_id` and `current_review_packet_event_id`, NULL when none is current. Today reopen clears the verdict, and `changes` / `approve_stage` clear the packet, while the history keeps every event (ledger.py:16424–16437, 19601–19607, 19678–19684). The pointers do the same. Conversion: a non-null legacy value points at its event (measured: all 420 non-null verdicts and all 52 non-null packets equal the last entry); a value matching no event makes the org unavailable, naming the record; null stays NULL. Tests: approve_stage then the packet is cleared; reopen then the approval is cleared; changes then the packet is cleared; archive and reopen; and the API output for each, before and after conversion. |
@@ -1924,23 +1994,31 @@ the rule and changes the direction of the walk:
     the name from a holder reference), the participants' bare names, and the strict ancestors of
     the agent now holding the owner's name (the creator's when there is no owner). A same-name
     hire after a delete therefore gets today's answer.
-  - **Who still holds the assignment** (`_work_identity_state`) works on the seat: `born`, else
-    the directional generation rule, else `deleted` (§3.0).
+  - **Who still holds the assignment** (`_work_identity_state`) works on the node a reference
+    resolves to: `born`, else the directional generation rule, else `deleted` (§3.0, rev 6).
   - The item therefore stores, per role, both what the record says and the identity it resolves
     to:
-    - `owner_name`, and `owner_seat_id` (+ `owner_generation`);
-    - `reviewer_name`, and `reviewer_seat_id` (+ `reviewer_generation`);
-    - `created_by_name`, and the historical `created_by_agent_id`;
+    - `owner_name`, and `owner_agent_id` (+ `owner_generation`, `owner_born`);
+    - `reviewer_name`, and `reviewer_agent_id` (+ `reviewer_generation`, `reviewer_born`);
+    - `created_by_name`, historical, as recorded;
     - participants by name, in `work_item_participants(item_id, agent_name)`.
   - The names are not foreign keys. A name can outlive its agent, exactly as today, and that is
-    the behaviour being preserved (Appendix A.7). Moving authorization to seats would be a
+    the behaviour being preserved (Appendix A.7). Moving authorization to agent rows would be a
     product change that needs a ruling; this design does not make it.
 - **The point check `docket.can_read(item, viewer)`** is today's name rule, in this order:
   1. the user;
   2. the viewer's name equals `owner_name`, `created_by_name` or `reviewer_name`, or is one of the
      item's participants (index `(agent_name, item_id)`);
-  3. otherwise it walks **up** from the head agent now named `anchor_name` along `parent_id`, at
-     most the tree depth (6 today), looking for the viewer's name.
+  3. otherwise it resolves `anchor_name` to the one non-deleted row with exactly that name (rev 6,
+     finding f11). That is the head `x` or an archived bearer such as `x@0`, whichever carries the
+     name. It then walks **up** that row's own `parent_id` chain, at most the tree depth (6 today),
+     looking for the viewer's name.
+     - It never substitutes another node of the lineage, and it adds no head or state filter.
+       That is today's rule: `_work_can_manage` (ledger.py:13170–13181) and `ancestors`
+       (1832–1850).
+     - An absent or deleted name gives no ancestor access, as today.
+     - Tests: an item anchored at an archived bearer whose parent chain differs from the head's;
+       a live namesake; an absent name. These run for both the read/manage oracle and the totals.
 
   This is the same predicate as rev 3's descendant set (a strict ancestor of X is exactly a node
   met walking up from X). It adds no `state` filter, so access to items owned by retired agents is
@@ -1958,36 +2036,55 @@ the rule and changes the direction of the walk:
 
   Rows read are bounded by the active items: 12 to 102 on the four orgs measured, never the 1,075
   archived ones.
-- **Totals (rev 5, finding f13).** A total counts only what its viewer may read.
+- **Totals (rev 5–6, finding f13; the coordinator's ruling B).** A total counts only what its
+  viewer may read.
   - *The desktop*, the user, reads everything.
     - Active counts per status come from `count(*) … WHERE archived_at IS NULL` over the partial
       index.
     - The archived and backlog totals come from `docket_counters(kind, n)`, updated in the
       transaction that archives, unarchives, backlogs or unbacklogs an item.
     - They are O(1), and nothing reads the archive.
-  - *An agent's `work_list` totals*, including the archived group when archived items are not
-    listed (ledger.py:14799–14824, 14895–14918, 14948–14975), are the size of its readable set.
-    They are computed without touching unrelated history:
-    1. the per-anchor counters `docket_anchor_counts(anchor_name, kind, n)`, summed over the
-       names of the viewer's strict descendants;
-    2. plus the items the viewer reaches directly by name (owner, creator, reviewer,
-       participant), found through those columns' indexes, minus any whose anchor is in the
-       viewer's subtree, since those are already in the sum;
-    3. each item counted once.
+  - *An agent's `work_list` totals* include the archived group when archived items are not listed
+    (ledger.py:14799–14824, 14895–14918, 14948–14975). They are the size of its readable set, A ∪
+    D:
+    - A is the items anchored at its strict descendants;
+    - D is the items that name it in a direct role (owner, creator, reviewer, participant).
 
-    Active items are few, so an agent's active counts per status apply the point check to the
-    active rows directly.
-  - **Cost:** the viewer's subtree size plus its direct items. Unrelated archived history adds
-    nothing.
-  - **Maintenance:** `docket_anchor_counts` changes only in the transaction that creates,
-    archives, unarchives, backlogs, unbacklogs or deletes an item, or changes its owner or creator
-    name, which moves its anchor. Tree moves and participant or reviewer changes need no counter
-    update: the subtree is walked, and the direct items are looked up, when the total is read.
+    They are computed as |A| + |D \ A|:
+    1. **|A| comes from a maintained hierarchical counter**, `docket_subtree_counts(agent_id,
+       kind, n)`: the items whose anchor row is a strict descendant of that agent. Reading it is
+       one key lookup, so retired descendants are never walked.
+    2. **|D \ A| comes from one indexed query**: the viewer's direct items, through the four
+       name indexes in one `UNION ALL`, each item once, minus those whose anchor row is a strict
+       descendant of the viewer. That check is a walk up of at most the tree depth per item.
+  - **Maintenance of `docket_subtree_counts`.** Each change is bounded by the tree depth, never by
+    history:
+    - creating, archiving, unarchiving, backlogging, unbacklogging or deleting an item: ±1 on each
+      strict ancestor of its anchor row (at most 6 rows);
+    - a change of an item's anchor (a new owner, or a new creator when there is no owner): −1 on
+      the old anchor's ancestors, +1 on the new one's;
+    - a tree move of node M: M's own total (the items anchored at M, plus
+      `docket_subtree_counts(M)`) is subtracted from M's old strict ancestors and added to its new
+      ones, in the move's transaction;
+    - a name that starts or stops resolving (a node deleted, a same-name agent hired, a rename):
+      the items anchored on that name move with it in the same way. A per-name counter
+      `docket_anchor_counts(anchor_name, kind, n)`, kept in the same transactions, supplies their
+      totals.
+  - **The ruling's condition** (coordinator, f13: option B).
+    - The user's history-growth rule must hold for the list call of a heavy agent such as
+      coordinator-opus: 10× inactive history may make it at most 5% slower at p95.
+    - The guard seeds that history inside the viewer's own subtree (retired descendants) and among
+      its direct items (archived items it owns, created, reviews or takes part in), not only in
+      another branch.
+    - If the direct pass breaks the rule, the direct part gets a maintained counter too. It is
+      keyed by name, kept in the same transactions, and updated on a move for each distinct
+      creator, reviewer and participant name of the moved subtree.
+    - Option C (no archived totals for agents) is rejected.
   - **Guards:**
     - The authorization oracle checks every total and group count.
-    - The seeds include hidden archived and backlog rows, and access changes that involve no
-      archive transition (a move, a new participant, a new owner).
-    - 1× and 10× seeds must read the same rows.
+    - The seeds include hidden archived and backlog rows, anchors at archived bearers, and access
+      changes that involve no archive transition: a move, a new participant, a new owner, a
+      rename, a delete followed by a same-name hire.
 - **Archive pages are cold reads**, opened explicitly.
   - For the user: a keyset page over the archived index, so rows read are bounded by the page
     size.
@@ -2105,13 +2202,13 @@ predicate stays as the test oracle.
 4. **`turn_tickets.agent_name`** in the app database. Copied so the admission view can show who is
    waiting without opening every org database. It is refreshed when the ticket is written.
 
-5. **The docket's names beside its seat references**: `owner_name`, `reviewer_name`,
+5. **The docket's names beside its agent-row references**: `owner_name`, `reviewer_name`,
    `created_by_name`, `anchor_name`, and participants by name.
-   - Today's authorization works on names, and its assignment check on seats (rev 5, f11). Both
+   - Today's authorization works on names, and its assignment check on agent rows (rev 5–6, f11, f17). Both
      are kept exactly.
    - A name can outlive its agent, so it is not a foreign key.
    - A rename updates both in one transaction, as today's rename updates the stored references.
-6. **`docket_counters` and `docket_anchor_counts`.** These are totals that the header and
+6. **`docket_counters`, `docket_subtree_counts` and `docket_anchor_counts`.** These are totals that the header and
    `work_list` would otherwise compute by reading the archive (rev 5, f13). They are updated in the
    same transaction as the change they count, and a test compares them with a full count.
 
