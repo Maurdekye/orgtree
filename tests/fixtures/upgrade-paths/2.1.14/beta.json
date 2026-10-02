@@ -1,0 +1,418 @@
+{
+  "version": 3,
+  "slug": "beta",
+  "name": "beta",
+  "created": "2026-01-01T00:00:00.000Z",
+  "tiers": {
+    "opus": 4,
+    "fable": 10,
+    "sonnet": 2,
+    "haiku": 1,
+    "sol": 2,
+    "terra": 2,
+    "gpt-reserve": 0.2,
+    "luna": 0.1,
+    "astra": 10,
+    "flash": 1,
+    "pro": 2
+  },
+  "models": {
+    "opus": "claude-opus-4-6",
+    "fable": "claude-fable-5-1",
+    "sonnet": "claude-sonnet-5-5",
+    "haiku": "claude-haiku-4-5",
+    "sol": "gpt-6.1-sol",
+    "terra": "gpt-5.6-terra",
+    "gpt-reserve": "gpt-reserve",
+    "luna": "gpt-6-luna",
+    "astra": "gpt-6-astra",
+    "flash": "gemini-3.8-flash",
+    "pro": "gemini-3.1-pro"
+  },
+  "workspace": "fixture-workspace",
+  "dirs": [],
+  "permission_mode": "acceptEdits",
+  "default_tools": {
+    "bash": true,
+    "web": true,
+    "edit": true,
+    "subagents": true,
+    "mcp": [
+      "*"
+    ]
+  },
+  "default_visibility": "full",
+  "max_top_grant": 1000,
+  "default_top_grant": 50,
+  "credit_requests": [
+    {
+      "id": "credit1",
+      "node": "lead",
+      "old": 4,
+      "new": 5,
+      "at": "2026-01-01T00:00:00.000Z",
+      "status": "resolved"
+    }
+  ],
+  "compact_at": 0.8,
+  "fable_limit_policy": "halt",
+  "fable_filter_policy": "halt",
+  "fable_filter_model": "opus",
+  "nodes": {
+    "lead": {
+      "id": "lead",
+      "name": "lead",
+      "parent": null,
+      "state": "live",
+      "model": "claude-opus-4-6",
+      "tier": "opus",
+      "grant": 4,
+      "generation": 0,
+      "born": "fixture-lead",
+      "seat_id": "fixture-seat",
+      "session_id": "fixture-session",
+      "created": "2026-01-01T00:00:00.000Z",
+      "title": "Synthetic leader",
+      "charter": "Synthetic",
+      "scope": {
+        "permission_mode": "acceptEdits",
+        "add_dirs": [],
+        "tools": {
+          "bash": false,
+          "web": true,
+          "edit": false,
+          "subagents": true,
+          "mcp": []
+        },
+        "org_visibility": "full"
+      },
+      "ui_order": 0.0
+    }
+  },
+  "external_inbox_multi_holder": false,
+  "org_inbox_multi_holder": false,
+  "audiences": [
+    {
+      "grantee": "lead",
+      "grantor": "user",
+      "granted_at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "audience_requests": [
+    {
+      "id": "audience1",
+      "node": "lead",
+      "target": "user",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "cascade_hire": true,
+  "cascade_alloc": true,
+  "kiosk": null,
+  "_migrations": {
+    "mail_log_ids": {
+      "at": "2026-10-02T23:38:27.530Z",
+      "repaired": 0
+    },
+    "steer_attempt_views": {
+      "at": "2026-10-02T23:38:27.530Z",
+      "stripped": 0
+    },
+    "extern_multi_holder_v1": {
+      "at": "2026-10-02T23:38:27.530Z",
+      "mode": "inspect",
+      "holders": [],
+      "multi_holder": false
+    }
+  },
+  "whole_grants_v1": true,
+  "_actors_typed": true,
+  "mail": {
+    "lead": [
+      {
+        "id": "m1",
+        "from": "user",
+        "body": "Synthetic mail",
+        "at": "2026-01-01T00:00:00.000Z"
+      }
+    ]
+  },
+  "notices": {
+    "lead": [
+      {
+        "at": "2026-01-01T00:00:00.000Z",
+        "text": "Synthetic notice"
+      }
+    ]
+  },
+  "delivering": {
+    "lead": [
+      {
+        "tok": "delivery1",
+        "at": "2026-01-01T00:00:00.000Z",
+        "mail": [],
+        "notices": []
+      }
+    ]
+  },
+  "turn_log": {
+    "lead": [
+      {
+        "n": 1,
+        "at": "2026-01-01T00:00:00.000Z",
+        "cost": 1.5,
+        "ms": 10
+      }
+    ]
+  },
+  "mail_transitions": {
+    "lead": {
+      "transition1": {
+        "operation": "deliver",
+        "outcome": "ok"
+      }
+    }
+  },
+  "manual_attempts": {
+    "lead": {
+      "manual1": {
+        "at": "2026-01-01T00:00:00.000Z",
+        "mail_ids": [
+          "m1"
+        ]
+      }
+    }
+  },
+  "asks": [
+    {
+      "id": "ask1",
+      "node": "lead",
+      "kind": "ask",
+      "question": "Synthetic?",
+      "at": "2026-01-01T00:00:00.000Z",
+      "status": "answered",
+      "options": [],
+      "answer": {
+        "text": "Yes"
+      }
+    }
+  ],
+  "scope_requests": [
+    {
+      "id": "scope1",
+      "node": "lead",
+      "items": [],
+      "at": "2026-01-01T00:00:00.000Z",
+      "status": "resolved"
+    }
+  ],
+  "watchdogs": [
+    {
+      "id": "watch1",
+      "owner": "lead",
+      "name": "Synthetic",
+      "kind": "file",
+      "target": "synthetic.log",
+      "state": "paused",
+      "at": "2026-01-01T00:00:00.000Z",
+      "interval_s": 60
+    }
+  ],
+  "watchdog_tombs": [
+    {
+      "id": "watch0",
+      "owner": "lead",
+      "name": "Old",
+      "kind": "file",
+      "target": "old.log",
+      "at": "2026-01-01T00:00:00.000Z",
+      "spent_at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "work_items": [
+    {
+      "slug": "synthetic-task",
+      "title": "Synthetic task",
+      "status": "open",
+      "owner": {
+        "node": "lead",
+        "generation": 0,
+        "born": "fixture-lead"
+      },
+      "at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-01-01T00:00:00.000Z",
+      "acceptance": [],
+      "history": [],
+      "notification_attention_epoch": 1,
+      "notification_attention_active": false
+    },
+    {
+      "slug": "second-task",
+      "title": "Second synthetic task",
+      "status": "open",
+      "at": "2026-01-01T00:00:00.000Z",
+      "updated_at": "2026-01-01T00:00:00.000Z",
+      "notification_attention_epoch": 1,
+      "notification_attention_active": false
+    }
+  ],
+  "lifecycle": [
+    {
+      "operation_id": "life1",
+      "kind": "fixture",
+      "state": "done",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "user_inbox": [
+    {
+      "id": "user1",
+      "from": "lead",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "orphan_keys": {},
+  "account_fallback_default": null,
+  "api_cost_usd": null,
+  "default_account": null,
+  "desktop_import": null,
+  "reply_incarnation": null,
+  "work_deleted_names": [
+    "deleted-task"
+  ],
+  "work_scope_log": {
+    "lead": []
+  },
+  "api_fallback": null,
+  "api_fallback_since": null,
+  "api_fallback_until": null,
+  "api_key": null,
+  "auto_cheap_compact": null,
+  "auto_resume": null,
+  "auto_resume_compact": null,
+  "auto_resume_last": null,
+  "cred_warned_at": null,
+  "default_effort": null,
+  "deleted_cost_usd": null,
+  "deleted_cost_usd_unknown": null,
+  "fable_api_fallback": null,
+  "fable_lock": null,
+  "headless": null,
+  "killswitch": null,
+  "mail_drain_version": null,
+  "max_children": null,
+  "max_depth": null,
+  "net_autoconnect": null,
+  "net_hubs": null,
+  "net_identity": null,
+  "net_spool": null,
+  "net_state": null,
+  "op_receipts_meta": null,
+  "org_inbox_read": null,
+  "reservations": null,
+  "tool_result_receipts": null,
+  "work_identity": null,
+  "op_receipts": [],
+  "steered_log": {
+    "lead": [
+      {
+        "at": "2026-01-01T00:00:00.000Z",
+        "text": "Synthetic steer"
+      }
+    ]
+  },
+  "watchdog_history": [
+    {
+      "watchdog": "watch0",
+      "node": "lead",
+      "at": "2026-01-01T00:00:00.000Z",
+      "gist": "Synthetic"
+    }
+  ],
+  "notice_log": [
+    {
+      "node": "lead",
+      "at": "2026-01-01T00:00:00.000Z",
+      "text": "Archived notice"
+    }
+  ],
+  "work_items_archive": [
+    {
+      "slug": "old-task",
+      "title": "Old task",
+      "status": "done",
+      "archived_at": "2026-01-01T00:00:00.000Z",
+      "history": []
+    }
+  ],
+  "steer_attempts": {
+    "lead": {
+      "attempt1": {
+        "at": "2026-01-01T00:00:00.000Z",
+        "toks": [
+          "delivery1"
+        ]
+      }
+    }
+  },
+  "mail_log": {
+    "lead": [
+      {
+        "id": "m0",
+        "from": "user",
+        "body": "Archived mail",
+        "at": "2026-01-01T00:00:00.000Z"
+      }
+    ]
+  },
+  "org_inbox": [
+    {
+      "id": "org1",
+      "dir": "in",
+      "peer": "synthetic",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "user_mail_log": [
+    {
+      "id": "log1",
+      "from": "lead",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "turn_error_log": {
+    "lead": [
+      {
+        "at": "2026-01-01T00:00:00.000Z",
+        "text": "Synthetic error"
+      }
+    ]
+  },
+  "events": [
+    {
+      "at": "2026-01-01T00:00:00.000Z",
+      "op": "fixture",
+      "actor": "user"
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc1",
+      "node": "lead",
+      "title": "Synthetic",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "user_outbox": [
+    {
+      "id": "out1",
+      "to": "lead",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
