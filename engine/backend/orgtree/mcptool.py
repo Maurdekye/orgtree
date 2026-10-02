@@ -1111,7 +1111,13 @@ TOOLS: list[dict[str, Any]] = [
             "downtime events recovered), command (run each interval; matching "
             "output fires), process (pid:N or port:N; fires when it goes DOWN), "
             "stream (a persistent command such as a tail; each matching line "
-            "fires at once; downtime output lost). command/stream dogs run with "
+            "fires at once; downtime output lost), activity (target=your node "
+            "or any descendant; events: turn_started, turn_done, tool_call NAME). "
+            "fire_mode='event' is the default. fire_mode='silence' requires "
+            "quiet_period_s: fires after that many seconds without a matching "
+            "event. Every match and every fire resets the timer, so silence "
+            "repeats each full quiet period. Alerts go to the owner. "
+            "command/stream dogs run with "
             "your authority (need bash) but ⚠ NOT IN "
             "YOUR SHELL. " + _WD_SHELL_WARNING +
             "shell:\"bash\" uses `bash -lc` and is refused at create if bash is "
@@ -1141,9 +1147,13 @@ TOOLS: list[dict[str, Any]] = [
                          "description": "create: a short name, e.g. "
                                         "build-watch"},
                 "kind": {"type": "string",
-                         "enum": ["file", "command", "process", "stream"]},
+                         "enum": ["file", "command", "process", "stream", "activity"]},
+                "fire_mode": {"type": "string", "enum": ["event", "silence"],
+                              "description": "create: on event (default), or after silence"},
+                "quiet_period_s": {"type": "integer", "minimum": 1,
+                                   "description": "create, silence only: seconds without a matching event; timer resets after each match and fire"},
                 "target": {"type": "string",
-                           "description": "the path, command line, or "
+                           "description": "the activity target node ID, path, command line, or "
                                           "pid:N / port:N. ⚠ command/stream: "
                                           + _WD_SHELL_WARNING},
                 "pattern": {"type": "string",

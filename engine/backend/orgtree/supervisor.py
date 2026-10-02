@@ -1315,6 +1315,9 @@ def live_row(slug: str, nid: str, payload: dict[str, Any]) -> None:
     transcript has caught up on. Sub-second scaffolding — token deltas, the
     thinking clock — deliberately does NOT: it is superseded within the second
     and would only be noise in a fetched payload."""
+    if payload.get('kind') == 'tool':
+        # Only the tool name, never arguments or output, is an activity event.
+        _wd_activity(slug, nid, 'tool_call ' + str(payload.get('text') or 'tool').split(' · ', 1)[0])
     st = state(slug, nid)
     with _state_lock:
         rows = cast("list[dict[str, Any]]", st.setdefault("live", []))
@@ -15542,6 +15545,7 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
             st["live"] = [r for r in (st.get("live") or []) if r.get("sticky")]
             st["busy"] = False
         notify(slug, nid, "turn_done")
+        _wd_activity(slug, nid, 'turn_done')
         return
     nxt: str | dict[str, Any] | None = text
     drained = 0
@@ -21275,6 +21279,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # "the timeout banner does not go away on its own")
             st["last_error"] = None
             notify(slug, nid, "turn_started")
+            _wd_activity(slug, nid, 'turn_started')
             _turn_tier = str(org.node(nid).get("model") or "")
             if _trec is not None:
                 # the node's own retry counter and its origin: the key that
@@ -24638,6 +24643,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # the answer
             st["live"] = [r for r in (st.get("live") or []) if r.get("sticky")]
         notify(slug, nid, "turn_done")
+        _wd_activity(slug, nid, 'turn_done')
         # D-201: whatever this turn did to the seat's process (parked it,
         # killed it, outran a prompt change), the keeper re-checks NOW —
         # "respawn the instant the turn completes", not at the next poll
@@ -27677,6 +27683,7 @@ def manual_compact(slug: str, nid: str) -> None:
             # the answer
             st["live"] = [r for r in (st.get("live") or []) if r.get("sticky")]
         notify(slug, nid, "turn_done")
+        _wd_activity(slug, nid, 'turn_done')
         if nxt is not None:
             _run_turn(slug, nid, nxt)
 
@@ -33653,6 +33660,12 @@ def wd_health(w: dict[str, Any]) -> str | None:
     fired = int(w.get("fired") or 0)
     age = _wd_age_s(w.get("at"))
     out = str(w.get("last_output") or "")
+    if w.get('fire_mode') == 'silence':
+        # No matching output is precisely what this mode is meant to detect;
+        # the event-mode "never fires" and "spent pid" diagnoses don't apply.
+        return (f"on silence: {w.get('quiet_period_s')}s without a matching event"
+                + ('; stream exited — resume to restart the listener'
+                   if w.get('exit') else ''))
     sig = wd_output_broken(out)
     if sig:
         # the loudest case, and the one this whole fix exists for: the dog is
@@ -33674,6 +33687,8 @@ def wd_health(w: dict[str, Any]) -> str | None:
                     f"it is still alive; a stream that EXITS moves to state "
                     f"'exited').")
         return None
+    if kind == 'activity':
+        return None  # event-driven listener, not an unstarted polling check
     if runs == 0:
         if age is not None and age >= _WD_NEVER_RAN_AGE_S:
             return (f"⚠ armed {_wd_hours(age)} ago but has NEVER RUN A CHECK "
@@ -33699,7 +33714,8 @@ def wd_health(w: dict[str, Any]) -> str | None:
 WD_LIST_FIELDS: tuple[str, ...] = (
     "id", "owner", "name", "kind", "target", "pattern", "interval_s",
     "state", "fired", "last_fired", "notice", "shell", "last_check",
-    "checks_run", "last_output", "last_exit", "paused_why", "exit")
+    "checks_run", "last_output", "last_exit", "paused_why", "exit",
+    "quiet_period_s", "silence_since")
 
 
 def wd_list_row(w: dict[str, Any]) -> dict[str, Any]:
@@ -33709,7 +33725,9 @@ def wd_list_row(w: dict[str, Any]) -> dict[str, Any]:
     verify it by re-implementing it — and a re-implementation stays green
     however the shipped one drifts. That is the abstention shape again, one
     level up: a test of a copy proves nothing about the original."""
+    from . import watchdog_config
     return {**{k: w.get(k) for k in WD_LIST_FIELDS if w.get(k) is not None},
+            **watchdog_config.projection(w),
             # always present, even when there is nothing wrong: a field that
             # appears only on unhealthy dogs cannot be trusted to be absent
             # for a healthy one
@@ -33757,6 +33775,10 @@ def wd_smoke(org: Org, owner: str, kind: str, target: str,
             res["ran"] = f"{target} does not exist yet"
             res["note"] = ("that is fine — the dog starts watching when it "
                            "appears; but a typo in the path looks identical.")
+        return res
+    if kind == 'activity':
+        res['ran'] = f'watching turns and tool calls of {target}'
+        res['note'] = 'event lines: turn_started, turn_done, tool_call NAME; no tool arguments or output'
         return res
     if kind == "process":
         up = _wd_proc_alive(target)
@@ -33867,6 +33889,12 @@ def _wd_owner_lost(org: Org, w: dict[str, Any]) -> str | None:
         return (Org.WATCHDOG_ARCHIVE_PAUSE if n["state"] == "archived"
                 else f"its owner is {n['state']}")
     kind = str(w["kind"])
+    if kind == 'activity':
+        # The policy snapshot contains only owners. Read the current chain;
+        # delivery revalidates it under shared node locks as well.
+        current = orgtx.org_read(str(org.d['slug']))
+        if not _wd_activity_allowed(current, w):
+            return 'its activity target is no longer itself or a descendant'
     if kind in ("command", "stream") and not n["scope"]["tools"].get("bash"):
         return "its owner no longer holds bash — the hands it runs with"
     if kind in ("command", "stream") and str(w.get("shell") or "") == "bash" \
@@ -33994,7 +34022,7 @@ def _wd_pause(slug: str, wid: str, why: str) -> None:
 
 
 def _wd_fire(slug: str, wid: str, name: str, lines: list[str],
-             prefix: str = "") -> None:
+             prefix: str = "", *, silence_only: bool = False) -> None:
     """Record + mail + drive + spark. Every step tolerates the dog or owner
     having changed since the check ran.
 
@@ -34033,6 +34061,30 @@ def _wd_fire(slug: str, wid: str, name: str, lines: list[str],
         # be substituted) and survives the removal.
         try:
             w0 = org._watchdog(wid)
+            hold(rcdoor.watchdog_activity_rows(org, w0))
+            if not _wd_activity_allowed(org, w0):
+                w0['state'] = 'paused'
+                w0['paused_why'] = 'its activity target is no longer itself or a descendant'
+                return (False, False, '', None)
+            if silence_only:
+                from . import watchdog_config
+                # Capture a line/turn that arrived after this tick's snapshot.
+                # These producers take no storage locks, so this cannot invert
+                # a provider thread's lock order.
+                with _wd_lock:
+                    stamps = [stamp for (s, n, line), stamp in _wd_activity_pending.items()
+                              if w0.get('kind') == 'activity' and s == slug
+                              and n == w0['target'] and (not w0.get('pattern')
+                              or re.search(str(w0['pattern']), line))]
+                    ent = _wd_streams.get((slug, wid))
+                    if ent and ent.get('matched_at'):
+                        stamps.append(str(ent['matched_at']))
+                if stamps:
+                    watchdog_config.reset(w0, max(stamps))
+                if not watchdog_config.due(w0, time.time()):
+                    # Persist a newly observed match even when it cancelled
+                    # this alarm; the clock must survive a restart.
+                    return (False, False, '', None)
             flags = (bool(w0.get("notice")), bool(w0.get("once")),
                      str(w0.get("kind") or ""))
             o0 = str(w0.get("owner") or "")
@@ -34044,8 +34096,10 @@ def _wd_fire(slug: str, wid: str, name: str, lines: list[str],
                                           lines=lines, prefix=prefix),)
 
     try:
-        notice, one_shot, kind, owner = _wd_write(
-            slug, _fire, owner=_wd_owner_guess(slug, wid))
+        got = _wd_write(slug, _fire, owner=_wd_owner_guess(slug, wid))
+        if got is None:
+            return
+        notice, one_shot, kind, owner = got
     except LedgerError:
         return
     if one_shot and owner and kind == "stream":
@@ -34197,6 +34251,103 @@ def _wd_alert(slug: str, wid: str, lost: dict[str, Any]) -> None:
                  wake=True, mail_ping=True)
 
 
+_wd_activity_pending: dict[tuple[str, str, str], str] = {}
+
+
+def _wd_activity(slug: str, nid: str, line: str) -> None:
+    """Capture real activity without IO or lock inversion on a provider thread.
+
+    Coalesce identical event lines until the next tick, keeping their latest
+    occurrence. Lines are fixed turn markers or tool names, never user data.
+    """
+    with _wd_lock:
+        _wd_activity_pending[(slug, nid, line)] = now_iso()
+
+
+def _wd_activity_allowed(org: Org, w: dict[str, Any]) -> bool:
+    if w.get('kind') != 'activity':
+        return True
+    target, owner = str(w['target']), str(w['owner'])
+    return target in org.nodes and (target == owner or org.is_ancestor(owner, target))
+
+
+def _wd_event(slug: str, wid: str, name: str, lines: list[str],
+              observed_at: str | None = None) -> None:
+    """A matching source event: reset silence, or deliver in event mode."""
+    from . import watchdog_config, rcdoor
+    stamp = observed_at or now_iso()
+    def mark(org: Org, hold: Callable[[Any], None]) -> bool:
+        try:
+            w = org._watchdog(wid)
+        except LedgerError:
+            raise _WdSkip() from None
+        hold(rcdoor.watchdog_activity_rows(org, w))
+        if w.get('state') != 'armed':
+            raise _WdSkip()
+        if not _wd_activity_allowed(org, w):
+            w['state'] = 'paused'
+            w['paused_why'] = 'its activity target is no longer itself or a descendant'
+            return False
+        # Activity captured before this dog was created is not its event.
+        if observed_at and (watchdog_config.epoch(stamp) or 0) < (watchdog_config.epoch(w.get('at')) or 0):
+            raise _WdSkip()
+        if w.get('kind') == 'activity':
+            _wd_mark_check(w, time.time(), '\n'.join(lines))
+        if watchdog_config.silence(w):
+            watchdog_config.reset(w, stamp)
+            return False
+        return True
+    try:
+        deliver = _wd_write(slug, mark)
+    except LedgerError:
+        return
+    if deliver:
+        _wd_fire(slug, wid, name, lines)
+
+
+def _wd_activity_flush() -> None:
+    from .policy_reads import watchdog_org
+    from . import watchdog_config
+    with _wd_lock:
+        pending = dict(_wd_activity_pending)
+        _wd_activity_pending.clear()
+    grouped: dict[str, list[tuple[str, str, str]]] = {}
+    for (slug, nid, line), stamp in pending.items():
+        grouped.setdefault(slug, []).append((nid, line, stamp))
+    for slug, entries in grouped.items():
+        try:
+            dogs = watchdog_org(slug).d.get('watchdogs') or []
+            for w in dogs:
+                if w.get('kind') != 'activity' or w.get('state') != 'armed':
+                    continue
+                pat = re.compile(str(w['pattern'])) if w.get('pattern') else None
+                created = watchdog_config.epoch(w.get('at')) or 0
+                matches = [(line, stamp) for nid, line, stamp in entries
+                           if nid == w['target']
+                           and (watchdog_config.epoch(stamp) or 0) >= created
+                           and (pat is None or pat.search(line))]
+                if matches:
+                    _wd_event(slug, str(w['id']), str(w['name']),
+                              [line for line, _ in matches], max(stamp for _, stamp in matches))
+        except LedgerError:
+            continue
+        except Exception:                                     # noqa: BLE001
+            # A failed database write must not turn captured activity into
+            # silence. Retry it on the next tick, retaining newer captures.
+            with _wd_lock:
+                for nid, line, stamp in entries:
+                    key = (slug, nid, line)
+                    _wd_activity_pending[key] = max(stamp, _wd_activity_pending.get(key, stamp))
+
+
+def _wd_silence_check(slug: str, w: dict[str, Any]) -> None:
+    from . import watchdog_config
+    if watchdog_config.due(w, time.time()):
+        _wd_fire(slug, str(w['id']), str(w['name']),
+                 [f"No matching event for {w['quiet_period_s']}s from {w['target']}"],
+                 prefix=' SILENCE —', silence_only=True)
+
+
 def _wd_mark_check(w: dict[str, Any], now_t: float, raw: str = "",
                    code: Any = None) -> None:
     """Stamp a dog with the fact that a check RAN, and with what it saw.
@@ -34316,7 +34467,9 @@ def _wd_check_poll(slug: str, w: dict[str, Any],
         _wd_note_life(hw, up)
         seen = f"({tgt} is {'UP' if up else 'DOWN'}; {obs['reason']})"
         if was_up is True and not up:           # the DOWN edge, only
-            return [f"{tgt} went DOWN"], hw, seen
+            line = f"{tgt} went DOWN"
+            return ([line] if w.get('fire_mode', 'event') == 'event'
+                    or pat is None or pat.search(line) else []), hw, seen
         # a target that has been DOWN since the dog was armed will never show
         # the edge — say so, rather than let `fired: 0` imply "still healthy"
         return [], hw, (seen + (" — and has never been seen UP, so the DOWN "
@@ -34419,8 +34572,11 @@ def _wd_cmd_submit(slug: str, w: dict[str, Any], org: Org,
             return                              # removed mid-check
         lost = got[0]
         if lines:
-            _wd_fire(slug, wid, str(w["name"]), lines)
-        if lost:
+            from . import watchdog_config
+            # Spawn failures/timeouts are diagnostics, not matching output.
+            if code is not None or not watchdog_config.silence(w):
+                _wd_event(slug, wid, str(w["name"]), lines)
+        if lost and w.get('fire_mode', 'event') == 'event':
             _wd_alert(slug, wid, lost)
 
     try:
@@ -34440,6 +34596,7 @@ def _wd_tick() -> None:
     # Only settings and dog owners are read, including archived owners whose
     # dogs must pause. Every state change retains its existing locked write.
     from .policy_reads import poll_orgs, watchdog_org
+    _wd_activity_flush()
     for slug, org in poll_orgs(watchdog_org):
         dogs = cast("list[dict[str, Any]]",
                     org.d.get("watchdogs") or [])
@@ -34457,11 +34614,16 @@ def _wd_tick() -> None:
                     continue
             if kind == "stream":
                 _wd_ensure_stream(slug, org, w, key)
+                _wd_silence_check(slug, w)
                 continue
             if w.get("state") != "armed":
                 continue
+            if kind == 'activity':
+                _wd_silence_check(slug, w)
+                continue
             last = w.get("_last_check_ts") or 0
             if now_t - float(last) < float(w.get("interval_s") or 60):
+                _wd_silence_check(slug, w)
                 continue
             if kind == "command":
                 # off-thread (redteam measurement 2026-08-12): a command's
@@ -34469,6 +34631,7 @@ def _wd_tick() -> None:
                 # runs it, a done-callback applies it, and the in-flight set
                 # keeps a slow command from stacking behind itself
                 _wd_cmd_submit(slug, w, org, now_t)
+                _wd_silence_check(slug, w)
                 continue
             lines, hw, seen = _wd_check_poll(slug, w, org)
             def _mark(o2: Org, hold: Callable[[Any], None],
@@ -34491,8 +34654,9 @@ def _wd_tick() -> None:
                 continue                        # removed mid-check
             lost = got[0]
             if lines:
-                _wd_fire(slug, wid, str(w["name"]), lines)
-            if lost:
+                _wd_event(slug, wid, str(w["name"]), lines)
+            _wd_silence_check(slug, w)
+            if lost and w.get('fire_mode', 'event') == 'event':
                 _wd_alert(slug, wid, lost)
     # streams whose dog was removed/paused since spawn: reap
     with _wd_lock:
@@ -34516,6 +34680,7 @@ def _wd_ensure_stream(slug: str, org: Org, w: dict[str, Any],
     is an event of its own + state 'exited' — resume re-spawns."""
     with _wd_lock:
         ent = _wd_streams.get(key)
+    silence = w.get('fire_mode', 'event') == 'silence'
     if w.get("state") != "armed":
         if ent:
             _wd_reap_stream(key)
@@ -34524,31 +34689,39 @@ def _wd_ensure_stream(slug: str, org: Org, w: dict[str, Any],
         # running — flush a due buffer
         gap = max(5.0, float(w.get("interval_s") or 5))
         with _wd_lock:
-            due = (ent["buf"]
-                   and time.time() - ent["last_fire"] >= gap)
+            due = (ent["buf"] and (silence or
+                   time.time() - ent["last_fire"] >= gap))
             batch = list(ent["buf"]) if due else []
+            matched_at = ent.get('matched_at')
             if due:
                 ent["buf"].clear()
                 ent["last_fire"] = time.time()
         _wd_stream_stats(slug, key[1], ent)
         if batch:
-            _wd_fire(slug, key[1], str(w["name"]), batch)
+            _wd_event(slug, key[1], str(w["name"]), batch, matched_at)
         return
     if ent is not None:
         # exited — final flush, notify, mark
         code = ent["proc"].poll()
         with _wd_lock:
             tail = list(ent["buf"])
+            matched_at = ent.get('matched_at')
             _wd_streams.pop(key, None)
-        _wd_fire(slug, key[1], str(w["name"]),
-                 tail + [f"(stream exited with code {code})"],
-                 prefix=" STREAM EXITED —")
+        if silence:
+            if tail:
+                _wd_event(slug, key[1], str(w['name']), tail, matched_at)
+        else:
+            _wd_fire(slug, key[1], str(w["name"]),
+                     tail + [f"(stream exited with code {code})"],
+                     prefix=" STREAM EXITED —")
         def _exited(o2: Org, hold: Callable[[Any], None]) -> None:
             try:
                 w2 = o2._watchdog(key[1])
             except LedgerError:
                 raise _WdSkip() from None
-            w2["state"] = "exited"
+            if w2.get('state') != 'armed':
+                raise _WdSkip()
+            w2["state"] = "armed" if silence else "exited"
             w2["exit"] = {"code": code, "at": now_iso()}
         try:
             _wd_write(slug, _exited)
@@ -34556,6 +34729,8 @@ def _wd_ensure_stream(slug: str, org: Org, w: dict[str, Any],
             pass
         return
     # not running — spawn + reader
+    if silence and w.get('exit'):
+        return  # keep the silence clock running; resume explicitly re-spawns
     try:
         proc = _wd_popen(org, str(w["owner"]), str(w["target"]),
                          w.get("shell"))
@@ -34582,6 +34757,7 @@ def _wd_ensure_stream(slug: str, org: Org, w: dict[str, Any],
                     ent["last_line"] = ln[:_WD_OUT_KEEP]
                 if pat is None or pat.search(ln):
                     with _wd_lock:
+                        ent['matched_at'] = now_iso()
                         if len(ent["buf"]) < 200:
                             ent["buf"].append(ln)
         except (OSError, ValueError):

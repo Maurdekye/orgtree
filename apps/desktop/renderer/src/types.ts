@@ -648,7 +648,10 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity'
+  fire_mode?: 'event' | 'silence'
+  quiet_period_s?: number
+  silence_since?: string
   target: string
   pattern?: string
   interval_s: number

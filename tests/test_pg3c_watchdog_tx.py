@@ -292,6 +292,35 @@ class WatchdogDoor(unittest.TestCase):
         self.assertTrue(res['smoke'].get('ran'), res['smoke'])
         self.assertIn('w', [w['name'] for w in self.durable().get('watchdogs') or []])
 
+    def test_tool_activity_create_locks_the_target_chain_in_one_attempt(self) -> None:
+        self.token('boss')
+        hook = Attempts()
+        orgtx.set_pause_hook(hook)
+        r = self.call('boss', {'action': 'create', 'name': 'activity',
+                              'kind': 'activity', 'target': 'x',
+                              'fire_mode': 'silence', 'quiet_period_s': 20})
+        orgtx.set_pause_hook(None)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(hook.attempts, 1, 'activity authority widened its row plan')
+        w = self.durable()['watchdogs'][0]
+        self.assertEqual((w['fire_mode'], w['quiet_period_s']), ('silence', 20))
+
+    def test_silence_reset_on_the_door_survives_a_stale_fire_check(self) -> None:
+        org = store.load_org(self.slug)
+        wid = org.watchdog_create('boss', 'activity', 'activity', 'x',
+                                  fire_mode='silence', quiet_period_s=20)['id']
+        store.save_org(org)
+        stale = dict(self.the_dog(wid))
+        from orgtree import watchdog_config
+        from datetime import datetime, timezone
+        at = watchdog_config.epoch(stale['silence_since'])
+        matched = datetime.fromtimestamp(at + 20, timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+        with patch.object(supervisor.time, 'time', return_value=at + 20):
+            supervisor._wd_event(self.slug, wid, 'activity', ['turn_started'], matched)
+            supervisor._wd_silence_check(self.slug, stale)
+        self.assertEqual(self.the_dog(wid)['fired'], 0)
+        self.assertFalse(self.box('boss'))
+
     def test_tool_pause_by_an_ancestor_is_one_transaction(self) -> None:
         wid = self.dog()
         self.token('boss')

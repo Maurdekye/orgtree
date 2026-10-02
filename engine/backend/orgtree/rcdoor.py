@@ -191,7 +191,15 @@ def watchdog_fire_rows(owner: str) -> pgdoor.TxSpec:
     plus the wake mail's deposit into the owner's box. `watchdog_history` is
     appended, so it is named as a log."""
     return union(watchdog_rows(), _mail(owner),
-                 _spec(logs=("watchdog_history",)))
+                   _spec(logs=("watchdog_history",)))
+
+
+def watchdog_activity_rows(org: Any, w: dict[str, Any]) -> pgdoor.TxSpec:
+    """Lock the watched target's chain so a move cannot race activity delivery."""
+    if w.get('kind') != 'activity':
+        return watchdog_rows()
+    target, owner = str(w.get('target') or ''), str(w.get('owner') or '')
+    return union(watchdog_rows(), _spec(share_nodes=chain(org, target, owner)))
 
 
 def watchdog_action_rows(org: Any, actor: str, wid: str) -> pgdoor.TxSpec:
@@ -213,6 +221,9 @@ def watchdog_action_rows(org: Any, actor: str, wid: str) -> pgdoor.TxSpec:
 def watchdog_spec(snapshot: Any, body: Any, a: dict[str, Any]
                   ) -> pgdoor.TxSpec:
     act = str(a.get("action") or "")
+    if act == 'create' and a.get('kind') == 'activity':
+        return watchdog_activity_rows(snapshot, {'kind': 'activity',
+            'target': a.get('target'), 'owner': body.node})
     if act in ("pause", "resume", "remove", "supersede"):
         return watchdog_action_rows(snapshot, body.node,
                                     str(a.get("id") or ""))
@@ -416,6 +427,8 @@ def _watchdog_body(tx: Any) -> Any:
     require(tx.spec, watchdog_rows())
     kind = str(a.get("kind") or "")
     tgt = str(a.get("target") or "").strip()
+    if kind == 'activity':
+        require(tx.spec, watchdog_activity_rows(org, {'kind': kind, 'target': tgt, 'owner': node}))
     if kind == "file":
         # capability containment — see api.agent_call's copy of this branch
         # for the reasoning; the rule itself is `wd_file_contained`
@@ -449,7 +462,7 @@ def _watchdog_body(tx: Any) -> Any:
     result = org.watchdog_create(
         node, a.get("name"), kind, tgt, a.get("pattern"),
         a.get("interval_s") or 60, a.get("notice"), a.get("shell"),
-        a.get("once"))
+        a.get("once"), a.get("fire_mode"), a.get("quiet_period_s"))
     smoke_org = org
 
     def _smoke(res: Any, _k: str = kind, _t: str = tgt) -> None:

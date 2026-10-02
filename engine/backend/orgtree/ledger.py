@@ -49,7 +49,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
 from . import (clipin, events, events_render, lifecycle, opreceipts,
-               toolmarkup, workfields)
+               toolmarkup, watchdog_config, workfields)
 from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
                      NoticeEntry, NoticeLogEntry, OrgDoc, OrgInboxEntry, ToolGrant,
                      UserMailEntry, WorkActor, WorkItem, WorkScopeRecord,
@@ -5510,6 +5510,7 @@ class Org:
                 and w.get("paused_why") == self.WATCHDOG_ARCHIVE_PAUSE]
         for w in woke:
             w["state"] = "armed"
+            watchdog_config.reset(w, now())
             w.pop("paused_why", None)
         if woke:
             warnings.append(
@@ -8552,7 +8553,7 @@ class Org:
                 "resolved": resolved}
 
     # ---------------------------------------------------- FR-18 watchdogs
-    WATCHDOG_KINDS: Final = ("file", "command", "process", "stream")
+    WATCHDOG_KINDS: Final = ("file", "command", "process", "stream", "activity")
     WATCHDOG_PER_AGENT: Final = 8       # runaway insurance (№34 spirit) —
     WATCHDOG_PER_ORG: Final = 32        # pets are free, never unbounded
     WATCHDOG_MIN_INTERVAL: Final = 15   # poll floor (s); streams: min fire gap 5
@@ -8616,7 +8617,9 @@ class Org:
                         interval_s: Any = 60,
                         notice: Any = False,
                         shell: Any = None,
-                        once: Any = False) -> dict[str, Any]:
+                        once: Any = False,
+                        fire_mode: Any = None,
+                        quiet_period_s: Any = None) -> dict[str, Any]:
         """FR-18 (user request 2026-08-07, rulings 2026-08-12): a PET — a
         persistent watcher that mails its owner when its target produces a
         matching event. Free by ruling (never enters TIERS), bounded
@@ -8630,6 +8633,11 @@ class Org:
                    surfaces the moment it occurs (user ruling: the realtime
                    alternative to a cadence); dies with orgtree, re-armed by
                    the engine at startup — downtime output is honestly lost
+          activity an agent's turns and tool calls; target must be the owner
+                   or a descendant. The alert is always sent to the owner.
+        fire_mode defaults to event. Silence mode requires quiet_period_s;
+        each matching event and each fire resets its persisted timer. Pause
+        suspends the alarm; resume starts a full quiet period.
         Capability rule (ruling): a dog runs with its OWNER's hands —
         command/stream require the owner to hold bash; file paths are
         containment-checked at the API boundary against the owner's readable
@@ -8696,6 +8704,14 @@ class Org:
             m = re.fullmatch(r"(pid|port):(\d+)", tgt)
             if not m:
                 raise LedgerError("process targets are `pid:N` or `port:N`")
+        if kind == "activity":
+            self._require_live(tgt)
+            if owner != tgt and not self.is_ancestor(owner, tgt):
+                raise LedgerError("activity target must be yourself or a descendant")
+        try:
+            fire_settings = watchdog_config.settings(fire_mode, quiet_period_s, now())
+        except ValueError as e:
+            raise LedgerError(str(e)) from e
         sh = str(shell or "native").strip().lower()
         if sh not in self.WATCHDOG_SHELLS:
             raise LedgerError(f"shell must be one of {self.WATCHDOG_SHELLS}")
@@ -8731,6 +8747,7 @@ class Org:
         dogs.append({"id": wid, "owner": owner, "name": name, "kind": kind,
                      "target": tgt, **({"pattern": pat} if pat else {}),
                      "interval_s": iv, "state": "armed", "at": now(),
+                     **fire_settings,
                      **({"notice": True} if quiet else {}),
                      # stored ONLY when it is not the default — an absent key
                      # is what makes every pre-existing dog native by
@@ -8748,13 +8765,15 @@ class Org:
                    **({"once": True} if one_shot else {}),
                    **({"shell": sh} if sh != "native" else {})}, [])
         return {"id": wid, "name": name, "notice": quiet, "shell": sh,
+                **watchdog_config.projection(dogs[-1]),
                 "once": one_shot,
                 "status": ("armed — ONE-SHOT " if one_shot else "armed — ")
                           + f"{kind} watchdog"
                           + (f" every {iv}s" if kind != "stream"
                              else " (realtime stream)")
-                          + ". A matching event arrives as mail from "
-                            f"\"{name}\""
+                          + (f". Silence for {quiet_period_s}s arrives as mail from "
+                             if fire_settings else ". A matching event arrives as mail from ")
+                          + f"\"{name}\""
                           + (" and waits in your mailbox WITHOUT starting a "
                              "turn — you read it whenever you next run"
                              if quiet else " and wakes you")
@@ -8774,6 +8793,7 @@ class Org:
             w["state"] = "paused"
         elif action == "resume":
             w["state"] = "armed"
+            watchdog_config.reset(w, now())
             w.pop("exit", None)
             # an engine-side pause explains itself (supervisor `_wd_pause`);
             # resuming is the answer to it, so the reason goes with it
@@ -8800,6 +8820,7 @@ class Org:
                           "name": str(w["name"]), "kind": str(w["kind"]),
                           "target": str(w.get("target") or ""),
                           "interval_s": w.get("interval_s"), "at": w.get("at"),
+                          **watchdog_config.projection(w),
                           "spent_at": now(), "state": "superseded",
                           "superseded_by": actor, "reason": why,
                           "once": True})
@@ -8887,6 +8908,7 @@ class Org:
         one_shot = bool(w.get("once"))
         w["fired"] = int(w.get("fired") or 0) + 1
         w["last_fired"] = now()
+        watchdog_config.reset(w, w["last_fired"])
         ring = cast("list[dict[str, Any]]", w.setdefault("events", []))
         fire = {"at": now(), "gist": gist[:200]}
         history = self.d.setdefault("watchdog_history", [])
@@ -8965,6 +8987,7 @@ class Org:
                           "kind": str(w["kind"]),
                           "target": str(w.get("target") or ""),
                           "interval_s": w.get("interval_s"),
+                          **watchdog_config.projection(w),
                           "at": w.get("at"), "spent_at": now(),
                           "fired": int(w.get("fired") or 0),
                           **({"notice": True} if w.get("notice") else {})})
@@ -11830,7 +11853,8 @@ class Org:
             # `undefined` and asked to guess, and a field that is absent for
             # most dogs is one a component will eventually read as "false"
             # from the wrong object. It is a boolean at this boundary.
-            "watchdogs": [{**w, "once": bool(w.get("once")), "spent": False}
+            "watchdogs": [{**w, **watchdog_config.projection(w),
+                           "once": bool(w.get("once")), "spent": False}
                           for w in (self.d.get("watchdogs") or [])]
             # D-200: spent one-shot dogs ride along for WATCHDOG_TOMB_TTL_S so
             # the canvas can finish drawing the fire that killed them. They

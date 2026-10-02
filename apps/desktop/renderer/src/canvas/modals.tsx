@@ -190,20 +190,28 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
         <div className="field-label">{dog.kind === 'file' ? 'watched file'
           : dog.kind === 'process' ? 'watched process'
           : dog.kind === 'stream' ? 'listening command (realtime)'
+          : dog.kind === 'activity' ? 'watched agent'
           : 'command (each interval)'}</div>
         <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}
           onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>
         {dog.pattern && <>
-          <div className="field-label">fires on lines matching</div>
+          <div className="field-label">{dog.fire_mode === 'silence'
+            ? 'events that reset the silence timer' : 'fires on lines matching'}</div>
           <div className={'chip mono grow wd-cmd' + (expPattern ? ' wd-expand' : '')}
             title={expPattern ? 'click to collapse' : 'click to see the full text'}
             onClick={() => setExpPattern((v) => !v)}>{dog.pattern}</div>
         </>}
+        <div className="field-label">fire mode</div>
+        <div className="dim">{dog.fire_mode === 'silence'
+          ? `on silence — ${dog.quiet_period_s}s without a matching event; resets after each match and fire`
+          : 'on a matching event'}</div>
         <div className="dim">
-          {dog.kind === 'stream'
-            ? `realtime — fires at most every ${dog.interval_s}s (coalesced)`
-            : `checked every ${dog.interval_s}s`}
+          {dog.kind === 'activity' ? 'turns and tool calls'
+            : dog.kind === 'stream'
+              ? dog.fire_mode === 'silence' ? 'realtime — silence checked every 5s'
+                : `realtime — fires at most every ${dog.interval_s}s (coalesced)`
+              : `checked every ${dog.interval_s}s`}
           {' · '}{dog.fired} event{dog.fired === 1 ? '' : 's'} sent
           {dog.last_fired ? ` · last ${ago(dog.last_fired)} ago` : ''}
           {' · free (a pet, not a seat)'}
