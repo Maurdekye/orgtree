@@ -25,6 +25,7 @@ from unittest.mock import patch
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import test_orgdb_compat_pg as fx
 from orgtree import api, ledger, org_listing, org_summary, store
+from orgtree.ledger import LedgerError
 from orgtree.orgdb import registry
 
 setUpModule = fx.setUpModule
@@ -75,7 +76,8 @@ class OrgsList(unittest.TestCase):
         # 0.1 + 0.2 + 0.00005: the decimal total rounds to 0.3, the float sum in ord order to 0.3001
         with fx.storage(True):
             slug = org_with('Half Cent', [0.1, 0.2, 0.00005])
-            with patch.object(api, '_orgdb_org_row_complete',
+            # create=True: on code without the split the value itself must fail (0.3001)
+            with patch.object(api, '_orgdb_org_row_complete', create=True,
                               side_effect=AssertionError('the complete reader ran')):
                 row = row_of(slug)
             _summary, totals = org_summary._read(slug)
@@ -94,6 +96,25 @@ class OrgsList(unittest.TestCase):
         self.assertEqual(complete.call_count, 1)
         self.assertEqual(set(row), ROW_KEYS)
         self.assertEqual((row['cost_usd_total'], row['nodes']), (1.75, 2))
+
+
+@fx.needs_pg
+class GoneOrgReads(unittest.TestCase):
+    """A7b batch 3 (B3G1-A1): the docket of an org that is missing or deleted is not found
+    (404), as with the legacy storage, not a server error."""
+
+    def test_the_docket_of_a_missing_or_deleted_org_is_not_found(self) -> None:
+        from fastapi import HTTPException
+        from orgtree.orgdb import docket
+        with fx.storage(True):
+            with self.assertRaises(LedgerError):
+                with docket.read('no-such-org'):
+                    pass
+            slug = org_with('Gone Docket', [0.0])
+            store.delete_org(slug)
+            with self.assertRaises(HTTPException) as caught:
+                api.work_items_view(slug)
+        self.assertEqual(caught.exception.status_code, 404)
 
 
 if __name__ == '__main__':

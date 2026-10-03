@@ -19,6 +19,11 @@ ENGINE_STORE_VARS = ("ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_PG_URL",
                      # the packaged desktop's fresh-root bootstrap switch: an
                      # engine an agent starts must never bind a new root
                      "ORGTREE_PG_BOOTSTRAP",
+                     # 3.2.0's storage switch, which the launch now sets in the
+                     # engine's environment, and the org-database prefix and
+                     # admin connection a developer engine may carry: a child's
+                     # own store is never switched for it (A7b, G3-A2)
+                     "ORGTREE_STORAGE", "ORGTREE_ORGDB_PREFIX", "ORGTREE_PG_ADMIN_CONNINFO",
                      "PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD",
                      "PGPASSFILE", "PGSERVICE")
 

@@ -116,6 +116,14 @@ store.create_org('must-not-exist')
         self.assertIn('explicit independent', result.stderr)
         self.assertFalse((self.live/'orgs'/'must-not-exist.db').exists())
 
+    def test_the_new_storage_switch_and_its_connections_never_reach_a_child(self):
+        # A7b (G3-A2): the launch puts ORGTREE_STORAGE in the engine's own environment; a
+        # developer engine may also carry the org-database prefix and the admin connection
+        from orgtree import devguard
+        env = {'ORGTREE_STORAGE': 'orgdb', 'ORGTREE_ORGDB_PREFIX': 'dev_',
+               'ORGTREE_PG_ADMIN_CONNINFO': 'host=localhost user=admin', 'KEEP': '1'}
+        self.assertEqual(devguard.child_env(dict(env), parent={}), {'KEEP': '1'})
+
     def test_non_desktop_child_contract_unchanged(self):
         self.env.pop('ORGTREE_DESKTOP_MANAGED')
         for provider in ('claude', 'codex', 'antigravity'):

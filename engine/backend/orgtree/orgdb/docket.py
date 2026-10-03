@@ -6,11 +6,11 @@ Hot reads select active rows and archived attention; history is an explicit read
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import math
 import time
 
-from ..ledger import Org, USER
+from ..ledger import LedgerError, Org, USER
 from .. import workquery
 from ..work_ui import FIELDS
 from . import codec, registry
@@ -104,9 +104,15 @@ def _decode(raw, main, spec):
 
 @contextmanager
 def read(slug, *, viewer=USER, now_ts=None):
-    """One checked registry connection and one RR/RO transaction per request."""
-    row = registry.lookup(slug)
-    with registry.connection(slug) as raw:
+    """One checked registry connection and one RR/RO transaction per request. An org that is
+    missing or not active (deleted, trashed, being deleted) is LedgerError('no such org'), as
+    the legacy readers raise, so a route answers 404 and not 500 (A7b, B3G1-A1)."""
+    with ExitStack() as stack:
+        row = registry.lookup(slug)
+        try:
+            raw = stack.enter_context(registry.connection(slug))
+        except registry.OrgUnavailable as e:
+            raise LedgerError(f"no such org: {slug!r}") from e
         if raw.info.transaction_status != 0:
             raise RuntimeError('native docket cannot reuse a writer transaction')
         raw.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')

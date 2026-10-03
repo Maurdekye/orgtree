@@ -230,8 +230,11 @@ def foreground_unchanged(slug, *, backlogged=False, since='', now_ts=None):
     from .orgdb import enabled
     if enabled():
         from .orgdb import docket
-        with docket.read(store._safe_slug(slug),now_ts=now_ts) as q:
-            return since == _etag(slug,q.org_id,USER,backlogged,q.catalog,q.deadline_count(),identity=q.incarnation)
+        try:
+            with docket.read(store._safe_slug(slug),now_ts=now_ts) as q:
+                return since == _etag(slug,q.org_id,USER,backlogged,q.catalog,q.deadline_count(),identity=q.incarnation)
+        except Exception:                                            # noqa: BLE001
+            return False      # as below: the full path decides (and answers a gone org 404)
     try:
         slug = store._safe_slug(slug)
         if not os.path.exists(store._db_path(slug)):
