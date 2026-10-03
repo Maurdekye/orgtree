@@ -567,6 +567,11 @@ def windows_fixture(slug: str) -> None:
             ('grant', 'boss', {'grantee': 'dev'}, _t(2)), ('mail', 'dev', {'to': 'ops'}, _t(3)),
             ('reply', 'ops', {'from': 'dev'}, _t(2)), ('noise', 'ops', {'node': 'ops'}, _t(3)),
             ('weird', 'dev', 'a detail that is text', None), ('null at', 'dev', {}, 'NULL'),
+            # `at` of another shape, ordered by its legacy jsonb text (review A6 f2): the
+            # non-ASCII one sorts first, which an ASCII-escaped rendering would reverse
+            ('accent', 'dev', {}, ['é']), ('ascii', 'dev', {}, ['z']),
+            ('object at', 'dev', {}, {'zz': 1, 'a': 'é'}),
+            ('numeric actor', 7, {'node': 'ops'}, _t(2)),       # matched as the text '7'
             ('present_evicted', 'dev', {'id': 'd0', 'title': 'Old', 'format': 'html'}, _t(2))):
         e = {'op': op, 'actor': actor, 'detail': detail}
         if at == 'NULL':
@@ -616,7 +621,7 @@ class WindowReads(unittest.TestCase):
                     self.assertEqual(want, got)
 
     def test_history_rows(self) -> None:
-        for nid in ('dev', 'ops', 'nobody'):
+        for nid in ('dev', 'ops', 'nobody', '7'):
             for cap in (1, 3, 100):
                 with self.subTest(nid=nid, cap=cap):
                     want, got = self.both(lambda s: store.read_node_history_rows(s, nid, cap))
@@ -637,6 +642,78 @@ class WindowReads(unittest.TestCase):
                 want, got = self.both(lambda s: store.read_document(s, did))
                 self.assertIsNot(got, store.DOCUMENT_READ_FALLBACK)
                 self.assertEqual(want, got)
+
+    def test_sent_tail_ties_follow_each_recipients_first_row(self) -> None:
+        # review A6: rows appended after the conversion interleave by id across recipients, so
+        # with equal timestamps the legacy key (the recipient's first archive row, then the
+        # row) and a plain row order disagree; this tail tells them apart
+        t = Twins('senttie', before=windows_fixture)
+        def mail(mid: str) -> dict:
+            return {'id': mid, 'from': 'dev', 'body': f'body {mid}', 'at': _t(5)}
+        t.edit(lambda d: d['mail_log']['ops'].append(mail('x1')))
+        t.edit(lambda d: d['mail_log']['boss'].append(mail('x2')))
+        t.edit(lambda d: d['mail_log']['ops'].append(mail('x3')))
+        for keep, slack in ((1, 0), (2, 1)):
+            with self.subTest(keep=keep):
+                with storage(False):
+                    want = store.read_node_inbox(t.legacy, 'dev', keep=keep, slack=slack)
+                with storage(True):
+                    got = store.read_node_inbox(t.copy, 'dev', keep=keep, slack=slack)
+                self.assertIsNotNone(got)
+                self.assertEqual(want, got)
+                self.assertIn('x2', [m['id'] for m in got[4]])
+
+    def test_the_gallery_never_reads_a_body(self) -> None:
+        # review A6 f1: the gallery is metadata; no statement it runs may select the body
+        # column (equal answers alone cannot show that the bodies travelled)
+        from unittest.mock import patch
+        seen: list[str] = []
+        real_checkout, real_release = registry.checkout, registry.release
+
+        class Cur:
+            def __init__(self, cur):
+                self._cur = cur
+
+            def __enter__(self):
+                self._cur.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                return self._cur.__exit__(*exc)
+
+            def execute(self, q, *a, **k):
+                seen.append(str(q))
+                return self._cur.execute(q, *a, **k)
+
+            def __getattr__(self, n):
+                return getattr(self._cur, n)
+
+        class Rec:
+            def __init__(self, raw):
+                object.__setattr__(self, '_raw', raw)
+
+            def execute(self, q, *a, **k):
+                seen.append(str(q))
+                return self._raw.execute(q, *a, **k)
+
+            def cursor(self, *a, **k):
+                return Cur(self._raw.cursor(*a, **k))
+
+            def __getattr__(self, n):
+                return getattr(self._raw, n)
+
+        def release(raw, database):
+            return real_release(getattr(raw, '_raw', raw), database)
+        registry.close_idle()
+        with storage(True), patch.multiple(registry, checkout=lambda *a: Rec(real_checkout(*a)),
+                                           release=release):
+            rows = store.read_document_gallery(self.t.copy)
+        self.assertTrue(rows)
+        documents = [q for q in seen if 'orgtree.documents' in q]
+        self.assertTrue(documents, seen)
+        for q in documents:
+            self.assertNotIn('"body"', q)
+            self.assertNotIn('SELECT *', q)
 
 
 def wait_for(cond, timeout: float = 15.0) -> bool:

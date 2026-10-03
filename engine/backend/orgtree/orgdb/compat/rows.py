@@ -170,15 +170,39 @@ def dict_rows(c: Any, sql: str, params: Sequence[Any] = ()) -> list[dict[str, An
         return list(cur.fetchall())
 
 
+_COLUMNS: dict[str, list[str]] = {}
+
+
+def _columns(c: Any, table: str) -> list[str]:
+    """A table's columns, in order (cached: the schema is fixed for the process)."""
+    got = _COLUMNS.get(table)
+    if got is None:
+        got = [str(r[0]) for r in c.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'orgtree' "
+            "AND table_name = %s ORDER BY ordinal_position", (table,)).fetchall()]
+        _COLUMNS[table] = got
+    return got
+
+
 def fetch(c: Any, t: Table, where: str = "true", params: Sequence[Any] = (), *,
           order: str = "id", lock: bool = False, limit: int | None = None,
-          offset: int = 0) -> tuple[list[dict[str, Any]], codec.Children]:
-    """The record rows of ``t`` that ``where`` selects, with every descendant row."""
+          offset: int = 0, exclude: Sequence[str] = ()) -> tuple[list[dict[str, Any]], codec.Children]:
+    """The record rows of ``t`` that ``where`` selects, with every descendant row. Columns named
+    in ``exclude`` are not read at all (their fields decode as absent)."""
     layout = lay(t)
     main = t.spec.table
     page = (f" LIMIT {int(limit)}" if limit is not None else "") + (
         f" OFFSET {int(offset)}" if offset else "")
-    rows = dict_rows(c, f"SELECT *, xmin::text AS _xmin, ctid::text AS _ctid, "
+    if not exclude:
+        pick = "*"
+    else:
+        # an excluded field of another shape is kept in extra: it is removed there too, by the
+        # server, so its value never travels either (the names are code's own field keys)
+        cols = [col for col in _columns(c, main) if col not in set(exclude)]
+        keys = ", ".join("'" + k.replace("'", "''") + "'" for k in exclude)
+        pick = ", ".join(f"(extra::jsonb - ARRAY[{keys}]::text[])::json AS extra" if col == "extra"
+                         else codec.quote(col) for col in cols)
+    rows = dict_rows(c, f"SELECT {pick}, xmin::text AS _xmin, ctid::text AS _ctid, "
                         f"tableoid::text AS _tableoid FROM orgtree.{main} WHERE {where} "
                         f"ORDER BY {order}{page}{' FOR UPDATE' if lock else ''}", params)
     children: dict[str, list[dict[str, Any]]] = {}

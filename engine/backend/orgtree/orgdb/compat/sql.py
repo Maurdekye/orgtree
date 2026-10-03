@@ -952,21 +952,23 @@ PATTERNS.append((re.compile(r"^SELECT json_extract\(val,((?:'\$\.[A-Za-z0-9_]+',
 # not in its typed column (a value of another shape, kept in ``extra``) is decided from that
 # value with the legacy text rule, so no record is missed or misplaced.
 
-def _jtext(v: Any) -> str | None:
-    """The legacy json_extract / ``->>`` text of a stored value: a string as itself, JSON null
-    as NULL, anything else as its JSON text."""
-    if v is None or isinstance(v, str):
-        return v
-    return json.dumps(v)
+def _extra_text(key_sql: str) -> str:
+    """SQL for the legacy json_extract / ``->>`` text of a field kept in ``extra`` (a value of
+    another shape than its column's), computed by PostgreSQL exactly as the legacy store did
+    (pg_migrations/0001's json_extract over jsonb): a string as itself, JSON null as NULL,
+    anything else as its jsonb text (key order, number form and unescaped characters
+    included, which a Python rendering would not reproduce)."""
+    v = f"(extra->{key_sql})::jsonb"
+    return (f"CASE jsonb_typeof({v}) WHEN 'string' THEN {v} #>> '{{}}' WHEN 'null' THEN NULL "
+            f"ELSE {v}::text END")
 
 
-def _at_text(at: Any, at_text: Any, extra_at: Any) -> str:
+def _at_text(at: Any, at_text: Any, extra_at: str | None) -> str:
     """COALESCE(json_extract(val,'$.at'),'') from a record's columns: the typed timestamp's
-    stored text, else a value of another shape kept in extra, else ''."""
+    stored text, else the legacy text of a value of another shape kept in extra, else ''."""
     if at is not None:
         return str(at_text) if at_text is not None else codec.canonical_ts(at)
-    t = _jtext(extra_at)
-    return "" if t is None else t
+    return "" if extra_at is None else str(extra_at)
 
 
 def _matching(c: Any, ls: R.LogSect, col: str, value: str, test: str = "",
@@ -978,12 +980,13 @@ def _matching(c: Any, ls: R.LogSect, col: str, value: str, test: str = "",
     agent = "agent_id" if ls.kind in ("agent", "agent_map") else "NULL::bigint"
     qc = codec.quote(col)
     hit = f"({qc} = %s{test})"
-    q = (f"SELECT id, {agent}, at, at_text, extra->'at', coalesce({hit}, false), extra->%s "
+    at_other, col_other = _extra_text("'at'"), _extra_text("%s")
+    q = (f"SELECT id, {agent}, at, at_text, {at_other}, coalesce({hit}, false), {col_other} "
          f"FROM orgtree.{t} WHERE {R._scope(ls)} AND ({hit} OR ({qc} IS NULL AND extra->%s IS NOT NULL))")
-    params = (value, *test_params, col, value, *test_params, col)
+    params = (value, *test_params, col, col, col, value, *test_params, col)
     out = []
     for rid, aid, at, att, ate, is_hit, other in c.execute(q, params).fetchall():
-        if is_hit or _jtext(other) == value:
+        if is_hit or other == value:
             out.append((int(rid), None if aid is None else int(aid), _at_text(at, att, ate)))
     return out
 
@@ -1082,13 +1085,17 @@ def _events_touching(conn: Any, p: Sequence[Any]) -> Result:
 
 @stmt("SELECT (val::jsonb - 'body')::text FROM log_l WHERE sect BETWEEN ? AND ? ORDER BY seq")
 def _list_without_body(conn: Any, p: Sequence[Any]) -> Result:
+    """Every record of a list log without its ``body``: the body column is never read (review
+    A6 f1), and a body of another shape kept in extra is dropped after decoding, as
+    ``val::jsonb - 'body'`` drops either."""
     ls = _log("log_l", p[0]) if p[0] == p[1] else None
     if ls is None:
         return Result([])
     with conn.atomic():
+        rows, ch = R.fetch(conn.raw, ls.table, R._scope(ls), order="id", exclude=("body",))
         out = []
-        for _, _, _, text in R.log_rows(conn.raw, ls):
-            v = json.loads(text)
+        for r in rows:
+            v = R.entry_of(ls, r, ch)
             if isinstance(v, dict):
                 v.pop("body", None)
             out.append((json.dumps(v),))
