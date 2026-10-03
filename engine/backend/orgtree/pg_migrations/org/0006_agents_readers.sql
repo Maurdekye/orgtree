@@ -270,7 +270,10 @@ BEGIN
 END
 $install$;
 
-CREATE INDEX agents_foreground_live ON orgtree.agents(ord,name)
+-- Full expression statistics let PostgreSQL estimate the tiny non-archived
+-- subset, rather than assume coalesce(state,...) matches nearly every row.
+CREATE STATISTICS agents_foreground_state ON (coalesce(state,'live')) FROM orgtree.agents;
+CREATE INDEX agents_foreground_live ON orgtree.agents(ord,name) INCLUDE(id)
   WHERE coalesce(state,'live')<>'archived' AND NOT tombstone;
 CREATE INDEX agents_foreground_discovery ON orgtree.agents(coalesce(state,'live'),name COLLATE "C")
   WHERE NOT tombstone AND NOT state_misfit;
