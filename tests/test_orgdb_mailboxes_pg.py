@@ -44,6 +44,32 @@ def no_archive_load():
         yield
 
 
+def recorded_rollback(fn):
+    """Capture a real save, but roll back its final commit so all SQL can be replayed."""
+    seen = []
+    checkout, release = registry.checkout, registry.release
+
+    class Recording:
+        def __init__(self, raw):
+            self.raw = raw
+
+        def execute(self, q, params=None, **kw):
+            text = str(q)
+            seen.append((text, params))
+            return self.raw.execute('ROLLBACK' if text.strip().upper() == 'COMMIT' else q,
+                                    params, **kw)
+
+        def __getattr__(self, name):
+            return getattr(self.raw, name)
+
+    registry.close_idle()
+    with fixture.storage(True), patch.multiple(
+            registry, checkout=lambda *a: Recording(checkout(*a)),
+            release=lambda c, db: release(getattr(c, 'raw', c), db)):
+        fn()
+    return seen
+
+
 @fixture.needs_pg
 class Mailboxes(unittest.TestCase):
     def twin(self, values=range(1, 10)):
@@ -105,8 +131,10 @@ class Mailboxes(unittest.TestCase):
         for scale in (1, 10):
             t = self.twin(range(1, 101*scale))
             self.present(t)
+            before = self.bound(t)
             with no_archive_load():
-                seen = fixture.recorded_with_params(lambda: self.send(t))
+                seen = recorded_rollback(lambda: self.send(t))
+            self.assertEqual(self.bound(t), before, 'capture must roll back every save write')
             reads = [(q, p) for q, p in seen if q.lstrip().upper().startswith('SELECT')]
             self.assertTrue(any('FROM orgtree.mailboxes ' in q for q, _ in reads), reads)
             self.assertFalse(any('orgtree.mail_log' in q for q, _ in reads), reads)
@@ -117,10 +145,22 @@ class Mailboxes(unittest.TestCase):
             scans = []
             with dbconn.connect(fixture.ADMIN, registry.lookup(t.copy)[1], autocommit=False) as c:
                 c.execute('ANALYZE')
-                for q, params in reads:
-                    plan = c.execute('EXPLAIN (ANALYZE,FORMAT JSON) '+q, params).fetchone()[0][0]['Plan']
-                    scans.append(fixture.plan_examined(plan))
-                    self.assertEqual(fixture.plan_scans(plan, 'mail_log'), [], q)
+                measured_writes = 0
+                for q, params in seen:
+                    verb = q.lstrip().split()[0].upper()
+                    if verb in ('BEGIN', 'COMMIT', 'ROLLBACK'):
+                        continue
+                    if verb in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'):
+                        plan = c.execute('EXPLAIN (ANALYZE,FORMAT JSON) '+q, params).fetchone()[0][0]['Plan']
+                        scans.append(fixture.plan_examined(plan))
+                        if verb == 'SELECT':
+                            self.assertEqual(fixture.plan_scans(plan, 'mail_log'), [], q)
+                        else:
+                            measured_writes += 1
+                    else:
+                        # PostgreSQL cannot EXPLAIN the lock DO block or session settings.
+                        c.execute(q, params)
+                self.assertGreater(measured_writes, 0, 'no actual save write was measured')
                 c.rollback()
             measurements.append(scans)
         self.assertTrue(measurements[0], 'no hot read was measured')
