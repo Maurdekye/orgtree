@@ -105,10 +105,9 @@ def _build(conn, graph, *, docket):
     from .foreground_context import CompatibilityRequired
     from . import workquery
 
-    settings = policy_candidates.settings(conn)
+    settings = policy_candidates.settings(conn, owners=graph.nodes)
     if getattr(conn, 'orgdb', False):
         from .orgdb import reader_rows
-        settings.update(reader_rows.read_sections(conn.raw, ('audiences',)))
         settings.update(reader_rows.read_sections(conn.raw, ('mail', 'delivering'),
                                                   owners=graph.nodes))
         rows = []

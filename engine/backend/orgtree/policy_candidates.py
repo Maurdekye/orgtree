@@ -53,15 +53,31 @@ SETTINGS_PREDICATE = """strpos(key,chr(31))=0 AND key NOT IN (
  'reservations','credit_requests')"""
 
 
-def settings(conn):
+def settings(conn, *, owners=None):
     """All stored scalar policy settings, including custom identity inputs."""
     if getattr(conn, 'orgdb', False):
-        from .orgdb import reader_rows
+        from .orgdb import mappers, reader_rows
+        # Only scalar/custom inputs and current configuration belong here.
+        # Registered history sections are separate indexed selections below.
+        scalar_keys = {field.key for field in mappers.settings.SETTINGS.fields}
+        current_keys = scalar_keys | {'dirs', 'net_hubs', '_migrations',
+                                      'net_state', 'tiers', 'models'}
+        registered = mappers.registered_keys()
         keys = [key for (key,) in conn.raw.execute(
             'SELECT key FROM orgtree.org_sections ORDER BY ord').fetchall()
             if store.SPLIT_SEP not in key and key not in _EXCLUDED_SETTINGS
-            and key not in store.LAZY_SECTIONS]
-        return reader_rows.read_sections(conn.raw, keys)
+            and key not in store.LAZY_SECTIONS
+            and (key in current_keys or key not in registered)]
+        result = reader_rows.read_sections(conn.raw, keys)
+        for key in ('asks', 'scope_requests', 'audience_requests'):
+            result.update(_native_records(conn.raw, key,
+                          "status IN ('open','pending')"))
+        if owners is None:
+            result.update(_native_records(conn.raw, 'audiences', 'true'))
+        else:
+            result.update(_native_records(conn.raw, 'audiences',
+                                          'grantee = ANY(%s)', (list(owners),)))
+        return result
     base = 'SELECT key,val FROM doc WHERE (' + SETTINGS_PREDICATE + ')'
     page = conn.execute(base + ' ORDER BY key LIMIT 128').fetchall()
     result = {}
@@ -72,6 +88,22 @@ def settings(conn):
         page = conn.execute(base + ' AND key>? ORDER BY key LIMIT 128',
                             (page[-1][0],)).fetchall()
     return result
+
+
+def _native_records(raw, key, predicate, params=()):
+    """Retain a selected record section's missing/null/list container shape."""
+    from .orgdb import mappers, reader_rows
+    marker = raw.execute('SELECT state FROM orgtree.org_sections WHERE key=%s',
+                         (key,)).fetchone()
+    if marker is None:
+        return {}
+    if marker[0] == 'n':
+        return {key: None}
+    section = next(section for section in mappers.sections() if key in section.keys)
+    ids = [rid for (rid,) in raw.execute(
+        f'SELECT id FROM orgtree.{section.t.spec.table} WHERE {predicate} ORDER BY ord',
+        params).fetchall()]
+    return {key: reader_rows.read_records(raw, key, ids)}
 
 
 _EXCLUDED_SETTINGS = frozenset(('nodes', 'work_items', 'mail', 'delivering', 'notices',
