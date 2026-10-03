@@ -162,6 +162,7 @@ class ArchiveReads(unittest.TestCase):
     def test_duplicate_headers_and_uncommitted_writes_use_pinned_connection(self):
         with f.storage(True), store._POOL.acquire(self.slug) as view:
             view.execute('BEGIN')
+            view.pinned = True  # match orgdb.compat.tx's pinned caller contract
             try:
                 with patch.object(store._orgtx_local, 'pinned', {self.slug: view}, create=True):
                     view.raw.execute("UPDATE orgtree.work_items SET slug='old-0' WHERE slug='old-1'")
@@ -174,6 +175,7 @@ class ArchiveReads(unittest.TestCase):
                     view.raw.execute("UPDATE orgtree.work_items SET status='dropped' WHERE slug='old-2'")
                     self.assertIn('dropped', d.archive_statuses())
             finally:
+                view.pinned = False
                 view.execute('ROLLBACK')
         with f.storage(True):
             self.assertEqual(store.load_org(self.slug).work_identity_state(), 'slug')
@@ -181,6 +183,7 @@ class ArchiveReads(unittest.TestCase):
     def test_reader_uses_the_callers_repeatable_read_snapshot(self):
         with f.storage(True), store._POOL.acquire(self.slug) as view:
             view.execute('BEGIN')
+            view.pinned = True
             try:
                 with patch.object(store._orgtx_local, 'pinned', {self.slug: view}, create=True):
                     d = store.load_org(self.slug).d
@@ -190,6 +193,7 @@ class ArchiveReads(unittest.TestCase):
                     self.assertEqual(d.archive_statuses(), before)
                     self.assertNotIn('dropped', before)
             finally:
+                view.pinned = False
                 view.execute('ROLLBACK')
         with f.storage(True):
             self.assertIn('dropped', store.load_org(self.slug).d.archive_statuses())
@@ -208,8 +212,11 @@ class ArchiveReads(unittest.TestCase):
             self.assertTrue(name, made)
             changed = tool(action='update', slug=name, done_so_far=['checked'], working_on_next=[])
             self.assertNotIn('error', changed)
-            self.assertFalse(store.load_org(self.slug).work_abandoned_pending(now_ts=time.time()))
-            self.assertEqual(store.load_org(self.slug).work_reassign_abandoned(now_ts=time.time()), [])
+            org = store.load_org(self.slug)
+            self.assertTrue(org.work_abandoned_pending(now_ts=time.time()))
+            moved = org.work_reassign_abandoned(now_ts=time.time())
+            self.assertEqual({row['assigned'] for row in moved}, {'fix-the-thing', 'second-item'})
+            self.assertFalse(org.work_abandoned_pending(now_ts=time.time()))
         self.assertEqual((decodes, loads), ([], []))
 
     def grow(self, count):
@@ -217,7 +224,7 @@ class ArchiveReads(unittest.TestCase):
             current = raw.execute("SELECT count(*) FROM orgtree.work_items WHERE list_key='archive'").fetchone()[0]
             raw.execute("""INSERT INTO orgtree.work_items
                 (slug,status,list_key,ord,docket_manual,docket_order,objective)
-                SELECT 'growth-' || n, CASE WHEN n%3=0 THEN 'dropped' ELSE 'done' END,
+                SELECT 'growth-' || n, CASE WHEN n%%3=0 THEN 'dropped' ELSE 'done' END,
                        'archive', n, false, '', repeat('retained body ',4000)
                 FROM generate_series(%s,%s) n""", (current, count-1))
         row = registry.lookup(self.slug)
