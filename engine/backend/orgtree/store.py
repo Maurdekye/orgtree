@@ -7187,8 +7187,10 @@ def read_work_items_rows(slug: str, item_slugs: Iterable[str]) -> dict[str, Any]
     use its ordinary ledger path. An absent requested item is omitted, but
     a header naming a missing/corrupt requested row is an error.
     """
-    if STORE_BACKEND != "postgres" or _orgdb_on():
-        # orgdb: no work revision is kept yet (the native docket, landing step 3)
+    if _orgdb_on():
+        from .orgdb import docket
+        return docket.read_work_items_rows(_safe_slug(slug), item_slugs)
+    if STORE_BACKEND != "postgres":
         return None
     wanted = tuple(dict.fromkeys(item_slugs))
     for item in wanted:

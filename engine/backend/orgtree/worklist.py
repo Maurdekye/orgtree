@@ -23,13 +23,14 @@ class Context(workdetail.Context):
 
     def __init__(self, query):
         super().__init__(query)
-        if not worklistmeta.ready(query.raw, query.org_id):
+        if not getattr(query, 'native', False) and not worklistmeta.ready(query.raw, query.org_id):
             raise workquery.CompatibilityRequired('docket list metadata unavailable')
         # Scope/actor-only changes must reset paging too, even if access and
         # body revisions stayed the same. The query signs this extended catalog.
-        revision = query.raw.execute(
-            f'SELECT revision FROM {query.schema}.work_list_state WHERE singleton').fetchone()[0]
-        query.catalog = [*query.catalog, int(revision)]
+        if not getattr(query, 'native', False):
+            revision = query.raw.execute(
+                f'SELECT revision FROM {query.schema}.work_list_state WHERE singleton').fetchone()[0]
+            query.catalog = [*query.catalog, int(revision)]
         # read ahead for a whole list by `prime`; a miss reads one row as before
         self._listed = {}
         self._questions = {}
@@ -50,7 +51,10 @@ class Context(workdetail.Context):
         for row in rows:
             self._questions[row.summary['slug']] = row.questions
         slugs = [row.summary['slug'] for row in rows if row.summary['slug'] not in self._listed]
-        if slugs:
+        if slugs and getattr(self.query, 'native', False):
+            for body in self.query.list_inputs([r for r in rows if r.summary['slug'] in slugs]):
+                self._listed[body['slug']] = (b'', body)
+        elif slugs:
             for slug, digest, payload in self.query.raw.execute(
                     f'SELECT slug,body_sha256,payload FROM {self.query.schema}.work_list_summary '
                     f'WHERE slug=ANY(%s)', (slugs,)):
@@ -98,6 +102,8 @@ class Context(workdetail.Context):
         return item['scope_archive_summary']
 
     def light(self, row, org_slug):
+        if getattr(self.query, 'native', False) and row.summary['slug'] not in self._listed:
+            self.prime([row])
         record = self._listed.get(row.summary['slug']) or self.query.raw.execute(
             f'SELECT body_sha256,payload FROM {self.query.schema}.work_list_summary WHERE slug=%s',
             (row.summary['slug'],)).fetchone()
@@ -140,6 +146,14 @@ def reference(row):
 
 def _read(slug, viewer, build, now_ts, context=Context):
     """None requests whole-route compatibility, never a partially empty view."""
+    from .orgdb import enabled
+    if enabled():
+        from .orgdb import docket
+        with docket.read(store._safe_slug(slug), viewer=viewer, now_ts=now_ts) as query:
+            ctx = context(query)
+            if viewer != USER:
+                ctx._require_live(viewer)
+            return build(ctx, slug)
     if store.STORE_BACKEND != 'postgres':
         return None
     slug = store._safe_slug(slug)
@@ -185,6 +199,8 @@ def etag(ctx, org_slug, backlogged):
     Counts and rows are NOT read here: that is the whole point of the 304.
     """
     q = ctx.query
+    if getattr(q, 'native', False):
+        return _etag(org_slug, q.org_id, q.viewer, backlogged, q.catalog, q.deadline_count())
     passed = q.raw.execute(
         f"SELECT count(*) FROM {q.schema}.work_read_policy "
         "WHERE location='active' AND deadline < %s", (q.now,)).fetchone()[0]
@@ -209,6 +225,11 @@ def foreground_unchanged(slug, *, backlogged=False, since='', now_ts=None):
     since = since.strip()
     if not since.startswith('"f') or store.STORE_BACKEND != 'postgres':
         return False
+    from .orgdb import enabled
+    if enabled():
+        from .orgdb import docket
+        with docket.read(store._safe_slug(slug),now_ts=now_ts) as q:
+            return since == _etag(slug,q.org_id,USER,backlogged,q.catalog,q.deadline_count())
     try:
         slug = store._safe_slug(slug)
         if not os.path.exists(store._db_path(slug)):
@@ -269,7 +290,8 @@ def foreground(slug, viewer=USER, *, backlogged=False, archive_limit=0, now_ts=N
 
 def _foreground_body(ctx, org_slug, viewer, backlogged, archive_limit):
     q = ctx.query
-    counts = workread.counts_raw(q.raw, q.org_id, viewer=viewer, now_ts=q.now)
+    counts = (q.counts() if getattr(q, 'native', False) else
+              workread.counts_raw(q.raw, q.org_id, viewer=viewer, now_ts=q.now))
     if counts is None:
         raise workquery.CompatibilityRequired('docket counts unavailable')
     body = dict(format=FORMAT, counts=counts, now=q.now, items=[], references=[], attention=[])
@@ -364,12 +386,16 @@ class AgentContext(workdetail.Context):
         return super()._work_questions(slug)
 
     def work_counts(self, now_ts=None):
+        if getattr(self.query, 'native', False):
+            return self.query.counts()
         # USER is never served here (`agent_list` returns None for it)
         raise TypeError('agent list does not serve the whole-org counts')
 
     def bodies(self, rows):
         """Every row's exact body, checked against the index stamp."""
         q = self.query
+        if getattr(q, 'native', False):
+            return q.bodies(rows)
         found = {}
         active = [row.source_key for row in rows if not row.physical_archive]
         if active:
@@ -404,10 +430,13 @@ class AgentContext(workdetail.Context):
                   if int(b.get('scope_logged') or 0) and b['slug'] not in self._scope}
         if logged:
             scope = {slug: [] for slug in logged}
-            for owner, val in q.raw.execute(
+            if getattr(q, 'native', False):
+                scope.update(q.scope_many(sorted(logged)))
+            else:
+                for owner, val in q.raw.execute(
                     f"SELECT owner,val FROM {q.schema}.log_d WHERE sect='work_scope_log' "
                     f'AND owner=ANY(%s) ORDER BY owner,seq', (sorted(logged),)):
-                scope[owner].append(json.loads(val))
+                    scope[owner].append(json.loads(val))
             for slug, count in logged.items():
                 if len(scope[slug]) != count:
                     raise workquery.CompatibilityRequired('scope history count mismatch')
@@ -438,19 +467,24 @@ def agent_list(slug, viewer, *, include_archived=False, include_backlogged=False
     requesting the exact whole-org reader (not PostgreSQL, an index that is
     dirty or unavailable, the operator as viewer, or any disagreement between
     the index's archive hint and the ledger's own classification)."""
-    if viewer == USER:
+    from .orgdb import enabled
+    native = enabled()
+    if viewer == USER and not native:
         return None
 
     def build(ctx, org_slug):
         q = ctx.query
         sel = ctx._work_fields_arg(fields)
         proj = projection or ('compact' if compact else 'full')
-        total = q.raw.execute(f'SELECT total FROM {q.schema}.work_read_totals WHERE viewer=%s',
-                              (viewer,)).fetchone()
-        total = int(total[0]) if total else 0
+        if not native:
+            total = q.raw.execute(f'SELECT total FROM {q.schema}.work_read_totals WHERE viewer=%s',
+                                  (viewer,)).fetchone()
+            total = int(total[0]) if total else 0
         # every readable row the index does not call archived: the main list,
         # the backlog, and archived rows held out of the archive by attention
         shown = q.foreground(include_backlogged=True)
+        if native:
+            total = len(shown)
         if len(shown) > total:
             raise workquery.CompatibilityRequired('docket foreground exceeds readable total')
         hidden = []
@@ -461,7 +495,9 @@ def agent_list(slug, viewer, *, include_archived=False, include_backlogged=False
                 hidden.extend(page)
                 if not cursor:
                     break
-            if len(shown) + len(hidden) != total:
+            if native:
+                total += len(hidden)
+            elif len(shown) + len(hidden) != total:
                 raise workquery.CompatibilityRequired('docket archive does not add up')
         rows = shown + hidden
         bodies = ctx.bodies(rows)
@@ -478,8 +514,12 @@ def agent_list(slug, viewer, *, include_archived=False, include_backlogged=False
                 back.append(view)
             else:
                 items.append(view)
-        return ctx._work_list_payload(
+        result = ctx._work_list_payload(
             viewer, items, arch, back, total - len(shown), q.now,
             include_archived=include_archived, include_backlogged=include_backlogged,
             compact=compact, proj=proj, sel=sel)
+        if native and viewer != USER and not include_archived:
+            result['counts'].pop('archived', None)
+            result['groups']['archived'].pop('count', None)
+        return result
     return _read(slug, viewer, build, now_ts, AgentContext)

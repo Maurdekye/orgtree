@@ -39,6 +39,9 @@ class _Nodes(Mapping):
         want = sorted({i for i in ids if isinstance(i, str)} - self.ahead.keys() - self.cache.keys())
         if not want:
             return
+        if getattr(self.query, 'native', False):
+            self.ahead.update(self.query.identities(want))
+            return
         rows = self.query.raw.execute(
             f"WITH RECURSIVE up(id) AS (SELECT unnest(%s::text[]) UNION "
             f"SELECT n.val::jsonb->>'parent' FROM {self.query.schema}.nodes n JOIN up ON n.id=up.id "
@@ -52,6 +55,8 @@ class _Nodes(Mapping):
         if key not in self.cache:
             if key in self.ahead:
                 value = self.ahead[key]
+            elif getattr(self.query, 'native', False):
+                value = self.query.identities([key])[key]
             else:
                 row = self.query.raw.execute(
                     f"SELECT {_NODE_IDENTITY} FROM {self.query.schema}.nodes WHERE id=%s",
@@ -143,7 +148,7 @@ class Context:
         self.query = query
         self.nodes = _Nodes(query)
         self._scope = {}
-        if query.raw.execute(f"SELECT 1 FROM {query.schema}.doc WHERE key IN ('nodes','work_scope_log') LIMIT 1").fetchone():
+        if not getattr(query, 'native', False) and query.raw.execute(f"SELECT 1 FROM {query.schema}.doc WHERE key IN ('nodes','work_scope_log') LIMIT 1").fetchone():
             raise workquery.CompatibilityRequired('single-item inputs still stored as legacy blobs')
 
     def _work_find(self, slug):
@@ -157,6 +162,8 @@ class Context:
         return row.summary if row else None
 
     def _work_questions(self, slug):
+        if getattr(self.query, 'native', False):
+            return self.query.questions(slug)
         row = self.query.raw.execute(f'SELECT questions FROM {self.query.schema}.work_read_questions WHERE slug=%s', (slug,)).fetchone()
         return row[0] if row else []
 
@@ -168,8 +175,11 @@ class Context:
             return []
         slug = str(item.get('slug') or '')
         if slug not in self._scope:
-            rows = self.query.raw.execute(f"SELECT val FROM {self.query.schema}.log_d WHERE sect='work_scope_log' AND owner=%s ORDER BY seq", (slug,))
-            self._scope[slug] = [json.loads(row[0]) for row in rows]
+            if getattr(self.query, 'native', False):
+                self._scope.update(self.query.scope_many([slug]))
+            else:
+                rows = self.query.raw.execute(f"SELECT val FROM {self.query.schema}.log_d WHERE sect='work_scope_log' AND owner=%s ORDER BY seq", (slug,))
+                self._scope[slug] = [json.loads(row[0]) for row in rows]
             if len(self._scope[slug]) != count:
                 raise workquery.CompatibilityRequired('scope history count mismatch')
         return self._scope[slug]
@@ -182,6 +192,15 @@ def get(slug, viewer, wid, *, compact=False, projection=None, fields=None, now_t
     that scans all history to establish absence. No writer transaction is reused.
     """
     from . import store
+    from .orgdb import enabled
+    if enabled():
+        from .orgdb import docket
+        with docket.read(store._safe_slug(slug), viewer=viewer, now_ts=now_ts) as query:
+            ctx = Context(query)
+            if viewer != USER:
+                ctx._require_live(viewer)
+            return ctx.work_get(viewer, wid, now_ts=query.now, compact=compact,
+                                projection=projection, fields=fields)
     if store.STORE_BACKEND != 'postgres':
         return None
     slug = store._safe_slug(slug)

@@ -78,6 +78,13 @@ class Snapshot:
     A cursor binds org/viewer/catalog, page size and classification clock, and
     expires after 60 seconds. Restart/process changes fail closed with reset.
     """
+    def __new__(cls, raw, org_id: int, *, viewer: str, now_ts: float):
+        from .orgdb import enabled
+        if enabled():
+            from .orgdb.docket import Snapshot as NativeSnapshot
+            return NativeSnapshot(raw, org_id, viewer=viewer, now_ts=now_ts)
+        return super().__new__(cls)
+
     def __init__(self, raw, org_id: int, *, viewer: str, now_ts: float):
         if not isinstance(viewer, str) or not viewer:
             raise ValueError('viewer is required')

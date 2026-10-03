@@ -100,6 +100,11 @@ def stamp(slug: str) -> str:
     The fallback is deliberately read-only. It costs a scan on SQLite/JSON but
     preserves the same content semantics without changing their fence settings.
     """
+    from .orgdb import enabled
+    if enabled():
+        from .orgdb import docket
+        with docket.read(store._safe_slug(slug)) as q:
+            return _hash([q.org_id,q.catalog,q.deadline_count()])
     reader = getattr(store, "read_work_items_rows", None)
     header = reader(slug, []) if reader else None
 
@@ -148,7 +153,15 @@ def project(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _build(slug: str) -> dict[str, Any]:
+def _build(slug: str, *, archived=True, backlogged=True) -> dict[str, Any]:
+    from .orgdb import enabled
+    if enabled():
+        from . import worklist
+        payload = worklist.agent_list(slug,USER,include_archived=archived,include_backlogged=backlogged)
+        for group in GROUPS[:3]:
+            for item in payload.get(group,[]):
+                item['ref'] = refs.item(slug,item['slug'])
+        return project(payload)
     org = store.load_org(slug)
     if org.work_identity_state() != "slug":
         raise IdentityMigrationRequired("work identity migration required")
@@ -187,7 +200,9 @@ def read(slug: str, archived: bool = False, backlogged: bool = False,
     Input stamp is captured BEFORE the committed build. A concurrent write can
     cause an extra rebuild, never stamp an old body with a newer revision.
     """
-    key = (str(store.DATA_ROOT), slug)
+    from .orgdb import enabled
+    native = enabled()
+    key = (str(store.DATA_ROOT), slug, bool(archived), bool(backlogged)) if native else (str(store.DATA_ROOT), slug)
     with _lock:
         build_lock = _build_locks.setdefault(key, threading.RLock())
     # Coalesce only this org's builders. Never hold the global cache mutex
@@ -200,7 +215,7 @@ def read(slug: str, archived: bool = False, backlogged: bool = False,
                 entry = None
         current = stamp(slug)
         if entry is None or entry["stamp"] != current:
-            body = _build(slug)
+            body = _build(slug,archived=archived,backlogged=backlogged) if native else _build(slug)
             encoded = _json({k: v for k, v in body.items() if k != "now"})
             token = hashlib.sha256(encoded).hexdigest()[:32]
             versions = entry["versions"] if entry else OrderedDict()
