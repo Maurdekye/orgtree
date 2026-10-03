@@ -577,6 +577,20 @@ class WhatAStagingDatabaseHolds(unittest.TestCase):
         save_in(build)
         self.assertTrue(self.lc._holds_a_save(build.database))
 
+    def test_a_create_at_a_step_this_build_does_not_know_is_left_as_it_is(self) -> None:
+        build = self.lc.begin_create('later')
+        save_in(build)
+        with conn.connect(ADMIN, names.app(PREFIX)) as c:
+            c.execute("UPDATE orgtree.orgs SET op_step = 'a-later-step' WHERE slug = 'later'")
+        out = run_start(build='new')
+        self.assertEqual([(e['slug'], e['outcome']) for e in out['resumed']], [('later', 'failed')])
+        self.assertIn('a-later-step', out['resumed'][0]['error'])
+        row = rows()['later']
+        self.assertEqual((row['op_kind'], row['op_step'], row['op_target_db']),
+                         ('create', 'a-later-step', build.database))
+        with conn.connect(ADMIN, build.database) as c:
+            self.assertEqual(c.execute('SELECT rev FROM orgtree.org_revision').fetchone()[0], 1)
+
     def test_an_error_reading_it_leaves_the_claim_for_the_next_start(self) -> None:
         import psycopg
         for error in (psycopg.OperationalError('injected: the connection failed'),
