@@ -71,9 +71,8 @@ class MigrationIncomplete(RuntimeError):
 def mark_migrated(now: float | None = None) -> None:
     """Set the completion marker. The CALLER's act, never the engine's:
     call it only once every changed org and the report have persisted."""
-    d = registry.load(strict=True)
-    d["migrated_at"] = time.time() if now is None else now
-    registry.save(d)
+    with registry.transaction() as d:
+        d["migrated_at"] = time.time() if now is None else now
 
 
 def _write_report(report: dict[str, Any], data_root: str) -> str | None:
@@ -301,9 +300,8 @@ def run_migration(org_docs: list[dict[str, Any]],
         ambient_ids[provider] = row["id"]
         report["ambient_rows"][provider] = row["id"]
     if "claude" in ambient_ids:
-        d2 = registry.load(strict=True)
-        d2["aliases"]["primary"] = ambient_ids["claude"]
-        registry.save(d2)
+        with registry.transaction() as d2:
+            d2["aliases"]["primary"] = ambient_ids["claude"]
 
     # 2. legacy key rows → token-kind rows (compatibility, Q1)
     for k in accounts.load().get("keys", []):
@@ -458,14 +456,12 @@ def run_apikey_cutover(hold: frozenset[str] | set[str] = frozenset()
                 rid = by_slug.get(slug)
                 try:
                     if rid:
-                        d2 = registry.load(strict=True)
-                        for row in d2["accounts"]:
-                            if row["id"] == rid:
-                                row["credential"] = {"kind": "apikey",
-                                                     "token_ref": kid}
-                                row["mode"] = "apikey"
-                                row.setdefault("enabled", True)
-                        registry.save(d2)
+                        with registry.transaction(rid, org=slug) as d2:
+                            row = registry.get_account(rid, d2)
+                            row["credential"] = {"kind": "apikey",
+                                                 "token_ref": kid}
+                            row["mode"] = "apikey"
+                            row.setdefault("enabled", True)
                         report["converted_rows"][slug] = rid
                     else:
                         row = registry.create_account(
@@ -506,9 +502,8 @@ def run_apikey_cutover(hold: frozenset[str] | set[str] = frozenset()
                 report["orphaned_rows"].append(rid)
         if clean:
             try:
-                d3 = registry.load(strict=True)
-                d3["apikey_cutover_at"] = time.time()
-                registry.save(d3)
+                with registry.transaction() as d3:
+                    d3["apikey_cutover_at"] = time.time()
             except Exception as e:                           # noqa: BLE001
                 print(f"[orgtree] apikey cutover: marker write failed: {e}")
     try:
@@ -649,14 +644,12 @@ def run_former_sandbox_catchup(ambient: dict[str, str | None] | None = None
                             origin_org=slug, mode="apikey",
                             registered_from="migration:former-sandbox")
                     elif (row.get("credential") or {}).get("kind") == "token":
-                        d2 = registry.load(strict=True)
-                        for r in d2["accounts"]:
-                            if r["id"] == row["id"]:
-                                r["credential"] = {"kind": "apikey",
-                                                   "token_ref": kid}
-                                r["mode"] = "apikey"
-                                r.setdefault("enabled", True)
-                        registry.save(d2)
+                        with registry.transaction(row["id"], org=slug) as d2:
+                            r = registry.get_account(row["id"], d2)
+                            r["credential"] = {"kind": "apikey",
+                                               "token_ref": kid}
+                            r["mode"] = "apikey"
+                            r.setdefault("enabled", True)
                     key_row = str(row["id"])
                 elif key and bind and not d.get("api_fallback"):
                     # the API-key cutover has not run yet: an S2 token row,
@@ -707,9 +700,8 @@ def run_former_sandbox_catchup(ambient: dict[str, str | None] | None = None
                     clean = False
         if clean:
             try:
-                d3 = registry.load(strict=True)
-                d3[FORMER_SANDBOX_MARKER] = time.time()
-                registry.save(d3)
+                with registry.transaction() as d3:
+                    d3[FORMER_SANDBOX_MARKER] = time.time()
             except Exception as e:                           # noqa: BLE001
                 print(f"[orgtree] former-sandbox catch-up: marker write "
                       f"failed: {e}")

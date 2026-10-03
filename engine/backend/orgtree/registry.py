@@ -58,6 +58,8 @@ PRIMARY sentinel is bridged via the alias map the S2 migration writes.
 """
 from __future__ import annotations
 
+import contextlib
+import copy
 import json
 import logging
 import math
@@ -112,6 +114,10 @@ def load(*, strict: bool = False) -> dict[str, Any]:
     """The registry, or a blank one. Corrupt files read as blank for READERS;
     strict=True (every read-modify-write) raises instead, so a mutation can
     never silently replace an unreadable file with an empty registry."""
+    from . import orgdb
+    if orgdb.enabled():
+        from .orgdb import accounts
+        return accounts.load()
     try:
         with open(registry_path(), encoding="utf-8") as f:
             doc = json.load(f)
@@ -141,6 +147,9 @@ def load(*, strict: bool = False) -> dict[str, Any]:
 
 
 def save(doc: dict[str, Any]) -> None:
+    from . import orgdb
+    if orgdb.enabled():
+        raise RegistryUnreadable("orgdb accounts require a transaction; JSON is a frozen rollback copy")
     _reject_secrets(doc)
     path = registry_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -153,6 +162,42 @@ def save(doc: dict[str, Any]) -> None:
         if os.path.exists(tmp):
             os.unlink(tmp)
     availability_changed("account registry written")
+
+
+class _MutationDocument(dict):
+    write_requested = False
+
+
+def _write(doc: dict[str, Any]) -> None:
+    """Request this context's commit, including legacy no-change saves."""
+    _reject_secrets(doc)
+    doc.write_requested = True
+
+
+@contextlib.contextmanager
+def transaction(account_id: str | None = None, *, provider: str | None = None,
+                org: str | None = None):
+    """A locked account or app-metadata mutation, committed once on success."""
+    with _lock:
+        from . import orgdb
+        if orgdb.enabled():
+            from .orgdb import accounts
+            if provider is not None and org:
+                # Counter mint commits in the app DB before the org DB write.
+                n, t = accounts.allocate(provider)
+                with accounts.transaction(org=org) as doc:
+                    doc['id_counters'][provider] = n - 1
+                    doc['tint_counters'][provider] = t - 1
+                    yield doc
+            else:
+                with accounts.transaction(account_id, provider=provider, org=org) as doc:
+                    yield doc
+        else:
+            doc = _MutationDocument(load(strict=True))
+            before = copy.deepcopy(doc)
+            yield doc
+            if doc.write_requested or doc != before:
+                save(doc)
 
 
 def availability_changed(reason: str) -> None:
@@ -235,8 +280,7 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
     elif credential["kind"] == "apikey":
         raise ValueError("an 'apikey' credential is only valid on an "
                          "API-key-mode account (mode='apikey')")
-    with _lock:
-        doc = load(strict=True)
+    with transaction(provider=provider, org=origin_org) as doc:
         n = int(doc["id_counters"].get(provider, 0)) + 1
         doc["id_counters"][provider] = n
         t = int(doc["tint_counters"].get(provider, 0)) + 1
@@ -263,12 +307,17 @@ def create_account(provider: str, label: str, credential: dict[str, Any], *,
             row["mode"] = "apikey"
             row["enabled"] = True
         doc["accounts"].append(row)
-        save(doc)
+        _write(doc)
         return dict(row)
 
 
 def get_account(account_id: str,
-                doc: dict[str, Any] | None = None) -> dict[str, Any]:
+                doc: dict[str, Any] | None = None, *,
+                org: str | None = None) -> dict[str, Any]:
+    from . import orgdb
+    if doc is None and orgdb.enabled():
+        from .orgdb import accounts
+        return accounts.find(account_id, org)
     doc = doc if doc is not None else load()
     resolved = doc["aliases"].get(account_id, account_id)
     for row in doc["accounts"]:
@@ -277,7 +326,11 @@ def get_account(account_id: str,
     raise UnknownAccount(account_id)
 
 
-def resolve_alias(account_id: str) -> str:
+def resolve_alias(account_id: str, *, org: str | None = None) -> str:
+    from . import orgdb
+    if orgdb.enabled():
+        from .orgdb import accounts
+        return accounts.resolve_alias(account_id, org)
     doc = load()
     return str(doc["aliases"].get(account_id, account_id))
 
@@ -286,6 +339,10 @@ def list_accounts(org: str | None = None) -> list[dict[str, Any]]:
     """Every account, or the accounts AVAILABLE to `org`: the whole registry
     minus org-key rows scoped to a DIFFERENT origin org (user ruling 18:38Z —
     the one declared exception to all-accounts-all-orgs)."""
+    from . import orgdb
+    if orgdb.enabled():
+        from .orgdb import accounts
+        return accounts.load(org)["accounts"]
     rows = load()["accounts"]
     if org is None:
         return [dict(r) for r in rows]
@@ -296,17 +353,15 @@ def list_accounts(org: str | None = None) -> list[dict[str, Any]]:
 def set_auth(account_id: str, state: str) -> None:
     if state not in AUTH_STATES:
         raise ValueError(f"unknown auth state {state!r}")
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         get_account(account_id, doc)["auth"] = state
-        save(doc)
+        _write(doc)
 
 
 def set_identity(account_id: str, identity: dict[str, Any]) -> None:
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         get_account(account_id, doc)["identity"] = dict(identity or {})
-        save(doc)
+        _write(doc)
 
 
 #: Accounts a removal is in progress on (PG-3f, lead decision 32). While an id
@@ -329,8 +384,7 @@ def set_removing(account_id: str, removing: bool) -> None:
 def remove_account(account_id: str) -> bool:
     """Raw removal. Binding checks (refuse while agents are bound) live at
     the API layer where org documents are reachable — S5, not here."""
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         before = len(doc["accounts"])
         doc["accounts"] = [r for r in doc["accounts"]
                            if r["id"] != account_id]
@@ -338,7 +392,7 @@ def remove_account(account_id: str) -> bool:
                           if v != account_id}
         if len(doc["accounts"]) == before:
             return False
-        save(doc)
+        _write(doc)
         return True
 
 
@@ -378,15 +432,14 @@ def set_enabled(account_id: str, enabled: bool) -> None:
     """Flip an API-key account's routing eligibility. Refused for subscription
     rows rather than invented for them: an enable bit that gates nothing would
     render as a control and lie."""
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         row = get_account(account_id, doc)
         if account_mode(row) != "apikey":
             raise ValueError(
                 f"account {row['id']} is not an API-key account — only "
                 f"metered key accounts have an enabled switch")
         row["enabled"] = bool(enabled)
-        save(doc)
+        _write(doc)
 
 
 def spend_of(row: dict[str, Any]) -> dict[str, Any]:
@@ -424,8 +477,7 @@ def add_spend(account_id: str, usd: float, *,
     if not math.isfinite(usd) or usd < 0:
         return False
     now = time.time() if now is None else now
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         try:
             row = get_account(account_id, doc)
         except UnknownAccount:
@@ -443,7 +495,7 @@ def add_spend(account_id: str, usd: float, *,
                         "turns": cur["turns"] + 1,
                         "since": cur["since"] or now,
                         "updated_at": now}
-        save(doc)
+        _write(doc)
         return True
 
 
@@ -509,7 +561,7 @@ def validate_binding(org_slug: str, tier: str,
     """
     from . import providers
     try:
-        row = get_account(account_id)
+        row = get_account(account_id, org=org_slug)
     except UnknownAccount:
         raise BindingRefused(
             f"no account {account_id!r} is registered") from None
@@ -686,8 +738,7 @@ def record_mark(account_id: str, tier: str, until: float, *,
     now = time.time() if now is None else now
     if until <= now:
         return False
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         try:
             row = get_account(account_id, doc)
         except UnknownAccount:
@@ -721,7 +772,7 @@ def record_mark(account_id: str, tier: str, until: float, *,
             row["marks"][FABLE] = {"until": float(until),
                                    "window": str(window), "observed_at": now,
                                    "provenance": "inferred"}
-        save(doc)
+        _write(doc)
         return True
 
 
@@ -730,8 +781,7 @@ def correct_mark(account_id: str, tier: str, expected_until: float | None,
     """Replace only the exact mark whose background lookup we own."""
     if provenance not in PROVENANCE or until <= time.time():
         return False
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         try:
             row = get_account(account_id, doc)
         except UnknownAccount:
@@ -752,7 +802,7 @@ def correct_mark(account_id: str, tier: str, expected_until: float | None,
                         and sibling.get('until') == expected_until)):
                 row['marks'][FABLE] = {**mark, 'until': float(until),
                                       'provenance': 'inferred', 'observed_at': now}
-        save(doc)
+        _write(doc)
         return True
 
 
@@ -862,8 +912,7 @@ def clear_mark(account_id: str, pool: str, expected: dict[str, Any], *,
         raise MarkClearRefused("name the pool to clear")
     if len(reason) > 500:
         raise MarkClearRefused("reason is limited to 500 characters")
-    with _lock:
-        doc = load(strict=True)
+    with transaction(account_id) as doc:
         row = get_account(account_id, doc)
         if row["id"] != account_id:
             raise MarkClearRefused(
@@ -899,7 +948,7 @@ def clear_mark(account_id: str, pool: str, expected: dict[str, Any], *,
         audit = doc.get("mark_audit")
         audit = audit if isinstance(audit, list) else []
         doc["mark_audit"] = (audit + [entry])[-MARK_AUDIT_KEEP:]
-        save(doc)
+        _write(doc)
         return {**base, "result": "cleared", "cleared": cleared,
                 "kept": kept, "audit": entry}
 
@@ -917,9 +966,19 @@ def _expected(expected: Any) -> dict[str, Any]:
 
 def clear_expired(now: float | None = None) -> None:
     now = time.time() if now is None else now
+    from . import orgdb
+    if orgdb.enabled():
+        for account in list_accounts():
+            with transaction(account['id']) as doc:
+                try:
+                    _prune(get_account(account['id'], doc), now)
+                    _write(doc)
+                except UnknownAccount:
+                    pass  # another process removed it after enumeration
+        return
     with _lock:
         doc = load(strict=True)
-        for row in doc["accounts"]:
+        for row in doc['accounts']:
             _prune(row, now)
         save(doc)
 
