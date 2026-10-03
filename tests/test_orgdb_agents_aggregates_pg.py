@@ -36,7 +36,7 @@ class MaintainedAggregates(unittest.TestCase):
                            'FROM orgtree.org_revision').fetchone()
 
     def recount(self, raw):
-        return raw.execute("SELECT count(*),count(*) FILTER (WHERE state='archived' "
+        return raw.execute("SELECT count(*),count(*) FILTER (WHERE a.state='archived' "
             "AND (successor_id IS NULL OR s.name='')),coalesce(sum(a.cost_usd),0),"
             'count(*) FILTER (WHERE a.cost_usd_unknown) FROM orgtree.agents a '
             'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone').fetchone()
