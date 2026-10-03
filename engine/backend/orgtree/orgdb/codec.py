@@ -13,6 +13,7 @@ the row's ``extra`` JSON instead:
 * a timestamp that does not parse, an int beyond bigint, ``-0.0`` in numeric;
 * a present ``null`` in a field that has no ``<col>_null`` flag;
 * a key the spec does not name.
+* a text value outside a field's declared ``values`` set.
 
 ``extra`` mirrors the record's shape. A key whose field did not fit, or that
 the spec does not know, appears at the top; a misfit inside a flattened object
@@ -59,6 +60,8 @@ Field kinds:
 
 A scalar's present ``null`` is stored in a ``<col>_null`` boolean when the
 field is ``nullable`` (fields stored both ways on real data), else in extra.
+Text fields can declare ``values``. Their later CHECK constraints allow SQL
+NULL, so a legacy misfit converts without losing its value or failing a CHECK.
 """
 
 from __future__ import annotations
@@ -107,6 +110,7 @@ class Field:
     spec: Spec | None = None        # obj: its flattened fields; list: the element record
     item: str = ""                  # list of scalars: the element kind
     table: str = ""                 # list of scalars: the child table
+    values: tuple[str, ...] = ()    # text enum; unsupported values stay in extra
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
@@ -125,6 +129,10 @@ class Field:
             raise ValueError(f"{self.key}: item/table are for lists of scalars")
         if self.nullable and self.kind not in SCALARS:
             raise ValueError(f"{self.key}: only scalars take a null flag")
+        if not isinstance(self.values, tuple) or (self.values and (self.kind != "text"
+                            or any(not isinstance(v, str) or "\x00" in v for v in self.values)
+                            or len(set(self.values)) != len(self.values))):
+            raise ValueError(f"{self.key}: values must be a tuple of distinct text enum members")
 
     @property
     def child_table(self) -> str:
@@ -283,6 +291,20 @@ def _lists(spec: Spec) -> Iterator[Field]:
             yield from _lists(f.spec)
 
 
+def enumerated(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
+               ) -> Iterator[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+    """Enum columns, record-local JSON paths and sets; child specs have their own rows.
+
+    CHECKs live in a later migration, so the original generated DDL is unchanged.
+    """
+    for f in spec.fields:
+        if f.values:
+            yield prefix + f.col, path + (f.key,), f.values
+        elif f.kind == "obj":
+            assert f.spec is not None
+            yield from enumerated(f.spec, prefix + f.col + "_", path + (f.key,))
+
+
 def _linked(keys: Mapping[str, Any], link: Mapping[str, str] | None) -> dict[str, Any]:
     """A record's key values under the names its children use. Without
     ``link`` the children carry every key column under its own name. With it
@@ -421,7 +443,7 @@ def _fill(spec: Spec, record: dict[str, Any], row: dict[str, Any], extra: dict[s
                     row[c + "_null"] = True
                 else:
                     extra[f.key] = None
-            elif fits(f.kind, v):
+            elif fits(f.kind, v) and (not f.values or v in f.values):
                 row[c] = to_column(f.kind, v)
                 if f.kind == "ts":
                     row[c + "_text"] = ts_text(v)

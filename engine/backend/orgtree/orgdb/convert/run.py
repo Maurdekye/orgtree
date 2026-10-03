@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from .. import conn, mappers, names, sections
+from .. import conn, enums, mappers, names, sections
 from ..lifecycle import Build, Busy, Claim, Lifecycle, LostClaim
 from . import legacy, rowio
 
@@ -241,6 +241,7 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         report["unregistered_keys"] = rep["extra_keys"]
         report["tombstones"] = len(ctx.tombstones)
         report["kept_in_extra"] = kept_in_extra(rows)
+        report["enum_misfits"] = enums.misfits(org.slug, rows, secs + side_secs)
         order = rowio.tables(secs + side_secs)
         with conn.connect(cfg.runtime_base, build.database, autocommit=False) as c:
             report["rows_written"] = rowio.write(c, rows, order=order)
@@ -274,7 +275,8 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
                "ignored_with_values": report["ignored_with_values"],
                "unregistered_keys": report["unregistered_keys"],
                "kept_in_extra": report["kept_in_extra"],
-               "row_order": report["row_order"]}
+               "row_order": report["row_order"],
+               "enum_misfits": report["enum_misfits"]}
         if cfg.side is not None and cfg.side.report_for is not None:
             out["side"] = cfg.side.report_for(org)
         lc.mark_filled(build)

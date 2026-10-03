@@ -13,32 +13,33 @@ these tables (design §6.3 steps 4–5) add the agent-id columns of §3.0's curr
 
 from __future__ import annotations
 
+from .. import enum_values as V
 from ..codec import Field as F, Spec
 from ..sections import ByAgentLists, ByAgentMaps, Map, RecordList, Section
 
 ATTACHMENTS = (F("name", "text"), F("path", "text"), F("bytes", "int"))
 
 ASKS = Spec("asks", (
-    F("id", "text", col="public_id"), F("node", "text"), F("kind", "text"),
+    F("id", "text", col="public_id"), F("node", "text"), F("kind", "text", values=('question',)),
     F("question", "text"), F("questions", "json"), F("at", "ts"),
     F("options", "list", spec=Spec("ask_options", (F("label", "text"), F("description", "text")))),
     F("header", "text"), F("work_items", "list", item="text", table="ask_work_items"),
-    F("rev", "int"), F("status", "text"), F("reason", "text"), F("answer", "json"),
+    F("rev", "int"), F("status", "text", values=('open', 'answered', 'dismissed', 'moot', 'withdrawn')), F("reason", "text"), F("answer", "json"),
     F("resolved_at", "ts"), F("answer_mail", "text"),
 ))
 
 CREDIT_REQUESTS = Spec("credit_requests", (
     F("id", "text", col="public_id"), F("node", "text"), F("old", "num"), F("new", "num"),
-    F("reason", "text"), F("at", "ts"), F("rev", "int"), F("status", "text"),
+    F("reason", "text"), F("at", "ts"), F("rev", "int"), F("status", "text", values=('pending', 'answered', 'denied', 'dismissed', 'moot', 'withdrawn')),
     F("granted", "num"), F("notice", "text"),
 ))
 
 SCOPE_REQUESTS = Spec("scope_requests", (
     F("id", "text", col="public_id"), F("node", "text"),
     F("items", "list", spec=Spec("scope_request_items", (
-        F("kind", "text"), F("path", "text"), F("mode", "text"), F("decision", "text"),
-        F("tool", "text"), F("server", "text")))),
-    F("reason", "text"), F("at", "ts"), F("rev", "int"), F("status", "text"),
+        F("kind", "text", values=V.SCOPE_KIND), F("path", "text"), F("mode", "text", values=V.DIR_MODE + V.PERMISSION), F("decision", "text", values=V.SCOPE_DECISION),
+        F("tool", "text", values=('bash', 'edit', 'web', 'subagents')), F("server", "text")))),
+    F("reason", "text"), F("at", "ts"), F("rev", "int"), F("status", "text", values=('pending', 'answered', 'moot', 'withdrawn')),
     F("resolved_at", "ts"),
 ))
 
@@ -53,27 +54,27 @@ AUDIENCE_REQUESTS = Spec("audience_requests", (
 ))
 
 WATCHDOGS = Spec("watchdogs", (
-    F("id", "text", col="public_id"), F("owner", "text"), F("name", "text"), F("kind", "text"),
-    F("target", "text"), F("pattern", "text"), F("interval_s", "int"), F("state", "text"),
+    F("id", "text", col="public_id"), F("owner", "text"), F("name", "text"), F("kind", "text", values=('file', 'command', 'process', 'stream', 'activity')),
+    F("target", "text"), F("pattern", "text"), F("interval_s", "int"), F("state", "text", values=('armed', 'paused')),
     F("at", "ts"), F("fired", "int"),
     F("events", "list", spec=Spec("watchdog_events", (F("at", "ts"), F("gist", "text")))),
     F("high_water", "json"), F("last_check", "ts"), F("_last_check_ts", "float", col="last_check_ts"),
     F("checks_run", "int"), F("last_output", "text"), F("paused_why", "text"),
     F("last_exit", "int"), F("last_fired", "ts"), F("history_retained", "bool"),
-    F("notice", "bool"), F("once", "bool"), F("shell", "text"),
+    F("notice", "bool"), F("once", "bool"), F("shell", "text", values=('native', 'bash')),
     # silence alarms (watchdog_config): written only in silence mode, never as nulls
-    F("fire_mode", "text"), F("quiet_period_s", "int"), F("silence_since", "ts"),
+    F("fire_mode", "text", values=('event', 'silence')), F("quiet_period_s", "int"), F("silence_since", "ts"),
 ))
 
 WATCHDOG_TOMBS = Spec("watchdog_tombs", (
-    F("id", "text", col="public_id"), F("owner", "text"), F("name", "text"), F("kind", "text"),
+    F("id", "text", col="public_id"), F("owner", "text"), F("name", "text"), F("kind", "text", values=('file', 'command', 'process', 'stream', 'activity')),
     F("target", "text"), F("interval_s", "int"), F("at", "ts"), F("spent_at", "ts"),
     F("fired", "int"), F("orphaned_from", "text"), F("notice", "bool"),
     # a superseded one-shot dog's tomb (Org.watchdog_control "supersede")
-    F("state", "text"), F("superseded_by", "text"), F("reason", "text"), F("once", "bool"),
+    F("state", "text", values=('superseded',)), F("superseded_by", "text"), F("reason", "text"), F("once", "bool"),
     # watchdog_config.projection: fire_mode always ("event" for an event dog), the other two
     # only when the dog had them
-    F("fire_mode", "text"), F("quiet_period_s", "int"), F("silence_since", "ts"),
+    F("fire_mode", "text", values=('event', 'silence')), F("quiet_period_s", "int"), F("silence_since", "ts"),
 ))
 
 WATCHDOG_HISTORY = Spec("watchdog_history", (
@@ -84,7 +85,7 @@ RESERVATIONS = Spec("reservations", (
     F("id", "text", col="public_id"), F("owner", "text"), F("item", "text"),
     F("resource", "text"), F("candidate", "text"), F("base", "text"),
     F("paths", "list", item="text", table="reservation_paths"),
-    F("state", "text"), F("created_at", "ts"), F("updated_at", "ts"),
+    F("state", "text", values=('held', 'released', 'recovered', 'stale', 'landed')), F("created_at", "ts"), F("updated_at", "ts"),
     F("created_ts", "float"), F("updated_ts", "float"), F("expires_ts", "float"),
     F("expires_at", "ts"), F("heartbeat_ts", "float"), F("heartbeat_at", "ts"),
     F("stale_s", "float"), F("integration_key", "text", nullable=True),
@@ -94,7 +95,7 @@ RESERVATIONS = Spec("reservations", (
 
 DOCUMENTS = Spec("documents", (
     F("id", "text", col="public_id"), F("node", "text"), F("title", "text"), F("body", "text"),
-    F("at", "ts"), F("format", "text"), F("file", "text"), F("bytes", "int"),
+    F("at", "ts"), F("format", "text", values=('markdown', 'html')), F("file", "text"), F("bytes", "int"),
     F("orphaned_from", "text"),
 ))
 
@@ -119,30 +120,30 @@ NOTICE_LOG = Spec("notice_log", (
 ))
 
 ORG_INBOX = Spec("org_inbox", (
-    F("id", "text", col="public_id"), F("dir", "text"), F("peer", "text"), F("body", "text"),
+    F("id", "text", col="public_id"), F("dir", "text", values=('in', 'out')), F("peer", "text"), F("body", "text"),
     F("at", "ts"), F("by", "text"), F("state", "text"), F("state_at", "ts"), F("net_id", "text"),
     F("attributed", "bool"),
 ))
 
 USER_INBOX = Spec("user_inbox", (
-    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text"), F("body", "text"),
+    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text", values=V.MAIL_KIND), F("body", "text"),
     F("at", "ts"), F("message_id", "text"), F("operation_id", "text"),
     F("attachments", "list", spec=Spec("user_inbox_attachments", ATTACHMENTS)),
     F("ev", "json"),
 ))
 
 USER_OUTBOX = Spec("user_outbox", (
-    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text"), F("body", "text"),
+    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text", values=V.MAIL_KIND), F("body", "text"),
     F("at", "ts"), F("relationship", "text"), F("message_id", "text"),
     F("operation_id", "text"), F("client_op", "text"), F("ev", "json"), F("to", "text"),
-    F("recv_seq", "int"), F("seq_origin", "text"), F("mailbox", "text"),
+    F("recv_seq", "int"), F("seq_origin", "text", values=V.SEQ_ORIGIN), F("mailbox", "text"),
     F("attachments", "list", spec=Spec("user_outbox_attachments", ATTACHMENTS)),
     F("reply_to", "json"),
     F("attachments_missing", "list", item="text", table="user_outbox_attachments_missing"),
 ))
 
 USER_MAIL_LOG = Spec("user_mail_log", (
-    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text"), F("body", "text"),
+    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text", values=V.MAIL_KIND), F("body", "text"),
     F("at", "ts"), F("message_id", "text"), F("operation_id", "text"),
     F("attachments", "list", spec=Spec("user_mail_log_attachments", ATTACHMENTS)),
     F("ev", "json"), F("urgent", "bool"), F("urgent_reason", "text"),
@@ -151,13 +152,13 @@ USER_MAIL_LOG = Spec("user_mail_log", (
 OP_RECEIPTS = Spec("op_receipts", (
     F("v", "int"), F("id", "text", col="public_id"), F("at", "ts"), F("mint_ms", "int"),
     F("node", "text"), F("gen", "int"), F("tool", "text"), F("key", "text"), F("fp", "text"),
-    F("targets", "json"), F("cls", "text"), F("outcome", "text"), F("result", "json"),
+    F("targets", "json"), F("cls", "text", values=('transaction', 'transaction+post', 'pre_transaction', 'unrolled_side_effect', 'none')), F("outcome", "text", values=('applied', 'fenced')), F("result", "json"),
     F("ev_from", "json", nullable=True), F("ev_to", "json", nullable=True),
     F("post_effects", "json"),
     F("fp_node", "text"), F("orphaned_from", "text"),
 ))
 
-ORG_DIRS = Spec("org_dirs", (F("path", "text"), F("mode", "text")))
+ORG_DIRS = Spec("org_dirs", (F("path", "text"), F("mode", "text", values=V.DIR_MODE)))
 
 NET_HUBS = Spec("net_hubs", (
     F("id", "text", col="public_id"), F("address", "text"), F("enabled", "bool"),
@@ -165,19 +166,19 @@ NET_HUBS = Spec("net_hubs", (
 ))
 
 MAIL = Spec("mail", (
-    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text"), F("body", "text"),
+    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text", values=V.MAIL_KIND), F("body", "text"),
     F("at", "ts"), F("relationship", "text"), F("restart_notice", "bool"), F("ev", "json"),
-    F("recv_seq", "int"), F("seq_origin", "text"), F("mailbox", "text"),
+    F("recv_seq", "int"), F("seq_origin", "text", values=V.SEQ_ORIGIN), F("mailbox", "text"),
     F("message_id", "text"), F("operation_id", "text"), F("redelivered", "int"),
 ))
 
 NOTICES = Spec("notices", (F("at", "ts"), F("text", "text"), F("ev", "json")))
 
 DELIVERY_BATCHES = Spec("delivery_batches", (
-    F("tok", "text"), F("at", "ts"), F("mail", "json"), F("notices", "json"), F("via", "text"),
+    F("tok", "text"), F("at", "ts"), F("mail", "json"), F("notices", "json"), F("via", "text", values=('turn', 'steer')),
     F("custody", "obj", spec=Spec("", (F("mailbox", "text"), F("generation", "int"),
                                        F("session", "text")))),
-    F("engines", "json"), F("mode", "text"), F("attempt", "json"),
+    F("engines", "json"), F("mode", "text", values=('turn', 'steer', 'manual_fetch')), F("attempt", "json"),
     F("drive", "json", nullable=True), F("segments", "json"), F("manual", "json"),
     F("claim", "obj", spec=Spec("", (F("delivery_id", "text"), F("tool_use_id", "text"),
                                      F("claimed_at", "float"), F("lease_until", "float")))),
@@ -186,10 +187,10 @@ DELIVERY_BATCHES = Spec("delivery_batches", (
 ))
 
 MAIL_LOG = Spec("mail_log", (
-    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text"), F("body", "text"),
+    F("id", "text", col="public_id"), F("from", "text"), F("kind", "text", values=V.MAIL_KIND), F("body", "text"),
     F("at", "ts"), F("relationship", "text"), F("message_id", "text"),
     F("operation_id", "text"), F("client_op", "text"), F("ev", "json"),
-    F("restart_notice", "bool"), F("recv_seq", "int"), F("seq_origin", "text"),
+    F("restart_notice", "bool"), F("recv_seq", "int"), F("seq_origin", "text", values=V.SEQ_ORIGIN),
     F("mailbox", "text"),
     F("attachments", "list", spec=Spec("mail_log_attachments", ATTACHMENTS)),
     F("stale", "bool"), F("stale_at", "ts"), F("stale_revision", "int"),
@@ -199,7 +200,7 @@ MAIL_LOG = Spec("mail_log", (
 ))
 
 STEER_RECORDS = Spec("steer_records", (
-    F("at", "ts"), F("delivery_id", "text"), F("level", "text"),
+    F("at", "ts"), F("delivery_id", "text"), F("level", "text", values=('accepted', 'handoff', 'recorded')),
     F("mail_ids", "list", item="text", table="steer_record_mail_ids"),
     F("delivery_ids", "list", item="text", table="steer_record_delivery_ids"),
     F("acked_ids", "list", item="text", table="steer_record_acked_ids"),
@@ -223,13 +224,13 @@ AGENT_TURN_ERRORS = Spec("agent_turn_errors", (F("at", "ts"), F("text", "text"),
 WORK_SCOPE_LOG = Spec("work_scope_log", (
     F("seq", "int"), F("at", "ts"),
     F("by", "obj", spec=Spec("", (F("node", "text"), F("generation", "int")))),
-    F("kind", "text"), F("text", "text"), F("supersedes", "int", nullable=True),
+    F("kind", "text", values=V.WORK_SCOPE_KIND), F("text", "text"), F("supersedes", "int", nullable=True),
     F("superseded_by", "int", nullable=True), F("before", "text"), F("after", "text"),
-    F("mode", "text"),
+    F("mode", "text", values=V.WORK_SCOPE_MODE),
 ))
 
 MAIL_TRANSITIONS = Spec("mail_transitions", (
-    F("operation", "text"), F("outcome", "text"), F("node", "text"), F("identity", "json"),
+    F("operation", "text"), F("outcome", "text", values=('reclaimed', 'confirmed')), F("node", "text"), F("identity", "json"),
     F("before", "json"), F("deliveries", "json"),
 ))
 
@@ -247,13 +248,14 @@ STEER_ATTEMPTS = Spec("steer_attempts", (
     F("toks", "list", item="text", table="steer_attempt_toks"),
     F("mail_ids", "list", item="text", table="steer_attempt_mail_ids"),
     F("transcript_path", "text"), F("tp_offset", "int"), F("texts_n", "int"),
-    F("retried", "bool"), F("acked_at", "ts"), F("recorded_at", "ts"), F("resolved", "text"),
+    F("retried", "bool"), F("acked_at", "ts"), F("recorded_at", "ts"),
+    F("resolved", "text", values=('unconfirmable', 'delivered-elsewhere', 'superseded')),
     F("views", "list", item="text", table="steer_attempt_views"),
     F("view_segments", "json"),
 ))
 
 ORG_DOC_MIGRATIONS = Spec("org_doc_migrations", (
-    F("at", "ts"), F("repaired", "int"), F("stripped", "int"), F("mode", "text"),
+    F("at", "ts"), F("repaired", "int"), F("stripped", "int"), F("mode", "text", values=('inspect',)),
     F("holders", "list", item="text", table="org_doc_migration_holders"),
     F("multi_holder", "bool"),
     F("healed", "list", item="text", table="org_doc_migration_healed"),

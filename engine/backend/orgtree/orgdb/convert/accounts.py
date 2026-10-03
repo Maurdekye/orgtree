@@ -42,6 +42,7 @@ import datetime as _dt
 import hashlib
 import json
 import math
+from dataclasses import replace
 from typing import Any, Callable, Iterable, Mapping
 
 from .. import codec
@@ -67,8 +68,19 @@ _SPEND_FIELDS = (F("usd_total", "float"), F("turns", "int"), F("since", "float")
 ACCOUNT = Spec("accounts", _ACCOUNT_FIELDS)
 MARK = Spec("account_marks", _MARK_FIELDS)
 SPEND = Spec("account_spend", _SPEND_FIELDS)
-ORG_ACCOUNT = Spec("org_accounts", _ACCOUNT_FIELDS + (F("origin_org", "text"),))
-ORG_MARK = Spec("org_account_marks", _MARK_FIELDS)
+_ORG_CREDENTIAL = replace(CREDENTIAL, fields=tuple(
+    replace(f, values=('imported', 'managed', 'token', 'apikey')) if f.key == 'kind' else f
+    for f in CREDENTIAL.fields))
+_ORG_ENUMS = {'provider': ('claude', 'openai', 'google'),
+              'auth': ('authenticated', 'unauthenticated', 'unobserved'),
+              'mode': ('subscription', 'apikey')}
+ORG_ACCOUNT = Spec("org_accounts", tuple(
+    replace(f, values=_ORG_ENUMS[f.key]) if f.key in _ORG_ENUMS else
+    replace(f, spec=_ORG_CREDENTIAL) if f.key == 'credential' else f
+    for f in _ACCOUNT_FIELDS) + (F("origin_org", "text"),))
+ORG_MARK = Spec("org_account_marks", tuple(
+    replace(f, values=('observed', 'inferred')) if f.key == 'provenance' else f
+    for f in _MARK_FIELDS))
 ORG_SPEND = Spec("org_account_spend", _SPEND_FIELDS)
 ALIAS = Spec("account_aliases", (F("account_id", "text"),))
 ORG_ALIAS = Spec("org_account_aliases", (F("account_id", "text"),))
@@ -80,7 +92,9 @@ _AUDIT_FIELDS = (
     F("reason", "text"),
 )
 AUDIT = Spec("account_mark_audit", _AUDIT_FIELDS)
-ORG_AUDIT = Spec("org_account_mark_audit", _AUDIT_FIELDS)
+ORG_AUDIT = Spec("org_account_mark_audit", tuple(
+    replace(f, values=('registry',)) if f.key == 'source' else f
+    for f in _AUDIT_FIELDS))
 
 def _checked(t: Table) -> Table:
     check(t)

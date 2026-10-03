@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .. import codec
+from .. import enum_values as V
 from ..codec import Field as F, Rows, ShapeError, Spec
 from ..sections import Context, Section, table
 
@@ -35,15 +36,15 @@ def holder(key: str, *, born: bool = True) -> F:
 
 CHECK = (
     F("at", "ts"), BY, F("evidence_ref", "text"), F("note", "text", nullable=True),
-    F("classification", "text"), F("artifact", "text"), F("runner", "text"),
-    F("execution", "text"), F("execution_means", "text"), F("result", "text"),
+    F("classification", "text", values=V.CLASSIFICATION), F("artifact", "text"), F("runner", "text"),
+    F("execution", "text", values=V.EXECUTION), F("execution_means", "text"), F("result", "text", values=V.RESULT),
     F("classification_means", "text"), F("composition", "text"), F("gate", "text"),
     F("blocked_count", "int"),
 )
 
 WORK_ITEM = Spec("work_items", (
-    F("slug", "text"), F("rev", "int"), F("kind", "text"), F("title", "text"),
-    F("objective", "text"), F("status", "text"),
+    F("slug", "text"), F("rev", "int"), F("kind", "text", values=('code', 'non-code')), F("title", "text"),
+    F("objective", "text"), F("status", "text", values=V.WORK_STATUS),
     F("blocked_reason", "text", nullable=True), F("waiting_reason", "text", nullable=True),
     F("dropped_reason", "text", nullable=True),
     holder("owner"), holder("reviewer"), holder("created_by", born=False),
@@ -63,10 +64,10 @@ WORK_ITEM = Spec("work_items", (
     ))),
     F("dependencies", "list", item="text", table="work_item_dependencies"),
     F("evidence", "list", spec=Spec("work_item_evidence", (
-        F("at", "ts"), BY, F("kind", "text"), F("ref", "text"), F("note", "text"),
-        F("execution", "text"), F("execution_means", "text"), F("receipt", "json"),
-        F("classification", "text"), F("artifact", "text"), F("runner", "text"),
-        F("result", "text"), F("classification_means", "text"),
+        F("at", "ts"), BY, F("kind", "text", values=('note', 'link', 'file', 'commit', 'log')), F("ref", "text"), F("note", "text"),
+        F("execution", "text", values=V.EXECUTION), F("execution_means", "text"), F("receipt", "json"),
+        F("classification", "text", values=V.CLASSIFICATION), F("artifact", "text"), F("runner", "text"),
+        F("result", "text", values=V.RESULT), F("classification_means", "text"),
     ))),
     F("delivery", "json", nullable=True), F("accepted", "json", nullable=True),
     F("candidate_verdict", "json", nullable=True), F("candidate_verdicts", "json"),
@@ -74,7 +75,7 @@ WORK_ITEM = Spec("work_items", (
     F("review_seats", "json"),
     F("review_seat_requests", "list", spec=Spec("work_item_review_seat_requests", (
         F("seq", "int"), F("reviewer", "text"), F("requested_by", "text"), F("owner", "text"),
-        F("to", "text"), F("at", "ts"), F("state", "text"), F("note", "text"),
+        F("to", "text"), F("at", "ts"), F("state", "text", values=('pending', 'granted', 'withdrawn', 'declined')), F("note", "text"),
         F("decided_by", "text", nullable=True), F("decided_at", "ts", nullable=True),
         F("decision_note", "text", nullable=True),
     ))),
@@ -85,10 +86,10 @@ WORK_ITEM = Spec("work_items", (
         F("from", "json", nullable=True), F("to", "json", nullable=True),
         F("done", "json"), F("next", "json"), F("changes", "json"), F("now", "json"),
         F("why", "text"), F("note", "text", nullable=True), F("reason", "text"),
-        F("status", "text"), F("status_from", "text"), F("status_to", "text"),
-        F("stage", "text"), F("reviewer", "text"), F("candidate", "text"),
-        F("decision", "text"), F("disposition", "text"), F("finding", "text"),
-        F("artifact", "text"), F("name", "text"), F("scope", "text"), F("via", "text"),
+        F("status", "text", values=V.WORK_STATUS), F("status_from", "text", values=V.WORK_STATUS), F("status_to", "text", values=V.WORK_STATUS),
+        F("stage", "text", values=V.STAGE), F("reviewer", "text"), F("candidate", "text"),
+        F("decision", "text", values=('approve', 'changes', 'approve_stage')), F("disposition", "text", values=V.DISPOSITION), F("finding", "text"),
+        F("artifact", "text"), F("name", "text"), F("scope", "text", values=('item', 'named')), F("via", "text"),
         F("evidence_gap", "text"), F("answer", "text"),
         F("scope_seq", "int"), F("batch", "int"), F("index", "int"), F("set_rev", "int"),
         F("supersedes", "int"), F("count", "int"),
@@ -112,22 +113,22 @@ WORK_ITEM = Spec("work_items", (
     ))),
     F("notification_attention_epoch", "int"), F("notification_attention_active", "bool"),
     F("scope", "list", spec=Spec("work_item_scope", (
-        F("seq", "int"), F("at", "ts"), BY, F("kind", "text"), F("before", "text"),
-        F("after", "text"), F("mode", "text"), F("supersedes", "int", nullable=True),
+        F("seq", "int"), F("at", "ts"), BY, F("kind", "text", values=V.WORK_SCOPE_KIND), F("before", "text"),
+        F("after", "text"), F("mode", "text", values=V.WORK_SCOPE_MODE), F("supersedes", "int", nullable=True),
         F("superseded_by", "int", nullable=True), F("text", "text"),
     ))),
     F("scope_seq", "int"), F("scope_guard", "int"), F("scope_logged", "int"),
     F("artifacts", "list", spec=Spec("work_item_artifacts", (
         F("id", "text", col="public_id"), F("seq", "int"), F("at", "ts"), BY,
         F("name", "text"), F("bytes", "int"), F("sha256", "text"), F("path", "text"),
-        F("scope", "text"), F("grants", "json"), F("note", "text"),
+        F("scope", "text", values=('item', 'named')), F("grants", "json"), F("note", "text"),
     ))),
     F("artifact_seq", "int"),
     F("findings", "list", spec=Spec("work_item_findings", (
         F("id", "text", col="public_id"), F("seq", "int"), F("at", "ts"), BY,
-        F("title", "text"), F("disposition", "text"),
+        F("title", "text"), F("disposition", "text", values=V.DISPOSITION),
         F("decisions", "list", spec=Spec("work_item_finding_decisions", (
-            F("at", "ts"), BY, F("disposition", "text"), F("note", "text")))),
+            F("at", "ts"), BY, F("disposition", "text", values=V.DISPOSITION), F("note", "text")))),
         F("detail", "text"), F("severity", "text"), F("evidence_ref", "text"),
     ))),
     F("finding_seq", "int"),

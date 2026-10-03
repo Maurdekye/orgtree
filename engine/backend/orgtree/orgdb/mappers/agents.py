@@ -32,7 +32,8 @@ Stage-1 differences from Appendix A.2, all exact and revisited by the native age
 (design §6.3 step 2): the recent ``turns`` list keeps its own table (Appendix A.2 would read it
 from the turn log, but 81 live agents' lists predate the log); denials and approvals are two
 tables instead of one with a kind column; scope columns keep a ``scope_`` prefix; the turn
-estimate tuples are JSON; no CHECK constraint on legacy text values yet.
+estimate tuples are JSON. Migration 0009 adds the current enum CHECKs; an
+unsupported legacy member stays exact in extra, with a NULL typed column.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ import json
 from typing import Any, Callable, Mapping
 
 from .. import codec
+from .. import enum_values as V
 from ..codec import Field, Rows, ShapeError, Spec
 from ..sections import Context, Section, Table
 
@@ -49,8 +51,9 @@ F = Field
 
 
 def _status(prefix: str) -> Field:
-    return F(prefix, "obj", spec=Spec("", (F("status", "text"), F("summary", "text"),
-                                           F("at", "ts"))))
+    return F(prefix, "obj", spec=Spec("", (
+        F("status", "text", values=('working', 'blocked', 'idle')),
+        F("summary", "text"), F("at", "ts"))))
 
 
 TURN = Spec("agent_recent_turns", (
@@ -80,14 +83,14 @@ HOT = Spec("agents", (
     F("created", "ts"),
     F("archived_at", "ts", nullable=True),
     F("rescinded_at", "ts", nullable=True),
-    F("state", "text"),
+    F("state", "text", values=('live', 'archived', 'unrecoverable', 'deleted')),
     F("title", "text"),
     F("model", "text"),
     F("grant", "num", col="credit_grant"),
     F("lineage", "text"),
     F("predecessor", "text", nullable=True),
     F("successor", "text", nullable=True),
-    F("bearer_state", "text", nullable=True),
+    F("bearer_state", "text", nullable=True, values=('knowledge', 'preserving', 'lost')),
     F("lost_reason", "text"),
     F("session_id", "text"),
     F("transcript_incarnation", "text"),
@@ -107,9 +110,9 @@ HOT = Spec("agents", (
     F("mailbox_id", "text"),
     F("mail_seq", "int"),
     F("scope", "obj", spec=Spec("", (
-        F("permission_mode", "text"),
-        F("org_visibility", "text"),
-        F("effort", "text"),
+        F("permission_mode", "text", values=V.PERMISSION),
+        F("org_visibility", "text", values=V.VISIBILITY),
+        F("effort", "text", values=V.EFFORT),
         F("model_version", "text"),
         F("prefer_reserve", "bool"),
         F("account_fallback", "bool"),
@@ -118,7 +121,7 @@ HOT = Spec("agents", (
             F("mcp", "list", item="text", table="agent_mcp_servers"),
         ))),
         F("add_dirs", "list", spec=Spec("agent_dir_grants", (F("path", "text"),
-                                                              F("mode", "text")))),
+                                                              F("mode", "text", values=V.DIR_MODE)))),
     ))),
     F("cost_usd", "num"),
     F("cost_usd_unknown", "bool"),

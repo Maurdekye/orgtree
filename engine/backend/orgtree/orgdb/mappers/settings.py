@@ -15,6 +15,7 @@ credential catch-up to read after the conversion.
 
 from __future__ import annotations
 
+from .. import enum_values as V
 from ..codec import Field as F, Spec
 
 SETTINGS = Spec("org_settings", (
@@ -23,16 +24,16 @@ SETTINGS = Spec("org_settings", (
     F("name", "text"),
     F("created", "ts"),
     F("workspace", "text"),
-    F("permission_mode", "text"),
-    F("default_visibility", "text"),
-    F("default_effort", "text"),
+    F("permission_mode", "text", values=V.PERMISSION),
+    F("default_visibility", "text", values=V.VISIBILITY),
+    F("default_effort", "text", values=V.EFFORT),
     F("max_top_grant", "num"),
     F("default_top_grant", "num"),
     F("compact_at", "num"),
     F("max_children", "int"),
     F("max_depth", "int"),
-    F("fable_limit_policy", "text"),
-    F("fable_filter_policy", "text"),
+    F("fable_limit_policy", "text", values=('halt', 'opus', 'dissolve')),
+    F("fable_filter_policy", "text", values=('halt', 'opus', 'auto-autopsy')),
     F("fable_filter_model", "text"),
     F("fable_api_fallback", "json"),
     F("fable_lock", "json", nullable=True),
