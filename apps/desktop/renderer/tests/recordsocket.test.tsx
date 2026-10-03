@@ -1,5 +1,5 @@
 import './harness'
-import { flush, inAct, mountView } from './harness'
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import App from '../src/App'
@@ -11,6 +11,7 @@ import { bumpLive } from '../src/livebus'
 import type { AskInfo, TreePayload } from '../src/types'
 
 for (const enabled of [false, true]) test(`org record feed flag ${enabled}: socket, projection and polling`, async () => {
+  useFakeClock()
   const org = `record-socket-${enabled}`
   const agent = { id: 'agent', title: 'Agent', generation: 1, state: 'live', tier: 'haiku',
     model_id: 'haiku', seat: 1, grant: 0, free: 0, parent: null, children: [], turns: [],
@@ -115,6 +116,7 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
       holdChanges = true
       await inAct(async () => { sockets[0].onopen?.(); await flush(10) })
       assert.equal(delayed.length, 1)
+      await advance(10)
       await inAct(async () => {
         await markReadNow(org, { id: 'mail' }, async () => {})
         const ask = { id: 'new-ask', node: 'agent', kind: 'batch', status: 'open', rev: 1,
@@ -132,7 +134,7 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
       await inAct(async () => { delayed[0].resolve(json(delayed[0].answer)); await flush(10) })
       assert.equal(unconfirmedReads(org).all, 1, 'delayed older HTTP read cannot confirm the save')
       assert.equal(applyPrimedAsks(org, blank, 0).roots[0].ask?.id, 'new-ask')
-      await inAct(async () => { await flush(150) })
+      await advance(150)
       assert.ok(delayed.length >= 3, 'prime and mutation acknowledgment each obtain a fresh confirmation')
       await inAct(async () => {
         for (const pending of delayed.slice(1)) pending.resolve(json(pending.answer))
@@ -149,5 +151,6 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     window.history.replaceState(null, '', '/')
     Object.assign(globals, { fetch: saved.fetch, WebSocket: saved.socket, history: saved.history,
       CustomEvent: saved.customEvent, setInterval: saved.setInterval, clearInterval: saved.clearInterval })
+    realClock()
   }
 })
