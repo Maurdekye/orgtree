@@ -156,7 +156,11 @@ class BigManagerSave(unittest.TestCase):
 
     def test_unrelated_agent_is_not_delayed_during_the_save(self):
         # a live descendant the change does not affect, and an agent outside
-        # the subtree, each run one transaction while the save holds its locks
+        # the subtree, each run one transaction while the save holds its
+        # locks (held 150 ms here). Their LOCK wait is what is measured: a
+        # 100 ms lock_timeout turns any wait past 100 ms into a lock timeout
+        # (the wall-clock time also counts thread scheduling, so it is only
+        # printed)
         waits = {}
         errors = []
         gate = threading.Event()
@@ -166,7 +170,7 @@ class BigManagerSave(unittest.TestCase):
             gate.wait(10)
             t0 = time.perf_counter()
             try:
-                with orgtx.org_tx(self.slug, nodes=[nid], lock_timeout=2):
+                with orgtx.org_tx(self.slug, nodes=[nid], lock_timeout=0.1):
                     waits[nid] = time.perf_counter() - t0
             except Exception as e:                       # noqa: BLE001
                 errors.append(f'{nid}: {type(e).__name__}: {e}')
@@ -174,7 +178,7 @@ class BigManagerSave(unittest.TestCase):
         def hook(point, tx):
             if threading.get_ident() == me and point == 'after_lock':
                 gate.set()
-                time.sleep(0.05)        # let the others queue on our locks
+                time.sleep(0.15)        # hold our locks while the others run
         threads = [threading.Thread(target=other, args=(n,))
                    for n in ('m1-a1', 'other')]
         for t in threads:
@@ -191,8 +195,7 @@ class BigManagerSave(unittest.TestCase):
         print(f"\n[measure] concurrent waits: "
               + ", ".join(f"{k}={v * 1000:.0f} ms" for k, v in sorted(waits.items())))
         self.assertEqual(errors, [])
-        for nid, w in waits.items():
-            self.assertLess(w, 0.1, nid)
+        self.assertEqual(sorted(waits), ['m1-a1', 'other'])
 
     def test_rehire_gets_the_current_scope(self):
         self.save(tools=_tools('alpha'), permission_mode='default')
