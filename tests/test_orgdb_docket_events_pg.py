@@ -230,7 +230,8 @@ class StableWrites(unittest.TestCase):
                     admin.execute('CREATE DATABASE '+codec.quote(database))
                 with conn.connect(fixture.ADMIN,database) as admin:
                     migrate.migrate(admin,old,migrate.ORG_LOCK)
-                    admin.execute("INSERT INTO orgtree.work_items(list_key,ord,slug) VALUES('active',0,'pre-events')")
+                    admin.execute("INSERT INTO orgtree.work_items(list_key,ord,slug,docket_manual,docket_order) "
+                                  "VALUES('active',0,'pre-events',false,'')")
                     with self.assertRaisesRegex(Exception,'converted before 0010: re-convert it from its legacy data'):
                         migrate.migrate(admin,migrate.ORG_DIR,migrate.ORG_LOCK)
                     self.assertNotIn('0010_docket_events.sql',migrate.applied(admin))
@@ -290,7 +291,7 @@ class StableWrites(unittest.TestCase):
             finally:
                 if view.in_transaction:
                     view.execute('ROLLBACK')
-                view.execute('DELETE FROM log_l WHERE seq=?',(seq,))
+                view.execute('DELETE FROM log_l WHERE seq=? AND val=?',(seq,R.dumps(archived)))
 
 
 if __name__=='__main__':
