@@ -19,15 +19,16 @@ from unittest.mock import Mock, patch
 import test_orgdb_compat_pg as fixture
 from orgtree import (desktop_notifications as notices, foreground_store as foreground,
                      identity_context, policy_candidates, policy_context, policy_reads,
-                     settingstx, store, tree_ui, turn_inputs)
-from orgtree.orgdb import registry
-from orgtree.ledger import Org
+                     settingstx, store, tree_ui, turn_inputs, workdetail, worklist, work_ui)
+from orgtree.orgdb import docket, registry
+from orgtree.ledger import Org, USER
 
 setUpModule = fixture.setUpModule
 tearDownModule = fixture.tearDownModule
 
 BASE_HISTORY = 2048
 BIG_TABLE_ROWS = 256
+NOW = 1791028800.0  # fixed classification clock; old completed rows stay archived
 JSON_LOOKUP = re.compile(r"->|#>>?|json(?:b)?_extract_path|::\s*json(?:b)?\b", re.I)
 # Only predicates and ordering, never Output: exact body decoding may use JSON.
 HOT_CLAUSES = ('Filter', 'Index Cond', 'Recheck Cond', 'Join Filter', 'Hash Cond',
@@ -184,11 +185,21 @@ def seeded_document(template, slug, history, *, stray_names=False):
     doc['asks'] = [dict(id=f'closed-{i}', node='dev', question='retained question',
                         at=fixture.AT, status='answered', resolved_at=fixture.AT)
                     for i in range(history)]
-    doc['asks'].append(dict(id='open', node='dev', question='current', at=fixture.AT, status='open'))
+    doc['asks'].append(dict(id='open', node='dev', question='current', at=fixture.AT,
+                           status='open', questions=[dict(question='current question',
+                                                        work_item='current-work')]))
     doc['work_items_archive'] = [dict(fixture.item(f'archive-work-{i}', 'Old work'),
-                                  status='done', archived_at=fixture.AT)
+                                  status='done', archived_at=fixture.AT,
+                                  updated_at='2099-01-01T00:00:00Z')
                                 for i in range(history)]
-    doc['work_items'] = [fixture.item('current-work', 'Current work')]
+    # Keep the archive in front of current rows in sort order, with retired
+    # descendants and direct/participant history inside the viewer's subtree.
+    # Attention on a physical archive is a current candidate, not a cold page.
+    doc['work_items_archive'].append(dict(fixture.item('held-work', 'Held archive'),
+        status='done', archived_at=fixture.AT, manual_attention=dict(reason='read', set_rev=1)))
+    doc['work_items'] = [fixture.item('current-work', 'Current work'),
+                        dict(fixture.item('backlog-work', 'Backlog'), status='backlogged')]
+    doc['work_identity'] = 'slug'
     doc['documents'] = [dict(id=f'document-{i}', node='dev', title='Current presentation',
                             at=fixture.AT, body='authored text', format='markdown') for i in range(10)]
     doc['watchdogs'] = [dict(id='current-dog', owner='dev', name='check', kind='file',
@@ -213,6 +224,19 @@ def publish(doc):
         # Statistics belong to the owner/admin, never the runtime reader.
         raw.execute('ANALYZE')
     return {table: len(values) for table, values in rows.items()}
+
+
+def docket_counts(slug):
+    with docket.read(slug, viewer=USER, now_ts=NOW) as snapshot:
+        return snapshot.counts(include_archived=True)
+
+
+def desktop_build(slug):
+    # Exercise the real cold-cache initial screen call. A warmed cache would
+    # measure only its stamp, concealing a history scan in the first build.
+    with work_ui._lock:
+        work_ui._cache.clear()
+    return work_ui.read(slug, backlogged=True)
 
 
 def readers():
@@ -242,6 +266,18 @@ def readers():
         'a6_events': lambda slug: store.read_events_page(slug, last=3),
         'a6_gallery': store.read_document_gallery,
         'a6_document': lambda slug: store.read_document(slug, 'document-0'),
+        'a2_lookup': lambda slug: worklist.lookup(slug, 'dev', 'current-work', now_ts=NOW),
+        'a2_archive_reference': lambda slug: worklist.lookup(slug, 'boss', 'archive-work-0', now_ts=NOW),
+        'a2_lookup_many': lambda slug: worklist.lookup_many(slug, 'dev',
+            ['current-work', 'archive-work-0', 'absent-work'], now_ts=NOW),
+        'a2_foreground_leaf': lambda slug: worklist.foreground(slug, 'dev', backlogged=True, now_ts=NOW),
+        'a2_foreground_coordinator': lambda slug: worklist.foreground(slug, 'boss', backlogged=True, now_ts=NOW),
+        'a2_foreground_user': lambda slug: worklist.foreground(slug, USER, backlogged=True, now_ts=NOW),
+        'a2_agent_list': lambda slug: worklist.agent_list(slug, 'dev', include_backlogged=True, now_ts=NOW),
+        'a2_counts_user': docket_counts,
+        'a2_policy_context': lambda slug: policy_context.read(slug, docket=True),
+        'a2_get': lambda slug: workdetail.get(slug, 'dev', 'current-work', now_ts=NOW),
+        'a2_desktop_build': desktop_build,
     }
     selected.update({'robust_' + name: reader for name, reader in list(selected.items())
                      if name.startswith('a1_')})
@@ -386,6 +422,57 @@ class HotReaders(unittest.TestCase):
             self.assertTrue(any("extra->>'owner'" in query['sql'] for query in result['queries']))
             self.assertFalse(any('JSON lookup' in fault for query in result['queries']
                                  for fault in query['violations']), result)
+
+    def test_docket_fixture_reaches_current_archive_and_question_paths(self):
+        with fixture.storage(True):
+            for multiplier in (1, 10):
+                slug = f'hot-history-{multiplier}'
+                self.assertTrue(worklist.lookup(slug, 'dev', 'current-work', now_ts=NOW)['found'])
+                self.assertTrue(worklist.lookup(slug, 'boss', 'archive-work-0', now_ts=NOW)['found'])
+                self.assertFalse(worklist.lookup(slug, 'dev', 'absent-work', now_ts=NOW)['found'])
+                for viewer in ('dev', 'boss', USER):
+                    body = worklist.foreground(slug, viewer, backlogged=True, now_ts=NOW)
+                    self.assertEqual({r['slug'] for r in body['items']}, {'current-work', 'held-work'})
+                    self.assertEqual({r['slug'] for r in body['backlogged']}, {'backlog-work'})
+                    current = next(r for r in body['items'] if r['slug'] == 'current-work')
+                    self.assertTrue(current['questions'], 'open question link was not seeded')
+
+    def test_control_docket_lost_slug_bound_is_caught(self):
+        original = docket._dicts
+        changed = []
+
+        def fault(raw, statement, params=()):
+            if 'WHERE i.slug=ANY(%s)' in statement:
+                # Remove the actual reader's SQL bound, then filter output in
+                # Python. Result parity alone cannot detect this regression.
+                changed.append(statement)
+                wanted = set(params[-1])
+                statement = statement.replace('WHERE i.slug=ANY(%s)', 'WHERE TRUE')
+                return [row for row in original(raw, statement, params[:-1]) if row['slug'] in wanted]
+            return original(raw, statement, params)
+
+        with fixture.storage(True), patch.object(docket, '_dicts', fault):
+            results = [measure(f'hot-history-{m}', readers()['a2_lookup'], self.sizes[m])
+                       for m in (1, 10)]
+        self.assertTrue(changed, 'fault did not reach the public lookup')
+        self.assertGreater(results[1]['rows'], results[0]['rows'] * 1.05 + 32, results)
+
+    def test_control_docket_json_predicate_is_caught(self):
+        original = docket._dicts
+        changed = []
+
+        def fault(raw, statement, params=()):
+            if 'WHERE i.slug=ANY(%s)' in statement:
+                statement = statement.replace('WHERE i.slug=ANY(%s)',
+                    "WHERE i.slug=ANY(%s) AND coalesce(i.extra->>'future-field','') <> 'never'")
+                changed.append(statement)
+            return original(raw, statement, params)
+
+        with fixture.storage(True), patch.object(docket, '_dicts', fault):
+            result = measure('hot-history-10', readers()['a2_lookup'], self.sizes[10])
+        self.assertTrue(changed, 'fault did not reach the public lookup')
+        self.assertTrue(any('JSON lookup' in fault for query in result['queries']
+                            for fault in query['violations']), result)
 
 
 def _plan_test(name):
