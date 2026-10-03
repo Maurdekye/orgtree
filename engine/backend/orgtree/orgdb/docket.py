@@ -147,8 +147,8 @@ class Snapshot:
           OR EXISTS(SELECT 1 FROM orgtree.work_item_participants p WHERE p.item_id=i.id AND p.value={v})
           OR EXISTS(WITH RECURSIVE up(id,parent_id,name) AS (
             SELECT id,parent_id,name FROM orgtree.agents WHERE orgtree.docket_key(name)=i.docket_anchor_key AND NOT tombstone
-            UNION SELECT a.id,a.parent_id,a.name FROM orgtree.agents a JOIN up u ON a.id=u.parent_id
-            WHERE NOT a.tombstone)
+            UNION SELECT a.id,a.parent_id,a.name FROM up u CROSS JOIN LATERAL (
+              SELECT id,parent_id,name FROM orgtree.agents WHERE id=u.parent_id AND NOT tombstone OFFSET 0) a)
             SELECT 1 FROM up WHERE name={v} AND orgtree.docket_key(name)<>i.docket_anchor_key))'''
 
     def _prefix(self, *, cold=False):
@@ -160,13 +160,14 @@ class Snapshot:
         prefix += ''' , descendants(id,name) AS (
           SELECT id,name FROM orgtree.agents WHERE parent_id=(
             SELECT id FROM orgtree.agents WHERE name=(SELECT name FROM current_viewer) AND NOT tombstone) AND NOT tombstone
-          UNION SELECT a.id,a.name FROM orgtree.agents a JOIN descendants d ON a.parent_id=d.id
-            WHERE NOT a.tombstone), readable(id) AS (
+          UNION SELECT a.id,a.name FROM descendants d CROSS JOIN LATERAL (
+            SELECT id,name FROM orgtree.agents WHERE parent_id=d.id AND NOT tombstone OFFSET 0) a), readable(id) AS (
           SELECT id FROM orgtree.work_items WHERE docket_owner_key=(SELECT key FROM current_viewer)
           UNION SELECT id FROM orgtree.work_items WHERE docket_creator_key=(SELECT key FROM current_viewer)
           UNION SELECT id FROM orgtree.work_items WHERE docket_reviewer_key=(SELECT key FROM current_viewer)
           UNION SELECT item_id FROM orgtree.work_item_participants WHERE value=(SELECT name FROM current_viewer)
-          UNION SELECT i.id FROM orgtree.work_items i JOIN descendants d ON orgtree.docket_key(d.name)=i.docket_anchor_key)'''
+          UNION SELECT i.id FROM descendants d CROSS JOIN LATERAL (
+            SELECT id FROM orgtree.work_items WHERE docket_anchor_key=orgtree.docket_key(d.name) OFFSET 0) i)'''
         return prefix, ' JOIN readable r ON r.id=i.id', 'TRUE'
 
     def _args(self, cold=False):
@@ -329,7 +330,7 @@ class Snapshot:
             join = ' JOIN candidates c ON c.id=i.id' + join
         archived = 'count(*) FILTER (WHERE archived)'
         if self.viewer == USER and include_archived:
-            archived += " + (SELECT count(*) FROM orgtree.work_items WHERE list_key='archive') - count(*) FILTER (WHERE attention AND physical_archive)"
+            archived += " + (SELECT n FROM orgtree.docket_counters WHERE kind='archive') - count(*) FILTER (WHERE attention AND physical_archive)"
         sql = prefix + f''' SELECT count(*) FILTER (WHERE attention),
           count(*) FILTER (WHERE NOT archived AND status<>ALL(%s)),
           {archived},
@@ -378,12 +379,14 @@ class Snapshot:
         return found
 
     def identities(self, names):
-        rows = _dicts(self.raw, '''WITH RECURSIVE up(id) AS (
-            SELECT id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone
-            UNION SELECT a.parent_id FROM orgtree.agents a JOIN up u ON u.id=a.id WHERE a.parent_id IS NOT NULL)
+        rows = _dicts(self.raw, '''WITH RECURSIVE wanted(name) AS (SELECT unnest(%s::text[])), up(id) AS (
+            SELECT a.id FROM wanted w CROSS JOIN LATERAL (
+              SELECT id FROM orgtree.agents WHERE name=w.name AND NOT tombstone OFFSET 0) a
+            UNION SELECT a.parent_id FROM up u CROSS JOIN LATERAL (
+              SELECT parent_id FROM orgtree.agents WHERE id=u.id AND parent_id IS NOT NULL OFFSET 0) a)
             SELECT a.name,a.state,a.generation,a.lineage_born,p.name AS parent_name,a.parent,a.parent_null,a.extra
-            FROM up JOIN orgtree.agents a USING(id) LEFT JOIN orgtree.agents p ON p.id=a.parent_id
-            WHERE NOT a.tombstone''', (list(names),))
+            FROM up u CROSS JOIN LATERAL (SELECT * FROM orgtree.agents WHERE id=u.id AND NOT tombstone OFFSET 0) a
+            LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.parent_id OFFSET 0) p ON true''', (list(names),))
         out = {n:None for n in names}
         for r in rows:
             value = dict(id=r['name'],state=r['state'],generation=r['generation'],seat_id=r['lineage_born'],

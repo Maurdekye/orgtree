@@ -7,7 +7,9 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 
 import json
 import random
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 import test_orgdb_docket_pg as fixture
 from orgtree.ledger import USER
@@ -138,6 +140,60 @@ class DocketGrowth(unittest.TestCase):
             finally:
                 with fixture.writer() as raw:
                     raw.execute('DELETE FROM orgtree.work_items WHERE id=1000020')
+
+    def test_concurrent_commits_do_not_lose_archive_deltas(self):
+        barrier = threading.Barrier(2)
+        with fixture.snapshot() as q:
+            before = q.raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0]
+
+        def add(n):
+            with fixture.writer() as raw:
+                clone(raw, 'work_items', 'secret', n, n)
+                barrier.wait(timeout=10)
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(add, n) for n in (30, 31)]
+                for future in futures:
+                    future.result(timeout=20)
+            with fixture.snapshot() as q:
+                actual = q.raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0]
+                self.assertEqual(actual, before + 2)
+                self.assertEqual(actual, q.raw.execute("SELECT count(*) FROM orgtree.work_items WHERE list_key='archive'").fetchone()[0])
+        finally:
+            with fixture.writer() as raw:
+                raw.execute('DELETE FROM orgtree.work_items WHERE id IN (1000030,1000031)')
+
+    def test_deferred_flush_updates_once_and_zero_net_work_does_not_update(self):
+        with conn.connect(fixture.ADMIN, fixture.DATABASE) as raw:
+            raw.execute('CREATE TABLE orgtree.test_docket_counter_writes(n bigint)')
+            raw.execute('GRANT SELECT,INSERT ON orgtree.test_docket_counter_writes TO ' + fixture.codec.quote(conn.role_of(fixture.RUNTIME)))
+            raw.execute("CREATE FUNCTION orgtree.test_docket_counter_write() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN INSERT INTO orgtree.test_docket_counter_writes VALUES(NEW.n); RETURN NEW; END$$")
+            raw.execute('CREATE TRIGGER test_docket_counter_write AFTER UPDATE ON orgtree.docket_counters FOR EACH ROW EXECUTE FUNCTION orgtree.test_docket_counter_write()')
+        try:
+            with fixture.writer() as raw:
+                clone(raw, 'work_items', 'secret', 40, 40)
+                clone(raw, 'work_items', 'secret', 41, 41)
+                clone(raw, 'work_items', 'secret', 42, 42)
+                self.assertEqual(raw.execute('SELECT count(*) FROM orgtree.test_docket_counter_writes').fetchone()[0], 0)
+            with fixture.writer() as raw:
+                self.assertEqual(raw.execute('SELECT count(*) FROM orgtree.test_docket_counter_writes').fetchone()[0], 1)
+                raw.execute("UPDATE orgtree.work_items SET list_key='active' WHERE id=1000040")
+                raw.execute("UPDATE orgtree.work_items SET list_key='archive' WHERE id=1000040")
+                raw.execute("UPDATE orgtree.work_items SET title=title WHERE id=1000041")
+                raw.execute('DELETE FROM orgtree.work_items WHERE id=-1')
+                raw.execute('SAVEPOINT discarded')
+                raw.execute('DELETE FROM orgtree.work_items WHERE id=1000042')
+                raw.execute('ROLLBACK TO SAVEPOINT discarded')
+            with fixture.snapshot() as q:
+                self.assertEqual(q.raw.execute('SELECT count(*) FROM orgtree.test_docket_counter_writes').fetchone()[0], 1)
+        finally:
+            with conn.connect(fixture.ADMIN, fixture.DATABASE) as raw:
+                raw.execute('DROP TRIGGER test_docket_counter_write ON orgtree.docket_counters')
+                raw.execute('DROP FUNCTION orgtree.test_docket_counter_write()')
+                raw.execute('DROP TABLE orgtree.test_docket_counter_writes')
+            with fixture.writer() as raw:
+                raw.execute('DELETE FROM orgtree.work_items WHERE id BETWEEN 1000040 AND 1000042')
 
     def test_all_point_reads_have_flat_scan_work_with_retained_history(self):
         record = next(r for r in fixture.DOC['work_items'] if r['slug'] == 'one')
