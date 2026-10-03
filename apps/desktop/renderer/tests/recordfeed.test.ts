@@ -91,6 +91,22 @@ test('one answer covering all observed gaps needs no redundant recovery', async 
   fullLoad(r.feed, snapshot(105, '105'))
 })
 
+test('replacement retires an old gap target and its pending HTTP answer', async () => {
+  const r = rig()
+  r.feed.receive(frame(104, 105, 'old'))
+  r.feed.receive({ type: 'record_reset' })
+  r.loads[0].resolve(snapshot(2, 'replacement', 'second'))
+  await settle()
+  r.catchups[0].answer.resolve(frame(100, 105, 'old'))
+  await settle()
+  r.feed.receive(frame(3, 4, 'new', 'second'))
+  assert.deepEqual(r.catchups[1].cursor, cursor(2, 'second'))
+  r.catchups[1].answer.resolve(frame(2, 4, 'new', 'second'))
+  await settle()
+  assert.equal(r.catchups.length, 2, 'the new stream must not chase the old revision105')
+  fullLoad(r.feed, snapshot(4, 'new', 'second'))
+})
+
 test('reconnect catches up even if no later commit reveals the missed update', async () => {
   const r = rig()
   const recovery = r.feed.reconnect()

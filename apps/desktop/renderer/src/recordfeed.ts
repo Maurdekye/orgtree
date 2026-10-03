@@ -53,12 +53,15 @@ export class RecordFeed<T> {
   private disposed = false
   private recovery: Promise<void> | null = null
   private reconnectPending = false
+  private gapTarget: FeedCursor | null = null
   constructor(private io: FeedIO<T>) {}
 
   private commit(records: RecordTable, cursor: FeedCursor, readStartedAt = 0) {
     const value = this.io.project(records)
     this.records = records
     this.cursor = cursor
+    if (this.gapTarget && (!sameIdentity(cursor, this.gapTarget)
+        || cursor.rev >= this.gapTarget.rev)) this.gapTarget = null
     this.io.publish(value, records, cursor, readStartedAt)
   }
 
@@ -92,7 +95,11 @@ export class RecordFeed<T> {
         if (readStartedAt) this.commit(this.records, c, readStartedAt)
         return
       }
-      if (answer.from > c.rev) { void this.reconnect(false); return }
+      if (answer.from > c.rev) {
+        this.gapTarget = { ...c, rev: Math.max(this.gapTarget?.rev ?? 0, answer.to) }
+        void this.reconnect(false)
+        return
+      }
       this.commit(changedTable(this.records, answer.upserts, answer.tombstones),
         { org_uuid: c.org_uuid, incarnation: c.incarnation, rev: answer.to }, readStartedAt)
     } catch (e) {
@@ -108,6 +115,7 @@ export class RecordFeed<T> {
     const previousIdentity = this.cursor
     this.buffering = true
     this.recovery = null
+    this.gapTarget = null
     const readStartedAt = Date.now()
     return this.io.snapshot().then(answer => {
       if (this.disposed || run !== this.generation) return
@@ -145,19 +153,29 @@ export class RecordFeed<T> {
       return Promise.resolve()
     }
     if (!this.cursor) return this.resync()
-    // Gap bursts coalesce. A new socket must ask again even if an older HTTP
+    // Gap bursts coalesce without forgetting the highest observed revision.
+    // A new socket must ask again even if an older HTTP
     // snapshot is in flight: that snapshot may predate writes made while offline.
     if (this.recovery && !force) return this.recovery
     const run = this.generation
     const cursor = { ...this.cursor }
     const readStartedAt = Date.now()
+    let answered = false
     const pending = this.io.catchup(cursor).then(answer => {
       if (this.disposed || run !== this.generation) return
+      answered = true
       this.receive(answer, readStartedAt)
     }).catch(e => {
       if (!this.disposed && run === this.generation)
         this.io.error(e instanceof Error ? e : new Error(String(e)))
-    }).finally(() => { if (this.recovery === pending) this.recovery = null })
+    }).finally(() => {
+      if (this.recovery === pending) this.recovery = null
+      // The answer's snapshot may predate another gap received while it was
+      // pending. Recover that remembered revision without needing a later write.
+      if (answered && !this.disposed && run === this.generation
+          && this.gapTarget && this.cursor && sameIdentity(this.cursor, this.gapTarget)
+          && this.cursor.rev < this.gapTarget.rev) void this.reconnect(false)
+    })
     this.recovery = pending
     return pending
   }
