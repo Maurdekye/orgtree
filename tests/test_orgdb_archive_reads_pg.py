@@ -229,24 +229,30 @@ class ArchiveReads(unittest.TestCase):
                 FROM generate_series(%s::integer,%s::integer) n""", (current, count-1))
         row = registry.lookup(self.slug)
         with conn.connect(f.ADMIN, row[1]) as admin:
-            admin.execute('VACUUM (ANALYZE) orgtree.work_items')
-            first_visible = admin.execute("SELECT relpages,relallvisible FROM pg_class "
-                                          "WHERE oid='orgtree.work_items'::regclass").fetchone()
-            # The private cluster commits asynchronously. Advance a committed
-            # xid/WAL boundary before requiring a fully visible covering scan;
-            # this fixture maintenance changes no record and no reader setting.
-            admin.execute('SET synchronous_commit=on')
-            with admin.transaction():
-                admin.execute('SELECT pg_current_xact_id()')
-            admin.execute('VACUUM (FREEZE, ANALYZE, DISABLE_PAGE_SKIPPING) orgtree.work_items')
-            visible = admin.execute("SELECT relpages,relallvisible FROM pg_class "
-                                    "WHERE oid='orgtree.work_items'::regclass").fetchone()
+            # Check the bulk insert's commit state before maintaining the fixture.
+            # Fresh asynchronous inserts in the disposable PG18 cluster required
+            # another vacuum pass in the measured diagnostic. Bound the passes,
+            # retain their evidence and still require zero heap fetches below.
+            commits = admin.execute('SELECT pg_xact_status(xmin::text::xid8),count(*) '
+                                    'FROM orgtree.work_items GROUP BY xmin').fetchall()
+            self.assertTrue(all(state == 'committed' for state, _ in commits), commits)
+            notices = []
+            admin.add_notice_handler(lambda d: notices.append(d.message_primary))
+            visibility = []
+            for _ in range(3):
+                admin.execute('VACUUM (VERBOSE, FREEZE, ANALYZE, DISABLE_PAGE_SKIPPING) orgtree.work_items')
+                visible = admin.execute("SELECT relpages,relallvisible FROM pg_class "
+                                        "WHERE oid='orgtree.work_items'::regclass").fetchone()
+                visibility.append(visible)
+                if visible[0] == visible[1]:
+                    break
             horizons = admin.execute("SELECT pid,state,backend_xmin::text "
                                      "FROM pg_stat_activity WHERE backend_xmin IS NOT NULL "
                                      "AND pid<>pg_backend_pid()").fetchall()
         REPORT.setdefault('vacuum', []).append(dict(headers=count, pages=visible[0],
-                                                    first_visible_pages=first_visible[1],
+                                                    commits=commits, passes=visibility, notices=notices,
                                                     visible_pages=visible[1], horizons=horizons))
+        self.assertEqual(visible[0], visible[1], 'fixture did not become all-visible: ' + repr(visibility))
 
     def test_status_probes_are_flat_and_identity_is_covering(self):
         measurements = []
