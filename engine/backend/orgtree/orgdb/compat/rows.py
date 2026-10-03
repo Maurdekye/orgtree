@@ -1498,7 +1498,10 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names,
         row = rows[0] if rows else None
         state = docket_pending(c)
         if row is not None and row['id'] not in state['deleted']:
-            raise CompatError(f"work item {rec.get('slug')!r}: archive append did not remove its previous row")
+            from psycopg.errors import UniqueViolation  # noqa: PLC0415
+            # Keep the legacy integrity-error surface when a slug is present in
+            # both lists. The valid delete-then-archive move reuses this row.
+            raise UniqueViolation(f"work item {rec.get('slug')!r}: archive append did not remove its previous row")
         position = new_ids(c,'work_items',1)[0]
         rid = row['id'] if row is not None else position
         keys = D.row_keys(rec,id=rid,list_key='archive',ord=position,archive_seq=position)
