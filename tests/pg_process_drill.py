@@ -181,6 +181,11 @@ class Drills(unittest.TestCase):
         env = {**self.env(), "ORGTREE_STORAGE": "orgdb"}
         env.pop("ORGTREE_ORGDB_PREFIX", None)
         env.pop("ORGTREE_PG_ADMIN_CONNINFO", None)
+
+        def admin_bearing(e: dict) -> set:
+            # (the runner's own variables may name an admin role already; the start adds none)
+            return {k for k, v in e.items() if "orgtree_admin" in str(v)}
+        before, before_process = admin_bearing(env), admin_bearing(dict(os.environ))
         phases: list[str] = []
         stand_in = StandIn(root)
         owned = bracket.start_for_engine(root, env, stand_in, progress=phases.append)
@@ -191,7 +196,8 @@ class Drills(unittest.TestCase):
         self.assertEqual(first["orgs"], [])
         self.assertIn("database-convert: new storage", phases)
         conn = env[bracket.CONNINFO_ENV]
-        self.assertFalse(any("orgtree_admin" in str(v) for v in env.values()))
+        self.assertEqual(admin_bearing(env), before, "the engine's environment gains no admin conninfo")
+        self.assertEqual(admin_bearing(dict(os.environ)), before_process)
         self.assertNotIn("ORGTREE_PG_ADMIN_CONNINFO", os.environ)
         from orgtree.orgdb import names
         app = conn.replace("dbname=orgtree ", f"dbname={names.app(names.prefix())} ")
