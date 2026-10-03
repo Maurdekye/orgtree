@@ -55,11 +55,11 @@ class _Ticket:
 
 class FairSlots:
     def __new__(cls, limit: int = DEFAULT_LIMIT) -> Any:
-        # Keep the existing constructor at the supervisor seam. Durable
-        # identity comes from the start_turn job's bind_request context.
+        # The one-process alpha keeps memory slots until the host configures
+        # the durable scheduler. Its identity comes from bind_request.
         if cls is FairSlots:
             from .orgdb import enabled
-            if enabled():
+            if enabled() and _database_queue is not None:
                 return DatabaseSlots()
         return super().__new__(cls)
 
@@ -220,7 +220,7 @@ def bind_agent(org: str, agent: str, lane: str = "turn") -> Any:
     """
     from contextlib import nullcontext
     from .orgdb import enabled
-    if not enabled():
+    if not enabled() or _database_queue is None:
         return nullcontext()
     _configured()
     if _database_resolver is None:
