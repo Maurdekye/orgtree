@@ -53,7 +53,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .. import codec, mappers
+from .. import codec, docket_events, mappers
 from . import mailboxes as M
 from ..codec import Rows, ShapeError
 from ..mappers import agents as A
@@ -361,6 +361,34 @@ class Tx:
     """Per-transaction state of one connection (cleared at COMMIT and ROLLBACK)."""
     #: docket header positions of items not inserted yet: {slug: ord}
     item_ord: dict[str, int] = field(default_factory=dict)
+    docket_touched: bool = False
+
+
+def docket_pending(c: Any) -> dict[str, Any]:
+    """Savepoint-aware state for this transaction's transitional docket moves.
+
+    PostgreSQL restores a local setting on savepoint/full rollback. A Python
+    dict alone would retain a delete from a savepoint the caller rolled back.
+    """
+    text = c.execute("SELECT current_setting('orgtree.compat_docket_pending',true)").fetchone()[0]
+    return json.loads(text) if text else {'deleted':[], 'moved':{}}
+
+
+def _docket_pending_put(c: Any, tx: Tx, value: Mapping[str, Any]) -> None:
+    tx.docket_touched = True
+    c.execute("SELECT set_config('orgtree.compat_docket_pending',%s,true)", (dumps(value),))
+
+
+def docket_finish(c: Any, tx: Tx) -> None:
+    """Apply unmatched permanent deletes, in the same commit as every move."""
+    if not tx.docket_touched:
+        return
+    state = docket_pending(c)
+    if state['deleted']:
+        c.execute("DELETE FROM orgtree.work_items WHERE id=ANY(%s)", (state['deleted'],))
+    if state['moved']:
+        raise CompatError('docket reopen left its original archive row unremoved')
+    _docket_pending_put(c,tx,{'deleted':[], 'moved':{}})
 
 
 # ----------------------------------------------------------------- org_sections
@@ -703,7 +731,7 @@ def doc_put(c: Any, tx: Tx, key: str, text: str, names: Names) -> None:
         section_put(c, sec, key, value, names)
 
 
-def doc_delete(c: Any, key: str, names: Names) -> int:
+def doc_delete(c: Any, key: str, names: Names, *, tx: Tx | None = None) -> int:
     """Delete one doc row; the number of rows deleted (0 or 1)."""
     m = model()
     kind, sect, rest = kind_of(key)
@@ -717,8 +745,15 @@ def doc_delete(c: Any, key: str, names: Names) -> int:
             c.execute(f"DELETE FROM orgtree.{m.owner[sect].t.spec.table} WHERE agent_id = %s", (aid,))
         return int(n)
     if kind == "item":
-        return int(c.execute("DELETE FROM orgtree.work_items WHERE slug = %s AND list_key = 'active'",
-                             (rest,)).rowcount)
+        assert tx is not None
+        state = docket_pending(c)
+        row = c.execute("SELECT id FROM orgtree.work_items WHERE slug=%s AND list_key='active' "
+                        "FOR UPDATE", (rest,)).fetchone()
+        if row is None or row[0] in state['deleted']:
+            return 0
+        state['deleted'].append(row[0])
+        _docket_pending_put(c,tx,state)
+        return 1
     row = section_row(c, key, lock=True)
     if row is None:
         return 0
@@ -812,9 +847,10 @@ def owner_put(c: Any, sect: str, owner: str, value: Any, names: Names) -> None:
 
 def active_items(c: Any) -> list[tuple[str, tuple[str, str, str]]]:
     """(slug, (xmin, ctid, tableoid)) of the active items, in docket order."""
+    deleted = docket_pending(c)['deleted']
     return [(str(s), (str(x), str(t), str(o))) for s, x, t, o in c.execute(
         "SELECT slug, xmin::text, ctid::text, tableoid::text FROM orgtree.work_items "
-        "WHERE list_key = 'active' ORDER BY ord").fetchall()]
+        "WHERE list_key = 'active' AND id<>ALL(%s::bigint[]) ORDER BY ord", (deleted,)).fetchall()]
 
 
 def items(c: Any, slugs: Iterable[str] | None = None, *,
@@ -825,39 +861,92 @@ def items(c: Any, slugs: Iterable[str] | None = None, *,
         where += " AND slug = ANY(%s)"
         params.append(list(slugs))
     rows, ch = fetch(c, D.WORK_ITEMS, where, params, order="ord", lock=lock)
+    deleted = docket_pending(c)['deleted']
+    events = _item_events(c,[r['id'] for r in rows])
     return {str(r["slug"]): (f"{r['_xmin']}:{r['_ctid']}:{r['_tableoid']}",
-                             dumps(codec.decode(D.WORK_ITEM, r, ch, (r["id"],))))
-            for r in rows}
+                             dumps(docket_events.decode_item(r,ch,events.get(r['id'],[]))))
+            for r in rows if r['id'] not in deleted}
 
 
 def item(c: Any, slug: str, *, lock: bool = False) -> tuple[tuple[str, str, str], str] | None:
     rows, ch = fetch(c, D.WORK_ITEMS, "list_key = 'active' AND slug = %s", (slug,), lock=lock)
-    if not rows:
+    if not rows or rows[0]['id'] in docket_pending(c)['deleted']:
         return None
     r = rows[0]
     return ((r["_xmin"], r["_ctid"], r["_tableoid"]),
-            dumps(codec.decode(D.WORK_ITEM, r, ch, (r["id"],))))
+            dumps(docket_events.decode_item(r,ch,_item_events(c,[r['id']]).get(r['id'],[]))))
+
+
+def _item_events(c: Any, ids: Sequence[int]) -> dict[int, list[dict[str, Any]]]:
+    out: dict[int, list[dict[str, Any]]] = {}
+    if ids:
+        for row in dict_rows(c,"SELECT * FROM orgtree.work_item_events WHERE item_id=ANY(%s) ORDER BY seq",(list(ids),)):
+            out.setdefault(row['item_id'],[]).append(row)
+    return out
+
+
+def _update_row(c: Any, table: str, row: Mapping[str, Any]) -> None:
+    columns = [key for key in row if key!='id']
+    c.execute(f"UPDATE orgtree.{table} SET "+', '.join(codec.quote(key)+'=%s' for key in columns)+
+              ' WHERE id=%s', tuple(row[key] for key in columns)+(row['id'],))
+
+
+def _docket_write(c: Any, record: Mapping[str, Any], keys: Mapping[str, Any],
+                  previous: Mapping[str, Any] | None) -> None:
+    rid = keys['id']
+    old = _item_events(c,[rid]).get(rid,[]) if previous is not None else []
+    events, removed, rewritten = docket_events.difference(
+        record,old,item_id=rid,allocate=lambda:new_ids(c,'work_item_events',1)[0])
+    protected = {previous.get(col) for col in D.CURRENT_POINTERS.values()} if previous else set()
+    if protected.intersection(removed):
+        raise ShapeError(f"work item {record.get('slug')!r}: removed a current event")
+    out: Rows = {}
+    docket_events.encode_current(record,keys,events,out)
+    if previous is None:
+        insert(c,'work_items',out['work_items'],override=True)
+    else:
+        _update_row(c,'work_items',out['work_items'][0])
+        for table_ in lay(D.WORK_ITEMS):
+            if table_!='work_items':
+                c.execute(f"DELETE FROM orgtree.{table_} WHERE item_id=%s", (rid,))
+    for table_ in lay(D.WORK_ITEMS):
+        if table_!='work_items':
+            insert(c,table_,out.get(table_,[]))
+    old_ids = {row['id'] for row in old}
+    for row in events:
+        if row['id'] in rewritten:
+            _update_row(c,'work_item_events',row)
+    insert(c,'work_item_events',[row for row in events if row['id'] not in old_ids],override=True)
+    if removed:
+        c.execute("DELETE FROM orgtree.work_item_events WHERE id=ANY(%s)", (removed,))
 
 
 def item_put(c: Any, tx: Tx, slug: str, value: Any) -> None:
     m = model()
     if m.workrows.slug_of(value) != slug:
         raise CompatError(f"work item row {slug!r} holds another slug")
-    row = c.execute("SELECT id, ord FROM orgtree.work_items WHERE slug = %s AND list_key = 'active' "
-                    "FOR UPDATE", (slug,)).fetchone()
+    rows, ch = fetch(c,D.WORK_ITEMS,'slug=%s',(slug,),lock=True)
+    row = rows[0] if rows else None
+    state = docket_pending(c)
     if row is not None:
-        rid, ord_ = int(row[0]), int(row[1])
-        c.execute("DELETE FROM orgtree.work_items WHERE id = %s", (rid,))
+        rid = row['id']
+        planned = tx.item_ord.pop(slug,None)
+        if row['list_key']=='archive':
+            state['moved'][str(row['archive_seq'])] = dict(id=rid,text=dumps(
+                docket_events.decode_item(row,ch,_item_events(c,[rid]).get(rid,[]))))
+            ord_ = planned
+        else:
+            ord_ = row['ord'] if planned is None else planned
+        if rid in state['deleted']:
+            state['deleted'].remove(rid)
     else:
         rid = new_ids(c, "work_items", 1)[0]
         ord_ = tx.item_ord.pop(slug, None)
-        if ord_ is None:
-            ord_ = int(c.execute("SELECT coalesce(max(ord), -1) + 1 FROM orgtree.work_items "
-                                 "WHERE list_key = 'active'").fetchone()[0])
-    out: Rows = {}
-    codec.encode(D.WORK_ITEM, value, D.row_keys(value,id=rid,list_key="active",ord=ord_), out,
-                 link=D.WORK_ITEMS.link)
-    store_encoded(c, D.WORK_ITEMS, out, ids=[rid])
+    if ord_ is None:
+        ord_ = int(c.execute("SELECT coalesce(max(ord), -1) + 1 FROM orgtree.work_items "
+                            "WHERE list_key='active'").fetchone()[0])
+    _docket_write(c,value,D.row_keys(value,id=rid,list_key='active',ord=ord_),row)
+    _docket_pending_put(c,tx,state)
 
 
 def header_put(c: Any, tx: Tx, text: str) -> None:
@@ -873,7 +962,8 @@ def header_put(c: Any, tx: Tx, text: str) -> None:
     m = model()
     ids = m.workrows.ids_from_header(text)
     cur = [(str(s), int(o)) for s, o in c.execute(
-        "SELECT slug, ord FROM orgtree.work_items WHERE list_key = 'active' ORDER BY ord").fetchall()]
+        "SELECT slug, ord FROM orgtree.work_items WHERE list_key='active' "
+        "AND id<>ALL(%s::bigint[]) ORDER BY ord", (docket_pending(c)['deleted'],)).fetchall()]
     have = {s for s, _ in cur}
     named = set(ids)
     if [s for s in ids if s in have] == [s for s, _ in cur if s in named]:
@@ -1234,11 +1324,18 @@ def log_has(c: Any, ls: LogSect) -> bool:
     if ls.name == "mail_log":
         return bool(c.execute("SELECT EXISTS (SELECT 1 FROM orgtree.mailboxes WHERE nrows > 0)")
                     .fetchone()[0])
+    if ls.kind=='archive':
+        state = docket_pending(c)
+        return bool(state['moved']) or bool(c.execute("SELECT EXISTS(SELECT 1 FROM orgtree.work_items "
+            "WHERE list_key='archive' AND id<>ALL(%s::bigint[]))",(state['deleted'],)).fetchone()[0])
     return bool(c.execute(f"SELECT EXISTS (SELECT 1 FROM orgtree.{ls.table.spec.table} "
                           f"WHERE {_scope(ls)})").fetchone()[0])
 
 
-def entry_of(ls: LogSect, r: Mapping[str, Any], ch: codec.Children) -> Any:
+def entry_of(ls: LogSect, r: Mapping[str, Any], ch: codec.Children,
+             events: Sequence[Mapping[str, Any]] = ()) -> Any:
+    if ls.kind=='archive':
+        return docket_events.decode_item(r,ch,events)
     rec = codec.decode(ls.table.spec, r, ch, (r["id"],))
     return [r["key"], rec] if ls.kind == "agent_map" else rec
 
@@ -1261,24 +1358,52 @@ def log_rows(c: Any, ls: LogSect, *, owner_id: int | None = None, ids: Sequence[
         where += " AND agent_id = %s"
         params.append(owner_id)
     if ids is not None:
-        where += " AND id = ANY(%s)"
+        where += " AND "+('archive_seq' if ls.kind=='archive' else 'id')+" = ANY(%s)"
         params.append(list(ids))
-    rows, ch = fetch(c, ls.table, where, params, order="id", lock=lock)
+    deleted = docket_pending(c)['deleted'] if ls.kind=='archive' else []
+    if deleted:
+        where += ' AND id<>ALL(%s::bigint[])'
+        params.append(deleted)
+    rows, ch = fetch(c, ls.table, where, params, order='archive_seq' if ls.kind=='archive' else 'id', lock=lock)
+    events = _item_events(c,[r['id'] for r in rows]) if ls.kind=='archive' else {}
     names = names or Names(c)
     agent = ls.kind in ("agent", "agent_map")
     if agent:
         names.load(r["agent_id"] for r in rows)
     out = []
     for r in rows:
-        entry = entry_of(ls, r, ch)
-        out.append((seq_of(ls, int(r["id"])), names.name(int(r["agent_id"])) if agent else None,
+        entry = entry_of(ls, r, ch,events.get(r['id'],[]))
+        out.append((seq_of(ls, int(r['archive_seq'] if ls.kind=='archive' else r["id"])), names.name(int(r["agent_id"])) if agent else None,
                     at_of(entry), dumps(entry)))
+    if ls.kind=='archive':
+        for seq, value in docket_pending(c)['moved'].items():
+            if ids is None or int(seq) in ids:
+                text = value['text']
+                out.append((seq_of(ls,int(seq)),None,at_of(json.loads(text)),text))
+        out.sort(key=lambda row:row[0])
     return out
 
 
 def log_rows_page(c: Any, ls: LogSect, *, newest: int | None = None,
                   offset: int = 0) -> list[tuple[int, str | None, str | None, str]]:
     """The ``newest`` rows of a section, or every row from position ``offset``; ascending."""
+    if ls.kind=='archive':
+        state = docket_pending(c)
+        if newest is not None and newest<=0:
+            return []
+        skipped = max(0,offset-len(state['moved'])) if newest is None else 0
+        rows,ch = fetch(c,D.WORK_ITEMS,"list_key='archive' AND id<>ALL(%s::bigint[])",
+                        (state['deleted'],),order='archive_seq DESC' if newest is not None else 'archive_seq',
+                        limit=newest+len(state['moved']) if newest is not None else None,offset=skipped)
+        events = _item_events(c,[r['id'] for r in rows])
+        out = []
+        for row in rows:
+            record = entry_of(ls,row,ch,events.get(row['id'],[]))
+            out.append((seq_of(ls,row['archive_seq']),None,at_of(record),dumps(record)))
+        for position,move in state['moved'].items():
+            out.append((seq_of(ls,int(position)),None,at_of(json.loads(move['text'])),move['text']))
+        out.sort(key=lambda row:row[0])
+        return out[-newest:] if newest is not None else out[max(0,offset-skipped):]
     names = Names(c)
     if newest is not None:
         rows, ch = fetch(c, ls.table, _scope(ls), order="id DESC", limit=max(0, newest))
@@ -1316,7 +1441,8 @@ def log_owner_tail(c: Any, ls: LogSect, aid: int, limit: int, names: Names
     return [got[seq_of(ls, rid)] for rid in pick if seq_of(ls, rid) in got]
 
 
-def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names) -> int:
+def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names,
+               *, tx: Tx | None = None) -> int:
     """Append one row; its legacy seq."""
     entry = json.loads(text)
     rec, key = entry, None
@@ -1327,14 +1453,28 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names) 
         key, rec = entry
     if not isinstance(rec, dict):
         raise ShapeError(f"{ls.name}: a log entry that is not an object")
+    if ls.kind=='archive':
+        assert tx is not None
+        rows,_ = fetch(c,D.WORK_ITEMS,'slug=%s',(rec.get('slug'),),lock=True)
+        row = rows[0] if rows else None
+        state = docket_pending(c)
+        if row is not None and row['id'] not in state['deleted']:
+            raise CompatError(f"work item {rec.get('slug')!r}: archive append did not remove its previous row")
+        position = new_ids(c,'work_items',1)[0]
+        rid = row['id'] if row is not None else position
+        keys = D.row_keys(rec,id=rid,list_key='archive',ord=position,archive_seq=position)
+        _docket_write(c,rec,keys,row)
+        if rid in state['deleted']:
+            state['deleted'].remove(rid)
+        _docket_pending_put(c,tx,state)
+        ensure_section(c,ls.name,touch=False)
+        return seq_of(ls,position)
     rid = new_ids(c, ls.table.spec.table, 1)[0]
     if rid > _INT4_MAX and ls.kind in ("agent", "agent_map"):
         raise CompatError(f"{ls.name}: record id {rid} exceeds the position column")
     keys: dict[str, Any] = {"id": rid}
     if ls.kind == "list":
         keys["ord"] = rid
-    elif ls.kind == "archive":
-        keys = D.row_keys(rec,id=rid,list_key="archive",ord=rid)
     else:
         if owner is None:
             raise CompatError(f"{ls.name}: a row without an owner")
@@ -1352,19 +1492,29 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names) 
     return seq_of(ls, rid)
 
 
-def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | None) -> int:
+def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | None,
+                tx: Tx | None = None) -> int:
     """Rewrite the row ``rid`` (compare-and-set when ``expected`` is given); 0 or 1."""
     if ls.name == "mail_log":
         owners = [int(r[0]) for r in c.execute(
             "SELECT agent_id FROM orgtree.mail_log WHERE id=%s", (rid,)).fetchall()]
         M.lock_many(c, owners)
-    rows, ch = fetch(c, ls.table, _scope(ls, " AND id = %s"), (rid,), lock=True)
+    column = 'archive_seq' if ls.kind=='archive' else 'id'
+    rows, ch = fetch(c, ls.table, _scope(ls, f" AND {column} = %s"), (rid,), lock=True)
     if not rows:
         return 0
     r = rows[0]
-    if expected is not None and not same(dumps(entry_of(ls, r, ch)), expected):
+    events = _item_events(c,[r['id']]).get(r['id'],[]) if ls.kind=='archive' else []
+    if expected is not None and not same(dumps(entry_of(ls, r, ch,events)), expected):
         return 0
     entry = json.loads(text)
+    if ls.kind=='archive':
+        assert tx is not None
+        if r['id'] in docket_pending(c)['deleted']:
+            return 0
+        keys = D.row_keys(entry,id=r['id'],list_key='archive',ord=r['ord'],archive_seq=r['archive_seq'])
+        _docket_write(c,entry,keys,r)
+        return 1
     rec, key = entry, r.get("key")
     if ls.kind == "agent_map":
         if not (isinstance(entry, list) and len(entry) == 2 and isinstance(entry[0], str)
@@ -1377,8 +1527,6 @@ def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | Non
             keys[col] = r[col]
     if key is not None and ls.kind == "agent_map":
         keys["key"] = key
-    if ls.kind == "archive":
-        keys = D.row_keys(rec,**keys)
     c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE id = %s", (rid,))
     out: Rows = {}
     codec.encode(ls.table.spec, rec, keys, out, link=ls.table.link)
@@ -1388,12 +1536,35 @@ def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | Non
     return 1
 
 
-def log_delete(c: Any, ls: LogSect, rids: Sequence[int], *, expected: str | None = None) -> int:
+def log_delete(c: Any, ls: LogSect, rids: Sequence[int], *, expected: str | None = None,
+               tx: Tx | None = None) -> int:
     """Delete rows by id (compare-and-set for one row when ``expected`` is given)."""
     if ls.name == "mail_log":
         owners = [int(r[0]) for r in c.execute(
             "SELECT DISTINCT agent_id FROM orgtree.mail_log WHERE id=ANY(%s)", (list(rids),)).fetchall()]
         M.lock_many(c, owners)
+    if ls.kind=='archive':
+        assert tx is not None
+        state = docket_pending(c)
+        rows,ch = fetch(c,D.WORK_ITEMS,"list_key='archive' AND archive_seq=ANY(%s)",(list(rids),),lock=True)
+        events = _item_events(c,[r['id'] for r in rows])
+        by_seq_ = {r['archive_seq']:r for r in rows if r['id'] not in state['deleted']}
+        count = 0
+        for position in rids:
+            moved = state['moved'].get(str(position))
+            row = by_seq_.get(position)
+            if moved is None and row is None:
+                continue
+            text = moved['text'] if moved is not None else dumps(entry_of(ls,row,ch,events.get(row['id'],[])))
+            if expected is not None and not same(text,expected):
+                continue
+            if moved is not None:
+                del state['moved'][str(position)]
+            else:
+                state['deleted'].append(row['id'])
+            count += 1
+        _docket_pending_put(c,tx,state)
+        return count
     if expected is not None:
         rows, ch = fetch(c, ls.table, _scope(ls, " AND id = %s"), (rids[0],), lock=True)
         if not rows or not same(dumps(entry_of(ls, rows[0], ch)), expected):
@@ -1405,7 +1576,12 @@ def log_delete(c: Any, ls: LogSect, rids: Sequence[int], *, expected: str | None
     return n
 
 
-def log_scope_delete(c: Any, ls: LogSect, owner_id: int | None = None) -> int:
+def log_scope_delete(c: Any, ls: LogSect, owner_id: int | None = None,
+                     *, tx: Tx | None = None) -> int:
+    if ls.kind=='archive':
+        positions = [r[0] for r in c.execute("SELECT archive_seq FROM orgtree.work_items WHERE list_key='archive'").fetchall()]
+        positions.extend(int(seq) for seq in docket_pending(c)['moved'])
+        return log_delete(c,ls,positions,tx=tx)
     where = _scope(ls)
     params: list[Any] = []
     if owner_id is not None:
@@ -1422,6 +1598,10 @@ def log_scope_delete(c: Any, ls: LogSect, owner_id: int | None = None) -> int:
 
 
 def log_count(c: Any, ls: LogSect, owner_id: int | None = None) -> int:
+    if ls.kind=='archive':
+        deleted = docket_pending(c)
+        return int(c.execute("SELECT count(*) FROM orgtree.work_items WHERE list_key='archive' "
+                             "AND id<>ALL(%s::bigint[])",(deleted['deleted'],)).fetchone()[0])+len(deleted['moved'])
     where = _scope(ls)
     params: list[Any] = []
     if owner_id is not None:

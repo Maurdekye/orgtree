@@ -138,12 +138,15 @@ WORK_ITEM = Spec("work_items", (
 LISTS = {"work_items": "active", "work_items_archive": "archive"}
 
 def row_keys(record: Mapping[str, Any], *, id: int, list_key: str, ord: int,
-             archive_seq: int | None = None) -> dict[str, Any]:
+             archive_seq: int | None = None, original: Mapping[str, Any] | None = None,
+             events: list[Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Placement plus the native read header; the exact codec ignores the header.
 
     The converter and the compat per-item writer must both call this helper.
     """
     from ..docket import write_fields
+    if original is not None:
+        record = original
     keys = dict(id=id,list_key=list_key,ord=ord,**write_fields(record))
     keys['archive_seq'] = (id if archive_seq is None else archive_seq) if list_key=='archive' else None
     scope = record.get('scope')
@@ -163,6 +166,9 @@ def row_keys(record: Mapping[str, Any], *, id: int, list_key: str, ord: int,
         value = record.get(field, codec.MISSING)
         keys[column] = None
         keys[column+'_is'] = None if value is codec.MISSING else 'n' if value is None else 'v'
+    if events is not None:
+        from ..docket_events import pointers
+        keys.update(pointers(record,events))
     return keys
 
 

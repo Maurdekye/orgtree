@@ -115,10 +115,11 @@ def difference(record, previous, *, item_id, allocate):
 
 
 def encode_current(record, keys, events, out):
-    keys = dict(keys,**pointers(record,events))
     core = {k:v for k,v in record.items() if k not in D.CURRENT_POINTERS and
             (k not in D.EVENT_SOURCES or not isinstance(v,list))}
-    codec.encode(D.WORK_ITEM,core,keys,out,link=D.WORK_ITEMS.link)
+    codec.encode(D.WORK_ITEM,core,D.row_keys(core,id=keys['id'],list_key=keys['list_key'],
+                 ord=keys['ord'],archive_seq=keys.get('archive_seq'),original=record,events=events),
+                 out,link=D.WORK_ITEMS.link)
 
 
 def encode_item(record: Mapping[str,Any], keys: Mapping[str,Any], out: codec.Rows) -> None:

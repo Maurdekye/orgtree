@@ -27,8 +27,7 @@ class DocketWrites(unittest.TestCase):
                     self.assertEqual(getattr(keys.func,'id',getattr(keys.func,'attr',None)),'row_keys')
                     self.assertEqual(ast.dump(keys.args[0]),ast.dump(node.args[1]))
         self.assertEqual({p for p,_ in calls},{
-            'engine/backend/orgtree/orgdb/mappers/docket.py',
-            'engine/backend/orgtree/orgdb/compat/rows.py'})
+            'engine/backend/orgtree/orgdb/docket_events.py'})
 
     def test_generic_archive_encoders_use_the_same_helper(self):
         tree = ast.parse((BACKEND/'compat'/'rows.py').read_text(encoding='utf-8'))

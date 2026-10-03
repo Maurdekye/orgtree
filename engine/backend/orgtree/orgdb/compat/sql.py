@@ -447,14 +447,14 @@ def _doc_cas_delete(conn: Any, p: Sequence[Any]) -> Result:
         got = R.doc_get(conn.raw, key, names=names, lock=True)
         if got is None or not R.same(got[1], expected):
             return _w(0)
-        return _w(R.doc_delete(conn.raw, key, names))
+        return _w(R.doc_delete(conn.raw,key,names,tx=conn.tx if R.kind_of(key)[0]=='item' else None))
 
 
 @stmt("DELETE FROM doc WHERE key=?")
 def _doc_delete(conn: Any, p: Sequence[Any]) -> Result:
     with conn.atomic(write=True):
         R.fence(conn.raw, p[0], creating=False)
-        return _w(R.doc_delete(conn.raw, p[0], _names(conn)))
+        return _w(R.doc_delete(conn.raw,p[0],_names(conn),tx=conn.tx if R.kind_of(p[0])[0]=='item' else None))
 
 
 # ----------------------------------------------------------------- nodes
@@ -801,7 +801,7 @@ def _llog_has(conn: Any, p: Sequence[Any]) -> Result:
 def _insert(conn: Any, table: str, sect: str, owner: str | None, text: str) -> Result:
     ls = _need_log(table, sect)
     with conn.atomic(write=True):
-        seq = R.log_insert(conn.raw, ls, owner, text, _names(conn))
+        seq = R.log_insert(conn.raw,ls,owner,text,_names(conn),tx=conn.tx if ls.kind=='archive' else None)
     return _w(1, seq)
 
 
@@ -820,7 +820,8 @@ def _replace(conn: Any, table: str, p: Sequence[Any], *, cas: bool) -> Result:
     _at, text, seq = p[0], p[1], p[2]
     ls, rid = R.by_seq(table, seq)
     with conn.atomic(write=True):
-        return _w(R.log_replace(conn.raw, ls, rid, text, expected=p[3] if cas else None))
+        return _w(R.log_replace(conn.raw,ls,rid,text,expected=p[3] if cas else None,
+                                tx=conn.tx if ls.kind=='archive' else None))
 
 
 for _table in ("log_d", "log_l"):
@@ -834,13 +835,13 @@ def _delete_seq(conn: Any, table: str, p: Sequence[Any], *, cas: bool) -> Result
     if cas:
         ls, rid = R.by_seq(table, p[0])
         with conn.atomic(write=True):
-            return _w(R.log_delete(conn.raw, ls, [rid], expected=p[1]))
+            return _w(R.log_delete(conn.raw,ls,[rid],expected=p[1],tx=conn.tx if ls.kind=='archive' else None))
     groups: dict[str, tuple[R.LogSect, list[int]]] = {}
     for seq in p:
         ls, rid = R.by_seq(table, seq)
         groups.setdefault(ls.name, (ls, []))[1].append(rid)
     with conn.atomic(write=True):
-        return _w(sum(R.log_delete(conn.raw, ls, rids) for ls, rids in groups.values()))
+        return _w(sum(R.log_delete(conn.raw,ls,rids,tx=conn.tx if ls.kind=='archive' else None) for ls,rids in groups.values()))
 
 
 for _table in ("log_d", "log_l"):
@@ -897,7 +898,7 @@ def _dlog_delete_section(conn: Any, p: Sequence[Any]) -> Result:
 def _llog_delete_section(conn: Any, p: Sequence[Any]) -> Result:
     ls = _need_log("log_l", p[0])
     with conn.atomic(write=True):
-        return _w(R.log_scope_delete(conn.raw, ls))
+        return _w(R.log_scope_delete(conn.raw,ls,tx=conn.tx if ls.kind=='archive' else None))
 
 
 @stmt("SELECT val FROM log_l WHERE sect='events' ORDER BY seq DESC LIMIT ?")

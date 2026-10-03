@@ -90,14 +90,18 @@ class OrgDbConn:
         if self.in_transaction:
             yield
             return
+        self.tx = R.Tx()
         self.raw.execute("BEGIN" if write else "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         try:
             yield
+            R.docket_finish(self.raw,self.tx)
+            self.raw.execute("COMMIT")
         except BaseException:
             with contextlib.suppress(Exception):
                 self.raw.execute("ROLLBACK")
             raise
-        self.raw.execute("COMMIT")
+        finally:
+            self.tx = R.Tx()
 
     def revision(self) -> int:
         return int(self.raw.execute("SELECT rev FROM orgtree.org_revision").fetchone()[0])
@@ -149,8 +153,11 @@ class OrgDbConn:
             self._end_create(committed=False)
             raise R.CompatError(f"docket header names items never written: {sorted(tx.item_ord)}")
         try:
+            if commit:
+                R.docket_finish(self.raw,tx)
             done = self.raw.execute("COMMIT" if commit else "ROLLBACK")
         except BaseException as e:
+            self._rollback_quietly()
             pgstore._settle_revisions(self.raw, False)
             self._end_create(committed=False)
             # a constraint checked at commit (work_items_slug is deferred) fails HERE, and
