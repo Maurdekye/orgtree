@@ -4,6 +4,8 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 import copy
 from contextlib import contextmanager
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -114,6 +116,13 @@ class StableWrites(unittest.TestCase):
             with self.assertRaises(psycopg.errors.ForeignKeyViolation),view.raw.transaction():
                 view.raw.execute('UPDATE orgtree.work_items SET current_verdict_event_id=%s WHERE id=%s',(packet,rid))
                 view.raw.execute('SET CONSTRAINTS current_verdict_event_id_fk IMMEDIATE')
+            other = event_record()
+            other['slug'] = 'pointer-other-item'
+            self.put(view,other)
+            other_verdict = self.row(view,other['slug'])[3]
+            with self.assertRaises(psycopg.errors.ForeignKeyViolation),view.raw.transaction():
+                view.raw.execute('UPDATE orgtree.work_items SET current_verdict_event_id=%s WHERE id=%s',(other_verdict,rid))
+                view.raw.execute('SET CONSTRAINTS current_verdict_event_id_fk IMMEDIATE')
             with self.assertRaises(psycopg.errors.RestrictViolation),view.raw.transaction():
                 view.raw.execute('DELETE FROM orgtree.work_item_events WHERE id=%s',(verdict,))
             record = event_record()
@@ -187,12 +196,54 @@ class StableWrites(unittest.TestCase):
             self.assertEqual(self.events(view,rid)[:len(old)],old)
             self.assertEqual(view.raw.execute("SELECT id,slug,archive_seq FROM orgtree.work_items "
                                              "WHERE list_key='archive' ORDER BY ord").fetchall(),archive)
+
             self.assertEqual(json.loads(R.item(view.raw,SLUG)[1]),record)
             R.section_clear(view.raw,Docket(),'work_items',tx=view.tx)
             R.docket_finish(view.raw,view.tx)
             self.assertFalse(view.raw.execute("SELECT 1 FROM orgtree.work_items WHERE list_key='active'").fetchone())
             self.assertEqual(view.raw.execute("SELECT id,slug,archive_seq FROM orgtree.work_items "
                                              "WHERE list_key='archive' ORDER BY ord").fetchall(),archive)
+
+    def test_direct_event_commit_moves_docket_catalog_once_and_rollback_does_not(self):
+        with conn.connect(fixture.ADMIN,fixture.DATABASE) as raw:
+            row = raw.execute("SELECT id,item_id FROM orgtree.work_item_events WHERE source='history' "
+                              'ORDER BY id LIMIT 1').fetchone()
+            before = raw.execute('SELECT docket_rev,view_rev FROM orgtree.org_revision').fetchone()
+            with raw.transaction():
+                raw.execute('UPDATE orgtree.work_item_events SET status_change=NOT status_change WHERE id=%s',(row[0],))
+                raw.execute('UPDATE orgtree.work_item_events SET status_change=NOT status_change WHERE id=%s',(row[0],))
+                self.assertEqual(raw.execute('SELECT docket_rev,view_rev FROM orgtree.org_revision').fetchone(),before)
+            after = raw.execute('SELECT docket_rev,view_rev FROM orgtree.org_revision').fetchone()
+            self.assertEqual(after,tuple(v+1 for v in before))
+            raw.execute('BEGIN')
+            raw.execute('UPDATE orgtree.work_item_events SET status_change=NOT status_change WHERE id=%s',(row[0],))
+            raw.execute('ROLLBACK')
+            self.assertEqual(raw.execute('SELECT docket_rev,view_rev FROM orgtree.org_revision').fetchone(),after)
+
+    def test_real_migration_refuses_old_populated_database_and_preserves_it(self):
+        from orgtree.orgdb import codec, migrate
+        database = fixture.PREFIX+'pre_events'
+        with tempfile.TemporaryDirectory(prefix='docket-pre-event-migrations-') as folder:
+            old = Path(folder)
+            for path in migrate.files(migrate.ORG_DIR):
+                if path.name<'0010':
+                    (old/path.name).write_bytes(path.read_bytes())
+            try:
+                with conn.connect(fixture.ADMIN,'postgres') as admin:
+                    admin.execute('CREATE DATABASE '+codec.quote(database))
+                with conn.connect(fixture.ADMIN,database) as admin:
+                    migrate.migrate(admin,old,migrate.ORG_LOCK)
+                    admin.execute("INSERT INTO orgtree.work_items(list_key,ord,slug) VALUES('active',0,'pre-events')")
+                    with self.assertRaisesRegex(Exception,'converted before 0010: re-convert it from its legacy data'):
+                        migrate.migrate(admin,migrate.ORG_DIR,migrate.ORG_LOCK)
+                    self.assertNotIn('0010_docket_events.sql',migrate.applied(admin))
+                    self.assertIsNone(admin.execute("SELECT to_regclass('orgtree.work_item_events')").fetchone()[0])
+                    self.assertEqual(admin.execute('SELECT slug FROM orgtree.work_items').fetchall(),[('pre-events',)])
+                    admin.execute('DELETE FROM orgtree.work_items')
+                    self.assertIn('0010_docket_events.sql',migrate.migrate(admin,migrate.ORG_DIR,migrate.ORG_LOCK)['applied'])
+            finally:
+                with conn.connect(fixture.ADMIN,'postgres') as admin:
+                    admin.execute('DROP DATABASE IF EXISTS '+codec.quote(database)+' WITH (FORCE)')
 
 
 if __name__=='__main__':
