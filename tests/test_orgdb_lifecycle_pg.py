@@ -536,6 +536,47 @@ class Trash(Base):
         self.lc.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
         self.assert_trashed(self.lc, org_id)
 
+    def test_a_second_request_is_busy_while_the_first_runs(self) -> None:
+        # review A3 f1: a request arriving while this engine still runs an operation on the
+        # org is Busy and moves nothing (the claim is this instance's either way, so the claim
+        # alone cannot refuse it); the first then completes normally
+        import threading
+        org_id = self.make('alpha')
+        db = self.lc.row(org_id)['database']
+        draining, release = threading.Event(), threading.Event()
+        out: dict = {}
+
+        def drain() -> None:
+            draining.set()
+            release.wait(30)
+
+        def first() -> None:
+            try:
+                out['first'] = self.lc.trash(org_id, folders=self.folders('alpha'),
+                                             trash_dir=self.trash_dir, drain=drain)
+            except BaseException as e:       # noqa: BLE001  the outcome under test
+                out['first'] = e
+        th = threading.Thread(target=first)
+        th.start()
+        try:
+            self.assertTrue(draining.wait(30), 'the first trash never reached its drain')
+            for op in (lambda: self.lc.trash(org_id, folders=self.folders('alpha'),
+                                             trash_dir=self.trash_dir),
+                       lambda: self.lc.restore(org_id, folders=self.folders('alpha'),
+                                               trash_dir=self.trash_dir),
+                       lambda: self.lc.purge(org_id, trash_dir=self.trash_dir)):
+                with self.assertRaises(lifecycle.Busy):
+                    op()
+            self.assertIn(db, _prefixed())                 # nothing moved meanwhile
+            for _, path in self.folders('alpha'):
+                self.assertTrue(os.path.isdir(path), path)
+            self.assertEqual(self.lc.row(org_id)['state'], 'closing')
+        finally:
+            release.set()
+            th.join(60)
+        self.assertEqual(out['first'], self.lc.row(org_id)['database'])
+        self.assert_trashed(self.lc, org_id)
+
     def test_a_crash_after_every_step_is_finished_by_the_next_host(self) -> None:
         L = lifecycle.Lifecycle
         cases = ([('trash', s, b) for s in L._TRASH_STEPS[1:] for b in (False, True)]

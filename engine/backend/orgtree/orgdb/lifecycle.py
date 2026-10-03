@@ -41,11 +41,13 @@ Trash, restore, purge, export and import land with design §6.3 step 3.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import socket
+import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import conn as _conn
 from . import migrate as _migrate
@@ -119,6 +121,8 @@ class Lifecycle:
         self.prefix = prefix or names.prefix()
         self.build = build
         self.instance_id: int | None = None
+        self._exec_lock = threading.Lock()
+        self._executing: set[int] = set()
 
     # ------------------------------------------------------------ connections
 
@@ -771,6 +775,22 @@ class Lifecycle:
     _RESTORE_STEPS = ("claimed", "reserved", "renamed", "opened", "checked", "moved")
     _PURGE_STEPS = ("claimed", "dropped", "removed")
 
+    @contextlib.contextmanager
+    def _executing_org(self, org_id: int) -> Iterator[None]:
+        """One trash, restore or purge at a time per org IN THIS PROCESS (review A3 f1). The
+        registry claim cannot tell this instance's serial retry, after a refused step, from a
+        second request arriving while the first is still running, since both are this
+        instance's claim; a request that finds one running is Busy, and it changes nothing."""
+        with self._exec_lock:
+            if org_id in self._executing:
+                raise Busy(f"org {org_id} is busy: an operation on it is running in this engine")
+            self._executing.add(org_id)
+        try:
+            yield
+        finally:
+            with self._exec_lock:
+                self._executing.discard(org_id)
+
     def _own_claim(self, org_id: int, kind: str) -> Claim | None:
         """This instance's unfinished claim of ``kind`` on the org (an operation asked again
         after a refused step), else None."""
@@ -833,9 +853,10 @@ class Lifecycle:
         database), connections end, the folders move to the trash, the database is renamed,
         and the row is trashed, which frees the name. Busy while another operation holds the
         org; the same call again finishes this instance's own unfinished trash."""
-        claim = self._own_claim(org_id, "trash") or self.claim(org_id, "trash",
-                                                               expect_state="active")
-        return self._resume_trash(claim, folders=folders, trash_dir=trash_dir, drain=drain)
+        with self._executing_org(org_id):
+            claim = self._own_claim(org_id, "trash") or self.claim(org_id, "trash",
+                                                                   expect_state="active")
+            return self._resume_trash(claim, folders=folders, trash_dir=trash_dir, drain=drain)
 
     def _resume_trash(self, claim: Claim, *, folders: tuple[tuple[str, str], ...] = (),
                       trash_dir: str | None = None, drain: Callable[[], None] | None = None) -> str:
@@ -893,9 +914,10 @@ class Lifecycle:
         (its workspace, its agents' folders) under its name, so it cannot move to another one.
         The identity is checked by the admin before the runtime can connect again; a mismatch
         leaves the org unavailable (step 'identity')."""
-        claim = self._own_claim(org_id, "restore") or self.claim(org_id, "restore",
-                                                                 expect_state="trashed")
-        return self._resume_restore(claim, folders=folders, trash_dir=trash_dir)
+        with self._executing_org(org_id):
+            claim = self._own_claim(org_id, "restore") or self.claim(org_id, "restore",
+                                                                     expect_state="trashed")
+            return self._resume_restore(claim, folders=folders, trash_dir=trash_dir)
 
     def _resume_restore(self, claim: Claim, *, folders: tuple[tuple[str, str], ...] = (),
                         trash_dir: str | None = None) -> str:
@@ -958,9 +980,10 @@ class Lifecycle:
         """Empty one org out of the trash (§2.13 Purge): its trash database dropped, its trash
         folder removed, its registry row deleted (its tickets cascade). Only a trashed org,
         and only a database with a trash name, is ever dropped here."""
-        claim = self._own_claim(org_id, "purge") or self.claim(org_id, "purge",
-                                                               expect_state="trashed")
-        self._resume_purge(claim, trash_dir=trash_dir)
+        with self._executing_org(org_id):
+            claim = self._own_claim(org_id, "purge") or self.claim(org_id, "purge",
+                                                                   expect_state="trashed")
+            self._resume_purge(claim, trash_dir=trash_dir)
 
     def _resume_purge(self, claim: Claim, *, trash_dir: str | None = None) -> None:
         import shutil   # noqa: PLC0415
@@ -996,11 +1019,12 @@ class Lifecycle:
                          trash_dir: str | None = None) -> None:
         """Finish a trash, restore or purge claim taken over at start (no drain: the
         crashed host's providers are gone with it)."""
-        if claim.kind == "trash":
-            self._resume_trash(claim, folders=folders, trash_dir=trash_dir)
-        elif claim.kind == "restore":
-            self._resume_restore(claim, folders=folders, trash_dir=trash_dir)
-        elif claim.kind == "purge":
-            self._resume_purge(claim, trash_dir=trash_dir)
-        else:
+        if claim.kind not in ("trash", "restore", "purge"):
             raise LifecycleError(f"not a trash, restore or purge claim: {claim.kind}")
+        with self._executing_org(claim.org_id):
+            if claim.kind == "trash":
+                self._resume_trash(claim, folders=folders, trash_dir=trash_dir)
+            elif claim.kind == "restore":
+                self._resume_restore(claim, folders=folders, trash_dir=trash_dir)
+            else:
+                self._resume_purge(claim, trash_dir=trash_dir)

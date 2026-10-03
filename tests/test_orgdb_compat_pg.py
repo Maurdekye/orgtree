@@ -1229,6 +1229,42 @@ class Delete(unittest.TestCase):
             with self.assertRaises(LedgerError):
                 store.delete_org('no-such-org')
 
+    def test_a_delete_asked_again_while_one_runs_is_refused(self) -> None:
+        # review A3 f1: the org is closing while the first delete moves its folders; the same
+        # delete asked again (which skips org_exclusive for a closing org) is refused, as a
+        # LockTimeout the route answers 409, and the first completes
+        from unittest.mock import patch
+        original = lifecycle.Lifecycle._move_once
+        moving, release = threading.Event(), threading.Event()
+        out: dict = {}
+
+        def slow(src: str, dst: str) -> None:
+            if threading.current_thread().name == 'deleter':
+                moving.set()
+                release.wait(30)
+            original(src, dst)
+        with storage(True), patch.object(lifecycle.Lifecycle, '_move_once', staticmethod(slow)):
+            slug = store.create_org('Twice Deleted').d['slug']
+
+            def first() -> None:
+                try:
+                    store.delete_org(slug)
+                    out['first'] = 'done'
+                except BaseException as e:       # noqa: BLE001  the outcome under test
+                    out['first'] = e
+            th = threading.Thread(target=first, name='deleter')
+            th.start()
+            try:
+                self.assertTrue(moving.wait(30), 'the first delete never reached its folders')
+                self.assertEqual(registry.lookup(slug)[2], 'closing')
+                with self.assertRaises(orgtx.LockTimeout):
+                    store.delete_org(slug)
+            finally:
+                release.set()
+                th.join(60)
+            self.assertEqual(out['first'], 'done')
+            self.assertIsNone(registry.lookup(slug))
+
     def test_an_org_tx_in_flight_holds_the_delete_off(self) -> None:
         # as the legacy delete: it waits for an org_tx in flight; past the lock timeout it is
         # refused (the API answers 409) and nothing has moved
