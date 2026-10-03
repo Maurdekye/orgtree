@@ -331,7 +331,16 @@ def parent(a):
         report['cleanup_ok'] = not remaining and not cleanup_errors
         report['owned_prefixes'], report['remaining_databases'] = prefixes, remaining
         report['cleanup_errors'] = cleanup_errors
-        shutil.rmtree(root)
+        try:
+            shutil.rmtree(root)
+            report['folder_cleanup_ok'] = True
+        except OSError as e:
+            report['folder_cleanup_ok'] = False
+            report['folder_cleanup_error'] = error_detail(e)
+            report['cleanup_ok'] = False
+            if not report['failure']:
+                report['failure'] = type(e).__name__
+                report['failure_detail'] = report['folder_cleanup_error']
         report['setup'], report['table'] = setups, summarize(rows, a.runs)
         report['complete'] = (not report['failure'] and report['cleanup_ok'] and report['source_unchanged']
             and len(report['table']) == len(set(selected))
