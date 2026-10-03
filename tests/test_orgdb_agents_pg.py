@@ -428,6 +428,67 @@ class NativeSettingsChildren(unittest.TestCase):
 
 
 @fixture.needs_pg
+class NativePageIdentity(unittest.TestCase):
+    def setUp(self):
+        from orgtree import foreground_api
+        def clear():
+            with foreground_api._page_lock:
+                foreground_api._page_inputs.clear()
+                foreground_api._page_funding.clear()
+                foreground_api._pages.clear()
+        clear()
+        self.addCleanup(clear)
+        def seed(slug):
+            org = fixture.store.load_org(slug)
+            org.d['max_children'] = 701
+            fixture.store.save_org(org)
+        self.twin = fixture.Twins('a1 replacement page', seed)
+
+    def replacement(self):
+        import types
+        import uuid
+        from unittest.mock import patch
+        from orgtree import foreground_api, foreground_context, orgdb
+        counts = types.SimpleNamespace(
+            counts_raw=lambda *a, **k: {'active': 2, 'attention': 0, 'archived': 0, 'backlogged': 0},
+            attention_raises_raw=lambda *a, **k: [])
+        with fixture.storage(True), patch.object(orgdb, 'docket', counts, create=True):
+            slug = self.twin.copy
+            before = F.read_exact(slug, 'dev', project=lambda raw, graph:
+                (graph['stamp'], foreground_api._page_context(raw, slug, graph)))
+            old = before[0]
+            database = fixture.registry.lookup(slug)[1]
+            # Only this disposable fixture simulates a replacement with equal
+            # independent counters. The normal writer never rewinds counters.
+            with fixture.dbconn.connect(fixture.ADMIN, database) as raw:
+                raw.execute('BEGIN')
+                raw.execute('UPDATE orgtree.org_identity SET incarnation=%s', (str(uuid.uuid4()),))
+                raw.execute('UPDATE orgtree.org_settings SET max_children=702')
+                raw.execute("UPDATE orgtree.agents SET credit_grant=11 WHERE name='dev'")
+                raw.execute('COMMIT')
+                raw.execute('UPDATE orgtree.org_revision SET rev=%s,node_rev=%s,catalog_rev=%s,view_rev=%s',
+                    (old['org_revision'], old['node_revision'], old['catalog_revision'], old['view_revision']))
+            def compare(raw, graph):
+                return (graph['stamp'], foreground_api._page_context(raw, slug, graph),
+                        foreground_context.build(raw, slug, graph, header=False))
+            after = F.read_exact(slug, 'dev', project=compare)
+        self.assertNotEqual(old['incarnation'], after[0]['incarnation'])
+        self.assertEqual({k: v for k, v in old.items() if k != 'incarnation'},
+                         {k: v for k, v in after[0].items() if k != 'incarnation'})
+        return after[1], after[2]
+
+    def test_equal_counter_replacement_rereads_settings(self):
+        kept, fresh = self.replacement()
+        self.assertEqual(fresh.d['max_children'], 702)
+        self.assertEqual(kept.d['max_children'], fresh.d['max_children'])
+
+    def test_equal_counter_replacement_rereads_funding(self):
+        kept, fresh = self.replacement()
+        self.assertEqual(next(row['grant'] for row in fresh.inputs['funding'] if row['id'] == 'dev'), 11)
+        self.assertEqual(kept.inputs['funding'], fresh.inputs['funding'])
+
+
+@fixture.needs_pg
 class NativeMisfits(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
