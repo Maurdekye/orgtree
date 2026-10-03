@@ -60,6 +60,37 @@ test('gap asks for catch-up from own cursor; a slow HTTP answer cannot overwrite
   fullLoad(r.feed, snapshot(106, '106'))
 })
 
+for (const buffered of [false, true]) test(`later gaps survive an older catch-up answer (baseline replay: ${buffered})`, async () => {
+  const r = rig()
+  const load = buffered ? r.feed.resync() : null
+  r.feed.receive(frame(102, 103, '103'))
+  r.feed.receive(frame(104, 105, '105'))
+  if (load) {
+    r.loads[0].resolve(snapshot(100, '100'))
+    await load
+  }
+  assert.equal(r.catchups.length, 1, 'gap bursts coalesce while the first read is pending')
+  r.catchups[0].answer.resolve(frame(100, 103, '103'))
+  await settle()
+  assert.equal(r.catchups.length, 2, 'the older snapshot did not cover the later observed gap')
+  assert.deepEqual(r.catchups[1].cursor, cursor(103))
+  r.catchups[1].answer.resolve(frame(103, 105, '105'))
+  await settle()
+  // No later frame, write or explicit reconnect may be needed for convergence.
+  fullLoad(r.feed, snapshot(105, '105'))
+  assert.deepEqual(r.errors, [])
+})
+
+test('one answer covering all observed gaps needs no redundant recovery', async () => {
+  const r = rig()
+  r.feed.receive(frame(102, 103, '103'))
+  r.feed.receive(frame(104, 105, '105'))
+  r.catchups[0].answer.resolve(frame(100, 105, '105'))
+  await settle()
+  assert.equal(r.catchups.length, 1)
+  fullLoad(r.feed, snapshot(105, '105'))
+})
+
 test('reconnect catches up even if no later commit reveals the missed update', async () => {
   const r = rig()
   const recovery = r.feed.reconnect()
