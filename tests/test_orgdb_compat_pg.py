@@ -847,7 +847,9 @@ class InsertRaces(unittest.TestCase):
 
         def body(name: str, value: int, nodes) -> None:
             try:
-                with orgtx.org_tx(t.copy, nodes=nodes, sections=['max_children']) as tx:
+                # retries=0: org_tx would retry a deadlock's victim and hide the deadlock
+                with orgtx.org_tx(t.copy, nodes=nodes, sections=['max_children'],
+                                  retries=0) as tx:
                     tx.d['max_children'] = value
                 out[name] = 'committed'
             except BaseException as e:       # noqa: BLE001  the outcome under test
