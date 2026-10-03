@@ -387,7 +387,7 @@ class NativePaths(unittest.TestCase):
                 original = raw.execute("SELECT extra FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
                 for text in ('\x00','\\u0000','\x00\x00','\\\x00',
                              '__orgtree_docket_escape__\x00','\ud800','\U0001f600'):
-                    with self.subTest(text=repr(text)):
+                    with self.subTest(text=repr(text)), raw.transaction():
                         projected = raw.execute('SELECT orgtree.docket_extra(%s,ARRAY[\'objective\'])',
                             (Json(dict(objective=text,unrelated=text)),)).fetchone()[0]
                         self.assertEqual(projected,dict(objective=text))

@@ -28,12 +28,18 @@ BEGIN
  value := encoded::json;
 END
 $fn$;
+CREATE FUNCTION orgtree.docket_restore(v json, marker text) RETURNS json
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
+ SELECT regexp_replace(v::text,
+   marker || '(u0000|u[dD][89aAbBcCdDeEfF][0-9a-fA-F]{2})',
+   $replacement$\\\1$replacement$,'g')::json
+$fn$;
 CREATE FUNCTION orgtree.docket_field(v json, VARIADIC path text[]) RETURNS json
 LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $fn$
 DECLARE safe json; marker text;
 BEGIN
  SELECT s.value,s.marker INTO safe,marker FROM orgtree.docket_safe(v) s;
- RETURN replace(json_extract_path(safe,VARIADIC path)::text,marker,chr(92))::json;
+ RETURN orgtree.docket_restore(json_extract_path(safe,VARIADIC path),marker);
 END
 $fn$;
 CREATE FUNCTION orgtree.docket_extra(v json, wanted text[]) RETURNS json
@@ -43,7 +49,7 @@ BEGIN
  IF json_typeof(v) IS DISTINCT FROM 'object' THEN RETURN NULL; END IF;
  SELECT s.value,s.marker INTO safe,marker FROM orgtree.docket_safe(v) s;
  SELECT json_object_agg(key,value) INTO result FROM json_each(safe) WHERE key=ANY(wanted);
- RETURN replace(result::text,marker,chr(92))::json;
+ RETURN orgtree.docket_restore(result,marker);
 END
 $fn$;
 CREATE FUNCTION orgtree.docket_scope_meta(v json) RETURNS json
@@ -57,7 +63,7 @@ BEGIN
    'first',json_build_object('seq',(safe->'scope_archive'->0)->'seq','at',(safe->'scope_archive'->0)->'at'),
    'last',json_build_object('seq',(safe->'scope_archive'->(-1))->'seq','at',(safe->'scope_archive'->(-1))->'at'),
    'inline_count',CASE WHEN json_typeof(safe->'scope')='array' THEN json_array_length(safe->'scope') END);
- RETURN replace(result::text,marker,chr(92))::json;
+ RETURN orgtree.docket_restore(result,marker);
 END
 $fn$;
 ALTER TABLE orgtree.work_items
