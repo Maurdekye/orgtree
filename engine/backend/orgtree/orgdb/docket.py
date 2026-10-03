@@ -25,6 +25,43 @@ _LIST = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields if f.key in F
     f.key in ('scope_seq','scope_guard','scope_logged')))
 
 
+def name_key(value):
+    """ASCII key in Python Unicode order, including NUL and lone surrogates.
+
+    Fixed-width code points preserve prefix ordering. The original string
+    stays unchanged; only this derived key crosses PostgreSQL's text boundary.
+    """
+    return ''.join(f'{ord(c):06x}' for c in value)
+
+
+def write_fields(record):
+    """Pure write-time policy header; decode returns the original record.
+
+    Conversion and compat saves use this same function. The canonical parser
+    sees the original timestamp, even if the codec also stores a typed date.
+    PostgreSQL never reparses a retained misfit value.
+    """
+    from ..ledger import Org
+    stamp = str(record.get('docket_at') or record.get('updated_at') or '')
+    status = record.get('status')
+    deadline = None
+    if status == 'dropped':
+        deadline = float('-inf')
+    elif status in ('done','superseded'):
+        age = Org._work_age_s(record,0)
+        if age is not None:
+            deadline = 3600-age
+    owner = Org._work_actor_node(record.get('owner'))
+    creator = Org._work_actor_node(record.get('created_by'))
+    reviewer = Org._work_actor_node(record.get('reviewer'))
+    return dict(docket_order=name_key(stamp),docket_deadline=deadline,
+                docket_manual=bool(record.get('manual_attention')),
+                docket_owner_key=None if owner is None else name_key(owner),
+                docket_creator_key=None if creator is None else name_key(creator),
+                docket_reviewer_key=None if reviewer is None else name_key(reviewer),
+                docket_anchor_key=None if not (owner or creator) else name_key(owner or creator))
+
+
 def _columns(spec):
     fields = [c for c,_ in codec.layout(spec,WORK_ITEMS.keys,WORK_ITEMS.link)['work_items']['columns']]
     extra = 'docket_policy_extra' if spec is _POLICY else 'docket_list_extra'
@@ -105,35 +142,35 @@ class Snapshot:
             return 'TRUE'
         # The recursive walk starts at THIS recorded anchor, never its head.
         # UNION also terminates a malformed parent cycle. Tombstones are absent.
-        v = '(SELECT name FROM current_viewer)'
-        return f'''(i.owner_node={v} OR i.created_by_node={v} OR i.reviewer_node={v}
+        v, k = '(SELECT name FROM current_viewer)', '(SELECT key FROM current_viewer)'
+        return f'''(i.docket_owner_key={k} OR i.docket_creator_key={k} OR i.docket_reviewer_key={k}
           OR EXISTS(SELECT 1 FROM orgtree.work_item_participants p WHERE p.item_id=i.id AND p.value={v})
           OR EXISTS(WITH RECURSIVE up(id,parent_id,name) AS (
-            SELECT id,parent_id,name FROM orgtree.agents WHERE name=i.anchor_name AND NOT tombstone
+            SELECT id,parent_id,name FROM orgtree.agents WHERE orgtree.docket_key(name)=i.docket_anchor_key AND NOT tombstone
             UNION SELECT a.id,a.parent_id,a.name FROM orgtree.agents a JOIN up u ON a.id=u.parent_id
             WHERE NOT a.tombstone)
-            SELECT 1 FROM up WHERE name={v} AND name<>i.anchor_name))'''
+            SELECT 1 FROM up WHERE name={v} AND orgtree.docket_key(name)<>i.docket_anchor_key))'''
 
     def _prefix(self, *, cold=False):
-        prefix = 'WITH RECURSIVE current_viewer(name) AS (VALUES(%s::text))'
+        prefix = 'WITH RECURSIVE current_viewer(name,key) AS (VALUES(%s::text,%s::text))'
         if not cold or self.viewer == USER:
             return prefix, '', self._access()
         # Explicit historical reads first form the viewer's readable id set
         # through role/participant indexes; unrelated historical bodies stay out.
         prefix += ''' , descendants(id,name) AS (
           SELECT id,name FROM orgtree.agents WHERE parent_id=(
-            SELECT id FROM orgtree.agents WHERE name=%s AND NOT tombstone) AND NOT tombstone
+            SELECT id FROM orgtree.agents WHERE name=(SELECT name FROM current_viewer) AND NOT tombstone) AND NOT tombstone
           UNION SELECT a.id,a.name FROM orgtree.agents a JOIN descendants d ON a.parent_id=d.id
             WHERE NOT a.tombstone), readable(id) AS (
-          SELECT id FROM orgtree.work_items WHERE owner_node=%s
-          UNION SELECT id FROM orgtree.work_items WHERE created_by_node=%s
-          UNION SELECT id FROM orgtree.work_items WHERE reviewer_node=%s
-          UNION SELECT item_id FROM orgtree.work_item_participants WHERE value=%s
-          UNION SELECT i.id FROM orgtree.work_items i JOIN descendants d ON d.name=i.anchor_name)'''
+          SELECT id FROM orgtree.work_items WHERE docket_owner_key=(SELECT key FROM current_viewer)
+          UNION SELECT id FROM orgtree.work_items WHERE docket_creator_key=(SELECT key FROM current_viewer)
+          UNION SELECT id FROM orgtree.work_items WHERE docket_reviewer_key=(SELECT key FROM current_viewer)
+          UNION SELECT item_id FROM orgtree.work_item_participants WHERE value=(SELECT name FROM current_viewer)
+          UNION SELECT i.id FROM orgtree.work_items i JOIN descendants d ON orgtree.docket_key(d.name)=i.docket_anchor_key)'''
         return prefix, ' JOIN readable r ON r.id=i.id', 'TRUE'
 
     def _args(self, cold=False):
-        return [self.viewer] * (6 if cold and self.viewer != USER else 1)
+        return [self.viewer,name_key(self.viewer)]
 
     def _rows(self, sql, params):
         main = _dicts(self.raw, sql, params)

@@ -130,12 +130,12 @@ class NativePaths(unittest.TestCase):
     @staticmethod
     def replace_record(raw, record):
         """Use the real mapper columns, including its preserved misfit values."""
-        from orgtree.orgdb.mappers.docket import WORK_ITEM, WORK_ITEMS
+        from orgtree.orgdb.mappers.docket import WORK_ITEM, WORK_ITEMS, row_keys
         rid, placement, position = raw.execute(
             'SELECT id,list_key,ord FROM orgtree.work_items WHERE slug=%s',
             (record['slug'],)).fetchone()
         rows = {}
-        codec.encode(WORK_ITEM, record, dict(id=rid,list_key=placement,ord=position),
+        codec.encode(WORK_ITEM, record, row_keys(record,id=rid,list_key=placement,ord=position),
                      rows,link=WORK_ITEMS.link)
         row = rows['work_items'][0]
         columns = [c for c in row if c not in ('id','list_key','ord')]
@@ -207,7 +207,7 @@ class NativePaths(unittest.TestCase):
     def test_recorded_role_names_and_anchor_follow_canonical_truth_and_str(self):
         original = next(r for r in DOC['work_items'] if r['slug']=='expired')
         cases = [(role,value) for role in ('owner','created_by','reviewer')
-                 for value in (1,True,1.5,[1],{'x':1})]
+                 for value in (1,True,1.5,[1],{'x':1},'é','\U0001f600')]
         cases += [('fallback',value) for value in ('',0,False,None,[],{})]
         try:
             for role,value in cases:
@@ -242,6 +242,103 @@ class NativePaths(unittest.TestCase):
         finally:
             with writer() as raw:
                 self.replace_record(raw,original)
+
+    def test_converter_and_compat_save_store_identical_canonical_headers(self):
+        from orgtree.orgdb import docket
+        from orgtree.orgdb.compat import rows as compat_rows
+        from orgtree.orgdb.mappers.docket import Docket
+        cases = [(stamp,node) for stamp in
+                 ('2026-10-02X00:00:00+00:00','20261002T000000+0000','2026-W40-5',
+                  '2026-10-02T24:00:00+00:00','2026-10-02T00:00:00z',
+                  'not-a-date\x00preserved','not-a-date\ud800preserved')
+                 for node in (1,True,'\x00')]
+        records = [item('derived-edge-'+str(n),status='done',docket_at=stamp,
+                        owner={'node':node},created_by={'node':''})
+                   for n,(stamp,node) in enumerate(cases)]
+        converted = {}
+        Docket().encode(dict(work_items=records),sections.Context(),converted)
+        columns = list(docket.write_fields(records[0]))
+        slugs = [r['slug'] for r in records]
+        try:
+            with writer() as raw:
+                base = int(raw.execute('SELECT max(id)+100 FROM orgtree.work_items').fetchone()[0])
+                for table,rows in converted.items():
+                    for row in rows:
+                        key = 'id' if table=='work_items' else 'item_id'
+                        row[key] += base
+                        if table=='work_items':
+                            row['ord'] += base
+                rowio.write(raw,converted)
+                for record in records:
+                    with self.subTest(stamp=repr(record['docket_at']),node=repr(record['owner']['node'])):
+                        saved = raw.execute('SELECT '+codec.quoted(columns)+
+                            ' FROM orgtree.work_items WHERE slug=%s',(record['slug'],)).fetchone()
+                        expected = tuple(docket.write_fields(record).values())
+                        self.assertEqual(saved,expected)
+                        compat_rows.item_put(raw,compat_rows.Tx(),record['slug'],record)
+                        self.assertEqual(raw.execute('SELECT '+codec.quoted(columns)+
+                            ' FROM orgtree.work_items WHERE slug=%s',(record['slug'],)).fetchone(),saved)
+                        body = json.loads(compat_rows.item(raw,record['slug'])[1])
+                        self.assertEqual(body,record)
+        finally:
+            with writer() as raw:
+                raw.execute('DELETE FROM orgtree.work_items WHERE slug=ANY(%s)',(slugs,))
+
+    def test_old_converted_database_refuses_0007_then_empty_database_migrates(self):
+        from orgtree.orgdb import migrate
+        database = PREFIX+'stale_docket'
+        with tempfile.TemporaryDirectory(prefix='docket-old-migrations-') as folder:
+            old = Path(folder)
+            for path in migrate.files(migrate.ORG_DIR):
+                if path.name<'0007':
+                    (old/path.name).write_bytes(path.read_bytes())
+            try:
+                with conn.connect(ADMIN) as admin:
+                    admin.execute('CREATE DATABASE '+codec.quote(database))
+                with conn.connect(ADMIN,database) as admin:
+                    migrate.migrate(admin,old,migrate.ORG_LOCK)
+                    admin.execute("INSERT INTO orgtree.work_items(list_key,ord,slug) VALUES('active',0,'pre-0007')")
+                    with self.assertRaisesRegex(Exception,'converted before 0007: re-convert it from its legacy data'):
+                        migrate.migrate(admin,migrate.ORG_DIR,migrate.ORG_LOCK)
+                    self.assertNotIn('0007_docket_readers.sql',migrate.applied(admin))
+                    self.assertIsNone(admin.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='orgtree' "
+                        "AND table_name='work_items' AND column_name='docket_order'").fetchone())
+                    admin.execute('DELETE FROM orgtree.work_items')
+                    self.assertIn('0007_docket_readers.sql',migrate.migrate(admin,migrate.ORG_DIR,migrate.ORG_LOCK)['applied'])
+                    self.assertEqual(admin.execute("SELECT is_generated FROM information_schema.columns "
+                        "WHERE table_schema='orgtree' AND table_name='work_items' AND column_name='docket_order'").fetchone()[0],'NEVER')
+            finally:
+                with conn.connect(ADMIN) as admin:
+                    admin.execute('DROP DATABASE IF EXISTS '+codec.quote(database)+' WITH (FORCE)')
+
+    def test_archive_cursor_keeps_unicode_order_for_preserved_unsupported_dates(self):
+        from orgtree.orgdb.mappers.docket import Docket
+        records = [item('unicode-archive-'+str(n),status='done',docket_at=stamp)
+                   for n,stamp in enumerate(('x\x00','x\ud800','x\U0001f600','x','x\\u0000'))]
+        encoded = {}
+        Docket().encode(dict(work_items_archive=records),sections.Context(),encoded)
+        slugs = {r['slug'] for r in records}
+        try:
+            with writer() as raw:
+                base = int(raw.execute('SELECT max(id)+100 FROM orgtree.work_items').fetchone()[0])
+                for table,rows in encoded.items():
+                    for row in rows:
+                        row['id' if table=='work_items' else 'item_id'] += base
+                        if table=='work_items':
+                            row['ord'] += base
+                rowio.write(raw,encoded)
+            actual,cursor = [],''
+            while True:
+                with snapshot('worker') as q:
+                    rows,cursor = q.archive(limit=1,cursor=cursor)
+                    actual.extend(r.summary['slug'] for r in rows if r.summary['slug'] in slugs)
+                if not cursor:
+                    break
+            self.assertEqual(actual,[r['slug'] for r in sorted(records,
+                key=lambda r:(r['docket_at'],r['slug']),reverse=True)])
+        finally:
+            with writer() as raw:
+                raw.execute('DELETE FROM orgtree.work_items WHERE slug=ANY(%s)',(list(slugs),))
 
     def test_detail_full_compact_summary_and_disclosure(self):
         for options in ({}, {'compact': True}, {'projection': 'summary'},
@@ -393,9 +490,10 @@ class NativePaths(unittest.TestCase):
         with snapshot('worker',boundary+0.001) as q:
             self.assertNotIn('expired',{r.summary['slug'] for r in q.foreground()})
         with snapshot() as q:
+            from orgtree.orgdb.docket import write_fields
             for status,stamp in ((None,AT),('in_progress',AT),('done','not a date'),('done',None)):
                 with self.subTest(status=status,stamp=stamp):
-                    self.assertIsNone(q.raw.execute('SELECT orgtree.docket_deadline(%s,%s)',(status,stamp)).fetchone()[0])
+                    self.assertIsNone(write_fields(dict(status=status,docket_at=stamp))['docket_deadline'])
 
     def test_per_tab_question_links_ignore_incorrect_rollup_and_move_with_ask(self):
         from psycopg.types.json import Json
@@ -427,9 +525,10 @@ class NativePaths(unittest.TestCase):
                 raw.execute("UPDATE orgtree.agents SET lineage_born='worker-seat' WHERE name='worker'")
 
     def test_ancestor_access_follows_exact_parent_chain_and_tombstones(self):
+        original = next(r for r in DOC['work_items'] if r['slug']=='one')
         try:
             with writer() as raw:
-                raw.execute("UPDATE orgtree.work_items SET created_by_node='other' WHERE slug='one'")
+                self.replace_record(raw,dict(original,created_by={'node':'other'}))
             with snapshot('boss') as q:
                 self.assertIsNotNone(q.lookup('one'))
             with writer() as raw:
@@ -443,25 +542,22 @@ class NativePaths(unittest.TestCase):
         finally:
             with writer() as raw:
                 raw.execute("UPDATE orgtree.agents SET parent_id=(SELECT id FROM orgtree.agents WHERE name='boss'),parent='boss',tombstone=false WHERE name='worker'")
-                raw.execute("UPDATE orgtree.work_items SET created_by_node='boss' WHERE slug='one'")
+                self.replace_record(raw,original)
 
     def test_falsy_original_date_uses_update_date_for_archive_policy(self):
-        from psycopg.types.json import Json
+        original = next(r for r in DOC['work_items'] if r['slug']=='expired')
         try:
-            with writer() as raw:
-                original = raw.execute("SELECT extra FROM orgtree.work_items WHERE slug='expired'").fetchone()[0]
             for value in (False,0,'',[],{}):
                 with self.subTest(value=value):
                     with writer() as raw:
-                        raw.execute("UPDATE orgtree.work_items SET docket_at=NULL,docket_at_text=NULL,extra=%s WHERE slug='expired'",
-                                    (Json({**(original or {}),'docket_at':value}),))
+                        self.replace_record(raw,dict(original,docket_at=value))
                     with snapshot('worker') as q:
                         self.assertNotIn('expired',{r.summary['slug'] for r in q.foreground()})
                         rows,_ = q.archive()
                         self.assertIn('expired',{r.summary['slug'] for r in rows})
         finally:
             with writer() as raw:
-                raw.execute("UPDATE orgtree.work_items SET docket_at=%s,docket_at_text=NULL,extra=%s WHERE slug='expired'",(AT,Json(original)))
+                self.replace_record(raw,original)
 
     def test_desktop_stamp_and_body_use_one_snapshot(self):
         original = work_ui._native_stamp

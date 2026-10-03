@@ -1,4 +1,13 @@
 -- A2a: typed policy/order support and the docket-only transaction counter.
+-- No released build has written an org database. Older rehearsal databases
+-- must be re-converted; never serve rows with uncomputed policy headers.
+DO $guard$
+BEGIN
+ IF EXISTS (SELECT 1 FROM orgtree.work_items) THEN
+   RAISE EXCEPTION 'converted before 0007: re-convert it from its legacy data';
+ END IF;
+END
+$guard$;
 ALTER TABLE orgtree.org_revision ADD COLUMN docket_rev bigint NOT NULL DEFAULT 0;
 
 CREATE FUNCTION orgtree.docket_truth(v json) RETURNS boolean
@@ -77,48 +86,32 @@ ALTER TABLE orgtree.work_items
    'post_completion','scope_seq','scope_guard','scope_logged','scope_rolled','scope_frozen','legacy_status'])) STORED,
  ADD COLUMN docket_scope_meta json GENERATED ALWAYS AS (orgtree.docket_scope_meta(extra)) STORED;
 
-CREATE FUNCTION orgtree.docket_stamp(v timestamptz, original text) RETURNS text
+-- SQL keys have only a real agent name as input. Python writes the same key
+-- for arbitrary retained docket text, including unsupported PostgreSQL text.
+CREATE FUNCTION orgtree.docket_key(v text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
- SELECT coalesce(original,to_char(v AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
-$fn$;
-
-CREATE FUNCTION orgtree.docket_deadline(status text, stamp text) RETURNS double precision
-LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET timezone='UTC' AS $fn$
-BEGIN
- IF status='dropped' THEN RETURN '-Infinity'::double precision; END IF;
- IF coalesce(status,'') NOT IN ('done','superseded') OR stamp IS NULL OR
-    stamp !~ '^\d{4}-\d{2}-\d{2}([Tt ]|$)' THEN RETURN NULL; END IF;
- RETURN extract(epoch FROM stamp::timestamptz)::double precision+3600;
-EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RETURN NULL;
-END
+ SELECT coalesce(string_agg(lpad(to_hex(ascii(substr(v,n,1))),6,'0'),'' ORDER BY n),'')
+ FROM generate_series(1,length(v)) n
 $fn$;
 
 ALTER TABLE orgtree.work_items
- ADD COLUMN docket_manual boolean GENERATED ALWAYS AS (orgtree.docket_truth(manual_attention)) STORED,
- ADD COLUMN docket_order text GENERATED ALWAYS AS (coalesce(
-   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'docket_at'))
-      THEN orgtree.docket_field(extra,'docket_at')#>>'{}' END,
-   orgtree.docket_stamp(docket_at,docket_at_text),
-   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'updated_at'))
-      THEN orgtree.docket_field(extra,'updated_at')#>>'{}' END,
-   orgtree.docket_stamp(updated_at,updated_at_text),'')) STORED,
- ADD COLUMN docket_deadline double precision GENERATED ALWAYS AS (orgtree.docket_deadline(
-   coalesce(status,orgtree.docket_field(extra,'status')#>>'{}'),coalesce(
-   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'docket_at'))
-      THEN orgtree.docket_field(extra,'docket_at')#>>'{}' END,
-   orgtree.docket_stamp(docket_at,docket_at_text),
-   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'updated_at'))
-      THEN orgtree.docket_field(extra,'updated_at')#>>'{}' END,
-   orgtree.docket_stamp(updated_at,updated_at_text)))) STORED;
+ ADD COLUMN docket_manual boolean NOT NULL,
+ ADD COLUMN docket_order text NOT NULL,
+ ADD COLUMN docket_deadline double precision,
+ ADD COLUMN docket_owner_key text,
+ ADD COLUMN docket_creator_key text,
+ ADD COLUMN docket_reviewer_key text,
+ ADD COLUMN docket_anchor_key text;
 CREATE INDEX docket_hot_order ON orgtree.work_items(docket_order COLLATE "C" DESC,slug COLLATE "C" DESC,id)
  WHERE list_key='active';
 CREATE INDEX docket_manual ON orgtree.work_items(id) WHERE docket_manual;
 CREATE INDEX docket_deadlines ON orgtree.work_items(docket_deadline) WHERE list_key='active';
 CREATE INDEX docket_archive_order ON orgtree.work_items(docket_order COLLATE "C" DESC,slug COLLATE "C" DESC,id);
-CREATE INDEX docket_owner_ids ON orgtree.work_items(owner_node,id);
-CREATE INDEX docket_creator_ids ON orgtree.work_items(created_by_node,id);
-CREATE INDEX docket_reviewer_ids ON orgtree.work_items(reviewer_node,id);
-CREATE INDEX docket_anchor_ids ON orgtree.work_items(anchor_name,id);
+CREATE INDEX docket_owner_ids ON orgtree.work_items(docket_owner_key,id);
+CREATE INDEX docket_creator_ids ON orgtree.work_items(docket_creator_key,id);
+CREATE INDEX docket_reviewer_ids ON orgtree.work_items(docket_reviewer_key,id);
+CREATE INDEX docket_anchor_ids ON orgtree.work_items(docket_anchor_key,id);
+CREATE INDEX docket_agent_names ON orgtree.agents(orgtree.docket_key(name)) WHERE NOT tombstone;
 CREATE INDEX docket_archived_ids ON orgtree.work_items(id) WHERE list_key='archive';
 CREATE INDEX docket_status_history ON orgtree.work_item_history(item_id,pos DESC)
  WHERE kind IS DISTINCT FROM 'folded' AND (op IN ('accept','reopen','supersede')

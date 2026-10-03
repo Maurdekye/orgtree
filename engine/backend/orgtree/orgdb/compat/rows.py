@@ -854,7 +854,7 @@ def item_put(c: Any, tx: Tx, slug: str, value: Any) -> None:
             ord_ = int(c.execute("SELECT coalesce(max(ord), -1) + 1 FROM orgtree.work_items "
                                  "WHERE list_key = 'active'").fetchone()[0])
     out: Rows = {}
-    codec.encode(D.WORK_ITEM, value, {"id": rid, "list_key": "active", "ord": ord_}, out,
+    codec.encode(D.WORK_ITEM, value, D.row_keys(value,id=rid,list_key="active",ord=ord_), out,
                  link=D.WORK_ITEMS.link)
     store_encoded(c, D.WORK_ITEMS, out, ids=[rid])
 

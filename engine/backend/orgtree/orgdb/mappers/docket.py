@@ -10,9 +10,9 @@ evidence, history, holders, scope, artifacts, findings (with their decisions) an
 requests. Payloads with no fixed shape (an evidence receipt, a history entry's changes, review
 packets and verdicts, delivery claims) are JSON (Q1).
 
-Authorization works on names (design A.3, rev 5 f11): the flattened ``owner_node``,
-``reviewer_node`` and ``created_by_node`` columns hold the recorded names, and ``anchor_name``
-is generated from them. The agent-id columns of the assignment predicate (``owner_agent_id``
+Recorded roles remain exact, including values that do not fit text columns.
+Migration 0007 adds indexed keys computed from the original record; every
+encoder uses ``row_keys`` below. The agent-id assignment predicate (``owner_agent_id``
 ...), the counters and the access functions come with the native docket module (design §6.3
 step 3).
 """
@@ -136,6 +136,15 @@ WORK_ITEM = Spec("work_items", (
 
 LISTS = {"work_items": "active", "work_items_archive": "archive"}
 
+def row_keys(record: Mapping[str, Any], *, id: int, list_key: str, ord: int) -> dict[str, Any]:
+    """Placement plus the native read header; the exact codec ignores the header.
+
+    The converter and the compat per-item writer must both call this helper.
+    """
+    from ..docket import write_fields
+    return dict(id=id,list_key=list_key,ord=ord,**write_fields(record))
+
+
 WORK_ITEMS = table(
     WORK_ITEM, child_key="item_id",
     placement=(("list_key", "text",
@@ -176,7 +185,7 @@ class Docket(Section):
                 if not isinstance(rec, dict):
                     raise ShapeError(f"{key}[{i}]: expected an object")
                 n += 1
-                codec.encode(WORK_ITEM, rec, {"id": n, "list_key": list_key, "ord": i}, out,
+                codec.encode(WORK_ITEM, rec, row_keys(rec,id=n,list_key=list_key,ord=i), out,
                              link=WORK_ITEMS.link)
 
     def decode(self, rows, ctx, present, doc) -> None:
