@@ -85,6 +85,18 @@ class LostClaim(LifecycleError):
     """The claim moved on under this operation (taken over or released)."""
 
 
+class AttemptNotRecorded(LifecycleError):
+    """A Retry failed before it reached the org, and recording that attempt failed too, so the
+    attempt is not accounted for under this build (review f3). ``retry_error`` is the Retry's own
+    error; the recording failure is this exception's cause."""
+
+    def __init__(self, org_id: int, retry_error: BaseException) -> None:
+        super().__init__(f"org {org_id}: Retry could not run ({type(retry_error).__name__}: "
+                         f"{retry_error}), and recording that attempt failed too")
+        self.org_id = org_id
+        self.retry_error = retry_error
+
+
 @dataclass(frozen=True)
 class Claim:
     org_id: int

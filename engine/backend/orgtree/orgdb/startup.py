@@ -23,7 +23,9 @@ migrations; the developer launch (``python -m orgtree.api``) right after
 
 A failure of 1 or 2 raises ``StartRefused``, and the caller refuses the start with its reason.
 A failure in 3 to 5 is one org's: that org is left as the lifecycle left it and is named in
-the report, and the others start.
+the report, and the others start. One exception: an automatic Retry whose attempt could not be
+recorded refuses the start too (StartRefused 'retry'), since a completed start would let every
+start of this build retry it again.
 
 Nothing here, nor in the caller, migrates the legacy database (design §5.1, rev 4.1).
 
@@ -52,8 +54,9 @@ Progress = Callable[[str], None]
 
 
 class StartRefused(RuntimeError):
-    """The engine must not start. ``step`` is 'app' (the app database) or 'conversion' (the
-    first pass); ``report_dir`` is where the first pass's report and log are, when it ran."""
+    """The engine must not start. ``step`` is 'app' (the app database), 'conversion' (the first
+    pass) or 'retry' (an automatic Retry's attempt could not be recorded); ``report_dir`` is
+    where the first pass's report and log are, when it ran."""
 
     def __init__(self, step: str, reason: str, report_dir: str | None = None) -> None:
         super().__init__(reason)
@@ -219,8 +222,10 @@ def retry_new_build(lc: Any, data_root: str, env: Mapping[str, str],
                     step: Progress) -> list[dict[str, Any]]:
     """Retry, once, every unavailable org that a different build last attempted (§2.13): the
     new build may contain the fix. Each attempt records this build, so the next start of the
-    same build does not retry it again."""
-    from . import registry   # noqa: PLC0415
+    same build does not retry it again. An attempt that could not be recorded refuses the
+    start (review f3): completing it would let every start of this build retry again."""
+    from . import lifecycle as L   # noqa: PLC0415
+    from . import registry         # noqa: PLC0415
     out: list[dict[str, Any]] = []
     for row in lc.rows():
         if row["state"] != "unavailable" or row["op_kind"] is not None:
@@ -233,6 +238,9 @@ def retry_new_build(lc: Any, data_root: str, env: Mapping[str, str],
         try:
             got = registry.retry(int(row["org_id"]), data_root=data_root, env=dict(env))
             entry.update(outcome=got["outcome"], reason=got["reason"])
+        except L.AttemptNotRecorded as e:
+            cause = e.__cause__
+            raise StartRefused("retry", f"{e}: {type(cause).__name__}: {cause}") from e
         except Exception as e:   # noqa: BLE001  one org's failure is that org's
             entry.update(outcome="failed", error=f"{type(e).__name__}: {e}"[:500])
         out.append(entry)

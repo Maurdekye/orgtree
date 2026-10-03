@@ -290,6 +290,21 @@ class RetryThatNeverReachedTheOrg(unittest.TestCase):
         self.assertEqual(row['state_reason'], 'Retry could not run: OSError: injected: cannot start')
         self.assertEqual(row['report_path'], 'old-report.json')
 
+    def test_a_record_that_fails_is_raised_with_the_retry_error(self) -> None:
+        # review f3: recording the attempt fails too: never swallowed, the Retry's own error kept
+        import psycopg
+        org = self.unavailable('unrecorded')
+        before = self.lc.row(org)
+        journal = psycopg.OperationalError('injected: the attempt cannot be recorded')
+        with mock.patch('subprocess.run', side_effect=OSError('injected: cannot start')), \
+                mock.patch.object(lifecycle.Lifecycle, 'note_retry_failure', side_effect=journal):
+            with self.assertRaises(lifecycle.AttemptNotRecorded) as raised:
+                registry.retry(org, data_root=self.root, env={})
+        self.assertIsInstance(raised.exception.retry_error, OSError)
+        self.assertIs(raised.exception.__cause__, journal)
+        self.assertIn('injected: cannot start', str(raised.exception))
+        self.assertEqual(self.lc.row(org), before)
+
     def test_an_attempt_that_reached_the_org_keeps_its_own_outcome(self) -> None:
         org = self.unavailable('reached')
         before = self.lc.row(org)

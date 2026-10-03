@@ -656,6 +656,40 @@ class RetryThatCannotStart(unittest.TestCase):
             self.assertEqual(launch.call_count, 2)
         self.assertEqual(rows()['refused']['attempted_build'], 'newer')
 
+    def test_an_attempt_that_cannot_be_recorded_refuses_the_start(self) -> None:
+        # review f3: the launch fails AND recording the attempt fails. A completed start would
+        # let every start of this build retry again, so the start is refused, naming both
+        # errors, and the row is left exactly as it was
+        import psycopg
+        _drop_new()
+        lc = host('old')
+        set_marker(lc)
+        org = lc.create_org('unrecorded')
+        self.assertTrue(lc._mark_unavailable(org, 'conversion', 'an old failure'))
+        before = rows()['unrecorded']
+        journal = psycopg.OperationalError('injected: the attempt cannot be recorded')
+        with mock.patch('subprocess.run', side_effect=OSError('injected: the converter cannot start')) as launch, \
+                mock.patch.object(lifecycle.Lifecycle, 'note_retry_failure', side_effect=journal) as record:
+            for _ in (1, 2):
+                with self.assertRaises(startup.StartRefused) as refused:
+                    run_start(build='new')
+                self.assertEqual(refused.exception.step, 'retry')
+                self.assertIn('injected: the converter cannot start', refused.exception.reason)
+                self.assertIn('injected: the attempt cannot be recorded', refused.exception.reason)
+                self.assertIsInstance(refused.exception.__cause__, lifecycle.AttemptNotRecorded)
+            self.assertEqual((launch.call_count, record.call_count), (2, 2))
+        row = rows()['unrecorded']
+        for key in ('state', 'unavailable_step', 'attempted_build', 'attempts', 'op_kind',
+                    'state_reason', 'row_version'):
+            self.assertEqual(row[key], before[key], key)
+        # once the attempt can be recorded, one start records it and the next does not retry it
+        with mock.patch('subprocess.run', side_effect=OSError('injected: the converter cannot start')) as launch:
+            self.assertEqual([(e['slug'], e['outcome']) for e in run_start(build='new')['retried']],
+                             [('unrecorded', 'failed')])
+            self.assertEqual(run_start(build='new')['retried'], [])
+            self.assertEqual(launch.call_count, 1)
+        self.assertEqual(rows()['unrecorded']['attempted_build'], 'new')
+
 
 # ----------------------------------------------------------------- migrations and Retry at start
 

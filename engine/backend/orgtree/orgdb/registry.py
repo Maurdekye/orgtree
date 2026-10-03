@@ -309,7 +309,10 @@ def retry(org_id: int, *, data_root: str | None = None,
     A Retry that fails before it reached the org (the converter child could not be started,
     or stopped before claiming it) raises its error and still records this build's attempt
     (``Lifecycle.note_retry_failure``, fenced on the row as read here), so the automatic Retry
-    at start runs it once per build, not at every start (review f2)."""
+    at start runs it once per build, not at every start (review f2). When that record fails
+    too, ``lifecycle.AttemptNotRecorded`` is raised instead, with the Retry's error in it and the
+    recording failure as its cause (review f3): the attempt is not accounted for, and the start
+    must not complete as if it were."""
     from . import lifecycle as L   # noqa: PLC0415
     lc = lifecycle()
     row = lc.row(org_id)
@@ -324,10 +327,13 @@ def retry(org_id: int, *, data_root: str | None = None,
             _convert_retry(org_id, lc, data_root=data_root, env=env)
     except Exception as e:
         # the attempt recorded its own outcome if it reached the org (the fence then writes
-        # nothing); a failure to record this one must not hide the error itself
-        with contextlib.suppress(Exception):
+        # nothing); when recording this one fails, that is its own error, never swallowed and
+        # never retried here (a write whose commit is unknown is not replayed)
+        try:
             lc.note_retry_failure(org_id, row_version=int(row["row_version"]),
                                   reason=f"Retry could not run: {type(e).__name__}: {e}")
+        except Exception as record_error:
+            raise L.AttemptNotRecorded(org_id, e) from record_error
         raise
     finally:
         # the fence closed this org's sessions, and a conversion replaces its database: no
