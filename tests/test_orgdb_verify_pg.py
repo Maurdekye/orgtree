@@ -487,11 +487,24 @@ def table_counts(dbname: str) -> dict:
 
 
 def fingerprint(dbname: str) -> dict:
-    """Every table's row count and a digest of all its rows: equal means equal content."""
+    """Every table's row count and a digest of all its rows: equal means equal content.
+
+    org_revision's revision stamps (0001's rev; org migration 0006's node_rev, catalog_rev and
+    view_rev) are left out. Every committed write moves them forward by design, so no undo can
+    give them back, and they are not converted content: a planted corruption's undo restores the
+    content, which is what this compares."""
     with conn.connect(ADMIN, dbname) as c:
-        return {t: c.execute(f'SELECT count(*), md5(coalesce(string_agg(md5(x::text), \'\' '
-                             f'ORDER BY md5(x::text)), \'\')) FROM orgtree."{t}" x').fetchone()
-                for t in _tables(c)}
+        stamps = [r[0] for r in c.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'orgtree' "
+            "AND table_name = 'org_revision' AND (column_name = 'rev' OR column_name LIKE %s)",
+            ('%\\_rev',))]
+        out = {}
+        for t in _tables(c):
+            row, args = ('(to_jsonb(x) - %s::text[])::text', (stamps, stamps)) \
+                if t == 'org_revision' else ('x::text', ())
+            out[t] = c.execute(f'SELECT count(*), md5(coalesce(string_agg(md5({row}), \'\' '
+                               f'ORDER BY md5({row})), \'\')) FROM orgtree."{t}" x', args).fetchone()
+        return out
 
 
 class RestoreFailed(RuntimeError):
