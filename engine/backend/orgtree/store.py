@@ -5992,6 +5992,23 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
             node_touched = nodes._changed()
         # compare-and-set rewrites, sent together after the walk (`_cas_nodes`)
         cas_rows: list[tuple[str, str, str]] = []
+        # vanished nodes go first: a renamed node's new row carries what the row it replaces
+        # holds (its mailbox identity), and the org database checks its unique indexes at each
+        # statement (A7b, G2-A3). The next ord is read before any delete, so every store numbers
+        # the new rows exactly as before.
+        gone = known_ids - dict.keys(nodes)
+        if gone and next_ord is None and not dict.keys(nodes) <= known_ids:
+            row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
+            next_ord = cast(int, row[0]) + 1 if row is not None else 0
+        for nid in gone:
+            if _ROW_CAS and snap_nodes is not None and db_ids is None \
+                    and nid in snap_nodes:
+                _cas(conn, "DELETE FROM nodes WHERE id=? AND val=?",
+                     (nid, snap_nodes[nid]), f"node {nid!r}")
+            else:
+                conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
+            if changes is not None:
+                changes.node_deletes.append(nid)
         # ⚠ dict.items, NOT nodes.items(): the differ itself must not trip
         # the read barrier it consumes
         for nid, nv in dict.items(nodes):
@@ -6024,15 +6041,6 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                     changes.node_inserts.append(nid)
         if cas_rows:
             _cas_nodes(conn, cas_rows)
-        for nid in known_ids - set(new_nodes):
-            if _ROW_CAS and snap_nodes is not None and db_ids is None \
-                    and nid in snap_nodes:
-                _cas(conn, "DELETE FROM nodes WHERE id=? AND val=?",
-                     (nid, snap_nodes[nid]), f"node {nid!r}")
-            else:
-                conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
-            if changes is not None:
-                changes.node_deletes.append(nid)
         if not has_nodes_key:
             new_nodes = {}
 

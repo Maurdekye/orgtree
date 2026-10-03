@@ -32,6 +32,10 @@ def _native():
 
 
 def _metadata(slug):
+    from .orgdb import enabled
+    if enabled():
+        return _orgdb_metadata(slug)
+
     def body(conn):
         rows = conn.execute(
             "SELECT key,CASE key "
@@ -43,13 +47,39 @@ def _metadata(slug):
             if key == 'net_identity' and kind not in ('object', 'null'):
                 raise _CompatibilityRequired()
             doc[key] = json.loads(value)
-        if doc.get('slug', slug) != slug:
-            raise _CompatibilityRequired()
-        # Explicit allowlist: no token, credentials, node counts or admin
-        # settings are available to discovery's callers, even accidentally.
-        return {'slug': doc.get('slug', slug), 'name': doc.get('name', slug),
-                'net_slug': doc.get('net_identity')}
+        return _public(slug, doc)
     return store._bounded_read(slug, body)
+
+
+def _orgdb_metadata(slug):
+    """The same three keys with the storage switch on, from the org's own database in one
+    read-only snapshot: the compatibility view serves no SQL of discovery's own (A7b, G2-C2).
+    A database that goes away while it is read (trashed, fenced) is unreadable, as a vanished
+    file is for the legacy reader."""
+    import psycopg
+    from .orgdb import reader_rows, registry
+    try:
+        with registry.connection(slug) as raw, raw.transaction():
+            raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            doc = reader_rows.read_sections(raw, ['slug', 'name', 'net_identity'])
+    except psycopg.Error as e:
+        raise sqlite3.OperationalError(f'org {slug!r} is unreadable: {e}') from e
+    identity = doc.pop('net_identity', None)
+    if identity is not None and not isinstance(identity, dict):
+        raise _CompatibilityRequired()
+    if identity is not None:
+        doc['net_identity'] = identity.get('slug')
+    return _public(slug, doc)
+
+
+def _public(slug, doc):
+    """Discovery's answer from the slug, name and net_identity's slug (``doc``)."""
+    if doc.get('slug', slug) != slug:
+        raise _CompatibilityRequired()
+    # Explicit allowlist: no token, credentials, node counts or admin
+    # settings are available to discovery's callers, even accidentally.
+    return {'slug': doc.get('slug', slug), 'name': doc.get('name', slug),
+            'net_slug': doc.get('net_identity')}
 
 
 def discovery_rows():

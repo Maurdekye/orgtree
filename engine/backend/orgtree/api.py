@@ -1611,6 +1611,34 @@ def _orgdb_org_row(reg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _orgdb_org_row_read(reg: dict[str, Any]) -> dict[str, Any]:
+    """One org's /api/orgs row with the storage switch on, as the listing reads it with the
+    switch off (`org_summary.admin_rows`): the org database's kept totals in one snapshot
+    (node count, live count, the decimal cost total of coordinator decision 4), so a poll does
+    not grow with the org's agents. An org whose cost needs the legacy conversion takes the
+    complete reader, as it does with the switch off (A7b decision 2)."""
+    from . import foreground_store, org_summary
+    from .foreground_context import CompatibilityRequired
+    from .orgdb import registry as org_registry
+    slug = reg['slug']
+    if reg['state'] != 'active':
+        return _orgdb_org_row_complete(reg)
+    try:
+        summary, totals = org_summary._read(slug)
+    except CompatibilityRequired:
+        return _orgdb_org_row_complete(reg)
+    except foreground_store.OrgNotFound as e:
+        # gone from the registry's active set since the list was read: the caller refreshes
+        raise org_registry.OrgUnavailable(str(e)) from e
+    return {**summary, 'cost_usd_total': totals.cost_total(),
+            'working': supervisor.working_count(slug),
+            **{k: reg.get(k) for k in ('state', 'unavailable_step', 'state_reason',
+                                      'attempts', 'report_path')}}
+
+
+def _orgdb_org_row_complete(reg: dict[str, Any]) -> dict[str, Any]:
+    """The complete reader: every agent's cost, summed in ord order (`Org.cost_total`'s rule),
+    for an org whose costs need the legacy conversion; and the Retry-only row of an org that
+    is not active."""
     from .orgdb import codec
     from .orgdb import registry as org_registry
     from .orgdb.mappers.settings import SETTINGS

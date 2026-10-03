@@ -279,5 +279,37 @@ class CreateRace(unittest.TestCase):
             self.assertEqual(registry.lookup('both-free')[2], 'active')
 
 
+@fx.needs_pg
+class RenameWithMailbox(unittest.TestCase):
+    """A7b batch 2 (G2-A3): renaming an agent that has a mailbox identity, as nearly every live
+    agent has (its first deposit mints one; every engine start deposits a restart notice). The
+    rename's save writes the new name's agent row, which carries the same mailbox id, and the
+    org database keeps one mailbox per agent (unique index agents_mailbox)."""
+
+    def test_an_agent_with_mail_is_renamed_with_its_mailbox_and_its_inbox(self) -> None:
+        from orgtree import ledger, supervisor, warmpool
+        with fx.storage(True):
+            org = store.create_org('Rename Mail')
+            slug = org.d['slug']
+            org.hire(ledger.USER, None, 'luna', 0, 'boss')
+            org.hire(ledger.USER, 'boss', 'luna', 0, 'alpha')
+            org.hire(ledger.USER, 'alpha', 'luna', 0, 'kid')
+            store.save_org(org)
+            org = store.load_org(slug)
+            org.post_mail('boss', 'alpha', 'hello')
+            store.save_org(org)
+            mailbox = store.load_org(slug).node('alpha').get('mailbox_id')
+            self.assertTrue(mailbox)
+            with patch.object(warmpool, 'kill_node'), patch.object(supervisor, 'notify'):
+                out = supervisor.rename_node(slug, 'alpha', 'beta', actor=ledger.USER)
+            self.assertEqual(out['node'], 'beta')
+            o = store.load_org(slug)
+            self.assertNotIn('alpha', o.nodes)
+            self.assertEqual(o.node('beta').get('mailbox_id'), mailbox)
+            self.assertEqual(o.node('kid')['parent'], 'beta')
+            self.assertEqual([m.get('body') for m in o.d['mail'].get('beta', [])], ['hello'])
+            self.assertNotIn('alpha', o.d['mail'])
+
+
 if __name__ == '__main__':
     unittest.main()
