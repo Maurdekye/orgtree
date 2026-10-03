@@ -35,6 +35,7 @@ class RuntimeOrgLists(unittest.TestCase):
         cls.addClassCleanup(lc_patch.stop)
         cls.addClassCleanup(cls.drop_databases)
         cls.docs = []
+        cls.decoded = []
         cls.ids = []
         for n in range(2):
             slug = f'api-org-{n}'
@@ -44,11 +45,14 @@ class RuntimeOrgLists(unittest.TestCase):
                        deleted_cost_usd=0.12345, net_identity={'slug': f'public-{n}'}, nodes={
                            'live': dict(state='live', account='machine', cost_usd=0.10005),
                            'bearer@0': dict(state='archived', account='machine', cost_usd=0.10005),
-                           'missing': dict(state='live', account='missing:openai', cost_usd=0.10005)})
+                           'missing': dict(state='live', account='missing:openai', cost_usd=0.10005),
+                           'legacy-state': dict(state=7, account='machine', cost_usd=0),
+                           'legacy-account': dict(state='live', account=123, cost_usd=0)})
             rows, _, _ = sections.encode_document(doc, mappers.sections(), ignored=mappers.ignored_keys())
             with conn.connect(RUNTIME, build.database, autocommit=False) as c:
                 rowio.write(c, rows)
                 c.commit()
+                cls.decoded.append(sections.decode_document(rowio.read(c), mappers.sections(), sections.Context()))
             cls.lc.mark_filled(build)
             cls.lc.publish(build)
             cls.docs.append(doc)
@@ -73,7 +77,7 @@ class RuntimeOrgLists(unittest.TestCase):
         for row, doc in zip(rows, self.docs):
             self.assertEqual(row['name'], doc['name'])
             self.assertEqual(row['created'], doc['created'])
-            self.assertEqual((row['nodes'], row['live']), (3, 2))
+            self.assertEqual((row['nodes'], row['live']), (len(doc['nodes']), 3))
             self.assertEqual(row['cost_usd_total'], ledger.Org(doc).cost_total())
         self.assertEqual(rows[-1]['state'], 'unavailable')
         self.assertEqual(rows[-1]['state_reason'], 'Bad record')
@@ -85,7 +89,24 @@ class RuntimeOrgLists(unittest.TestCase):
             bindings = api._account_bindings()
         self.assertEqual(bindings, {'machine': [
             {'org': f'api-org-{n}', 'node': node, 'state': state}
-            for n in range(2) for node, state in [('live', 'live'), ('bearer@0', 'archived')]]})
+            for n in range(2) for node, state in [('live', 'live'), ('bearer@0', 'archived'), ('legacy-state', '7')]],
+            '123': [{'org': f'api-org-{n}', 'node': 'legacy-account', 'state': 'live'} for n in range(2)]})
+
+    def test_converted_nontext_state_matches_existing_placement_string(self):
+        from orgtree import store
+        self.assertTrue(all(d['nodes']['legacy-state']['state'] == 7 for d in self.decoded))
+        with patch.object(store, 'load_org', side_effect=AssertionError('whole-org load')):
+            placed = api._account_bindings()['machine']
+        self.assertEqual([r for r in placed if r['node'] == 'legacy-state'], [
+            {'org': f'api-org-{n}', 'node': 'legacy-state', 'state': '7'} for n in range(2)])
+
+    def test_converted_nontext_account_matches_existing_placement_string(self):
+        from orgtree import store
+        self.assertTrue(all(d['nodes']['legacy-account']['account'] == 123 for d in self.decoded))
+        with patch.object(store, 'load_org', side_effect=AssertionError('whole-org load')):
+            placed = api._account_bindings()
+        self.assertEqual(placed.get('123'), [
+            {'org': f'api-org-{n}', 'node': 'legacy-account', 'state': 'live'} for n in range(2)])
 
     def test_retry_refusal_keeps_unavailable_registry_reason(self):
         # A real lifecycle Busy guard; the endpoint itself never edits lifecycle state.
@@ -110,7 +131,7 @@ class RuntimeOrgLists(unittest.TestCase):
             result = asyncio.run(api.orgs_retry('api-org-0'))
             self.assertEqual(result['state'], 'active')
             self.assertEqual(result['name'], self.docs[0]['name'])
-            self.assertEqual(result['nodes'], 3)
+            self.assertEqual(result['nodes'], len(self.docs[0]['nodes']))
         finally:
             self.set_identity_slug('api-org-0')
             if self.lc.row(self.ids[0])['state'] == 'unavailable':

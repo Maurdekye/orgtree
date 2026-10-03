@@ -128,6 +128,17 @@ class OrgAccountRoutes(unittest.TestCase):
             {'org': 'ready', 'node': 'bearer@0', 'state': 'archived'}]})
         self.assertEqual(self.opened, ['ready'])
 
+    def test_binding_strings_and_empty_values_match_existing_reader(self):
+        self.c.bound = [('numeric-state', 'machine', 7), ('numeric-account', 123, 'live'),
+                        ('list-account', [12], False), ('bool-account', True, None),
+                        ('zero-account', 0, 'live'), ('empty-account', '', 'live'),
+                        ('false-account', False, 'live'), ('null-account', None, 'live')]
+        self.assertEqual(api._account_bindings(), {
+            'machine': [{'org': 'ready', 'node': 'numeric-state', 'state': '7'}],
+            '123': [{'org': 'ready', 'node': 'numeric-account', 'state': 'live'}],
+            '[12]': [{'org': 'ready', 'node': 'list-account', 'state': ''}],
+            'True': [{'org': 'ready', 'node': 'bool-account', 'state': ''}]})
+
     def test_org_and_binding_order_stays_alphabetical_when_ids_are_not(self):
         self.rows = [entry('z', org_id=1), entry('a', org_id=2)]
         @contextmanager
