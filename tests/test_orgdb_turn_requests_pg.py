@@ -272,3 +272,7 @@ class Requests(unittest.TestCase):
         # No org-side mutation alone frees an active provider's app slot.
         self.assertEqual(self.queue.get(current.request_id).state, 'running')
         self.assertEqual(self.read(pending).state, 'lost')
+
+
+if __name__ == '__main__':
+    unittest.main()
