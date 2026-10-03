@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import test_orgdb_compat_pg as f
 from orgdb_history_fixture import load_census, targets
-from orgtree import api, ledger, store, supervisor
+from orgtree import api, ledger, store, supervisor, work_ui
 from orgtree.orgdb import archive_reads, codec, conn, registry
 from orgtree.orgdb.mappers.docket import WORK_ITEM
 
@@ -32,11 +32,8 @@ def seed(slug):
 
 
 def unique(values):
-    out = []
-    for value in values:
-        if value not in out:
-            out.append(value)
-    return out
+    return {json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(',', ':'))
+            for value in values}
 
 
 @contextmanager
@@ -89,7 +86,8 @@ class ArchiveReads(unittest.TestCase):
             store.save_org(org)
 
     def test_same_answers_as_full_decode_for_stored_shapes(self):
-        values = ['done', None, 1, False, ['x', None], {'nested': [1]}, 'nul\x00\ud800']
+        values = ['done', None, 1, True, 1.0, False, 0, ['x', None],
+                  {'nested': [1]}, 'nul\x00\ud800']
 
         def shapes(items):
             template = items[0]
@@ -111,7 +109,7 @@ class ArchiveReads(unittest.TestCase):
             self.assertEqual(identity, [(x['slug'], 'id' in x) for x in decoded])
             expected = unique(x.get('status') for x in decoded)
             self.assertEqual(len(statuses), len(expected))
-            self.assertTrue(all(x in statuses for x in expected))
+            self.assertEqual(unique(statuses), expected)
             self.assertEqual((decodes, loads), ([], []))
 
     def test_same_identity_decision_as_row_walk(self):
@@ -172,6 +170,7 @@ class ArchiveReads(unittest.TestCase):
                     self.assertIsNotNone(facts)
                     self.assertEqual(sum(name == 'old-0' for name, _ in facts), 2)
                     self.assertEqual(store.load_org(self.slug).work_identity_state(), 'legacy')
+                    self.assertFalse(archive_reads.current_identity(view.raw))
                     view.raw.execute("UPDATE orgtree.work_items SET status='dropped' WHERE slug='old-2'")
                     self.assertIn('dropped', d.archive_statuses())
             finally:
@@ -230,19 +229,27 @@ class ArchiveReads(unittest.TestCase):
         with f.storage(True):
             for size in (2048, 20480):
                 self.grow(size)
+                with no_archive_decodes() as (decodes, loads):
+                    lazy = store.load_org(self.slug).d
+                    self.assertEqual(set(lazy.archive_statuses()), {'done', 'dropped'})
+                    self.assertEqual(len(lazy.archive_identity()), size)
+                self.assertEqual((decodes, loads), ([], []))
                 with store._POOL.acquire(self.slug) as view:
                     statuses = view.raw.execute(archive_reads.STATUSES_SQL).fetchall()
                     self.assertEqual(set(json.loads(x[0]) for x in statuses), {'done', 'dropped'})
                     status = explained(view.raw, archive_reads.STATUSES_SQL)
                     refusal = explained(view.raw, archive_reads.UNREADABLE_STATUS_SQL)
                     identity = explained(view.raw, archive_reads.IDENTITY_SQL)
+                    records = explained(view.raw, archive_reads.RECORD_IDENTITY_SQL)
                 self.assertTrue(status['scans'])
                 self.assertTrue(all(x == 'Index Only Scan' for x in status['scans']), status)
                 self.assertEqual(identity['scans'], ['Index Only Scan'], identity)
                 self.assertEqual(identity['examined'], size)
                 self.assertEqual(identity['heap_fetches'], 0)
                 self.assertEqual(refusal['examined'], 0)
-                measurements.append(dict(size=size,status=status,refusal=refusal,identity=identity))
+                self.assertTrue(all(x == 'Index Only Scan' for x in records['scans']), records)
+                measurements.append(dict(size=size,status=status,refusal=refusal,
+                                         identity=identity,records=records))
         self.assertEqual(measurements[0]['status']['examined'], measurements[1]['status']['examined'])
         REPORT['growth'] = measurements
 
@@ -267,6 +274,48 @@ class ArchiveReads(unittest.TestCase):
         REPORT['latency'] = dict(calibration='recorded combined turn time; shared numeric census',
                                  hours=[1,5000],samples=samples,added_ms=added,limit_ms=100)
         self.assertLessEqual(added, 100, REPORT['latency'])
+
+    def test_native_docket_uses_records_not_a_marker_and_preserves_unusual_names(self):
+        with f.storage(True):
+            # A false marker cannot refuse current records, nor bless old ones.
+            with registry.connection(self.slug) as raw:
+                raw.execute("UPDATE orgtree.org_settings SET work_identity='legacy'")
+                self.assertTrue(archive_reads.current_identity(raw))
+            response = api.work_items_view(self.slug)
+            self.assertEqual(response.status_code, 200)
+            for value in (123, True, {'kept': [1]}, 'nul\x00\ud800', 'x' * 1500):
+                with self.subTest(value=repr(value)):
+                    self.edit(lambda items: items[0].update(slug=value))
+                    whole = store.load_org(self.slug)
+                    list(whole.d[ARCHIVE])
+                    expected = whole.work_identity_state() == 'slug'
+                    with no_archive_decodes() as (decodes, loads), registry.connection(self.slug) as raw:
+                        self.assertEqual(archive_reads.current_identity(raw), expected)
+                    self.assertEqual((decodes, loads), ([], []))
+            self.edit(lambda items: items[0].update(slug='old-0', id=None))
+            with registry.connection(self.slug) as raw:
+                raw.execute("UPDATE orgtree.org_settings SET work_identity='slug'")
+            with self.assertRaises(api.HTTPException) as refused:
+                # Bypass the previous body cache: this asserts the native guard.
+                with work_ui._lock:
+                    work_ui._cache.clear()
+                api.work_items_view(self.slug)
+            self.assertEqual(refused.exception.status_code, 409)
+
+    def test_new_org_docket_is_available_without_identity_marker(self):
+        with f.storage(True):
+            fresh = store.create_org('new docket ' + self._testMethodName)
+            slug = fresh.d['slug']
+            with registry.connection(slug) as raw:
+                self.assertNotEqual(raw.execute('SELECT work_identity FROM orgtree.org_settings').fetchone()[0], 'slug')
+            self.assertEqual(api.work_items_view(slug).status_code, 200)
+            fresh.hire(ledger.USER, None, 'luna', 0, 'boss')
+            fresh.work_create('boss', 'First item', objective='Problem. Solution.', owner='boss')
+            store.save_org(fresh)
+            with no_archive_decodes() as (decodes, loads):
+                response = api.work_items_view(slug)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual((decodes, loads), ([], []))
 
 
 def tearDownModule():

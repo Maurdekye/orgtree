@@ -4248,7 +4248,11 @@ class LazyDoc(dict[str, Any]):
         blobbed answers from memory, so there is one answer, never two. Also
         refused: SQLite, an index that is not `ready`, any archived row whose
         summary predates the `_query` format, and a stored `work_items_archive`
-        doc blob (which the index does not cover)."""
+        doc blob (which the index does not cover).
+
+        Org databases use generated, covering identity headers in this same
+        caller transaction. Unsupported or oversized headers return None so
+        the unchanged caller can read their exact bodies."""
         k = "work_items_archive"
         if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
                 or k in self._dropped or k in self._pending
@@ -4290,7 +4294,10 @@ class LazyDoc(dict[str, Any]):
         430 <-> 640 MB square wave). `summary` holds the item's own `status`
         value (0006: a key subset of the body), so `->>'status'` is the same
         text `str(it.get("status"))` sees for a string; JSON null or a missing
-        key is SQL NULL (None here). `work_index_status` indexes it."""
+        key is SQL NULL (None here). `work_index_status` indexes it.
+
+        Org databases keep exact JSON status headers and probe one index entry
+        per distinct value. Oversized keys refuse instead of losing the value."""
         k = "work_items_archive"
         if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
                 or k in self._dropped or k in self._pending

@@ -161,9 +161,9 @@ def _build(slug: str, *, archived=True, backlogged=True, query=None) -> dict[str
     from .orgdb import enabled
     if enabled():
         from . import worklist
+        from .orgdb import archive_reads
         def build(ctx,org_slug):
-            row = ctx.query.raw.execute('SELECT work_identity FROM orgtree.org_settings WHERE singleton').fetchone()
-            if not row or row[0] != 'slug':
+            if not archive_reads.current_identity(ctx.query.raw):
                 raise IdentityMigrationRequired('work identity migration required')
             payload = worklist._foreground_body(ctx,org_slug,USER,backlogged,0)
             if archived:

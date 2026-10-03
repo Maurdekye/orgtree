@@ -1,12 +1,22 @@
 """Committed PG docket validators with stale resident/feed state excluded."""
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import json
 import os
 import unittest
 from unittest.mock import patch
 
-import test_pgstore as f
-import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+NATIVE = os.environ.get('ORGTREE_STORAGE') == 'orgdb'
+if NATIVE:
+    import test_orgdb_compat_pg as f
+else:
+    import test_pgstore as f
 from orgtree import ledger, pgstore, store, work_ui, workrows
+
+
+def setUpModule():
+    if NATIVE:
+        f.setUpModule()
+        os.environ['ORGTREE_STORAGE'] = 'orgdb'
 
 
 def tearDownModule():
@@ -41,24 +51,41 @@ class CommittedWorkUI(unittest.TestCase):
         import psycopg
         old = store.load_org(self.slug)
         row = dict(old.d["work_items"][0], title="External commit", rev=2)
+        if NATIVE:
+            from orgtree.orgdb import registry
+            with registry.connection(self.slug) as conn:
+                conn.execute('UPDATE orgtree.work_items SET title=%s,rev=%s WHERE slug=%s',
+                             (row['title'], row['rev'], self.item))
+        else:
+            self.external_legacy_commit(row)
+        revision, body = work_ui.read(self.slug, since=self.before)
+        self.assertNotEqual(revision, self.before)
+        self.assertEqual(body["delta"]["items"]["upsert"][0]["title"], "External commit")
+        self.assertEqual(old.d["work_items"][0]["title"], "Original title")
+
+    def external_legacy_commit(self, row):
+        import psycopg
         with psycopg.connect(os.environ["ORGTREE_PG_URL"], autocommit=True) as conn:
             oid = conn.execute("SELECT org_id FROM public.orgs WHERE slug=%s", (self.slug,)).fetchone()[0]
             with conn.transaction():
                 conn.execute(f"UPDATE org_{int(oid)}.doc SET val=%s WHERE key=%s",
                              (json.dumps(row), workrows.PREFIX + self.item))
                 conn.execute("UPDATE public.orgs SET revision=revision+1,work_revision=revision+1 WHERE org_id=%s", (oid,))
-        revision, body = work_ui.read(self.slug, since=self.before)
-        self.assertNotEqual(revision, self.before)
-        self.assertEqual(body["delta"]["items"]["upsert"][0]["title"], "External commit")
-        self.assertEqual(old.d["work_items"][0]["title"], "Original title")
+
+    def work_revision(self):
+        if NATIVE:
+            from orgtree.orgdb import registry
+            with registry.connection(self.slug) as raw:
+                return raw.execute('SELECT docket_rev FROM orgtree.org_revision').fetchone()[0]
+        return store.read_work_items_rows(self.slug, [])["work_revision"]
 
     def test_question_and_owner_state_invalidate_independently_of_work_revision(self):
         # An external node change does not increment the work counter.
         org = store.load_org(self.slug)
-        before = store.read_work_items_rows(self.slug, [])["work_revision"]
+        before = self.work_revision()
         org.nodes["boss"]["state"] = "archived"
         store.save_org(org)
-        self.assertEqual(store.read_work_items_rows(self.slug, [])["work_revision"], before)
+        self.assertEqual(self.work_revision(), before)
         revision, body = work_ui.read(self.slug, since=self.before)
         self.assertEqual(body["delta"]["items"]["upsert"][0]["owner_state"], "retired")
         # Direct committed ask mimics another process while no live feed runs.

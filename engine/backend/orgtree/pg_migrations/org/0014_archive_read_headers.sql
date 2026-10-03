@@ -12,17 +12,26 @@ BEGIN
 END
 $fn$;
 
+CREATE FUNCTION orgtree.work_identity_slug_value(value text, extra json) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
+ SELECT coalesce(orgtree.docket_field(extra,'slug'),to_json(value),'null'::json)::text
+$fn$;
+
 ALTER TABLE orgtree.work_items
  ADD COLUMN archive_identity_slug text GENERATED ALWAYS AS (
    CASE WHEN slug IS NOT NULL AND slug<>'' AND octet_length(slug)<=1024
           AND orgtree.docket_field(extra,'slug') IS NULL THEN slug END) STORED,
  ADD COLUMN archive_legacy_identity boolean GENERATED ALWAYS AS (
    orgtree.docket_field(extra,'id') IS NOT NULL) STORED,
+ ADD COLUMN work_identity_slug_value text GENERATED ALWAYS AS (
+   orgtree.work_identity_slug_value(slug,extra)) STORED,
  ADD COLUMN archive_status_key text GENERATED ALWAYS AS (
    orgtree.archive_status_key(status,extra)) STORED;
 
 CREATE INDEX work_archive_identity_headers ON orgtree.work_items(ord)
  INCLUDE (archive_identity_slug,archive_legacy_identity) WHERE list_key='archive';
+CREATE INDEX work_identity_headers ON orgtree.work_items(list_key,ord)
+ INCLUDE (id,archive_identity_slug,archive_legacy_identity) WHERE list_key IN ('active','archive');
 CREATE INDEX work_archive_status_keys ON orgtree.work_items(archive_status_key COLLATE "C")
  WHERE list_key='archive' AND archive_status_key IS NOT NULL;
 CREATE INDEX work_archive_status_unreadable ON orgtree.work_items(id)
