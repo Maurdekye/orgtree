@@ -67,7 +67,7 @@ def _after(cursor: str | None, stamp: dict, kind: str, filters: Any) -> Any:
             raise ValueError('cursor too long')
         value = json.loads(base64.b64decode(cursor + '=' * (-len(cursor) % 4),
                                          altchars=b'-_', validate=True))
-        if not isinstance(value, list) or (len(value), value[0]) not in ((6, 1), (8, 2)):
+        if not isinstance(value, list) or not value or (len(value), value[0]) not in ((6, 1), (8, 2)):
             raise ValueError('unknown cursor')
         if value[3:5] != [kind, _filter(filters)]:
             raise ValueError('cursor belongs to another query')

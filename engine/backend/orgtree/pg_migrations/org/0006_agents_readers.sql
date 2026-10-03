@@ -43,7 +43,7 @@ $fn$;
 -- extra carries codec-preserved ill-typed legacy fields; it is never searched.
 CREATE FUNCTION orgtree.foreground_catalog(a orgtree.agents) RETURNS jsonb
 LANGUAGE sql STABLE AS $fn$
- SELECT jsonb_build_array(a.name,a.ord,a.tombstone,
+ SELECT jsonb_build_array(a.name,a.ord,a.tombstone,a.lineage_born,a.extra::jsonb->'seat_id',
    a.parent_id,coalesce(a.parent,a.extra::jsonb->>'parent',''),
    coalesce(a.state,a.extra::jsonb->>'state','live'),
    coalesce(a.title,a.extra::jsonb->>'title',''),
@@ -107,8 +107,8 @@ $install$;
 
 CREATE INDEX agents_foreground_live ON orgtree.agents(ord,name)
   WHERE coalesce(state,'live')<>'archived' AND NOT tombstone;
-CREATE INDEX agents_foreground_retired ON orgtree.agents(parent_id,ui_order,created_text,ord,name)
-  WHERE state='archived' AND successor_id IS NULL AND NOT tombstone;
+CREATE INDEX agents_foreground_retired ON orgtree.agents(parent_id,coalesce(ui_order,0),coalesce(created_text,''),ord,name)
+  WHERE state='archived' AND NOT tombstone;
 CREATE FUNCTION orgtree.agent_name_grams(value text) RETURNS text[]
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
  SELECT coalesce(array_agg(DISTINCT substr(lower(value),p,width)),ARRAY[]::text[])

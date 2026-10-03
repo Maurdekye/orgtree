@@ -7,7 +7,7 @@ import import_provenance  # noqa: F401  asserts this checkout before engine impo
 import unittest
 
 import test_orgdb_compat_pg as fixture
-from orgtree import foreground_store as F, identity_context, turn_inputs
+from orgtree import foreground_store as F, identity_context, turn_inputs, org_summary
 
 
 def setUpModule():
@@ -44,15 +44,19 @@ class NativeReaders(unittest.TestCase):
 
     def test_exact_recent_turns_and_lineage(self):
         graph = self.read(lambda s: F.read_exact(s, 'dev'))
-        self.assertEqual([t['n'] for t in graph['rows']['dev']['node']['turns']], list(range(12, 20)))
+        with fixture.storage(False):
+            expected = F.read_exact(self.twin.legacy, 'dev')
+        self.assertEqual(graph['rows']['dev']['node']['turns'], expected['rows']['dev']['node']['turns'])
         self.assertEqual(graph['rows']['dev']['lineage_count'], 1)
         self.assertEqual(graph['rows']['dev']['consultable_predecessor'], {'id': 'old', 'generation': 1})
 
-    def test_retired_page_and_search_and_references(self):
+    def test_retired_page(self):
         page = self.read(lambda s: F.read_retired_children(s, 'boss'))
         self.assertEqual(page['matches'], ['retired'])
+    def test_search(self):
         search = self.read(lambda s: F.search(s, 'retir'))
         self.assertEqual(search['matches'], ['retired'])
+    def test_references(self):
         refs = self.read(lambda s: F.read_references(s, ['old', 'missing']))
         self.assertEqual(refs['references']['old']['axis'], 'lineage')
         self.assertEqual(refs['missing'], ['missing'])
@@ -71,6 +75,118 @@ class NativeReaders(unittest.TestCase):
         self.assertEqual(stamp['node_count'], 5)
         self.assertEqual(stamp['retired_axis_count'], 1)
         self.assertGreaterEqual(stamp['node_revision'], 5)
+
+    def test_discovery(self):
+        page = self.read(lambda s: F.discover(s, limit=2))
+        self.assertEqual([n['id'] for n in page['nodes']], ['boss', 'dev'])
+        tail = self.read(lambda s: F.discover(s, limit=2, cursor=page['next_cursor']))
+        self.assertEqual([n['id'] for n in tail['nodes']], ['ops'])
+
+    def test_pile_edges(self):
+        graph = self.read(lambda s: F.read_foreground(s, piles={}))
+        self.assertIn('retired', graph['rows'])
+
+    def test_card_windows(self):
+        got = self.read(lambda s: F.read_snapshot(s, lambda raw, stamp: F.read_card_windows(raw, ['dev'])))
+        with fixture.storage(False):
+            want = F.read_snapshot(self.twin.legacy, lambda raw, stamp: F.read_card_windows(raw, ['dev']))
+        self.assertEqual(got, want)
+
+    def test_inbox_window(self):
+        got = self.read(lambda s: F.read_snapshot(s, lambda raw, stamp: F.read_org_inbox_window(raw)))
+        with fixture.storage(False):
+            want = F.read_snapshot(self.twin.legacy, lambda raw, stamp: F.read_org_inbox_window(raw))
+        self.assertEqual(got, want)
+
+    def test_summary_snapshot(self):
+        row, context = self.read(org_summary._read)
+        self.assertEqual((row['nodes'], row['live']), (5, 3))
+        self.assertEqual(context.cost_total(), 1.25)
+
+    def test_empty_cursor_rejected(self):
+        import base64
+        cursor = base64.urlsafe_b64encode(b'[]').decode()
+        with self.assertRaises(ValueError):
+            self.read(lambda s: F.discover(s, cursor=cursor))
+
+
+@fixture.needs_pg
+class NativeCounters(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.twin = fixture.Twins('a1 counters')
+
+    def stamps(self):
+        result = []
+        for on, slug in ((False, self.twin.legacy), (True, self.twin.copy)):
+            with fixture.storage(on):
+                result.append(F.read_snapshot(slug, lambda raw, stamp: stamp))
+        return result
+
+    def test_each_catalog_field_and_six_exclusions(self):
+        changes = {'parent': 'ops', 'state': 'unrecoverable', 'title': 'new', 'model': 'sonnet',
+                   'ui_order': -0.0, 'created': '2026-10-02T00:00:00.000Z',
+                   'predecessor': 'boss', 'successor': 'ops', 'generation': 2,
+                   'bearer_state': 'lost', 'cost_usd': 0.1 + 0.2,
+                   'cost_usd_unknown': True, 'grant': 11, 'session_id': 'next',
+                   'transcript_incarnation': 'next', 'reply_incarnation': 'next'}
+        for key, value in changes.items():
+            with self.subTest(field=key):
+                before = self.stamps()
+                self.twin.edit(lambda d: d['nodes']['dev'].__setitem__(key, value))
+                after = self.stamps()
+                self.assertEqual([a['node_revision']-b['node_revision'] for a,b in zip(after,before)], [1,1])
+                self.assertEqual(after[0]['catalog_revision'] != before[0]['catalog_revision'],
+                                 after[1]['catalog_revision'] != before[1]['catalog_revision'])
+                self.assertEqual(after[0]['cost'], after[1]['cost'])
+                self.assertEqual(after[0]['cost_unknown'], after[1]['cost_unknown'])
+
+    def test_each_view_source(self):
+        changes = [
+            ('settings', lambda d: d.__setitem__('max_children', 999)),
+            ('mail', lambda d: d['mail']['dev'].append({'id':'new','body':'new'})),
+            ('delivering', lambda d: d.__setitem__('delivering', {'dev':[{'id':'batch','mail':[{'id':'x'}]}]})),
+            ('asks', lambda d: d['asks'][0].__setitem__('question','next')),
+            ('credit_requests', lambda d: d.__setitem__('credit_requests',[{'node':'dev','amount':7}])),
+            ('scope_requests', lambda d: d.__setitem__('scope_requests',[{'node':'dev','items':[{'kind':'web'}]}])),
+            ('documents', lambda d: d.__setitem__('documents',[{'id':'d','node':'dev','body':'text'}])),
+            ('org_inbox', lambda d: d.__setitem__('org_inbox',[{'id':'i','body':'text'}])),
+            ('user_inbox', lambda d: d.__setitem__('user_inbox',[{'id':'u','body':'text'}])),
+            ('audiences', lambda d: d.__setitem__('audiences',[{'grantee':'dev','grantor':'user'}])),
+            ('audience_requests', lambda d: d.__setitem__('audience_requests',[{'node':'dev','target':'user'}])),
+            ('watchdogs', lambda d: d['watchdogs'][0].__setitem__('state','paused')),
+            ('watchdog_tombs', lambda d: d.__setitem__('watchdog_tombs',[{'id':'gone','owner':'dev'}])),
+            ('work_items_archive', lambda d: d.setdefault('work_items_archive',[]).append(d['work_items'].pop())),
+            ('work_scope_log', lambda d: d.__setitem__('work_scope_log',[{'slug':'fix-the-thing','text':'next'}])),
+        ]
+        for key, change in changes:
+            with self.subTest(source=key):
+                before = self.stamps()
+                self.twin.edit(change)
+                after = self.stamps()
+                self.assertGreater(after[0]['view_revision'], before[0]['view_revision'])
+                self.assertGreater(after[1]['view_revision'], before[1]['view_revision'])
+
+    def test_standalone_statement_counts_savepoint_and_seat_identity(self):
+        with fixture.storage(True):
+            database = fixture.registry.lookup(self.twin.copy)[1]
+            with fixture.dbconn.connect(fixture.RUNTIME, database) as raw:
+                def counters():
+                    return raw.execute('SELECT node_rev,catalog_rev FROM orgtree.org_revision').fetchone()
+                before = counters()
+                raw.execute("UPDATE orgtree.agents SET title=title WHERE name IN ('boss','ops')")
+                self.assertEqual(counters(), (before[0]+2,before[1]))
+                raw.execute('BEGIN')
+                raw.execute('SAVEPOINT discarded')
+                raw.execute("UPDATE orgtree.agents SET title='discarded' WHERE name='boss'")
+                raw.execute('ROLLBACK TO SAVEPOINT discarded')
+                raw.execute("UPDATE orgtree.agents SET lineage_born='replacement' WHERE name='ops'")
+                raw.execute('COMMIT')
+                self.assertEqual(counters(), (before[0]+3,before[1]+1))
+                raw.execute('BEGIN')
+                raw.execute("UPDATE orgtree.agents SET title='rollback' WHERE name='boss'")
+                raw.execute('ROLLBACK')
+                self.assertEqual(counters(), (before[0]+3,before[1]+1))
 
 
 if __name__ == '__main__':

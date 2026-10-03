@@ -16,6 +16,8 @@ from .mappers import agents as M
 from .. import store
 from ..ledger import ASK_HISTORY_KEEP, LedgerError
 
+_AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),'')=''"
+
 
 def _dicts(raw, sql, params=()):
     from psycopg.rows import dict_row   # noqa: PLC0415
@@ -66,9 +68,9 @@ def stamp(raw, org_id, seq):
     row = raw.execute('SELECT r.rev,r.node_rev,r.catalog_rev,r.view_rev,'
         'i.org_uuid::text,i.incarnation::text FROM orgtree.org_revision r '
         'CROSS JOIN orgtree.org_identity i').fetchone()
-    totals = raw.execute("SELECT count(*),count(*) FILTER (WHERE state='archived' "
-        'AND successor_id IS NULL),coalesce(sum(cost_usd),0),'
-        'count(*) FILTER (WHERE cost_usd_unknown) FROM orgtree.agents WHERE NOT tombstone').fetchone()
+    totals = raw.execute("SELECT count(*),count(*) FILTER (WHERE state='archived' AND " + _AXIS +
+        '),coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown) '
+        'FROM orgtree.agents a WHERE NOT tombstone').fetchone()
     if row is None:
         raise LedgerError('foreground revision is incomplete')
     cost = totals[2]
@@ -151,7 +153,7 @@ def rows(raw, ids):
 def retired_counts(raw, parents):
     return dict(raw.execute("SELECT coalesce(p.name,''),count(*) FROM orgtree.agents a "
         'LEFT JOIN orgtree.agents p ON p.id=a.parent_id WHERE NOT a.tombstone '
-        "AND a.state='archived' AND a.successor_id IS NULL AND coalesce(p.name,'')=ANY(%s) "
+        "AND a.state='archived' AND " + _AXIS + " AND coalesce(p.name,'')=ANY(%s) "
         'GROUP BY p.name', (parents,)).fetchall())
 
 
@@ -169,8 +171,8 @@ def funding(raw):
 def child_page(raw, parent, limit, after=None, last=False):
     # Native typed index for normal order values; rare extra candidates are
     # decoded and merged before the keyset/limit so none is silently misordered.
-    base = "NOT a.tombstone AND a.state='archived' AND a.successor_id IS NULL"
-    parent_sql = (" AND a.parent_id IS NULL" if not parent else
+    base = "NOT a.tombstone AND a.state='archived' AND " + _AXIS
+    parent_sql = (" AND coalesce((SELECT name FROM orgtree.agents p WHERE p.id=a.parent_id),'')=''" if not parent else
         " AND a.parent_id=(SELECT id FROM orgtree.agents WHERE name=%s AND NOT tombstone)")
     params = [] if not parent else [parent]
     direction = ' DESC' if last else ''
@@ -179,11 +181,11 @@ def child_page(raw, parent, limit, after=None, last=False):
         suffix = ' AND (coalesce(a.ui_order,0),coalesce(a.created_text,\'\'),a.ord,a.name)>(%s::numeric,%s,%s,%s)'
         params.extend(after)
     typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,coalesce(a.created_text,\'\'),a.ord '
-        'FROM orgtree.agents a WHERE ' + base + parent_sql + suffix +
+        'FROM orgtree.agents a WHERE ' + base + parent_sql + ' AND a.ui_order IS NOT NULL' + suffix +
         ' ORDER BY coalesce(a.ui_order,0)' + direction + ',coalesce(a.created_text,\'\')' + direction +
         ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*params, limit)).fetchall()
     candidates = {row[0]: row for row in typed}
-    for name, (ordinal, value) in _hot(raw, base + parent_sql + ' AND a.extra IS NOT NULL',
+    for name, (ordinal, value) in _hot(raw, base + parent_sql + ' AND a.ui_order IS NULL',
                                       [] if not parent else [parent]).items():
         candidate = (name, str(value['order']), value['created'], ordinal)
         key = (Decimal(candidate[1]), candidate[2], ordinal, name)
@@ -233,10 +235,10 @@ def references(raw, wanted):
 
 
 def search_page(raw, query, state, after, limit):
-    return raw.execute('SELECT name FROM orgtree.agents WHERE NOT tombstone '
+    return raw.execute('SELECT name FROM orgtree.agents a WHERE NOT tombstone '
         'AND orgtree.agent_name_grams(name) @> orgtree.agent_name_grams(%s) '
         'AND strpos(lower(name),%s)>0 '
-        "AND NOT(coalesce(state,'live')='archived' AND successor_id IS NOT NULL) "
+        "AND NOT(coalesce(state,'live')='archived' AND NOT(" + _AXIS + ")) "
         "AND (%s::text IS NULL OR coalesce(state,'live')=%s) "
         'AND (%s::text IS NULL OR name COLLATE "C">%s COLLATE "C") '
         'ORDER BY name COLLATE "C" LIMIT %s',(query,query,state,state,after,after,limit)).fetchall()
