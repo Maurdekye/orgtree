@@ -194,6 +194,7 @@ class Mailboxes(unittest.TestCase):
                       (json.dumps({'recv_seq': 10**90, 'unrelated': 'nul\u0000text'}), 'old-1'))
             c.execute('DROP TABLE orgtree.mailboxes')
             c.execute(migration.read_text(encoding='utf-8'))
+            fixture.LC[0]._grant_runtime(c, registry.lookup(t.copy)[1], 'org')
             c.commit()
         self.assertEqual(self.bound(t)[1:], (len(values), 10**90))
         self.assertEqual(self.bound(t, 'boss'), (0, 0, 0))
@@ -216,6 +217,28 @@ class Mailboxes(unittest.TestCase):
         self.assertEqual(self.bound(t), before)
         with fixture.storage(True), no_archive_load():
             self.assertEqual(self.send(t)['recv_seq'], 10)
+
+    def test_rename_moves_archive_floor_and_frees_the_old_owner(self):
+        t = self.twin()
+        self.present(t)
+        for on, slug in ((False, t.legacy), (True, t.copy)):
+            with fixture.storage(on):
+                with orgtx.org_tx(slug, **mailtx.send_rows('dev')) as tx:
+                    tx.org.deposit_mail('dev', {'id': 'mint-mailbox', 'from': 'boss'})
+                with orgtx.org_tx(slug, whole=True) as tx:
+                    tx.org.rename(ledger.USER, 'dev', 'renamed')
+        t.compare(self, 'rename carries the archive and inbox')
+        self.assertEqual(self.bound(t, 'renamed')[1:], (10, 10))
+        self.assertEqual(self.bound(t, 'dev')[1:], (0, 0))
+        t.edit(lambda d: d['nodes'].__setitem__('dev', fixture.node('dev', 'boss')))
+        for on, slug in ((False, t.legacy), (True, t.copy)):
+            with fixture.storage(on), no_archive_load():
+                with orgtx.org_tx(slug, **mailtx.send_rows('renamed')) as tx:
+                    self.assertEqual(tx.org.deposit_mail('renamed', {'id': 'next'})['recv_seq'], 11)
+                with orgtx.org_tx(slug, **mailtx.send_rows('dev')) as tx:
+                    self.assertEqual(tx.org.deposit_mail('dev', {'id': 'new-owner'})['recv_seq'], 1)
+        self.assertEqual(self.bound(t, 'renamed')[1:], (11, 11))
+        self.assertEqual(self.bound(t, 'dev')[1:], (1, 1))
 
     def test_concurrent_deposits_wait_and_assign_consecutive_ordinals(self):
         t = self.twin()
