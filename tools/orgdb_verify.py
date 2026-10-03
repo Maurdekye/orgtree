@@ -506,7 +506,15 @@ OUTSIDE = {'org_identity', 'org_revision', 'org_topology', 'conversion_runs',
 # 0006_agents_readers.sql supplies the revision counters; 0007_docket_readers.sql
 # supplies docket projections and its counter. These are not legacy data.
 DERIVED = {
-    'org_revision': {'node_rev', 'catalog_rev', 'view_rev', 'docket_rev'},
+    'org_revision': {'node_rev', 'catalog_rev', 'view_rev', 'docket_rev',
+                     'node_count', 'retired_axis_count', 'cost', 'cost_unknown'},
+    'agents': {'parent_misfit', 'predecessor_misfit', 'successor_misfit',
+               'state_misfit', 'ui_order_misfit', 'created_misfit',
+               'generation_misfit', 'bearer_state_misfit',
+               'cost_usd_misfit', 'cost_usd_unknown_misfit'},
+    'asks': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
+    'credit_requests': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
+    'scope_requests': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
     'work_items': {'docket_policy_extra', 'docket_list_extra', 'docket_scope_meta',
                    'docket_manual', 'docket_order', 'docket_deadline',
                    'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
