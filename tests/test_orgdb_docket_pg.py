@@ -151,6 +151,7 @@ class NativePaths(unittest.TestCase):
         expected = self.oracle.work_list('worker', include_archived=True, include_backlogged=True, now_ts=NOW)
         self.assertEqual({r['slug'] for r in result['items']}, {r['slug'] for r in expected['items']})
         self.assertEqual({r['slug'] for r in result['backlogged']}, {'back'})
+        self.assertNotIn('archived',result['counts'])
         asked = next(r for r in result['items'] if r['slug'] == 'asked')
         self.assertTrue(asked['questions'])
 

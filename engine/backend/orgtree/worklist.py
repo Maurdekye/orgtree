@@ -292,7 +292,7 @@ def foreground(slug, viewer=USER, *, backlogged=False, archive_limit=0, now_ts=N
 
 def _foreground_body(ctx, org_slug, viewer, backlogged, archive_limit):
     q = ctx.query
-    counts = (q.counts() if getattr(q, 'native', False) else
+    counts = (q.counts(include_archived=viewer==USER or archive_limit>0) if getattr(q, 'native', False) else
               workread.counts_raw(q.raw, q.org_id, viewer=viewer, now_ts=q.now))
     if counts is None:
         raise workquery.CompatibilityRequired('docket counts unavailable')
