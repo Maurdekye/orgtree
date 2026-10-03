@@ -234,7 +234,10 @@ def _cached_org_rows(slug):
 
 
 def _all_rows():
-    if not (_CACHE_ON and _RUNTIME_VIEWS and store.STORE_BACKEND == "postgres"):
+    # The raw/cache path below reads the legacy shared schemas. Until its
+    # statements are ported, orgdb uses the existing runtime-org load path.
+    if not (_CACHE_ON and _RUNTIME_VIEWS and store.STORE_BACKEND == "postgres"
+            and not store._orgdb_on()):
         rows = []
         for org in _orgs():
             rows += _attention(org)[0] + _frozen(org)

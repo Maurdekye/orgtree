@@ -98,14 +98,20 @@ class RemovalIncomplete(RuntimeError):
 # --------------------------------------------------------------- enumeration
 def org_slugs() -> list[str]:
     """Every org slug on this machine, by the SAME enumeration the removal
-    guard's evidence (`api._account_bindings`) uses — filename stems under the
-    orgs directory, JSON and SQLite alike, premigration files excluded.
+    account-placement display (`api._account_bindings`) uses — filename
+    stems under the orgs directory, JSON and SQLite alike, premigration files
+    excluded; with orgdb, every registry row except trashed, including orgs
+    that are unavailable and whose bindings cannot be read.
 
     Deliberately not `store.list_orgs()`: that parses every document to build
     summary rows, and a document it fails to summarize is simply absent from
     its answer. Here an org we cannot enumerate must be visible as a slug so
     the load below can refuse, rather than silently reading as "binds
     nothing"."""
+    if store._orgdb_on():
+        from .orgdb import registry as org_registry
+        return [str(row['slug']) for row in org_registry.rows()
+                if row['state'] != 'trashed']
     try:
         names = sorted(os.listdir(store._orgs_dir()))
     except OSError:

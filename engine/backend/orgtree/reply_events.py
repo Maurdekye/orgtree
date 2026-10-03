@@ -288,7 +288,8 @@ def incarnation(org, nid):
             org.d['reply_incarnation'] = org_id
             org.node(nid)['reply_incarnation'] = node_id
         return org_id + ':' + node_id
-    persisted = Path(store.org_path(org.d['slug'])).exists()
+    persisted = (store._org_stored(org.d['slug']) if store._orgdb_on()
+                 else Path(store.org_path(org.d['slug'])).exists())
     if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
         # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
         # hold, keeps the legacy mint: that caller's resident document is the

@@ -57,7 +57,9 @@ def _plan_stamp_heal_completed(slug: str) -> bool:
     this path. An absent/unsupported marker keeps the existing locked heal,
     which checks again under its locks when two startups race.
     """
-    if store.STORE_BACKEND != "postgres":
+    # This statement reads the legacy doc table, outside store's orgdb view.
+    # The locked heal below remains correct on an org's own database.
+    if store.STORE_BACKEND != "postgres" or store._orgdb_on():
         return False
     if not os.path.exists(store._db_path(store._safe_slug(slug))):
         return False  # let the original transaction handle pending imports

@@ -6656,7 +6656,8 @@ def _work_route_tx(slug: str, fn: Callable[[Org], _T],
     old `with DOC_LOCK` block unsaved did. A missing org is a 404 before any
     transaction opens. The operator's routes had no halt gate or receipt
     prologue under DOC_LOCK and have none here (pgdoor.op_tx's rule)."""
-    if not os.path.exists(store.org_path(slug)):
+    if not (store._org_stored(slug) if store._orgdb_on()
+            else os.path.exists(store.org_path(slug))):
         raise HTTPException(404, f"no such org: {slug!r}")
     if sweep:
         worktx.sweep(slug)
@@ -7341,7 +7342,8 @@ async def work_item_attach(slug: str, wid: str, request: Request,
         # is atomic on the filesystem, so two uploads can never take the same
         # name without the lock that used to serialise them. The record is
         # then one `org_tx`; if it is refused the bytes are removed again.
-        if not os.path.exists(store.org_path(slug)):
+        if not (store._org_stored(slug) if store._orgdb_on()
+                else os.path.exists(store.org_path(slug))):
             raise HTTPException(404, f"no such org: {slug!r}")
         try:
             it, _ = orgtx.org_read(slug, sections=["work_items_archive"]

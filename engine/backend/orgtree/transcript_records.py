@@ -632,7 +632,8 @@ def incarnation(org, nid):
         if org is not tx.org and not getattr(org, '_shared_snapshot', False):
             org.node(nid)['transcript_incarnation'] = value
         return value
-    persisted = Path(store.org_path(org.d['slug'])).exists()
+    persisted = (store._org_stored(org.d['slug']) if store._orgdb_on()
+                 else Path(store.org_path(org.d['slug'])).exists())
     if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
         # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
         # hold, keeps the legacy mint: that caller's resident document is the

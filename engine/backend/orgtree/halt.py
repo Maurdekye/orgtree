@@ -241,6 +241,8 @@ def _no_org(slug: str) -> bool:
     transaction raises that load error instead of running the body ungated.
     An invalid slug is no org, as before (`_safe_slug` raised the same)."""
     try:
+        if store._orgdb_on():
+            return not store._org_stored(slug)
         if os.path.exists(store.org_path(slug)):
             return False
     except LedgerError:
