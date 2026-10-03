@@ -1,4 +1,4 @@
-"""Actual native reader plans and work with 1x/10x retained history.
+"""Native reader plans and added latency at 5000 recorded agent-hours.
 
 Run through run-python-verification.py under the P03 heavy lock. This module
 creates disposable databases. Query output alone is not a work bound: capture
@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import test_orgdb_compat_pg as fixture
+import orgdb_history_fixture as history_fixture
 from test_orgdb_hot_paths_static import hot_sql_violations
 from orgtree import (desktop_notifications as notices, foreground_store as foreground,
                      identity_context, policy_candidates, policy_context, policy_reads,
@@ -27,7 +28,6 @@ from orgtree.ledger import Org, USER
 setUpModule = fixture.setUpModule
 tearDownModule = fixture.tearDownModule
 
-BASE_HISTORY = 2048
 BIG_TABLE_ROWS = 256
 NOW = 1791028800.0  # fixed classification clock; old completed rows stay archived
 JSON_LOOKUP = re.compile(r"->|#>>?|json(?:b)?_extract_path|::\s*json(?:b)?\b", re.I)
@@ -240,6 +240,12 @@ def desktop_build(slug):
     return work_ui.read(slug, backlogged=True)
 
 
+def scaled_document(template, slug, census, *, hours=history_fixture.TARGET_HOURS,
+                    stray_names=False):
+    current = seeded_document(template, slug, 0, stray_names=stray_names)
+    return history_fixture.build_document(current, history_fixture.targets(census, hours))
+
+
 def readers():
     selected = {
         'a1_foreground': lambda slug: foreground.read_foreground(slug),
@@ -320,13 +326,15 @@ class HotReaders(unittest.TestCase):
     def setUpClass(cls):
         cls.results = {}
         cls.sizes = {}
+        cls.census = history_fixture.load_census(os.environ.get('ORGTREE_HISTORY_CENSUS'))
         with fixture.storage(False):
             template = store.create_org('hot-template').d
         with fixture.storage(True):
             for stray_names in (False, True):
                 for multiplier in (1, 10):
                     slug = f'hot-robust-{multiplier}' if stray_names else f'hot-history-{multiplier}'
-                    doc = seeded_document(template, slug, BASE_HISTORY * multiplier,
+                    hours = history_fixture.BASELINE_HOURS if multiplier == 1 else history_fixture.TARGET_HOURS
+                    doc = scaled_document(template, slug, cls.census, hours=hours,
                                           stray_names=stray_names)
                     if not stray_names and any('name' in n or 'id' in n for n in doc['nodes'].values()):
                         raise AssertionError('primary fixture must use engine-shaped node bodies')
@@ -338,7 +346,13 @@ class HotReaders(unittest.TestCase):
                         if name.startswith('robust_') != stray_names:
                             continue
                         try:
-                            cls.results[multiplier][name] = measure(slug, reader, sizes)
+                            measured = measure(slug, reader, sizes)
+                            with patch.object(store, 'cached_org', side_effect=AssertionError('full fallback')), \
+                                 patch.object(store, 'load_org', side_effect=AssertionError('full fallback')), \
+                                 patch.object(store, 'load_runtime_org', side_effect=AssertionError('full fallback')):
+                                measured.update(history_fixture.sample(reader, slug))
+                            measured.update(agent_hours=hours, target_counts=history_fixture.targets(cls.census, hours))
+                            cls.results[multiplier][name] = measured
                         except Exception as exc:
                             cls.results[multiplier][name] = dict(error=f'{type(exc).__name__}: {exc}')
         if destination := os.environ.get('ORGTREE_HOT_PATH_REPORT'):
@@ -358,11 +372,13 @@ class HotReaders(unittest.TestCase):
 
     def assert_growth(self, name):
         before, after = self._records(name)
-        self.assertEqual(after['statements'], before['statements'], self._label(name))
-        # The same selected active records and fixed tail limits may pay a tiny
-        # planner/rounding difference, never work proportional to old history.
-        self.assertLessEqual(after['rows'], before['rows'] * 1.05 + 32,
-                             f"{self._label(name)}: examined rows {before['rows']} -> {after['rows']}")
+        self.assertEqual(len(before['samples_ms']), 9)
+        self.assertEqual(len(after['samples_ms']), 9)
+        added = history_fixture.added_latency(before, after)
+        self.assertLessEqual(added, 100,
+            f"{self._label(name)}: added {added:.3f} ms at 5000 agent-hours "
+            f"(median {before['median_ms']:.3f} -> {after['median_ms']:.3f} ms; "
+            f"diagnostic examined rows {before['rows']} -> {after['rows']})")
 
     @staticmethod
     def _label(name):
@@ -438,6 +454,19 @@ class HotReaders(unittest.TestCase):
                     self.assertEqual({r['slug'] for r in body['backlogged']}, {'backlog-work'})
                     current = next(r for r in body['items'] if r['slug'] == 'current-work')
                     self.assertTrue(current['questions'], 'open question link was not seeded')
+
+    def test_scaled_fixture_reaches_real_owner_document_and_closed_credit_windows(self):
+        with fixture.storage(True):
+            for multiplier in (1, 10):
+                slug = f'hot-history-{multiplier}'
+                cards = foreground.read_snapshot(slug, lambda raw, stamp:
+                    foreground.read_card_windows(raw, ['dev'], header=True))
+                self.assertEqual(len(cards['documents']['dev']), 10)
+                self.assertEqual({row['id'] for row in cards['documents']['dev']},
+                                 {f'document-{i}' for i in range(10)})
+                credits = cards['asks']['credit_requests']
+                self.assertTrue(credits, 'closed credits were not selected for the real owner')
+                self.assertTrue(all(row['node'] == 'dev' and row['status'] == 'denied' for row in credits))
 
     def test_control_docket_lost_slug_bound_is_caught(self):
         original = docket._dicts
