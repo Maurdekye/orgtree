@@ -215,17 +215,19 @@ class MaintainedAggregates(unittest.TestCase):
     def test_internal_deferral_does_not_defer_unrelated_unique_constraints(self):
         import psycopg
         with self.connection() as raw:
-            raw.execute('CREATE TEMP TABLE immediate_control(value int UNIQUE DEFERRABLE INITIALLY DEFERRED)')
-            raw.execute('INSERT INTO immediate_control VALUES(1)')
+            # Use the real deferred slug constraint: runtime deliberately has
+            # no CREATE TEMP privilege in an org database.
+            slug=raw.execute('SELECT slug FROM orgtree.work_items WHERE slug IS NOT NULL LIMIT 1').fetchone()[0]
             raw.execute('BEGIN')
             try:
                 raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
                 raw.execute("UPDATE orgtree.agents SET title=title WHERE name='dev'")
                 with self.assertRaises(psycopg.errors.UniqueViolation):
-                    raw.execute('INSERT INTO immediate_control VALUES(1)')
+                    raw.execute("INSERT INTO orgtree.work_items(list_key,ord,slug) "
+                                "SELECT 'active',coalesce(max(ord),0)+1,%s FROM orgtree.work_items",(slug,))
             finally:
                 raw.execute('ROLLBACK')
-            self.assertEqual(raw.execute('SELECT count(*) FROM immediate_control').fetchone()[0],1)
+            self.assertEqual(raw.execute('SELECT count(*) FROM orgtree.work_items WHERE slug=%s',(slug,)).fetchone()[0],1)
 
     def test_random_committed_row_batches_match_recount(self):
         rng = random.Random(6320)
