@@ -13,19 +13,52 @@ $fn$;
 
 -- Retained unknown fields and a legacy inline scope archive remain detail-only.
 -- Project these fallbacks at writes, so hot reads do not parse their authored text.
+-- PostgreSQL's json lookup decodes every string while walking an object. Mask
+-- escapes it cannot represent as text, then restore the exact JSON result.
+CREATE FUNCTION orgtree.docket_safe(v json, OUT value json, OUT marker text)
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $fn$
+DECLARE encoded text := v::text;
+BEGIN
+ marker := '__orgtree_docket_escape__';
+ IF v IS NULL THEN RETURN; END IF;
+ WHILE strpos(encoded,marker)>0 LOOP marker := marker || '_'; END LOOP;
+ encoded := regexp_replace(encoded,
+   $pattern$(?<!\\)((?:\\\\)*)\\(u0000|u[dD][89aAbBcCdDeEfF][0-9a-fA-F]{2})$pattern$,
+   $replacement$\1$replacement$ || marker || $replacement$\2$replacement$,'g');
+ value := encoded::json;
+END
+$fn$;
+CREATE FUNCTION orgtree.docket_field(v json, VARIADIC path text[]) RETURNS json
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $fn$
+DECLARE safe json; marker text;
+BEGIN
+ SELECT s.value,s.marker INTO safe,marker FROM orgtree.docket_safe(v) s;
+ RETURN replace(json_extract_path(safe,VARIADIC path)::text,marker,chr(92))::json;
+END
+$fn$;
 CREATE FUNCTION orgtree.docket_extra(v json, wanted text[]) RETURNS json
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
- SELECT json_object_agg(key,v->key) FROM unnest(wanted) key
-   WHERE json_typeof(v)='object' AND v->key IS NOT NULL
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $fn$
+DECLARE safe json; marker text; result json;
+BEGIN
+ IF json_typeof(v) IS DISTINCT FROM 'object' THEN RETURN NULL; END IF;
+ SELECT s.value,s.marker INTO safe,marker FROM orgtree.docket_safe(v) s;
+ SELECT json_object_agg(key,value) INTO result FROM json_each(safe) WHERE key=ANY(wanted);
+ RETURN replace(result::text,marker,chr(92))::json;
+END
 $fn$;
 CREATE FUNCTION orgtree.docket_scope_meta(v json) RETURNS json
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
- SELECT json_build_object(
-   'archive_count',CASE WHEN json_typeof(v->'scope_archive')='array'
-      THEN json_array_length(v->'scope_archive') ELSE 0 END,
-   'first',json_build_object('seq',(v->'scope_archive'->0)->'seq','at',(v->'scope_archive'->0)->'at'),
-   'last',json_build_object('seq',(v->'scope_archive'->(-1))->'seq','at',(v->'scope_archive'->(-1))->'at'),
-   'inline_count',CASE WHEN json_typeof(v->'scope')='array' THEN json_array_length(v->'scope') END)
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $fn$
+DECLARE safe json; marker text; result json;
+BEGIN
+ SELECT s.value,s.marker INTO safe,marker FROM orgtree.docket_safe(v) s;
+ result := json_build_object(
+   'archive_count',CASE WHEN json_typeof(safe->'scope_archive')='array'
+      THEN json_array_length(safe->'scope_archive') ELSE 0 END,
+   'first',json_build_object('seq',(safe->'scope_archive'->0)->'seq','at',(safe->'scope_archive'->0)->'at'),
+   'last',json_build_object('seq',(safe->'scope_archive'->(-1))->'seq','at',(safe->'scope_archive'->(-1))->'at'),
+   'inline_count',CASE WHEN json_typeof(safe->'scope')='array' THEN json_array_length(safe->'scope') END);
+ RETURN replace(result::text,marker,chr(92))::json;
+END
 $fn$;
 ALTER TABLE orgtree.work_items
  ADD COLUMN docket_policy_extra json GENERATED ALWAYS AS (orgtree.docket_extra(extra,ARRAY[
@@ -57,15 +90,19 @@ $fn$;
 ALTER TABLE orgtree.work_items
  ADD COLUMN docket_manual boolean GENERATED ALWAYS AS (orgtree.docket_truth(manual_attention)) STORED,
  ADD COLUMN docket_order text GENERATED ALWAYS AS (coalesce(
-   CASE WHEN orgtree.docket_truth(extra->'docket_at') THEN extra->>'docket_at' END,
+   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'docket_at'))
+      THEN orgtree.docket_field(extra,'docket_at')#>>'{}' END,
    orgtree.docket_stamp(docket_at,docket_at_text),
-   CASE WHEN orgtree.docket_truth(extra->'updated_at') THEN extra->>'updated_at' END,
+   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'updated_at'))
+      THEN orgtree.docket_field(extra,'updated_at')#>>'{}' END,
    orgtree.docket_stamp(updated_at,updated_at_text),'')) STORED,
  ADD COLUMN docket_deadline double precision GENERATED ALWAYS AS (orgtree.docket_deadline(
-   coalesce(status,extra->>'status'),coalesce(
-   CASE WHEN orgtree.docket_truth(extra->'docket_at') THEN extra->>'docket_at' END,
+   coalesce(status,orgtree.docket_field(extra,'status')#>>'{}'),coalesce(
+   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'docket_at'))
+      THEN orgtree.docket_field(extra,'docket_at')#>>'{}' END,
    orgtree.docket_stamp(docket_at,docket_at_text),
-   CASE WHEN orgtree.docket_truth(extra->'updated_at') THEN extra->>'updated_at' END,
+   CASE WHEN orgtree.docket_truth(orgtree.docket_field(extra,'updated_at'))
+      THEN orgtree.docket_field(extra,'updated_at')#>>'{}' END,
    orgtree.docket_stamp(updated_at,updated_at_text)))) STORED;
 CREATE INDEX docket_hot_order ON orgtree.work_items(docket_order COLLATE "C" DESC,slug COLLATE "C" DESC,id)
  WHERE list_key='active';

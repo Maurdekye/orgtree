@@ -385,6 +385,12 @@ class NativePaths(unittest.TestCase):
         try:
             with writer() as raw:
                 original = raw.execute("SELECT extra FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
+                for text in ('\x00','\\u0000','\x00\x00','\\\x00',
+                             '__orgtree_docket_escape__\x00','\ud800','\U0001f600'):
+                    with self.subTest(text=repr(text)):
+                        projected = raw.execute('SELECT orgtree.docket_extra(%s,ARRAY[\'objective\'])',
+                            (Json(dict(objective=text,unrelated=text)),)).fetchone()[0]
+                        self.assertEqual(projected,dict(objective=text))
                 extra = dict(original or {},scope_archive=archive,private_notes=marker,
                              history=[dict(op='note',text=marker)],evidence=[dict(note=marker)])
                 raw.execute("UPDATE orgtree.work_items SET extra=%s WHERE slug='one'",(Json(extra),))
