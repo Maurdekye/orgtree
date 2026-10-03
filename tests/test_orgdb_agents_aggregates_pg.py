@@ -143,6 +143,50 @@ class MaintainedAggregates(unittest.TestCase):
         with self.connection() as raw:
             self.assertEqual(self.totals(raw), self.recount(raw))
 
+    def test_forced_immediate_checks_before_one_write_preserve_commit_counters(self):
+        with self.connection() as raw:
+            raw.execute("INSERT INTO orgtree.agents(name,ord,title,cost_usd) VALUES('forced-counter',43000,'before',0)")
+            try:
+                before=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
+                raw.execute('BEGIN')
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("UPDATE orgtree.agents SET title='after',cost_usd=1 WHERE name='forced-counter'")
+                raw.execute('COMMIT')
+                after=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
+                self.assertEqual(after,(before[0]+1,before[1]+1,before[2]))
+                self.assertEqual(self.totals(raw),self.recount(raw))
+                setting=raw.execute('SELECT max_children FROM orgtree.org_settings').fetchone()[0]
+                before=after
+                raw.execute('BEGIN')
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute('UPDATE orgtree.org_settings SET max_children=coalesce(max_children,0)+1')
+                raw.execute('COMMIT')
+                after=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
+                self.assertEqual(after,(before[0],before[1],before[2]+1))
+                raw.execute('UPDATE orgtree.org_settings SET max_children=%s',(setting,))
+            finally:
+                if raw.info.transaction_status != 0:
+                    raw.execute('ROLLBACK')
+                raw.execute("DELETE FROM orgtree.agents WHERE name='forced-counter'")
+
+    def test_forced_checks_between_writes_keep_flags_once_and_rows_exact(self):
+        with self.connection() as raw:
+            before=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
+            raw.execute('BEGIN')
+            try:
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("INSERT INTO orgtree.agents(name,ord,title,cost_usd) VALUES('forced-between',43001,'before',0)")
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("UPDATE orgtree.agents SET title='after',cost_usd=1 WHERE name='forced-between'")
+                raw.execute('COMMIT')
+                after=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
+                self.assertEqual(after,(before[0]+2,before[1]+1,before[2]))
+                self.assertEqual(self.totals(raw),self.recount(raw))
+            finally:
+                if raw.info.transaction_status != 0:
+                    raw.execute('ROLLBACK')
+                raw.execute("DELETE FROM orgtree.agents WHERE name='forced-between'")
+
     def test_random_committed_row_batches_match_recount(self):
         rng = random.Random(6320)
         with self.connection() as raw:
