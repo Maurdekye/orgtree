@@ -19,6 +19,8 @@ from ..ledger import ASK_HISTORY_KEEP, LedgerError
 
 _AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),'')=''"
 _CREATED = 'orgtree.foreground_time(a.created,a.created_text)'
+_RARE_AXIS = '(a.extra IS NOT NULL AND (a.parent_id IS NULL OR a.successor_id IS NULL))'
+_RARE_SEARCH = '(a.extra IS NOT NULL AND (a.state IS NULL OR a.successor_id IS NULL))'
 _DOCUMENT_META = codec.Spec('documents',tuple(f for f in DOCUMENTS.fields if f.key in ('id','title','at','format')))
 
 
@@ -47,13 +49,40 @@ def _hot(raw, where, params=()):
     return result
 
 
+def _json_text(value, *, nested=False):
+    """PostgreSQL jsonb's text form for a preserved scalar or container.
+
+    Metadata's old ->> projection uses spaces, UTF-8 key length/order and
+    expanded decimal numbers. Decode rare values in Python, without casting
+    JSON in a query or changing the exact record body.
+    """
+    if isinstance(value,str):
+        return json.dumps(value,ensure_ascii=False) if nested else value
+    if value is None:
+        return 'null'
+    if type(value) is bool:
+        return 'true' if value else 'false'
+    if type(value) is int:
+        return str(value)
+    if type(value) is float:
+        number=Decimal(repr(value))
+        return format(abs(number) if not number else number,'f')
+    if isinstance(value,list):
+        return '['+', '.join(_json_text(v,nested=True) for v in value)+']'
+    if isinstance(value,dict):
+        keys=sorted(value,key=lambda k:(len(k.encode('utf-8')),k.encode('utf-8')))
+        return '{'+', '.join(_json_text(k,nested=True)+': '+_json_text(value[k],nested=True)
+                            for k in keys)+'}'
+    raise TypeError('metadata is not a JSON value')
+
+
 def meta(body):
     """The legacy foreground_meta semantics, after exact scalar decoding."""
     def text(key, default=''):
         value = body.get(key)
         if value is None:
             return default
-        return value if isinstance(value, str) else json.dumps(value, separators=(',', ':'))
+        return _json_text(value)
     def number(key):
         value = body.get(key)
         return value if type(value) in (int, float) else 0
@@ -78,6 +107,8 @@ def stamp(raw, org_id, seq):
         raise LedgerError('foreground revision is incomplete')
     cost = totals[2]
     unknown = totals[3]
+    retired = totals[1] - sum(bool(value['successor']) for ordinal,value in _hot(raw,
+        "a.state='archived' AND a.extra IS NOT NULL AND a.successor_id IS NULL").values())
     # Misfits remain exactly in extra; typed numeric values never parse JSON.
     # Read only candidate hot rows, then use the same meta/sum rule as legacy.
     for row_ in _dicts(raw, 'SELECT id,cost_usd,cost_usd_unknown,extra FROM orgtree.agents '
@@ -95,7 +126,7 @@ def stamp(raw, org_id, seq):
             unknown += 1
     return dict(org_id=org_id, org_revision=row[0], node_revision=row[1],
         catalog_revision=row[2], view_revision=row[3], org_uuid=row[4], incarnation=row[5],
-        node_count=totals[0], retired_axis_count=totals[1], cost=str(cost), cost_unknown=unknown, seq=seq)
+        node_count=totals[0], retired_axis_count=retired, cost=str(cost), cost_unknown=unknown, seq=seq)
 
 
 @contextmanager
@@ -160,10 +191,40 @@ def rows(raw, ids):
 
 
 def retired_counts(raw, parents):
-    return dict(raw.execute("SELECT coalesce(p.name,''),count(*) FROM orgtree.agents a "
+    result = dict(raw.execute("SELECT coalesce(p.name,''),count(*) FROM orgtree.agents a "
         'LEFT JOIN orgtree.agents p ON p.id=a.parent_id WHERE NOT a.tombstone '
         "AND a.state='archived' AND " + _AXIS + " AND coalesce(p.name,'')=ANY(%s) "
         'GROUP BY p.name', (parents,)).fetchall())
+    candidates = raw.execute("SELECT a.name,coalesce(p.name,''),coalesce(s.name,'') "
+        'FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id=a.parent_id '
+        'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone '
+        "AND a.state='archived' AND "+_RARE_AXIS).fetchall()
+    metadata=_hot(raw,'a.name=ANY(%s)',([r[0] for r in candidates],))
+    for name,parent,successor in candidates:
+        value=metadata[name][1]
+        if not successor and parent in parents:
+            result[parent]=result.get(parent,0)-1
+        if not value['successor'] and value['parent'] in parents:
+            result[value['parent']]=result.get(value['parent'],0)+1
+    return result
+
+
+def live_count(raw):
+    total=raw.execute("SELECT count(*) FROM orgtree.agents WHERE NOT tombstone "
+                      "AND coalesce(state,'live')='live'").fetchone()[0]
+    return total-sum(value['state']!='live' for ordinal,value in _hot(raw,
+        'a.state IS NULL AND a.extra IS NOT NULL').values())
+
+
+def summary_compatible(raw):
+    # Match the existing legacy summary cost refusal: truthy non-numeric
+    # costs need Org.cost_total's conversion, rather than the numeric stamp.
+    for extra, in raw.execute('SELECT extra FROM orgtree.agents WHERE NOT tombstone '
+                             'AND cost_usd IS NULL AND extra IS NOT NULL').fetchall():
+        value=(extra or {}).get('cost_usd')
+        if value and type(value) not in (int,float):
+            return False
+    return True
 
 
 def foreground_ids(raw):
@@ -191,12 +252,15 @@ def child_page(raw, parent, limit, after=None, last=False):
         params.extend(after)
     typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,' + _CREATED + ',a.ord '
         'FROM orgtree.agents a WHERE ' + base + parent_sql +
-        ' AND a.ui_order IS NOT NULL AND a.created IS NOT NULL' + suffix +
+        ' AND a.ui_order IS NOT NULL AND a.created IS NOT NULL AND NOT '+_RARE_AXIS + suffix +
         ' ORDER BY coalesce(a.ui_order,0)' + direction + ',' + _CREATED + direction +
         ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*params, limit)).fetchall()
     candidates = {row[0]: row for row in typed}
-    for name, (ordinal, value) in _hot(raw, base + parent_sql + ' AND (a.ui_order IS NULL OR a.created IS NULL)',
+    rare="a.state='archived' AND ("+_RARE_AXIS+' OR ((a.ui_order IS NULL OR a.created IS NULL) AND '+_AXIS+parent_sql+'))'
+    for name, (ordinal, value) in _hot(raw, rare,
                                       [] if not parent else [parent]).items():
+        if value['successor'] or value['parent']!=parent:
+            continue
         candidate = (name, str(value['order']), value['created'], ordinal)
         key = (Decimal(candidate[1]), candidate[2], ordinal, name)
         if after is None or key > (Decimal(after[0]), *after[1:]):
@@ -245,20 +309,30 @@ def references(raw, wanted):
 
 
 def search_page(raw, query, state, after, limit):
-    return raw.execute('SELECT name FROM orgtree.agents a WHERE NOT tombstone '
-        'AND orgtree.agent_name_grams(name) @> orgtree.agent_name_grams(%s) '
-        'AND strpos(lower(name),%s)>0 '
+    match='orgtree.agent_name_grams(a.name) @> orgtree.agent_name_grams(%s) '+\
+        'AND strpos(lower(a.name),%s)>0 '
+    match+='AND (%s::text IS NULL OR a.name COLLATE "C">%s COLLATE "C") '
+    found=raw.execute('SELECT a.name FROM orgtree.agents a WHERE NOT tombstone AND '+match+
+        'AND NOT '+_RARE_SEARCH+' '+
         "AND NOT(coalesce(state,'live')='archived' AND NOT(" + _AXIS + ")) "
         "AND (%s::text IS NULL OR coalesce(state,'live')=%s) "
-        'AND (%s::text IS NULL OR name COLLATE "C">%s COLLATE "C") '
-        'ORDER BY name COLLATE "C" LIMIT %s',(query,query,state,state,after,after,limit)).fetchall()
+        'ORDER BY name COLLATE "C" LIMIT %s',(query,query,after,after,state,state,limit)).fetchall()
+    names={row[0] for row in found}
+    for name,(ordinal,value) in _hot(raw,match+'AND '+_RARE_SEARCH,(query,query,after,after)).items():
+        if (state is None or value['state']==state) and not(value['state']=='archived' and value['successor']):
+            names.add(name)
+    return [(name,) for name in sorted(names)[:limit]]
 
 
 def discovery(raw, state, after, limit):
-    ids = [row[0] for row in raw.execute("SELECT name FROM orgtree.agents WHERE NOT tombstone "
+    ids = [row[0] for row in raw.execute("SELECT name FROM orgtree.agents a WHERE NOT tombstone "
         "AND coalesce(state,'live')=%s AND (%s::text IS NULL OR name COLLATE \"C\">%s COLLATE \"C\") "
+        'AND NOT(a.state IS NULL AND a.extra IS NOT NULL) '
         'ORDER BY name COLLATE "C" LIMIT %s', (state,after,after,limit)).fetchall()]
     metadata = _hot(raw,'a.name=ANY(%s)',(ids,))
+    metadata.update({name:row for name,row in _hot(raw,
+        'a.state IS NULL AND a.extra IS NOT NULL AND (%s::text IS NULL OR a.name COLLATE "C">%s COLLATE "C")',
+        (after,after)).items() if row[1]['state']==state})
     return sorted(((name,value) for name, (ordinal,value) in metadata.items()), key=lambda pair: pair[0])[:limit]
 
 
@@ -309,7 +383,7 @@ def card_windows(raw, ids, header=False):
         body=codec.decode(_DOCUMENT_META,row,codec.Children({},{}),(row['id'],))
         fmt=body.get('format')
         if fmt is not None and not isinstance(fmt,str):
-            fmt=json.dumps(fmt,separators=(',', ':'))
+            fmt=_json_text(fmt)
         documents[row['owner']].append(dict(id=body.get('id'),title=body.get('title'),
             at=body.get('at'),format=fmt or 'markdown'))
     return dict(asks=asks,documents=documents,document_counts={nid: counts.get(nid,0) for nid in ids})

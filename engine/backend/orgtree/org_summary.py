@@ -48,8 +48,8 @@ def _live_count(raw):
     `state == 'live'` over the node documents."""
     from .orgdb import enabled
     if enabled():
-        return int(raw.execute("SELECT count(*) FROM orgtree.agents "
-                               "WHERE state='live' AND NOT tombstone").fetchone()[0])
+        from .orgdb import agents
+        return agents.live_count(raw)
     return int(raw.execute(
         "SELECT count(*) FROM node_index i WHERE i.meta->>'state'='live'").fetchone()[0])
 
@@ -58,7 +58,9 @@ def _read(slug):
     def snapshot(raw, stamp):
         from .orgdb import enabled
         if enabled():
-            from .orgdb import reader_rows
+            from .orgdb import agents, reader_rows
+            if not agents.summary_compatible(raw):
+                raise CompatibilityRequired('legacy cost conversion is required')
             settings = reader_rows.read_sections(raw, [key for key in _ADMIN_KEYS if key != 'nodes'])
             if settings.get('slug') != slug:
                 raise CompatibilityRequired('organization identity changed')
