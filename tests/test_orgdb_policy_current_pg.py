@@ -185,7 +185,7 @@ class CurrentPolicy(unittest.TestCase):
         with fixture.storage(False):
             template = fixture.document(self.twins.legacy)
         measurements = []
-        for history in (2048, 20480):
+        for history in (427, 2048, 20480):
             doc = copy.deepcopy(template)
             doc['slug'] = f'{self.twins.copy}-h{history}'
             for key in ('asks', 'scope_requests', 'audience_requests'):
