@@ -11,6 +11,32 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
    WHEN 'boolean' THEN v::text='true' ELSE false END
 $fn$;
 
+-- Retained unknown fields and a legacy inline scope archive remain detail-only.
+-- Project these fallbacks at writes, so hot reads do not parse their authored text.
+CREATE FUNCTION orgtree.docket_extra(v json, wanted text[]) RETURNS json
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
+ SELECT json_object_agg(key,value) FROM json_each(v) WHERE key=ANY(wanted)
+$fn$;
+CREATE FUNCTION orgtree.docket_scope_meta(v json) RETURNS json
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
+ SELECT json_build_object(
+   'archive_count',CASE WHEN json_typeof(v->'scope_archive')='array'
+      THEN json_array_length(v->'scope_archive') ELSE 0 END,
+   'first',json_build_object('seq',(v->'scope_archive'->0)->'seq','at',(v->'scope_archive'->0)->'at'),
+   'last',json_build_object('seq',(v->'scope_archive'->(-1))->'seq','at',(v->'scope_archive'->(-1))->'at'),
+   'inline_count',CASE WHEN json_typeof(v->'scope')='array' THEN json_array_length(v->'scope') END)
+$fn$;
+ALTER TABLE orgtree.work_items
+ ADD COLUMN docket_policy_extra json GENERATED ALWAYS AS (orgtree.docket_extra(extra,ARRAY[
+   'slug','rev','kind','title','status','owner','reviewer','created_by','participants','at',
+   'updated_at','docket_at','archived_at','manual_attention','manual_attention_rev','parent','superseded_by'])) STORED,
+ ADD COLUMN docket_list_extra json GENERATED ALWAYS AS (orgtree.docket_extra(extra,ARRAY[
+   'slug','rev','kind','title','objective','status','blocked_reason','waiting_reason','dropped_reason',
+   'owner','reviewer','created_by','last_updater','participants','at','updated_at','docket_at','status_at',
+   'archived_at','done_so_far','working_on_next','manual_attention','dependencies','superseded_by','parent',
+   'post_completion','scope_seq','scope_guard','scope_logged','scope_rolled','scope_frozen','legacy_status'])) STORED,
+ ADD COLUMN docket_scope_meta json GENERATED ALWAYS AS (orgtree.docket_scope_meta(extra)) STORED;
+
 CREATE FUNCTION orgtree.docket_stamp(v timestamptz, original text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
  SELECT coalesce(original,to_char(v AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))

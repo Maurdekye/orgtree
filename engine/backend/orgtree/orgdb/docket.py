@@ -27,7 +27,12 @@ _LIST = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields if f.key in F
 
 def _columns(spec):
     fields = [c for c,_ in codec.layout(spec,WORK_ITEMS.keys,WORK_ITEMS.link)['work_items']['columns']]
-    return ','.join('i.'+codec.quote(c) for c in ('id','list_key','ord','docket_order','extra',*fields))
+    extra = 'docket_policy_extra' if spec is _POLICY else 'docket_list_extra'
+    columns = ['i.'+codec.quote(c) for c in ('id','list_key','ord','docket_order',*fields)]
+    columns.append('i.'+extra+' AS extra')
+    if spec is _LIST:
+        columns.append('i.docket_scope_meta')
+    return ','.join(columns)
 
 
 _POLICY_COLUMNS = _columns(_POLICY)
@@ -181,23 +186,22 @@ class Snapshot:
         ctx, targets, endpoints = Context(self), {'log':[],'inline':[]}, {}
         for row,b in zip(rows,bodies):
             n = int(row.source_key)
-            legacy = b.get('scope_archive') or []
-            inline = b.get('scope')
-            inline_n = len(inline) if isinstance(inline,list) else int(counts.get(n,0))
+            meta = main[n]['docket_scope_meta']
+            legacy_n = int(meta['archive_count'])
+            inline_n = int(meta['inline_count'] if meta['inline_count'] is not None else counts.get(n,0))
             logged = int(b.get('scope_logged') or 0)
-            rolled = int(b.get('scope_rolled') or 0)+len(legacy)
-            size = min(rolled,len(legacy)+logged+inline_n)
+            rolled = int(b.get('scope_rolled') or 0)+legacy_n
+            size = min(rolled,legacy_n+logged+inline_n)
             endpoints[b['slug']] = dict(count=size,first_seq=None,last_seq=None,first_at=None,last_at=None)
             for which,pos in (('first',0),('last',size-1)) if size else ():
-                if pos<len(legacy):
-                    self._endpoint(endpoints[b['slug']],which,legacy[pos])
-                elif pos<len(legacy)+logged:
-                    targets['log'].append((b['slug'],which,pos-len(legacy),n))
-                elif isinstance(inline,list):
-                    self._endpoint(endpoints[b['slug']],which,inline[pos-len(legacy)-logged])
+                if pos<legacy_n:
+                    self._endpoint(endpoints[b['slug']],which,meta[which])
+                elif pos<legacy_n+logged:
+                    targets['log'].append((b['slug'],which,pos-legacy_n,n))
                 else:
-                    targets['inline'].append((b['slug'],which,pos-len(legacy)-logged,n))
-            b['objective_notice'] = ctx._work_objective_notice({**b,'scope':range(inline_n)})
+                    targets['inline'].append((b['slug'],which,pos-legacy_n-logged,n))
+            b['objective_notice'] = ctx._work_objective_notice({**b,'scope':range(inline_n),
+                                                              'scope_archive':range(legacy_n)})
             b['status_at'] = b.get('status_at') or str(b.get('at') or '')
         for kind,wanted in targets.items():
             if not wanted:

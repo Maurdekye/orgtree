@@ -8,6 +8,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 import copy
 from contextlib import contextmanager
 from datetime import datetime
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -375,6 +376,34 @@ class NativePaths(unittest.TestCase):
         self.assertEqual(light['status_at'],full['status_at'])
         self.assertNotIn('history',light)
         self.assertNotIn('scope',light)
+
+    def test_hot_rows_exclude_retained_legacy_text_while_detail_preserves_it(self):
+        from psycopg.types.json import Json
+        marker = 'detail-only-legacy-' + 'z'*200
+        archive = [dict(seq=-n,at=AT,kind='decision',text=marker) for n in range(1000,0,-1)]
+        try:
+            with writer() as raw:
+                original = raw.execute("SELECT extra FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
+                extra = dict(original or {},scope_archive=archive,private_notes=marker,
+                             history=[dict(op='note',text=marker)],evidence=[dict(note=marker)])
+                raw.execute("UPDATE orgtree.work_items SET extra=%s WHERE slug='one'",(Json(extra),))
+            with snapshot() as q:
+                row = q.lookup('one')
+                self.assertNotIn(marker,json.dumps(row.summary))
+                body = q.detail('one')[0]
+                self.assertEqual(body['scope_archive'],archive)
+                self.assertEqual(body['private_notes'],marker)
+                inputs = q.list_inputs([row])[0]
+                self.assertNotIn(marker,json.dumps(inputs))
+                self.assertNotIn('scope_archive',inputs)
+                light = worklist.Context(q).light(row,SLUG)
+                full = workdetail.get(SLUG,USER,'one',now_ts=NOW)
+                self.assertEqual(light['scope_archive_summary'],full['scope_archive_summary'])
+                self.assertEqual(light['objective_notice'],full['objective_notice'])
+                self.assertEqual(light['scope_archive_summary']['count'],1001)
+        finally:
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.work_items SET extra=%s WHERE slug='one'",(Json(original),))
 
     def test_status_metadata_query_stays_bounded_as_history_grows(self):
         from orgtree.orgdb import docket
