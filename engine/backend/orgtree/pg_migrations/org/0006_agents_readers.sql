@@ -11,6 +11,20 @@ ALTER TABLE orgtree.org_revision
 
 -- Presence metadata, not a second value projection. Unknown unrelated keys
 -- must not turn every archived row into a rare correction candidate.
+CREATE FUNCTION orgtree.foreground_has_extra(value json, field text) RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $fn$
+BEGIN
+  RETURN (value -> field) IS NOT NULL;
+EXCEPTION WHEN untranslatable_character OR invalid_text_representation THEN
+  -- json accepts NUL/unpaired surrogate escapes which text extraction rejects,
+  -- even in an unrelated value. Replace these only in a temporary expression
+  -- used for ASCII metadata key presence. The stored JSON stays byte-exact.
+  RETURN (regexp_replace(value::text,
+    $re$\\u(0000|[dD][89a-fA-F][0-9a-fA-F]{2})$re$,
+    $replacement$\\ufffd$replacement$,'g')::json -> field) IS NOT NULL;
+END
+$fn$;
+
 DO $flags$
 DECLARE field text;
 BEGIN
@@ -18,7 +32,7 @@ BEGIN
     'created','generation','bearer_state','cost_usd','cost_usd_unknown']
   LOOP
     EXECUTE format('ALTER TABLE orgtree.agents ADD COLUMN %I boolean '
-      'GENERATED ALWAYS AS ((extra -> %L) IS NOT NULL) STORED',field||'_misfit',field);
+      'GENERATED ALWAYS AS (orgtree.foreground_has_extra(extra,%L)) STORED',field||'_misfit',field);
     EXECUTE format('CREATE INDEX %I ON orgtree.agents(id) WHERE NOT tombstone AND %I',
       'agents_'||field||'_misfit',field||'_misfit');
   END LOOP;
@@ -49,7 +63,7 @@ BEGIN
   FOREACH relation IN ARRAY ARRAY['asks','credit_requests','scope_requests'] LOOP
     FOREACH field IN ARRAY ARRAY['node','status','at','resolved_at'] LOOP
       EXECUTE format('ALTER TABLE orgtree.%I ADD COLUMN %I boolean '
-        'GENERATED ALWAYS AS ((extra -> %L) IS NOT NULL) STORED',relation,field||'_misfit',field);
+        'GENERATED ALWAYS AS (orgtree.foreground_has_extra(extra,%L)) STORED',relation,field||'_misfit',field);
     END LOOP;
     EXECUTE format('CREATE INDEX %I ON orgtree.%I(id) WHERE '
       'node_misfit OR status_misfit OR at_misfit OR resolved_at_misfit',relation||'_foreground_misfit',relation);
@@ -205,18 +219,28 @@ $fn$;
 -- projection, cost/session data, parent closure or lineage cache is maintained.
 -- extra carries codec-preserved ill-typed legacy fields; it is never searched.
 CREATE FUNCTION orgtree.foreground_catalog(a orgtree.agents) RETURNS jsonb
-LANGUAGE sql STABLE AS $fn$
- SELECT jsonb_build_array(a.name,a.ord,a.tombstone,a.lineage_born,a.extra::jsonb->'seat_id',
-   a.parent_id,coalesce(a.parent,a.extra::jsonb->>'parent',''),
-   coalesce(a.state,a.extra::jsonb->>'state','live'),
-   coalesce(a.title,a.extra::jsonb->>'title',''),
-   coalesce(a.model,a.extra::jsonb->>'model',''),coalesce(a.ui_order,0),
-   coalesce(a.created_text,to_char(a.created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),a.extra::jsonb->>'created',''),
-   a.predecessor_id,coalesce(a.predecessor,a.extra::jsonb->>'predecessor',''),
-   a.successor_id,coalesce(a.successor,a.extra::jsonb->>'successor',''),
-   coalesce(to_jsonb(a.generation),CASE WHEN jsonb_typeof(a.extra::jsonb->'generation')='number'
-      THEN a.extra::jsonb->'generation' END,'0'::jsonb),
-   coalesce(to_jsonb(a.bearer_state),a.extra::jsonb->'bearer_state','null'::jsonb))
+LANGUAGE plpgsql STABLE AS $fn$
+DECLARE metadata jsonb; raw_extra text;
+BEGIN
+  BEGIN
+    metadata:=a.extra::jsonb;
+  EXCEPTION WHEN untranslatable_character OR invalid_text_representation THEN
+    -- Any change to an undecodable extra conservatively invalidates catalog;
+    -- typed metadata still participates, while excluded typed costs do not.
+    raw_extra:=a.extra::text;
+  END;
+  RETURN jsonb_build_array(a.name,a.ord,a.tombstone,a.lineage_born,metadata->'seat_id',
+   a.parent_id,coalesce(a.parent,metadata->>'parent',''),
+   coalesce(a.state,metadata->>'state','live'),
+   coalesce(a.title,metadata->>'title',''),
+   coalesce(a.model,metadata->>'model',''),coalesce(a.ui_order,0),
+   coalesce(a.created_text,to_char(a.created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),metadata->>'created',''),
+   a.predecessor_id,coalesce(a.predecessor,metadata->>'predecessor',''),
+   a.successor_id,coalesce(a.successor,metadata->>'successor',''),
+   coalesce(to_jsonb(a.generation),CASE WHEN jsonb_typeof(metadata->'generation')='number'
+      THEN metadata->'generation' END,'0'::jsonb),
+   coalesce(to_jsonb(a.bearer_state),metadata->'bearer_state','null'::jsonb),raw_extra);
+END
 $fn$;
 
 CREATE FUNCTION orgtree.foreground_catalog_accumulate() RETURNS trigger
