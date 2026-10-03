@@ -51,6 +51,7 @@ export class RecordFeed<T> {
   private generation = 0
   private disposed = false
   private recovery: Promise<void> | null = null
+  private reconnectPending = false
   constructor(private io: FeedIO<T>) {}
 
   private commit(records: RecordTable, cursor: FeedCursor) {
@@ -84,7 +85,7 @@ export class RecordFeed<T> {
       const c = this.cursor
       if (!sameIdentity(c, answer)) { void this.resync(); return }
       if (answer.to <= c.rev) return
-      if (answer.from > c.rev) { void this.reconnect(); return }
+      if (answer.from > c.rev) { void this.reconnect(false); return }
       this.commit(changedTable(this.records, answer.upserts, answer.tombstones),
         { org_uuid: c.org_uuid, incarnation: c.incarnation, rev: answer.to })
     } catch (e) {
@@ -109,6 +110,10 @@ export class RecordFeed<T> {
         // Frames from the replaced database are never replayed into its successor.
         if (this.cursor && sameIdentity(this.cursor, frame)) this.receive(frame)
       }
+      if (this.reconnectPending) {
+        this.reconnectPending = false
+        void this.reconnect()
+      }
     }).catch(e => {
       if (this.disposed || run !== this.generation) return
       this.buffering = false
@@ -117,11 +122,16 @@ export class RecordFeed<T> {
   }
 
   /** Always catch up on a new connection: no later commit is needed to reveal loss. */
-  reconnect(): Promise<void> {
+  reconnect(force = true): Promise<void> {
     if (this.disposed) return Promise.resolve()
-    if (this.buffering) return Promise.resolve()
+    if (this.buffering) {
+      if (force) this.reconnectPending = true
+      return Promise.resolve()
+    }
     if (!this.cursor) return this.resync()
-    if (this.recovery) return this.recovery
+    // Gap bursts coalesce. A new socket must ask again even if an older HTTP
+    // snapshot is in flight: that snapshot may predate writes made while offline.
+    if (this.recovery && !force) return this.recovery
     const run = this.generation
     const cursor = { ...this.cursor }
     const pending = this.io.catchup(cursor).then(answer => {

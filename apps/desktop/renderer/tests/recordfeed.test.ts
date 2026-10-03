@@ -163,6 +163,31 @@ test('partial sets keep missing parents unknown; cycles and duplicate names are 
     [{ slug: 'unavailable', state: 'unavailable' }])
 })
 
+test('reconnect during a baseline catches up after it, with no later commit or frame', async () => {
+  const r = rig()
+  const load = r.feed.resync()
+  void r.feed.reconnect()
+  assert.equal(r.catchups.length, 0, 'baseline is still in flight')
+  r.loads[0].resolve(snapshot(103, '103'))
+  await load
+  assert.deepEqual(r.catchups[0].cursor, cursor(103), 'reconnect must not be swallowed by baseline buffering')
+  r.catchups[0].answer.resolve(frame(103, 104, '104'))
+  await settle()
+  fullLoad(r.feed, snapshot(104, '104'))
+})
+
+test('reconnect starts a new catch-up even when an older HTTP snapshot is still in flight', async () => {
+  const r = rig()
+  r.feed.receive(frame(102, 103, '103'))
+  const reconnected = r.feed.reconnect()
+  assert.equal(r.catchups.length, 2)
+  r.catchups[1].answer.resolve(frame(100, 105, '105'))
+  await reconnected
+  r.catchups[0].answer.resolve(frame(100, 103, '103'))
+  await settle()
+  fullLoad(r.feed, snapshot(105, '105'))
+})
+
 test('tree selector preserves the engine-provided archived defaults and row overrides', () => {
   const records = table([{ entity: 'org', id: 'org', body: { slug: 'org',
     archived_defaults: { busy: false, documents: [], mail_pending: 0 } } },
