@@ -57,10 +57,20 @@ def _plan_stamp_heal_completed(slug: str) -> bool:
     this path. An absent/unsupported marker keeps the existing locked heal,
     which checks again under its locks when two startups race.
     """
-    # This statement reads the legacy doc table, outside store's orgdb view.
-    # The locked heal below remains correct on an org's own database.
-    if store.STORE_BACKEND != "postgres" or store._orgdb_on():
+    if store.STORE_BACKEND != "postgres":
         return False
+    if store._orgdb_on():
+        from .orgdb import reader_rows, registry
+        try:
+            with registry.connection(store._safe_slug(slug)) as raw:
+                with raw.transaction():
+                    raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+                    value = reader_rows.read_sections(raw, ('_migrations',)).get('_migrations')
+            marker = value.get('pm_plan_stamp_heal') if isinstance(value, dict) else None
+            return bool(isinstance(marker, dict) and isinstance(marker.get('at'), str)
+                        and isinstance(marker.get('healed'), list))
+        except (LedgerError, sqlite3.Error, OSError, ValueError):
+            return False
     if not os.path.exists(store._db_path(store._safe_slug(slug))):
         return False  # let the original transaction handle pending imports
 

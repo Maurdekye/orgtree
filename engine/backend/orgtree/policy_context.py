@@ -106,6 +106,23 @@ def _build(conn, graph, *, docket):
     from . import workquery
 
     settings = policy_candidates.settings(conn)
+    if getattr(conn, 'orgdb', False):
+        from .orgdb import reader_rows
+        settings.update(reader_rows.read_sections(conn.raw, ('audiences',)))
+        settings.update(reader_rows.read_sections(conn.raw, ('mail', 'delivering'),
+                                                  owners=graph.nodes))
+        rows = []
+        if docket:
+            try:
+                from .orgdb.docket import Snapshot
+            except ModuleNotFoundError as error:
+                if error.name != __package__ + '.orgdb.docket':
+                    raise
+                raise CompatibilityRequired('native docket reader has not landed') from error
+            query = Snapshot(conn.raw, conn.org_id, viewer=USER, now_ts=time.time())
+            rows = [row for row in query.foreground(include_backlogged=True)
+                    if not row.physical_archive]
+        return PolicyContext(settings, graph, rows)
     if 'audiences' not in settings:
         settings['audiences'] = [json.loads(row[0]) for row in conn.execute(
             "SELECT val FROM log_l WHERE sect='audiences' ORDER BY seq").fetchall()]

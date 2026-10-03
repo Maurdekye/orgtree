@@ -179,7 +179,7 @@ class RegistryReaders(unittest.TestCase):
         store.save_org(org)
         with patch.object(desktop_notifications, '_CACHE_ON', True), \
                 patch.object(desktop_notifications, '_RUNTIME_VIEWS', True), \
-                patch.object(desktop_notifications, '_raw', side_effect=AssertionError('legacy SQL')):
+                patch.object(fixture.pgstore.PgConn, 'execute', side_effect=AssertionError('legacy SQL')):
             rows = [r for r in desktop_notifications.notices()['notices']
                     if r['org'] == 'reader-notifications']
         self.assertEqual([(r['kind'], r['agent']) for r in rows], [('agent-frozen', 'dev')])

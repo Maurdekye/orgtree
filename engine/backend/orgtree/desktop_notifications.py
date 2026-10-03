@@ -147,6 +147,16 @@ def _raw(slug, fn):
     """fn(raw, schema) on an autocommit pool connection (each statement its own
     snapshot); None when the org is gone. Reads only: no transaction opened."""
     slug = store._safe_slug(slug)
+    if store._orgdb_on():
+        from .orgdb import registry
+        identity = registry.lookup(slug)
+        if identity is None or identity[2] != 'active':
+            return None
+        raw = registry.checkout(slug, identity[1], identity[3])
+        try:
+            return fn(raw, 'orgtree', int(identity[0]))
+        finally:
+            registry.release(raw, identity[1])
     store._ensure_migrated(slug)
     if not os.path.exists(store._db_path(slug)):
         return None
@@ -162,6 +172,11 @@ def _probe(slug):
     heal epoch stamp is this code's: a node row decoded now needs no heal, so
     plain JSON of a row is what an on-demand load would decode."""
     def read(raw, s, org_id):
+        if store._orgdb_on():
+            row = raw.execute('SELECT r.rev, m.val FROM orgtree.org_revision r '
+                              'LEFT JOIN orgtree.compat_meta m ON m.key=%s',
+                              (store._META_HEAL_EPOCH,)).fetchone()
+            return None if row is None else (int(row[0]), row[1] == store.heal_epoch())
         row = raw.execute(f"SELECT o.revision, (SELECT val FROM {s}.meta WHERE key=%s) "
                           f"FROM public.orgs o WHERE o.org_id=%s",
                           (store._META_HEAL_EPOCH, org_id)).fetchone()
@@ -172,6 +187,19 @@ def _probe(slug):
 def _frozen_direct(slug, created):
     """The frozen part in ONE statement, without loading the org: the few
     candidate rows are decoded as an on-demand load would (heal-clean only)."""
+    if store._orgdb_on():
+        from .orgdb import reader_rows
+
+        def read(raw, _schema, _id):
+            with raw.transaction():
+                raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+                names = [name for (name,) in raw.execute(
+                    "SELECT name FROM orgtree.agents WHERE NOT tombstone AND is_frozen "
+                    "AND coalesce(state,'live')='live' ORDER BY ord,id").fetchall()]
+                return reader_rows.read_agents(raw, names)
+
+        nodes = _raw(slug, read)
+        return None if nodes is None else _frozen_rows(slug, created, nodes.items())
     rows = _raw(slug, lambda raw, s, _id: raw.execute(
         _FROZEN_CANDIDATES.format(s=s), ('"frozen"',)).fetchall())
     if rows is None:
@@ -234,10 +262,7 @@ def _cached_org_rows(slug):
 
 
 def _all_rows():
-    # The raw/cache path below reads the legacy shared schemas. Until its
-    # statements are ported, orgdb uses the existing runtime-org load path.
-    if not (_CACHE_ON and _RUNTIME_VIEWS and store.STORE_BACKEND == "postgres"
-            and not store._orgdb_on()):
+    if not (_CACHE_ON and _RUNTIME_VIEWS and store.STORE_BACKEND == "postgres"):
         rows = []
         for org in _orgs():
             rows += _attention(org)[0] + _frozen(org)

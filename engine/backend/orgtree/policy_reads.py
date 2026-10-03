@@ -30,6 +30,20 @@ def _read(slug, watchdogs):
         keys += ('watchdogs', 'workspace')
 
     def body(conn):
+        if getattr(conn, 'orgdb', False):
+            from .orgdb import reader_rows
+            conn.raw.execute('SET TRANSACTION READ ONLY')
+            doc = reader_rows.read_sections(conn.raw, ('watchdogs', 'workspace') if watchdogs else ())
+            owners = {dog.get('owner') for dog in doc.get('watchdogs') or []}
+            doc.update(slug=slug, nodes=reader_rows.read_agents(conn.raw, owners))
+            for node in doc['nodes'].values():
+                scope = node.get('scope')
+                if not isinstance(node.get('state'), str) or not isinstance(scope, dict):
+                    return None
+                scope['add_dirs'] = norm_dirs(scope.get('add_dirs'))
+                scope['tools'] = norm_tools(scope.get('tools',
+                    {'bash': scope.get('bash', True), 'mcp': []}))
+            return _View(doc)
         sql = ('WITH settings AS MATERIALIZED (SELECT key,val FROM doc WHERE key IN ('
                + ','.join('?' for _ in keys) + ')) '
                'SELECT 0 AS kind,key,val FROM settings')

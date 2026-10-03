@@ -57,6 +57,17 @@ def _arm_sweep() -> None:
 def _committed(slug: str) -> tuple[int, int] | None:
     if store.STORE_BACKEND != 'postgres':
         return None
+    if store._orgdb_on():
+        from .orgdb import registry
+        identity = registry.lookup(store._safe_slug(slug))
+        if identity is None or identity[2] != 'active':
+            from .ledger import LedgerError
+            raise LedgerError(f'no such org: {slug!r}')
+        raw = registry.checkout(slug, identity[1], identity[3])
+        try:
+            return int(identity[0]), int(raw.execute('SELECT rev FROM orgtree.org_revision').fetchone()[0])
+        finally:
+            registry.release(raw, identity[1])
     return store._bounded_read(slug, lambda conn: (int(conn.org_id), pgstore.revision(conn)))
 
 

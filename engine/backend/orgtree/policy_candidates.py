@@ -55,6 +55,13 @@ SETTINGS_PREDICATE = """strpos(key,chr(31))=0 AND key NOT IN (
 
 def settings(conn):
     """All stored scalar policy settings, including custom identity inputs."""
+    if getattr(conn, 'orgdb', False):
+        from .orgdb import reader_rows
+        keys = [key for (key,) in conn.raw.execute(
+            'SELECT key FROM orgtree.org_sections ORDER BY ord').fetchall()
+            if store.SPLIT_SEP not in key and key not in _EXCLUDED_SETTINGS
+            and key not in store.LAZY_SECTIONS]
+        return reader_rows.read_sections(conn.raw, keys)
     base = 'SELECT key,val FROM doc WHERE (' + SETTINGS_PREDICATE + ')'
     page = conn.execute(base + ' ORDER BY key LIMIT 128').fetchall()
     result = {}
@@ -65,6 +72,44 @@ def settings(conn):
         page = conn.execute(base + ' AND key>? ORDER BY key LIMIT 128',
                             (page[-1][0],)).fetchall()
     return result
+
+
+_EXCLUDED_SETTINGS = frozenset(('nodes', 'work_items', 'mail', 'delivering', 'notices',
+    'mail_log', 'steered_log', 'turn_error_log', 'steer_attempts', 'work_scope_log',
+    'events', 'org_inbox', 'notice_log', 'user_mail_log', 'user_outbox', 'documents',
+    'watchdog_history', 'op_receipts', 'work_items_archive', 'lifecycle', 'watchdogs',
+    'watchdog_tombs', 'reservations', 'credit_requests'))
+
+# Two partial-index scans select actions; the recursive walk uses only FK keys.
+# UNION deduplicates relationships and terminates even for a legacy cycle.
+NATIVE_GRAPH = """WITH RECURSIVE candidates AS MATERIALIZED (
+ SELECT id FROM orgtree.agents WHERE state='live' AND NOT tombstone
+ UNION
+ SELECT id FROM orgtree.agents WHERE is_frozen AND NOT tombstone
+), needed(id) AS (
+ SELECT id FROM candidates
+ UNION
+ SELECT target.id FROM needed n
+ CROSS JOIN LATERAL (SELECT parent_id,predecessor_id FROM orgtree.agents
+                     WHERE id=n.id LIMIT 1) a
+ CROSS JOIN LATERAL (VALUES (a.parent_id), (a.predecessor_id)) link(id)
+ CROSS JOIN LATERAL (SELECT id FROM orgtree.agents WHERE id=link.id
+                     AND NOT tombstone LIMIT 1) target
+)
+SELECT a.name,a.ord,(c.id IS NOT NULL) FROM needed n
+CROSS JOIN LATERAL (SELECT id,name,ord FROM orgtree.agents WHERE id=n.id LIMIT 1) a
+LEFT JOIN candidates c ON c.id=a.id ORDER BY a.ord,a.name
+"""
+
+
+def _native_graph(conn, project):
+    from .orgdb import reader_rows
+    conn.raw.execute('SET TRANSACTION READ ONLY')
+    selected = conn.raw.execute(NATIVE_GRAPH).fetchall()
+    nodes = reader_rows.read_agents(conn.raw, [name for name, _, _ in selected])
+    graph = Graph(nodes, tuple(name for name, _, action in selected if action),
+                  {name: ordinal for name, ordinal, _ in selected}, private=project is not None)
+    return graph if project is None else project(conn, graph)
 
 
 @dataclass(frozen=True)
@@ -88,6 +133,8 @@ def read(slug: str, project: Callable[[Any, Graph], Any] | None = None):
         return None
 
     def body(conn):
+        if getattr(conn, 'orgdb', False):
+            return _native_graph(conn, project)
         conn.execute('SET TRANSACTION READ ONLY')
         if conn.execute("SELECT 1 FROM doc WHERE key='nodes'").fetchone():
             return None
