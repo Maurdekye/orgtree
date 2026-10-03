@@ -177,6 +177,65 @@ class RehearsalControls(unittest.TestCase):
             self.assertFalse(Path(str(source) + '-wal').exists())
             self.assertFalse(Path(str(source) + '-shm').exists())
 
+    def _terminal_report(self, failure=None):
+        """Run real main/execute_report/run_pair; replace external DB/process I/O."""
+        import argparse
+        import json
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / 'result.json'
+            args = argparse.Namespace(
+                release='3.0.9', fault='none', json_output=output,
+                template=None, dump=Path('synthetic.dump'), legacy_sql=None,
+                sqlite_orgs=None, custodian=None, pg_bin=None, side_files=None,
+                fault_org=None, worker=False, load_worker=False)
+
+            @contextlib.contextmanager
+            def own_cluster(*unused):
+                yield 'postgresql://admin@127.0.0.1:9/dev', 'postgresql://runtime@127.0.0.1:9/dev'
+
+            def worker(argv, env, log, timeout):
+                result = {'initial_registry': {'org': {'state': 'active', 'counts': {'nodes': [1, 1]}}},
+                          'final_registry': {'org': {'state': 'active', 'counts': {'nodes': [1, 1]}}},
+                          'verified': {'org': {}}}
+                target = Path(argv[argv.index('--worker-output') + 1])
+                target.write_text(json.dumps(result), encoding='utf-8')
+                return 0
+
+            inventories = [{'table': {'count': 1, 'sha256': 'before'}}] * 2
+            if failure == 'source template changed':
+                inventories[1] = {'table': {'count': 1, 'sha256': 'after'}}
+            cleanup = [3, 3, RuntimeError(failure) if failure == 'private cleanup failed' else 1]
+            with patch.object(r, 'arguments', return_value=args), \
+                    patch.object(r, 'free_commit', return_value=20 * 1024 ** 3), \
+                    patch.object(r, 'cluster', own_cluster), \
+                    patch.object(r, 'prepare'), \
+                    patch.object(r, 'inventory', side_effect=inventories), \
+                    patch.object(r, 'run_worker', side_effect=worker) as children, \
+                    patch.object(r, 'drop_owned', side_effect=cleanup) as dropped:
+                if failure:
+                    with self.assertRaisesRegex(RuntimeError, failure):
+                        r.main()
+                else:
+                    self.assertEqual(r.main(), 0)
+                self.assertEqual(children.call_count, 2)
+                self.assertEqual(dropped.call_count, 3)
+            saved = json.loads(output.read_text(encoding='utf-8'))
+            self.assertTrue(saved['plain_matches_instrumented'])
+            self.assertEqual(len(saved['runs']), 2)
+            return saved
+
+    def test_saved_report_is_failed_when_final_template_inventory_changes(self):
+        self.assertIs(self._terminal_report('source template changed')['passed'], False)
+
+    def test_saved_report_is_failed_when_final_template_cleanup_raises(self):
+        self.assertIs(self._terminal_report('private cleanup failed')['passed'], False)
+
+    def test_saved_report_is_successful_after_final_checks_and_cleanup(self):
+        saved = self._terminal_report()
+        self.assertIs(saved['passed'], True)
+        self.assertEqual(saved['template_before'], saved['template_after'])
+        self.assertEqual(len(saved['cleanup']), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

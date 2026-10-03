@@ -829,7 +829,6 @@ def run_pair(a, report, root, admin, runtime, deadline):
     require(comparable(plain['final_registry']) == comparable(captured['final_registry']),
             'source instrumentation changed final registry states/counts')
     report['plain_matches_instrumented'] = True
-    report['passed'] = True
 
 
 def run_worker(argv, env, log, timeout):
@@ -863,6 +862,13 @@ def main():
               if a.sqlite_orgs else 'read-only clones of supplied/restored legacy template'}
     try:
         execute_report(a, report)
+    except BaseException:
+        report['passed'] = False
+        raise
+    else:
+        # execute_report has left every cleanup context and checked the source
+        # template. Only this terminal boundary can declare overall success.
+        report['passed'] = True
     finally:
         a.json_output.parent.mkdir(parents=True, exist_ok=True)
         a.json_output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
