@@ -105,6 +105,7 @@ export class RecordFeed<T> {
   resync(): Promise<void> {
     if (this.disposed) return Promise.resolve()
     const run = ++this.generation
+    const previousIdentity = this.cursor
     this.buffering = true
     this.recovery = null
     const readStartedAt = Date.now()
@@ -117,6 +118,13 @@ export class RecordFeed<T> {
       for (const frame of pending) {
         // Frames from the replaced database are never replayed into its successor.
         if (this.cursor && sameIdentity(this.cursor, frame)) this.receive(frame)
+        else if (!(previousIdentity && sameIdentity(previousIdentity, frame)
+            && this.cursor && !sameIdentity(previousIdentity, this.cursor))) {
+          // A replacement may have committed after the baseline took its
+          // snapshot. Its first frame is enough to demand a new full load;
+          // there need not be another write to reveal the stale identity.
+          return this.resync()
+        }
       }
       if (this.reconnectPending) {
         this.reconnectPending = false

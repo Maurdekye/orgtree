@@ -117,7 +117,9 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
       assert.equal(delayed.length, 1)
       await inAct(async () => {
         await markReadNow(org, { id: 'mail' }, async () => {})
-        const ask = { id: 'new-ask', status: 'open', rev: 1, agent: 'agent' } as unknown as AskInfo
+        const ask = { id: 'new-ask', node: 'agent', kind: 'batch', status: 'open', rev: 1,
+          at: '2026-10-03T00:00:00Z', revs: { ask: 1 },
+          tabs: [{ kind: 'question', question: 'Proceed?', options: [{ label: 'yes' }] }] } as AskInfo
         primeAsk(org, 'agent', ask)
         bumpLive()
         sockets[0].frame(change(5, 6, 'After save'))

@@ -87,6 +87,18 @@ test('a delayed older baseline does not overwrite a newer answer in the ordered 
   fullLoad(r.feed, snapshot(106, '106'))
 })
 
+test('identity replacement during baseline requires a new full load without any later write', async () => {
+  const r = rig()
+  const pending = r.feed.resync()
+  r.feed.receive(frame(0, 2, 'replacement', 'second'))
+  r.loads[0].resolve(snapshot(100, 'old'))
+  await settle()
+  assert.equal(r.loads.length, 2, 'buffered identity mismatch cannot be discarded')
+  r.loads[1].resolve(snapshot(2, 'replacement', 'second'))
+  await pending
+  fullLoad(r.feed, snapshot(2, 'replacement', 'second'))
+})
+
 test('retention reset loads a baseline; replaced identity rejects old HTTP and buffered frames', async () => {
   const r = rig()
   void r.feed.reconnect()
