@@ -5,6 +5,19 @@ ALTER TABLE orgtree.org_revision
   ADD COLUMN catalog_rev bigint NOT NULL DEFAULT 0,
   ADD COLUMN view_rev bigint NOT NULL DEFAULT 0;
 
+-- The codec omits *_text for canonical UTC milliseconds; keep legacy's text
+-- order for noncanonical strings without converting JSON or loading bodies.
+CREATE FUNCTION orgtree.foreground_time(value timestamptz, literal text) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
+ SELECT coalesce(literal,to_char(value AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'')
+$fn$;
+
+CREATE FUNCTION orgtree.foreground_request_time(resolved timestamptz, resolved_literal text,
+                                               value timestamptz, literal text) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
+ SELECT coalesce(resolved_literal,to_char(resolved AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),orgtree.foreground_time(value,literal))
+$fn$;
+
 CREATE FUNCTION orgtree.foreground_accumulate() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE n bigint; k text; previous bigint;
@@ -48,7 +61,7 @@ LANGUAGE sql STABLE AS $fn$
    coalesce(a.state,a.extra::jsonb->>'state','live'),
    coalesce(a.title,a.extra::jsonb->>'title',''),
    coalesce(a.model,a.extra::jsonb->>'model',''),coalesce(a.ui_order,0),
-   coalesce(a.created_text,a.extra::jsonb->>'created',''),
+   coalesce(a.created_text,to_char(a.created AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),a.extra::jsonb->>'created',''),
    a.predecessor_id,coalesce(a.predecessor,a.extra::jsonb->>'predecessor',''),
    a.successor_id,coalesce(a.successor,a.extra::jsonb->>'successor',''),
    coalesce(to_jsonb(a.generation),CASE WHEN jsonb_typeof(a.extra::jsonb->'generation')='number'
@@ -83,6 +96,7 @@ BEGIN
         'documents','org_inbox','user_inbox','work_items','work_scope_log') OR
       c.relname LIKE 'ask_%' OR c.relname LIKE 'scope_request_%' OR
       c.relname LIKE 'document_%' OR c.relname LIKE 'org_inbox_%' OR
+      c.relname LIKE 'mail_attachments%' OR
       c.relname LIKE 'user_inbox_%' OR c.relname LIKE 'delivery_batch_%' OR
       c.relname LIKE 'work_item_%' OR c.relname LIKE 'watchdog_events')
   LOOP
@@ -107,7 +121,7 @@ $install$;
 
 CREATE INDEX agents_foreground_live ON orgtree.agents(ord,name)
   WHERE coalesce(state,'live')<>'archived' AND NOT tombstone;
-CREATE INDEX agents_foreground_retired ON orgtree.agents(parent_id,coalesce(ui_order,0),coalesce(created_text,''),ord,name)
+CREATE INDEX agents_foreground_retired ON orgtree.agents(parent_id,coalesce(ui_order,0),orgtree.foreground_time(created,created_text),ord,name)
   WHERE state='archived' AND NOT tombstone;
 CREATE FUNCTION orgtree.agent_name_grams(value text) RETURNS text[]
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
@@ -117,9 +131,9 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
 $fn$;
 CREATE INDEX agents_foreground_search ON orgtree.agents USING gin(orgtree.agent_name_grams(name)) WHERE NOT tombstone;
 CREATE INDEX agents_recent_turns_tail ON orgtree.agent_recent_turns(agent_id,pos DESC);
-CREATE INDEX asks_foreground_node ON orgtree.asks(node,coalesce(resolved_at_text,at_text,'') DESC,ord);
-CREATE INDEX asks_foreground_recent ON orgtree.asks(coalesce(resolved_at_text,at_text,'') DESC,ord DESC)
+CREATE INDEX asks_foreground_node ON orgtree.asks(node,orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text) DESC,ord);
+CREATE INDEX asks_foreground_recent ON orgtree.asks(orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text) DESC,ord DESC)
   WHERE coalesce(status,'') NOT IN ('open','pending');
-CREATE INDEX credit_foreground_node ON orgtree.credit_requests(node,coalesce(at_text,'') DESC,ord);
-CREATE INDEX scope_foreground_node ON orgtree.scope_requests(node,coalesce(resolved_at_text,at_text,'') DESC,ord);
+CREATE INDEX credit_foreground_node ON orgtree.credit_requests(node,orgtree.foreground_time(at,at_text) DESC,ord);
+CREATE INDEX scope_foreground_node ON orgtree.scope_requests(node,orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text) DESC,ord);
 CREATE INDEX documents_foreground_node ON orgtree.documents(node,ord DESC);

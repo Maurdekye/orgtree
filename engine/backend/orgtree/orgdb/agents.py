@@ -13,10 +13,13 @@ from typing import Any
 
 from . import codec, reader_rows as R, registry
 from .mappers import agents as M
+from .mappers.records import DOCUMENTS
 from .. import store
 from ..ledger import ASK_HISTORY_KEEP, LedgerError
 
 _AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),'')=''"
+_CREATED = 'orgtree.foreground_time(a.created,a.created_text)'
+_DOCUMENT_META = codec.Spec('documents',tuple(f for f in DOCUMENTS.fields if f.key in ('id','title','at','format')))
 
 
 def _dicts(raw, sql, params=()):
@@ -173,16 +176,16 @@ def child_page(raw, parent, limit, after=None, last=False):
     # decoded and merged before the keyset/limit so none is silently misordered.
     base = "NOT a.tombstone AND a.state='archived' AND " + _AXIS
     parent_sql = (" AND coalesce((SELECT name FROM orgtree.agents p WHERE p.id=a.parent_id),'')=''" if not parent else
-        " AND a.parent_id=(SELECT id FROM orgtree.agents WHERE name=%s AND NOT tombstone)")
+        " AND a.parent_id IN (SELECT id FROM orgtree.agents WHERE name=%s)")
     params = [] if not parent else [parent]
     direction = ' DESC' if last else ''
     suffix = ''
     if after is not None:
-        suffix = ' AND (coalesce(a.ui_order,0),coalesce(a.created_text,\'\'),a.ord,a.name)>(%s::numeric,%s,%s,%s)'
+        suffix = ' AND (coalesce(a.ui_order,0),' + _CREATED + ',a.ord,a.name)>(%s::numeric,%s,%s,%s)'
         params.extend(after)
-    typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,coalesce(a.created_text,\'\'),a.ord '
+    typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,' + _CREATED + ',a.ord '
         'FROM orgtree.agents a WHERE ' + base + parent_sql + ' AND a.ui_order IS NOT NULL' + suffix +
-        ' ORDER BY coalesce(a.ui_order,0)' + direction + ',coalesce(a.created_text,\'\')' + direction +
+        ' ORDER BY coalesce(a.ui_order,0)' + direction + ',' + _CREATED + direction +
         ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*params, limit)).fetchall()
     candidates = {row[0]: row for row in typed}
     for name, (ordinal, value) in _hot(raw, base + parent_sql + ' AND a.ui_order IS NULL',
@@ -276,7 +279,8 @@ def identity(raw, slug, nid):
 def card_windows(raw, ids, header=False):
     asks = {}
     for key in ('asks','credit_requests','scope_requests'):
-        clock = "coalesce(resolved_at_text,at_text,'')" if key!='credit_requests' else "coalesce(at_text,'')"
+        clock = ('orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text)'
+                 if key!='credit_requests' else 'orgtree.foreground_time(at,at_text)')
         visible = " AND coalesce(status,'')<>'withdrawn'" if key!='asks' else ''
         picked = dict(raw.execute(f'SELECT id,ord FROM orgtree.{key} WHERE '
             "status IN ('open','pending') AND (%s OR node=ANY(%s))",(header,ids)).fetchall())
@@ -291,11 +295,16 @@ def card_windows(raw, ids, header=False):
     documents = {nid: [] for nid in ids}
     counts = dict(raw.execute('SELECT node,count(*) FROM orgtree.documents WHERE node=ANY(%s) '
                               'GROUP BY node',(ids,)).fetchall())
-    for nid,pid,title,at,fmt,ordinal in raw.execute('SELECT selected.node,q.public_id,q.title,q.at_text,q.format,q.ord '
+    for row in _dicts(raw,'SELECT selected.node AS owner,q.* '
         'FROM unnest(%s::text[]) selected(node) CROSS JOIN LATERAL ('
-        'SELECT public_id,title,at_text,format,ord FROM orgtree.documents WHERE node=selected.node '
-        'ORDER BY ord DESC LIMIT 10) q ORDER BY selected.node,q.ord',(ids,)).fetchall():
-        documents[nid].append(dict(id=pid,title=title,at=at,format=fmt or 'markdown'))
+        'SELECT id,public_id,title,at,at_text,format,extra,ord FROM orgtree.documents WHERE node=selected.node '
+        'ORDER BY ord DESC LIMIT 10) q ORDER BY selected.node,q.ord',(ids,)):
+        body=codec.decode(_DOCUMENT_META,row,codec.Children({},{}),(row['id'],))
+        fmt=body.get('format')
+        if fmt is not None and not isinstance(fmt,str):
+            fmt=json.dumps(fmt,separators=(',', ':'))
+        documents[row['owner']].append(dict(id=body.get('id'),title=body.get('title'),
+            at=body.get('at'),format=fmt or 'markdown'))
     return dict(asks=asks,documents=documents,document_counts={nid: counts.get(nid,0) for nid in ids})
 
 

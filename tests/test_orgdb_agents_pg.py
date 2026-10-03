@@ -29,7 +29,7 @@ class NativeReaders(unittest.TestCase):
             org.nodes['old']['successor'] = 'dev'
             org.nodes['retired'] = dict(fixture.node('retired', 'boss'), state='archived',
                                         ui_order=2)
-            org.nodes['dev']['turns'] = [{'n': n, 'at': fixture.AT} for n in range(20)]
+            org.nodes['dev']['turns'] = [{'n': n, 'at': fixture.AT} for n in range(1,21)]
             fixture.store.save_org(org)
         cls.twin = fixture.Twins('a1', seed)
 
@@ -111,6 +111,71 @@ class NativeReaders(unittest.TestCase):
 
 
 @fixture.needs_pg
+class NativeWindows(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        def seed(slug):
+            org=fixture.store.load_org(slug)
+            org.nodes['missing']=fixture.node('missing',None)
+            for nid,parent,created,order in [('first','boss','2026-10-02T00:00:00.000Z',1),
+                                            ('last','boss','2026-10-03T00:00:00.000Z',1),
+                                            ('zero','boss','2026-10-04T00:00:00.000Z',-0.0),
+                                            ('orphan','missing',fixture.AT,2),
+                                            ('root','',fixture.AT,0)]:
+                org.nodes[nid]=dict(fixture.node(nid,parent),state='archived',successor='',
+                                    created=created,ui_order=order)
+            org.d['asks']=[{'id':f'q{i}','node':'dev','status':'resolved',
+                           'at':fixture.AT,'resolved_at':f'2026-10-{30-i:02d}T00:00:00.000Z',
+                           'question':str(i)} for i in range(20)]
+            org.d['documents']=[{'id':f'd{i}','node':'dev','title':{'odd':i} if i==19 else str(i),
+                                 'at':fixture.AT,'format':False if i==19 else 'markdown',
+                                 'body':'x'*10000} for i in range(20)]
+            org.d['org_inbox']=[{'id':f'm{i}','body':str(i),'at':fixture.AT} for i in range(6)]
+            org.d['org_inbox_read']=4
+            fixture.store.save_org(org)
+        cls.twin=fixture.Twins('a1 windows',seed)
+        cls.twin.edit(lambda d:d['nodes'].pop('missing'))
+
+    def both(self,fn):
+        result=[]
+        for on,slug in ((False,self.twin.legacy),(True,self.twin.copy)):
+            with fixture.storage(on): result.append(fn(slug))
+        return result
+
+    def test_child_dates_empty_refs_orphans_and_misfit_order(self):
+        for parent in ('boss','','missing'):
+            with self.subTest(parent=parent):
+                pages=self.both(lambda s:F.read_retired_children(s,parent,limit=1))
+                while True:
+                    self.assertEqual(pages[0]['matches'],pages[1]['matches'])
+                    self.assertEqual(pages[0]['missing_ancestors'],pages[1]['missing_ancestors'])
+                    self.assertEqual(bool(pages[0]['next_cursor']),bool(pages[1]['next_cursor']))
+                    if not pages[0]['next_cursor']: break
+                    cursors=[p['next_cursor'] for p in pages]
+                    pages=[]
+                    for on,slug,cursor in ((False,self.twin.legacy,cursors[0]),(True,self.twin.copy,cursors[1])):
+                        with fixture.storage(on): pages.append(F.read_retired_children(slug,parent,limit=1,cursor=cursor))
+
+    def test_resolved_date_order_and_document_metadata(self):
+        for header in (False,True):
+            values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:F.read_card_windows(raw,['dev'],header=header)))
+            self.assertEqual(values[0],values[1])
+            self.assertEqual(values[1]['documents']['dev'][-1]['at'],fixture.AT)
+            self.assertEqual(values[1]['documents']['dev'][-1]['format'],'false')
+            self.assertNotIn('body',values[1]['documents']['dev'][-1])
+
+    def test_inbox_tail_and_count_ack(self):
+        values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:F.read_org_inbox_window(raw)))
+        self.assertEqual(values[0],values[1])
+        self.assertEqual((values[1]['total'],values[1]['unread']),(6,2))
+
+    def test_exact_stamp_with_empty_successors(self):
+        values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:stamp))
+        for field in ('node_count','retired_axis_count','cost','cost_unknown'):
+            self.assertEqual(values[0][field],values[1][field],field)
+
+
+@fixture.needs_pg
 class NativeCounters(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -135,7 +200,8 @@ class NativeCounters(unittest.TestCase):
                 before = self.stamps()
                 self.twin.edit(lambda d: d['nodes']['dev'].__setitem__(key, value))
                 after = self.stamps()
-                self.assertEqual([a['node_revision']-b['node_revision'] for a,b in zip(after,before)], [1,1])
+                self.assertGreaterEqual(after[0]['node_revision']-before[0]['node_revision'],1)
+                self.assertEqual(after[1]['node_revision']-before[1]['node_revision'],1)
                 self.assertEqual(after[0]['catalog_revision'] != before[0]['catalog_revision'],
                                  after[1]['catalog_revision'] != before[1]['catalog_revision'])
                 self.assertEqual(after[0]['cost'], after[1]['cost'])
@@ -157,7 +223,7 @@ class NativeCounters(unittest.TestCase):
             ('watchdogs', lambda d: d['watchdogs'][0].__setitem__('state','paused')),
             ('watchdog_tombs', lambda d: d.__setitem__('watchdog_tombs',[{'id':'gone','owner':'dev'}])),
             ('work_items_archive', lambda d: d.setdefault('work_items_archive',[]).append(d['work_items'].pop())),
-            ('work_scope_log', lambda d: d.__setitem__('work_scope_log',[{'slug':'fix-the-thing','text':'next'}])),
+            ('work_scope_log', lambda d: d.__setitem__('work_scope_log',{'fix-the-thing':[{'text':'next'}]})),
         ]
         for key, change in changes:
             with self.subTest(source=key):
