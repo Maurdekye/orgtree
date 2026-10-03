@@ -26,6 +26,8 @@ class RehearsalControls(unittest.TestCase):
         self.assertEqual(a['count'], b['count'])
         self.assertNotEqual(a['sha256'], b['sha256'])
         self.assertNotEqual(r.framed_digest(['null'])['sha256'], r.framed_digest(['"null"'])['sha256'])
+        # Identical framing must still distinguish the row contents.
+        self.assertNotEqual(r.framed_digest(['old']), r.framed_digest(['new']))
         self.assertNotEqual(r.framed_digest(['a', 'a']), r.framed_digest(['a']))
         self.assertEqual(r.framed_digest(iter(['a', 'bc'])), a)
 
