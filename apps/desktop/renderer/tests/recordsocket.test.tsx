@@ -5,6 +5,10 @@ import assert from 'node:assert/strict'
 import App from '../src/App'
 import { resetConvos } from '../src/convo'
 import { FOREGROUND_TREE_FORMAT as format } from '../src/foregroundtree'
+import { markReadNow, resetLocalReads, unconfirmedReads } from '../src/mailread'
+import { applyPrimedAsks, primeAsk, resetPrimedAsks } from '../src/askprime'
+import { bumpLive } from '../src/livebus'
+import type { AskInfo, TreePayload } from '../src/types'
 
 for (const enabled of [false, true]) test(`org record feed flag ${enabled}: socket, projection and polling`, async () => {
   const org = `record-socket-${enabled}`
@@ -44,6 +48,8 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     frame(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }) }
   }
   const reads: string[] = []
+  let holdChanges = false
+  const delayed: { answer: unknown; resolve: (r: Response) => void }[] = []
   const json = (value: unknown) => new Response(JSON.stringify(value), {
     headers: { 'Content-Type': 'application/json' },
   })
@@ -65,7 +71,10 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     if (path === `/api/orgs/${org}/changes`) {
       assert.equal(url.searchParams.get('org_uuid'), 'identity')
       assert.equal(url.searchParams.get('incarnation'), 'first')
-      return json(change(Number(url.searchParams.get('after')), 5, 'Recovered'))
+      const after = Number(url.searchParams.get('after'))
+      const answer = change(after, Math.max(after, 5), 'Recovered')
+      if (holdChanges) return new Promise<Response>(resolve => { delayed.push({ answer, resolve }) })
+      return json(answer)
     }
     if (path === '/api/providers') return json({ providers: [] })
     if (path.endsWith('/work-items')) return json({ items: [], counts: { attention: 0, active: 0, archived: 0, backlogged: 0 } })
@@ -76,7 +85,7 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     return json({ ok: true })
   }
   globals.WebSocket = Socket; globals.history = window.history; globals.CustomEvent = window.CustomEvent
-  localStorage.clear(); resetConvos()
+  localStorage.clear(); resetConvos(); resetLocalReads(); resetPrimedAsks()
   window.history.replaceState(null, '', `/o/${org}`)
   const view = await mountView(<App />, el => el)
   try {
@@ -100,9 +109,41 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
         'live state and legacy changed echoes cause no tree refetch')
       await inAct(async () => { sockets[0].onopen?.(); await flush(20) })
       assert.ok(reads.some(p => p.includes('/changes?after=5')), 'every reconnect catches up without a later commit')
+
+      // An HTTP read already in flight cannot confirm a later local save or
+      // detail. A live frame arriving after them is not proof either.
+      holdChanges = true
+      await inAct(async () => { sockets[0].onopen?.(); await flush(10) })
+      assert.equal(delayed.length, 1)
+      await inAct(async () => {
+        await markReadNow(org, { id: 'mail' }, async () => {})
+        const ask = { id: 'new-ask', status: 'open', rev: 1, agent: 'agent' } as unknown as AskInfo
+        primeAsk(org, 'agent', ask)
+        bumpLive()
+        sockets[0].frame(change(5, 6, 'After save'))
+        await flush(10)
+      })
+      const blank = { ...header, roots: [agent] } as unknown as TreePayload
+      assert.equal(unconfirmedReads(org).all, 1, 'live frame cannot confirm a local read')
+      assert.equal(applyPrimedAsks(org, blank, 0).roots[0].ask?.id, 'new-ask',
+        'live frame preserves a detail overlay')
+      await inAct(async () => { delayed[0].resolve(json(delayed[0].answer)); await flush(10) })
+      assert.equal(unconfirmedReads(org).all, 1, 'delayed older HTTP read cannot confirm the save')
+      assert.equal(applyPrimedAsks(org, blank, 0).roots[0].ask?.id, 'new-ask')
+      await inAct(async () => { await flush(150) })
+      assert.ok(delayed.length >= 3, 'prime and mutation acknowledgment each obtain a fresh confirmation')
+      await inAct(async () => {
+        for (const pending of delayed.slice(1)) pending.resolve(json(pending.answer))
+        await flush(10)
+      })
+      assert.equal(unconfirmedReads(org).all, 0, 'HTTP no-op confirms the save despite a newer live cursor')
+      assert.equal(applyPrimedAsks(org, blank, 0).roots[0].ask, undefined,
+        'HTTP confirmation retires the detail overlay')
+      assert.match(document.title, /After save/, 'delayed HTTP replies never roll back record state')
+      assert.equal(reads.filter(p => p.includes('/foreground-tree')).length, before)
     }
   } finally {
-    await view.unmount(); resetConvos(); localStorage.clear()
+    await view.unmount(); resetConvos(); resetLocalReads(); resetPrimedAsks(); localStorage.clear()
     window.history.replaceState(null, '', '/')
     Object.assign(globals, { fetch: saved.fetch, WebSocket: saved.socket, history: saved.history,
       CustomEvent: saved.customEvent, setInterval: saved.setInterval, clearInterval: saved.clearInterval })

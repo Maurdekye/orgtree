@@ -74,8 +74,8 @@ import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
 import type { HostIdentity } from './accountidentity'
 import { groupByProvider } from './usagegroups'
-import { bumpLive } from './livebus'
-import { applyPrimedAsks, useAskPrimer } from './askprime'
+import { bumpLive, onLiveBump } from './livebus'
+import { applyPrimedAsks, onPrimeAsk, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
 import { orgRecordFeed } from './recordtransport'
 import { projectTree, recordFeedCapable } from './recordprojection'
@@ -867,13 +867,14 @@ export default function App() {
     if (!slug || !recordMode) return
     const feed = orgRecordFeed(slug, {
       project: projectTree,
-      publish: shown => {
+      publish: (shown, _records, _cursor, readStartedAt = 0) => {
         if (wantSlug.current !== slug) return
         // Runtime annotation frames have their own clock, outside the org revision.
         replaceNodeMetadata(slug, shown.roots, [], true)
-        const visible = applyPrimedAsks(slug, shown, Date.now())
+        const visible = applyPrimedAsks(slug, shown, readStartedAt)
         setTree(visible)
         settleFromTree(slug, visible)
+        if (readStartedAt) settleReadsFromTree(slug, readStartedAt)
         setTreeRead({ at: Date.now(), error: null })
         openBootGate()
         fetchOk()
@@ -881,8 +882,13 @@ export default function App() {
       error: e => { setTreeRead(r => ({ ...r, error: e.message })); fetchErr(e) },
     })
     recordController.current = { slug, feed }
+    // Until mutation responses carry their committed rev, one catch-up begun
+    // after acknowledgment confirms local overlays. Live frames never bump
+    // this bus, so publication itself causes no further reads.
+    const offMutation = onLiveBump(() => { void feed.reconnect() })
+    const offPrime = onPrimeAsk(org => { if (org === slug) void feed.reconnect() })
     void feed.resync()
-    return () => { feed.dispose(); recordController.current = null }
+    return () => { offMutation(); offPrime(); feed.dispose(); recordController.current = null }
   }, [slug, recordMode, fetchOk, fetchErr])
   // A user's own save through a direct route (scope, account) re-reads the
   // tree urgently too -- see markTreeStale in api.ts.

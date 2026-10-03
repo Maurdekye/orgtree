@@ -39,7 +39,8 @@ export interface FeedIO<T> {
   catchup: (cursor: FeedCursor) => Promise<FeedAnswer>
   /** Validate/project before publishing, so invalid frames never advance the cursor. */
   project: (records: RecordTable) => T
-  publish: (value: T, records: RecordTable, cursor: FeedCursor) => void
+  /** HTTP start time confirms client overlays; live frames carry no confirmation. */
+  publish: (value: T, records: RecordTable, cursor: FeedCursor, readStartedAt?: number) => void
   error: (error: Error) => void
 }
 
@@ -54,26 +55,29 @@ export class RecordFeed<T> {
   private reconnectPending = false
   constructor(private io: FeedIO<T>) {}
 
-  private commit(records: RecordTable, cursor: FeedCursor) {
+  private commit(records: RecordTable, cursor: FeedCursor, readStartedAt = 0) {
     const value = this.io.project(records)
     this.records = records
     this.cursor = cursor
-    this.io.publish(value, records, cursor)
+    this.io.publish(value, records, cursor, readStartedAt)
   }
 
-  private baseline(answer: RecordSnapshot) {
+  private baseline(answer: RecordSnapshot, readStartedAt = 0) {
     const c = answer.cursor
     if (!identity(c) || !revision(c.rev)) throw new Error('Invalid feed snapshot cursor')
-    if (this.cursor && sameIdentity(this.cursor, c) && c.rev < this.cursor.rev) return
-    this.commit(changedTable(new Map(), answer.records), { ...c })
+    if (this.cursor && sameIdentity(this.cursor, c) && c.rev < this.cursor.rev) {
+      if (readStartedAt) this.commit(this.records, this.cursor, readStartedAt)
+      return
+    }
+    this.commit(changedTable(new Map(), answer.records), { ...c }, readStartedAt)
   }
 
   /** Snapshot and HTTP answers share this entry with websocket frames. */
-  receive(answer: FeedAnswer): void {
+  receive(answer: FeedAnswer, readStartedAt = 0): void {
     if (this.disposed) return
     try {
       if (answer.type === 'record_reset') { void this.resync(); return }
-      if (answer.type === 'record_snapshot') { this.baseline(answer); return }
+      if (answer.type === 'record_snapshot') { this.baseline(answer, readStartedAt); return }
       if (!identity(answer) || !revision(answer.from) || !revision(answer.to)
           || answer.to < answer.from) throw new Error('Invalid feed frame bounds')
       if (this.buffering || !this.cursor) {
@@ -84,10 +88,13 @@ export class RecordFeed<T> {
       }
       const c = this.cursor
       if (!sameIdentity(c, answer)) { void this.resync(); return }
-      if (answer.to <= c.rev) return
+      if (answer.to <= c.rev) {
+        if (readStartedAt) this.commit(this.records, c, readStartedAt)
+        return
+      }
       if (answer.from > c.rev) { void this.reconnect(false); return }
       this.commit(changedTable(this.records, answer.upserts, answer.tombstones),
-        { org_uuid: c.org_uuid, incarnation: c.incarnation, rev: answer.to })
+        { org_uuid: c.org_uuid, incarnation: c.incarnation, rev: answer.to }, readStartedAt)
     } catch (e) {
       this.io.error(e instanceof Error ? e : new Error(String(e)))
       if (!this.buffering) void this.resync()
@@ -100,9 +107,10 @@ export class RecordFeed<T> {
     const run = ++this.generation
     this.buffering = true
     this.recovery = null
+    const readStartedAt = Date.now()
     return this.io.snapshot().then(answer => {
       if (this.disposed || run !== this.generation) return
-      this.baseline(answer)
+      this.baseline(answer, readStartedAt)
       const pending = this.buffer
       this.buffer = []
       this.buffering = false
@@ -134,9 +142,10 @@ export class RecordFeed<T> {
     if (this.recovery && !force) return this.recovery
     const run = this.generation
     const cursor = { ...this.cursor }
+    const readStartedAt = Date.now()
     const pending = this.io.catchup(cursor).then(answer => {
       if (this.disposed || run !== this.generation) return
-      this.receive(answer)
+      this.receive(answer, readStartedAt)
     }).catch(e => {
       if (!this.disposed && run === this.generation)
         this.io.error(e instanceof Error ? e : new Error(String(e)))

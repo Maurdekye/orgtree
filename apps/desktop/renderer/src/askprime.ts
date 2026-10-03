@@ -27,6 +27,12 @@ import type { AskInfo, TreeNode, TreePayload } from './types'
 
 interface Prime { ask: AskInfo; at: number }
 const primes = new Map<string, Map<string, Prime>>()
+const primeListeners = new Set<(slug: string) => void>()
+/** Record feeds confirm a detail overlay with a read begun after the detail. */
+export function onPrimeAsk(fn: (slug: string) => void): () => void {
+  primeListeners.add(fn)
+  return () => { primeListeners.delete(fn) }
+}
 
 const live = (a: AskInfo | null | undefined): a is AskInfo =>
   !!a && (a.status === 'open' || a.status === 'pending')
@@ -68,6 +74,7 @@ export function primeAsk(slug: string, nid: string, ask: AskInfo, at = Date.now(
   let m = primes.get(slug)
   if (!m) primes.set(slug, m = new Map())
   m.set(nid, { ask, at })
+  for (const fn of [...primeListeners]) fn(slug)
 }
 
 /** A full tree read that started at `readStartedAt` (ms). Primes that are
