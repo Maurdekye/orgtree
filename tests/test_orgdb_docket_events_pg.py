@@ -76,6 +76,22 @@ class StableWrites(unittest.TestCase):
             self.assertFalse(any(r[0] in removed for r in new))
             self.assertEqual(json.loads(R.item(view.raw,SLUG)[1]),record)
 
+    def test_database_rejects_invalid_event_enums_and_shape_markers(self):
+        import psycopg
+        from orgtree.orgdb import codec
+        from orgtree.orgdb.mappers import docket as D
+        with self.view() as view:
+            rid = self.row(view)[0]
+            event = self.events(view,rid)[0][0]
+            declarations = list(codec.enumerated(D.EVENT)) + list(codec.markers(D.EVENT))
+            self.assertGreater(len(declarations), 20)
+            for column, _, values in declarations:
+                with self.subTest(column=column):
+                    self.assertNotIn('z',values)
+                    with self.assertRaises(psycopg.errors.CheckViolation), view.raw.transaction():
+                        view.raw.execute('UPDATE orgtree.work_item_events SET '+codec.quote(column)+
+                                         '=%s WHERE id=%s',('z',event))
+
     def test_archive_reopen_same_id_exact_original_cas_and_append_order(self):
         with self.view() as view:
             rid = self.row(view)[0]

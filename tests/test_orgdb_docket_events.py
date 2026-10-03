@@ -121,6 +121,28 @@ class EventConversion(unittest.TestCase):
         self.assertIn('ON DELETE RESTRICT', text)
 
 
+class EventEnums(unittest.TestCase):
+    def test_moved_enum_misfits_stay_exact_outside_typed_columns(self):
+        record = item()
+        record['history'][0].update(status='future-status', stage='future-stage',
+                                   decision='future-decision', scope='future-scope')
+        record['evidence'][0].update(kind='future-kind', result='future-result')
+        record['scope'][0].update(kind='future-kind', mode='future-mode')
+        record['candidate_verdict']['decision'] = 'future-decision'
+        for verdict in record['candidate_verdicts']:
+            verdict['decision'] = 'future-decision'
+        rows, decoded = convert(record)
+        self.assertEqual(canonical(decoded['work_items'][0]), canonical(record))
+        columns = {'history': ('history_status', 'history_stage', 'history_decision', 'history_scope'),
+                   'evidence': ('evidence_kind', 'evidence_result'),
+                   'scope': ('scope_kind', 'scope_mode'),
+                   'candidate_verdicts': ('candidate_verdicts_decision',)}
+        for row in rows['work_item_events']:
+            for column in columns.get(row['source'], ()):
+                with self.subTest(source=row['source'], column=column):
+                    self.assertIsNone(row[column])
+
+
 class EventDifferences(unittest.TestCase):
     def plan(self, before, after):
         old, _ = convert(before)
