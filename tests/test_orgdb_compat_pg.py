@@ -21,10 +21,15 @@ What it proves:
     owner), list logs (append, edit), the keyed steering log, the docket (new item, edit,
     archive), a key outside the registry (set, removed), a deferred key;
   * create: create_org with the switch on publishes an active org whose database loads as
-    the created document; a create whose first save fails leaves no registry row and no
-    database;
+    the created document; a create whose first save fails, or whose staging database cannot
+    be built (review f23), leaves no registry row and no database, and the same name can be
+    created at once;
   * compare-and-set: a save of a node another save changed since it loaded refuses
     (StaleWrite) and writes nothing;
+  * insert races (review f21): two transactions insert the same absent doc key, or the same
+    new node; the second waits for the first and gets the legacy outcome on both stores
+    (DO NOTHING inserts nothing; the node insert is refused with IntegrityError), and the
+    first writer's value stays;
   * revision: a changing save bumps the org's revision by exactly one, a no-change save not;
   * org_tx: a named write commits through the view; an unlocked write refuses and lands
     nothing; an org's row locks are its org lock and ONE DO block, in the lock plan's order;
@@ -42,7 +47,9 @@ import contextlib
 import json
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from urllib.parse import urlsplit, urlunsplit
@@ -470,6 +477,80 @@ def wait_for(cond, timeout: float = 15.0) -> bool:
     return bool(cond())
 
 
+def lock_waiters(database: str) -> int:
+    """Sessions of ``database`` waiting on a lock now."""
+    with dbconn.connect(ADMIN, 'postgres') as c:
+        return int(c.execute("SELECT count(*) FROM pg_stat_activity WHERE datname = %s "
+                             "AND wait_event_type = 'Lock'", (database,)).fetchone()[0])
+
+
+@needs_pg
+class InsertRaces(unittest.TestCase):
+    """Review f21: two transactions insert the same absent doc key, or the same new node. The
+    first holds its transaction open until the second is seen waiting on the server; then it
+    commits. Both stores must give the legacy outcome and keep the first writer's value."""
+
+    def race(self, on: bool, slug: str, database: str, statement: str,
+             first: tuple, second: tuple) -> tuple:
+        """(first's rowcount, second's rowcount or the exception it raised)."""
+        out: dict = {}
+        with storage(on):
+            with store._POOL.acquire(slug) as a:
+                a.execute('BEGIN IMMEDIATE')
+                out['first'] = a.execute(statement, first).rowcount
+
+                def other() -> None:
+                    try:
+                        with store._POOL.acquire(slug) as b:
+                            b.execute('BEGIN IMMEDIATE')
+                            try:
+                                out['second'] = b.execute(statement, second).rowcount
+                                b.execute('COMMIT')
+                            except BaseException:
+                                b.execute('ROLLBACK')
+                                raise
+                    except BaseException as e:       # noqa: BLE001  the outcome under test
+                        out['second'] = e
+                t = threading.Thread(target=other)
+                t.start()
+                waited = wait_for(lambda: lock_waiters(database) > 0)
+                a.execute('COMMIT')
+            t.join(60)
+            self.assertFalse(t.is_alive(), 'the second insert never finished')
+            self.assertTrue(waited, 'the second insert never waited for the first')
+        return out['first'], out['second']
+
+    def databases(self, t: 'Twins') -> list:
+        return [(False, t.legacy, LEGACY), (True, t.copy, registry.lookup(t.copy)[1])]
+
+    def test_an_absent_key_inserted_twice_keeps_do_nothing_and_the_first_value(self) -> None:
+        t = Twins('insertrace')
+        statement = 'INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO NOTHING'
+        for on, slug, database in self.databases(t):
+            with self.subTest(storage='orgdb' if on else 'legacy'):
+                got = self.race(on, slug, database, statement,
+                                ('race_key', json.dumps({'by': 'first'})),
+                                ('race_key', json.dumps({'by': 'second'})))
+                self.assertEqual(got, (1, 0))
+                with storage(on):
+                    self.assertEqual(store.load_org(slug).d['race_key'], {'by': 'first'})
+
+    def test_a_new_node_inserted_twice_refuses_the_second_and_keeps_the_first(self) -> None:
+        t = Twins('noderace')
+        statement = 'INSERT INTO nodes(id, ord, val) VALUES(?,?,?)'
+        mine = {**node('racer', 'boss'), 'title': 'FIRST'}
+        theirs = {**node('racer', 'boss'), 'title': 'SECOND'}
+        for on, slug, database in self.databases(t):
+            with self.subTest(storage='orgdb' if on else 'legacy'):
+                first, second = self.race(on, slug, database, statement,
+                                          ('racer', 99, json.dumps(mine)),
+                                          ('racer', 99, json.dumps(theirs)))
+                self.assertEqual(first, 1)
+                self.assertIsInstance(second, sqlite3.IntegrityError)
+                with storage(on):
+                    self.assertEqual(store.load_org(slug).d['nodes']['racer']['title'], 'FIRST')
+
+
 @needs_pg
 class Feed(unittest.TestCase):
     """pgfeed.orgdb_conn: the revision feed LISTENs on every org's own database."""
@@ -566,6 +647,26 @@ class Create(unittest.TestCase):
                     "SELECT datname FROM pg_database WHERE datname LIKE %s",
                     (PREFIX + 'stage%',)).fetchall()]
             self.assertEqual(left, [])
+
+    def stages_left(self) -> list:
+        with dbconn.connect(ADMIN, 'postgres') as c:
+            return [r[0] for r in c.execute("SELECT datname FROM pg_database WHERE datname LIKE %s",
+                                            (PREFIX + 'stage%',)).fetchall()]
+
+    def test_a_staging_build_failure_leaves_nothing_and_the_name_is_free(self) -> None:
+        # review f23: the error comes BEFORE begin_create returns its Build
+        from unittest.mock import patch
+        with storage(True):
+            with patch.object(lifecycle.Lifecycle, '_migrate_org_db',
+                              side_effect=RuntimeError('planted build failure')):
+                with self.assertRaisesRegex(RuntimeError, 'planted build failure'):
+                    store.create_org('Failure Before First Save')
+            self.assertIsNone(registry.lookup('failure-before-first-save'))
+            self.assertEqual(self.stages_left(), [])
+            org = store.create_org('Failure Before First Save')       # the name is free at once
+            self.assertEqual(org.d['slug'], 'failure-before-first-save')
+            self.assertEqual(registry.lookup('failure-before-first-save')[2], 'active')
+            self.assertEqual(self.stages_left(), [])
 
 
 if __name__ == '__main__':

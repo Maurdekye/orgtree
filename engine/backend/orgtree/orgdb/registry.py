@@ -15,8 +15,11 @@ Connections. The registry is read over one shared runtime connection to the app 
 org's database is reached through a small idle pool per database (``checkout`` and
 ``release``, which the compatibility view uses too): at most 2 idle connections per database
 and 16 in all; one idle for 10 minutes is closed at the next checkout or release (there is no
-sweeper thread). A connection opened to a database for the first time checks its
-``org_identity`` against the registry row, so a database that is not this org's is never used.
+sweeper thread). Every checkout, of an idle connection or a new one, checks the database's
+``org_identity`` against the registry row (one short statement), so a database that is not
+this org's is never used: not one restored or renamed under its name since this process last
+opened it, and not after a reconnect (review f22). An idle connection the server dropped is
+replaced by a new one, which is checked the same way.
 
 Only ``orgdb.lifecycle`` reads the admin conninfo (Q10). ``lifecycle()`` hands out this
 process's instance of it, and ``retry`` runs the converter in a child process, which inherits
@@ -137,7 +140,6 @@ IDLE_SECONDS = 600.0
 #: database -> [(connection, released at (monotonic))], newest last
 _idle: dict[str, list[tuple[Any, float]]] = {}
 _idle_lock = threading.Lock()
-_checked: dict[str, str] = {}          # database -> org_uuid its identity was checked against
 
 
 def _idle_count() -> int:
@@ -164,8 +166,9 @@ def _close_all(conns: list[Any]) -> None:
 
 
 def checkout(slug: str, database: str, org_uuid: str) -> Any:
-    """A runtime connection (autocommit) to ``database``: an idle one, or a new one whose
-    ``org_identity`` is checked against (slug, org_uuid) the first time."""
+    """A runtime connection (autocommit) to ``database`` whose ``org_identity`` is (slug,
+    org_uuid), checked now: an idle one, or a new one. OrgUnavailable when the database holds
+    another org's identity."""
     psycopg = _psycopg()
     found = None
     with _idle_lock:
@@ -179,18 +182,28 @@ def checkout(slug: str, database: str, org_uuid: str) -> Any:
             stale.append(raw)
     _close_all(stale)
     if found is not None:
-        return found
-    raw = _conn.connect(_conn.runtime_base(), database, application_name="orgtree-engine")
-    if _checked.get(database) != org_uuid:
         try:
-            row = raw.execute("SELECT org_uuid::text, slug FROM orgtree.org_identity").fetchone()
-        except Exception:
-            raw.close()
+            return _identified(found, slug, database, org_uuid)
+        except OrgUnavailable:
             raise
-        if row is None or row[0] != org_uuid or row[1] != slug:
+        except psycopg.Error:
+            pass        # dropped while idle (terminated, server restarted): a new connection
+    raw = _conn.connect(_conn.runtime_base(), database, application_name="orgtree-engine")
+    return _identified(raw, slug, database, org_uuid)
+
+
+def _identified(raw: Any, slug: str, database: str, org_uuid: str) -> Any:
+    """``raw`` when its database's org_identity is (slug, org_uuid); else it is closed and
+    OrgUnavailable (a wrong identity) or the statement's own error is raised."""
+    try:
+        row = raw.execute("SELECT org_uuid::text, slug FROM orgtree.org_identity").fetchone()
+    except Exception:
+        with contextlib.suppress(Exception):
             raw.close()
-            raise OrgUnavailable(f"org {slug!r}: {database} holds another org's identity ({row})")
-        _checked[database] = org_uuid
+        raise
+    if row is None or row[0] != org_uuid or row[1] != slug:
+        raw.close()
+        raise OrgUnavailable(f"org {slug!r}: {database} holds another org's identity ({row})")
     return raw
 
 

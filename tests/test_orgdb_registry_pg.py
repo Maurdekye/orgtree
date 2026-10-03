@@ -10,8 +10,11 @@ What it proves:
   * the registry reads, as the runtime role: every row in any state, lookup (trashed aside),
     exists, active orgs by slug;
   * connection(slug): a runtime connection to that org's own database; a transaction the
-    caller leaves open is rolled back; a missing or unavailable org is refused; a database
-    holding another org's identity is refused and never pooled;
+    caller leaves open is rolled back; a missing or unavailable org is refused;
+  * identity on every checkout (review f22), with no private state cleared by the test: after
+    a warm open, a database whose identity changed is refused (idle connection or fresh), a
+    database renamed under the org's name is refused, a connection the server terminated is
+    replaced transparently and the replacement is checked too; a refused one is never pooled;
   * the idle pool keeps at most 2 per database and closes a connection idle past its limit;
   * lifecycle(): bootstrapped once, with the runtime role the engine's conninfo logs in as;
   * retry(): an org unavailable at 'identity' is retried in place and becomes active; an org
@@ -21,6 +24,7 @@ Run:  python tools/run-python-verification.py tests/test_orgdb_registry_pg.py
 """
 
 import os
+import time
 import unittest
 from unittest import mock
 
@@ -60,7 +64,6 @@ class Registry(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         _drop_all()
-        registry._checked.clear()
         cls.lc = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX,
                                      build='test-build')
         cls.lc.bootstrap()
@@ -111,21 +114,81 @@ class Registry(unittest.TestCase):
                 with registry.connection(slug):
                     pass
 
-    def test_a_database_holding_another_identity_is_refused(self) -> None:
+    def slug_of(self, slug: str) -> str:
+        with registry.connection(slug) as c:
+            return c.execute('SELECT slug FROM orgtree.org_identity').fetchone()[0]
+
+    def terminate(self, pid: int) -> None:
+        """The server ends one session; returns once it is gone."""
+        with conn.connect(ADMIN, 'postgres') as c:
+            c.execute('SELECT pg_terminate_backend(%s)', (pid,))
+            end = time.monotonic() + 15
+            while c.execute('SELECT 1 FROM pg_stat_activity WHERE pid = %s', (pid,)).fetchone():
+                self.assertLess(time.monotonic(), end, f'session {pid} never ended')
+                time.sleep(0.05)
+
+    def test_a_database_holding_another_identity_is_refused_after_a_warm_open(self) -> None:
         db = self.lc.row(self.b)['database']
-        registry.close_idle(db)
-        registry._checked.pop(db, None)
+        self.assertEqual(self.slug_of('b'), 'b')          # warm: checked, and left idle
+        self.assertTrue(registry._idle.get(db))
         self.admin_exec(self.b, "UPDATE orgtree.org_identity SET slug = 'someone-else'")
         try:
-            with self.assertRaises(registry.OrgUnavailable):
+            with self.assertRaises(registry.OrgUnavailable):       # the idle one is rechecked
                 with registry.connection('b'):
                     pass
-            self.assertNotIn(db, registry._checked)
+            self.assertEqual(registry._idle.get(db, []), [])        # and never pooled again
+            with self.assertRaises(registry.OrgUnavailable):       # a fresh open is checked
+                with registry.connection('b'):
+                    pass
             self.assertEqual(registry._idle.get(db, []), [])
         finally:
             self.admin_exec(self.b, "UPDATE orgtree.org_identity SET slug = 'b'")
+        self.assertEqual(self.slug_of('b'), 'b')
+
+    def test_another_orgs_database_renamed_under_the_name_is_refused_after_a_warm_open(self) -> None:
+        from psycopg import sql
+        a_db, b_db = self.lc.row(self.a)['database'], self.lc.row(self.b)['database']
+        self.assertEqual(self.slug_of('a'), 'a')          # warm
+        registry.close_idle()                             # a rename needs the database unused
+        spare = PREFIX + 'spare'
+
+        def rename(old: str, new: str) -> None:
+            with conn.connect(ADMIN, 'postgres') as c:
+                c.execute(sql.SQL('ALTER DATABASE {} RENAME TO {}').format(
+                    sql.Identifier(old), sql.Identifier(new)))
+        rename(a_db, spare)
+        rename(b_db, a_db)                                # b's database now answers to a's name
+        try:
+            with self.assertRaises(registry.OrgUnavailable):
+                with registry.connection('a'):
+                    pass
+        finally:
+            registry.close_idle()
+            rename(a_db, b_db)
+            rename(spare, a_db)
+        self.assertEqual(self.slug_of('a'), 'a')
+        self.assertEqual(self.slug_of('b'), 'b')
+
+    def test_a_terminated_connection_is_replaced_and_the_replacement_is_checked(self) -> None:
+        db = self.lc.row(self.b)['database']
+        registry.close_idle(db)
         with registry.connection('b') as c:
+            first = c.info.backend_pid
+        self.terminate(first)                             # the server drops it while idle
+        with registry.connection('b') as c:               # replaced, transparently
+            second = c.info.backend_pid
             self.assertEqual(c.execute('SELECT slug FROM orgtree.org_identity').fetchone()[0], 'b')
+        self.assertNotEqual(second, first)
+        self.terminate(second)
+        self.admin_exec(self.b, "UPDATE orgtree.org_identity SET slug = 'someone-else'")
+        try:
+            with self.assertRaises(registry.OrgUnavailable):       # the reconnect is checked
+                with registry.connection('b'):
+                    pass
+            self.assertEqual(registry._idle.get(db, []), [])
+        finally:
+            self.admin_exec(self.b, "UPDATE orgtree.org_identity SET slug = 'b'")
+        self.assertEqual(self.slug_of('b'), 'b')
 
     def test_idle_pool_bounds_and_expiry(self) -> None:
         db = self.lc.row(self.a)['database']

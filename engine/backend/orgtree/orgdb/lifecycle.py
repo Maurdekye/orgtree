@@ -379,27 +379,48 @@ class Lifecycle:
         ``<p>org_<n>``, or for a legacy trashed org (``trashed_at`` given) the
         trash name it will be published under (§5.2). Fixing the name here
         means a crash right after the rename is recognised on resume."""
+        with self._app() as c:
+            with c.transaction():
+                return self._insert_row(
+                    c, slug, state=state, org_uuid=org_uuid, unavailable_step=unavailable_step,
+                    state_reason=state_reason, report_path=report_path,
+                    legacy_database=legacy_database, legacy_org_id=legacy_org_id,
+                    legacy_file=legacy_file, trashed_at=trashed_at)
+
+    def _register_claimed(self, slug: str, kind: str, *, org_uuid: str | None = None) -> Claim:
+        """A new 'provisioning' row born claimed for ``kind``, in ONE transaction: no moment
+        exists in which the row is registered but unclaimed, which nothing would ever finish
+        or remove (review f23)."""
+        with self._app() as c:
+            with c.transaction():
+                org_id = self._insert_row(c, slug, state="provisioning", org_uuid=org_uuid)
+                return self._claim_in(c, org_id, kind)
+
+    def _insert_row(self, c: Any, slug: str, *, state: str, org_uuid: str | None = None,
+                    unavailable_step: str | None = None, state_reason: str | None = None,
+                    report_path: str | None = None, legacy_database: str | None = None,
+                    legacy_org_id: int | None = None, legacy_file: str | None = None,
+                    trashed_at: Any = None) -> int:
         if state not in ("provisioning", "converting", "unavailable"):
             raise LifecycleError(f"a new registry row cannot start as {state!r}")
         import psycopg   # noqa: PLC0415
-        with self._app() as c:
+        org_id = int(c.execute(
+            "SELECT nextval(pg_get_serial_sequence('orgtree.orgs', 'org_id'))").fetchone()[0])
+        database = (names.org(org_id, self.prefix) if trashed_at is None else
+                    names.trash(org_id, trashed_at.strftime("%Y%m%dt%H%M%S"), self.prefix))
+        try:
             with c.transaction():
-                org_id = int(c.execute(
-                    "SELECT nextval(pg_get_serial_sequence('orgtree.orgs', 'org_id'))").fetchone()[0])
-                database = (names.org(org_id, self.prefix) if trashed_at is None else
-                            names.trash(org_id, trashed_at.strftime("%Y%m%dt%H%M%S"), self.prefix))
-                try:
-                    c.execute(
-                        "INSERT INTO orgtree.orgs (org_id, slug, org_uuid, database, state, "
-                        "unavailable_step, state_reason, report_path, attempted_build, "
-                        "legacy_database, legacy_org_id, legacy_file) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                        (org_id, slug, org_uuid or str(uuid.uuid4()), database,
-                         state, unavailable_step, state_reason, report_path,
-                         self.build if state == "unavailable" else None,
-                         legacy_database, legacy_org_id, legacy_file))
-                except psycopg.errors.UniqueViolation as e:
-                    raise LifecycleError(f"an org named {slug!r} (or with that uuid) exists") from e
+                c.execute(
+                    "INSERT INTO orgtree.orgs (org_id, slug, org_uuid, database, state, "
+                    "unavailable_step, state_reason, report_path, attempted_build, "
+                    "legacy_database, legacy_org_id, legacy_file) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (org_id, slug, org_uuid or str(uuid.uuid4()), database,
+                     state, unavailable_step, state_reason, report_path,
+                     self.build if state == "unavailable" else None,
+                     legacy_database, legacy_org_id, legacy_file))
+        except psycopg.errors.UniqueViolation as e:
+            raise LifecycleError(f"an org named {slug!r} (or with that uuid) exists") from e
         return org_id
 
     def set_legacy_source(self, org_id: int, *, legacy_database: str, legacy_org_id: int) -> None:
@@ -425,9 +446,9 @@ class Lifecycle:
     def create_org(self, slug: str, *, org_uuid: str | None = None,
                    prepare_folder: Callable[[str], None] | None = None) -> int:
         """A new, empty org, published active (§2.13 Create)."""
-        org_id = self.register_org(slug, state="provisioning", org_uuid=org_uuid)
-        self.resume_create(self.claim(org_id, "create"), prepare_folder=prepare_folder)
-        return org_id
+        claim = self._register_claimed(slug, "create", org_uuid=org_uuid)
+        self.resume_create(claim, prepare_folder=prepare_folder)
+        return claim.org_id
 
     def resume_create(self, claim: Claim, *,
                       prepare_folder: Callable[[str], None] | None = None) -> None:
@@ -454,26 +475,43 @@ class Lifecycle:
         'provisioning' and claimed, and gets a migrated staging database the runtime may fill;
         mark_filled() then publish() make it active, and cancel_create() removes every trace,
         as a failed create_org leaves nothing today. A crash in between leaves a 'create'
-        claim, which take_over() returns and resume_create() finishes as an empty org."""
-        org_id = self.register_org(slug, state="provisioning", org_uuid=org_uuid)
-        claim = self.claim(org_id, "create")
-        row = self.row(org_id)
-        stage = self._prepare(claim, row, writer=True)
+        claim, which take_over() returns and resume_create() finishes as an empty org.
+
+        The row is registered already claimed (one transaction). An ordinary error before the
+        Build is returned (building and migrating the staging database) is a failed create too:
+        this attempt's staging database and row are removed here, fenced by its claim, so the
+        name can be created again at once (review f23). Busy and LostClaim mean the org is no
+        longer this attempt's to clean up."""
+        claim = self._register_claimed(slug, "create", org_uuid=org_uuid)
+        try:
+            row = self.row(claim.org_id)
+            stage = self._prepare(claim, row, writer=True)
+        except (Busy, LostClaim):
+            raise
+        except Exception:
+            try:
+                self._cancel_create(claim)
+            except Exception:                                   # noqa: BLE001
+                pass      # the claim stays: take_over() and resume_create() finish it later
+            raise
         return Build(claim, stage, str(row["database"]), slug, str(row["org_uuid"]))
 
     def cancel_create(self, build: Build) -> None:
         """begin_create()'s first save failed: drop its staging database and its row."""
-        row = self.row(build.claim.org_id)
-        self._check_current(row, build.claim)
+        self._cancel_create(build.claim)
+
+    def _cancel_create(self, claim: Claim) -> None:
+        row = self.row(claim.org_id)
+        self._check_current(row, claim)
         stage = row["op_target_db"]
         if stage and stage != row["database"] and names.kind(stage, self.prefix) == "stage":
             self._drop_db(stage)
         with self._app() as c:
             n = c.execute("DELETE FROM orgtree.orgs WHERE org_id = %s AND op_kind = 'create' "
                           "AND op_epoch = %s AND op_owner = %s AND state = 'provisioning'",
-                          (build.claim.org_id, build.claim.epoch, self._me())).rowcount
+                          (claim.org_id, claim.epoch, self._me())).rowcount
         if n != 1:
-            raise LostClaim(f"org {build.claim.org_id}: claim create#{build.claim.epoch} moved on")
+            raise LostClaim(f"org {claim.org_id}: claim create#{claim.epoch} moved on")
 
     def _renamed_already(self, row: dict[str, Any]) -> bool:
         """A crash between the rename and its record leaves the final database

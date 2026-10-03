@@ -9,9 +9,9 @@ connection pinned, and COMMIT swallowed too until the org_tx arms it. Every othe
 store.py's own SQL, answered by ``sql.run`` from the org's database.
 
 Connections. One raw psycopg connection per checkout, to the org's own database as the
-runtime role, from the registry module's idle pool (``orgdb.registry.checkout``). A
-connection opened for the first time checks ``org_identity`` against the registry (design
-§2.11), so a database that is not this org's is never written.
+runtime role, from the registry module's idle pool (``orgdb.registry.checkout``). Every
+checkout checks ``org_identity`` against the registry (design §2.11), so a database that is
+not this org's is never written.
 
 Revision. ``on_save_commit`` bumps ``org_revision`` and NOTIFYs ``org_rev`` with
 ``'<slug>:<rev>'`` on the org's database, in the save's transaction, as pgstore does on the

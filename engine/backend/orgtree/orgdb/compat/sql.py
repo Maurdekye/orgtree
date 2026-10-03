@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from typing import Any, Callable, Sequence
 
 from . import rows as R
@@ -390,8 +391,13 @@ def _doc_insert_absent(conn: Any, p: Sequence[Any]) -> Result:
                           "ON CONFLICT (section, agent_id) DO NOTHING", (sect, aid, sect)).rowcount
             if not n:
                 return _w(0)
-        elif R.doc_get(c, key, names=names, lock=True) is not None:
-            return _w(0)
+        else:
+            # the absent decision and the insert are one step (review f21): a second inserter
+            # of this key waits here for the first's transaction, then sees its row and
+            # inserts nothing, as the legacy statement waited on the uncommitted row
+            R.lock_doc_key(c, key)
+            if R.doc_get(c, key, names=names, lock=True) is not None:
+                return _w(0)
         R.doc_put(c, conn.tx, key, text, names)
         return _w(1)
 
@@ -518,9 +524,18 @@ def _nodes_cas_batch(conn: Any, p: Sequence[Any]) -> Result:
 def _node_insert(conn: Any, p: Sequence[Any]) -> Result:
     name, _ord, text = p
     with conn.atomic(write=True):
+        names = _names(conn)
+        # the name's lock comes BEFORE the absent check (review f21): a second inserter waits
+        # for the first's transaction, then finds its node and is refused as the legacy
+        # primary key refused it; an insert never takes node_put's existing-node branch
+        names.lock(name)
         if R.nodes(conn.raw, [name]):
-            raise CompatError(f"node {name!r} inserted twice")
-        R.node_put(conn.raw, name, json.loads(text), _names(conn))
+            err = sqlite3.IntegrityError(
+                f'postgres 23505: duplicate key value violates unique constraint "nodes_pkey" '
+                f'(node {name!r})')
+            setattr(err, "sqlstate", "23505")
+            raise err
+        R.node_put(conn.raw, name, json.loads(text), names)
         return _w(1)
 
 

@@ -41,7 +41,10 @@ exactly as the legacy sequence never made two appends conflict.
 Concurrency. Every compare-and-set locks the rows it decides on (``FOR UPDATE``) before it
 reads them, so a concurrent writer of the same row waits and then compares with the committed
 value, as the legacy ``UPDATE ... WHERE val=?`` did. Names become agent ids under a per-name
-advisory lock, so one name never gets two rows.
+advisory lock, so one name never gets two rows. An insert that needs its key or node absent
+takes that key's (or name's) advisory lock BEFORE it looks, so a second inserter waits for the
+first's transaction and then sees its row: nothing (doc) or a duplicate-key refusal (nodes),
+as the legacy insert that waited on the uncommitted row got.
 """
 
 from __future__ import annotations
@@ -563,6 +566,12 @@ def doc_rows(c: Any, keys: Iterable[str] | None = None, *, names: Names | None =
         for slug, (version, text) in items(c).items():
             out[model().workrows.PREFIX + slug] = (version, text)
     return out
+
+
+def lock_doc_key(c: Any, key: str) -> None:
+    """Serialise the inserters of one doc key until the transaction ends (an advisory lock:
+    a key that is absent has no row to lock)."""
+    c.execute("SELECT pg_advisory_xact_lock(hashtext('orgdb-doc-key'), hashtext(%s))", (key,))
 
 
 def doc_get(c: Any, key: str, *, names: Names | None = None,
