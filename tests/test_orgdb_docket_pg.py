@@ -384,6 +384,58 @@ class NativePaths(unittest.TestCase):
                 raw.execute("UPDATE orgtree.asks SET questions=%s WHERE public_id='ask-1'",
                             (Json(DOC['asks'][0]['questions']),))
 
+    def test_all_dispatched_work_item_encoders_supply_exact_derived_fields(self):
+        from orgtree.orgdb import docket
+        from orgtree.orgdb.compat import rows as compat_rows
+        from orgtree.orgdb.mappers.docket import Docket, WORK_ITEM
+        original_active = next(r for r in DOC['work_items'] if r['slug']=='expired')
+        original_archive = next(r for r in DOC['work_items_archive'] if r['slug']=='old')
+        real_encode,seen = codec.encode,[]
+        def encode(spec,record,keys,*args,**kwargs):
+            if spec is WORK_ITEM:
+                fields = docket.write_fields(record)
+                self.assertTrue(set(fields)<=set(keys),'work-item encoder skipped row_keys')
+                self.assertEqual({key:keys[key] for key in fields},fields)
+                seen.append(spec)
+            return real_encode(spec,record,keys,*args,**kwargs)
+        with conn.connect(ADMIN,DATABASE) as admin:
+            admin.execute("SELECT setval(pg_get_serial_sequence('orgtree.work_items','id'),"
+                          "(SELECT max(id) FROM orgtree.work_items),true)")
+        try:
+            for path in ('convert','save','archive_append','archive_replace'):
+                with self.subTest(path=path), patch.object(codec,'encode',side_effect=encode):
+                    seen.clear()
+                    if path=='convert':
+                        Docket().encode(dict(work_items=[dict(original_active,docket_at='2026-W40-5')]),
+                                        sections.Context(),{})
+                    else:
+                        with writer() as raw:
+                            ls = compat_rows.model().logs['work_items_archive']
+                            if path=='save':
+                                record = dict(original_active,docket_at='2026-10-02X00:00:00+00:00',owner={'node':1})
+                                compat_rows.item_put(raw,compat_rows.Tx(),record['slug'],record)
+                                body = json.loads(compat_rows.item(raw,record['slug'])[1])
+                            else:
+                                record = dict(original_archive,docket_at='invalid\x00date',owner={'node':True})
+                                if path=='archive_append':
+                                    record['slug'] = 'archive-derived-edge'
+                                    compat_rows.log_insert(raw,ls,None,json.dumps(record),compat_rows.Names(raw))
+                                else:
+                                    rid = raw.execute("SELECT id FROM orgtree.work_items WHERE slug='old'").fetchone()[0]
+                                    self.assertEqual(compat_rows.log_replace(raw,ls,rid,json.dumps(record),expected=None),1)
+                                rid = raw.execute('SELECT id FROM orgtree.work_items WHERE slug=%s',(record['slug'],)).fetchone()[0]
+                                body = json.loads(compat_rows.log_rows(raw,ls,ids=[rid])[0][3])
+                            self.assertEqual(body,record)
+                            fields = docket.write_fields(record)
+                            self.assertEqual(raw.execute('SELECT '+codec.quoted(fields)+
+                                ' FROM orgtree.work_items WHERE slug=%s',(record['slug'],)).fetchone(),tuple(fields.values()))
+                    self.assertTrue(seen,'work-item encoder did not execute')
+        finally:
+            with writer() as raw:
+                self.replace_record(raw,original_active)
+                self.replace_record(raw,original_archive)
+                raw.execute("DELETE FROM orgtree.work_items WHERE slug='archive-derived-edge'")
+
     def test_detail_full_compact_summary_and_disclosure(self):
         for options in ({}, {'compact': True}, {'projection': 'summary'},
                         {'fields': ['objective', 'owner', 'scope', 'reply_recipients']}):
