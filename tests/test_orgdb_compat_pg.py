@@ -825,6 +825,53 @@ class InsertRaces(unittest.TestCase):
             self.assertEqual(out['rows'], 1)
             self.assertEqual(store.load_org(t.copy).d['max_children'], 5)
 
+    def test_a_settings_writer_over_all_nodes_and_a_named_one_both_commit(self) -> None:
+        # review f24 (ALL plans, settingstx.whole_org_tx's path): a transaction over ALL nodes
+        # locked node:* and every agent row before its block took the settings fence; a
+        # named-node settings writer took the fence in its block, then waited for node:*: a
+        # deadlock. The ALL transaction is paused right after its early locks (before its
+        # block), the named one starts in that gap; both must commit
+        from unittest.mock import patch
+        from orgtree.orgdb.compat import tx as compat_tx
+        t = Twins('allrace')
+        database = registry.lookup(t.copy)[1]
+        real = compat_tx._lock_rows
+        paused, release = threading.Event(), threading.Event()
+        out: dict = {}
+
+        def slow(*a, **k):
+            if threading.current_thread().name == 'all-nodes':
+                paused.set()
+                release.wait(30)
+            return real(*a, **k)
+
+        def body(name: str, value: int, nodes) -> None:
+            try:
+                with orgtx.org_tx(t.copy, nodes=nodes, sections=['max_children']) as tx:
+                    tx.d['max_children'] = value
+                out[name] = 'committed'
+            except BaseException as e:       # noqa: BLE001  the outcome under test
+                out[name] = e
+        with storage(True):
+            org = store.load_org(t.copy)
+            org.d['max_children'] = 3                          # seeded
+            store.save_org(org)
+            with patch.object(compat_tx, '_lock_rows', slow):
+                a = threading.Thread(target=body, name='all-nodes', args=('all', 7, orgtx.ALL))
+                a.start()
+                try:
+                    self.assertTrue(paused.wait(30), 'the ALL transaction never took its early locks')
+                    b = threading.Thread(target=body, name='named', args=('named', 5, ['dev']))
+                    b.start()
+                    self.assertTrue(wait_for(lambda: lock_waiters(database) > 0),
+                                    'the named transaction never waited')
+                finally:
+                    release.set()
+                    a.join(60)
+                b.join(60)
+            self.assertEqual(out, {'all': 'committed', 'named': 'committed'})
+            self.assertEqual(store.load_org(t.copy).d['max_children'], 5)
+
     def test_settings_writers_share_one_fence(self) -> None:
         # every settings key is one row: one transaction writing settings A then B, and
         # another writing B, must queue whole, not each hold a key the other needs

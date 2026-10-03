@@ -38,6 +38,12 @@ from . import conn as C
 from . import rows as R
 
 
+def _writes_settings(tx: orgtx.OrgTx) -> bool:
+    """May this transaction write a settings key (one it locks FOR UPDATE)?"""
+    return any(R.SEP not in name and R.fence_key(name, creating=False) == R.SETTINGS_FENCE
+               for name in tx.lock_sections)
+
+
 def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> str | None:
     """``orgtx._lock_block`` for an org database: one DO block, entries in plan order."""
     if not entries:
@@ -162,10 +168,12 @@ class OrgDbBackend:
                     if again is None or again[0] != conn.org_id or again[2] != "active":
                         raise LedgerError(f"no such org: {tx.slug!r}")
                     orgtx._receipt_scope(tx, False)                     # pyright: ignore[reportPrivateUsage]
-                    if tx.whole:
-                        # a whole-org transaction locks every row, settings rows included, and
-                        # may write any settings key: the settings fence first, as every other
-                        # settings writer takes it (rows.fence_key, review f24)
+                    if tx.whole or (tx.all_nodes and _writes_settings(tx)):
+                        # a whole-org transaction (every row, settings rows included), and one
+                        # over ALL nodes that may write a settings key (it locks every agent row
+                        # below, before its plan's block): the settings fence first, before
+                        # any row, as every other settings writer takes it (rows.fence_key,
+                        # review f24; settingstx.whole_org_tx is such a caller)
                         raw.execute("SELECT pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
                                     "hashtext(%s))", (R.SETTINGS_FENCE,))
                     ids: list[str] = []
