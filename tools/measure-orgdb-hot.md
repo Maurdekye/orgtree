@@ -29,7 +29,8 @@ targets' actual `data_directory` lies under `artifacts/p03-db/<agent>`.
 It refuses other hosts, clusters, runtime roles and malformed template names
 before creating a database. URLs go to children through stdin, never arguments
 or output files. Children use isolated homes/data roots and scrubbed provider
-credentials. Every engine process launch is denied during measurement; startup
+credentials. Provider and other process launches are denied during measurement;
+the shared guard allows only its fixed read-only Git metadata commands. Startup
 alone may launch its real converter.
 
 The default operation set is all reads and writes. `--operations` accepts a

@@ -335,7 +335,9 @@ def child():
             lc.bootstrap()
             registry.use_lifecycle(lc)
         from launch_guard import LaunchAudit
-        audit = LaunchAudit(Path(cfg['root']), git=None, providers=[])
+        # Production view code reads build identity. The shared guard permits
+        # only its fixed read-only Git argument forms, never arbitrary Git.
+        audit = LaunchAudit(Path(cfg['root']), git=shutil.which('git'), providers=[])
         sys.addaudithook(audit)
         from orgtree import api, foreground_api, foreground_store, identity_context, orgtx, store
         from orgtree import worklist, workdetail, workread
