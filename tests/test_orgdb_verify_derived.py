@@ -48,7 +48,10 @@ def leftovers(dest):
 
 class DerivedColumns(unittest.TestCase):
     def test_each_declared_docket_projection_is_not_compared_as_data(self):
-        for column in ov.DERIVED['work_items']:
+        for column in ('docket_policy_extra', 'docket_list_extra', 'docket_scope_meta',
+                       'docket_manual', 'docket_order', 'docket_deadline',
+                       'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
+                       'docket_anchor_key'):
             with self.subTest(column=column):
                 connection = DestinationConnection({'id': 'bigint', column: 'text'},
                                                    {'id': 1, column: 'changed derived value'})
@@ -58,17 +61,18 @@ class DerivedColumns(unittest.TestCase):
                 self.assertNotIn('"' + column + '"', connection.selects[0])
 
     def test_unmapped_data_value_is_read_and_rejected_with_same_row_count(self):
-        connection = DestinationConnection({'id': 'bigint', 'new_legacy_data': 'text'},
-                                           {'id': 1, 'new_legacy_data': None})
+        # A matching prefix is not enough to classify an unknown value as derived.
+        connection = DestinationConnection({'id': 'bigint', 'docket_unmapped_data': 'text'},
+                                           {'id': 1, 'docket_unmapped_data': None})
         clean = leftovers(ov.Dest(connection))
         self.assertEqual(clean.problems, [])
-        self.assertTrue(any('new_legacy_data' in note for note in clean.notes))
-        connection.row['new_legacy_data'] = 'planted data'
+        self.assertTrue(any('docket_unmapped_data' in note for note in clean.notes))
+        connection.row['docket_unmapped_data'] = 'planted data'
         checker = leftovers(ov.Dest(connection))
         self.assertEqual(len(checker.problems), 1)
-        self.assertEqual(checker.problems[0]['field'], 'new_legacy_data')
+        self.assertEqual(checker.problems[0]['field'], 'docket_unmapped_data')
         self.assertEqual(checker.problems[0]['problem'], 'unmapped column holds values in 1 rows')
-        self.assertIn('"new_legacy_data"', connection.selects[-1])
+        self.assertIn('"docket_unmapped_data"', connection.selects[-1])
 
     def test_agent_numeric_profiles_preserve_type_and_detect_value_changes(self):
         for name in ('ui_order', 'cost_usd'):
