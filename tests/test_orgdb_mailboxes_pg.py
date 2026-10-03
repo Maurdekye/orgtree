@@ -248,6 +248,7 @@ class Mailboxes(unittest.TestCase):
                         c.execute('SELECT 1 FROM orgtree.mailboxes m JOIN orgtree.agents a '
                                   "ON a.id=m.agent_id WHERE a.name='dev' FOR UPDATE OF m")
                         race.mark('mailbox-held')
+                        race.mark('mailbox-releasing')
                         c.execute('COMMIT')
                     finally:
                         registry.release(c, reg[1])
@@ -261,6 +262,7 @@ class Mailboxes(unittest.TestCase):
                 self.assertIn('postgres Lock/transactionid', race.blocked_on['B'])
                 race.release(held)
                 race.join(a, b)
+                race.expect_order('A.mailbox-releasing', 'B.after_lock')
                 self.assertEqual(b.result['recv_seq'], 12)
         finally:
             os.environ['ORGTREE_PG_URL'] = old_url
