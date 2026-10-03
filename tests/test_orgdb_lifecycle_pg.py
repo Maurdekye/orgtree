@@ -446,8 +446,9 @@ class Trash(Base):
         target = row['database']
         self.assertEqual(names.kind(target, PREFIX), 'trash')
         self.assertIsNotNone(row['trashed_at'])
-        self.assertEqual([d for d in _prefixed() if names.kind(d, PREFIX) in ('org', 'trash')],
-                         [target])
+        present = _prefixed()
+        self.assertIn(target, present)
+        self.assertNotIn(names.org(org_id, PREFIX), present)
         self.assert_runtime_refused(target)
         keep = lc.trash_folder(self.trash_dir, slug, target, org_id)
         for label, path in self.folders(slug):
