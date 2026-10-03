@@ -18,18 +18,19 @@ calls `finish` when the attempt ends. `finish` appends ONE JSON line to
 
 A line carries: UTC time, pid, org slug, the caller label (`label()`), the
 lock plan summary (flags, counts, up to 20 node ids, section names, logs),
-wait/hold ms and the outcome. On a LOCK TIMEOUT it also carries `blockers`:
-the other database sessions that hold or wait for advisory locks at that
-moment (pid, their own caller label from `application_name`, state,
-transaction age, what they wait on, who blocks them). Every org transaction
-tags its session with its caller label (`app_name`, `SET LOCAL
-application_name` in the BEGIN batch), which is what makes a blocker
-nameable.
+wait/hold ms and the outcome (a failure: its type, SQLSTATE and where it
+was raised, never its message). On a LOCK TIMEOUT it also carries
+`blockers`: the other database sessions most likely to block it, those
+holding the plan's own lock keys first (pid, their own caller label from
+`application_name`, state, transaction age, what they wait on, who blocks
+them). Every org transaction tags its session with its caller label
+(`app_name`, `SET LOCAL application_name` in the BEGIN batch), which is
+what makes a blocker nameable.
 
 PRIVACY: plan names are node ids and section names; labels are route
 templates, tool verbs or function names. No statement text is recorded
-except the leading words of orgtree's own lock statements, so no message
-body, token or key can reach the file.
+except the leading word of orgtree's own lock statements, and no exception
+message, so no message body, token or key can reach the file.
 
 NEVER FAILS A TRANSACTION: every entry point swallows its own errors, and
 the cost when nothing is logged is a few clock reads per attempt. The file
@@ -43,7 +44,7 @@ import re
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Sequence
 
 #: Log an attempt that waited for or held its locks at least this long.
 THRESHOLD_MS = float(os.environ.get("ORGTREE_TXLOG_MS", "1000"))
@@ -143,39 +144,110 @@ def finish(txs: list[Any], started: float, exc: BaseException | None) -> None:
                 else type(exc).__name__,
                 "plan": _plan(tx)}
             if exc is not None:
-                row["error"] = _clean(str(exc).splitlines()[0] if str(exc) else "")[:200]
+                row.update(_error(exc))
                 from .orgtx import LockTimeout
                 if isinstance(exc, LockTimeout):
-                    row["blockers"] = blockers()
+                    row["blockers"] = blockers(txs)
             emit(row)
     except Exception:                                           # noqa: BLE001
         pass
 
 
-def blockers() -> list[dict[str, Any]] | str:
-    """The OTHER database sessions holding or waiting for advisory locks
-    right now (orgtree's row locks are advisory keys plus row locks), each
-    with who blocks it. A separate short connection: the timed-out one is
-    in a failed transaction. Statement text is reduced to the leading words
-    of orgtree's own lock statements."""
+def _error(exc: BaseException) -> dict[str, Any]:
+    """What failed, WITHOUT the exception's message: a message can carry any
+    value the body handled (a token, a message body), so only the type, the
+    SQLSTATE and the code location where it was raised are kept."""
+    out: dict[str, Any] = {}
+    try:
+        seen: set[int] = set()
+        e: BaseException | None = exc
+        while e is not None and id(e) not in seen:      # the driver's error is the cause
+            seen.add(id(e))
+            state = getattr(e, "sqlstate", None)
+            if isinstance(state, str) and re.fullmatch(r"[0-9A-Z]{5}", state):
+                out["sqlstate"] = state
+                break
+            e = e.__cause__ or e.__context__
+        tb = exc.__traceback__
+        while tb is not None and tb.tb_next is not None:
+            tb = tb.tb_next
+        if tb is not None:
+            co = tb.tb_frame.f_code
+            out["raised_at"] = _clean(f"{os.path.basename(co.co_filename)}:"
+                                      f"{tb.tb_lineno}:{co.co_name}")
+    except Exception:                                           # noqa: BLE001
+        pass
+    return out
+
+
+def _keys(tx: Any) -> list[tuple[str, bool]]:
+    """The advisory-lock names (`kind:name`) the attempt's plan takes, each
+    with whether it is taken exclusively; both PostgreSQL backends key them
+    `(org_id, hashtext(name))`."""
+    from . import orgtx
+    try:
+        return [(f"{kind}:{name}", bool(ex))
+                for kind, name, ex in orgtx._lock_plan(tx)]   # pyright: ignore[reportPrivateUsage]
+    except Exception:                                           # noqa: BLE001
+        return [(f"org:{orgtx._ORG_KEY}", bool(tx.whole))]   # pyright: ignore[reportPrivateUsage]
+
+
+def blockers(txs: Sequence[Any] = ()) -> list[dict[str, Any]] | str:
+    """The OTHER database sessions that can be blocking `txs`, most likely
+    first, each with who blocks it. A separate short connection (the
+    timed-out one is in a failed transaction), bounded by statement_timeout.
+
+    The timed-out session no longer waits, so `pg_blocking_pids` of it says
+    nothing; instead sessions are ranked: 0 = holds one of the exact
+    advisory keys the plan asked for in a CONFLICTING mode (either side
+    exclusive; every org_tx holds the org key shared), 1 = holds an
+    advisory lock in the same org, 2 = holds or waits for any advisory lock, 3 = any other open
+    transaction (a plain row lock). MAX_BLOCKERS are kept, by rank then
+    transaction age, so older unrelated sessions cannot push the holder out.
+    Statement text is reduced to the leading word of orgtree's own lock
+    statements."""
     try:
         from . import store
         if store.STORE_BACKEND != "postgres":
             return []
         from . import pgstore
+        org_ids: list[int] = []
+        key_orgs: list[int] = []
+        key_names: list[str] = []
+        key_excl: list[bool] = []
+        for tx in txs:
+            oid = getattr(tx, "log_org_id", None)
+            if oid is None:
+                continue
+            org_ids.append(int(oid))
+            for k, ex in _keys(tx):
+                key_orgs.append(int(oid))
+                key_names.append(k)
+                key_excl.append(ex)
         with pgstore.connect() as c:
+            c.execute("SET statement_timeout = '2s'")
             rows = c.execute(
+                "WITH want AS (SELECT o::oid AS k1, hashtext(n)::oid AS k2, x "
+                "  FROM unnest(%s::int[], %s::text[], %s::bool[]) AS w(o, n, x)), "
+                "adv AS (SELECT l.pid, bool_or(l.granted) AS holds, "
+                "  bool_or(NOT l.granted) AS waits, "
+                "  min(CASE WHEN l.granted AND l.objsubid = 2 AND EXISTS ("
+                "        SELECT 1 FROM want w WHERE w.k1 = l.classid AND w.k2 = l.objid "
+                "        AND (w.x OR l.mode = 'ExclusiveLock')) THEN 0 "
+                "      WHEN l.objsubid = 2 AND l.classid = ANY(%s::int[]::oid[]) THEN 1 "
+                "      ELSE 2 END) AS rank "
+                "  FROM pg_locks l WHERE l.locktype = 'advisory' GROUP BY l.pid) "
                 "SELECT a.pid, a.application_name, a.state, a.wait_event_type, "
                 "round(extract(epoch FROM now() - a.xact_start) * 1000), "
-                "pg_blocking_pids(a.pid), "
-                "bool_or(l.granted), bool_or(NOT l.granted), left(a.query, 40) "
-                "FROM pg_stat_activity a JOIN pg_locks l ON l.pid = a.pid "
-                "WHERE l.locktype = 'advisory' AND a.pid <> pg_backend_pid() "
-                "GROUP BY a.pid, a.application_name, a.state, a.wait_event_type, "
-                "a.xact_start, a.query "
-                "ORDER BY a.xact_start NULLS LAST LIMIT %s", (MAX_BLOCKERS,)).fetchall()
+                "pg_blocking_pids(a.pid), coalesce(adv.holds, false), "
+                "coalesce(adv.waits, false), left(a.query, 40), coalesce(adv.rank, 3) "
+                "FROM pg_stat_activity a LEFT JOIN adv ON adv.pid = a.pid "
+                "WHERE a.pid <> pg_backend_pid() "
+                "AND (adv.pid IS NOT NULL OR a.xact_start IS NOT NULL) "
+                "ORDER BY coalesce(adv.rank, 3), a.xact_start NULLS LAST LIMIT %s",
+                (key_orgs, key_names, key_excl, org_ids, MAX_BLOCKERS)).fetchall()
         out = []
-        for pid, app, state, wait, age, by, holds, waits, q in rows:
+        for pid, app, state, wait, age, by, holds, waits, q, rank in rows:
             q = str(q or "")
             kind = ("lock block" if q.startswith("DO $orgtx_")
                     else "advisory lock" if q.startswith("SELECT pg_advisory")
@@ -183,7 +255,8 @@ def blockers() -> list[dict[str, Any]] | str:
             out.append({"pid": pid, "label": _clean(app or ""), "state": state,
                         "waiting_on": wait, "xact_ms": age, "blocked_by": list(by or []),
                         "holds_advisory": bool(holds), "waits_advisory": bool(waits),
-                        "statement": kind})
+                        "holds_plan_key": rank == 0, "same_org": rank <= 1,
+                        "statement": _clean(kind)[:20]})
         return out
     except Exception as e:                                      # noqa: BLE001
         return f"unavailable: {type(e).__name__}"

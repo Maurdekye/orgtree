@@ -264,9 +264,11 @@ class OrgTx:
     #: `lock_nodes` / `lock_sections` / `logs` hold what was listed under it
     whole: bool = False
     #: txlog: the caller label (also the session's application_name) and the
-    #: perf_counter time each lock point was reached in this attempt
+    #: perf_counter time each lock point was reached in this attempt, and the
+    #: org_id its advisory lock keys use (PostgreSQL; names a timeout's holder)
     log_label: str = ""
     log_marks: dict[str, float] = field(default_factory=lambda: {})
+    log_org_id: int | None = None
 
     @property
     def d(self) -> dict[str, Any]:
@@ -1007,6 +1009,7 @@ class PgBackend:
         raw = pgstore._checkout()                  # pyright: ignore[reportPrivateUsage]
         shared: list[int | None] = [None]
         for tx in order:
+            tx.log_org_id = conns[tx.slug]
             c = pgstore.PgConn(raw, tx.slug, conns[tx.slug])
             c.path_holder = shared
             conns[tx.slug] = c
@@ -1436,6 +1439,8 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
         lbl = getattr(_open, "log_label", "")
         for t in txs:
             t.log_label = lbl
+        # this attempt's objects: a retry rebuilds `txs` before `finally` runs
+        tried = txs
         started = time.perf_counter()
         failed: BaseException | None = None
         try:
@@ -1454,7 +1459,8 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
                                  f"{h.rows} (a writer keeps restoring a pre-heal shape)") from h
             heal_next, heal_stale = h.slug, h.stale_epoch
             continue
-        except Retryable:
+        except Retryable as e:
+            failed = e                         # logged even when retried
             if body_ran or attempt >= retries:
                 raise
             attempt += 1
@@ -1471,7 +1477,7 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
                 open_slugs.discard(sl)
                 registry.pop(sl, None)
             if not _expected(failed):
-                txlog.finish(txs, started, failed)
+                txlog.finish(tried, started, failed)
         return txs
 
 
