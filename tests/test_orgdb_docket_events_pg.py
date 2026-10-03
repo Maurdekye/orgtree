@@ -245,6 +245,56 @@ class StableWrites(unittest.TestCase):
                 with conn.connect(fixture.ADMIN,'postgres') as admin:
                     admin.execute('DROP DATABASE IF EXISTS '+codec.quote(database)+' WITH (FORCE)')
 
+    def test_savepoint_reopen_discards_original_archive_cas_then_retries_exactly(self):
+        with self.view() as view:
+            archived = event_record()
+            archived.update(slug='savepoint-archive',status='done',archived_at=fixture.AT)
+            seq = view.execute('INSERT INTO log_l(sect, at, val) VALUES(?,?,?)',
+                ('work_items_archive',None,R.dumps(archived))).lastrowid
+            rid = self.row(view,archived['slug'])[0]
+            old = self.events(view,rid)
+            reopened = dict(archived,status='in_progress',candidate_verdict=None,review_packet=None)
+            reopened.pop('archived_at')
+            view.raw.execute('SAVEPOINT archive_move')
+            self.put(view,reopened)
+            self.assertTrue(R.docket_pending(view.raw)['moved'])
+            view.raw.execute('ROLLBACK TO SAVEPOINT archive_move')
+            self.assertEqual(R.docket_pending(view.raw),{'deleted':[],'moved':{}})
+            self.assertEqual(self.row(view,archived['slug'])[:2],(rid,'archive'))
+            self.assertEqual(self.events(view,rid),old)
+            self.put(view,reopened)
+            self.assertEqual(view.execute('DELETE FROM log_l WHERE seq=? AND val=?',
+                (seq,R.dumps(archived))).rowcount,1)
+            R.docket_finish(view.raw,view.tx)
+            self.assertEqual(self.row(view,archived['slug'])[:2],(rid,'active'))
+            self.assertEqual(self.events(view,rid),old)
+
+    def test_unfinished_reopen_commit_rolls_back_and_reused_connection_is_clean(self):
+        with self.view(begin=False) as view:
+            archived = event_record()
+            archived.update(slug='unfinished-reopen',status='done',archived_at=fixture.AT)
+            seq = view.execute('INSERT INTO log_l(sect, at, val) VALUES(?,?,?)',
+                ('work_items_archive',None,R.dumps(archived))).lastrowid
+            rid = self.row(view,archived['slug'])[0]
+            old = self.events(view,rid)
+            try:
+                view.execute('BEGIN IMMEDIATE')
+                reopened = dict(archived,status='in_progress')
+                reopened.pop('archived_at')
+                self.put(view,reopened)
+                with self.assertRaisesRegex(R.CompatError,'original archive row unremoved'):
+                    view.execute('COMMIT')
+                self.assertFalse(view.in_transaction)
+                view.execute('BEGIN IMMEDIATE')
+                self.assertEqual(R.docket_pending(view.raw),{'deleted':[],'moved':{}})
+                self.assertEqual(self.row(view,archived['slug'])[:2],(rid,'archive'))
+                self.assertEqual(self.events(view,rid),old)
+                view.execute('COMMIT')
+            finally:
+                if view.in_transaction:
+                    view.execute('ROLLBACK')
+                view.execute('DELETE FROM log_l WHERE seq=?',(seq,))
+
 
 if __name__=='__main__':
     unittest.main()
