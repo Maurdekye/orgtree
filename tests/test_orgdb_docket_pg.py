@@ -308,6 +308,43 @@ class NativePaths(unittest.TestCase):
             with writer() as raw:
                 raw.execute("UPDATE orgtree.agents SET lineage_born='worker-seat' WHERE name='worker'")
 
+    def test_ancestor_access_follows_exact_parent_chain_and_tombstones(self):
+        try:
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.work_items SET created_by_node='other' WHERE slug='one'")
+            with snapshot('boss') as q:
+                self.assertIsNotNone(q.lookup('one'))
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.agents SET parent_id=(SELECT id FROM orgtree.agents WHERE name='other'),parent='other' WHERE name='worker'")
+            with snapshot('boss') as q:
+                self.assertIsNone(q.lookup('one'))
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.agents SET parent_id=(SELECT id FROM orgtree.agents WHERE name='boss'),parent='boss',tombstone=true WHERE name='worker'")
+            with snapshot('boss') as q:
+                self.assertIsNone(q.lookup('one'))
+        finally:
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.agents SET parent_id=(SELECT id FROM orgtree.agents WHERE name='boss'),parent='boss',tombstone=false WHERE name='worker'")
+                raw.execute("UPDATE orgtree.work_items SET created_by_node='boss' WHERE slug='one'")
+
+    def test_falsy_original_date_uses_update_date_for_archive_policy(self):
+        from psycopg.types.json import Json
+        try:
+            with writer() as raw:
+                original = raw.execute("SELECT extra FROM orgtree.work_items WHERE slug='expired'").fetchone()[0]
+            for value in (False,0,'',[],{}):
+                with self.subTest(value=value):
+                    with writer() as raw:
+                        raw.execute("UPDATE orgtree.work_items SET docket_at=NULL,docket_at_text=NULL,extra=%s WHERE slug='expired'",
+                                    (Json({**(original or {}),'docket_at':value}),))
+                    with snapshot('worker') as q:
+                        self.assertNotIn('expired',{r.summary['slug'] for r in q.foreground()})
+                        rows,_ = q.archive()
+                        self.assertIn('expired',{r.summary['slug'] for r in rows})
+        finally:
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.work_items SET docket_at=%s,docket_at_text=NULL,extra=%s WHERE slug='expired'",(AT,Json(original)))
+
     def test_desktop_stamp_and_body_use_one_snapshot(self):
         original = work_ui._native_stamp
         def commit_after_stamp(q):
@@ -323,7 +360,7 @@ class NativePaths(unittest.TestCase):
             self.assertEqual(next(r for r in old['items'] if r['slug']=='one')['title'],'Title one')
             new_token,new = work_ui.read(SLUG,since=old_token)
             self.assertNotEqual(new_token,old_token)
-            self.assertEqual(next(r for r in new['items'] if r['slug']=='one')['title'],'desktop concurrent edit')
+            self.assertEqual(next(r for r in new['delta']['items']['upsert'] if r['slug']=='one')['title'],'desktop concurrent edit')
         finally:
             with writer() as raw:
                 raw.execute("UPDATE orgtree.work_items SET title='Title one' WHERE slug='one'")
@@ -337,6 +374,68 @@ class NativePaths(unittest.TestCase):
         self.assertEqual(light['status_at'],full['status_at'])
         self.assertNotIn('history',light)
         self.assertNotIn('scope',light)
+
+    def test_status_metadata_query_stays_bounded_as_history_grows(self):
+        from orgtree.orgdb import docket
+        class Cursor:
+            def __init__(self,cur,calls):
+                self.cur,self.calls = cur,calls
+            def __enter__(self):
+                self.cur.__enter__()
+                return self
+            def __exit__(self,*args):
+                return self.cur.__exit__(*args)
+            def execute(self,sql,params=()):
+                self.calls.append((sql,params))
+                return self.cur.execute(sql,params)
+            def __getattr__(self,key):
+                return getattr(self.cur,key)
+        class Trace:
+            def __init__(self,raw):
+                self.raw,self.calls = raw,[]
+            def cursor(self,**kwargs):
+                return Cursor(self.raw.cursor(**kwargs),self.calls)
+            def execute(self,sql,params=()):
+                self.calls.append((sql,params))
+                return self.raw.execute(sql,params)
+            def __getattr__(self,key):
+                return getattr(self.raw,key)
+        def plans(node):
+            yield node
+            for child in node.get('Plans',[]):
+                yield from plans(child)
+        try:
+            with writer() as raw:
+                iid = raw.execute("SELECT id FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
+                raw.execute('UPDATE orgtree.work_items SET status_at=NULL,status_at_text=NULL WHERE id=%s',(iid,))
+                raw.execute("INSERT INTO orgtree.work_item_history(item_id,pos,at,op) VALUES(%s,0,%s,'accept')",(iid,AT))
+            for size in (1000,10000):
+                with self.subTest(size=size):
+                    with writer() as raw:
+                        raw.execute("INSERT INTO orgtree.work_item_history(item_id,pos,at,op) "
+                            "SELECT %s,p,'2026-10-03T00:00:00Z','update' FROM generate_series(1,%s) p "
+                            "ON CONFLICT DO NOTHING",(iid,size))
+                    with conn.connect(ADMIN,DATABASE) as admin:
+                        admin.execute('ANALYZE orgtree.work_item_history')
+                    with snapshot() as original:
+                        traced = Trace(original.raw)
+                        q = docket.Snapshot(traced,OID,viewer=USER,now_ts=NOW)
+                        row = q.lookup('one')
+                        light = worklist.Context(q).light(row,SLUG)
+                        self.assertEqual(light['status_at'],AT)
+                        queries = [(sql,args) for sql,args in traced.calls if 'orgtree.work_item_history h' in sql]
+                        self.assertEqual(len(queries),1)
+                        sql,args = queries[0]
+                        self.assertNotIn('SELECT *',sql)
+                        plan = original.raw.execute('EXPLAIN (ANALYZE,FORMAT JSON) '+sql,args).fetchone()[0][0]['Plan']
+                        history = [n for n in plans(plan) if n.get('Relation Name')=='work_item_history']
+                        self.assertTrue(history)
+                        self.assertTrue(all(n.get('Index Name')=='docket_status_history' for n in history))
+                        self.assertLessEqual(sum(n.get('Actual Rows',0)*n.get('Actual Loops',1) for n in history),2)
+        finally:
+            with writer() as raw:
+                raw.execute("DELETE FROM orgtree.work_item_history WHERE item_id=(SELECT id FROM orgtree.work_items WHERE slug='one')")
+                raw.execute("UPDATE orgtree.work_items SET status_at=%s,status_at_text=NULL WHERE slug='one'",(AT,))
 
 
 if __name__ == '__main__':

@@ -30,11 +30,15 @@ $fn$;
 ALTER TABLE orgtree.work_items
  ADD COLUMN docket_manual boolean GENERATED ALWAYS AS (orgtree.docket_truth(manual_attention)) STORED,
  ADD COLUMN docket_order text GENERATED ALWAYS AS (coalesce(
-   nullif(extra->>'docket_at',''),orgtree.docket_stamp(docket_at,docket_at_text),
-   nullif(extra->>'updated_at',''),orgtree.docket_stamp(updated_at,updated_at_text),'')) STORED,
+   CASE WHEN orgtree.docket_truth(extra->'docket_at') THEN extra->>'docket_at' END,
+   orgtree.docket_stamp(docket_at,docket_at_text),
+   CASE WHEN orgtree.docket_truth(extra->'updated_at') THEN extra->>'updated_at' END,
+   orgtree.docket_stamp(updated_at,updated_at_text),'')) STORED,
  ADD COLUMN docket_deadline double precision GENERATED ALWAYS AS (orgtree.docket_deadline(
-   coalesce(status,extra->>'status'),coalesce(nullif(extra->>'docket_at',''),
-   orgtree.docket_stamp(docket_at,docket_at_text),nullif(extra->>'updated_at',''),
+   coalesce(status,extra->>'status'),coalesce(
+   CASE WHEN orgtree.docket_truth(extra->'docket_at') THEN extra->>'docket_at' END,
+   orgtree.docket_stamp(docket_at,docket_at_text),
+   CASE WHEN orgtree.docket_truth(extra->'updated_at') THEN extra->>'updated_at' END,
    orgtree.docket_stamp(updated_at,updated_at_text)))) STORED;
 CREATE INDEX docket_hot_order ON orgtree.work_items(docket_order COLLATE "C" DESC,slug COLLATE "C" DESC,id)
  WHERE list_key='active';
