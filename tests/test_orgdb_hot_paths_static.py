@@ -41,6 +41,12 @@ def hot_sql_violations(statement):
 
 
 class CapturedSql(unittest.TestCase):
+    def test_distinct_from_operator_keeps_predicate_context(self):
+        for comparison in ('IS DISTINCT FROM', 'IS NOT DISTINCT FROM'):
+            with self.subTest(comparison=comparison):
+                self.assertTrue(hot_sql_violations("SELECT id FROM history WHERE kind "
+                    + comparison + " 'folded' AND (changes->'status') IS NOT NULL"))
+
     def test_partial_index_cannot_hide_authored_json_predicate(self):
         self.assertTrue(hot_sql_violations("SELECT id FROM history WHERE item_id=%s "
                                           "AND (op='update' AND changes->'status' IS NOT NULL)"))
