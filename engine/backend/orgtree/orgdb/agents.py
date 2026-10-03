@@ -13,7 +13,7 @@ from typing import Any
 
 from . import codec, reader_rows as R, registry
 from .mappers import agents as M
-from .mappers.records import DOCUMENTS
+from .mappers.records import ASKS, CREDIT_REQUESTS, DOCUMENTS, SCOPE_REQUESTS
 from .. import store
 from ..ledger import ASK_HISTORY_KEEP, EXTERN, USER, LedgerError
 
@@ -21,7 +21,9 @@ _AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),
 _CREATED = 'orgtree.foreground_time(a.created,a.created_text)'
 _RARE_AXIS = '(a.extra IS NOT NULL AND (a.parent_id IS NULL OR a.successor_id IS NULL))'
 _RARE_SEARCH = '(a.extra IS NOT NULL AND (a.state IS NULL OR a.successor_id IS NULL))'
-_DOCUMENT_META = codec.Spec('documents',tuple(f for f in DOCUMENTS.fields if f.key in ('id','title','at','format')))
+_DOCUMENT_META = codec.Spec('documents',tuple(f for f in DOCUMENTS.fields if f.key in ('id','node','title','at','format')))
+_REQUEST_META = {s.table:codec.Spec(s.table,tuple(f for f in s.fields if f.key in
+                ('node','status','at','resolved_at'))) for s in (ASKS,CREDIT_REQUESTS,SCOPE_REQUESTS)}
 
 
 def _dicts(raw, sql, params=()):
@@ -393,39 +395,86 @@ def identity(raw, slug, nid):
     return IdentityContext(settings,[(name,ordinals[name],body) for name,body in bodies.items()],nid)
 
 
+def _window_text(value):
+    return '' if value is None else _json_text(value)
+
+
+def _small_records(raw, spec, extra_keys, where):
+    """Only typed selection fields and named misfits, never authored text."""
+    columns=','.join('a.'+codec.quote(c) for c,typ in codec.columns(spec))
+    selected=_dicts(raw,f'SELECT a.id,a.ord,{columns},'
+        '(SELECT json_object_agg(e.key,e.value) FROM json_each(a.extra) e '
+        f'WHERE e.key=ANY(%s)) AS extra FROM orgtree.{spec.table} a WHERE '+where,(extra_keys,))
+    return [(row,codec.decode(spec,row,None)) for row in selected]
+
+
+def _request_window(raw, key, ids, header):
+    clock = ('orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text)'
+             if key!='credit_requests' else 'orgtree.foreground_time(at,at_text)')
+    visible = " AND coalesce(status,'')<>'withdrawn'" if key!='asks' else ''
+    picked = dict(raw.execute(f'SELECT id,ord FROM orgtree.{key} WHERE extra IS NULL AND '
+        "status IN ('open','pending') AND (%s OR node=ANY(%s))",(header,ids)).fetchall())
+    closed = (raw.execute(f'SELECT id,ord,{clock} FROM orgtree.{key} WHERE extra IS NULL AND '
+        "coalesce(status,'') NOT IN ('open','pending')" + visible +
+        f' ORDER BY {clock} DESC,ord DESC LIMIT %s',(ASK_HISTORY_KEEP,)).fetchall() if header else [])
+    latest = {node:(rid,ordinal,stamp) for node,rid,ordinal,stamp in raw.execute(
+        'SELECT selected.node,q.id,q.ord,q.stamp FROM unnest(%s::text[]) selected(node) '
+        f'CROSS JOIN LATERAL (SELECT id,ord,{clock} AS stamp FROM orgtree.{key} '
+        'WHERE extra IS NULL AND node=selected.node'+visible+
+        f' ORDER BY {clock} DESC,ord LIMIT 1) q',(ids,)).fetchall()}
+    # All normal rows stay on the indexed windows. Only rare metadata is
+    # decoded/merged before each limit, including a credit resolved_at retained
+    # in extra because its mapper has no resolved_at column.
+    for row,body in _small_records(raw,_REQUEST_META[key],['node','status','at','resolved_at'],
+                                  'a.extra IS NOT NULL'):
+        node,status=_window_text(body.get('node')),_window_text(body.get('status'))
+        stamp=_window_text(body.get('resolved_at') if body.get('resolved_at') is not None else body.get('at'))
+        item=(row['id'],row['ord'],stamp)
+        if status in ('open','pending') and (header or node in ids):
+            picked[item[0]]=item[1]
+        if key!='asks' and status=='withdrawn':
+            continue
+        if header and status not in ('open','pending'):
+            closed.append(item)
+        old=latest.get(node)
+        if node in ids and (old is None or (stamp,-item[1])>(old[2],-old[1])):
+            latest[node]=item
+    picked.update((rid,ordinal) for rid,ordinal,stamp in sorted(closed,
+                  key=lambda r:(r[2],r[1]),reverse=True)[:ASK_HISTORY_KEEP])
+    picked.update((rid,ordinal) for rid,ordinal,stamp in latest.values())
+    return R.read_records(raw,key,sorted(picked,key=picked.__getitem__))
+
+
+def _document_header(body):
+    fmt=body.get('format')
+    if fmt is not None and not isinstance(fmt,str):
+        fmt=_json_text(fmt)
+    return dict(id=body.get('id'),title=body.get('title'),at=body.get('at'),format=fmt or 'markdown')
+
+
 def card_windows(raw, ids, header=False):
-    asks = {}
-    for key in ('asks','credit_requests','scope_requests'):
-        clock = ('orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text)'
-                 if key!='credit_requests' else 'orgtree.foreground_time(at,at_text)')
-        visible = " AND coalesce(status,'')<>'withdrawn'" if key!='asks' else ''
-        picked = dict(raw.execute(f'SELECT id,ord FROM orgtree.{key} WHERE '
-            "status IN ('open','pending') AND (%s OR node=ANY(%s))",(header,ids)).fetchall())
-        if header:
-            picked.update(raw.execute(f'SELECT id,ord FROM orgtree.{key} WHERE '
-                "coalesce(status,'') NOT IN ('open','pending')" + visible +
-                f' ORDER BY {clock} DESC,ord DESC LIMIT %s',(ASK_HISTORY_KEEP,)).fetchall())
-        picked.update(raw.execute('SELECT q.id,q.ord FROM unnest(%s::text[]) selected(node) '
-            f'CROSS JOIN LATERAL (SELECT id,ord FROM orgtree.{key} WHERE node=selected.node'+visible+
-            f' ORDER BY {clock} DESC,ord LIMIT 1) q',(ids,)).fetchall())
-        asks[key] = R.read_records(raw,key,sorted(picked,key=picked.__getitem__))
+    asks = {key:_request_window(raw,key,ids,header) for key in _REQUEST_META}
     documents = {nid: [] for nid in ids}
     counts = dict(raw.execute('SELECT node,count(*) FROM orgtree.documents WHERE node=ANY(%s) '
                               'GROUP BY node',(ids,)).fetchall())
     for row in _dicts(raw,'SELECT selected.node AS owner,q.* '
         'FROM unnest(%s::text[]) selected(node) CROSS JOIN LATERAL ('
-        'SELECT id,public_id,title,at,at_text,format,'
+        'SELECT id,node,public_id,title,at,at_text,format,'
         "(SELECT json_object_agg(e.key,e.value) FROM json_each(extra) e "
         "WHERE e.key IN ('id','title','at','format')) AS extra,ord "
         'FROM orgtree.documents WHERE node=selected.node '
         'ORDER BY ord DESC LIMIT 10) q ORDER BY selected.node,q.ord',(ids,)):
         body=codec.decode(_DOCUMENT_META,row,codec.Children({},{}),(row['id'],))
-        fmt=body.get('format')
-        if fmt is not None and not isinstance(fmt,str):
-            fmt=_json_text(fmt)
-        documents[row['owner']].append(dict(id=body.get('id'),title=body.get('title'),
-            at=body.get('at'),format=fmt or 'markdown'))
-    return dict(asks=asks,documents=documents,document_counts={nid: counts.get(nid,0) for nid in ids})
+        documents[row['owner']].append((row['ord'],_document_header(body)))
+    for row,body in _small_records(raw,_DOCUMENT_META,['id','node','title','at','format'],
+                                  'a.node IS NULL AND a.extra IS NOT NULL'):
+        node=_window_text(body.get('node'))
+        if node in documents:
+            counts[node]=counts.get(node,0)+1
+            documents[node].append((row['ord'],_document_header(body)))
+    return dict(asks=asks,documents={nid:[body for ordinal,body in sorted(rows,key=lambda r:r[0])[-10:]]
+                                    for nid,rows in documents.items()},
+                document_counts={nid: counts.get(nid,0) for nid in ids})
 
 
 def inbox_window(raw):
