@@ -6,10 +6,10 @@ The view answers store.py's own SQL from an org database, statement by statement
   * every statement store.py passes to ``execute``/``executemany`` -- rendered from its
     literal text, store's module constants and the closed set of values its variable parts
     take (``_cas``'s statements, ``_node_ids_where``'s filters, the two log tables ...) -- is
-    served by the view (a handler, a pass-through, a declined reader's guard, an explicitly
-    unreachable statement or a pattern), unless it is on the short list below of statements
-    this mode never issues (SQLite only, custody receipt rows, the readers the view declines),
-    each with its reason; a listed function must still exist;
+    served by the view (a handler, a pass-through, an explicitly unreachable statement or a
+    pattern), unless it is on the short list below of statements this mode never issues
+    (SQLite only, custody receipt rows), each with its reason; a listed function must still
+    exist. The bounded window readers' guards are answered (piece A6), not declined;
   * the readers that run SQL on the raw legacy connection (``conn.raw``) refuse first with
     the storage switch on;
   * a statement the registry does not know raises (never a silent answer).
@@ -55,16 +55,10 @@ NOT_IN_THIS_MODE = {
     'reconcile_receipt_storage': 'custody receipt rows (ORGTREE_RECEIPT_ROWS, off)',
     '_receipt_view': 'custody receipt rows (ORGTREE_RECEIPT_ROWS, off)',
     'delete_org': 'refused with the switch on (landing step 3) before any statement',
-    '_pg_document_gallery.body': 'declined reader: its guard sends the caller to load_org',
-    'read_document.body': 'declined reader: its guard sends the caller to load_org',
-    'read_node_history_rows.body': 'declined reader: its guard sends the caller to load_org',
-    '_pg_node_history_rows': 'declined reader (read_node_history_rows)',
-    '_mail_tails': 'declined reader: its guard sends the caller to load_org',
-    '_mail_tails.owner_list': 'declined reader (_mail_tails)',
 }
 
 #: statements of NOT_IN_THIS_MODE functions that ARE reached (the guards): checked served
-GUARDS = {'_pg_document_read.guarded', '_mail_tails', 'read_node_history_rows.body'}
+GUARDS: set[str] = set()
 
 #: readers that run SQL on the raw connection; each must refuse with the switch on
 RAW_READERS = ('archive_identity', 'archive_statuses', 'read_work_items_rows')
@@ -183,11 +177,14 @@ class StatementsServed(unittest.TestCase):
         self.assertEqual(unrendered, [], 'statements this test cannot render')
         self.assertEqual(missing, [], 'store.py statements the compatibility view does not serve')
 
-    def test_guards_decline(self) -> None:
+    def test_window_reader_guards_are_answered(self) -> None:
+        # piece A6: the bounded window readers' blob guards are answered from the org's
+        # sections (they used to be declined, sending every window to a whole-org load)
         for t in (store._DOCUMENT_BLOB_SQL,
                   "SELECT 1 FROM doc WHERE key IN ('events','notice_log') LIMIT 1",
                   "SELECT 1 FROM doc WHERE key IN ('mail_log','user_mail_log') LIMIT 1"):
-            self.assertEqual(sql.known(t), 'declined', t)
+            self.assertEqual(sql.known(t), 'handler', t)
+        self.assertEqual(sql.DECLINED, set())
 
     def test_listed_functions_exist(self) -> None:
         funcs = {s['func'] for s in _sites()}

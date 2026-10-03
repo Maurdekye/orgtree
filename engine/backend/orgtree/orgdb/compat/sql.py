@@ -10,11 +10,10 @@ Three kinds of statement besides the ordinary ones:
 
 * PASS: plain server calls with no legacy table in them (advisory locks, the snapshot text,
   the server's identity); they run as they are on the org database.
-* DECLINED: three optional readers (presentations, a node's history, the inbox tails) each
-  start with a guard asking whether a section is still stored as a pre-row blob, and fall
-  back to loading the org when it is. Their guards answer "yes" here, so those readers take
-  their load path; their own statements are then never reached. The native modules serve
-  them later (design §6.3 steps 4-5).
+* DECLINED: a reader whose guard asks whether a section is still stored as a pre-row blob,
+  answered "yes" so the reader takes its whole-org load path. None is declined now: the
+  bounded window readers (presentations, a node's history, the inbox tails) are served
+  (piece A6), because their load path cost 0.9-1.5 s per window on the live org's copy.
 * UNREACHABLE in this mode: SQLite-only, migration-only and receipt-row statements; and the
   mail-archive append door, whose bound the projection never hands out (the caller takes its
   ordinary path). They raise if reached.
@@ -29,6 +28,7 @@ import re
 import sqlite3
 from typing import Any, Callable, Sequence
 
+from .. import codec
 from . import rows as R
 from .rows import CompatError, Names
 
@@ -356,11 +356,34 @@ def _events_blob(conn: Any, p: Sequence[Any]) -> Result:
     return Result([(1,)] if row is not None and row[1] == "n" else [])
 
 
-# the three DECLINED readers' guards: "a blob is stored", so they load the org instead
-for _t in ("SELECT key FROM doc WHERE key IN ('documents','events','nodes') LIMIT 1",
-           "SELECT 1 FROM doc WHERE key IN ('events','notice_log') LIMIT 1",
-           "SELECT 1 FROM doc WHERE key IN ('mail_log','user_mail_log') LIMIT 1"):
-    DECLINED.add(normalize(_t))
+def _blobs(conn: Any, keys: Sequence[str]) -> list[str]:
+    """Of ``keys``, the sections held whole as one value (a doc row), in ``keys`` order."""
+    out = []
+    for k in keys:
+        row = R.section_row(conn.raw, k)
+        if row is not None and row[1] == "n":
+            out.append(k)
+    return out
+
+
+# the bounded window readers' guards (piece A6): "is a section still held as a blob?" They
+# used to be declined (answered yes), so the readers loaded the whole org instead: 0.9-1.5 s
+# per window on the live org's copy, against 5-165 ms. Now they answer from the org's
+# sections, and the readers' own statements are served below ("bounded window readers")
+@stmt("SELECT key FROM doc WHERE key IN ('documents','events','nodes') LIMIT 1")
+def _document_blobs(conn: Any, p: Sequence[Any]) -> Result:
+    got = _blobs(conn, ("documents", "events", "nodes"))
+    return Result([(got[0],)] if got else [])
+
+
+@stmt("SELECT 1 FROM doc WHERE key IN ('events','notice_log') LIMIT 1")
+def _history_blobs(conn: Any, p: Sequence[Any]) -> Result:
+    return Result([(1,)] if _blobs(conn, ("events", "notice_log")) else [])
+
+
+@stmt("SELECT 1 FROM doc WHERE key IN ('mail_log','user_mail_log') LIMIT 1")
+def _mail_blobs(conn: Any, p: Sequence[Any]) -> Result:
+    return Result([(1,)] if _blobs(conn, ("mail_log", "user_mail_log")) else [])
 
 
 @stmt("UPDATE doc SET val=? WHERE key=? AND val=?")
@@ -919,6 +942,235 @@ def _project(conn: Any, p: Sequence[Any], m: re.Match[str]) -> Result:
 
 PATTERNS.append((re.compile(r"^SELECT json_extract\(val,((?:'\$\.[A-Za-z0-9_]+',?)+)\) FROM log_l "
                             r"WHERE sect BETWEEN \? AND \? ORDER BY seq$"), _project))
+
+
+# ----------------------------------------------------------------- bounded window readers
+# (piece A6.) A node's inbox window (store._mail_tails), its history (_pg_node_history_rows),
+# the presentations gallery (_pg_document_gallery) and one presentation (read_document): each
+# reads a few rows out of a large log. They are answered from the typed columns that select and
+# order them; only the rows returned are decoded. A record whose selecting or ordering field is
+# not in its typed column (a value of another shape, kept in ``extra``) is decided from that
+# value with the legacy text rule, so no record is missed or misplaced.
+
+def _jtext(v: Any) -> str | None:
+    """The legacy json_extract / ``->>`` text of a stored value: a string as itself, JSON null
+    as NULL, anything else as its JSON text."""
+    if v is None or isinstance(v, str):
+        return v
+    return json.dumps(v)
+
+
+def _at_text(at: Any, at_text: Any, extra_at: Any) -> str:
+    """COALESCE(json_extract(val,'$.at'),'') from a record's columns: the typed timestamp's
+    stored text, else a value of another shape kept in extra, else ''."""
+    if at is not None:
+        return str(at_text) if at_text is not None else codec.canonical_ts(at)
+    t = _jtext(extra_at)
+    return "" if t is None else t
+
+
+def _matching(c: Any, ls: R.LogSect, col: str, value: str, test: str = "",
+              test_params: Sequence[Any] = ()) -> list[tuple[int, int | None, str]]:
+    """(id, agent_id or None, at text) of ``ls``'s records whose text field ``col`` is
+    ``value`` (in its typed column, or as the text of a value of another shape kept in
+    extra), or that ``test`` matches (more ``OR`` conditions on the record's columns)."""
+    t = ls.table.spec.table
+    agent = "agent_id" if ls.kind in ("agent", "agent_map") else "NULL::bigint"
+    qc = codec.quote(col)
+    hit = f"({qc} = %s{test})"
+    q = (f"SELECT id, {agent}, at, at_text, extra->'at', coalesce({hit}, false), extra->%s "
+         f"FROM orgtree.{t} WHERE {R._scope(ls)} AND ({hit} OR ({qc} IS NULL AND extra->%s IS NOT NULL))")
+    params = (value, *test_params, col, value, *test_params, col)
+    out = []
+    for rid, aid, at, att, ate, is_hit, other in c.execute(q, params).fetchall():
+        if is_hit or _jtext(other) == value:
+            out.append((int(rid), None if aid is None else int(aid), _at_text(at, att, ate)))
+    return out
+
+
+def _decoded(c: Any, ls: R.LogSect, ids: Sequence[int], names: Names | None = None
+             ) -> dict[int, tuple[str | None, str]]:
+    """{id: (owner, text)} of those records of ``ls``."""
+    if not ids:
+        return {}
+    return {seq // R.SLOTS: (owner, text)
+            for seq, owner, _, text in R.log_rows(c, ls, ids=ids, names=names)}
+
+
+def _newest(rows: list[tuple[Any, ...]], cap: int) -> list[tuple[Any, ...]]:
+    """The first ``cap`` of ``rows`` by their keys descending (Python's string order, which is
+    the legacy ``COLLATE "C"`` order)."""
+    return sorted(rows, reverse=True)[:max(0, cap)]
+
+
+@stmt("SELECT val FROM log_d WHERE sect='mail_log' AND owner=? ORDER BY seq DESC LIMIT ?")
+def _mail_owner_newest(conn: Any, p: Sequence[Any]) -> Result:
+    ls = _need_log("log_d", "mail_log")
+    with conn.atomic():
+        aid = _names(conn).id(p[0], mint=False)
+        if aid is None:
+            return Result([])
+        rows, ch = R.fetch(conn.raw, ls.table, "agent_id = %s", (aid,), order="id DESC",
+                           limit=max(0, int(p[1])))
+        return Result([(R.dumps(R.entry_of(ls, r, ch)),) for r in rows])
+
+
+@stmt("WITH tail AS MATERIALIZED (SELECT seq,sent_at,owner_pos FROM mail_sent "
+      "WHERE sender=? ORDER BY sent_at DESC,owner_pos DESC,seq DESC LIMIT ?) "
+      "SELECT l.owner,l.val FROM tail CROSS JOIN LATERAL "
+      "(SELECT owner,val FROM log_d WHERE seq=tail.seq LIMIT 1) l "
+      "ORDER BY tail.sent_at DESC,tail.owner_pos DESC,tail.seq DESC")
+def _mail_sent_tail(conn: Any, p: Sequence[Any]) -> Result:
+    """A sender's newest mail in every recipient's archive, in the legacy index's order: the
+    entry's ``at`` text, then its recipient's first archive row (the dict order owners load
+    in), then the row, all descending."""
+    ls = _need_log("log_d", "mail_log")
+    sender, cap = str(p[0]), int(p[1])
+    with conn.atomic():
+        c = conn.raw
+        found = _matching(c, ls, "from", sender)
+        if not found or cap <= 0:
+            return Result([])
+        owners = sorted({aid for _, aid, _ in found if aid is not None})
+        first = {int(a): int(m) for a, m in c.execute(
+            f"SELECT agent_id, min(id) FROM orgtree.{ls.table.spec.table} "
+            "WHERE agent_id = ANY(%s) GROUP BY agent_id", (owners,)).fetchall()}
+        pick = _newest([(at, first[aid], rid) for rid, aid, at in found], cap)
+        names = _names(conn)
+        got = _decoded(c, ls, [rid for _, _, rid in pick], names)
+        return Result([got[rid] for _, _, rid in pick])
+
+
+def _list_tail(conn: Any, sect: str, col: str, value: str, cap: int, test: str = "",
+               test_params: Sequence[Any] = ()) -> Result:
+    """A list log's newest ``cap`` records matching (by ``at`` text, then position),
+    newest first, as (text,) rows."""
+    ls = _need_log("log_l", sect)
+    with conn.atomic():
+        c = conn.raw
+        found = _matching(c, ls, col, value, test, test_params)
+        pick = _newest([(at, rid) for rid, _, at in found], cap)
+        got = _decoded(c, ls, [rid for _, rid in pick])
+        return Result([(got[rid][1],) for _, rid in pick])
+
+
+@stmt("SELECT val FROM log_l WHERE sect='user_mail_log' AND json_extract(val,'$.from')=? "
+      "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC LIMIT ?")
+def _user_mail_from(conn: Any, p: Sequence[Any]) -> Result:
+    return _list_tail(conn, "user_mail_log", "from", str(p[0]), int(p[1]))
+
+
+@stmt("SELECT val FROM (SELECT val, seq, val::jsonb AS j FROM log_l WHERE sect='notice_log' "
+      "OFFSET 0) r WHERE j->>'node'=? ORDER BY COALESCE(j->>'at','') COLLATE \"C\" DESC, seq DESC "
+      "LIMIT ?")
+def _notices_of(conn: Any, p: Sequence[Any]) -> Result:
+    return _list_tail(conn, "notice_log", "node", str(p[0]), int(p[1]))
+
+
+@stmt("SELECT val FROM (SELECT val, seq, val::jsonb AS j FROM log_l WHERE sect='events' "
+      "OFFSET 0) r WHERE j#>>'{detail,node}'=? OR j#>>'{detail,to}'=? OR j->>'actor'=? OR "
+      "j#>>'{detail,grantee}'=? OR j#>>'{detail,from}'=? "
+      "ORDER BY COALESCE(j->>'at','') COLLATE \"C\" DESC, seq DESC LIMIT ?")
+def _events_touching(conn: Any, p: Sequence[Any]) -> Result:
+    """The node's newest events: its actor, or the node, recipient, grantee or sender in the
+    event's detail (``detail`` is a JSON column, read with the same ``->>`` text rule)."""
+    nid = str(p[0])
+    test = (" OR detail->>'node' = %s OR detail->>'to' = %s OR detail->>'grantee' = %s "
+            "OR detail->>'from' = %s")
+    return _list_tail(conn, "events", "actor", nid, int(p[5]), test, (nid, nid, nid, nid))
+
+
+@stmt("SELECT (val::jsonb - 'body')::text FROM log_l WHERE sect BETWEEN ? AND ? ORDER BY seq")
+def _list_without_body(conn: Any, p: Sequence[Any]) -> Result:
+    ls = _log("log_l", p[0]) if p[0] == p[1] else None
+    if ls is None:
+        return Result([])
+    with conn.atomic():
+        out = []
+        for _, _, _, text in R.log_rows(conn.raw, ls):
+            v = json.loads(text)
+            if isinstance(v, dict):
+                v.pop("body", None)
+            out.append((json.dumps(v),))
+        return Result(out)
+
+
+@stmt("SELECT seq, val FROM log_l WHERE sect='events' AND strpos(val, 'present_evicted') > 0 "
+      "ORDER BY seq")
+def _evictions(conn: Any, p: Sequence[Any]) -> Result:
+    """The events whose op is present_evicted (the caller keeps exactly those of the text
+    prefilter's rows), with their legacy seq."""
+    ls = _need_log("log_l", "events")
+    with conn.atomic():
+        ids = [int(r[0]) for r in conn.raw.execute(
+            f"SELECT id FROM orgtree.{ls.table.spec.table} WHERE op = 'present_evicted' "
+            "ORDER BY id").fetchall()]
+        return Result([(seq, text) for seq, _, _, text in R.log_rows(conn.raw, ls, ids=ids)]
+                      if ids else [])
+
+
+@stmt("SELECT seq, n FROM (SELECT seq, row_number() OVER (ORDER BY seq) - 1 AS n FROM log_l "
+      "WHERE sect BETWEEN ? AND ? AND seq <= ?) q WHERE seq = ANY(?)")
+def _list_positions(conn: Any, p: Sequence[Any]) -> Result:
+    """Each given row's index in its list log (rows up to ``seq <= ?``)."""
+    ls = _log("log_l", p[0]) if p[0] == p[1] else None
+    if ls is None:
+        return Result([])
+    want: dict[int, int] = {}
+    for s in p[3]:
+        at, rid = R.by_seq("log_l", int(s))
+        if at is ls:
+            want[rid] = int(s)
+    top_ls, top = R.by_seq("log_l", int(p[2]))
+    if not want or top_ls is not ls:
+        return Result([])
+    with conn.atomic():
+        rows = conn.raw.execute(
+            f"SELECT id, n FROM (SELECT id, row_number() OVER (ORDER BY id) - 1 AS n "
+            f"FROM orgtree.{ls.table.spec.table} WHERE {R._scope(ls)} AND id <= %s) q "
+            "WHERE id = ANY(%s)", (top, list(want))).fetchall()
+        return Result([(want[int(rid)], int(n)) for rid, n in rows])
+
+
+@stmt("SELECT id, jsonb_build_object('state', v->'state', 'model', v->'model')::text "
+      "FROM (SELECT id, val::jsonb AS v FROM nodes WHERE id = ANY(?)) q")
+def _node_state_model(conn: Any, p: Sequence[Any]) -> Result:
+    with conn.atomic():
+        out = []
+        for nid, text, _ in R.nodes(conn.raw, list(p[0])):
+            v = json.loads(text)
+            v = v if isinstance(v, dict) else {}
+            # jsonb_build_object's text: keys in jsonb order (model before state), nulls kept
+            out.append((nid, json.dumps({"model": v.get("model"), "state": v.get("state")})))
+        return Result(out)
+
+
+@stmt("SELECT val FROM log_l WHERE sect BETWEEN ? AND ? AND strpos(val, ?) > 0 ORDER BY seq")
+def _document_by_id(conn: Any, p: Sequence[Any]) -> Result:
+    """read_document's prefilter: the documents whose id is the one asked for (the caller
+    keeps the first whose id equals it; a text match elsewhere in a row never would be)."""
+    if not (p[0] == p[1] == "documents"):
+        raise CompatError("this text search is served for read_document's documents only")
+    ls = _need_log("log_l", "documents")
+    with conn.atomic():
+        ids = [int(r[0]) for r in conn.raw.execute(
+            f"SELECT id FROM orgtree.{ls.table.spec.table} WHERE public_id = %s ORDER BY id",
+            (str(p[2]),)).fetchall()]
+        return Result([(text,) for _, _, _, text in R.log_rows(conn.raw, ls, ids=ids)]
+                      if ids else [])
+
+
+for _t in ("SELECT l.owner, l.val FROM log_d l JOIN (SELECT owner, MIN(seq) AS pos FROM log_d "
+           "WHERE sect='mail_log' GROUP BY owner) o ON o.owner=l.owner WHERE l.sect='mail_log' "
+           "AND json_extract(l.val,'$.from')=? ORDER BY COALESCE(json_extract(l.val,'$.at'),'') "
+           "DESC, o.pos DESC, l.seq DESC LIMIT ?",
+           "SELECT val FROM log_l WHERE sect='events' AND (json_extract(val,'$.detail.node')=? OR "
+           "json_extract(val,'$.detail.to')=? OR json_extract(val,'$.actor')=? OR "
+           "json_extract(val,'$.detail.grantee')=? OR json_extract(val,'$.detail.from')=?) "
+           "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC LIMIT ?",
+           "SELECT val FROM log_l WHERE sect='notice_log' AND json_extract(val,'$.node')=? "
+           "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC LIMIT ?"):
+    UNREACHABLE[normalize(_t)] = "the SQLite branch of a bounded window reader"
 
 
 # ----------------------------------------------------------------- meta

@@ -541,6 +541,104 @@ class LockBlock(unittest.TestCase):
             self.assertEqual(block[0].count('orgdb-doc-key'), 0, block[0])
 
 
+def _t(s: int) -> str:
+    return f'2026-10-01T10:00:0{s}.000Z'
+
+
+def windows_fixture(slug: str) -> None:
+    """Content for the bounded window readers (piece A6): equal timestamps across owners and
+    inside one owner, a timestamp in another text form, records whose `at` is null or absent,
+    a detail that is not an object, a sender that is null, a document id presented twice and
+    an eviction sharing its `at` with a document."""
+    def mail(mid: str, frm, at: str) -> dict:
+        return {'id': mid, 'from': frm, 'body': f'body {mid}', 'at': at}
+    org = store.load_org(slug)
+    d = org.d
+    d['mail_log'] = {
+        'ops': [mail('a1', 'dev', _t(1)), mail('a2', 'boss', _t(2)), mail('a3', 'dev', _t(2))],
+        'dev': [mail('b1', 'boss', _t(2)), mail('b2', 'ops', _t(3)), mail('b3', 'boss', _t(2))],
+        'boss': [mail('c1', 'dev', _t(2)), mail('c2', 'dev', '2026-10-01T10:00:02Z')],
+    }
+    d['user_mail_log'] = [mail('u1', 'dev', _t(1)), mail('u2', 'ops', _t(2)),
+                          mail('u3', 'dev', _t(2)), mail('u4', None, _t(2))]
+    d['user_inbox'] = [mail('i1', 'dev', _t(3))]
+    for op, actor, detail, at in (
+            ('hire', 'boss', {'node': 'dev'}, _t(1)), ('mail', 'ops', {'to': 'dev'}, _t(2)),
+            ('grant', 'boss', {'grantee': 'dev'}, _t(2)), ('mail', 'dev', {'to': 'ops'}, _t(3)),
+            ('reply', 'ops', {'from': 'dev'}, _t(2)), ('noise', 'ops', {'node': 'ops'}, _t(3)),
+            ('weird', 'dev', 'a detail that is text', None), ('null at', 'dev', {}, 'NULL'),
+            ('present_evicted', 'dev', {'id': 'd0', 'title': 'Old', 'format': 'html'}, _t(2))):
+        e = {'op': op, 'actor': actor, 'detail': detail}
+        if at == 'NULL':
+            e['at'] = None
+        elif at is not None:
+            e['at'] = at
+        store.log_append(d, 'events', e)
+    d['notice_log'] = [{'node': 'dev', 'at': _t(1), 'text': 'n1'},
+                       {'node': 'dev', 'at': _t(2), 'text': 'n2'},
+                       {'node': 'ops', 'at': _t(2), 'text': 'n3'},
+                       {'node': 'dev', 'at': _t(2), 'text': 'n4'}]
+    d['documents'] = [
+        {'id': 'd1', 'node': 'dev', 'title': 'One', 'body': 'one', 'at': _t(1), 'format': 'markdown'},
+        {'id': 'd2', 'node': 'ops', 'title': 'Two', 'body': '<p>2</p>', 'at': _t(2), 'format': 'html',
+         'bytes': 10},
+        {'id': 'd3', 'node': 'dev', 'title': 'Three', 'body': 'three', 'at': _t(2), 'format': 'markdown'},
+        {'id': 'd1', 'node': 'ops', 'title': 'One again', 'body': 'again', 'at': _t(3),
+         'format': 'markdown'}]
+    store.save_org(org)
+
+
+@needs_pg
+class WindowReads(unittest.TestCase):
+    """Piece A6: the bounded window readers (a node's inbox tails, its history, the
+    presentations gallery, one presentation) answer with the switch on, from the org database,
+    exactly as they answer on the legacy store; before, the view declined them and every
+    window loaded the whole org."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.t = Twins('windows', before=windows_fixture)
+
+    def both(self, fn):
+        with storage(False):
+            want = fn(self.t.legacy)
+        with storage(True):
+            got = fn(self.t.copy)
+        return want, got
+
+    def test_inbox_tails(self) -> None:
+        for nid in ('dev', 'boss', 'ops'):
+            for keep, slack in ((1, 0), (2, 1), (50, 40)):
+                with self.subTest(nid=nid, keep=keep):
+                    want, got = self.both(lambda s: store.read_node_inbox(s, nid, keep=keep, slack=slack))
+                    self.assertIsNotNone(want)
+                    self.assertIsNotNone(got, 'the window fell back to a whole-org load')
+                    self.assertEqual(want, got)
+
+    def test_history_rows(self) -> None:
+        for nid in ('dev', 'ops', 'nobody'):
+            for cap in (1, 3, 100):
+                with self.subTest(nid=nid, cap=cap):
+                    want, got = self.both(lambda s: store.read_node_history_rows(s, nid, cap))
+                    self.assertIsNotNone(want)
+                    self.assertIsNotNone(got, 'the history fell back to a whole-org load')
+                    self.assertEqual(want, got)
+
+    def test_gallery_and_one_document(self) -> None:
+        want, got = self.both(store.read_document_gallery)
+        self.assertEqual(want, got)
+        # the eviction shares its `at` with two documents: the events-position path ran
+        self.assertEqual(sorted(r['id'] for r in got if r['evicted']), ['d0'])
+        with storage(True):
+            self.assertIsNotNone(store._pg_document_gallery(self.t.copy),
+                                 'the gallery fell back to a whole-org load')
+        for did in ('d1', 'd2', 'd3', 'd0', 'missing'):
+            with self.subTest(did=did):
+                want, got = self.both(lambda s: store.read_document(s, did))
+                self.assertIsNot(got, store.DOCUMENT_READ_FALLBACK)
+                self.assertEqual(want, got)
+
+
 def wait_for(cond, timeout: float = 15.0) -> bool:
     end = time.monotonic() + timeout
     while time.monotonic() < end:
