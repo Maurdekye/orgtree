@@ -160,3 +160,8 @@ BEGIN
  END LOOP;
 END
 $install$;
+
+-- This table is created after 0006 installs the shared-source hooks. Its own
+-- writes must re-defer the internal flush after a caller forces FK checks.
+CREATE TRIGGER foreground_defer BEFORE INSERT OR UPDATE OR DELETE
+ ON orgtree.docket_question_links FOR EACH STATEMENT EXECUTE FUNCTION orgtree.foreground_defer();
