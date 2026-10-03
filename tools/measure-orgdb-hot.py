@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import uuid
 
 REPO = Path(__file__).resolve().parents[1]
@@ -50,6 +51,18 @@ WRITES = {
     'subjugate': 'coordinator-opus orgtree_self_subjugate to coordinator-astra-2',
     'swap': 'coordinator-opus orgtree_swap coordinator-astra-2 and review-sol',
 }
+
+
+class ChildFailure(RuntimeError):
+    def __init__(self, detail):
+        super().__init__('isolated child failed')
+        self.detail = detail
+
+
+def error_detail(error):
+    return {'error': type(error).__name__, 'frames': [
+        {'function': f.name, 'line': f.lineno, 'file': Path(f.filename).name}
+        for f in traceback.extract_tb(error.__traceback__)]}
 
 
 def with_db(url, db):
@@ -127,7 +140,9 @@ def call_child(config, root, env, result_name):
                          input=json.dumps(config), text=True, encoding='utf-8', env=env,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=1100)
     if got.returncode:
-        raise RuntimeError('isolated benchmark child failed (output withheld to protect source data)')
+        safe = next((json.loads(line[len('HOT_ERROR='):]) for line in got.stderr.splitlines()
+                     if line.startswith('HOT_ERROR=')), {'error':'ChildExited'})
+        raise ChildFailure(dict(phase=config['phase'], side=config.get('side'), **safe))
     return json.loads(result.read_text(encoding='utf-8'))
 
 
@@ -183,6 +198,8 @@ def markdown(report):
         'Ratios above 1 mean the native side was slower. Missing medians mean incomplete or failed samples.', '',
         '| Operation | Legacy ms | Native ms | Native / legacy | Native path |',
         '|---|---:|---:|---:|---|']
+    if report.get('failure'):
+        lines.insert(2, '**Run failed: these timings are incomplete and are not acceptance evidence.**')
     for row in report['table']:
         def cell(side):
             value = row['sides'].get(side, {}).get('median_ms')
@@ -225,6 +242,9 @@ def parent(a):
             if not operations:
                 continue
             prefix = 'hot' + uuid.uuid4().hex[:12] + '_'
+            with psycopg.connect(admin, autocommit=True) as c:
+                if c.execute('SELECT 1 FROM pg_database WHERE starts_with(datname,%s)', (prefix,)).fetchone():
+                    raise RuntimeError('random database prefix already exists')
             prefixes.append(prefix)
             group_root = root / prefix
             env = clean_environment(group_root)
@@ -275,6 +295,7 @@ def parent(a):
                 raise RuntimeError('group cleanup failed')
     except Exception as e:
         report['failure'] = type(e).__name__  # Never echo connection strings or real row content.
+        report['failure_detail'] = e.detail if isinstance(e, ChildFailure) else error_detail(e)
     finally:
         try:
             report['source_unchanged'] = before == digest(admin, a.template)
@@ -282,6 +303,7 @@ def parent(a):
             report['failure'] = type(e).__name__
         remaining, cleanup_errors = drop_groups(admin, prefixes)
         report['cleanup_ok'] = not remaining and not cleanup_errors
+        report['owned_prefixes'], report['remaining_databases'] = prefixes, remaining
         report['cleanup_errors'] = cleanup_errors
         shutil.rmtree(root)
         report['setup'], report['table'] = setups, summarize(rows, a.runs)
@@ -426,7 +448,7 @@ def child():
                             cfg['side']=='native' and not native_docket else cfg['side'])))
             except Exception as e:
                 rows.append(dict(operation=operation, side=cfg['side'], iteration=cfg['iteration'],
-                    ok=False, ms=None, error=type(e).__name__, path='failed'))
+                    ok=False, ms=None, error=type(e).__name__, error_detail=error_detail(e), path='failed'))
         if audit.snapshot()['unexpected']:
             raise RuntimeError('benchmark tried to launch an external process')
         out = dict(rows=rows, warmup_ms=warmup_ms, import_provenance=PROVENANCE.as_dict(),
@@ -448,7 +470,11 @@ def main():
     p.add_argument('--output', type=Path, default=Path('artifacts/orgdb-hot/latest'))
     a = p.parse_args()
     if a.child:
-        return child()
+        try:
+            return child()
+        except Exception as e:
+            print('HOT_ERROR='+json.dumps(error_detail(e)), file=sys.stderr)
+            return 1
     if not a.agent or not 1 <= a.runs <= 100 or not 1 <= a.warmups <= 20 or not all(a.agents.split(',')):
         p.error('--agent, nonempty agents, runs 1..100 and warmups 1..20 are required')
     return parent(a)
