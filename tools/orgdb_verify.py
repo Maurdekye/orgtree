@@ -505,8 +505,7 @@ OUTSIDE = {'org_identity', 'org_revision', 'org_topology', 'conversion_runs',
 # Derived from verified source fields or maintained by database triggers.
 # 0006_agents_readers.sql supplies the revision counters; 0007_docket_readers.sql
 # supplies docket projections and its counter; 0008_windows.sql supplies the bounded
-# windows' keys (generated win_* columns, the Sent tail's owner_pos) and the events
-# count. These are not legacy data.
+# windows' keys (generated win_* columns) and the events count. These are not legacy data.
 DERIVED = {
     'org_revision': {'node_rev', 'catalog_rev', 'view_rev', 'docket_rev',
                      'node_count', 'retired_axis_count', 'cost', 'cost_unknown',
@@ -520,7 +519,7 @@ DERIVED = {
     'scope_requests': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
     'notice_log': {'win_node', 'win_at'},
     'user_mail_log': {'win_from', 'win_at'},
-    'mail_log': {'win_from', 'win_at', 'owner_pos'},
+    'mail_log': {'win_from', 'win_at'},
     'events': {'win_at'},
     'steer_records': {'win_at'},
     'agent_turn_errors': {'win_at'},

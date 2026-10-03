@@ -317,7 +317,8 @@ class FirstPass(unittest.TestCase):
         self.assertEqual([o for o, _ in want], ['lead', 'x', 'x'])
         self.assertEqual(list(self.want[self.alpha]['mail_log']), ['x', 'lead'])
         with conn.connect(ADMIN, self.rows[self.alpha]['database']) as c:
-            got = c.execute("SELECT a.name, m.idx, m.owner_pos, m.public_id FROM orgtree.mail_log m "
+            got = c.execute("SELECT a.name, m.idx, min(m.id) OVER (PARTITION BY m.agent_id), "
+                            "m.public_id FROM orgtree.mail_log m "
                             "JOIN orgtree.agents a ON a.id = m.agent_id ORDER BY m.id").fetchall()
         self.assertEqual([(n, i, p) for n, i, p, _ in got], [('lead', 0, 1), ('x', 0, 2), ('x', 1, 2)])
         self.assertEqual([m for *_, m in got], ['m3', 'm1', 'm2'])

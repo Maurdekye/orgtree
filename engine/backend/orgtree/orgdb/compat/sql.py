@@ -1017,19 +1017,59 @@ def _mail_owner_newest(conn: Any, p: Sequence[Any]) -> Result:
 def _mail_sent_tail(conn: Any, p: Sequence[Any]) -> Result:
     """A sender's newest mail in every recipient's archive, in the legacy index's order: the
     entry's ``at`` text, then its recipient's first archive row (the dict order owners load
-    in), then the row, all descending. Org migration 0008 keeps that first row on every row
-    (``owner_pos``, as legacy's mail_sent keeps it) and indexes the whole key, so this is one
-    index range scan, however many rows share a timestamp."""
+    in), then the row, all descending. A recipient's first row is the smallest id among its
+    rows (ids follow legacy's seqs, org migration 0008). No column keeps it, so no writer locks
+    or rewrites anything for it (review A6 f7-f9): `_sent_ids` finds it while it reads."""
     ls = _need_log("log_d", "mail_log")
     sender, cap = str(p[0]), int(p[1])
     with conn.atomic():
         c = conn.raw
-        ids = [] if cap <= 0 else [int(r[0]) for r in c.execute(
-            f"SELECT id FROM orgtree.{ls.table.spec.table} WHERE win_from = %s "
-            "ORDER BY win_at DESC, owner_pos DESC, id DESC LIMIT %s", (sender, cap)).fetchall()]
+        ids = _sent_ids(c, f"orgtree.{ls.table.spec.table}", sender, cap) if cap > 0 else []
         names = _names(conn)
         got = _decoded(c, ls, ids, names)
         return Result([got[rid] for rid in ids])
+
+
+def _sent_ids(c: Any, table: str, sender: str, cap: int) -> list[int]:
+    """The ids of ``sender``'s newest ``cap`` mail rows in ``table``, newest first, in the legacy
+    order (`_mail_sent_tail`).
+
+    The recipient key orders only rows that share an ``at`` text, so the newest cap+1 rows by
+    ``at`` text, each with its recipient's key (one (agent_id, id) probe), decide the answer
+    unless the rows tied with the cap-th run past it. Then the rows newer than that tie are
+    exact, and the tie is walked recipient by recipient (mail_log_sent's (win_from, win_at,
+    agent_id) prefix), the latest first row first, each recipient's rows by id, until the cap is
+    filled. So a read takes the cap, plus the recipients in that one tie and a probe each,
+    however long the archive and however many rows share one ``at``."""
+    head = c.execute(
+        f"SELECT n.id, n.win_at FROM (SELECT m.id, m.win_at, m.agent_id FROM {table} m "
+        "WHERE m.win_from = %(s)s ORDER BY m.win_at DESC LIMIT %(n)s) n CROSS JOIN LATERAL "
+        f"(SELECT min(f.id) AS first FROM {table} f WHERE f.agent_id = n.agent_id) k "
+        "ORDER BY n.win_at DESC, k.first DESC, n.id DESC", {"s": sender, "n": cap + 1}).fetchall()
+    if len(head) <= cap:
+        return [int(r[0]) for r in head]
+    edge = head[-1][1]
+    if sum(1 for r in head if r[1] == edge) == 1:
+        return [int(r[0]) for r in head[:cap]]   # the one row past the cap is all of its `at`
+    ids = [int(r[0]) for r in head if r[1] != edge]
+    owners = c.execute(
+        "WITH RECURSIVE o(agent_id) AS ("
+        f"(SELECT m.agent_id FROM {table} m WHERE m.win_from = %(s)s AND m.win_at = %(e)s "
+        "ORDER BY m.agent_id LIMIT 1) UNION ALL "
+        f"SELECT (SELECT m.agent_id FROM {table} m WHERE m.win_from = %(s)s AND m.win_at = %(e)s "
+        "AND m.agent_id > o.agent_id ORDER BY m.agent_id LIMIT 1) FROM o WHERE o.agent_id IS NOT NULL) "
+        f"SELECT o.agent_id FROM o CROSS JOIN LATERAL (SELECT min(f.id) AS first FROM {table} f "
+        "WHERE f.agent_id = o.agent_id) k WHERE o.agent_id IS NOT NULL ORDER BY k.first DESC",
+        {"s": sender, "e": edge}).fetchall()
+    for (owner,) in owners:
+        left = cap - len(ids)
+        if left <= 0:
+            break
+        ids += [int(r[0]) for r in c.execute(
+            f"SELECT m.id FROM {table} m WHERE m.win_from = %(s)s AND m.win_at = %(e)s "
+            "AND m.agent_id = %(a)s ORDER BY m.id DESC LIMIT %(n)s",
+            {"s": sender, "e": edge, "a": owner, "n": left}).fetchall()]
+    return ids
 
 
 def _list_tail(conn: Any, sect: str, key_col: str, value: str, cap: int) -> Result:
