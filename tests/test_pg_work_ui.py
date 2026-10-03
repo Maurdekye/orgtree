@@ -90,7 +90,7 @@ class CommittedWorkUI(unittest.TestCase):
         self.assertEqual(body["delta"]["items"]["upsert"][0]["owner_state"], "retired")
         # Direct committed ask mimics another process while no live feed runs.
         with store._POOL.acquire(self.slug) as conn:
-            conn.execute("INSERT INTO doc(key,val) VALUES('asks',?) ON CONFLICT(key) DO UPDATE SET val=excluded.val", (json.dumps([{
+            conn.execute("INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val", ('asks', json.dumps([{
                 "id": "q", "node": "boss", "status": "open", "kind": "question", "rev": 1,
                 "questions": [{"question": "Decision?", "work_item": self.item}]}]),))
         self.assertEqual(store.read_doc_sections(self.slug, ["asks"])["asks"][0]["id"], "q")
