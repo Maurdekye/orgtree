@@ -340,6 +340,50 @@ class NativePaths(unittest.TestCase):
             with writer() as raw:
                 raw.execute('DELETE FROM orgtree.work_items WHERE slug=ANY(%s)',(list(slugs),))
 
+    def test_actual_policy_context_consumes_docket_in_its_existing_snapshot(self):
+        from psycopg.types.json import Json
+        from orgtree import policy_context
+        from orgtree.orgdb import docket
+        original_build, real_snapshot = policy_context._build, docket.Snapshot
+        seen = {}
+        def build(connection, graph, *, docket):
+            seen['raw'],seen['org_id'] = connection.raw,connection.org_id
+            return original_build(connection,graph,docket=docket)
+        def query(raw,org_id,**kwargs):
+            self.assertIs(raw,seen['raw'])
+            self.assertEqual(org_id,seen['org_id'])
+            self.assertEqual(kwargs['viewer'],USER)
+            self.assertEqual(raw.execute('SHOW transaction_isolation').fetchone()[0],'repeatable read')
+            self.assertEqual(raw.execute('SHOW transaction_read_only').fetchone()[0],'on')
+            with writer() as other:
+                other.execute("UPDATE orgtree.work_items SET title='after policy snapshot' WHERE slug='one'")
+            seen['called'] = True
+            return real_snapshot(raw,org_id,**kwargs)
+        try:
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.asks SET questions=%s WHERE public_id='ask-1'",
+                            (Json([dict(question='Active item?',work_item='one'),
+                                   dict(question='Archived item?',work_item='asked')]),))
+            with patch.object(policy_context,'_build',side_effect=build), \
+                    patch.object(docket,'Snapshot',side_effect=query), \
+                    patch.object(store,'cached_org',side_effect=AssertionError('whole-org fallback')), \
+                    patch.object(store,'load_org',side_effect=AssertionError('whole-org fallback')):
+                context = policy_context.read(SLUG,docket=True)
+            self.assertIsInstance(context,policy_context.PolicyContext)
+            self.assertTrue(seen['called'])
+            items = {r['slug']:r for r in context._work_active()}
+            self.assertEqual(set(items),{'one','back','w12345678'})
+            self.assertEqual(items['one']['title'],'Title one')
+            self.assertTrue(context._work_questions('one'))
+            self.assertEqual(context._work_questions('asked'),[])
+            with snapshot() as q:
+                self.assertEqual(q.lookup('one').summary['title'],'after policy snapshot')
+        finally:
+            with writer() as raw:
+                raw.execute("UPDATE orgtree.work_items SET title='Title one' WHERE slug='one'")
+                raw.execute("UPDATE orgtree.asks SET questions=%s WHERE public_id='ask-1'",
+                            (Json(DOC['asks'][0]['questions']),))
+
     def test_detail_full_compact_summary_and_disclosure(self):
         for options in ({}, {'compact': True}, {'projection': 'summary'},
                         {'fields': ['objective', 'owner', 'scope', 'reply_recipients']}):
