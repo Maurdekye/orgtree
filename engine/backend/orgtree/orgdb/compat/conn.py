@@ -146,9 +146,14 @@ class OrgDbConn:
             raise R.CompatError(f"docket header names items never written: {sorted(tx.item_ord)}")
         try:
             done = self.raw.execute("COMMIT" if commit else "ROLLBACK")
-        except BaseException:
+        except BaseException as e:
             pgstore._settle_revisions(self.raw, False)
             self._end_create(committed=False)
+            # a constraint checked at commit (work_items_slug is deferred) fails HERE, and
+            # store.py and orgtx read it as the legacy store raised it: sqlite3-shaped, with
+            # its sqlstate, like every statement's error above
+            if isinstance(e, _psycopg().Error):
+                raise pgstore._as_sqlite_error(e) from e
             raise
         ok = commit and getattr(done, "statusmessage", None) == "COMMIT"
         pgstore._settle_revisions(self.raw, ok)
