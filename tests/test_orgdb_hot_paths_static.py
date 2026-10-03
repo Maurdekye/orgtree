@@ -27,7 +27,7 @@ def hot_sql_violations(statement):
     Quoted values, identifiers and comments cannot introduce clause keywords.
     This inspects authored SQL too, so a partial index cannot hide its WHERE.
     """
-    hot, found, previous = [False], [], ''
+    hot, casts, found, previous = [False], [False], [], ''
     for match in TOKENS.finditer(statement):
         token = match.group()
         upper = re.sub(r'\s+', ' ', token.upper())
@@ -35,9 +35,11 @@ def hot_sql_violations(statement):
             continue
         if token == '(':
             hot.append(hot[-1])
+            casts.append(previous == 'CAST')
         elif token == ')':
             if len(hot) > 1:
                 hot.pop()
+                casts.pop()
         elif upper in ('WHERE', 'ON', 'HAVING', 'ORDER BY'):
             hot[-1] = True
         elif upper == 'FROM' and previous == 'DISTINCT':
@@ -46,7 +48,8 @@ def hot_sql_violations(statement):
         elif upper in ('SELECT', 'FROM', 'GROUP BY', 'LIMIT', 'OFFSET',
                        'UNION', 'INTERSECT', 'EXCEPT', 'RETURNING'):
             hot[-1] = False
-        elif hot[-1] and JSON_TOKEN.search(token):
+        elif hot[-1] and (JSON_TOKEN.search(token) or
+                         (casts[-1] and previous == 'AS' and upper in ('JSON', 'JSONB'))):
             found.append('JSON lookup in captured SQL predicate/order: ' + token)
         previous = upper
     return found
