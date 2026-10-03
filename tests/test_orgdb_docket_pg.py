@@ -3,7 +3,7 @@
 Creates one disposable app and org database. Run only under the P03 heavy lock.
 Each public-path regression executes against stage 1-B before the native port.
 """
-import import_provenance  # noqa: F401  asserts this checkout before engine imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import copy
 from contextlib import contextmanager
