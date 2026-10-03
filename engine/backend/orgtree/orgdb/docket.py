@@ -283,8 +283,9 @@ class Snapshot:
           SELECT id FROM orgtree.work_items WHERE list_key='active'
           UNION SELECT id FROM orgtree.work_items WHERE docket_manual
           UNION SELECT i.id FROM orgtree.docket_question_links q
-            JOIN orgtree.work_items i ON i.slug=q.item_slug)'''
-        rows = self._rows(prefix + f' SELECT {_POLICY_COLUMNS} FROM candidates c JOIN orgtree.work_items i ON i.id=c.id{join}'
+            CROSS JOIN LATERAL (SELECT id FROM orgtree.work_items WHERE slug=q.item_slug OFFSET 0) i)'''
+        rows = self._rows(prefix + f' SELECT {_POLICY_COLUMNS} FROM candidates c CROSS JOIN LATERAL '
+            f'(SELECT * FROM orgtree.work_items WHERE id=c.id OFFSET 0) i{join}'
             f' WHERE {access} AND NOT {_ARCHIVE} ORDER BY {_ORDER} DESC,i.slug COLLATE "C" DESC',
             self._args()+[self.now])
         return rows if include_backlogged else [r for r in rows
@@ -305,7 +306,9 @@ class Snapshot:
                 raise workquery.CursorReset('invalid archive position; restart paging')
         self.now = clock
         prefix, join, access = self._prefix(cold=True)
-        sql = prefix + f' SELECT {_POLICY_COLUMNS} FROM orgtree.work_items i{join} WHERE {access} AND {_ARCHIVE}'
+        source = ('readable r CROSS JOIN LATERAL (SELECT * FROM orgtree.work_items WHERE id=r.id OFFSET 0) i'
+                  if join else 'orgtree.work_items i')
+        sql = prefix + f' SELECT {_POLICY_COLUMNS} FROM {source} WHERE {access} AND {_ARCHIVE}'
         args = self._args(True)+[clock]
         if after is not None:
             sql += f' AND ({_ORDER},i.slug COLLATE "C") < (%s COLLATE "C",%s COLLATE "C")'
@@ -326,8 +329,13 @@ class Snapshot:
             prefix += ''' , candidates(id) AS (
               SELECT id FROM orgtree.work_items WHERE list_key='active'
               UNION SELECT id FROM orgtree.work_items WHERE docket_manual
-              UNION SELECT i.id FROM orgtree.docket_question_links q JOIN orgtree.work_items i ON i.slug=q.item_slug)'''
-            join = ' JOIN candidates c ON c.id=i.id' + join
+              UNION SELECT i.id FROM orgtree.docket_question_links q
+                CROSS JOIN LATERAL (SELECT id FROM orgtree.work_items WHERE slug=q.item_slug OFFSET 0) i)'''
+        # Bind the selected ids before reading their rows. Otherwise estimates
+        # for a small current-ask set can choose a scan of the whole archive.
+        source = ('readable r CROSS JOIN LATERAL (SELECT * FROM orgtree.work_items WHERE id=r.id OFFSET 0) i'
+                  if cold else 'candidates c CROSS JOIN LATERAL '
+                  '(SELECT * FROM orgtree.work_items WHERE id=c.id OFFSET 0) i')
         archived = 'count(*) FILTER (WHERE archived)'
         if self.viewer == USER and include_archived:
             archived += " + (SELECT n FROM orgtree.docket_counters WHERE kind='archive') - count(*) FILTER (WHERE attention AND physical_archive)"
@@ -338,7 +346,7 @@ class Snapshot:
           FROM (SELECT {_ATTENTION} AS attention,{_ARCHIVE} AS archived,
             CASE WHEN i.status='waiting' THEN 'blocked' ELSE coalesce(i.status,'') END AS status,
             i.list_key='archive' AS physical_archive
-            FROM orgtree.work_items i{join} WHERE {access}) policy'''
+            FROM {source} WHERE {access}) policy'''
         values = self.raw.execute(sql,self._args(cold)+[list(Org.WORK_UNCOUNTED),self.now]).fetchone()
         out = dict(zip(('attention','active','archived','backlogged'),map(int,values)))
         if not include_archived:
