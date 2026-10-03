@@ -360,6 +360,31 @@ class NativeMisfits(unittest.TestCase):
         self.assertEqual(values[0],values[1])
 
 
+    def test_document_header_does_not_transfer_retained_body(self):
+        from unittest.mock import patch
+        from orgtree.orgdb import agents
+        self.twin.edit(lambda d:d.__setitem__('documents',[dict(
+            id='retained',node='dev',title={'z':'header'},at=fixture.AT,
+            format='markdown',body={'authored':'large body'*10000})]))
+        expected=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
+            F.read_card_windows(raw,['dev'])))
+        self.assertEqual(expected[0],expected[1])
+        read=agents._dicts
+        observed=[]
+        def probe(raw,sql,params=()):
+            result=read(raw,sql,params)
+            if 'FROM orgtree.documents' in sql:
+                observed.extend(result)
+            return result
+        with fixture.storage(True),patch.object(agents,'_dicts',probe):
+            F.read_snapshot(self.twin.copy,lambda raw,stamp:F.read_card_windows(raw,['dev']))
+        self.assertTrue(observed)
+        for row in observed:
+            self.assertNotIn('body',row)
+            self.assertNotIn('body',row.get('extra') or {})
+            self.assertLess(len(str(row)),2000)
+
+
 @fixture.needs_pg
 class NativeReferences(unittest.TestCase):
     @classmethod
