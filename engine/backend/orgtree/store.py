@@ -1689,8 +1689,11 @@ class _Pool:
             if conn is None and _orgdb_on():
                 # orgdb: the org's own database, through the compatibility view
                 from .orgdb.compat import conn as _orgdb_conn
-                conn = cast("sqlite3.Connection",
-                            _orgdb_conn.open_conn(_safe_slug(slug), create=create))
+                only_new = create and getattr(_creating_org, "slug", None) == slug
+                if only_new:
+                    _creating_org.slug = None       # create_org's creating open, once
+                conn = cast("sqlite3.Connection", _orgdb_conn.open_conn(
+                    _safe_slug(slug), create=create, only_new=only_new))
             if conn is None:
                 if create:
                     _orgs_dir()        # a minting open writes into orgs/ (slice D)
@@ -9226,8 +9229,32 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
         # its first operation writes only what that operation changes
         for k, v in ALWAYS_ROWS.items():
             org.d.setdefault(k, json.loads(v))
-    save_org(org)
+    if not _orgdb_on():
+        save_org(org)
+        return org
+    # orgdb: the name check above is a read, and the registry row this save inserts is what
+    # reserves the name. Another create of the same name can register between the two: while
+    # it is being made (provisioning), or made (active), or as a second insert of one name.
+    # This save then only creates (never writes into that org) and the loser is told the name
+    # is taken, as by the check above, not a 500 (A7b, umbrella decision 27)
+    from .orgdb import lifecycle as _orgdb_lifecycle
+    from .orgdb import registry as _orgdb_registry
+    from .orgdb.compat import conn as _orgdb_conn
+    _creating_org.slug = slug
+    try:
+        save_org(org)
+    except (_orgdb_conn.OrgExists, _orgdb_registry.OrgUnavailable,
+            _orgdb_lifecycle.LifecycleError) as e:
+        if _orgdb_registry.lookup(slug) is None:
+            raise
+        raise LedgerError(f"org {slug!r} already exists") from e
+    finally:
+        _creating_org.slug = None
     return org
+
+
+#: the slug of the org `create_org` is minting on this thread: its save may only create
+_creating_org = threading.local()
 
 
 def org_folders(slug: str) -> tuple[tuple[str, str], ...]:
@@ -9270,6 +9297,68 @@ def _orgdb_delete(slug: str) -> None:
         _log(f"org {slug!r} trashed, but its reply snapshots were not cleared ({e})")
     _invalidate_snapshot(slug)
     _bump_org_seq(slug)
+
+
+def trashed_orgs(slug: str | None = None) -> list[dict[str, Any]]:
+    """With the storage switch on: the orgs in the trash (named ``slug``, or all), newest
+    first, as {"org_id", "slug", "trashed_at"} (an ISO time, or None)."""
+    from .orgdb import registry as _reg
+    rows = [r for r in _reg.rows()
+            if r["state"] == "trashed" and (slug is None or r["slug"] == slug)]
+
+    def newest(r: dict[str, Any]) -> tuple[bool, float, int]:
+        at = r["trashed_at"]
+        return (at is not None, at.timestamp() if at is not None else 0.0, int(r["org_id"]))
+    rows.sort(key=newest, reverse=True)
+    return [{"org_id": int(r["org_id"]), "slug": str(r["slug"]),
+             "trashed_at": r["trashed_at"].isoformat() if r["trashed_at"] is not None else None}
+            for r in rows]
+
+
+def restore_trashed_org(slug: str, org_id: int | None = None) -> dict[str, Any]:
+    """With the storage switch on: a trashed org back to active under its own name (the org
+    lifecycle's restore, design §2.13). Its database is renamed back, its identity checked,
+    it is migrated to this build's level, and its folders move back from the trash (an org
+    3.1.0 trashed has none there: its folders never moved). ``org_id`` picks one when several
+    trashed orgs had the name. Refused (LedgerError) when no trashed org has the name, when
+    several do and none is picked, or when another org has the name now. Returns {"org_id",
+    "slug", "state", "database", "reason"}: the state is 'active', or 'unavailable' with the
+    reason when its identity or its migration failed (Retry then applies, as at start).
+
+    3.1.0's restore was by hand (its marker moved back into orgs/, then a restart); 3.2.0 has
+    no file to move, so tools/restore-org.py calls this (umbrella decision 27)."""
+    _assert_synced_data_root()
+    from . import orgtx
+    from .orgdb import lifecycle as _lc
+    from .orgdb import registry as _reg
+    if not _orgdb_on():
+        raise LedgerError("restoring a trashed org needs 3.2.0's storage: with the legacy "
+                          "storage, move its file back from deleted/ into orgs/ and restart")
+    slug = _safe_slug(slug)
+    found = trashed_orgs(slug)
+    if org_id is None:
+        if not found:
+            raise LedgerError(f"no trashed org is named {slug!r}")
+        if len(found) > 1:
+            raise LedgerError(f"{len(found)} trashed orgs are named {slug!r}; name one by its id: "
+                              + ", ".join(f"{t['org_id']} (trashed {t['trashed_at']})"
+                                          for t in found))
+        org_id = found[0]["org_id"]
+    elif int(org_id) not in {t["org_id"] for t in found}:
+        raise LedgerError(f"org {org_id} is not a trashed org named {slug!r}")
+    lc = _reg.lifecycle()
+    try:
+        database = lc.restore(int(org_id), folders=org_folders(slug),
+                              trash_dir=os.path.join(DATA_ROOT, "deleted"))
+    except _lc.Busy as e:
+        raise orgtx.LockTimeout(f"org {slug!r} is busy with another operation ({e})") from e
+    except _lc.LifecycleError as e:
+        raise LedgerError(str(e)) from e
+    row = lc.row(int(org_id))
+    _invalidate_snapshot(slug)
+    _bump_org_seq(slug)
+    return {"org_id": int(org_id), "slug": slug, "state": str(row["state"]),
+            "database": database, "reason": row["state_reason"]}
 
 
 def delete_org(slug: str) -> None:

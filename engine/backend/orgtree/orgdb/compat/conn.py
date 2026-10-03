@@ -40,6 +40,10 @@ from . import sql as S
 OrgUnavailable = _reg.OrgUnavailable
 
 
+class OrgExists(sqlite3.OperationalError):
+    """A creating open (``only_new``) found an org of that name already registered."""
+
+
 def _psycopg() -> Any:
     import psycopg   # noqa: PLC0415
     return psycopg
@@ -207,11 +211,15 @@ class OrgDbConn:
             _reg.release(self.raw, self.database)
 
 
-def open_conn(slug: str, *, create: bool = False) -> OrgDbConn:
+def open_conn(slug: str, *, create: bool = False, only_new: bool = False) -> OrgDbConn:
     """A connection to ``slug``'s database. A missing org raises like a missing SQLite file
-    unless ``create`` (only save_org passes it, exactly as for SQLite)."""
+    unless ``create`` (only save_org passes it, exactly as for SQLite). ``only_new`` is
+    create_org's creating save: an org registered under the name meanwhile (another create
+    of the same name, being made or made) raises OrgExists instead of being written into."""
     row = _reg.lookup(slug)
     if row is not None:
+        if only_new:
+            raise OrgExists(f"org {slug!r} exists")
         org_id, database, state, org_uuid = row
         if state != "active":
             raise OrgUnavailable(f"org {slug!r} is {state}, not open for use")

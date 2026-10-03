@@ -18,6 +18,7 @@ What it proves:
     refuses) becomes unavailable with its report while the other converts; its legacy rows are
     unchanged; Retry after the fault is removed converts it;
   * a legacy trashed org (today's delete_org) converts as trashed, fenced, under its trash name;
+    tools/restore-org.py brings it back active with exactly its document (umbrella decision 27);
   * a legacy row with no marker is not converted and is listed;
   * two markers naming one org make it unavailable, naming both;
   * a non-null kiosk value is listed as ignored; an unregistered top-level key is kept and listed;
@@ -123,6 +124,19 @@ def convert(*args: str) -> dict:
     if r.returncode != 0:
         raise AssertionError(f'converter exit {r.returncode}\n{r.stdout[-3000:]}\n{r.stderr[-6000:]}')
     return json.loads((report / 'run.json').read_text(encoding='utf-8'))
+
+
+def restore_tool(*args: str) -> subprocess.CompletedProcess:
+    """tools/restore-org.py as a person runs it (a child process), on this module's data root and
+    cluster (the developer form: the conninfo in the environment)."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(
+        ('ORGTREE_', 'OPENAI_', 'ANTHROPIC_', 'CLAUDE_', 'CODEX_', 'GEMINI_', 'PYTHON'))}
+    env.update(ORGTREE_PG_CONNINFO=_with_db(RUNTIME, LEGACY), ORGTREE_PG_ADMIN_CONNINFO=ADMIN,
+               ORGTREE_ORGDB_PREFIX=PREFIX, HOME=str(HOME), USERPROFILE=str(HOME),
+               PYTHONIOENCODING='utf-8')
+    tool = Path(__file__).resolve().parent.parent / 'tools' / 'restore-org.py'
+    return subprocess.run(child_python.argv(str(tool), '--root', str(DATA), *args), env=env,
+                          capture_output=True, text=True, encoding='utf-8', timeout=300)
 
 
 def host_lifecycle():
@@ -243,6 +257,7 @@ class FirstPass(unittest.TestCase):
             assert cls.planted, 'the planted fault found no docket row'
             cls.faulty_legacy = org_id
         cls.trashed = make_org('Trashed')
+        cls.trashed_want = legacy_document(cls.trashed)
         store.delete_org(cls.trashed)
         cls.orphan = make_org('Orphan')
         (DATA / 'orgs' / f'{cls.orphan}.pg').unlink()
@@ -423,6 +438,20 @@ class FirstPass(unittest.TestCase):
         import psycopg
         with self.assertRaises(psycopg.OperationalError):
             conn.connect(RUNTIME, row['database']).close()
+
+    def test_the_restore_tool_brings_a_legacy_trashed_org_back(self) -> None:
+        # umbrella decision 27: an org 3.1.0 trashed, converted as trashed, comes back active
+        # under its own name and id with exactly its document. Its folders never moved to the
+        # trash (3.1.0's delete moved only its file), so none move back
+        row = self.rows[self.trashed]
+        r = restore_tool(self.trashed)
+        self.assertEqual(r.returncode, 0, r.stderr[-3000:])
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        self.assertEqual((out['org_id'], out['state']), (row['org_id'], 'active'))
+        now = registry()[self.trashed]
+        self.assertEqual((now['state'], now['database']),
+                         ('active', names.org(row['org_id'], PREFIX)))
+        self.assertEqual(canon(new_document(now['database'])), canon(self.trashed_want))
 
     def test_orphan_is_listed_and_not_converted(self) -> None:
         self.assertNotIn(self.orphan, self.rows)

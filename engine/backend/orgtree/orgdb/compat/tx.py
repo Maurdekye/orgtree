@@ -105,6 +105,23 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
             return f"DO {tag}{body}{tag}"
 
 
+def _gone(slug: str, org_id: int, e: BaseException) -> BaseException:
+    """The error to raise for ``e``, raised while this transaction queued for or took the org
+    lock. A delete's trash fences the runtime off and ends every connection to the org's
+    database, a queued writer's too (psycopg AdminShutdown, then "the connection is closed"):
+    when the registry no longer holds the org active under this id, that writer is told the
+    org is gone, as one that queued behind the delete and found it gone (A7b, umbrella
+    decision 27), not a raw connection error. Anything else maps as before."""
+    from ...ledger import LedgerError   # noqa: PLC0415
+    import psycopg                      # noqa: PLC0415
+    if isinstance(e, psycopg.OperationalError):
+        with contextlib.suppress(Exception):
+            again = _reg.lookup(slug)
+            if again is None or again[0] != org_id or again[2] != "active":
+                return LedgerError(f"no such org: {slug!r}")
+    return orgtx._pg_error(e)                                          # pyright: ignore[reportPrivateUsage]
+
+
 def _whole(raw: Any) -> tuple[list[str], list[tuple[str, str]]]:
     """Every doc row name (locked FOR UPDATE) and every (dict log, owner) pair."""
     m = R.model()
@@ -153,9 +170,11 @@ class OrgDbBackend:
                                              tx.slug, org_id, database)
             for tx in order:
                 orgtx._pause("before_lock", tx)                         # pyright: ignore[reportPrivateUsage]
+            current: tuple[str, int] | None = None
             try:
                 for tx in order:
                     conn = conns[tx.slug]
+                    current = (tx.slug, conn.org_id)
                     raw = conn.raw
                     raw.execute(f"BEGIN; "
                                 f"SET LOCAL lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'; "
@@ -195,7 +214,9 @@ class OrgDbBackend:
                     if block is not None:
                         raw.execute(block)
             except Exception as e:
-                raise orgtx._pg_error(e) from e                         # pyright: ignore[reportPrivateUsage]
+                if current is None:
+                    raise orgtx._pg_error(e) from e                     # pyright: ignore[reportPrivateUsage]
+                raise _gone(current[0], current[1], e) from e
             for tx in order:
                 orgtx._pause("after_lock", tx)                          # pyright: ignore[reportPrivateUsage]
             for tx in order:
@@ -328,7 +349,7 @@ class OrgDbBackend:
                 raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
                             (org_id, f"org:{orgtx._ORG_KEY}"))         # pyright: ignore[reportPrivateUsage]
             except Exception as e:
-                raise orgtx._pg_error(e) from e                         # pyright: ignore[reportPrivateUsage]
+                raise _gone(slug, org_id, e) from e
             yield
         finally:
             with contextlib.suppress(Exception):
