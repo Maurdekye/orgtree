@@ -191,9 +191,12 @@ class OrgDbConn:
 
     def on_save_commit(self, changed: bool, *, work_changed: bool = False) -> None:
         """Before the save's COMMIT: the org's revision + 1 and NOTIFY, when it changed."""
-        if not changed:
-            return
         try:
+            # Pending permanent deletes can lock item/event rows. Finish them before
+            # the revision singleton, which is the save's last ordinary row lock.
+            R.docket_finish(self.raw, self.tx)
+            if not changed:
+                return
             rev = int(self.raw.execute("UPDATE orgtree.org_revision SET rev = rev + 1 "
                                        "RETURNING rev").fetchone()[0])
             from ... import pgfeed   # noqa: PLC0415
