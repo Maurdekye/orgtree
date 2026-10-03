@@ -19,8 +19,8 @@ from ..ledger import ASK_HISTORY_KEEP, EXTERN, USER, LedgerError
 
 _AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),'')=''"
 _CREATED = 'orgtree.foreground_time(a.created,a.created_text)'
-_RARE_AXIS = '(a.extra IS NOT NULL AND (a.parent_id IS NULL OR a.successor_id IS NULL))'
-_RARE_SEARCH = '(a.extra IS NOT NULL AND (a.state IS NULL OR a.successor_id IS NULL))'
+_RARE_AXIS = '(a.parent_misfit OR a.successor_misfit)'
+_RARE_SEARCH = '(a.state_misfit OR a.successor_misfit)'
 _DOCUMENT_META = codec.Spec('documents',tuple(f for f in DOCUMENTS.fields if f.key in ('id','node','title','at','format')))
 _REQUEST_META = {s.table:codec.Spec(s.table,tuple(f for f in s.fields if f.key in
                 ('node','status','at','resolved_at'))) for s in (ASKS,CREDIT_REQUESTS,SCOPE_REQUESTS)}
@@ -100,22 +100,19 @@ def meta(body):
 
 def stamp(raw, org_id, seq):
     row = raw.execute('SELECT r.rev,r.node_rev,r.catalog_rev,r.view_rev,'
-        'i.org_uuid::text,i.incarnation::text FROM orgtree.org_revision r '
+        'i.org_uuid::text,i.incarnation::text,r.node_count,r.retired_axis_count,r.cost,r.cost_unknown '
+        'FROM orgtree.org_revision r '
         'CROSS JOIN orgtree.org_identity i').fetchone()
-    totals = raw.execute("SELECT count(*),count(*) FILTER (WHERE state='archived' AND " + _AXIS +
-        '),coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown) '
-        'FROM orgtree.agents a WHERE NOT tombstone').fetchone()
     if row is None:
         raise LedgerError('foreground revision is incomplete')
-    cost = totals[2]
-    unknown = totals[3]
-    retired = totals[1] - sum(bool(value['successor']) for ordinal,value in _hot(raw,
-        "a.state='archived' AND a.extra IS NOT NULL AND a.successor_id IS NULL").values())
+    cost = row[8]
+    unknown = row[9]
+    retired = row[7] - sum(bool(value['successor']) for ordinal,value in _hot(raw,
+        "a.state='archived' AND a.successor_misfit").values())
     # Misfits remain exactly in extra; typed numeric values never parse JSON.
     # Read only candidate hot rows, then use the same meta/sum rule as legacy.
     for row_ in _dicts(raw, 'SELECT id,cost_usd,cost_usd_unknown,extra FROM orgtree.agents '
-                       'WHERE NOT tombstone AND extra IS NOT NULL '
-                       'AND (cost_usd IS NULL OR cost_usd_unknown IS NULL)'):
+                       'WHERE NOT tombstone AND (cost_usd_misfit OR cost_usd_unknown_misfit)'):
         extra = row_['extra'] or {}
         value = extra.get('cost_usd')
         if row_['cost_usd'] is None and type(value) in (int, float):
@@ -128,7 +125,7 @@ def stamp(raw, org_id, seq):
             unknown += 1
     return dict(org_id=org_id, org_revision=row[0], node_revision=row[1],
         catalog_revision=row[2], view_revision=row[3], org_uuid=row[4], incarnation=row[5],
-        node_count=totals[0], retired_axis_count=retired, cost=str(cost), cost_unknown=unknown, seq=seq)
+        node_count=row[6], retired_axis_count=retired, cost=str(cost), cost_unknown=unknown, seq=seq)
 
 
 @contextmanager
@@ -168,7 +165,7 @@ def _ref_closure(raw, ids, ref):
             f'WITH RECURSIVE wanted(id,ref_id) AS ('
             f'SELECT id,{ref}_id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone UNION '
             f'SELECT p.id,p.{ref}_id FROM orgtree.agents p JOIN wanted c ON p.id=c.ref_id '
-            'WHERE NOT p.tombstone) SELECT a.name,a.extra IS NOT NULL AND w.ref_id IS NULL '
+            f'WHERE NOT p.tombstone) SELECT a.name,a.{ref}_misfit '
             'FROM wanted w JOIN orgtree.agents a ON a.id=w.id', (list(pending),)).fetchall()
         found.update(name for name,rare in selected)
         rare = _hot(raw,'a.name=ANY(%s)',([name for name,rare in selected if rare],))
@@ -191,7 +188,8 @@ def rows(raw, ids):
         'SELECT c.origin,p.id,c.depth+1,c.path||p.id FROM chain c '
         'JOIN orgtree.agents a ON a.id=c.id JOIN orgtree.agents p ON p.id=a.predecessor_id '
         'WHERE NOT p.tombstone AND NOT p.id=ANY(c.path)) '
-        'SELECT a.name,p.name,p.generation,p.state,p.bearer_state,c.depth,p.extra IS NOT NULL '
+        'SELECT a.name,p.name,p.generation,p.state,p.bearer_state,c.depth,'
+        '(p.generation_misfit OR p.state_misfit OR p.bearer_state_misfit) '
         'FROM chain c JOIN orgtree.agents a ON a.id=c.origin JOIN orgtree.agents p ON p.id=c.id',
         (ids,)).fetchall()
     by_origin = {}
@@ -203,7 +201,7 @@ def rows(raw, ids):
         by_origin.setdefault(name, []).append((pred, generation or 0, state, bearer, depth))
     # Keep the normal recursive SQL path. Only an origin whose selected chain
     # reaches a preserved reference needs exact metadata and a Python walk.
-    boundaries = _hot(raw,'a.name=ANY(%s) AND a.predecessor_id IS NULL AND a.extra IS NOT NULL',
+    boundaries = _hot(raw,'a.name=ANY(%s) AND a.predecessor_misfit',
                       (list(set(metadata) | {r[1] for r in chains}),))
     links = {name for name,(_,value) in boundaries.items() if value['predecessor']}
     affected = [name for name in metadata if name in links or
@@ -252,16 +250,16 @@ def retired_counts(raw, parents):
 
 def live_count(raw):
     total=raw.execute("SELECT count(*) FROM orgtree.agents WHERE NOT tombstone "
-                      "AND coalesce(state,'live')='live'").fetchone()[0]
+                      "AND coalesce(state,'live')='live' AND coalesce(state,'live')<>'archived'").fetchone()[0]
     return total-sum(value['state']!='live' for ordinal,value in _hot(raw,
-        'a.state IS NULL AND a.extra IS NOT NULL').values())
+        'a.state_misfit').values())
 
 
 def summary_compatible(raw):
     # Match the existing legacy summary cost refusal: truthy non-numeric
     # costs need Org.cost_total's conversion, rather than the numeric stamp.
     for extra, in raw.execute('SELECT extra FROM orgtree.agents WHERE NOT tombstone '
-                             'AND cost_usd IS NULL AND extra IS NOT NULL').fetchall():
+                             'AND cost_usd_misfit').fetchall():
         value=(extra or {}).get('cost_usd')
         if value and type(value) not in (int,float):
             return False
@@ -293,11 +291,11 @@ def child_page(raw, parent, limit, after=None, last=False):
         params.extend(after)
     typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,' + _CREATED + ',a.ord '
         'FROM orgtree.agents a WHERE ' + base + parent_sql +
-        ' AND a.ui_order IS NOT NULL AND a.created IS NOT NULL AND NOT '+_RARE_AXIS + suffix +
+        ' AND NOT (a.ui_order_misfit OR a.created_misfit) AND NOT '+_RARE_AXIS + suffix +
         ' ORDER BY coalesce(a.ui_order,0)' + direction + ',' + _CREATED + direction +
         ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*params, limit)).fetchall()
     candidates = {row[0]: row for row in typed}
-    rare="a.state='archived' AND ("+_RARE_AXIS+' OR ((a.ui_order IS NULL OR a.created IS NULL) AND '+_AXIS+parent_sql+'))'
+    rare="a.state='archived' AND ("+_RARE_AXIS+' OR ((a.ui_order_misfit OR a.created_misfit) AND '+_AXIS+parent_sql+'))'
     for name, (ordinal, value) in _hot(raw, rare,
                                       [] if not parent else [parent]).items():
         if value['successor'] or value['parent']!=parent:
@@ -368,11 +366,11 @@ def search_page(raw, query, state, after, limit):
 def discovery(raw, state, after, limit):
     ids = [row[0] for row in raw.execute("SELECT name FROM orgtree.agents a WHERE NOT tombstone "
         "AND coalesce(state,'live')=%s AND (%s::text IS NULL OR name COLLATE \"C\">%s COLLATE \"C\") "
-        'AND NOT(a.state IS NULL AND a.extra IS NOT NULL) '
+        'AND NOT a.state_misfit '
         'ORDER BY name COLLATE "C" LIMIT %s', (state,after,after,limit)).fetchall()]
     metadata = _hot(raw,'a.name=ANY(%s)',(ids,))
     metadata.update({name:row for name,row in _hot(raw,
-        'a.state IS NULL AND a.extra IS NOT NULL AND (%s::text IS NULL OR a.name COLLATE "C">%s COLLATE "C")',
+        'a.state_misfit AND (%s::text IS NULL OR a.name COLLATE "C">%s COLLATE "C")',
         (after,after)).items() if row[1]['state']==state})
     return sorted(((name,value) for name, (ordinal,value) in metadata.items()), key=lambda pair: pair[0])[:limit]
 

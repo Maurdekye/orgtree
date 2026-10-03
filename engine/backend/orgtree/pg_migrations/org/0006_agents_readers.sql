@@ -3,7 +3,28 @@
 ALTER TABLE orgtree.org_revision
   ADD COLUMN node_rev bigint NOT NULL DEFAULT 0,
   ADD COLUMN catalog_rev bigint NOT NULL DEFAULT 0,
-  ADD COLUMN view_rev bigint NOT NULL DEFAULT 0;
+  ADD COLUMN view_rev bigint NOT NULL DEFAULT 0,
+  ADD COLUMN node_count bigint NOT NULL DEFAULT 0,
+  ADD COLUMN retired_axis_count bigint NOT NULL DEFAULT 0,
+  ADD COLUMN cost numeric NOT NULL DEFAULT 0,
+  ADD COLUMN cost_unknown bigint NOT NULL DEFAULT 0;
+
+-- Presence metadata, not a second value projection. Unknown unrelated keys
+-- must not turn every archived row into a rare correction candidate.
+DO $flags$
+DECLARE field text;
+BEGIN
+  FOREACH field IN ARRAY ARRAY['parent','predecessor','successor','state','ui_order',
+    'created','generation','bearer_state','cost_usd','cost_usd_unknown']
+  LOOP
+    EXECUTE format('ALTER TABLE orgtree.agents ADD COLUMN %I boolean '
+      'GENERATED ALWAYS AS ((extra -> %L) IS NOT NULL) STORED',field||'_misfit',field);
+    EXECUTE format('CREATE INDEX %I ON orgtree.agents(id) WHERE NOT tombstone AND %I',
+      'agents_'||field||'_misfit',field||'_misfit');
+  END LOOP;
+END
+$flags$;
+CREATE INDEX agents_name_all ON orgtree.agents(name,tombstone,id);
 
 -- The codec omits *_text for canonical UTC milliseconds; keep legacy's text
 -- order for noncanonical strings without converting JSON or loading bodies.
@@ -21,6 +42,9 @@ $fn$;
 CREATE FUNCTION orgtree.foreground_accumulate() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE n bigint; k text; previous bigint;
+  old_nodes bigint:=0; new_nodes bigint:=0; old_retired bigint:=0; new_retired bigint:=0;
+  old_cost numeric:=0; new_cost numeric:=0; old_unknown bigint:=0; new_unknown bigint:=0;
+  field text; amount numeric; renamed_retired bigint;
 BEGIN
   IF TG_ARGV[0] !~ '^[a-z][a-z0-9_]*_rev$' OR TG_ARGV[1] NOT IN ('rows','flag') THEN
     RAISE EXCEPTION 'invalid foreground counter arguments';
@@ -31,22 +55,74 @@ BEGIN
   k := 'orgtree.pending_' || TG_ARGV[0];
   previous := coalesce(nullif(current_setting(k,true),''),'0')::bigint;
   PERFORM set_config(k, CASE WHEN TG_ARGV[1]='rows' THEN (previous+n)::text ELSE '1' END, true);
+  IF TG_ARGV[0]='node_rev' THEN
+    IF TG_OP<>'DELETE' THEN
+      SELECT count(*),count(*) FILTER (WHERE state='archived' AND
+        (successor_id IS NULL OR successor_id IN (SELECT id FROM orgtree.agents WHERE name=''))),
+        coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown)
+        INTO new_nodes,new_retired,new_cost,new_unknown FROM new_rows WHERE NOT tombstone;
+    END IF;
+    IF TG_OP<>'INSERT' THEN
+      -- References in OLD name the old target even when this statement also
+      -- renamed/deleted that target. A valid empty reference is an org axis.
+      SELECT count(*),count(*) FILTER (WHERE state='archived' AND
+        (successor_id IS NULL OR successor_id IN (
+          SELECT id FROM old_rows WHERE name='' UNION ALL
+          SELECT id FROM orgtree.agents WHERE name='' AND id NOT IN (SELECT id FROM old_rows)))),
+        coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown)
+        INTO old_nodes,old_retired,old_cost,old_unknown FROM old_rows WHERE NOT tombstone;
+    END IF;
+    IF TG_OP='UPDATE' AND EXISTS(SELECT 1 FROM old_rows o JOIN new_rows v USING(id)
+        WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')) THEN
+      -- Only the exceptional empty-name boundary can change another row's
+      -- typed axis without writing it. Probe incoming links by successor_id.
+      SELECT count(*) FILTER (WHERE v.name='')-count(*) FILTER (WHERE o.name='')
+        INTO renamed_retired FROM old_rows o JOIN new_rows v USING(id)
+        JOIN orgtree.agents a ON a.successor_id=o.id
+        WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')
+          AND NOT a.tombstone AND a.state='archived'
+          AND a.id NOT IN (SELECT id FROM new_rows);
+      new_retired:=new_retired+renamed_retired;
+    END IF;
+    FOR field,amount IN SELECT 'node_count',(new_nodes-old_nodes)::numeric
+      UNION ALL SELECT 'retired_axis_count',(new_retired-old_retired)::numeric
+      UNION ALL SELECT 'cost',new_cost-old_cost
+      UNION ALL SELECT 'cost_unknown',(new_unknown-old_unknown)::numeric
+    LOOP
+      k:='orgtree.pending_'||field;
+      PERFORM set_config(k,(coalesce(nullif(current_setting(k,true),''),'0')::numeric+amount)::text,true);
+    END LOOP;
+  END IF;
   RETURN NULL;
 END
 $fn$;
 
 CREATE FUNCTION orgtree.foreground_flush() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-DECLARE n bigint; k text; touched bigint;
+DECLARE n bigint; k text; touched bigint; field text;
 BEGIN
   IF TG_ARGV[0] !~ '^[a-z][a-z0-9_]*_rev$' THEN RAISE EXCEPTION 'invalid foreground counter'; END IF;
   k := 'orgtree.pending_' || TG_ARGV[0];
   n := coalesce(nullif(current_setting(k,true),''),'0')::bigint;
   IF n=0 THEN RETURN NULL; END IF;
   PERFORM set_config(k,'0',true);
-  EXECUTE format('UPDATE orgtree.org_revision SET %1$I=%1$I+$1 WHERE singleton',TG_ARGV[0]) USING n;
+  IF TG_ARGV[0]='node_rev' THEN
+    UPDATE orgtree.org_revision SET node_rev=node_rev+n,
+      node_count=node_count+coalesce(nullif(current_setting('orgtree.pending_node_count',true),''),'0')::bigint,
+      retired_axis_count=retired_axis_count+coalesce(nullif(current_setting('orgtree.pending_retired_axis_count',true),''),'0')::bigint,
+      cost=cost+coalesce(nullif(current_setting('orgtree.pending_cost',true),''),'0')::numeric,
+      cost_unknown=cost_unknown+coalesce(nullif(current_setting('orgtree.pending_cost_unknown',true),''),'0')::bigint
+      WHERE singleton;
+  ELSE
+    EXECUTE format('UPDATE orgtree.org_revision SET %1$I=%1$I+$1 WHERE singleton',TG_ARGV[0]) USING n;
+  END IF;
   GET DIAGNOSTICS touched=ROW_COUNT;
   IF touched<>1 THEN RAISE EXCEPTION 'foreground revision singleton missing'; END IF;
+  IF TG_ARGV[0]='node_rev' THEN
+    FOREACH field IN ARRAY ARRAY['node_count','retired_axis_count','cost','cost_unknown'] LOOP
+      PERFORM set_config('orgtree.pending_'||field,'0',true);
+    END LOOP;
+  END IF;
   RETURN NULL;
 END
 $fn$;
