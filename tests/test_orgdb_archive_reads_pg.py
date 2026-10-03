@@ -263,12 +263,14 @@ class ArchiveReads(unittest.TestCase):
                 def call(): return store.load_org(self.slug).work_identity_state()
                 with no_archive_decodes() as (decodes, loads):
                     self.assertEqual(call(), 'slug')
-                    times = []
-                    for _ in range(9):
-                        start = time.perf_counter()
-                        self.assertEqual(call(), 'slug')
-                        times.append((time.perf_counter()-start)*1000)
                 self.assertEqual((decodes, loads), ([], []))
+                call()  # ordinary warmup, followed by nine uninstrumented calls
+                times = []
+                for _ in range(9):
+                    start = time.perf_counter()
+                    answer = call()
+                    times.append((time.perf_counter()-start)*1000)
+                    self.assertEqual(answer, 'slug')
                 samples.append(dict(headers=max(6, count),samples_ms=times,median_ms=statistics.median(times)))
         added = samples[1]['median_ms']-samples[0]['median_ms']
         REPORT['latency'] = dict(calibration='recorded combined turn time; shared numeric census',
