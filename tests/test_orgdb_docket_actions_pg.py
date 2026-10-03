@@ -72,7 +72,7 @@ class LedgerActions(unittest.TestCase):
                         store.save_org(org)
                         outputs.append(workdetail.get(slug,USER,ITEM,now_ts=NOW))
                 self.assertEqual(outputs[0],outputs[1])
-                body = outputs[1]['item']
+                body = outputs[1]
                 self.assertEqual(body['status'],status)
                 self.assertEqual(body.get('review_packet') is not None,packet)
                 self.assertEqual(body.get('candidate_verdict') is not None,verdict)

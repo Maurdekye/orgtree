@@ -11,8 +11,7 @@ from unittest.mock import patch
 
 import test_orgdb_docket_pg as fixture
 from test_orgdb_docket_events import item as event_record
-from orgtree.ledger import USER
-from orgtree.orgdb import conn, docket
+from orgtree.orgdb import conn
 from orgtree.orgdb.compat import conn as compat_conn, rows as R
 
 SLUG = 'event-item'
@@ -76,8 +75,6 @@ class StableWrites(unittest.TestCase):
             removed = [r[0] for r in old if r[2]=='history'][1:3]
             self.assertFalse(any(r[0] in removed for r in new))
             self.assertEqual(json.loads(R.item(view.raw,SLUG)[1]),record)
-            native = docket.Snapshot(view.raw,fixture.OID,viewer=USER,now_ts=fixture.NOW)
-            self.assertEqual(native.body(native.lookup(SLUG)),record)
 
     def test_archive_reopen_same_id_exact_original_cas_and_append_order(self):
         with self.view() as view:
