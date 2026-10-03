@@ -41,18 +41,42 @@ class Bridge:
             pending = requests.repair_batch(c, limit=self.batch)
         synced = 0
         for request in pending:
-            with self.connect(org) as c:
-                row = c.execute('SELECT name FROM orgtree.agents WHERE id = %s',
-                                (request.agent_id,)).fetchone()
-            if row is None:
-                raise RuntimeError('turn request agent is missing')
-            app = AppRequest(request.request_id, org.org_id, request.agent_id,
-                             row[0], request.reason)
-            if not self._forward(request, app):
-                continue
-            with self.connect(org) as c, c.transaction():
-                synced += int(requests.app_synced(c, request))
+            synced += int(self.forward(org, request))
         return synced
+
+    def queue_one(self, org: jobs.Org, request_id: str) -> requests.Request | None:
+        """Immediate start step for a caller; the periodic bridge repairs crashes."""
+        with self.connect(org) as c, c.transaction():
+            request = requests.lock(c, request_id)
+            if request is None:
+                raise RuntimeError('turn request is missing')
+            if request.state == 'pending':
+                row = c.execute("UPDATE orgtree.jobs SET state='running', attempts=attempts+1, "
+                                "lease_owner=%s, lease_until=clock_timestamp()+interval '30 seconds' "
+                                "WHERE kind='start_turn' AND dedupe_key=%s AND state='queued' "
+                                "AND run_at <= statement_timestamp() RETURNING " +
+                                ', '.join(requests._JOB_COLUMNS),
+                                (self.instance_id, request_id)).fetchone()
+                if row is not None:
+                    jobs.execute(c, jobs.Job(*row), requests.queue_job)
+            current = requests.get(c, request_id)
+        if current is not None and current.app_pending:
+            self.forward(org, current)
+        return current
+
+    def forward(self, org: jobs.Org, request: requests.Request) -> bool:
+        """Forward one committed selection without holding its org connection."""
+        with self.connect(org) as c:
+            row = c.execute('SELECT name FROM orgtree.agents WHERE id = %s',
+                            (request.agent_id,)).fetchone()
+        if row is None:
+            raise RuntimeError('turn request agent is missing')
+        app = AppRequest(request.request_id, org.org_id, request.agent_id,
+                         row[0], request.reason)
+        if not self._forward(request, app):
+            return False
+        with self.connect(org) as c, c.transaction():
+            return requests.app_synced(c, request)
 
     def _forward(self, request: requests.Request, app: AppRequest) -> bool:
         """No org transaction is open here. A stale selection cannot undo cancel."""

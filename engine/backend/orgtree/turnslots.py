@@ -60,7 +60,7 @@ class FairSlots:
         if cls is FairSlots:
             from .orgdb import enabled
             if enabled() and _database_queue is not None:
-                return DatabaseSlots()
+                return _host_slots if _host_slots is not None else DatabaseSlots()
         return super().__new__(cls)
 
     def __init__(self, limit: int = DEFAULT_LIMIT) -> None:
@@ -193,6 +193,37 @@ _database_queue: Any = None
 _database_instance: int | None = None
 _database_resolver: Callable[[str, str], tuple[int, int]] | None = None
 _request_context = threading.local()
+_host_slots: Any = None
+_host_limit: int | None = None
+_activation_lock = threading.Lock()
+_activation_callbacks: list[Callable[[Any, int], None]] = []
+
+
+def activate(slots: Any, limit: int) -> None:
+    """Host publication after configuration. Callbacks perform no database I/O."""
+    global _host_slots, _host_limit
+    if _database_queue is None:
+        raise RuntimeError('cannot activate slots before host configuration')
+    with _activation_lock:
+        if _host_slots is not None and _host_slots is not slots:
+            raise RuntimeError('another host slot object is already active')
+        _host_slots, _host_limit = slots, _clamp(limit)
+        callbacks = list(_activation_callbacks)
+    for callback in callbacks:
+        callback(slots, _host_limit)
+
+
+def on_activation(callback: Callable[[Any, int], None]) -> None:
+    """An import-time subscriber learns the existing host object without I/O."""
+    with _activation_lock:
+        _activation_callbacks.append(callback)
+        slots, limit = _host_slots, _host_limit
+    if slots is not None:
+        callback(slots, limit)
+
+
+def activated_limit() -> int | None:
+    return _host_limit
 
 
 def configure(instance_id: int, connect: Callable[[], Any] | None = None,
@@ -269,6 +300,7 @@ class _DatabaseAttempt:
         self.resolved = False
         self.error: Exception | None = None
         self.lock = threading.Lock()
+        self.before_finish: Callable[[], None] | None = None
 
 
 class DatabaseSlots:
@@ -297,6 +329,11 @@ class DatabaseSlots:
     @staticmethod
     def _finished(queue: Any, attempt: _DatabaseAttempt) -> None:
         from .turnqueue import LostClaim
+        # B5's org-side finish/stop acknowledgement must commit before an
+        # app slot can be freed. A failed guard retains this exact attempt
+        # for the existing listener's recovery, after the provider stopped.
+        if attempt.before_finish is not None:
+            attempt.before_finish()
         ticket = attempt.ticket
         write_error: Exception | None = None
         try:
@@ -506,6 +543,13 @@ class DatabaseSlots:
     def current_claim(self) -> Any:
         """Start/finish wiring reads this thread's admitted numbered claim."""
         return getattr(self._held, "ticket", None)
+
+    def guard_release(self, before_finish: Callable[[], None]) -> None:
+        """Attach the stopped provider's durable org finalization to recovery."""
+        attempt = getattr(self._held, 'attempt', None)
+        if attempt is None or attempt.resolved:
+            raise RuntimeError('no active turn claim to guard')
+        attempt.before_finish = before_finish
 
     def release(self) -> None:
         queue, _ = _configured()
