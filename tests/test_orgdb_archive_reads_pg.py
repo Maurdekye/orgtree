@@ -230,9 +230,17 @@ class ArchiveReads(unittest.TestCase):
         row = registry.lookup(self.slug)
         with conn.connect(f.ADMIN, row[1]) as admin:
             admin.execute('VACUUM (ANALYZE) orgtree.work_items')
+            visible = admin.execute("SELECT relpages,relallvisible FROM pg_class "
+                                    "WHERE oid='orgtree.work_items'::regclass").fetchone()
+            horizons = admin.execute("SELECT pid,state,backend_xmin::text "
+                                     "FROM pg_stat_activity WHERE backend_xmin IS NOT NULL "
+                                     "AND pid<>pg_backend_pid()").fetchall()
+        REPORT.setdefault('vacuum', []).append(dict(headers=count, pages=visible[0],
+                                                    visible_pages=visible[1], horizons=horizons))
 
     def test_status_probes_are_flat_and_identity_is_covering(self):
         measurements = []
+        REPORT['growth'] = measurements
         with f.storage(True):
             for size in (2048, 20480):
                 self.grow(size)
@@ -248,6 +256,8 @@ class ArchiveReads(unittest.TestCase):
                     refusal = explained(view.raw, archive_reads.UNREADABLE_STATUS_SQL)
                     identity = explained(view.raw, archive_reads.IDENTITY_SQL)
                     records = explained(view.raw, archive_reads.RECORD_IDENTITY_SQL)
+                measurements.append(dict(size=size,status=status,refusal=refusal,
+                                         identity=identity,records=records))
                 self.assertTrue(status['scans'])
                 self.assertTrue(all(x == 'Index Only Scan' for x in status['scans']), status)
                 self.assertEqual(identity['scans'], ['Index Only Scan'], identity)
@@ -255,8 +265,6 @@ class ArchiveReads(unittest.TestCase):
                 self.assertEqual(identity['heap_fetches'], 0)
                 self.assertEqual(refusal['examined'], 0)
                 self.assertTrue(all(x == 'Index Only Scan' for x in records['scans']), records)
-                measurements.append(dict(size=size,status=status,refusal=refusal,
-                                         identity=identity,records=records))
         self.assertEqual(measurements[0]['status']['examined'], measurements[1]['status']['examined'])
         REPORT['growth'] = measurements
 
