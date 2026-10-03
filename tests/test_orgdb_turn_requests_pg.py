@@ -57,9 +57,9 @@ class Requests(unittest.TestCase):
         drop_owned()
 
     def setUp(self):
-        with self.connection() as c:
+        with conn.connect(ADMIN, self.org.database) as c:
             c.execute('TRUNCATE orgtree.jobs, orgtree.turn_requests')
-        with self.queue.connect() as c:
+        with conn.connect(ADMIN, names.app(PREFIX)) as c:
             c.execute('TRUNCATE orgtree.turn_tickets, orgtree.turn_queue_orgs')
         self.queue.heartbeat(self.owner)
         self.queue.set_limit(1)
