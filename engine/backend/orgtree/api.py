@@ -1589,7 +1589,7 @@ def orgs_list(request: Request) -> list[dict[str, Any]]:
 
 
 def _orgdb_fanout(read: Any, rows: list[dict[str, Any]]) -> list[Any]:
-    """Bound cross-org reads to eight pooled connections; preserve registry order."""
+    """Bound cross-org reads to eight pooled connections; preserve input order."""
     from concurrent.futures import ThreadPoolExecutor
     if not rows:
         return []
@@ -4720,17 +4720,17 @@ class Reorder(Body):
 
 
 def _account_bindings() -> dict[str, list[dict[str, str]]]:
-    """WHICH nodes are bound to each account, across every org — the
-    removal guard's evidence and the boards' placement column ("usage and
-    placement identify the selected account"). A doc that fails to load is
-    SKIPPED, not treated as unbound: this feeds a refusal, and a load error
-    must not make a bound account look free."""
+    """Account placements for the accounts board, across every non-trashed org.
+
+    Unreadable orgs contribute no display rows. This is not proof an account
+    is unbound: account_removal independently reads the same org enumeration
+    and refuses removal when any org is unreadable."""
     from . import orgdb
     if orgdb.enabled():
         from .orgdb import registry as org_registry
         out: dict[str, list[dict[str, str]]] = {}
         for bindings in _orgdb_fanout(_orgdb_bound_rows, [r for r in sorted(org_registry.rows(), key=lambda r: r['slug'])
-                                                       if r['state'] == 'active']):
+                                                       if r['state'] != 'trashed']):
             for account, placed in bindings:
                 out.setdefault(account, []).append(placed)
         return out
@@ -4760,6 +4760,8 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
 
 
 def _orgdb_bound_rows(row: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
+    if row['state'] != 'active':
+        return []
     from .orgdb import registry as org_registry
     try:
         with org_registry.connection(row['slug']) as c:

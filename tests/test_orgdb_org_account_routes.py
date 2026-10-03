@@ -137,6 +137,15 @@ class OrgAccountRoutes(unittest.TestCase):
         self.assertEqual([r['slug'] for r in api.orgs_list(None)], ['a', 'z'])
         self.assertEqual([r['org'] for r in api._account_bindings()['machine']], ['a', 'a', 'z', 'z'])
 
+    def test_binding_enumeration_matches_guard_but_unreadable_orgs_are_not_opened(self):
+        self.rows.append(entry('converting', 'converting', 4))
+        with patch.object(api, '_orgdb_bound_rows', wraps=api._orgdb_bound_rows) as read:
+            bound = api._account_bindings()
+        self.assertCountEqual([call.args[0]['slug'] for call in read.call_args_list],
+                              ['ready', 'held', 'converting'])
+        self.assertEqual(self.opened, ['ready'])
+        self.assertEqual([r['node'] for r in bound['machine']], ['live', 'bearer@0'])
+
     def test_retry_success_returns_final_normal_row_and_uses_registry_id(self):
         def retry(org_id):
             self.assertEqual(org_id, 2)
