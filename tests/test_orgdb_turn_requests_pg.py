@@ -17,7 +17,9 @@ from uuid import uuid4
 import child_python
 
 from orgtree import turnqueue
+from orgtree import turnslots
 from orgtree.orgdb import conn, jobs, lifecycle, names, turn_forwarder, turn_requests as requests
+from orgtree.orgdb import turn_context, turn_runtime
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
@@ -444,6 +446,139 @@ class Requests(unittest.TestCase):
             with reclaim.transaction():
                 self.assertEqual(len(requests.reclaim_owner(reclaim, self.owner)), 1)
         self.assertEqual(self.read(current).state, 'lost')
+
+    def host(self):
+        return turn_runtime.Host(RUNTIME, self.owner, prefix=PREFIX,
+                                 active_orgs=lambda: [self.org])
+
+    def test_host_prepare_commits_request_job_before_app_then_exact_begin_and_finish(self):
+        host = self.host()
+        org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+        self.assertEqual(request.state, 'queued')
+        ticket = self.queue.claim(self.owner, request.request_id)
+        run = host.begin(org, 'seat', request.request_id, ticket, lambda: None)
+        with self.connection() as c, c.transaction(), turn_context.bind(run):
+            turn_context.fence(c, 'alpha', self.org.org_id)
+        host.complete(org, run)
+        self.assertEqual(self.read(request).state, 'done')
+        self.assertEqual(self.queue.get(request.request_id).state, 'done')
+        host.complete(org, run)  # committed completion reply lost: exact retry
+        with self.connection() as c, c.transaction(), turn_context.bind(run):
+            with self.assertRaises(requests.StaleRun):
+                turn_context.fence(c, 'alpha', self.org.org_id)
+
+    def test_release_guard_failure_retains_org_and_app_claim_until_recovery(self):
+        from unittest.mock import patch
+        host = self.host()
+        org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+        with patch.multiple(turnslots, _database_queue=self.queue, _database_instance=self.owner):
+            slots = turnslots.DatabaseSlots()
+            try:
+                with turnslots.bind_request(self.app(request)):
+                    slots.acquire('alpha')
+                    run = host.begin(org, 'seat', request.request_id, slots.current_claim, lambda: None)
+                    slots.guard_release(lambda: host.complete(org, run))
+                    with patch.object(requests, 'finish', side_effect=OSError('org write unavailable')):
+                        with self.assertRaises(OSError):
+                            slots.release()
+                        self.assertEqual(self.read(request).state, 'running')
+                        self.assertEqual(self.queue.get(request.request_id).state, 'running')
+                        self.assertEqual(len(slots.pending_recovery()), 1)
+                        self.assertIsNotNone(slots.current_claim)
+                    slots.recover_pending()
+                    self.assertEqual(self.read(request).state, 'done')
+                    self.assertEqual(self.queue.get(request.request_id).state, 'done')
+                    self.assertEqual(slots.pending_recovery(), [])
+                    slots.release()
+                    self.assertIsNone(slots.current_claim)
+            finally:
+                slots.close()
+
+    def test_activation_commit_lost_reply_aborts_only_its_unstarted_claim(self):
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        host = self.host()
+        org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+        ticket = self.queue.claim(self.owner, request.request_id)
+        real_connection = host.org_connection
+
+        @contextmanager
+        def lost_reply(org):
+            with real_connection(org) as c:
+                yield c
+                # The inner transaction committed before this outer scope
+                # reports a lost transport reply. No provider was launched.
+                raise OSError('committed activation reply lost')
+
+        with patch.object(host, 'org_connection', lost_reply):
+            with self.assertRaises(OSError):
+                host.begin(org, 'seat', request.request_id, ticket, lambda: None)
+        self.assertEqual(self.read(request).state, 'running')
+        self.assertFalse(host.abort_unstarted(org, request.request_id))
+        self.assertFalse(host.abort_unstarted(org, request.request_id,
+                                              replace(ticket, token=str(uuid4()))))
+        self.assertEqual(self.read(request).state, 'running')
+        self.assertTrue(host.abort_unstarted(org, request.request_id, ticket))
+        self.assertEqual(self.read(request).state, 'cancelled')
+        self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
+        self.assertEqual(self.queue.snapshot()['held'], 0)
+
+    def test_host_activation_preserves_imported_slot_subscribers_and_signing_keys(self):
+        from unittest.mock import patch
+        host = self.host()
+        events = []
+        with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
+                            _database_resolver=None, _host_slots=None, _host_limit=None,
+                            _activation_callbacks=[]), patch.dict(os.environ, ORGTREE_STORAGE='orgdb'):
+            turnslots.on_activation(lambda slots, limit: events.append((slots, limit)))
+            with self.queue.connect() as c:
+                instances = c.execute('SELECT count(*) FROM orgtree.engine_instances').fetchone()[0]
+            try:
+                host.start(limit=3)
+                self.assertEqual(events, [(host.slots, 3)])
+                with patch.object(self.queue, 'snapshot', side_effect=AssertionError('import-time I/O')):
+                    self.assertIs(turnslots.FairSlots(99), host.slots)
+                    self.assertEqual(turnslots.activated_limit(), 3)
+                with self.queue.connect() as c:
+                    self.assertEqual(c.execute('SELECT count(*) FROM orgtree.engine_instances').fetchone()[0], instances)
+                org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+                ticket = self.queue.claim(self.owner, request.request_id)
+                run = host.begin(org, 'seat', request.request_id, ticket, lambda: None)
+                credential = host.credential(run)
+                verifier = self.host()  # another trusted process can fetch the owner key
+                self.assertEqual(turn_context.verify(credential, verifier.key_for), run)
+                host.complete(org, run)
+            finally:
+                host.stop()
+            self.assertFalse(host._thread.is_alive())
+
+    def test_host_heartbeat_is_owned_and_shutdown_does_not_free_active_provider(self):
+        from unittest.mock import patch
+        host = self.host()
+        beat = threading.Event()
+        real = host.queue.heartbeat
+
+        def heartbeat(owner):
+            if threading.current_thread().name == 'turn-host-heartbeat':
+                beat.set()
+            return real(owner)
+
+        with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
+                            _database_resolver=None, _host_slots=None, _host_limit=None,
+                            _activation_callbacks=[]), patch.object(host.queue, 'heartbeat', heartbeat):
+            try:
+                host.start(limit=1)
+                self.assertTrue(beat.wait(7), 'host heartbeat thread never executed')
+                self.assertEqual(turnqueue.HEARTBEAT_SECONDS, 5)
+                org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+                ticket = self.queue.claim(self.owner, request.request_id)
+                host.begin(org, 'seat', request.request_id, ticket, lambda: None)
+                host.stop()
+                self.assertEqual(self.read(request).state, 'running')
+                self.assertEqual(self.queue.get(request.request_id).state, 'running')
+                self.assertEqual(self.queue.snapshot()['held'], 1)
+            finally:
+                host.stop()
 
 
 if __name__ == '__main__':

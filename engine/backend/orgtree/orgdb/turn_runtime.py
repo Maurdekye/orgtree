@@ -208,6 +208,27 @@ class Host:
         self._wake.set()
         return request
 
+    def abort_unstarted(self, org: jobs.Org, request_id: str, ticket: Any = None) -> bool:
+        """The caller never launched a provider, including a lost activation reply.
+
+        A duplicate caller cannot cancel someone else's running token. This
+        operation must not be used after the provider launch seam.
+        """
+        with self.org_connection(org) as c, c.transaction():
+            current = requests.lock(c, request_id)
+            if current is None or current.owner != self.instance_id:
+                return False
+            if current.state in ('running', 'stopping'):
+                if ticket is None or (current.owner, current.token) != (ticket.owner, ticket.token):
+                    return False
+            if current.state in ('pending', 'queued', 'running'):
+                current = requests.cancel(c, request_id, reason='provider was not launched')
+            if current.state == 'stopping':
+                current = requests.acknowledge_stop(c, request_id, self.instance_id, current.epoch)
+        if current is not None and current.app_pending:
+            self.bridge.forward(org, current)
+        return current is not None and current.state == 'cancelled'
+
     def complete(self, org: jobs.Org, run: context.Run) -> None:
         """Only after the provider scope stops; suitable as a retained release guard."""
         with self.org_connection(org) as c, c.transaction():

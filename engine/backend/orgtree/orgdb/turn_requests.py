@@ -100,12 +100,17 @@ def create(c: Any, request_id: str, agent_id: int, reason: str,
     _positive(instance_id, 'instance_id')
     if not isinstance(reason, str) or not reason:
         raise ValueError('reason must be a non-empty string')
+    existing = lock(c, rid)
+    if existing is not None:
+        if (existing.agent_id, existing.reason) != (agent_id, reason):
+            raise ValueError('request id already belongs to a different turn')
+        return existing
     row = c.execute('INSERT INTO orgtree.turn_requests '
                     '(request_id, agent_id, reason, lease_owner) VALUES (%s, %s, %s, %s) '
                     'ON CONFLICT (request_id) DO NOTHING RETURNING ' + _SELECT,
                     (rid, agent_id, reason, instance_id)).fetchone()
     if row is None:
-        existing = get(c, rid)
+        existing = lock(c, rid)
         if existing is None or (existing.agent_id, existing.reason) != (agent_id, reason):
             raise ValueError('request id already belongs to a different turn')
         return existing
