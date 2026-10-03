@@ -276,7 +276,9 @@ class FirstStart(unittest.TestCase):
 
     def test_the_admin_conninfo_never_reaches_this_process_environment(self) -> None:
         self.assertNotIn(lifecycle.ADMIN_ENV, os.environ)
-        self.assertFalse(any(v == ADMIN for v in os.environ.values()))
+        # (this test's own input variable holds the admin URL; nothing else may)
+        self.assertEqual([k for k, v in os.environ.items()
+                          if v == ADMIN and k != 'ORGTREE_TEST_PG_ADMIN_URL'], [])
 
     def test_the_registry_serves_the_starts_lifecycle(self) -> None:
         self.assertEqual(registry.lifecycle().build, 'b1')

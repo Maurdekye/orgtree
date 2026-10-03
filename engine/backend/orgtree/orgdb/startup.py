@@ -153,15 +153,14 @@ def first_pass(lc: Any, data_root: str, env: Mapping[str, str], step: Progress) 
     code = ("import sys; sys.path.insert(0, sys.argv[1]); "
             "from orgtree.orgdb.convert.__main__ import main; sys.exit(main(sys.argv[2:]))")
     step(f"{CONVERT_PHASE}: new storage")
-    with open(log, "w", encoding="utf-8", errors="replace") as err:
-        child = subprocess.Popen(
+    last = ""
+    with open(log, "w", encoding="utf-8", errors="replace") as err, subprocess.Popen(
             [sys.executable, "-c", code, str(backend), "first-pass", "--progress",
              "--data-root", str(data_root), "--report-dir", str(report_dir),
              "--build", lc.build],
             env=lc.child_env(dict(env)), cwd=str(backend), stdout=subprocess.PIPE, stderr=err,
             text=True, encoding="utf-8", errors="replace",
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        last = ""
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)) as child:
         assert child.stdout is not None
         for line in child.stdout:
             line = line.rstrip("\r\n")

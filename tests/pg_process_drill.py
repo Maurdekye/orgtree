@@ -171,6 +171,42 @@ class Drills(unittest.TestCase):
                 "stop": stopped})
         self.assertEqual(int(rows), 1)
 
+    def test_the_storage_switch_starts_the_new_storage(self) -> None:
+        """Piece A7a: with ORGTREE_STORAGE=orgdb the bracket never runs the legacy migrations.
+        The real start (orgtree.orgdb.startup) bootstraps the app database with the custodian's
+        admin conninfo, held in this process only; the first pass, a child given the passfile
+        conninfos, finds no legacy schema and writes the marker; the engine's runtime conninfo
+        reaches the app database. A relaunch skips the first pass."""
+        root = self.fresh_root("orgdb")
+        env = {**self.env(), "ORGTREE_STORAGE": "orgdb"}
+        env.pop("ORGTREE_ORGDB_PREFIX", None)
+        env.pop("ORGTREE_PG_ADMIN_CONNINFO", None)
+        phases: list[str] = []
+        stand_in = StandIn(root)
+        owned = bracket.start_for_engine(root, env, stand_in, progress=phases.append)
+        self.assertEqual(stand_in.seen_conninfo, "", "the legacy migrations never ran")
+        self.assertIsNone(owned.migration)
+        first = owned.orgdb["first_pass"]
+        self.assertTrue(first["ran"], owned.orgdb)
+        self.assertEqual(first["orgs"], [])
+        self.assertIn("database-convert: new storage", phases)
+        conn = env[bracket.CONNINFO_ENV]
+        self.assertFalse(any("orgtree_admin" in str(v) for v in env.values()))
+        self.assertNotIn("ORGTREE_PG_ADMIN_CONNINFO", os.environ)
+        from orgtree.orgdb import names
+        app = conn.replace("dbname=orgtree ", f"dbname={names.app(names.prefix())} ")
+        self.assertEqual(runtime_sql(app, "SELECT count(*) FROM orgtree.orgs"), "0")
+        self.assertEqual(runtime_sql(app, "SELECT legacy_cutover_at IS NOT NULL FROM orgtree.app_settings"), "t")
+        stopped = owned.stop()
+        env2 = {**self.env(), "ORGTREE_STORAGE": "orgdb"}
+        env2.pop("ORGTREE_ORGDB_PREFIX", None)
+        again = bracket.start_for_engine(root, env2, StandIn(root))
+        self.assertFalse(again.orgdb["first_pass"]["ran"])
+        again.stop()
+        report("storage switch on: the new start on a real cluster", "passed",
+               {"phases": phases, "first_pass": first, "relaunch_first_pass": again.orgdb["first_pass"],
+                "app": owned.orgdb.get("app"), "stop": stopped})
+
     def test_forced_engine_kill_takes_the_database_then_the_next_launch_recovers(self) -> None:
         root = self.fresh_root("abrupt")
         host = self.tmp / "engine_standin.py"
