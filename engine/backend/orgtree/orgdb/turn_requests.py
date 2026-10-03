@@ -78,6 +78,14 @@ def get(c: Any, request_id: str) -> Request | None:
                              (_id(request_id),)).fetchone())
 
 
+def lock(c: Any, request_id: str) -> Request | None:
+    """First lock tier for a transition, before any agent, job or other row."""
+    _transaction(c)
+    return _request(c.execute('SELECT ' + _SELECT +
+                             ' FROM orgtree.turn_requests WHERE request_id=%s FOR UPDATE',
+                             (_id(request_id),)).fetchone())
+
+
 def create(c: Any, request_id: str, agent_id: int, reason: str,
            instance_id: int) -> Request:
     """Persist one attempt and its start job in the deciding org transaction.
@@ -239,7 +247,7 @@ def reclaim_owner(c: Any, instance_id: int, *, limit: int = 16) -> list[Request]
     return [_request(row) for row in c.execute(
         "WITH victims AS (SELECT request_id FROM orgtree.turn_requests "
         "WHERE lease_owner = %s AND state IN ('pending', 'queued', 'running', 'stopping') "
-        "ORDER BY request_id LIMIT %s FOR UPDATE SKIP LOCKED) "
+        "ORDER BY request_id LIMIT %s FOR UPDATE) "
         "UPDATE orgtree.turn_requests r SET state = 'lost', claim_epoch = claim_epoch + 1, "
         "stopped_at = clock_timestamp(), ended_at = clock_timestamp(), "
         "end_reason = 'owner process and provider tree terminated', app_pending = true "

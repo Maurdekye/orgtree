@@ -28,7 +28,11 @@ class Bridge:
             requests.sweep_jobs(c, limit=self.batch)
             claimed = requests.claim_jobs(c, self.instance_id, limit=self.batch)
         for job in claimed:
-            with self.connect(org) as c:
+            with self.connect(org) as c, c.transaction():
+                # The outer transaction takes the first tier; the unchanged
+                # jobs framework uses a savepoint inside it. Both effects
+                # still commit together, before touching the app database.
+                requests.lock(c, job.dedupe_key)
                 jobs.execute(c, job, requests.queue_job)
         return self.repair(org)
 
