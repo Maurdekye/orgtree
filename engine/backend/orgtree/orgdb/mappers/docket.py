@@ -202,7 +202,8 @@ EVENT_SOURCES = ('history', 'evidence', 'scope', 'candidate_verdicts', 'review_p
                  'dismissals', 'scope_archive', 'quick_staff_receipts')
 CURRENT_POINTERS = {'candidate_verdict':'current_verdict_event_id',
                     'review_packet':'current_review_packet_event_id'}
-VERDICT = Spec('', (F('at','ts'), holder('by'), F('candidate','text'), F('decision','text'),
+VERDICT = Spec('', (F('at','ts'), holder('by'), F('candidate','text'),
+                    F('decision','text',values=('approve','changes','approve_stage')),
                     F('evidence','json'), F('note','text',nullable=True), holder('next_actor')))
 PACKET = Spec('', (F('at','ts'), holder('by'), F('candidate','text',nullable=True),
                    F('base','text',nullable=True), F('note','text'), F('evidence','json'),
