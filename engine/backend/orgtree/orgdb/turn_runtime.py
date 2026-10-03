@@ -65,6 +65,8 @@ class Host:
         self._thread: threading.Thread | None = None
         self._active_lock = threading.Lock()
         self._active: dict[str, tuple[context.Run, Callable[[], None]]] = {}
+        self._condition = threading.Condition()
+        self._version = 0
 
     @contextmanager
     def app_connection(self) -> Iterator[Any]:
@@ -157,7 +159,8 @@ class Host:
         with self.app_connection() as c:
             return turnqueue.reclaim_instance(c, instance)
 
-    def prepare(self, slug: str, agent: str, reason: str, request_id: str) -> tuple[jobs.Org, requests.Request]:
+    def prepare(self, slug: str, agent: str, reason: str, request_id: str,
+                cancelled: Callable[[], bool] = lambda: False) -> tuple[jobs.Org, requests.Request]:
         """Mint once outside this retryable method; deciding effects commit together."""
         org = self.org(slug)
         with self.org_connection(org) as c, c.transaction():
@@ -173,11 +176,26 @@ class Host:
                                 'AND NOT tombstone AND NOT is_halted FOR SHARE', (row[0],)).fetchone()
             if allowed is None:
                 raise turnslots.Cancelled()
-        current = self.bridge.queue_one(org, request.request_id)
-        self._wake.set()
-        if current is None:
-            raise RuntimeError('turn request disappeared')
-        return org, current
+        while True:
+            with self._condition:
+                version = self._version
+            if cancelled() or self._stop.is_set():
+                self.abort_unstarted(org, request.request_id)
+                raise turnslots.Cancelled()
+            current = self.bridge.queue_one(org, request.request_id)
+            self._wake.set()
+            if current is None:
+                raise RuntimeError('turn request disappeared')
+            if current.state != 'pending':
+                if current.state != 'queued':
+                    raise turnslots.Cancelled()
+                return org, current
+            # Another start worker holds the job's short lease. It, or the
+            # host's expiry pass, will change the request. Do not insert an
+            # app ticket for pending intent, or keep an org transaction open.
+            with self._condition:
+                if version == self._version and not self._stop.is_set():
+                    self._condition.wait(turnqueue.HEARTBEAT_SECONDS)
 
     def begin(self, org: jobs.Org, agent: str, request_id: str, ticket: Any,
               stop: Callable[[], None]) -> context.Run:
@@ -274,6 +292,10 @@ class Host:
                 self.tick()
             except Exception:
                 LOG.exception('turn host heartbeat failed')
+            finally:
+                with self._condition:
+                    self._version += 1
+                    self._condition.notify_all()
             self._wake.wait(max(0, turnqueue.HEARTBEAT_SECONDS - (time.monotonic() - started)))
             self._wake.clear()
 
@@ -281,6 +303,8 @@ class Host:
         """Stops threads; running providers and unresolved outcomes keep their claims."""
         self._stop.set()
         self._wake.set()
+        with self._condition:
+            self._condition.notify_all()
         if self._thread is not None:
             self._thread.join(10)
             if self._thread.is_alive():
