@@ -178,7 +178,7 @@ def _changes(raw, slug, entry, stamp, feed):
     state = entry['fast']
     if state is None:
         return None
-    if any(previous[k] != stamp[k] for k in ('org_id', 'catalog_revision')):
+    if any(previous.get(k) != stamp.get(k) for k in ('org_id', 'catalog_revision', 'org_uuid', 'incarnation')):
         return None
     if not pgfeed.snapshot_changes_published(feed, slug, previous['org_revision'], stamp['org_revision']):
         return None

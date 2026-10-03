@@ -204,9 +204,15 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
     a build that reads everything else need not read them again.
     """
     from . import foreground_store, store, tree_delta
-    check = raw.execute("SELECT current_setting('transaction_isolation'), "
-                        "current_setting('transaction_read_only'), revision FROM public.orgs "
-                        "WHERE org_id=%s", (graph['stamp']['org_id'],)).fetchone()
+    from .orgdb import enabled
+    native = enabled()
+    if native:
+        check = raw.execute("SELECT current_setting('transaction_isolation'), "
+                            "current_setting('transaction_read_only'), rev FROM orgtree.org_revision").fetchone()
+    else:
+        check = raw.execute("SELECT current_setting('transaction_isolation'), "
+                            "current_setting('transaction_read_only'), revision FROM public.orgs "
+                            "WHERE org_id=%s", (graph['stamp']['org_id'],)).fetchone()
     if check != ('repeatable read', 'on', graph['stamp']['org_revision']):
         raise CompatibilityRequired('graph/context must share one committed read-only snapshot')
     ids = list(graph['rows'])
@@ -214,14 +220,18 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
         owner_sections = ('mail', 'delivering')
         keys = list(SETTINGS + CURRENT_LISTS + owner_sections)
         keys += [sect + store.SPLIT_SEP + nid for sect in owner_sections for nid in ids]
-        blobs = {key: json.loads(val) for key, val in raw.execute(
-            'SELECT key,val FROM doc WHERE key=ANY(%s)', (keys,)).fetchall()}
+        if native:
+            from .orgdb import reader_rows
+            blobs = reader_rows.read_sections(raw, SETTINGS + CURRENT_LISTS + owner_sections, owners=ids)
+        else:
+            blobs = {key: json.loads(val) for key, val in raw.execute(
+                'SELECT key,val FROM doc WHERE key=ANY(%s)', (keys,)).fetchall()}
         if blobs.get('slug') != slug:
             raise CompatibilityRequired('organization identity changed')
         for sect in CURRENT_LISTS:
             if sect not in blobs:
-                blobs[sect] = [json.loads(row[0]) for row in raw.execute(
-                    _LIST_ROWS_SQL, (sect, sect)).fetchall()]
+                blobs[sect] = ([] if native else [json.loads(row[0]) for row in raw.execute(
+                    _LIST_ROWS_SQL, (sect, sect)).fetchall()])
         for sect in owner_sections:
             legacy = blobs.get(sect) or {}
             selected = {}
@@ -241,7 +251,10 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
         blobs, funding = inputs['blobs'], inputs['funding']
         windows, inbox = inputs['windows'], inputs['inbox']
     try:
-        from . import workread
+        if native:
+            from .orgdb import docket as workread
+        else:
+            from . import workread
     except ImportError as exc:
         raise CompatibilityRequired('indexed work count reader is not installed') from exc
     counts = workread.counts_raw(raw, graph['stamp']['org_id'], viewer=viewer,

@@ -56,6 +56,10 @@ class IdentityContext:
 
 
 def _read(raw, slug, nid):
+    from .orgdb import enabled
+    if enabled():
+        from .orgdb import agents
+        return agents.identity(raw, slug, nid)
     settings = {key: json.loads(value) for key, value in raw.execute(
         'SELECT key,val FROM doc WHERE key=ANY(%s)', (list(SETTINGS),)).fetchall()}
     if settings.get('slug') != slug:

@@ -27,6 +27,11 @@ Projector = Callable[[Any, dict], Any]
 Memo = Callable[[dict], Any]
 
 
+def _native():
+    from .orgdb import enabled
+    return store.STORE_BACKEND == 'postgres' and enabled()
+
+
 class CursorReset(ValueError):
     """The catalog changed; the caller must explicitly restart this page set."""
 
@@ -49,6 +54,8 @@ def _filter(value: Any) -> str:
 
 def _cursor(stamp: dict, kind: str, filters: Any, after: Any) -> str:
     payload = [1, stamp['org_id'], stamp['catalog_revision'], kind, _filter(filters), after]
+    if 'org_uuid' in stamp:
+        payload = [2, *payload[1:], stamp['org_uuid'], stamp['incarnation']]
     return base64.urlsafe_b64encode(_encode(payload).encode()).decode().rstrip('=')
 
 
@@ -60,11 +67,13 @@ def _after(cursor: str | None, stamp: dict, kind: str, filters: Any) -> Any:
             raise ValueError('cursor too long')
         value = json.loads(base64.b64decode(cursor + '=' * (-len(cursor) % 4),
                                          altchars=b'-_', validate=True))
-        if not isinstance(value, list) or len(value) != 6 or value[0] != 1:
+        if not isinstance(value, list) or (len(value), value[0]) not in ((6, 1), (8, 2)):
             raise ValueError('unknown cursor')
         if value[3:5] != [kind, _filter(filters)]:
             raise ValueError('cursor belongs to another query')
-        if value[1] != stamp['org_id'] or value[2] != stamp['catalog_revision']:
+        if (value[1] != stamp['org_id'] or value[2] != stamp['catalog_revision']
+                or ('org_uuid' in stamp and (value[0] != 2 or value[6:] !=
+                    [stamp['org_uuid'], stamp['incarnation']]))):
             raise CursorReset('catalog changed; restart pagination',
                               f"{stamp['org_id']}:{stamp['catalog_revision']}")
         return value[5]
@@ -112,6 +121,11 @@ def _child_order(after: Any) -> list:
 
 @contextmanager
 def _snapshot(slug: str) -> Iterator[tuple[Any, dict]]:
+    if _native():
+        from .orgdb import agents
+        with agents.snapshot(slug) as state:
+            yield state
+        return
     if store.STORE_BACKEND != 'postgres':
         raise NotImplementedError('foreground index requires PostgreSQL')
     slug = store._safe_slug(slug)
@@ -161,6 +175,9 @@ def _wanted(values) -> tuple[str, ...]:
 
 
 def _rows(raw: Any, ids: list[str]) -> dict[str, dict]:
+    if _native():
+        from .orgdb import agents
+        return agents.rows(raw, ids)
     if not ids:
         return {}
     rows = raw.execute(
@@ -183,6 +200,9 @@ def _rows(raw: Any, ids: list[str]) -> dict[str, dict]:
 
 
 def _ancestors(raw: Any, ids: list[str]) -> list[str]:
+    if _native():
+        from .orgdb import agents
+        return agents.ancestors(raw, ids)
     # UNION (not UNION ALL) makes a corrupt parent cycle finite. The route
     # still detects/reports a cycle when constructing the graph.
     return [row[0] for row in raw.execute(
@@ -196,9 +216,13 @@ def _graph(raw: Any, stamp: dict, ids: list[str], requested: tuple[str, ...] = (
     included = _ancestors(raw, ids)
     rows = _rows(raw, included)
     parents = ['', *included]
-    hidden = dict(raw.execute(
-        'SELECT parent,retired_children FROM foreground_parents WHERE parent=ANY(%s)',
-        (parents,)).fetchall())
+    if _native():
+        from .orgdb import agents
+        hidden = agents.retired_counts(raw, parents)
+    else:
+        hidden = dict(raw.execute(
+            'SELECT parent,retired_children FROM foreground_parents WHERE parent=ANY(%s)',
+            (parents,)).fetchall())
     for row in rows.values():
         meta = row['meta']
         if meta['state'] == 'archived' and not meta['successor']:
@@ -222,6 +246,9 @@ def read_card_windows(raw: Any, ids: list[str], *, header: bool = False) -> dict
     resolved row per section. Org.node_ask still decides batching and linger;
     storage must not duplicate its time/boot or withdrawn-card rules.
     """
+    if _native():
+        from .orgdb import agents
+        return agents.card_windows(raw, ids, header)
     rows: dict[tuple[str, int], tuple] = {}
     for row in raw.execute(
             "SELECT sect,ord,val FROM foreground_asks WHERE status IN ('open','pending') "
@@ -269,6 +296,9 @@ def read_org_inbox_window(raw: Any) -> dict:
     This only reads the caller's already-open committed snapshot. In particular,
     acknowledgements use total, never the length of the preview.
     """
+    if _native():
+        from .orgdb import agents
+        return agents.inbox_window(raw)
     blob = raw.execute("SELECT val FROM foreground_blobs WHERE key='org_inbox'").fetchone()
     if blob is not None:
         total, entries = blob[0]['total'], blob[0]['entries']
@@ -294,6 +324,9 @@ def read_funding(raw: Any) -> list[dict]:
     null for grant), so these columns equal the whole-meta read's values
     without shipping and decoding every live node's full index meta.
     """
+    if _native():
+        from .orgdb import agents
+        return agents.funding(raw)
     return [{'id': nid, 'parent': parent, 'state': state, 'model': model, 'grant': grant}
             for nid, parent, state, model, grant in raw.execute(
                 "SELECT id,meta->>'parent',meta->>'state',meta->>'model',meta->'grant' "
@@ -345,6 +378,9 @@ def _pile_edges(raw: Any, ids: list[str], fronts: dict) -> list[str]:
     siblings) and, unless the saved front still is one of its retired org
     children, its LAST (the default front), repeated until no new pile shows.
     The same rows the renderer used to fetch with two child pages per pile."""
+    if _native():
+        from .orgdb import agents
+        return agents.pile_edges(raw, ids, fronts)
     rows: dict = {}
     counts: dict = {}
     extra: list[str] = []
@@ -395,8 +431,12 @@ def select_foreground(raw: Any, stamp: dict, include=(), *, piles=None) -> dict:
     parent/state/successor/order/created/ord, every change to which bumps
     ``catalog_revision``. They are bounded by the live tree, not MAX_INCLUDE."""
     wanted = _wanted(include)
-    ids = [row[0] for row in raw.execute(
-        "SELECT id FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
+    if _native():
+        from .orgdb import agents
+        ids = agents.foreground_ids(raw)
+    else:
+        ids = [row[0] for row in raw.execute(
+            "SELECT id FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
     ids.extend(wanted)
     if piles is not None:
         ids.extend(_pile_edges(raw, ids, dict(_fronts(dict(piles)))))
@@ -446,6 +486,11 @@ def read_references(slug: str, include=(), *, project: Projector | None = None) 
         raise ValueError('invalid reference identity') from error
     wanted = tuple(dict.fromkeys(values))
     with _snapshot(slug) as (raw, stamp):
+        if _native():
+            from .orgdb import agents
+            references = agents.references(raw, wanted)
+            return _project(raw, {'stamp': stamp, 'references': references,
+                'missing': [nid for nid in wanted if nid not in references]}, project)
         rows = raw.execute(
             "SELECT wanted.id,n.id,i.id,i.meta->>'model',i.meta->>'state',"
             "i.meta->'generation',i.meta->>'successor' "
@@ -479,6 +524,18 @@ def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
         hit = _remembered(memo, stamp)
         if hit is not None:
             return hit
+        if _native():
+            from .orgdb import agents
+            if after is not None:
+                after = _child_order(after)
+            page = agents.child_page(raw, parent, 1 if edge == 'last' else limit + 1,
+                                     after=after, last=edge == 'last')
+            more, page = len(page) > limit, page[:limit]
+            result = _graph(raw, stamp, [row[0] for row in page])
+            result['matches'] = [row[0] for row in page]
+            result['next_cursor'] = (_cursor(stamp, 'children', parent,
+                [page[-1][1], page[-1][2], page[-1][3], page[-1][0]]) if more else None)
+            return _project(raw, result, project)
         params: list = [parent]
         suffix = ''
         if after is not None:
@@ -520,6 +577,14 @@ def search(slug: str, query: str, *, state: str | None = None, limit: int = 50,
         hit = _remembered(memo, stamp)
         if hit is not None:
             return hit
+        if _native():
+            from .orgdb import agents
+            page = agents.search_page(raw, query, state, after, limit + 1)
+            more, page = len(page) > limit, page[:limit]
+            result = _graph(raw, stamp, [row[0] for row in page])
+            result['matches'] = [row[0] for row in page]
+            result['next_cursor'] = _cursor(stamp, 'search', filters, page[-1][0]) if more else None
+            return _project(raw, result, project)
         page = raw.execute(
             'SELECT id FROM node_index '
             'WHERE public.orgtree_id_grams(id) @> public.orgtree_id_grams(%s) '
@@ -546,6 +611,13 @@ def discover(slug: str, *, state: str = 'live', limit: int = 100,
         after = _after(cursor, stamp, 'discovery', state)
         if after is not None and not isinstance(after, str):
             raise ValueError('invalid discovery cursor')
+        if _native():
+            from .orgdb import agents
+            page = agents.discovery(raw, state, after, limit + 1)
+            more, page = len(page) > limit, page[:limit]
+            names = ('state', 'model', 'generation', 'session_id', 'transcript_incarnation', 'reply_incarnation')
+            return {'stamp': stamp, 'nodes': [{'id': nid, **{k: meta[k] for k in names}} for nid, meta in page],
+                'next_cursor': _cursor(stamp, 'discovery', state, page[-1][0]) if more else None}
         page = raw.execute(
             "SELECT id,meta FROM node_index WHERE meta->>'state'=%s "
             'AND (%s::text IS NULL OR id COLLATE "C">%s COLLATE "C") '

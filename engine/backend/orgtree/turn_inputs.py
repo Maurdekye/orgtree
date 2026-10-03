@@ -17,6 +17,11 @@ def load(slug, nid, *, mail=False):
             with _snapshot(slug) as (raw, _stamp):
                 context = identity_context._read(raw, slug, nid)
                 if mail:
+                    from .orgdb import enabled
+                    if enabled():
+                        from .orgdb import reader_rows
+                        context.d['mail'] = reader_rows.read_sections(raw, ['mail'], owners=[nid]).get('mail', {})
+                        return context
                     key = 'mail' + store.SPLIT_SEP + nid
                     values = dict(raw.execute(
                         'SELECT key,val FROM doc WHERE key=ANY(%s)',

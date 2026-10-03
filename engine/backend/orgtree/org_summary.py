@@ -46,12 +46,25 @@ def _live_count(raw):
     every node-creating path sets `state` (coordinator ruling on
     org-list-api-orgs-reads-grow-with-agent-count), so this equals counting
     `state == 'live'` over the node documents."""
+    from .orgdb import enabled
+    if enabled():
+        return int(raw.execute("SELECT count(*) FROM orgtree.agents "
+                               "WHERE state='live' AND NOT tombstone").fetchone()[0])
     return int(raw.execute(
         "SELECT count(*) FROM node_index i WHERE i.meta->>'state'='live'").fetchone()[0])
 
 
 def _read(slug):
     def snapshot(raw, stamp):
+        from .orgdb import enabled
+        if enabled():
+            from .orgdb import reader_rows
+            settings = reader_rows.read_sections(raw, [key for key in _ADMIN_KEYS if key != 'nodes'])
+            if settings.get('slug') != slug:
+                raise CompatibilityRequired('organization identity changed')
+            row = store._summary_row(slug, dict(settings, nodes={}))
+            row['nodes'], row['live'] = stamp['node_count'], _live_count(raw)
+            return row, _AdminSummary(settings, {}, stamp['cost'])
         # A pre-row-store node blob has no validated native count projection.
         if raw.execute("SELECT 1 FROM doc WHERE key='nodes'").fetchone():
             raise CompatibilityRequired('legacy node blob')
