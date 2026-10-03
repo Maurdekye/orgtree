@@ -38,7 +38,7 @@ class DestinationConnection:
 
 
 def leftovers(dest):
-    checker = ov.Checker(dest)
+    checker = ov.Verifier(dest, {}, ())
     checker.tool_list_ids = checker.used_tool_lists = set()
     for row in dest.rows('work_items'):
         dest.take('work_items', row)
