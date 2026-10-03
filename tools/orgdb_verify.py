@@ -186,7 +186,7 @@ PRESENCE = {'is_frozen': 'frozen', 'is_halted': 'halt', 'is_inflight': 'inflight
 NODE = [
     Col('seat_id', TEXT, col='lineage_born'), Col('generation', INT),
     Link('parent'), Link('predecessor'), Link('successor'),
-    Col('ui_order', FLOAT), *_stamps('created', 'archived_at', 'rescinded_at'),
+    Col('ui_order', NUM), *_stamps('created', 'archived_at', 'rescinded_at'),
     *_texts('state', 'title', 'model'), Col('grant', NUM, col='credit_grant'),
     *_texts('lineage', 'bearer_state', 'lost_reason', 'session_id', 'transcript_incarnation',
             'reply_incarnation'),
@@ -202,7 +202,7 @@ NODE = [
                                 Lst('mcp', 'agent_mcp_servers', ('agent_id',), TEXT)]),
                   Lst('add_dirs', 'agent_dir_grants', ('agent_id',),
                       Rec(_texts('path', 'mode'), key=('agent_id', 'pos')))]),
-    Col('cost_usd', FLOAT), Col('cost_usd_unknown', BOOL), Col('context_window', INT),
+    Col('cost_usd', NUM), Col('cost_usd_unknown', BOOL), Col('context_window', INT),
     Col('occupancy', INT), Col('occupancy_est', BOOL),
     *_ints('cli_compactions', 'cli_boundary_offset', 'turn_seq'),
     *_jsons('turn_est_cost', 'turn_est_toks'),
@@ -502,6 +502,17 @@ BY_AGENT = [k for k, v in SECTIONS.items() if v[0] in ('agent_list', 'agent_dict
 OUTSIDE = {'org_identity', 'org_revision', 'org_topology', 'conversion_runs',
            'conversion_run_kinds', 'schema_migrations'}
 
+# Derived from verified source fields or maintained by database triggers.
+# 0006_agents_readers.sql supplies the revision counters; 0007_docket_readers.sql
+# supplies docket projections and its counter. These are not legacy data.
+DERIVED = {
+    'org_revision': {'node_rev', 'catalog_rev', 'view_rev', 'docket_rev'},
+    'work_items': {'docket_policy_extra', 'docket_list_extra', 'docket_scope_meta',
+                   'docket_manual', 'docket_order', 'docket_deadline',
+                   'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
+                   'docket_anchor_key'},
+}
+
 
 #: roles in correspondence(): a value kind above, or one of these
 CODE, KEY, OPT = 'code', 'key', 'opt'      # an <x>_is code; a structural column; may be absent
@@ -746,7 +757,8 @@ class Dest:
 
     def rows(self, table: str) -> list[dict]:
         if table not in self._rows:
-            cols = self.columns.get(table)
+            cols = {c: dt for c, dt in self.columns.get(table, {}).items()
+                    if c not in DERIVED.get(table, ())}
             if not cols:
                 self._rows[table] = []
             else:
@@ -1470,7 +1482,7 @@ class Verifier(Checker):
             if left:
                 self.bad('*', table, '*', '*', f'{len(left)} rows no source entity accounts for')
             for c in self.d.columns[table]:
-                if c in known[table]:
+                if c in known[table] or c in DERIVED.get(table, ()):
                     continue
                 n = sum(1 for r in rows if r.get(c) is not None)
                 if n:
