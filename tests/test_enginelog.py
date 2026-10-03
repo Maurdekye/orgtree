@@ -73,8 +73,68 @@ class EngineLog(unittest.TestCase):
         t.start()
         t.join()
         log = self.text()
-        self.assertIn("RuntimeError: thread blew up", log)
+        self.assertIn("RuntimeError: <message withheld, 14 chars>", log)
+        self.assertNotIn("RuntimeError: thread blew up", log)
+        self.assertIn("in boom", log)                   # the frames (and source) are kept
         self.assertRegex(log, TS + r" err Traceback \(most recent call last\):")
+        self.assertIn("RuntimeError: thread blew up", self.err.getvalue())
+
+    def test_exception_values_never_reach_the_file(self):
+        # review f1: the uncaught-thread hook copied a token and a body
+        self.install()
+        token, body = "tok-" + "a1b2c3d4" * 2, "private message body 4711"
+
+        def boom():
+            try:
+                raise KeyError("first " + body)
+            except KeyError as e:
+                raise RuntimeError("token=" + token + "\nsecond line " + body) from e
+        t = threading.Thread(target=boom)
+        t.start()
+        t.join()
+        log = self.text()
+        self.assertIn(token, self.err.getvalue())      # the console is unchanged
+        self.assertIn(body, self.err.getvalue())
+        self.assertNotIn(token, log)
+        self.assertNotIn(body, log)
+        self.assertIn("KeyError: <message withheld", log)
+        self.assertIn("RuntimeError: <message withheld", log)
+        self.assertIn("The above exception was the direct cause", log)
+        print("[orgtree] after the traceback", file=sys.stderr)
+        self.assertIn("[orgtree] after the traceback", self.text())
+
+    def test_token_shaped_strings_are_scrubbed_from_any_line(self):
+        self.install()
+        print("[orgtree] call failed: Authorization: Bearer abcdefgh12345678 "
+              "api_key=sk-live0123456789abcdef password='hunter2 x'")
+        log = self.text()
+        for s in ("abcdefgh12345678", "sk-live0123456789abcdef", "hunter2"):
+            self.assertNotIn(s, log)
+        self.assertIn("[orgtree] call failed:", log)
+        self.assertIn("hunter2", self.out.getvalue())
+
+    def test_one_multiline_write_respects_the_cap(self):
+        # review f4: a single write of many lines was written in one piece
+        self.install(max_bytes=2000, keep=2)
+        text = "".join("ordinary diagnostic line %04d\n" % i for i in range(300))
+        sys.stdout.write(text)
+        self.assertEqual(self.out.getvalue(), text)
+        for p in (self.data / "diagnostics").iterdir():
+            self.assertLessEqual(p.stat().st_size, 2000, p.name)
+        self.assertIn("line 0299", self.text())
+
+    def test_the_cap_counts_encoded_bytes_and_cuts_a_huge_line(self):
+        self.install(max_bytes=2000, keep=2)
+        for _ in range(40):
+            print("é€" * 20)                        # 100 bytes, 40 characters
+        for p in (self.data / "diagnostics").iterdir():
+            self.assertLessEqual(p.stat().st_size, 2000, p.name)
+        with mock.patch.object(enginelog, "MAX_LINE_BYTES", 500):
+            print("xy " * 2000)
+        last = self.text().splitlines()[-1]
+        self.assertLessEqual(len(last.encode("utf-8")), 540)
+        self.assertIn("bytes cut]", last)
+        self.assertIn("xy " * 2000, self.out.getvalue())
 
     def test_rotation_keeps_a_bounded_number_of_files(self):
         self.install(max_bytes=2000, keep=2)

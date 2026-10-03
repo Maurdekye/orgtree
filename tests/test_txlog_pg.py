@@ -101,10 +101,48 @@ class TxLog(unittest.TestCase):
         self.assertEqual(self.mine(), [])
         with self.assertRaises(RuntimeError):
             with orgtx.org_tx(self.slug, nodes=['n1']):
-                raise RuntimeError("something broke")
+                raise RuntimeError("something broke: " + SECRET)
         rows = self.mine()
         self.assertEqual([r["outcome"] for r in rows], ["RuntimeError"])
-        self.assertIn("something broke", rows[0]["error"])
+        # review f1: where it was raised, never the message (it can carry values)
+        self.assertIn("test_txlog_pg.py:", rows[0]["raised_at"])
+        self.assertNotIn("error", rows[0])
+        text = open(txlog.path(), encoding="utf-8").read()
+        self.assertNotIn(SECRET, text)
+        self.assertNotIn("something broke", text)
+
+    def _fail_at(self, point, exc, times, retries):
+        """Raise `exc` at the lock point `point` on the first `times` attempts."""
+        seen = []
+
+        def hook(at, tx):
+            if at == point and len(seen) < times:
+                seen.append(at)
+                raise exc("injected: " + SECRET)
+        with patch.dict(os.environ, ORGTREE_ORGTX_TEST_HOOKS="1"):
+            orgtx.set_pause_hook(hook)
+            try:
+                with orgtx.org_tx(self.slug, nodes=['n1'], retries=retries):
+                    pass
+            finally:
+                orgtx.set_pause_hook(None)
+
+    def test_a_failed_attempt_is_recorded_even_when_retried_or_fast(self):
+        # review f2: Retryable failures took the retry branch unrecorded
+        with self.assertRaises(orgtx.SerializationFailure):
+            self._fail_at("before_lock", orgtx.SerializationFailure, 1, 0)
+        with self.assertRaises(orgtx.DeadlockDetected):
+            self._fail_at("before_commit", orgtx.DeadlockDetected, 1, 0)
+        self.assertEqual([r["outcome"] for r in self.mine()],
+                         ["SerializationFailure", "DeadlockDetected"])
+        os.remove(txlog.path())
+        # a retry that then succeeds: the failed attempt is still one line,
+        # with its own lock plan; the fast successful retry is not logged
+        self._fail_at("before_lock", orgtx.SerializationFailure, 1, 2)
+        rows = self.mine()
+        self.assertEqual([r["outcome"] for r in rows], ["SerializationFailure"], rows)
+        self.assertEqual(rows[0]["plan"]["node_ids"], ["n1"])
+        self.assertNotIn(SECRET, open(txlog.path(), encoding="utf-8").read())
 
     def test_a_lock_timeout_names_the_blocking_session(self):
         held, done = threading.Event(), threading.Event()
@@ -131,6 +169,46 @@ class TxLog(unittest.TestCase):
         names = [b["label"] for b in r["blockers"] if b["holds_advisory"]]
         self.assertTrue(any("holder_of_n5" in n for n in names), r["blockers"])
         self.assertTrue(all(n.startswith(txlog.APP_PREFIX) for n in names), names)
+
+    def test_the_holder_is_named_ahead_of_older_unrelated_sessions(self):
+        # review f3: blockers were the MAX_BLOCKERS oldest advisory sessions,
+        # so older unrelated ones pushed the actual holder out of the list
+        import contextlib
+        from orgtree import pgstore
+        held, done = threading.Event(), threading.Event()
+
+        def holder_behind_older_sessions():
+            with orgtx.org_tx(self.slug, nodes=['n5']):
+                held.set()
+                done.wait(10)
+        with contextlib.ExitStack() as stack:
+            for i in range(txlog.MAX_BLOCKERS + 2):
+                c = stack.enter_context(pgstore.connect())
+                c.execute(f"BEGIN; SET LOCAL application_name = 'orgtree:unrelated_{i}'")
+                c.execute("SELECT pg_advisory_xact_lock(%s, %s)", (902031, i))
+            t = threading.Thread(target=holder_behind_older_sessions)
+            t.start()
+            try:
+                self.assertTrue(held.wait(10))
+                with pgstore.connect() as c:
+                    pids = c.execute("SELECT pid FROM pg_stat_activity WHERE application_name "
+                                     "LIKE %s", ("%holder_behind_older_sessions%",)).fetchall()
+                self.assertEqual(len(pids), 1, pids)
+                with self.assertRaises(orgtx.LockTimeout):
+                    with orgtx.org_tx(self.slug, nodes=['n5'], lock_timeout=0.3, retries=0):
+                        pass
+            finally:
+                done.set()
+                t.join(10)
+        rows = [r for r in self.mine() if r["outcome"] == "LockTimeout"]
+        self.assertEqual(len(rows), 1, self.mine())
+        bl = rows[0]["blockers"]
+        self.assertIsInstance(bl, list, bl)
+        self.assertLessEqual(len(bl), txlog.MAX_BLOCKERS)
+        self.assertEqual(bl[0]["pid"], pids[0][0], bl)      # ranked first
+        self.assertTrue(bl[0]["holds_plan_key"], bl[0])
+        self.assertIn("holder_behind_older_sessions", bl[0]["label"])
+        self.assertFalse(any(b["holds_plan_key"] for b in bl[1:]), bl)
 
 
 if __name__ == "__main__":

@@ -148,6 +148,7 @@ class OrgDbBackend:
         try:
             for tx in order:
                 org_id, database, _, org_uuid = found[tx.slug]
+                tx.log_org_id = org_id
                 conns[tx.slug] = C.OrgDbConn(_reg.checkout(tx.slug, database, org_uuid),
                                              tx.slug, org_id, database)
             for tx in order:
