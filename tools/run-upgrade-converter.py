@@ -22,10 +22,13 @@ original_loader = legacy.load_document
 
 
 def capture_source(org):
-    doc, inventory = original_loader(org)
-    (source_dir / (org.slug + '.json')).write_text(json.dumps(doc, ensure_ascii=False, indent=2)
+    # The loader's whole result goes back unchanged (the document comes first; stage 1-B
+    # added the org's receipts after the inventory).
+    loaded = original_loader(org)
+    (source_dir / (org.slug + '.json')).write_text(json.dumps(loaded[0], ensure_ascii=False,
+                                                              indent=2)
                                                  + '\n', encoding='utf-8')
-    return doc, inventory
+    return loaded
 
 
 legacy.load_document = capture_source
