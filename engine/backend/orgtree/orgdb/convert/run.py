@@ -123,6 +123,26 @@ def differences(want: Any, got: Any, path: str = "", out: list[dict[str, Any]] |
     return out
 
 
+def usable_row_order(doc: dict[str, Any], order: dict[str, dict[str, list[int]]]
+                     ) -> tuple[dict[str, dict[str, list[int]]], dict[str, str]]:
+    """The legacy row order (``legacy.row_order``) of each section whose loaded records it
+    matches one for one: the same agents with records, each with one place per record. A section
+    it does not match keeps the document's order (as an import does), and the second value says
+    which order each section got, for the report."""
+    use: dict[str, dict[str, list[int]]] = {}
+    note: dict[str, str] = {}
+    for sect, places in order.items():
+        v = doc.get(sect)
+        lists = ({k: len(x) for k, x in v.items() if isinstance(x, list) and x}
+                 if isinstance(v, dict) else {})
+        if lists == {k: len(p) for k, p in places.items()}:
+            use[sect] = places
+            note[sect] = "legacy row order"
+        else:
+            note[sect] = "document order: the legacy rows do not match the loaded records"
+    return use, note
+
+
 def kept_in_extra(rows: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, int]]:
     """{table: {field: rows}} for the values the codec kept in a row's ``extra``
     (an unparseable time, a U+0000, a value of an unexpected type, an unknown field).
@@ -209,12 +229,14 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         if build.ready:                  # renamed before a crash: only publishing remains
             lc.publish(build, state=state, trashed_at=org.deleted_at)
             return {"slug": org.slug, "org_id": org_id, "outcome": state, "resumed": "publish"}
-        doc, before, receipts = legacy.load_document(org)
+        doc, before, receipts, legacy_order = legacy.load_document(org)
         report["inventory_before"] = before
         secs = mappers.sections()
         side_secs = cfg.side.sections_for(org, doc) if cfg.side else []
+        order_used, report["row_order"] = usable_row_order(doc, legacy_order)
         rows, ctx, rep = sections.encode_document(doc, secs + side_secs,
-                                                  ignored=mappers.ignored_keys())
+                                                  ignored=mappers.ignored_keys(),
+                                                  row_order=order_used)
         report["ignored_with_values"] = sorted(k for k, set_ in rep["ignored"].items() if set_)
         report["unregistered_keys"] = rep["extra_keys"]
         report["tombstones"] = len(ctx.tombstones)
@@ -251,7 +273,8 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
                "rows": sum(report["rows_written"].values()),
                "ignored_with_values": report["ignored_with_values"],
                "unregistered_keys": report["unregistered_keys"],
-               "kept_in_extra": report["kept_in_extra"]}
+               "kept_in_extra": report["kept_in_extra"],
+               "row_order": report["row_order"]}
         if cfg.side is not None and cfg.side.report_for is not None:
             out["side"] = cfg.side.report_for(org)
         lc.mark_filled(build)

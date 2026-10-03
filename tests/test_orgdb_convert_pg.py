@@ -211,6 +211,20 @@ class FirstPass(unittest.TestCase):
         with pgstore.connect() as c:
             c.execute("INSERT INTO public.receipts (org_id, op_key, result) VALUES (%s, %s, %s)",
                       (cls.alpha_legacy, 'layout/v1', '{"count": 2}'))
+        # two recipients whose order in the document (legacy's meta owner list: x, lead) is not
+        # the order of their first archive rows (MIN(log_d.seq): lead, x), because x's rows were
+        # written again after lead's first row; legacy's Sent tail ranks recipients by the latter
+        org = store.load_org(cls.alpha)
+        at = '2026-10-01T10:00:00.000Z'
+        org.d['mail_log'] = {'x': [{'id': 'm1', 'from': 'lead', 'body': 'one', 'at': at},
+                                   {'id': 'm2', 'from': 'lead', 'body': 'two', 'at': at}],
+                             'lead': [{'id': 'm3', 'from': 'x', 'body': 'three', 'at': at}]}
+        store.save_org(org)
+        with pgstore.connect() as c:
+            c.execute(f"WITH gone AS (DELETE FROM org_{int(cls.alpha_legacy)}.log_d "
+                      "WHERE sect = 'mail_log' AND owner = 'x' RETURNING seq, sect, owner, at, val) "
+                      f"INSERT INTO org_{int(cls.alpha_legacy)}.log_d (sect, owner, at, val) "
+                      "SELECT sect, owner, at, val FROM gone ORDER BY seq")
         cls.beta = make_org('Beta', items=('same-slug', 'other'))
         org = store.load_org(cls.beta)
         org.d['kiosk'] = {'token': 'kept in the legacy data only'}
@@ -291,6 +305,23 @@ class FirstPass(unittest.TestCase):
                 "orgtree.conversion_run_kinds WHERE kind = 'tx_receipts'").fetchone(), (2, 2, True))
         with conn.connect(RUNTIME, self.rows[self.beta]['database']) as c:
             self.assertEqual(receipts(c, 'orgtree.tx_receipts'), beta_want)   # only its own
+
+    def test_mail_archive_ids_follow_the_legacy_row_order(self) -> None:
+        # A6 round 2 review: the converter numbers mail_log by log_d.seq (legacy.row_order), so
+        # each recipient's first row id ranks as its MIN(log_d.seq) does, where the document's
+        # recipient order says otherwise; positions and the read-back document are unchanged
+        with pgstore.connect() as c:
+            want = [(o, int(s)) for o, s in c.execute(
+                f"SELECT owner, seq FROM org_{int(self.alpha_legacy)}.log_d "
+                "WHERE sect = 'mail_log' ORDER BY seq").fetchall()]
+        self.assertEqual([o for o, _ in want], ['lead', 'x', 'x'])
+        self.assertEqual(list(self.want[self.alpha]['mail_log']), ['x', 'lead'])
+        with conn.connect(ADMIN, self.rows[self.alpha]['database']) as c:
+            got = c.execute("SELECT a.name, m.idx, m.owner_pos, m.public_id FROM orgtree.mail_log m "
+                            "JOIN orgtree.agents a ON a.id = m.agent_id ORDER BY m.id").fetchall()
+        self.assertEqual([(n, i, p) for n, i, p, _ in got], [('lead', 0, 1), ('x', 0, 2), ('x', 1, 2)])
+        self.assertEqual([m for *_, m in got], ['m3', 'm1', 'm2'])
+        self.assertEqual(self.outcome(self.alpha)['row_order'], {'mail_log': 'legacy row order'})
 
     def test_a_second_pass_does_nothing(self) -> None:
         self.assertIn('skipped', convert('first-pass'))

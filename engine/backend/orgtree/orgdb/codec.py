@@ -8,7 +8,8 @@ the row's ``extra`` JSON instead:
 
 * a value of another type than the column's (a float in an int column, a bool
   where an int is expected, a list where an object is expected);
-* a string holding U+0000 (PostgreSQL text cannot store it);
+* a string holding U+0000 or a lone UTF-16 surrogate (PostgreSQL text cannot store
+  either: the second cannot even be encoded as UTF-8);
 * a timestamp that does not parse, an int beyond bigint, ``-0.0`` in numeric;
 * a present ``null`` in a field that has no ``<col>_null`` flag;
 * a key the spec does not name.
@@ -28,7 +29,7 @@ foresee"); it never drops data.
 
 Field kinds:
 
-  text   text              a str without U+0000
+  text   text              a str without U+0000 or a lone surrogate
   int    bigint            an int (never a bool) within bigint
   float  double precision  a finite float (ints stay out, so 5 and 5.0 keep
                            their types)
@@ -65,6 +66,7 @@ from __future__ import annotations
 import datetime as _dt
 import functools
 import math
+import re
 from dataclasses import dataclass
 from decimal import Context, Decimal
 from typing import Any, Iterable, Iterator, Mapping
@@ -187,10 +189,15 @@ def _json_ok(v: Any) -> bool:
     return True
 
 
+#: a code point PostgreSQL text cannot hold besides U+0000: half of a UTF-16 pair, alone (a
+#: str holds a character beyond the BMP as one code point, so a whole pair never matches)
+_LONE_SURROGATE = re.compile('[\ud800-\udfff]')
+
+
 def fits(kind: str, v: Any) -> bool:
     """Whether a present, non-null value can be stored exactly in ``kind``."""
     if kind == "text":
-        return isinstance(v, str) and "\x00" not in v
+        return isinstance(v, str) and "\x00" not in v and _LONE_SURROGATE.search(v) is None
     if kind == "int":
         return isinstance(v, int) and not isinstance(v, bool) and _INT_MIN <= v <= _INT_MAX
     if kind == "float":

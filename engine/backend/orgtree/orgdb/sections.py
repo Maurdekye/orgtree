@@ -91,12 +91,18 @@ class Context:
     """Agent ids by name, shared by the sections of one org.
 
     Encode: ``add_node`` gives each node, in document order, the next id; ``agent`` gives any
-    other name a tombstone row. Decode: ``name`` reads them back."""
+    other name a tombstone row. Decode: ``name`` reads them back.
+
+    ``row_order`` ({section: {agent name: positions}}, encode only): for a per-agent list
+    section, each record's 1-based place in the section's source row order, in the agent's list
+    order. Its rows take those places as ids, so the ids order the rows across agents as the
+    source did (the converter passes legacy's log_d order for mail_log: legacy.row_order)."""
 
     def __init__(self) -> None:
         self.ids: dict[str, int] = {}
         self.names: dict[int, str] = {}
         self.tombstones: list[str] = []
+        self.row_order: dict[str, dict[str, list[int]]] = {}
         self._next = 1
 
     def add_node(self, name: str) -> int:
@@ -147,6 +153,23 @@ def _records(key: str, value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not all(isinstance(x, dict) for x in value):
         raise ShapeError(f"{key}: expected a list of objects, got {type(value).__name__}")
     return value
+
+
+def _row_places(key: str, value: Mapping[str, Any],
+                order: Mapping[str, list[int]] | None) -> Mapping[str, list[int]] | None:
+    """``order`` (Context.row_order of one per-agent list section) checked against the
+    section's records: every agent's list has one place per record, rising within the agent,
+    and the places of the whole section are 1..N. None when there is no order."""
+    if order is None:
+        return None
+    lists = {name: recs for name, recs in value.items() if isinstance(recs, list) and recs}
+    if set(lists) != set(order) or any(len(order[k]) != len(x) for k, x in lists.items()):
+        raise ShapeError(f"{key}: the row order does not match the records")
+    places = sorted(p for ps in order.values() for p in ps)
+    if places != list(range(1, len(places) + 1)) or any(
+            any(b <= a for a, b in zip(ps, ps[1:])) for ps in order.values()):
+        raise ShapeError(f"{key}: the row order is not one place per record, rising per agent")
+    return order
 
 
 class RecordList(Section):
@@ -226,7 +249,8 @@ class ByAgentLists(Section):
             raise ShapeError(f"{self.key}: expected an object keyed by agent")
         owners = out.setdefault("org_section_owners", [])
         rows = out.get(self.t.spec.table, [])
-        n = len(rows)
+        n = base = len(rows)
+        places = _row_places(self.key, v, ctx.row_order.get(self.key))
         for o, (name, recs) in enumerate(v.items()):
             aid = ctx.agent(name)
             if recs is None:
@@ -235,7 +259,8 @@ class ByAgentLists(Section):
             owners.append({"section": self.key, "agent_id": aid, "ord": o, "state": "l"})
             for i, rec in enumerate(_records(f"{self.key}[{name}]", recs)):
                 n += 1
-                codec.encode(self.t.spec, rec, {"id": n, "agent_id": aid, "idx": i}, out,
+                rid = n if places is None else base + places[name][i]
+                codec.encode(self.t.spec, rec, {"id": rid, "agent_id": aid, "idx": i}, out,
                              link=self.t.link)
 
     def decode(self, rows, ctx, present, doc) -> None:
@@ -460,9 +485,11 @@ FRAMEWORK_DDL = (
 
 
 def encode_document(doc: Mapping[str, Any], sections: Iterable[Section], *,
-                    ignored: Iterable[str] = ()) -> tuple[Rows, Context, dict[str, Any]]:
+                    ignored: Iterable[str] = (),
+                    row_order: Mapping[str, Mapping[str, list[int]]] | None = None
+                    ) -> tuple[Rows, Context, dict[str, Any]]:
     """Rows for one org document. Returns (rows by table, the agent Context, a report:
-    {"ignored": {key: non-null?}, "extra_keys": [...]})."""
+    {"ignored": {key: non-null?}, "extra_keys": [...]}). ``row_order``: Context.row_order."""
     sections = list(sections)
     owner: dict[str, Section] = {}
     for s in sections:
@@ -488,6 +515,7 @@ def encode_document(doc: Mapping[str, Any], sections: Iterable[Section], *,
         out["org_sections"].append({"key": k, "ord": ord_, "state": state})
         ord_ += 1
     ctx = Context()
+    ctx.row_order = {k: dict(v) for k, v in (row_order or {}).items()}
     for s in sections:          # nodes before any section that names agents (caller's order)
         s.encode(doc, ctx, out)
     for s in sections:          # then the tombstones those sections minted

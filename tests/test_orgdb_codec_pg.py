@@ -39,6 +39,8 @@ CASES = [
     {'name': 7, 'grant': '5', 'ui_order': 2, 'turn_seq': True, 'primary': 1,
      'created': 1700000000.5, 'charter': ['x'], 'scope': ['l'], 'turns': {'d': 1}, 'stamps': 'x'},
     {'name': 'a\x00b', 'turns': [{'tools': ['ok', 'b\x00d']}]},
+    {'name': 'a\ud800b', 'charter': '\U0001f600', 'envelope': {'cut': 'c\udc00d'},
+     'turns': [{'tools': ['ok', 'b\ud83d']}]},
     {'scope': {'mode': 1, 'surprise': {'k': 'v'}, 'effort': None, 'inner': 'flat', 'dirs': [1]}},
     {'scope': {'inner': {'x': 1, 'y': 2}}, 'mystery': {'deep': [1, {'a': None}]}},
     {'turns': [{}, {'n': 1, 'extra_key': [1]}], 'stamps': []},

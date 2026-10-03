@@ -1052,8 +1052,12 @@ because the database is the org.
   stored values mix the two. For example, `grant` holds 1,198 ints and 10 floats on the live copy.
 - **Absent versus null.** A `<field>_null` boolean marks a present null for the fields stored both
   ways on real data. For JSON columns, SQL `NULL` means absent and JSON `null` means null.
-- **Strings containing U+0000** (17 records on the live copy) go to the record's `extra` JSON, and the
-  conversion report counts them.
+- **Strings containing U+0000 or a lone UTF-16 surrogate** go to the record's `extra` JSON, and the
+  conversion report counts them. PostgreSQL text holds neither, and a lone surrogate cannot even be
+  encoded as UTF-8. The 2026-10-02 live copy has none: the 17 rows whose text shows `\u0000` hold
+  those six characters, not the character (measured 2026-10-03). A json column keeps both as
+  escapes, but no json or jsonb operator accepts them, so keys computed from JSON (org migration
+  0008) read it through `orgtree.json_readable`, which reads each as U+FFFD.
 - **`extra json`** holds unknown top-level keys and is expected to be empty. **`row_version`** is on
   every mutable row.
 - **Principals.** `<role>_kind CHECK (agent, user, engine, outside)` + `<role>_id` → agents +

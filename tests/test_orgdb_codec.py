@@ -157,6 +157,16 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(set(row['extra'].obj), {'name'})
         self.assertEqual(out['t_turns'][0]['tools_is'], 'x')     # the misfit list went whole
 
+    def test_lone_surrogates(self):
+        # half of a UTF-16 pair cannot be encoded as UTF-8, so no text column can hold it; a
+        # character beyond the BMP (one code point in a str) stays typed
+        out = self.check({'name': 'a\ud800b', 'charter': 'pair \U0001f600 kept',
+                          'envelope': 'c\udc00d', 'stamps': [], 'turns': [{'tools': ['ok', 'b\ud83d']}]})
+        row = out['t_rec'][0]
+        self.assertEqual(set(row['extra'].obj), {'name'})
+        self.assertEqual(row['charter'], 'pair \U0001f600 kept')
+        self.assertEqual(out['t_turns'][0]['tools_is'], 'x')
+
     def test_objects_and_lists(self):
         self.check({'scope': {}})
         self.check({'scope': {'mode': 1, 'surprise': {'k': 'v'}, 'effort': None,

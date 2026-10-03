@@ -18,7 +18,9 @@ that routine would have made of every legacy org:
 ``load_document`` reads one org through today's loader on ONE pinned read-only REPEATABLE READ
 transaction, so every lazy section shares one snapshot; ``inventory`` hashes every table of the
 org's legacy schema, and its rows in ``public.receipts``, for the before/after guard;
-``receipts`` reads those rows, which move into the org's own database (design §2.1).
+``receipts`` reads those rows, which move into the org's own database (design §2.1);
+``row_order`` reads where each record of a ROW_ORDER_SECTIONS section sits in the legacy row
+order, which the document does not carry (the converted ids keep it).
 
 This module runs in the converter's child process, whose ``ORGTREE_DATA`` is a throwaway root
 holding one marker per org to load (``prepare_root``): the real data root is never written.
@@ -164,17 +166,45 @@ def receipts(raw: Any, org_id: int) -> list[tuple[Any, ...]]:
         "ORDER BY op_key COLLATE \"C\"", (org_id,)).fetchall()]
 
 
+#: Per-agent (dict) log sections whose converted ids keep the legacy row order across agents.
+#: mail_log: legacy's Sent tail breaks a tie between two recipients by each recipient's first
+#: archive row (pg_migrations/0007: mail_sent.owner_pos, the recipient's MIN(log_d.seq)), and
+#: the org database keeps that key as the recipient's first row id (org migration 0008), so the
+#: ids must rank first rows as the seqs do. The document cannot say: its recipient order is
+#: legacy's meta owner list, which differs from the seq order when a recipient's first rows were
+#: replaced (measured on the live copy: 612 recipient pairs in one org).
+ROW_ORDER_SECTIONS = ("mail_log",)
+
+
+def row_order(raw: Any, org_id: int) -> dict[str, dict[str, list[int]]]:
+    """{section: {agent: places}} for ROW_ORDER_SECTIONS: each of the agent's records'
+    1-based place in the section's legacy row order (log_d.seq), in the agent's list order
+    (today's loader lists an agent's records by seq). ``raw`` is a psycopg connection; run it
+    in the snapshot the document is read in (sections.Context.row_order uses it)."""
+    schema = f"org_{int(org_id)}"
+    out: dict[str, dict[str, list[int]]] = {}
+    for sect in ROW_ORDER_SECTIONS:
+        places: dict[str, list[int]] = {}
+        rows = raw.execute(f'SELECT owner FROM "{schema}".log_d WHERE sect = %s ORDER BY seq',
+                           (sect,)).fetchall()
+        for place, (owner,) in enumerate(rows, 1):
+            places.setdefault(str(owner), []).append(place)
+        out[sect] = places
+    return out
+
+
 class SnapshotLost(RuntimeError):
     """The pinned transaction ended while the loader read: the org was not read from one
     snapshot."""
 
 
 def load_document(org: LegacyOrg) -> tuple[dict[str, Any], dict[str, list[Any]],
-                                           list[tuple[Any, ...]]]:
+                                           list[tuple[Any, ...]],
+                                           dict[str, dict[str, list[int]]]]:
     """One org's whole document, as today's loader builds it, from one read-only snapshot,
-    with the inventory and the org's operation receipts (``receipts``) taken in that same
-    snapshot. The process's store must point at the root ``prepare_root`` made
-    (``ORGTREE_DATA``) and at the legacy database."""
+    with the inventory, the org's operation receipts (``receipts``) and the legacy row order
+    (``row_order``) taken in that same snapshot. The process's store must point at the root
+    ``prepare_root`` made (``ORGTREE_DATA``) and at the legacy database."""
     from ... import pgstore, store   # noqa: PLC0415  the legacy store, in the child only
     marker = os.path.join(store.DATA_ROOT, "orgs", f"{org.slug}{MARKER_EXT}")
     conn = pgstore.open_conn(org.slug, marker)
@@ -182,6 +212,7 @@ def load_document(org: LegacyOrg) -> tuple[dict[str, Any], dict[str, list[Any]],
         conn.raw.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         before = inventory(conn.raw, org.org_id)
         rcpts = receipts(conn.raw, org.org_id)
+        order = row_order(conn.raw, org.org_id)
         conn.pinned = True
         store._orgtx_local.pinned = {org.slug: conn}      # pyright: ignore[reportPrivateUsage]
         try:
@@ -202,7 +233,7 @@ def load_document(org: LegacyOrg) -> tuple[dict[str, Any], dict[str, list[Any]],
         finally:
             store._orgtx_local.pinned = None              # pyright: ignore[reportPrivateUsage]
             conn.pinned = False
-        return doc, before, rcpts
+        return doc, before, rcpts, order
     finally:
         try:
             conn.raw.execute("ROLLBACK")

@@ -242,13 +242,17 @@ class Twins:
             if before is not None:
                 before(self.legacy)
             doc = document(self.legacy)
+            oid = pgstore.read_marker(str(DATA / 'orgs' / f'{self.legacy}.pg'))
             with pgstore.connect() as c:
-                receipts = legacy.receipts(c, pgstore.read_marker(
-                    str(DATA / 'orgs' / f'{self.legacy}.pg')))
+                receipts = legacy.receipts(c, oid)
+                # the converter's numbering of the archive: legacy's row order (log_d.seq)
+                order, how = run.usable_row_order(doc, legacy.row_order(c, oid))
+        assert how == {'mail_log': 'legacy row order'}, how
         self.copy = f'{self.legacy}-c'
         doc['slug'] = self.copy
         secs = mappers.sections()
-        rows, _, _ = sections.encode_document(doc, secs, ignored=mappers.ignored_keys())
+        rows, _, _ = sections.encode_document(doc, secs, ignored=mappers.ignored_keys(),
+                                              row_order=order)
         lc = LC[0]
         org_id = lc.register_org(self.copy, state='converting')
         build = lc.open_build(org_id, 'convert')
@@ -696,6 +700,21 @@ def windows_fixture(slug: str) -> None:
     store.save_org(org)
 
 
+def first_rows_rewritten(slug: str) -> None:
+    """windows_fixture, then ops' archive rows written again at the storage level (deleted and
+    inserted, as a legacy rewrite does): ops keeps its place in the document's recipient order
+    (legacy's meta owner list), but its first archive row (MIN(log_d.seq)) is now after dev's
+    and boss's, and that row is what legacy's Sent tail ranks recipients by. On the live copy,
+    612 recipient pairs of one org disagree like this (A6 round 2 review)."""
+    windows_fixture(slug)
+    oid = int(pgstore.read_marker(str(DATA / 'orgs' / f'{slug}.pg')))
+    with pgstore.connect() as c:
+        c.execute(f"WITH gone AS (DELETE FROM org_{oid}.log_d WHERE sect = 'mail_log' "
+                  "AND owner = 'ops' RETURNING seq, sect, owner, at, val) "
+                  f"INSERT INTO org_{oid}.log_d (sect, owner, at, val) "
+                  "SELECT sect, owner, at, val FROM gone ORDER BY seq")
+
+
 @needs_pg
 class WindowReads(unittest.TestCase):
     """Piece A6: the bounded window readers (a node's inbox tails, its history, the
@@ -800,6 +819,41 @@ class WindowReads(unittest.TestCase):
                             conn.execute(SENT_TAIL_SQL, ('dev', cap)).fetchall()]))
                 self.assertEqual(want, got)
                 self.assertEqual(got[0], ('ops', 'x3'))
+
+    def test_converted_recipients_rank_by_their_legacy_first_row(self) -> None:
+        # A6 round 2 review: the converter numbers the archive by legacy's row order, so a
+        # recipient's first row id ranks as its MIN(log_d.seq) does, not as its place in the
+        # document; dev's mail at one `at` to ops (a3, a5) and to boss (c1, c2) tells them apart
+        t = Twins('firstrows', before=first_rows_rewritten)
+        with storage(False):
+            self.assertEqual(list(document(t.legacy)['mail_log']), ['ops', 'dev', 'boss'])
+            oid = int(pgstore.read_marker(str(DATA / 'orgs' / f'{t.legacy}.pg')))
+            with pgstore.connect() as c:
+                want = [o for (o,) in c.execute(
+                    f"SELECT owner FROM org_{oid}.log_d WHERE sect = 'mail_log' "
+                    "GROUP BY owner ORDER BY min(seq)").fetchall()]
+        self.assertEqual(want, ['dev', 'boss', 'ops'])
+        with dbconn.connect(ADMIN, registry.lookup(t.copy)[1]) as c:
+            got = [n for (n,) in c.execute(
+                "SELECT a.name FROM orgtree.mail_log m JOIN orgtree.agents a ON a.id = m.agent_id "
+                "GROUP BY a.name ORDER BY min(m.owner_pos)").fetchall()]
+        self.assertEqual(got, want)
+        for cap in (1, 2, 3, 4, 10):
+            with self.subTest(cap=cap):
+                tails = []
+                for on, slug in ((False, t.legacy), (True, t.copy)):
+                    with storage(on):
+                        tails.append(store._bounded_read(slug, lambda conn: [
+                            (o, json.loads(v)['id']) for o, v in
+                            conn.execute(SENT_TAIL_SQL, ('dev', cap)).fetchall()]))
+                self.assertEqual(tails[0], tails[1])
+        for keep, slack in ((1, 0), (2, 1), (50, 40)):
+            with self.subTest(keep=keep):
+                with storage(False):
+                    want_inbox = store.read_node_inbox(t.legacy, 'dev', keep=keep, slack=slack)
+                with storage(True):
+                    got_inbox = store.read_node_inbox(t.copy, 'dev', keep=keep, slack=slack)
+                self.assertEqual(want_inbox, got_inbox)
 
     def test_the_gallery_never_reads_a_body(self) -> None:
         # review A6 f1: the gallery is metadata; no statement it runs may select the body
@@ -910,6 +964,26 @@ class EventsCount(unittest.TestCase):
             got = store.read_events_page(t.copy, last=2)
         self.assertEqual(want, got)
 
+    def test_forced_checks_do_not_lose_a_statement(self) -> None:
+        # a caller forcing deferred checks (SET CONSTRAINTS ALL IMMEDIATE) before a write: the
+        # count's flush stays deferred, so that statement's events are counted at commit
+        t = Twins('evforced', before=windows_fixture)
+        db = registry.lookup(t.copy)[1]
+        with dbconn.connect(RUNTIME, db, autocommit=False) as c:
+            nxt = int(c.execute('SELECT max(ord) + 1 FROM orgtree.events').fetchone()[0])
+            for k in range(2):
+                c.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                c.execute("INSERT INTO orgtree.events (ord, op, actor) VALUES (%s, 'forced', 'dev')",
+                          (nxt + k,))
+            c.commit()
+            self.assertEqual(sql._events_total(c),
+                             int(c.execute('SELECT count(*) FROM orgtree.events').fetchone()[0]))
+            c.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            c.execute("DELETE FROM orgtree.events WHERE op = 'forced'")
+            c.commit()
+            self.assertEqual(sql._events_total(c),
+                             int(c.execute('SELECT count(*) FROM orgtree.events').fetchone()[0]))
+
     def test_event_refs_follow_the_events(self) -> None:
         # the link table holds exactly each event's participants, after the conversion's COPY
         # and after writes through the view
@@ -925,6 +999,273 @@ class EventsCount(unittest.TestCase):
         self.assertEqual(kept, again)
         newest = max(e for e, _, _ in kept)
         self.assertEqual({r for e, r, _ in kept if e == newest}, {'ops', 'boss'})   # actor, grantee
+
+
+@needs_pg
+class OwnerKeys(unittest.TestCase):
+    """Round 2 review (review2-sol f3/f4 on 445a696): every mail_log row's owner_pos is the
+    smallest id among its owner's rows, as legacy's mail_sent.owner_pos is its MIN(log_d.seq),
+    whoever writes the archive and however: rows inserted in any order, a row moved to another
+    owner in place (no writer of today does; legacy's trigger keeps that case too), deleted, or
+    rewritten. Two transactions writing one owner's rows wait for each other on the owner's
+    mail_log_first row, outside org_tx too; the keys settle at commit."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.t = Twins('ownerkeys', before=windows_fixture)
+        cls.db = registry.lookup(cls.t.copy)[1]
+
+    def connect(self, autocommit: bool = True):
+        return dbconn.connect(ADMIN, self.db, autocommit=autocommit)
+
+    def assert_settled(self, t: 'Twins | None' = None) -> None:
+        db = registry.lookup(t.copy)[1] if t is not None else self.db
+        with dbconn.connect(ADMIN, db) as c:
+            rows = c.execute("SELECT agent_id, array_agg(DISTINCT owner_pos), min(id) "
+                             "FROM orgtree.mail_log GROUP BY agent_id ORDER BY 1").fetchall()
+            kept = dict(c.execute("SELECT agent_id, first_id FROM orgtree.mail_log_first"
+                                  ).fetchall())
+        self.assertTrue(rows)
+        for aid, pos, first in rows:
+            self.assertEqual(list(pos), [first], f'owner {aid}')
+        self.assertEqual(kept, {aid: first for aid, _, first in rows})
+
+    def agent(self, c, name: str) -> int:
+        return int(c.execute("SELECT id FROM orgtree.agents WHERE name = %s AND NOT tombstone",
+                             (name,)).fetchone()[0])
+
+    def new_agent(self, c, name: str) -> int:
+        return int(c.execute("INSERT INTO orgtree.agents (name) VALUES (%s) RETURNING id",
+                             (name,)).fetchone()[0])
+
+    def test_a_row_moved_in_place_keeps_the_legacy_key(self) -> None:
+        # review f3's case, in both stores at the storage level: ops' first archive row a1 moves
+        # to boss (legacy: UPDATE log_d SET owner, which its mail_sent trigger keeps; here: agent_id
+        # and a position after boss's rows). boss's first row is now a1, ops' is a2, and dev's Sent
+        # tail breaks its ties between boss and ops by that
+        t = Twins('movein', before=windows_fixture)
+        with storage(False):
+            oid = int(pgstore.read_marker(str(DATA / 'orgs' / f'{t.legacy}.pg')))
+            with pgstore.connect() as c:
+                c.execute(f"UPDATE org_{oid}.log_d SET owner = 'boss' WHERE sect = 'mail_log' "
+                          "AND owner = 'ops' AND (val::jsonb ->> 'id') = 'a1'")
+        with dbconn.connect(ADMIN, registry.lookup(t.copy)[1]) as c:
+            boss = self.agent(c, 'boss')
+            self.assertEqual(c.execute("UPDATE orgtree.mail_log SET agent_id = %s, idx = 100 "
+                                       "WHERE public_id = 'a1'", (boss,)).rowcount, 1)
+        self.assert_settled(t)
+        for cap in (1, 2, 3, 4, 10):
+            with self.subTest(cap=cap):
+                tails = []
+                for on, slug in ((False, t.legacy), (True, t.copy)):
+                    with storage(on):
+                        tails.append(store._bounded_read(slug, lambda conn: [
+                            (o, json.loads(v)['id']) for o, v in
+                            conn.execute(SENT_TAIL_SQL, ('dev', cap)).fetchall()]))
+                self.assertEqual(tails[0], tails[1])
+
+    def test_rows_inserted_in_any_order_keep_the_smallest_id(self) -> None:
+        # a position need not follow ids: a row placed first with a new (largest) id leaves the
+        # key alone; a row placed last with an id below every other lowers it for all
+        with self.connect(autocommit=False) as c:
+            ops = self.agent(c, 'ops')
+            first = int(c.execute('SELECT min(id) FROM orgtree.mail_log WHERE agent_id = %s',
+                                  (ops,)).fetchone()[0])
+            c.execute("INSERT INTO orgtree.mail_log (agent_id, idx, \"from\", body) "
+                      "VALUES (%s, -1, 'dev', 'placed first')", (ops,))
+            c.commit()
+            self.assert_settled()
+            low = int(c.execute('SELECT min(id) FROM orgtree.mail_log').fetchone()[0]) - 1
+            self.assertLess(low, first)
+            c.execute("INSERT INTO orgtree.mail_log (id, agent_id, idx, \"from\", body) "
+                      "OVERRIDING SYSTEM VALUE VALUES (%s, %s, 1000, 'dev', 'placed last')",
+                      (low, ops))
+            c.commit()
+        self.assert_settled()
+        with self.connect() as c:
+            self.assertEqual({p for (p,) in c.execute(
+                'SELECT owner_pos FROM orgtree.mail_log WHERE agent_id = %s', (ops,))}, {low})
+
+    def test_forced_checks_do_not_skip_the_settling(self) -> None:
+        # a caller forcing deferred checks before it removes an owner's first row: the keys still
+        # settle at commit
+        t = Twins('ownforced', before=windows_fixture)
+        with dbconn.connect(ADMIN, registry.lookup(t.copy)[1], autocommit=False) as c:
+            ops = self.agent(c, 'ops')
+            c.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            c.execute('DELETE FROM orgtree.mail_log WHERE id = (SELECT min(id) FROM orgtree.mail_log '
+                      'WHERE agent_id = %s)', (ops,))
+            c.commit()
+        self.assert_settled(t)
+
+    def test_a_row_moved_by_delete_and_append_settles_both_owners(self) -> None:
+        with self.connect(autocommit=False) as c:
+            ops, boss = self.agent(c, 'ops'), self.agent(c, 'boss')
+            first = int(c.execute("SELECT id FROM orgtree.mail_log WHERE agent_id = %s "
+                                  "ORDER BY idx LIMIT 1", (ops,)).fetchone()[0])
+            c.execute('DELETE FROM orgtree.mail_log WHERE id = %s', (first,))
+            # an append takes the next id as its position (compat rows.log_insert)
+            nxt = int(c.execute("SELECT nextval(pg_get_serial_sequence('orgtree.mail_log', 'id'))"
+                                ).fetchone()[0])
+            c.execute("INSERT INTO orgtree.mail_log (id, agent_id, idx, \"from\", body) "
+                      "OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, 'dev', 'moved')",
+                      (nxt, boss, nxt))
+            c.commit()
+        self.assert_settled()
+
+    def first_appends(self, owner: int, ids: tuple[int, int], first_commits: bool = True) -> None:
+        """Two transactions each insert a first row of ``owner`` (ids and positions ``ids``)
+        before either ends: the second waits until the first commits (or rolls back)."""
+        a, b = self.connect(autocommit=False), self.connect(autocommit=False)
+        try:
+            ins = ("INSERT INTO orgtree.mail_log (id, agent_id, idx, \"from\", body) "
+                   "OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, 'dev', 'first') RETURNING id")
+            a.execute(ins, (ids[0], owner, ids[0]))
+            b_pid = int(b.execute('SELECT pg_backend_pid()').fetchone()[0])
+            failed: list = []
+
+            def second() -> None:
+                try:
+                    b.execute(ins, (ids[1], owner, ids[1]))
+                except Exception as e:      # reported below
+                    failed.append(e)
+            th = threading.Thread(target=second)
+            th.start()
+            with self.connect() as w:
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline:
+                    ev = w.execute('SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s',
+                                   (b_pid,)).fetchone()
+                    if ev is not None and ev[0] == 'Lock':
+                        break
+                    time.sleep(0.05)
+                else:
+                    self.fail('the second first append did not wait for the first')
+            if first_commits:
+                a.commit()
+            else:
+                a.rollback()
+            th.join(30)
+            self.assertFalse(th.is_alive())
+            self.assertEqual(failed, [])
+            b.commit()
+        finally:
+            a.close()
+            b.close()
+
+    def test_concurrent_first_appends_settle_on_one_first_row(self) -> None:
+        with self.connect() as c:
+            top = int(c.execute('SELECT max(id) FROM orgtree.mail_log').fetchone()[0])
+            one, two = self.new_agent(c, 'fresh-one'), self.new_agent(c, 'fresh-two')
+        self.first_appends(one, (top + 1000, top + 1001))     # the first to insert is first
+        self.assert_settled()
+        self.first_appends(two, (top + 2001, top + 2000))     # the second to insert is first
+        self.assert_settled()
+        with self.connect() as c:
+            self.assertEqual(c.execute('SELECT first_id FROM orgtree.mail_log_first '
+                                       'WHERE agent_id = %s', (two,)).fetchone()[0], top + 2000)
+            three = self.new_agent(c, 'fresh-three')
+        self.first_appends(three, (top + 3000, top + 3001), first_commits=False)
+        self.assert_settled()
+        with self.connect() as c:
+            self.assertEqual(c.execute('SELECT id, owner_pos FROM orgtree.mail_log WHERE agent_id = %s',
+                                       (three,)).fetchall(), [(top + 3001, top + 3001)])
+
+    def test_rewriting_a_first_row_touches_no_other_row(self) -> None:
+        # the view rewrites a row by deleting it and inserting it again; the keys settle once,
+        # at commit, so an owner's other rows are not written twice over
+        t = Twins('rewrite', before=windows_fixture)
+        db = registry.lookup(t.copy)[1]
+        def others() -> list:
+            with dbconn.connect(ADMIN, db) as c:
+                return c.execute("SELECT m.id, m.xmin::text, m.owner_pos FROM orgtree.mail_log m "
+                                 "JOIN orgtree.agents a ON a.id = m.agent_id WHERE a.name = 'ops' "
+                                 "AND m.public_id <> 'a1' ORDER BY m.id").fetchall()
+        before = others()
+        t.edit(lambda d: d['mail_log']['ops'][0].__setitem__('stale', True))
+        self.assertEqual(others(), before)
+        t.compare(self, 'after the rewrite')
+
+
+@needs_pg
+class NulValues(unittest.TestCase):
+    """A \\u0000 anywhere in a JSON value makes every json and jsonb operator of PostgreSQL fail,
+    even one reading another key. The kept keys of org migration 0008 never read such a value raw,
+    so writing it succeeds, where a kept column computed from it would fail the write. (Legacy
+    cannot store such mail at all, and cannot read history past such an event: its statements
+    cast every record to jsonb. So these answers are checked against the records themselves.)"""
+
+    def test_a_legacy_source_holding_a_nul_converts(self) -> None:
+        # review f5: U+0000 in fields no key selects by (an event's detail.message, a notice's
+        # text); the conversion's COPY writes them, since the key functions never cast them raw,
+        # and the converted org loads exactly as its source
+        def nul_source(slug: str) -> None:
+            windows_fixture(slug)
+            org = store.load_org(slug)
+            store.log_append(org.d, 'events', {'op': 'nul-detail', 'actor': 'dev', 'at': _t(5),
+                                               'detail': {'node': 'dev', 'message': 'kept\x00text'}})
+            store.log_append(org.d, 'notice_log', {'node': 'dev', 'at': _t(5), 'text': 'kept\x00text'})
+            store.log_append(org.d, 'events', {'op': 'cut-detail', 'actor': 'dev', 'at': _t(5),
+                                               'detail': {'node': 'dev', 'message': 'cut \ud83d'}})
+            store.log_append(org.d, 'notice_log', {'node': 'dev', 'at': _t(5), 'text': 'cut \ud83d'})
+            store.save_org(org)
+        t = Twins('nulsource', before=nul_source)
+        t.compare(self, 'a source holding U+0000')
+        with storage(True):
+            events, notices = store.read_node_history_rows(t.copy, 'dev', 100)
+        self.assertIn({'op': 'nul-detail', 'actor': 'dev', 'at': _t(5),
+                       'detail': {'node': 'dev', 'message': 'kept\x00text'}}, events)
+        self.assertIn({'node': 'dev', 'at': _t(5), 'text': 'kept\x00text'}, notices)
+        self.assertIn({'op': 'cut-detail', 'actor': 'dev', 'at': _t(5),
+                       'detail': {'node': 'dev', 'message': 'cut \ud83d'}}, events)
+        self.assertIn({'node': 'dev', 'at': _t(5), 'text': 'cut \ud83d'}, notices)
+
+    def test_records_holding_a_nul_are_written_and_read(self) -> None:
+        t = Twins('nul', before=windows_fixture)
+        nul = 'a\x00b'
+        cut = 'cut \ud83d'           # half of a UTF-16 pair: text cut inside an emoji
+        records = {
+            'events': [{'op': 'nul detail', 'actor': 'dev', 'detail': {'to': 'ops', 'note': nul},
+                        'at': _t(6)},
+                       {'op': 'cut detail', 'actor': 'dev', 'detail': {'to': 'ops', 'note': cut},
+                        'at': _t(6)},
+                       {'op': 'cut actor', 'actor': cut, 'detail': {'node': 'ops'}, 'at': _t(7)},
+                       {'op': 'nul actor', 'actor': nul, 'detail': {'node': 'ops'}, 'at': _t(7)},
+                       {'op': 'nul at', 'actor': 'ops', 'detail': {}, 'at': nul}],
+            'mail': [{'id': 'z1', 'from': 'dev', 'body': nul, 'at': _t(6)},
+                     {'id': 'z3', 'from': 'dev', 'body': cut, 'at': _t(6)},
+                     {'id': 'z2', 'from': nul, 'body': 'x', 'at': _t(7)}],
+            'notice': [{'node': 'ops', 'at': _t(6), 'text': nul}, {'node': nul, 'at': _t(7)}]}
+        with storage(True):
+            org = store.load_org(t.copy)
+            for e in records['events']:
+                store.log_append(org.d, 'events', e)
+            for m in records['mail']:
+                org.d['mail_log']['ops'].append(m)
+            for n in records['notice']:
+                store.log_append(org.d, 'notice_log', n)
+            store.save_org(org)
+            events, notices = store.read_node_history_rows(t.copy, 'ops', 100)
+            self.assertEqual([e for e in events if e.get('op', '').startswith(('nul', 'cut'))],
+                             records['events'])
+            self.assertEqual([n for n in notices if n.get('at') == _t(6)], records['notice'][:1])
+            # (leased, box, delivering, delivered tail, sent tail)
+            delivered = store.read_node_inbox(t.copy, 'ops', keep=50, slack=0)[3]
+            self.assertEqual([m for m in delivered if m['id'] in ('z1', 'z2', 'z3')],
+                             records['mail'])
+            sent = store.read_node_inbox(t.copy, 'dev', keep=50, slack=0)[4]
+            self.assertLessEqual({'z1', 'z3'}, {m['id'] for m in sent})
+        with dbconn.connect(ADMIN, registry.lookup(t.copy)[1]) as c:
+            refs = {op: sorted(r for (r,) in c.execute(
+                'SELECT ref FROM orgtree.event_refs r JOIN orgtree.events e ON e.id = r.event_id '
+                'WHERE e.op = %s', (op,)).fetchall())
+                for op in ('nul detail', 'nul actor', 'nul at', 'cut detail', 'cut actor')}
+            # each NUL of a key reads as U+FFFD: a text no node has, so it matches no window
+            self.assertEqual(refs, {'nul detail': ['dev', 'ops'], 'nul actor': ['a\ufffdb', 'ops'],
+                                    'nul at': ['ops'], 'cut detail': ['dev', 'ops'],
+                                    'cut actor': ['cut \ufffd', 'ops']})
+            self.assertEqual(c.execute("SELECT win_at FROM orgtree.events WHERE op = 'nul at'"
+                                       ).fetchone()[0], 'a\ufffdb')
 
 
 def recorded(fn) -> list:
