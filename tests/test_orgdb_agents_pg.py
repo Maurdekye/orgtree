@@ -351,6 +351,67 @@ class NativeCounters(unittest.TestCase):
 
 
 @fixture.needs_pg
+class NativeSettingsChildren(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        def seed(slug):
+            org = fixture.store.load_org(slug)
+            org.d['net_state'] = {'child-source': {'seen_ids': ['before']}}
+            org.d.setdefault('_migrations', {})['child-source'] = {
+                'holders': ['before'], 'healed': ['before']}
+            fixture.store.save_org(org)
+        cls.twin = fixture.Twins('a1 settings children', seed)
+
+    def check_child(self, section, table, field):
+        from orgtree.orgdb import reader_rows
+        with fixture.storage(True):
+            read = lambda: F.read_snapshot(self.twin.copy, lambda raw, stamp:
+                (stamp, reader_rows.read_sections(raw, [section])))
+            before = read()
+            database = fixture.registry.lookup(self.twin.copy)[1]
+            with fixture.dbconn.connect(fixture.RUNTIME, database) as raw:
+                changed = raw.execute('UPDATE orgtree.' + table + " SET value='after' WHERE value='before'")
+                self.assertEqual(changed.rowcount, 1)
+            after = read()
+            self.assertNotEqual(before[1], after[1])
+            self.assertEqual(after[1][section]['child-source'][field], ['after'])
+            self.assertEqual(after[0]['view_revision'], before[0]['view_revision'] + 1)
+
+    def test_migration_holders_invalidates_view(self):
+        self.check_child('_migrations', 'org_doc_migration_holders', 'holders')
+
+    def test_migration_healed_invalidates_view(self):
+        self.check_child('_migrations', 'org_doc_migration_healed', 'healed')
+
+    def test_net_state_seen_ids_invalidates_view(self):
+        self.check_child('net_state', 'net_state_seen_ids', 'seen_ids')
+
+    def test_selected_section_layouts_have_complete_invalidation(self):
+        from orgtree import foreground_context
+        from orgtree.orgdb import mappers
+        keys = set(foreground_context.SETTINGS + foreground_context.CURRENT_LISTS)
+        keys.update(('asks', 'credit_requests', 'scope_requests', 'documents',
+                     'org_inbox', 'mail', 'delivering', 'work_scope_log'))
+        tables = {name for section in mappers.sections() if keys.intersection(section.keys)
+                  for table in section.tables for name in table.layout()}
+        tables.update(('org_sections', 'org_section_owners', 'org_extra'))
+        with fixture.storage(True):
+            database = fixture.registry.lookup(self.twin.copy)[1]
+            with fixture.dbconn.connect(fixture.RUNTIME, database) as raw:
+                installed = {}
+                for table, name in raw.execute(
+                        'SELECT c.relname,t.tgname FROM pg_trigger t '
+                        'JOIN pg_class c ON c.oid=t.tgrelid '
+                        'JOIN pg_namespace n ON n.oid=c.relnamespace '
+                        "WHERE n.nspname='orgtree' AND NOT t.tgisinternal").fetchall():
+                    installed.setdefault(table, set()).add(name)
+        required = {'view_rev_insert', 'view_rev_update', 'view_rev_delete', 'view_rev_flush'}
+        missing = {table: sorted(required - installed.get(table, set()))
+                   for table in sorted(tables) if not required <= installed.get(table, set())}
+        self.assertEqual(missing, {}, 'Every selected section and nested table must invalidate the view')
+
+
+@fixture.needs_pg
 class NativeMisfits(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
