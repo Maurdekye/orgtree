@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.3)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.4)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,12 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 7.4: one lock order for every org-database writer (2026-10-03, after review A6 f7).** No
+  product decision changes. Review found two lock-order deadlocks (stage 1-B f24, A6 f7). §2.4
+  ("Lock order") now gives the order: advisory locks, then rows, then the revision row last, then
+  only the rows locked under it. It also gives the rules that follow and the static test that
+  checks them (`tests/test_orgdb_lock_order.py`). A6's Sent tail key is now settled when each
+  statement ends, as legacy's trigger keeps it, instead of at COMMIT (org migration 0008).
 - **Rev 7.3: notes from building stage 1-B (2026-10-03).** No design decision changes; these say
   how the parts were built and correct one line that departed from today's behaviour.
   - §6.2 item 3 says how the compatibility view is built: it answers the storage layer's own SQL
@@ -450,14 +456,65 @@ its lease expired. Rev 4 gives every turn a durable identity, numbered claims an
      cancellation at every boundary (pending, between the two steps, waiting, admitted but not
      started, running).
 
+**Lock order inside an org database (rev 7.4, after review A6 f7).** Review found two lock-order
+deadlocks: stage 1-B f24 (the settings fence against node locks) and A6 f7 (a commit-time key
+rewrite against the revision row). Every writer of an org database takes its locks in this order:
+
+1. **Advisory locks first.** In `org_tx` (`orgdb.compat.tx`): the org lock (shared, or exclusive
+   for a whole-org transaction), then the settings fence when the plan may write a settings key
+   (f24), then the node, key and `(dict log, owner)` locks in the plan's sorted order, then the
+   operation receipt's lock. Outside `org_tx`, an insert that needs its key or name absent takes
+   that key's or name's advisory lock before it looks (`rows.fence_key`, `rows.lock_doc_key`,
+   the agent-name lock).
+2. **Then rows, in a fixed order per writer.** `org_tx` locks its plan's rows `FOR UPDATE` /
+   `FOR SHARE` in plan order (agents by name, sections by key, owners' records, docket items by
+   slug), then its statements write. A body that needs a row outside its plan raises `Widen`:
+   the transaction rolls back and reruns with the wider plan, so no row is locked late. A
+   compare-and-set locks the one row it decides on. The job queue claims by `(run_at, id)` with
+   `SKIP LOCKED`. Several orgs: one transaction per org, in org_id order. A statement-time
+   trigger writes only rows that follow from its statement's rows: link tables
+   (`docket_question_links`, `event_refs`) and A6's mail owner keys (0008: a row arriving at an
+   owner takes that owner's `mail_log_first` row lock; the settling when the statement ends takes
+   its owners' locks in id order and writes only those owners' `mail_log_first` rows and
+   `mail_log.owner_pos`).
+3. **The revision row last.** `orgtree.org_revision` is locked only by:
+   - the save seam, `OrgDbConn.on_save_commit`, immediately before COMMIT;
+   - the deferred constraint triggers, which run at COMMIT: 0006 `foreground_flush` (the node,
+     catalog and view counters; 0007's `docket_rev` uses it too), 0008 `events_count_flush`,
+     0012 `docket_archive_flush`;
+   - a job handler, as its last statement (`orgdb/jobs.py`).
+4. **After the revision row, only the rows locked under it:** `foreground_parent_counts` (0006)
+   and `docket_counters` (0012). A transaction holding the revision row waits for nothing else.
+
+Rules that follow:
+
+- A deferred trigger writes or locks only the revision row (first) and the rows under it. Work at
+  COMMIT that would need any other row is not allowed. A derived key is then a generated column,
+  is kept at statement time under the writer's own row locks, or is computed by the reader.
+  Example: A6's Sent tail. Its recipient key is kept on every mail row, so a removed first row
+  rewrites the owner's other rows. Round 2 did that at COMMIT, after the revision row (f7); it is
+  now done when the statement ends, under the owner's lock, as legacy's trigger does (org
+  migration 0008).
+- No statement-time trigger or other SQL function writes or locks the revision row or the rows
+  under it.
+- The engine's Python writes or locks the revision row only in `OrgDbConn.on_save_commit`, and
+  never writes the rows under it.
+- `tests/test_orgdb_lock_order.py` checks these three rules statically (no database) over every
+  org migration and the engine's Python. Its controls must fail: f7's round-2 settling, a
+  statement-time revision bump, a counter row taken before the revision row, and a Python writer.
+  Adding a table under the revision row, or a Python writer of it, means changing that test.
+- Interleavings the static check cannot see have concurrency tests: f24 (`LockBlock` in
+  `tests/test_orgdb_compat_pg.py`) and f7 (`OwnerKeys.test_a_save_and_a_native_mail_writer_with_its_event_both_commit`).
+
 ### 2.5 The change log and the screen feed: per org database
 
 **Storage.**
 
 - Each org database has `changes(rev, pos, entity, entity_id, op)` and a one-row
   `org_revision(rev, floor)`.
-- A transaction takes the revision row's lock **last**, just before commit. Revisions are
-  therefore handed out in commit order with no gaps, and the lock lasts only the commit.
+- A transaction takes the revision row's lock **last**, just before commit (§2.4, "Lock order").
+  Revisions are therefore handed out in commit order with no gaps, and the lock lasts only the
+  commit.
 - `floor` is the lowest revision whose changes are still complete (retention, below).
 - `NOTIFY` is per database, which suits this layout. Each org's transactions send
   `NOTIFY org_rev, '<rev>'` in their own database.
