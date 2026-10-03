@@ -393,6 +393,79 @@ class Writes(unittest.TestCase):
 
 
 @needs_pg
+class LiveChildren(unittest.TestCase):
+    """`store.lazy_children_index(live_only=True)` (a manager's settings save walks its
+    LIVE subtree, 3-2-0-saving-a-big-manager-s-settings-must-not-l) names and decodes no
+    archived child on either store, including archived rows whose unknown fields the
+    converter kept in the agent's extra. The real traversals too: the save's lock plan (its
+    dry run), its live subtree sweep, and a folder revoke."""
+
+    SCOPE = {'permission_mode': 'acceptEdits', 'effort': 'high', 'org_visibility': 'full',
+             'add_dirs': [{'path': 'C:/shared', 'mode': 'rw'}],
+             'tools': {'bash': True, 'web': True, 'edit': True, 'subagents': True,
+                       'mcp': ['alpha', 'beta']}}
+
+    def twins(self) -> Twins:
+        def before(slug: str) -> None:
+            org = store.load_org(slug)
+            for nid in ('boss', 'dev', 'ops'):
+                org.d['nodes'][nid]['scope'] = json.loads(json.dumps(self.SCOPE))
+            for i in range(16):
+                n = node(f'old{i}', 'boss')
+                n.update(state='archived', retained_legacy_field={'kept': i},
+                         scope=json.loads(json.dumps(self.SCOPE)))
+                org.d['nodes'][f'old{i}'] = n
+            store.save_org(org)
+        return Twins('livekids', before)
+
+    @staticmethod
+    def archived_decoded(org) -> int:
+        nodes = dict.__getitem__(org.d, 'nodes')
+        return sum(1 for k in dict.keys(nodes) if k.startswith('old'))
+
+    def test_save_and_revoke_traversals_decode_no_archived_row(self) -> None:
+        from orgtree import lifecycle_tx
+        from orgtree.ledger import USER
+        t = self.twins()
+        caps = {'tools': {'bash': True, 'web': True, 'edit': True, 'subagents': True,
+                          'mcp': ['alpha']}}
+        for on, slug in ((False, t.legacy), (True, t.copy)):
+            with self.subTest(storage=on), storage(on):
+                with orgtx.org_tx(slug, nodes=['boss']):
+                    pass                                    # warm: stamps the heal epoch
+                live = ['boss', 'dev', 'ops']
+                with orgtx.org_tx(slug, nodes=live, sections=['notices'],
+                                  logs=['events', 'notice_log']) as tx:
+                    upd = lifecycle_tx._scope_plan(tx.org, USER, 'boss', caps)[0]
+                    self.assertEqual(upd, {'boss', 'dev', 'ops'})
+                    tx.org.set_scope(USER, 'boss', **caps)
+                    self.assertEqual(tx.org.scope_touched, {'dev', 'ops'})
+                    res = tx.org.revoke_dir(USER, 'boss', 'C:/shared')
+                    self.assertEqual(sorted(res['removed_from']), live)
+                    self.assertEqual(self.archived_decoded(tx.org), 0)
+                self.assertEqual(store.load_org(slug).node('old3')['scope']['tools']['mcp'],
+                                 ['alpha', 'beta'])
+
+    def test_live_children_decode_no_archived_row_with_retained_extra(self) -> None:
+        t = self.twins()
+        for on, slug in ((False, t.legacy), (True, t.copy)):
+            with self.subTest(storage=on), storage(on):
+                with orgtx.org_tx(slug, nodes=['boss']):
+                    pass                                    # warm: stamps the heal epoch
+                for live_only, want in ((True, ['dev', 'ops']),
+                                        (False, ['dev', 'ops'] + [f'old{i}' for i in range(16)])):
+                    with orgtx.org_tx(slug, nodes=['boss']) as tx:
+                        nodes = dict.__getitem__(tx.org.d, 'nodes')
+                        self.assertIsInstance(nodes, store.LazyNodesMap)
+                        idx = store.lazy_children_index(tx.org, ['boss'], live_only=live_only)
+                        self.assertIsNotNone(idx)
+                        self.assertEqual(sorted(idx['boss']), sorted(want))
+                        decoded = {k for k in dict.keys(nodes) if k.startswith('old')}
+                        # the control (live_only False) decodes all 16: the rows are there
+                        self.assertEqual(len(decoded), 0 if live_only else 16, live_only)
+
+
+@needs_pg
 class Receipts(unittest.TestCase):
     def test_a_receipt_made_before_conversion_replays_after_it(self) -> None:
         calls = []

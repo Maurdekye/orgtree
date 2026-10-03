@@ -1106,8 +1106,10 @@ def node_field_texts(c: Any, key: str) -> list[tuple[str, str | None]]:
 def children_ids(c: Any, parents: Sequence[str], live_only: bool = False) -> list[str]:
     """Candidates whose stored parent is one of ``parents`` ('' = the top level), in table
     order: a superset (a row whose parent field is kept in extra counts). ``live_only``
-    leaves out archived rows (a row whose state is kept in extra still counts)."""
-    live = " AND (a.state IS DISTINCT FROM 'archived' OR a.extra IS NOT NULL)" if live_only else ""
+    leaves out every row whose state COLUMN is 'archived': the column, when set, is the
+    node's state (``scalar_field``), so retained extra never makes an archived row a
+    candidate. A row whose state is kept in extra (column NULL) still counts."""
+    live = " AND a.state IS DISTINCT FROM 'archived'" if live_only else ""
     return [str(n) for (n,) in c.execute(
         "SELECT a.name FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id = a.parent_id "
         "WHERE NOT a.tombstone AND (coalesce(p.name, '') = ANY(%s) OR a.extra IS NOT NULL)"
