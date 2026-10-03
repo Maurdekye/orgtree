@@ -265,9 +265,19 @@ class Mailboxes(unittest.TestCase):
             with fixture.storage(on):
                 with orgtx.org_tx(slug, **mailtx.send_rows('dev')) as tx:
                     tx.org.deposit_mail('dev', {'id': 'mint-mailbox', 'from': 'boss'})
+                before = fixture.document(slug)
                 with orgtx.org_tx(slug, whole=True) as tx:
                     tx.org.rename(ledger.USER, 'dev', 'renamed')
-        t.compare(self, 'rename carries the archive and inbox')
+                after = fixture.document(slug)
+                # Each real deposit mints its own identity and timestamps. The rename
+                # must keep that exact mailbox, inbox and archive within its store.
+                self.assertNotIn('dev', after['nodes'])
+                self.assertTrue(before['nodes']['dev']['mailbox_id'])
+                self.assertEqual(after['nodes']['renamed']['mailbox_id'],
+                                 before['nodes']['dev']['mailbox_id'])
+                self.assertNotIn('dev', after['mail_log'])
+                self.assertEqual(after['mail_log']['renamed'], before['mail_log']['dev'])
+                self.assertEqual(after['mail']['renamed'], before['mail']['dev'])
         self.assertEqual(self.bound(t, 'renamed')[1:], (10, 10))
         self.assertEqual(self.bound(t, 'dev')[1:], (0, 0))
         t.edit(lambda d: d['nodes'].__setitem__('dev', fixture.node('dev', 'boss')))
