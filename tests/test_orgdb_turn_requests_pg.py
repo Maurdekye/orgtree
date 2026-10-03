@@ -607,10 +607,11 @@ class Requests(unittest.TestCase):
                 c.execute("INSERT INTO orgtree.turn_requests "
                           "(request_id,agent_id,reason,state,lease_owner,ended_at) "
                           "SELECT md5('retained-'||g::text)::uuid,%s,'turn','cancelled',%s,clock_timestamp() "
-                          "FROM generate_series(%s,%s) AS g", (self.agent, self.owner, previous + 1, retained))
+                          "FROM generate_series(%s::integer,%s::integer) AS g",
+                          (self.agent, self.owner, previous + 1, retained))
                 c.execute("INSERT INTO orgtree.jobs(kind,dedupe_key,state) "
                           "SELECT 'start_turn',md5('retained-'||g::text)::uuid::text,'done' "
-                          "FROM generate_series(%s,%s) AS g", (previous + 1, retained))
+                          "FROM generate_series(%s::integer,%s::integer) AS g", (previous + 1, retained))
                 c.execute('ANALYZE orgtree.turn_requests')
                 c.execute('ANALYZE orgtree.jobs')
             previous = retained
