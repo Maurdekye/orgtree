@@ -16,8 +16,9 @@ file because Python's default hooks write them to `sys.stderr`.
 NO VALUES FROM EXCEPTIONS (review f1): an exception's message can carry
 any value the code handled (a token, a message body), so before a line is
 persisted:
-  * every value of the exception being handled in the writing thread is
-    withheld from it (`_values`: str/repr of the exception and its args,
+  * every value of the exception being handled in the writing thread (or
+    when the line's first part was written) is withheld from it, short
+    values as whole words (`_values`: str/repr of the exception and its args,
     line by line, across its cause/context chain and exception-group
     members). The engine prints errors from inside its `except` blocks
     (`[orgtree] save failed: {e}`, `traceback.format_exc()`), and the
@@ -53,9 +54,9 @@ KEEP = 4
 NAME = Path("diagnostics") / "engine.log"
 #: One persisted line is cut to this many bytes.
 MAX_LINE_BYTES = 8192
-#: Exception values shorter than this are not searched for (a 1-2
-#: character value would blank ordinary text).
-_MIN_VALUE = 3
+#: Exception values shorter than this are withheld only as whole words
+#: (a 1-2 character value would otherwise blank parts of ordinary words).
+_SHORT_VALUE = 3
 
 _SECRETS = [
     (re.compile(r"\b(sk|pk|rk|ghp|gho|ghs|xox[abpr]|AKIA|AIza)[-_A-Za-z0-9]{12,}"), "<redacted>"),
@@ -75,6 +76,7 @@ def _scrub(line: str) -> str:
 
 
 _hook_exc = threading.local()
+_busy = threading.local()
 
 
 def _values() -> list[str]:
@@ -84,7 +86,7 @@ def _values() -> list[str]:
     seen: set[int] = set()
     out: set[str] = set()
     todo = [e for e in roots if isinstance(e, BaseException)]
-    while todo and len(seen) < 64:
+    while todo:                          # `seen` stops a cycle; no size cap
         e = todo.pop()
         if id(e) in seen:
             continue
@@ -105,17 +107,21 @@ def _values() -> list[str]:
         for t in texts:
             for part in t.splitlines():
                 part = part.strip()
-                if len(part) >= _MIN_VALUE:
+                if part:
                     out.add(part)
         todo += [x for x in (e.__cause__, e.__context__) if x is not None]
         todo += [x for x in getattr(e, "exceptions", ()) or () if isinstance(x, BaseException)]
     return sorted(out, key=len, reverse=True)
 
 
-def _withhold(line: str, values: list[str]) -> str:
-    for v in values:
-        if v in line:
+def _withhold(line: str, values: list[str] | set[str]) -> str:
+    for v in sorted(values, key=len, reverse=True):
+        if v not in line:
+            continue
+        if len(v) >= _SHORT_VALUE:
             line = line.replace(v, "<withheld>")
+        else:
+            line = re.sub(r"(?<!\w)" + re.escape(v) + r"(?!\w)", "<withheld>", line)
     return line
 
 
@@ -225,18 +231,33 @@ class _Tee:
     def __init__(self, orig: TextIO, log: _File, name: str) -> None:
         self._orig, self._log, self._name = orig, log, name
         self._partial = ""
+        #: the handled-exception values of the writes a partial line came from
+        self._pvals: set[str] = set()
         self._lock = threading.Lock()
         self._redact = _Redactor()
 
     def write(self, s: str) -> int:
         n = self._orig.write(s)
+        if getattr(_busy, "on", False):
+            # output produced while inspecting an exception (a custom
+            # __str__ that prints): console only, never the file, and no
+            # second trip into the lock this thread may hold
+            return n
         try:
+            _busy.on = True
+            try:
+                vals = set(_values())            # outside the lock: str() may print
+            finally:
+                _busy.on = False
             with self._lock:
                 buf = self._partial + s
                 *done, self._partial = buf.split("\n")
+                # a line finished after its except block still loses the
+                # values that were being handled when its start was written
+                allv = vals | self._pvals
+                self._pvals = allv if self._partial else set()
                 if done:
-                    vals = _values()
-                    done = [self._redact.line(_withhold(k, vals)) for k in done]
+                    done = [self._redact.line(_withhold(k, allv)) for k in done]
             if done:
                 self._log.write_lines(self._name, done)
         except Exception:                                       # noqa: BLE001

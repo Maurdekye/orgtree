@@ -171,6 +171,60 @@ class EngineLog(unittest.TestCase):
         self.assertNotIn(body, self.text())
         self.assertIn("RuntimeError: <message withheld, 17 chars>", self.text())
 
+    def test_a_line_finished_after_its_except_block_keeps_no_value(self):
+        # review r4: the newline arrives after the handler has ended
+        self.install()
+        body = "private body 3301"
+        try:
+            raise ValueError(body)
+        except ValueError as e:
+            sys.stdout.write(f"[orgtree] save failed: {e}")
+        sys.stdout.write(" (retrying)\n")
+        self.assertNotIn(body, self.text())
+        self.assertIn("[orgtree] save failed: <withheld> (retrying)", self.text())
+        print("[orgtree] later line " + body)    # nothing handled, nothing pending
+        self.assertIn("later line " + body, self.text())
+
+    def test_a_short_value_is_withheld_as_a_word(self):
+        self.install()
+        try:
+            raise ValueError("Q7")
+        except ValueError as e:
+            print(f"[orgtree] code {e} in Q7X")
+        self.assertIn("[orgtree] code <withheld> in Q7X", self.text())
+
+    def test_every_member_of_a_large_group_is_withheld(self):
+        # review r4: a 70-member group outran a 64-node traversal cap
+        self.install()
+        bodies = [f"member body {i:03d}" for i in range(70)]
+        log = self._thread_fails(ExceptionGroup(
+            "many", [ValueError("first\n" + b) for b in bodies]))
+        self.assertFalse([b for b in bodies if b in log])
+        self.assertIn(bodies[0], self.err.getvalue())
+
+    def test_an_exception_that_prints_while_formatted_does_not_hang(self):
+        # review r4: str() of the exception printed under the tee's lock
+        self.install()
+
+        class Loud(Exception):
+            def __str__(self):
+                print("[orgtree] formatting a Loud")
+                return "loud private 5512"
+        done = threading.Event()
+
+        def run():
+            try:
+                raise Loud()
+            except Loud as e:
+                print(f"[orgtree] failed: {e}")
+            done.set()
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self.assertTrue(done.wait(5), "a printing __str__ deadlocked the tee")
+        self.assertNotIn("loud private 5512", self.text())
+        self.assertIn("[orgtree] failed: <withheld>", self.text())
+        self.assertIn("loud private 5512", self.out.getvalue())
+
     def test_engine_prints_exception_values_only_while_handling_them(self):
         # the guarantee above rests on this: every print/write in the engine
         # that names an `except ... as <name>` variable, or calls format_exc /
