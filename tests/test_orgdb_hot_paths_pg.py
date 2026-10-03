@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import test_orgdb_compat_pg as fixture
+from test_orgdb_hot_paths_static import hot_sql_violations
 from orgtree import (desktop_notifications as notices, foreground_store as foreground,
                      identity_context, policy_candidates, policy_context, policy_reads,
                      settingstx, store, tree_ui, turn_inputs, workdetail, worklist, work_ui)
@@ -54,7 +55,7 @@ def examined(plan):
 
 
 def violations(plan, big_tables, statement):
-    failures = []
+    failures = hot_sql_violations(statement)
     for node in nodes(plan):
         table = node.get('Relation Name')
         if table in big_tables and node['Node Type'] == 'Seq Scan':
@@ -369,7 +370,8 @@ class HotReaders(unittest.TestCase):
         # finding points to the product remedy; a fixed path must turn green.
         finding = ('f1' if name.startswith(('a1_', 'robust_a1_')) else
                    'f2' if name in ('a6_mail', 'a6_history', 'a6_events', 'a6_gallery') else
-                   'f3' if name == 'a4_policy_context' else None)
+                   'f3' if name in ('a4_policy_context', 'a2_policy_context') else
+                   'f4' if name.startswith('a2_') else None)
         return f'{name} (known product finding {finding})' if finding else name
 
     def test_control_disabled_indexes_are_caught_on_real_policy_queries(self):
