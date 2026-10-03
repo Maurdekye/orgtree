@@ -758,3 +758,249 @@ class Lifecycle:
         with self._app() as c:
             self._release(c, claim, "active", state_reason=None, attempted_build=self.build)
         return True
+
+    # ------------------------------------------------------------ trash, restore, purge
+    # (design §2.13, landing step 3.) Each is one claim whose steps are recorded in op_step
+    # and repeatable, so a crash or a refused step (a folder held open) is finished by the
+    # same operation asked again, or by the next start (take_over, then resume_lifecycle).
+    # Folders: the caller names an org's folders as (label, path); the trash keeps them under
+    # <trash_dir>/<slug>-<stamp>-<org_id>/<label>, the stamp being the trash database's.
+
+    _TRASH_STEPS = ("claimed", "named", "closing", "fenced", "drained", "closed", "moved",
+                    "renamed")
+    _RESTORE_STEPS = ("claimed", "reserved", "renamed", "opened", "checked", "moved")
+    _PURGE_STEPS = ("claimed", "dropped", "removed")
+
+    def _own_claim(self, org_id: int, kind: str) -> Claim | None:
+        """This instance's unfinished claim of ``kind`` on the org (an operation asked again
+        after a refused step), else None."""
+        row = self.row(org_id)
+        if row["op_kind"] == kind and row["op_owner"] == self._me():
+            return Claim(org_id, kind, int(row["op_epoch"]))
+        return None
+
+    def _set_state(self, claim: Claim, state: str) -> None:
+        """A claimed org's state, the claim kept (closing: admission is closed)."""
+        with self._app() as c:
+            n = c.execute(
+                "UPDATE orgtree.orgs SET state = %s, state_at = now(), row_version = row_version + 1 "
+                "WHERE org_id = %s AND op_kind = %s AND op_epoch = %s AND op_owner = %s",
+                (state, claim.org_id, claim.kind, claim.epoch, self._me())).rowcount
+        if n != 1:
+            raise LostClaim(f"org {claim.org_id}: claim {claim.kind}#{claim.epoch} moved on")
+
+    def _allow_connections(self, dbname: str, allow: bool) -> None:
+        """Rule 5's last fence (off) or its reopening (on). Off also ends every backend."""
+        sql = _sql()
+        with self._admin(MAINTENANCE_DB) as c:
+            c.execute(sql.SQL("ALTER DATABASE {} ALLOW_CONNECTIONS {}").format(
+                sql.Identifier(dbname), sql.SQL("true" if allow else "false")))
+            if not allow:
+                self._terminate(c, dbname)
+
+    def _rename_once(self, old: str, new: str) -> None:
+        """Rename, or recognise a rename an earlier attempt already made."""
+        with self._admin(MAINTENANCE_DB) as c:
+            have_old, have_new = self._exists(c, old), self._exists(c, new)
+        if have_old and not have_new:
+            self._rename_db(old, new)
+        elif not have_new:
+            raise LifecycleError(f"neither {old} nor {new} exists")
+        elif have_old:
+            raise LifecycleError(f"both {old} and {new} exist: refusing to choose")
+
+    @staticmethod
+    def _move_once(src: str, dst: str) -> None:
+        """Move a folder (one rename on its volume), or recognise a move already made. A
+        folder that never existed is nothing to move; a target that exists is never
+        overwritten."""
+        if os.path.exists(src):
+            if os.path.exists(dst):
+                raise LifecycleError(f"cannot move {src}: {dst} exists")
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.replace(src, dst)
+
+    @staticmethod
+    def trash_folder(trash_dir: str, slug: str, trash_db: str, org_id: int) -> str:
+        """Where a trashed org's folders are kept: named by its slug, its trash database's
+        stamp and its org_id (two orgs of one name trashed in the same second stay apart)."""
+        return os.path.join(trash_dir, f"{slug}-{trash_db.rsplit('_', 1)[1]}-{int(org_id)}")
+
+    def trash(self, org_id: int, *, folders: tuple[tuple[str, str], ...] = (),
+              trash_dir: str | None = None, drain: Callable[[], None] | None = None) -> str:
+        """Delete an active org to the trash (§2.13 Trash); returns its trash database's name.
+        Admission closes, the runtime is fenced off, ``drain`` runs (it must not need the org's
+        database), connections end, the folders move to the trash, the database is renamed,
+        and the row is trashed, which frees the name. Busy while another operation holds the
+        org; the same call again finishes this instance's own unfinished trash."""
+        claim = self._own_claim(org_id, "trash") or self.claim(org_id, "trash",
+                                                               expect_state="active")
+        return self._resume_trash(claim, folders=folders, trash_dir=trash_dir, drain=drain)
+
+    def _resume_trash(self, claim: Claim, *, folders: tuple[tuple[str, str], ...] = (),
+                      trash_dir: str | None = None, drain: Callable[[], None] | None = None) -> str:
+        import datetime as _dt   # noqa: PLC0415
+        import time              # noqa: PLC0415
+        row = self.row(claim.org_id)
+        self._check_current(row, claim)
+        steps = self._TRASH_STEPS
+        step = str(row["op_step"])
+        db = str(row["database"])
+
+        def done(s: str) -> bool:
+            return steps.index(step) >= steps.index(s)
+        if not done("named"):
+            target = names.trash(claim.org_id, time.strftime("%Y%m%dt%H%M%S", time.gmtime()),
+                                 self.prefix)
+            self._step(claim, "named", op_target_db=target)
+            step = "named"
+        else:
+            target = str(row["op_target_db"])
+        if not done("closing"):
+            self._set_state(claim, "closing")
+            self._step(claim, step := "closing")
+        if not done("fenced"):
+            self.fence_runtime(db)
+            self._step(claim, step := "fenced")
+        if not done("drained"):
+            if drain is not None:
+                drain()
+            self._step(claim, step := "drained")
+        if not done("closed"):
+            self._allow_connections(db, False)
+            self._step(claim, step := "closed")
+        if not done("moved"):
+            if folders:
+                if trash_dir is None:
+                    raise LifecycleError("folders to trash need a trash folder")
+                keep = self.trash_folder(trash_dir, str(row["slug"]), target, claim.org_id)
+                for label, path in folders:
+                    self._move_once(path, os.path.join(keep, label))
+            self._step(claim, step := "moved")
+        if not done("renamed"):
+            self._rename_once(db, target)
+            self._step(claim, step := "renamed")
+        stamp = target.rsplit("_", 1)[1]
+        at = _dt.datetime.strptime(stamp, "%Y%m%dt%H%M%S").replace(tzinfo=_dt.timezone.utc)
+        with self._app() as c:
+            self._release(c, claim, "trashed", database=target, trashed_at=at)
+        return target
+
+    def restore(self, org_id: int, *, folders: tuple[tuple[str, str], ...] = (),
+                trash_dir: str | None = None) -> str:
+        """A trashed org back to active under its own name (§2.13 Restore); returns its
+        database. Refused while another org has the name: an org records its folder paths
+        (its workspace, its agents' folders) under its name, so it cannot move to another one.
+        The identity is checked by the admin before the runtime can connect again; a mismatch
+        leaves the org unavailable (step 'identity')."""
+        claim = self._own_claim(org_id, "restore") or self.claim(org_id, "restore",
+                                                                 expect_state="trashed")
+        return self._resume_restore(claim, folders=folders, trash_dir=trash_dir)
+
+    def _resume_restore(self, claim: Claim, *, folders: tuple[tuple[str, str], ...] = (),
+                        trash_dir: str | None = None) -> str:
+        import psycopg   # noqa: PLC0415
+        row = self.row(claim.org_id)
+        self._check_current(row, claim)
+        steps = self._RESTORE_STEPS
+        step = str(row["op_step"])
+        trash_db = str(row["database"])
+        final = names.org(claim.org_id, self.prefix)
+
+        def done(s: str) -> bool:
+            return steps.index(step) >= steps.index(s)
+        if names.kind(trash_db, self.prefix) != "trash":
+            raise LifecycleError(f"org {claim.org_id}'s database {trash_db} is not a trash name")
+        if not done("reserved"):
+            try:
+                # closing counts for the name (UNIQUE (slug) WHERE state <> 'trashed'), so this
+                # also reserves the name, or finds it taken
+                self._set_state(claim, "closing")
+            except psycopg.errors.UniqueViolation:
+                with self._app() as c:
+                    self._release(c, claim, "trashed", trashed_at=row["trashed_at"])
+                raise LifecycleError(f"org {claim.org_id} cannot be restored: another org is "
+                                     f"named {row['slug']!r} now") from None
+            self._step(claim, step := "reserved")
+        if not done("renamed"):
+            self._rename_once(trash_db, final)
+            self._step(claim, step := "renamed")
+        if not done("opened"):
+            self._allow_connections(final, True)
+            self._step(claim, step := "opened")
+        if not done("checked"):
+            ident = self.read_identity(final)
+            if (ident is None or ident["org_uuid"] != str(row["org_uuid"])
+                    or ident["slug"] != row["slug"]):
+                with self._app() as c:
+                    self._release(c, claim, "unavailable", attempts_up=True,
+                                  unavailable_step="identity", database=final,
+                                  state_reason=f"restored, but org_identity is {ident}"[:500],
+                                  attempted_build=self.build)
+                return final
+            self._step(claim, step := "checked")
+        if not done("moved"):
+            if folders:
+                if trash_dir is None:
+                    raise LifecycleError("folders to restore need the trash folder")
+                keep = self.trash_folder(trash_dir, str(row["slug"]), trash_db, claim.org_id)
+                for label, path in folders:
+                    self._move_once(os.path.join(keep, label), path)
+                if os.path.isdir(keep) and not os.listdir(keep):
+                    os.rmdir(keep)
+            self._step(claim, step := "moved")
+        self.unfence_runtime(final)
+        with self._app() as c:
+            self._release(c, claim, "active", database=final, trashed_at=None)
+        return final
+
+    def purge(self, org_id: int, *, trash_dir: str | None = None) -> None:
+        """Empty one org out of the trash (§2.13 Purge): its trash database dropped, its trash
+        folder removed, its registry row deleted (its tickets cascade). Only a trashed org,
+        and only a database with a trash name, is ever dropped here."""
+        claim = self._own_claim(org_id, "purge") or self.claim(org_id, "purge",
+                                                               expect_state="trashed")
+        self._resume_purge(claim, trash_dir=trash_dir)
+
+    def _resume_purge(self, claim: Claim, *, trash_dir: str | None = None) -> None:
+        import shutil   # noqa: PLC0415
+        row = self.row(claim.org_id)
+        self._check_current(row, claim)
+        steps = self._PURGE_STEPS
+        step = str(row["op_step"])
+        db = str(row["database"])
+
+        def done(s: str) -> bool:
+            return steps.index(step) >= steps.index(s)
+        if names.kind(db, self.prefix) != "trash":
+            with self._app() as c:
+                self._release(c, claim, str(row["state"]), trashed_at=row["trashed_at"])
+            raise LifecycleError(f"org {claim.org_id}: {db} is not a trash database, not dropped")
+        if not done("dropped"):
+            self._drop_db(db)
+            self._step(claim, step := "dropped")
+        if not done("removed"):
+            if trash_dir is not None:
+                keep = self.trash_folder(trash_dir, str(row["slug"]), db, claim.org_id)
+                if os.path.isdir(keep):
+                    shutil.rmtree(keep)
+            self._step(claim, step := "removed")
+        with self._app() as c:
+            n = c.execute("DELETE FROM orgtree.orgs WHERE org_id = %s AND op_kind = %s "
+                          "AND op_epoch = %s AND op_owner = %s",
+                          (claim.org_id, claim.kind, claim.epoch, self._me())).rowcount
+        if n != 1:
+            raise LostClaim(f"org {claim.org_id}: claim {claim.kind}#{claim.epoch} moved on")
+
+    def resume_lifecycle(self, claim: Claim, *, folders: tuple[tuple[str, str], ...] = (),
+                         trash_dir: str | None = None) -> None:
+        """Finish a trash, restore or purge claim taken over at start (no drain: the
+        crashed host's providers are gone with it)."""
+        if claim.kind == "trash":
+            self._resume_trash(claim, folders=folders, trash_dir=trash_dir)
+        elif claim.kind == "restore":
+            self._resume_restore(claim, folders=folders, trash_dir=trash_dir)
+        elif claim.kind == "purge":
+            self._resume_purge(claim, trash_dir=trash_dir)
+        else:
+            raise LifecycleError(f"not a trash, restore or purge claim: {claim.kind}")
