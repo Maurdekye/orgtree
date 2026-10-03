@@ -72,8 +72,9 @@ BEGIN
         coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown)
         INTO old_nodes,old_retired,old_cost,old_unknown FROM old_rows WHERE NOT tombstone;
     END IF;
-    IF TG_OP='UPDATE' AND EXISTS(SELECT 1 FROM old_rows o JOIN new_rows v USING(id)
-        WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')) THEN
+    IF TG_OP='UPDATE' THEN
+      IF EXISTS(SELECT 1 FROM old_rows o JOIN new_rows v USING(id)
+          WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')) THEN
       -- Only the exceptional empty-name boundary can change another row's
       -- typed axis without writing it. Probe incoming links by successor_id.
       SELECT count(*) FILTER (WHERE v.name='')-count(*) FILTER (WHERE o.name='')
@@ -82,7 +83,8 @@ BEGIN
         WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')
           AND NOT a.tombstone AND a.state='archived'
           AND a.id NOT IN (SELECT id FROM new_rows);
-      new_retired:=new_retired+renamed_retired;
+        new_retired:=new_retired+renamed_retired;
+      END IF;
     END IF;
     FOR field,amount IN SELECT 'node_count',(new_nodes-old_nodes)::numeric
       UNION ALL SELECT 'retired_axis_count',(new_retired-old_retired)::numeric
