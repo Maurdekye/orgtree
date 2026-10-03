@@ -436,6 +436,77 @@ def run_migrations(migrator: Migrator, admin: str) -> dict[str, Any]:
     return report
 
 
+# ---------------------------------------------------------------- 3.2.0's storage (orgdb)
+
+#: The start with the storage switch on (``orgtree.orgdb.startup.start``):
+#: (admin conninfo, runtime conninfo, root, environment for its children,
+#: progress) -> its report. Raises the start module's StartRefused.
+OrgdbStart = Callable[[str, str, Path, Mapping[str, str], Progress], Mapping[str, Any]]
+
+
+def orgdb_wanted(env: Mapping[str, str]) -> bool:
+    """Is 3.2.0's one-database-per-org storage switched on for this engine."""
+    return env.get(ORGDB_SWITCH_ENV, "").strip().lower() == "orgdb"
+
+
+def default_orgdb_start() -> OrgdbStart:
+    """``orgtree.orgdb.startup.start`` from the bundled backend, as ``default_migrator``
+    finds PG-0. Its absence refuses the start."""
+    backend = str(_ENGINE / "backend")
+    if backend not in sys.path:
+        sys.path.insert(0, backend)
+    try:
+        from orgtree.orgdb import startup  # noqa: PLC0415
+    except ImportError as exc:
+        raise BracketError(f"{ORGDB_SWITCH_ENV}=orgdb, but orgtree.orgdb.startup is not importable: {exc}") from exc
+
+    def run(admin: str, runtime: str, root: Path, env: Mapping[str, str], progress: Progress) -> Mapping[str, Any]:
+        return startup.start(admin=admin, runtime=runtime, data_root=str(root), env=env, progress=progress)
+    return run
+
+
+def _orgdb_message(reason: str, logdir: Path | None) -> str:
+    """The user's reason when moving a 3.x data root to the new storage did not finish."""
+    details = (f" Details: {logdir}. If you report this to the Orgtree team, include that folder."
+               if logdir is not None else "")
+    return ("Orgtree could not move your data to its new storage, so it has not started. Nothing "
+            "of your data was changed: it is still in the database the previous version of Orgtree "
+            f"used, and that version can still open it. Reason: {reason}{details}")
+
+
+def run_orgdb_start(start: OrgdbStart, admin: str, runtime: str, root: Path, env: Mapping[str, str],
+                    progress: Progress) -> dict[str, Any]:
+    """The start with the switch on, in place of the legacy migrations: the legacy chain
+    never runs, because 3.2.0 never migrates an existing legacy database (design §5.1, rev
+    4.1). The first pass's progress keeps ``<root>/conversion/current.json`` up to date, as
+    the first-launch conversion does; a refused first pass is a ConversionFailed (launch.py
+    prints it as the structured refusal), any other refusal a BracketError."""
+    converting = {"seen": False}
+
+    def step(phase: str) -> None:
+        if phase.startswith(CONVERT_PHASE):
+            converting["seen"] = True
+            write_convert_status(root, "running", phase)
+        progress(phase)
+    try:
+        report = dict(start(admin, runtime, root, env, step))
+    except BracketError:
+        raise
+    except Exception as exc:  # noqa: BLE001  any failure is a refusal to serve
+        reason = str(getattr(exc, "reason", "") or f"{type(exc).__name__}: {exc}")
+        if getattr(exc, "step", None) == "conversion":
+            logdir = Path(exc.report_dir) if getattr(exc, "report_dir", None) else None  # type: ignore[attr-defined]
+            message = _orgdb_message(reason.rstrip(".") + ".", logdir)
+            write_convert_status(root, "failed", f"{CONVERT_PHASE}: failed", logdir, message)
+            raise ConversionFailed(message) from exc
+        raise BracketError(f"the new storage could not start: {reason}") from exc
+    if converting["seen"]:
+        first = report.get("first_pass") or {}
+        logdir = Path(str(first["report_dir"])) if isinstance(first, dict) and first.get("report_dir") else None
+        write_convert_status(root, "done", f"{CONVERT_PHASE}: done", logdir)
+    return report
+
+
 # ---------------------------------------------------------------- the refusal line
 
 def record_refusal(reason: str, root: Path) -> bool:
@@ -728,7 +799,7 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
     # 3.2.0's storage (orgdb): an org the dry run refuses on its own is held back,
     # and the converter shows it unavailable with a Retry, while the rest start
     # (design §5.1, Q12). A refusal that is not one org's still refuses below.
-    hold = ["--hold-back"] if env.get(ORGDB_SWITCH_ENV, "").strip().lower() == "orgdb" else []
+    hold = ["--hold-back"] if orgdb_wanted(env) else []
     step(f"{CONVERT_PHASE}: checking your data")
     code, err = _run_importer(["dry-run", "--root", str(root), "--out", str(logdir / "dry-run.json"),
                                *hold], child, logdir, "dry-run", step)
@@ -813,9 +884,12 @@ class ManagedPostgres:
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.database: dict[str, Any] | None = None
         self.migration: dict[str, Any] | None = None
+        #: the start report with 3.2.0's storage switched on (orgtree.orgdb.startup)
+        self.orgdb: dict[str, Any] | None = None
         self.conninfo = ""
 
-    def start(self, migrator: Migrator | None, progress: Progress | None = None) -> "ManagedPostgres":
+    def start(self, migrator: Migrator | None, progress: Progress | None = None,
+              orgdb_start: OrgdbStart | None = None) -> "ManagedPostgres":
         step = progress or (lambda _phase: None)
         self.database = database_up(self.custodian, self.root, self.env, self.workdir, self.product, step)
         try:
@@ -824,9 +898,17 @@ class ManagedPostgres:
                 if runtime.get("admin_role") else ""
             if not admin:
                 raise BracketError("pg-custodian attach gave no admin_role")
-            step("database-migrate")
-            self.migration = run_migrations(migrator or default_migrator(), admin)
-            self.conninfo = conninfo(runtime, RUNTIME_ROLE, "orgtree-engine")
+            if orgdb_wanted(self.env):
+                # 3.2.0's storage: the app and org databases, the first pass, resumes and org
+                # migrations, all before the API loads. The admin conninfo is handed to the
+                # start's lifecycle in this process and never put in its environment.
+                self.conninfo = conninfo(runtime, RUNTIME_ROLE, "orgtree-engine")
+                self.orgdb = run_orgdb_start(orgdb_start or default_orgdb_start(), admin, self.conninfo,
+                                             self.root, self.env, step)
+            else:
+                step("database-migrate")
+                self.migration = run_migrations(migrator or default_migrator(), admin)
+                self.conninfo = conninfo(runtime, RUNTIME_ROLE, "orgtree-engine")
             step("database-ready")
         except BaseException:
             self.stop()
@@ -844,11 +926,15 @@ class ManagedPostgres:
 
 
 def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrator | None = None,
-                     progress: Progress | None = None) -> ManagedPostgres | None:
+                     progress: Progress | None = None,
+                     orgdb_start: OrgdbStart | None = None) -> ManagedPostgres | None:
     """launch.py's entry point. None = inert (the chosen backend is not
     postgres). On success sets ``ORGTREE_PG_CONNINFO`` (and, when the cutover
     record chose postgres, ``ORGTREE_STORE``) in ``env``. Raises BracketError
-    (after writing the event-log line) when the engine must not start."""
+    (after writing the event-log line) when the engine must not start. With
+    3.2.0's storage switched on (``ORGTREE_STORAGE=orgdb``) the legacy
+    migrations never run; ``orgdb_start`` (default: the bundled
+    ``orgtree.orgdb.startup``) runs in their place."""
     try:
         if bootstrap_wanted(root, env):
             if bootstrap_fresh_root(root, env, progress) == "existing":
@@ -863,7 +949,8 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
         custodian = _executable(env, CUSTODIAN_ENV)
         # The engine's per-boot desktop token is not the custodian's to see.
         child_env = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV)}
-        owned = ManagedPostgres(root, child_env, custodian, mode == "product").start(migrator, progress)
+        owned = ManagedPostgres(root, child_env, custodian, mode == "product").start(migrator, progress,
+                                                                                    orgdb_start)
     except BracketError as exc:
         record_refusal(str(exc), root)
         raise

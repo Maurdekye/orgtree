@@ -15156,6 +15156,25 @@ def _ws_impl() -> str | None:
     return None
 
 
+def _orgdb_start() -> None:
+    """The developer launch's start with 3.2.0's storage switched on: what the packaged
+    engine runs in its database bracket (``orgdb.startup``: the first pass, crash resumes,
+    org migrations, automatic Retry), after the data-root claim bootstrapped the lifecycle.
+    The admin conninfo then leaves this process's environment, so no agent inherits it."""
+    from .orgdb import conn as orgdb_conn, lifecycle as orgdb_lifecycle
+    from .orgdb import registry as orgdb_registry, startup as orgdb_startup
+    try:
+        orgdb_startup.start(lc=orgdb_registry.lifecycle(), runtime=orgdb_conn.runtime_base(),
+                            data_root=store.DATA_ROOT,
+                            progress=lambda phase: print(f"[orgtree] start: {phase}", flush=True))
+    except orgdb_startup.StartRefused as e:
+        print(f"\nThe new storage could not start: {e.reason}"
+              + (f" (report: {e.report_dir})" if e.report_dir else "") + "\n",
+              file=sys.stderr, flush=True)
+        raise SystemExit(1) from e
+    os.environ.pop(orgdb_lifecycle.ADMIN_ENV, None)
+
+
 def main() -> None:
     import uvicorn
 
@@ -15192,6 +15211,8 @@ def main() -> None:
         # not a crash — no traceback, exit 1, say why
         print(f"\n{e}\n", file=sys.stderr, flush=True)
         raise SystemExit(1)
+    if store.STORE_BACKEND == "postgres" and store._orgdb_on():
+        _orgdb_start()
 
     try:
         _deployment_preflight()

@@ -343,18 +343,36 @@ def _accounts(cfg: Config, lc: Lifecycle) -> dict[str, Any]:
     return out["report"]
 
 
-def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
-    """The one first pass (see the module docstring). Returns the run's report."""
+#: The line the first pass prints (``--progress``) as it starts each org; the engine's start
+#: forwards it as a startup phase (``orgdb.startup``).
+PROGRESS_PREFIX = "orgdb-convert-progress: "
+
+
+def first_pass(lc: Lifecycle, cfg: Config,
+               progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """The one first pass (see the module docstring). Returns the run's report. ``progress``
+    is told each org's name as its conversion starts.
+
+    A root with no legacy database, or with a legacy database that has no legacy schema (a
+    new 3.2.0 install, whose database cluster has only an empty ``orgtree`` database),
+    converts nothing: the pass records that and writes the marker, with no legacy level."""
     with _app(cfg, lc) as a:
         done = a.execute("SELECT legacy_cutover_at FROM app_settings").fetchone()[0]
     if done is not None:
         return {"skipped": "the first pass finished before", "at": done.isoformat()}
     accounts_report = _accounts(cfg, lc)
     resumed = {c.org_id: c for c in lc.take_over() if c.kind in ("convert", "retry")}
-    with conn.connect(cfg.legacy_base, _legacy_db(cfg)) as legacy_conn:
-        orgs = legacy.classify(legacy_conn, cfg.data_root)
-        level = (legacy_conn.execute("SELECT max(name) FROM public.schema_migrations")
-                 .fetchone()[0])
+    orgs: list[legacy.LegacyOrg] = []
+    level = None
+    if lc.database_exists(_legacy_db(cfg)):
+        with conn.connect(cfg.legacy_base, _legacy_db(cfg)) as legacy_conn:
+            have = legacy_conn.execute(
+                "SELECT to_regclass('public.schema_migrations') IS NOT NULL "
+                "AND to_regclass('public.orgs') IS NOT NULL").fetchone()[0]
+            if have:
+                orgs = legacy.classify(legacy_conn, cfg.data_root)
+                level = (legacy_conn.execute("SELECT max(name) FROM public.schema_migrations")
+                         .fetchone()[0])
     cfg.legacy_level = level
     legacy.prepare_root(cfg.work_root, orgs)
     by_legacy = {(r["legacy_database"], r["legacy_org_id"]): r for r in lc.rows()
@@ -392,6 +410,8 @@ def first_pass(lc: Lifecycle, cfg: Config) -> dict[str, Any]:
                                    "outcome": f"already {row['state']}"})
             earlier = earlier or row["state"] != "unavailable"
             continue
+        if progress is not None:
+            progress(org.slug)
         out = convert_org(lc, cfg, org, int(row["org_id"]), claim=resumed.get(row["org_id"]))
         report["orgs"].append(out)
         if out["outcome"] in ("active", "trashed"):

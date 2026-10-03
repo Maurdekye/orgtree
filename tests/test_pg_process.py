@@ -405,6 +405,115 @@ class BracketTests(unittest.TestCase):
         self.assertIn("port=45123", env[bracket.CONNINFO_ENV])
         owned.stop()
 
+    # -- 3.2.0's storage switched on (piece A7a): the new start replaces the legacy migrations
+
+    class _Refused(Exception):
+        """Stands in for orgdb.startup.StartRefused (the bracket reads its fields)."""
+
+        def __init__(self, step: str, reason: str, report_dir: str | None = None) -> None:
+            super().__init__(reason)
+            self.step, self.reason, self.report_dir = step, reason, report_dir
+
+    def orgdb_start(self, phases: tuple = (), refuse: "Exception | None" = None):
+        calls: list[tuple] = []
+
+        def start(admin, runtime, root, env, progress):
+            calls.append((admin, runtime, root, dict(env)))
+            for phase in phases:
+                progress(phase)
+            if refuse is not None:
+                raise refuse
+            return {"first_pass": {"ran": bool(phases), "report_dir": str(self.root / "conversion" / "run")}}
+        return start, calls
+
+    def status(self) -> dict:
+        return json.loads((self.root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
+
+    def test_the_switch_runs_the_new_start_and_never_the_legacy_migrations(self) -> None:
+        self.mark()
+        start, calls = self.orgdb_start()
+        env = self.configured(ORGTREE_STORAGE="orgdb", ORGTREE_V2_TOKEN="secret-token")
+        seen: list[str] = []
+        owned = bracket.start_for_engine(self.root, env, self.migrator, progress=seen.append, orgdb_start=start)
+        # design §5.1 rev 4.1: 3.2.0 never migrates an existing legacy database
+        self.assertEqual(self.migrated, [], "the legacy chain must not run with the switch on")
+        self.assertIsNone(owned.migration)
+        self.assertEqual(len(calls), 1)
+        admin, runtime, root, child_env = calls[0]
+        self.assertIn("user=orgtree_admin", admin)
+        self.assertIn("user=orgtree_runtime", runtime)
+        self.assertIn("dbname=orgtree", runtime)
+        self.assertEqual(root, self.root)
+        self.assertNotIn("ORGTREE_V2_TOKEN", child_env, "the desktop token reaches no child of the start")
+        self.assertEqual(env[bracket.CONNINFO_ENV], runtime)
+        # the admin conninfo goes to the start only, never into the engine's environment
+        self.assertFalse(any("orgtree_admin" in str(v) for v in env.values()))
+        self.assertEqual(seen[-1], "database-ready")
+        self.assertNotIn("database-migrate", seen)
+        self.assertEqual(owned.orgdb, {"first_pass": {"ran": False, "report_dir": str(self.root / "conversion" / "run")}})
+        self.assertFalse((self.root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).exists(),
+                         "no conversion ran, so no conversion status is written")
+        owned.stop()
+
+    def test_without_the_switch_the_legacy_migrations_run_and_the_new_start_does_not(self) -> None:
+        self.mark()
+        start, calls = self.orgdb_start()
+        owned = bracket.start_for_engine(self.root, self.configured(), self.migrator, orgdb_start=start)
+        self.assertEqual(len(self.migrated), 1)
+        self.assertEqual(calls, [])
+        self.assertIsNone(owned.orgdb)
+        owned.stop()
+
+    def test_a_first_pass_keeps_the_conversion_status_and_ends_done(self) -> None:
+        self.mark()
+        start, _ = self.orgdb_start(phases=("database-orgdb", "database-convert: new storage",
+                                            "database-convert: alpha"))
+        seen: list[str] = []
+        owned = bracket.start_for_engine(self.root, self.configured(ORGTREE_STORAGE="orgdb"), self.migrator,
+                                         progress=seen.append, orgdb_start=start)
+        self.assertIn("database-convert: alpha", seen)
+        status = self.status()
+        self.assertEqual((status["state"], status["phase"]), ("done", "database-convert: done"))
+        self.assertEqual(status["log"], str(self.root / "conversion" / "run"))
+        owned.stop()
+
+    def test_a_refused_first_pass_is_a_conversion_failure_and_stops_the_database(self) -> None:
+        self.mark()
+        report = self.root / "conversion" / "20261003T000000Z-1"
+        start, _ = self.orgdb_start(phases=("database-convert: new storage",),
+                                    refuse=self._Refused("conversion", "AccountsMismatch: the file changed",
+                                                         str(report)))
+        with self.assertRaises(bracket.ConversionFailed) as caught:
+            bracket.start_for_engine(self.root, self.configured(ORGTREE_STORAGE="orgdb"), self.migrator,
+                                     orgdb_start=start)
+        message = str(caught.exception)
+        self.assertIn("could not move your data to its new storage", message)
+        self.assertIn("AccountsMismatch: the file changed", message)
+        self.assertIn(str(report), message)
+        status = self.status()
+        self.assertEqual((status["state"], status["reason"]), ("failed", message))
+        self.assertEqual(self.cmds()[-1], "stop", "a refused start stops the database it brought up")
+        self.assertEqual(len(self.refusals), 1)
+
+    def test_a_refused_app_database_is_a_refusal_but_not_a_conversion_failure(self) -> None:
+        self.mark()
+        start, _ = self.orgdb_start(refuse=self._Refused("app", "the app database could not be prepared: X"))
+        with self.assertRaises(BracketError) as caught:
+            bracket.start_for_engine(self.root, self.configured(ORGTREE_STORAGE="orgdb"), self.migrator,
+                                     orgdb_start=start)
+        self.assertNotIsInstance(caught.exception, bracket.ConversionFailed)
+        self.assertIn("the app database could not be prepared: X", str(caught.exception))
+        self.assertEqual(self.cmds()[-1], "stop")
+        self.assertFalse((self.root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).exists())
+
+    def test_the_default_start_is_the_bundled_orgdb_startup(self) -> None:
+        run = bracket.default_orgdb_start()
+        from orgtree.orgdb import startup
+        with mock.patch.object(startup, "start", return_value={"ok": 1}) as fake:
+            self.assertEqual(run("admin-ci", "runtime-ci", self.root, {"A": "1"}, print), {"ok": 1})
+        fake.assert_called_once_with(admin="admin-ci", runtime="runtime-ci", data_root=str(self.root),
+                                     env={"A": "1"}, progress=print)
+
 
     # -- plan decision 18.1: ORGTREE_STORE, else <root>/store-backend.json,
     #    else SQLite; the engine's own root served only after the cutover

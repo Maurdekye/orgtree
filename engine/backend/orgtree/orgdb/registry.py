@@ -276,7 +276,8 @@ def lifecycle() -> Any:
     with _lc_lock:
         if not _lc:
             role = _conn.role_of(_conn.runtime_base()) or L.RUNTIME_ROLE
-            lc = L.Lifecycle(runtime_role=role, build=workitems.build_identity())
+            # an unknown build is 'unknown', as the converter children record it
+            lc = L.Lifecycle(runtime_role=role, build=workitems.build_identity() or "unknown")
             lc.bootstrap()
             _lc.append(lc)
         return _lc[0]
@@ -290,7 +291,8 @@ def use_lifecycle(lc: Any) -> None:
 
 # ----------------------------------------------------------------- Retry
 
-def retry(org_id: int) -> dict[str, Any]:
+def retry(org_id: int, *, data_root: str | None = None,
+          env: dict[str, str] | None = None) -> dict[str, Any]:
     """Retry an unavailable org (design §2.13). Blocks until done, and returns {"org_id",
     "outcome", "reason", "report_path"}: the outcome is the org's state afterwards ('active',
     'trashed' for a converted legacy trashed org, or 'unavailable' again with the new reason).
@@ -298,8 +300,11 @@ def retry(org_id: int) -> dict[str, Any]:
     The step the org failed at decides who retries it: 'migration' and 'identity' the
     lifecycle, in this process; 'conversion' and 'import' the converter, in a child process
     (it points the legacy loader at a root of its own, which must not leak into this one).
-    Raises lifecycle.Busy, before anything runs, when another operation holds the org, and
-    lifecycle.LifecycleError when the org is missing or not unavailable."""
+    ``data_root`` and ``env`` are the converter child's data root and environment (default:
+    the store's root and this process's environment); the engine's start passes them, since
+    it runs before the store is configured. Raises lifecycle.Busy, before anything runs, when
+    another operation holds the org, and lifecycle.LifecycleError when the org is missing or
+    not unavailable."""
     from . import lifecycle as L   # noqa: PLC0415
     lc = lifecycle()
     row = lc.row(org_id)
@@ -311,7 +316,7 @@ def retry(org_id: int) -> dict[str, Any]:
         if row["unavailable_step"] in ("migration", "identity"):
             lc.retry_in_place(org_id)
         else:
-            _convert_retry(org_id, build=lc.build)
+            _convert_retry(org_id, lc, data_root=data_root, env=env)
     finally:
         # the fence closed this org's sessions, and a conversion replaces its database: no
         # idle connection from before is any use
@@ -321,21 +326,27 @@ def retry(org_id: int) -> dict[str, Any]:
             "report_path": row["report_path"]}
 
 
-def _convert_retry(org_id: int, *, build: str) -> None:
+def _convert_retry(org_id: int, lc: Any, *, data_root: str | None = None,
+                   env: dict[str, str] | None = None) -> None:
     import subprocess   # noqa: PLC0415
     import sys          # noqa: PLC0415
     from . import lifecycle as L   # noqa: PLC0415
-    from .. import store            # noqa: PLC0415
+    if data_root is None:
+        from .. import store        # noqa: PLC0415
+        data_root = store.DATA_ROOT
     backend = Path(__file__).resolve().parents[2]
     stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    report_dir = Path(store.DATA_ROOT) / "conversion" / f"{stamp}-{os.getpid()}"
+    report_dir = Path(data_root) / "conversion" / f"{stamp}-{os.getpid()}"
     # this checkout's engine first, whatever the interpreter's own path file lists
     code = ("import sys; sys.path.insert(0, sys.argv[1]); "
             "from orgtree.orgdb.convert.__main__ import main; sys.exit(main(sys.argv[2:]))")
+    # the admin conninfo goes to this child only (the host does not keep it in its own
+    # environment, so its agents never inherit it)
+    child_env = lc.child_env(dict(os.environ) if env is None else env)
     r = subprocess.run([sys.executable, "-c", code, str(backend), "retry", "--org-id", str(org_id),
-                        "--data-root", str(store.DATA_ROOT), "--report-dir", str(report_dir),
-                        "--build", build or "unknown"],
-                       env=dict(os.environ), cwd=str(backend), capture_output=True, text=True,
+                        "--data-root", str(data_root), "--report-dir", str(report_dir),
+                        "--build", lc.build or "unknown"],
+                       env=child_env, cwd=str(backend), capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=3600,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode == 0:

@@ -1,7 +1,10 @@
 """The converter's child process (design §5.2): ``python -m orgtree.orgdb.convert``.
 
-    first-pass --data-root <real data root> --report-dir <folder> --build <id>
+    first-pass --data-root <real data root> --report-dir <folder> --build <id> [--progress]
     retry --org-id <n> --data-root ... --report-dir ... --build ...
+
+``--progress`` prints ``run.PROGRESS_PREFIX`` and the org's name as each org's conversion
+starts (the engine's start reads them as startup phases).
 
 Environment (set by the engine host's database bracket):
   ORGTREE_PG_CONNINFO        the runtime role, aimed at the LEGACY database (the loader reads
@@ -37,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--build", required=True)
     p.add_argument("--org-id", type=int)
     p.add_argument("--work-root")
+    p.add_argument("--progress", action="store_true")
     a = p.parse_args(argv)
     if a.mode == "retry" and a.org_id is None:
         p.error("retry needs --org-id")
@@ -59,7 +63,9 @@ def main(argv: list[str] | None = None) -> int:
         lc = Lifecycle(runtime_role=conn.role_of(base), build=a.build)
         lc.bootstrap()
         if a.mode == "first-pass":
-            report = run.first_pass(lc, cfg)
+            report = run.first_pass(
+                lc, cfg, progress=(lambda slug: print(run.PROGRESS_PREFIX + slug, flush=True))
+                if a.progress else None)
         else:
             try:
                 report = run.retry(lc, cfg, a.org_id)

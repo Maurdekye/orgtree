@@ -835,12 +835,6 @@ def claim_data_root(root: str | None = None) -> None:
         for _s in pgstore.revive_marked(os.path.join(base, "orgs")):
             _log(f"postgres org {_s!r} is back in orgs/; revived (restored from the trash)")
         pgstore.backfill_always_rows(ALWAYS_ROWS)
-    elif STORE_BACKEND == "postgres" and on_data_root:
-        # orgdb: the app database (the registry) is created and migrated, and this
-        # engine instance registered, before any org is opened; a failure refuses
-        # the start (design §2.12). The legacy database is not touched.
-        from .orgdb import registry as _orgdb_registry
-        _orgdb_registry.lifecycle()
     os.makedirs(base, exist_ok=True)
     fd = os.open(owner_file(base), os.O_RDWR | os.O_CREAT, 0o644)
     if not _try_lock(fd):
@@ -869,6 +863,18 @@ def claim_data_root(root: str | None = None) -> None:
     except OSError:
         pass
     _owner_fd = fd              # held for the process lifetime, deliberately
+    if STORE_BACKEND == "postgres" and on_data_root and _orgdb_on():
+        # orgdb: the app database (the registry) is created and migrated, and this
+        # engine instance registered, before any org is opened; a failure refuses
+        # the start (design §2.12) and gives the claim back. After the claim, so an
+        # engine refused the root never bootstraps: its sweep of staging databases
+        # could drop the owner's. The legacy database is not touched.
+        from .orgdb import registry as _orgdb_registry
+        try:
+            _orgdb_registry.lifecycle()
+        except BaseException:
+            release_data_root()
+            raise
     if STORE_BACKEND == "postgres" and on_data_root and not _orgdb_on():
         # after the claim, so a process refused the root changes nothing; and
         # before any org is loaded or cached, so no view holds the old format

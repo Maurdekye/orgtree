@@ -30,6 +30,8 @@ What is here (landing step 1):
   take_over()        claims a crashed host left behind (one host at a time: the
                      data-root owner lock); a create resumes here, builds go
                      back to their owner
+  finish_create()    at start (orgdb.startup): a create a stopped engine left is
+                     published when its first save committed, else removed
   migrate_orgs()     every active org to the current level; a failing or newer
                      org becomes unavailable while the others start (§2.12)
   check_identity()   org_identity against the registry (step 'identity')
@@ -126,6 +128,14 @@ class Lifecycle:
 
     # ------------------------------------------------------------ connections
 
+    def child_env(self, env: dict[str, str]) -> dict[str, str]:
+        """``env`` for a lifecycle child process (the converter): the admin conninfo is set
+        in that child's environment only. The engine host never puts it in its own, so agent
+        and tool processes never inherit it (Q10)."""
+        out = dict(env)
+        out[ADMIN_ENV] = self._admin_base
+        return out
+
     def _admin(self, dbname: str) -> Any:
         return _conn.connect(self._admin_base, dbname, application_name="orgtree-lifecycle")
 
@@ -140,6 +150,12 @@ class Lifecycle:
     @staticmethod
     def _exists(c: Any, dbname: str) -> bool:
         return c.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)).fetchone() is not None
+
+    def database_exists(self, dbname: str) -> bool:
+        """Is there a database of that name in the cluster (the converter asks it of the
+        legacy database, which a new 3.2.0 install never had)."""
+        with self._admin(MAINTENANCE_DB) as c:
+            return self._exists(c, dbname)
 
     def _role_exists(self, c: Any) -> bool:
         return c.execute("SELECT 1 FROM pg_roles WHERE rolname = %s",
@@ -218,6 +234,18 @@ class Lifecycle:
             report = _migrate.migrate(c, _migrate.ORG_DIR, _migrate.ORG_LOCK)
             self._grant_runtime(c, dbname, "org")
         return report
+
+    def _analyze(self, dbname: str) -> bool:
+        """Fresh planner statistics for one org database (A7a): after it is published, after
+        it is restored, and after a migration applied a file to it, so its first queries are
+        planned on its real sizes. Statistics only steer plans, so a failure here is not the
+        operation's: it returns False, and autovacuum gathers them later."""
+        try:
+            with self._admin(dbname) as c:
+                c.execute("ANALYZE")
+        except Exception:                                           # noqa: BLE001
+            return False
+        return True
 
     def _write_identity(self, dbname: str, org_uuid: str, slug: str) -> str:
         incarnation = str(uuid.uuid4())
@@ -504,6 +532,47 @@ class Lifecycle:
         """begin_create()'s first save failed: drop its staging database and its row."""
         self._cancel_create(build.claim)
 
+    def finish_create(self, claim: Claim) -> str:
+        """At start (A7a): finish or remove a create claim a stopped engine left behind.
+        Returns the outcome, 'active' or 'removed'.
+
+        The product creates an org through begin_create(): the org's first save fills its
+        staging database and commits there, then mark_filled() records 'filled' and publish()
+        makes it active. So a staging database whose org_revision moved holds that committed
+        save, and it is published, as an org whose save committed exists in the legacy store
+        too. One that never received it is removed with its row, as a create that fails
+        leaves nothing (the legacy create was one transaction). A claim at 'folder' is
+        create_org()'s empty org, which resume_create() finishes as before."""
+        row = self.row(claim.org_id)
+        self._check_current(row, claim)
+        if row["op_step"] == "folder":
+            self.resume_create(claim)
+            return "active"
+        if row["op_step"] != "renamed" and self._renamed_already(row):
+            self._step(claim, "renamed")
+            row = self.row(claim.org_id)
+        stage = row["op_target_db"]
+        build = Build(claim, str(stage), str(row["database"]), str(row["slug"]),
+                      str(row["org_uuid"]))
+        if row["op_step"] in ("filled", "renamed"):
+            self.publish(build)
+            return "active"
+        if stage and self._holds_a_save(str(stage)):
+            self.mark_filled(build)
+            self.publish(build)
+            return "active"
+        self._cancel_create(claim)
+        return "removed"
+
+    def _holds_a_save(self, dbname: str) -> bool:
+        """Did a save commit in this staging database: it exists and its org_revision moved."""
+        with self._admin(MAINTENANCE_DB) as c:
+            if not self._exists(c, dbname):
+                return False
+        with self._admin(dbname) as c:
+            row = c.execute("SELECT rev FROM orgtree.org_revision").fetchone()
+        return row is not None and int(row[0]) > 0
+
     def _cancel_create(self, claim: Claim) -> None:
         row = self.row(claim.org_id)
         self._check_current(row, claim)
@@ -627,6 +696,7 @@ class Lifecycle:
             self._rename_db(build.database, final)
             self._step(build.claim, "renamed")
         if state == "active":
+            self._analyze(final)
             self.unfence_runtime(final)
         cols: dict[str, Any] = {"state_reason": None, "report_path": None}
         if state == "trashed":
@@ -680,6 +750,8 @@ class Lifecycle:
                 reason = f"migration failed: {type(e).__name__}: {e}"
             else:
                 out["migrated"][row["org_id"]] = report["applied"]
+                if report["applied"]:
+                    self._analyze(db)
                 continue
             if self._mark_unavailable(int(row["org_id"]), "migration", reason):
                 self.fence_runtime(db)
@@ -772,7 +844,7 @@ class Lifecycle:
 
     _TRASH_STEPS = ("claimed", "named", "closing", "fenced", "drained", "closed", "moved",
                     "renamed")
-    _RESTORE_STEPS = ("claimed", "reserved", "renamed", "opened", "checked", "moved")
+    _RESTORE_STEPS = ("claimed", "reserved", "renamed", "opened", "checked", "moved", "migrated")
     _PURGE_STEPS = ("claimed", "dropped", "removed")
 
     @contextlib.contextmanager
@@ -971,6 +1043,24 @@ class Lifecycle:
                 if os.path.isdir(keep) and not os.listdir(keep):
                     os.rmdir(keep)
             self._step(claim, step := "moved")
+        if not done("migrated"):
+            # trashed under an older build, it may be behind this build's org level: it is
+            # brought up to it before it is served, as every org is at start (§2.12). A
+            # failure leaves it unavailable (step 'migration', still fenced) with its folders
+            # back in place, so a Retry that migrates it has nothing else to finish.
+            try:
+                self._migrate_org_db(final)
+            except Exception as e:   # noqa: BLE001  this org's failure is this org's
+                why = (f"written by a newer Orgtree: {e}" if isinstance(e, _migrate.NewerDatabase)
+                       else f"migration failed: {type(e).__name__}: {e}")
+                with self._app() as c:
+                    self._release(c, claim, "unavailable", attempts_up=True,
+                                  unavailable_step="migration", database=final,
+                                  state_reason=f"restored, but {why}"[:500],
+                                  attempted_build=self.build)
+                return final
+            self._analyze(final)
+            self._step(claim, step := "migrated")
         self.unfence_runtime(final)
         with self._app() as c:
             self._release(c, claim, "active", database=final, trashed_at=None)
