@@ -190,6 +190,49 @@ class SmallReaders(unittest.TestCase):
         self.assertEqual(got.nodes['dev']['state'], 'archived')
         self.assertIsNotNone(supervisor._wd_owner_lost(got, got.d['watchdogs'][0]))
 
+    def _watchdog_owner_misfit(self, owner, selected=()):
+        dog = dict(id='misfit-owner', owner=owner, name='kept', kind='process',
+                   target='pid:1', interval_s=15, state='armed', at=fixture.AT)
+        for name in selected:
+            self.org.d['nodes'][name] = fixture.node(name, None)
+        self.org.d['watchdogs'] = [dog]
+        self.save()
+        # Establish that the mapper stored the complete record before reaching
+        # the reader regression, rather than failing on conversion or setup.
+        stored = self.read(lambda raw: reader_rows.read_sections(raw, ('watchdogs',)))
+        self.assertEqual(stored['watchdogs'], [dog])
+        physical = self.read(lambda raw: raw.execute(
+            'SELECT owner, extra FROM orgtree.watchdogs').fetchone())
+        self.assertIsNone(physical[0])
+        self.assertEqual(physical[1]['owner'], owner)
+
+        with fixture.storage(False):
+            legacy_slug = 'legacy-' + self.slug
+            legacy = store.create_org(legacy_slug)
+            legacy.d['nodes'] = copy.deepcopy(self.org.d['nodes'])
+            legacy.d['watchdogs'] = copy.deepcopy([dog])
+            store.save_org(legacy)
+            oracle = policy_reads.watchdog_org(legacy_slug)
+            self.assertEqual(oracle.d['watchdogs'], [dog])
+            self.assertEqual(set(oracle.nodes), set(selected))
+
+        with patch.object(store, 'cached_org', side_effect=AssertionError('whole-org fallback')):
+            got = policy_reads.watchdog_org(self.slug)
+        self.assertEqual(got.d['watchdogs'], oracle.d['watchdogs'])
+        self.assertEqual(set(got.nodes), set(oracle.nodes))
+        for name in selected:
+            self.assertEqual(got.nodes[name]['state'], oracle.nodes[name]['state'])
+            self.assertEqual(got.nodes[name]['scope'], oracle.nodes[name]['scope'])
+
+    def test_watchdog_object_owner_preserves_body_and_legacy_selection(self):
+        self._watchdog_owner_misfit({'unexpected': 'kept'})
+
+    def test_watchdog_numeric_owner_preserves_body_and_legacy_selection(self):
+        self._watchdog_owner_misfit(1)
+
+    def test_watchdog_numeric_owner_selects_same_text_name_as_legacy(self):
+        self._watchdog_owner_misfit(1, selected=('1',))
+
     def test_completed_stamp_skips_whole_org_heal_invalid_stamp_keeps_it(self):
         self.org.d['_migrations']['pm_plan_stamp_heal'] = {'at': 'not-an-iso-time', 'healed': []}
         self.save()

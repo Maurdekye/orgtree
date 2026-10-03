@@ -1,8 +1,9 @@
 """Read-only inputs for periodic policies, without unrelated node history.
 
-Actions keep their existing locked write/revalidation paths. PostgreSQL reads
-settings and watchdog owners in one statement; other backends and legacy node
-blobs retain the shared Org path. This deliberately does not filter owner state:
+Actions keep their existing locked write/revalidation paths. Native settings and
+watchdog owners share a repeatable-read snapshot; the legacy PostgreSQL path uses
+one statement. Other backends and legacy node blobs retain the shared Org path.
+This deliberately does not filter owner state:
 retired owners must still pause their dogs, and live frozen owners still run.
 """
 import json
@@ -34,7 +35,14 @@ def _read(slug, watchdogs):
             from .orgdb import reader_rows
             conn.raw.execute('SET TRANSACTION READ ONLY')
             doc = reader_rows.read_sections(conn.raw, ('watchdogs', 'workspace') if watchdogs else ())
-            owners = {dog.get('owner') for dog in doc.get('watchdogs') or []}
+            # Preserve the legacy dog->>'owner' selection without changing the
+            # decoded body. Supported non-text owners live in the codec's extra
+            # column; PostgreSQL gives them the same text as the legacy query.
+            owners = []
+            if doc.get('watchdogs'):
+                owners = [owner for (owner,) in conn.raw.execute(
+                    "SELECT DISTINCT coalesce(owner, extra->>'owner') "
+                    "FROM orgtree.watchdogs").fetchall() if owner is not None]
             doc.update(slug=slug, nodes=reader_rows.read_agents(conn.raw, owners))
             for node in doc['nodes'].values():
                 scope = node.get('scope')
