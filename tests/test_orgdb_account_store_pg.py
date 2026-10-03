@@ -127,7 +127,8 @@ class NativeAccounts(unittest.TestCase):
         row = self.make()
         until = time.time() + 10000
         registry.record_mark(row['id'], 'opus', until)
-        expected = registry.describe_marks(row['id'])[0]['expected']
+        expected = next(m['expected'] for m in registry.describe_marks(row['id'])
+                        if m['pool'] == 'pooled')
         mismatch = {**expected, 'until': until + 1}
         self.assertEqual(registry.clear_mark(row['id'], 'pooled', mismatch, actor='a', via='test')['result'], 'changed')
         self.assertEqual(registry.clear_mark(row['id'], 'pooled', expected, actor='a', via='test')['result'], 'cleared')
@@ -153,8 +154,15 @@ class NativeAccounts(unittest.TestCase):
         self.assertEqual(registry.resolve_alias('private-alias', org='a5-a'), row['id'])
         self.assertEqual(registry.resolve_alias('private-alias', org='a5-b'), 'private-alias')
         registry.record_mark(row['id'], 'opus', time.time() + 10000)
-        fp = registry.describe_marks(row['id'])[0]['expected']
-        registry.clear_mark(row['id'], 'pooled', fp, actor='a', via='test', org='a5-a')
+        fp = next(m['expected'] for m in registry.describe_marks(row['id'])
+                  if m['pool'] == 'pooled')
+        result = registry.clear_mark(row['id'], 'pooled', fp, actor='a', via='test', org='a5-a')
+        self.assertEqual(result['result'], 'cleared')
+        with accounts.connection('a5-a') as raw:
+            self.assertEqual(raw.execute('SELECT count(*) FROM orgtree.org_account_aliases WHERE account_id = %s',
+                                         (row['id'],)).fetchone()[0], 1)
+            self.assertEqual(raw.execute('SELECT count(*) FROM orgtree.org_account_mark_audit WHERE account = %s',
+                                         (row['id'],)).fetchone()[0], 1)
         with accounts.connection() as raw:
             for table, col in (('accounts', 'id'), ('account_aliases', 'account_id'), ('account_mark_audit', 'account')):
                 self.assertEqual(raw.execute(f'SELECT count(*) FROM orgtree.{table} WHERE {col} = %s',
