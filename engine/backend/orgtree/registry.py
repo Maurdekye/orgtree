@@ -343,8 +343,9 @@ def list_accounts(org: str | None = None) -> list[dict[str, Any]]:
     from . import orgdb
     if orgdb.enabled():
         from .orgdb import accounts
-        return accounts.load(org)["accounts"]
-    rows = load()["accounts"]
+        rows = accounts.load(org)["accounts"]
+    else:
+        rows = load()["accounts"]
     if org is None:
         return [dict(r) for r in rows]
     return [dict(r) for r in rows

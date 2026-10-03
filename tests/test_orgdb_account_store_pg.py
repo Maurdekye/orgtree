@@ -2,6 +2,7 @@
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import copy
+import asyncio
 import os
 import subprocess
 import tempfile
@@ -110,6 +111,17 @@ class NativeAccounts(unittest.TestCase):
                                          (row['id'],)).fetchone(), (0.25, 1))
             self.assertEqual(raw.execute('SELECT row_version FROM orgtree.accounts WHERE id = %s',
                                          (other['id'],)).fetchone()[0], before)
+
+    def test_accounts_api_keeps_keys_and_requested_org_filter(self):
+        from orgtree import api, accountusage
+        machine, own, other = self.make(), self.make('a5-a'), self.make('a5-b')
+        wanted = {r['id'] for r in (machine, own, other)}
+        with patch.object(registry_migration, 'observe_ambient', return_value={}), \
+             patch.object(accountusage, 'host_identities', return_value={}):
+            result = asyncio.run(api.accounts_list('a5-a'))
+        self.assertEqual(set(result), {'accounts', 'primary', 'host_identity'})
+        self.assertEqual([r['id'] for r in result['accounts'] if r['id'] in wanted],
+                         [machine['id'], own['id']])
 
     def test_marks_clear_cas_and_audit_are_atomic(self):
         row = self.make()

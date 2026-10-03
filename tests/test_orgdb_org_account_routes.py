@@ -220,16 +220,18 @@ class OrgAccountRoutes(unittest.TestCase):
         self.fake.rows.assert_not_called()
 
     def test_accounts_keep_registry_filter_and_do_not_expose_other_org_keys(self):
+        from orgtree.orgdb import accounts
         machine = dict(id='machine', provider='openai', credential={}, identity={})
         own = dict(id='own-key', origin_org='ready', provider='openai', credential={}, identity={})
         other = dict(id='other-key', origin_org='held', provider='openai', credential={}, identity={})
-        with patch.object(registry, 'load', return_value={'accounts': [machine, own, other]}), \
+        with patch.object(accounts, 'load', return_value={'accounts': [machine, own, other]}) as native_read, \
              patch.object(registry, 'list_accounts', wraps=registry.list_accounts) as read, \
              patch.object(registry, 'resolve_alias', return_value=''), \
              patch.object(registry_migration, 'observe_ambient', return_value={}), \
              patch.object(accountusage, 'host_identities', return_value={}):
             result = asyncio.run(api.accounts_list('ready'))
         read.assert_called_once_with('ready')
+        native_read.assert_called_once_with('ready')
         self.assertEqual([r['id'] for r in result['accounts']], ['machine', 'own-key'])
         self.assertEqual(result['accounts'][0]['bound'][1]['state'], 'archived')
         self.assertEqual(set(result), {'accounts', 'primary', 'host_identity'})
