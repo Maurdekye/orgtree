@@ -195,6 +195,42 @@ class DocketGrowth(unittest.TestCase):
             with fixture.writer() as raw:
                 raw.execute('DELETE FROM orgtree.work_items WHERE id BETWEEN 1000040 AND 1000042')
 
+    def test_forced_constraint_checks_do_not_lose_the_next_statement_delta(self):
+        try:
+            with fixture.writer() as raw:
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                clone(raw, 'work_items', 'secret', 50, 50)
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                clone(raw, 'work_items', 'secret', 51, 51)
+            with fixture.snapshot() as q:
+                self.assertEqual(q.raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0],
+                                 q.raw.execute("SELECT count(*) FROM orgtree.work_items WHERE list_key='archive'").fetchone()[0])
+        finally:
+            with fixture.writer() as raw:
+                raw.execute('DELETE FROM orgtree.work_items WHERE id IN (1000050,1000051)')
+
+    def test_rollback_state_does_not_leak_when_a_connection_is_reused(self):
+        try:
+            with conn.connect(fixture.RUNTIME, fixture.DATABASE) as raw:
+                before = raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0]
+                raw.execute('BEGIN')
+                clone(raw, 'work_items', 'secret', 60, 60)
+                raw.execute('ROLLBACK')
+                raw.execute('BEGIN')
+                clone(raw, 'work_items', 'secret', 61, 61)
+                raw.execute('SAVEPOINT discarded')
+                clone(raw, 'work_items', 'secret', 62, 62)
+                raw.execute('ROLLBACK TO SAVEPOINT discarded')
+                raw.execute('COMMIT')
+                self.assertEqual(raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0], before+1)
+                raw.execute('BEGIN')
+                raw.execute('UPDATE orgtree.work_items SET title=title WHERE id=1000061')
+                raw.execute('COMMIT')
+                self.assertEqual(raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0], before+1)
+        finally:
+            with fixture.writer() as raw:
+                raw.execute('DELETE FROM orgtree.work_items WHERE id BETWEEN 1000060 AND 1000062')
+
     def test_all_point_reads_have_flat_scan_work_with_retained_history(self):
         record = next(r for r in fixture.DOC['work_items'] if r['slug'] == 'one')
         samples = {}

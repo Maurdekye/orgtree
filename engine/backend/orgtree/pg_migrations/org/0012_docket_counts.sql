@@ -52,3 +52,15 @@ CREATE TRIGGER docket_archive_remove AFTER DELETE ON orgtree.work_items
 CREATE CONSTRAINT TRIGGER docket_archive_flush AFTER INSERT OR UPDATE OR DELETE
  ON orgtree.work_items DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
  EXECUTE FUNCTION orgtree.docket_archive_flush();
+
+-- A caller may force foreign-key checks before its next write. Keep this
+-- internal flush deferred: its deltas are collected AFTER the row events.
+CREATE FUNCTION orgtree.docket_archive_defer() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+BEGIN
+ SET CONSTRAINTS docket_archive_flush DEFERRED;
+ RETURN NULL;
+END
+$fn$;
+CREATE TRIGGER docket_archive_defer BEFORE INSERT OR UPDATE OR DELETE
+ ON orgtree.work_items FOR EACH STATEMENT EXECUTE FUNCTION orgtree.docket_archive_defer();
