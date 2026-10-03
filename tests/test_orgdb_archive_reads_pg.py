@@ -226,7 +226,7 @@ class ArchiveReads(unittest.TestCase):
                 (slug,status,list_key,ord,docket_manual,docket_order,objective)
                 SELECT 'growth-' || n, CASE WHEN n%%3=0 THEN 'dropped' ELSE 'done' END,
                        'archive', n, false, '', repeat('retained body ',4000)
-                FROM generate_series(%s,%s) n""", (current, count-1))
+                FROM generate_series(%s::integer,%s::integer) n""", (current, count-1))
         row = registry.lookup(self.slug)
         with conn.connect(f.ADMIN, row[1]) as admin:
             admin.execute('VACUUM (ANALYZE) orgtree.work_items')
