@@ -593,7 +593,12 @@ def _nodes_delete_all(conn: Any, p: Sequence[Any]) -> Result:
 
 # --------------------------------------------------- node projections (no row decode)
 
-_STATE_LIVE = "(a.state = 'live' OR a.state IS NULL)"
+# Missing / JSON-null state defaults to live in the legacy node index. A
+# typed NULL can also mean an unsupported state preserved in extra: that
+# non-null misfit must not become live. json_field tolerates NUL / surrogate
+# escapes under unrelated keys without rewriting the stored JSON.
+_STATE_LIVE = ("(a.state = 'live' OR (a.state IS NULL AND "
+               "coalesce(json_typeof(orgtree.json_field(a.extra, 'state')), 'null') = 'null'))")
 
 
 @stmt("SELECT id FROM nodes WHERE strpos(val, ?) > 0 AND jsonb_typeof((val::jsonb)->'frozen') "
