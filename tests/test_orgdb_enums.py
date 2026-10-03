@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import unittest
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree.orgdb import codec, enums, mappers, sections
 from orgtree.orgdb.convert.accounts import ACCOUNT, ORG_ACCOUNT, ORG_MARK, ORG_AUDIT, OrgAccounts

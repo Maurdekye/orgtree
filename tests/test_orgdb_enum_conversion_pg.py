@@ -2,7 +2,7 @@
 
 import unittest
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import test_orgdb_convert_pg as legacy_case
 from orgtree import store

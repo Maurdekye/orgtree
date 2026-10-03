@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 import unittest
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree.orgdb import codec, conn, enums, lifecycle, sections
 from orgtree.orgdb.convert import rowio
