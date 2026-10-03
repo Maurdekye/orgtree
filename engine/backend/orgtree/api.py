@@ -12587,6 +12587,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     org_send: tuple[str, str] | None = None   # (dst-slug, body) outbound to another org's inbox
     net_send = False                          # @net: — staged to the spool; kick after the lock
     notice_to: str | None = None              # send_notice recipient — nudged wake=False after the lock
+    status_notice_to: str | None = None       # orgtree_status superior — same nudge, result shape unchanged
     # participants a docket `participants add` just told (passively) — each
     # is nudged wake=False after the lock, exactly like a send_notice
     noticed_nodes: list[str] = []
@@ -13407,13 +13408,19 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         # typed (family status): status.report on the reporter's
                         # NodeRef; the body is its rendering, "[DONE] summary"
                         # byte for byte (test_events_producers §S)
+                        # a status report is a PASSIVE NOTICE (user decision
+                        # 2026-10-03): kind="notice" is the marker every
+                        # no-wake rule keys on (waking_mail), the typed event
+                        # and its rendering are unchanged, and the parent is
+                        # steered wake=False below instead of driven
                         r = org.post_mail(
-                            body.node, parent, "", kind="status",
+                            body.node, parent, "", kind="notice",
                             ev=events.mint("status.report", actor_of(body.node),
                                            org.node_ref(body.node),
                                            state=str(status), summary=str(summary)))
                         mail_notify(body.org, body.node, parent)
-                        drive.append(parent)
+                        if not r.get("deferred"):
+                            status_notice_to = parent
                         result["reported_to"] = parent
                         # id + delivered: the chat chip's inline mailbox link
                         # (user spec — ALL agent mail sends carry it)
@@ -13665,6 +13672,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # long the recipient has been without an injection point.
             result["delivery"] = supervisor.delivery_note(
                 body.org, notice_to, r, kind="notice")
+    if status_notice_to is not None:
+        supervisor.send_message(
+            body.org, status_notice_to,
+            "(orgtree) A notice arrived in your mail above — informational, "
+            "no reply expected. Note it and continue your current task.",
+            wake=False, mail_ping=True, sender=body.node, ping_reason="notice")
     for _n in noticed_nodes:
         # same wake=False steer as a send_notice: the participation notice
         # reaches a running recipient mid-task and waits for an idle one

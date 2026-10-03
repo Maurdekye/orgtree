@@ -315,13 +315,22 @@ def _status_body(tx: Any) -> Any:
         parent = org.node(node)["parent"]
         if parent:
             r = org.post_mail(
-                node, parent, "", kind="status",
+                node, parent, "", kind="notice",
                 ev=events.mint("status.report", actor_of(node),
                                org.node_ref(node),
                                state=str(status), summary=str(summary)))
-            tx.after.then.append(
-                lambda _res, _p=parent: api.mail_notify(tx.call.org, node, _p))
-            tx.after.drive.append(parent)
+
+            def _deliver(_res: Any, _p: str = parent) -> None:
+                api.mail_notify(tx.call.org, node, _p)
+                if not r.get("deferred"):
+                    supervisor.send_message(
+                        tx.call.org, _p,
+                        "(orgtree) A notice arrived in your mail above — "
+                        "informational, no reply expected. Note it and "
+                        "continue your current task.",
+                        wake=False, mail_ping=True, sender=node,
+                        ping_reason="notice")
+            tx.after.then.append(_deliver)
             result["reported_to"] = parent
             result["delivered"] = parent
             result["id"] = r.get("id")

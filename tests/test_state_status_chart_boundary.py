@@ -220,16 +220,20 @@ class StatusBoundary(_Door):
                 self.assertEqual(after['mail_log']['boss'][-1]['id'], mail['id'])
                 [event] = after['events'][len(before['events']):]
                 self.assertEqual((event['op'], event['actor'], event['detail']['to'], event['detail']['kind']),
-                                 ('mail', 'worker', 'boss', 'status'))
+                                 ('mail', 'worker', 'boss', 'notice'))
                 [life] = after['lifecycle'][len(before.get('lifecycle', [])):]
                 self.assertEqual((life['state'], life['delivery'], life['recipient'], life['sender']),
                                  ('accepted', 'mailbox', 'boss', 'worker'))
                 self.assertEqual(after['audiences'], [])       # the superior needs no grant
                 self.notify.assert_called_once_with(self.slug, 'worker', 'boss')
+                # a status is a PASSIVE NOTICE: steered wake=False, never driven,
+                # and the boss's box does not justify waking it
                 self.drive.assert_called_once()
                 args, kwargs = self.drive.call_args
                 self.assertEqual(args[:2], (self.slug, 'boss'))
-                self.assertEqual((kwargs['mail_ping'], kwargs['sender'], kwargs['ping_reason']), (True, 'worker', None))
+                self.assertEqual((kwargs['mail_ping'], kwargs['sender'], kwargs['ping_reason'], kwargs['wake']),
+                                 (True, 'worker', 'notice', False))
+                self.assertFalse(store.load_org(self.slug).waking_mail('boss'))
                 self.hub.assert_called_once_with(self.slug)
 
     def test_top_level_report_posts_no_mail(self):

@@ -1891,9 +1891,13 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "orgtree_status",
         "description": ("Report your working status. REQUIRED when you finish "
-                         "or get stuck: 'done' and 'blocked' notify your "
-                         "superior with your summary; 'working' and 'idle' only "
-                         "record state. 'done' leaves you idle (no separate "
+                         "or get stuck: 'done' and 'blocked' leave your "
+                         "superior a passive notice with your summary; "
+                         "'working' and 'idle' only record state. A status "
+                         "WAKES NOBODY: your superior reads it at its next "
+                         "turn. If you need your superior to decide or act, "
+                         "send an orgtree_message with kind='question'. "
+                         "'done' leaves you idle (no separate "
                          "'idle' needed). While 'working', automatic checkups "
                          "may wake you after about 20 minutes to continue "
                          "unfinished work."),

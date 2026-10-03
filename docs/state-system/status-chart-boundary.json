@@ -45,7 +45,7 @@
     },
     "top_level_reported_to": "status chip only — report your actual results to the user via orgtree_message",
     "mail": {
-      "kind": "status",
+      "kind": "notice",
       "variant": "status.report",
       "prefix": {
         "done": "[DONE] ",
