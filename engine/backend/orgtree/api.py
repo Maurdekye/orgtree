@@ -4765,8 +4765,15 @@ def _orgdb_bound_rows(row: dict[str, Any]) -> list[tuple[str, dict[str, str]]]:
     from .orgdb import registry as org_registry
     try:
         with org_registry.connection(row['slug']) as c:
-            bound = c.execute('SELECT name, account, state FROM orgtree.agents '
-                              'WHERE account IS NOT NULL AND NOT tombstone ORDER BY ord').fetchall()
+            # The converter keeps values that do not fit a text column in
+            # extra. Merge those selected fields before the existing Python
+            # truthiness/string conversions, including explicit JSON nulls.
+            bound = c.execute("SELECT name, CASE WHEN extra->'account' IS NOT NULL "
+                              "THEN extra->'account' ELSE to_json(account) END, "
+                              "CASE WHEN extra->'state' IS NOT NULL THEN extra->'state' "
+                              "ELSE to_json(state) END FROM orgtree.agents "
+                              "WHERE NOT tombstone AND (account IS NOT NULL OR "
+                              "extra->'account' IS NOT NULL) ORDER BY ord").fetchall()
     except org_registry.OrgUnavailable:
         return []                     # a lifecycle operation fenced it during this fan-out
     return [(str(account), {'org': row['slug'], 'node': str(node), 'state': str(state or '')})
