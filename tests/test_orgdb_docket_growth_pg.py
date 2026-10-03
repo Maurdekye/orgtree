@@ -79,7 +79,7 @@ def clone(raw, table, template, start, stop):
         key = 'slug'
     raw.execute('INSERT INTO orgtree.' + table + ' (' + fixture.codec.quoted(columns) +
                 ') SELECT ' + ','.join(values[c] for c in columns) +
-                ' FROM orgtree.' + table + ' original CROSS JOIN generate_series(%s,%s) n '
+                ' FROM orgtree.' + table + ' original CROSS JOIN generate_series(%s::bigint,%s::bigint) n '
                 'WHERE original.' + key + '=%s', (start, stop, template))
 
 
