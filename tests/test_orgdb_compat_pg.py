@@ -1285,20 +1285,21 @@ class OwnerKeys(unittest.TestCase):
                 for q, p in mine:
                     plan = c.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + q, p).fetchone()[0][0]['Plan']
                     total += plan_examined(plan)
-                    scans.update(plan_scans(plan, 'mail_log'))
+                    if 'win_from =' in q:   # the tail's own choice; the chosen rows are then read by id
+                        scans.update(plan_scans(plan, 'mail_log'))
             return len(mine), total
         grow(300)
         small = {cap: examined(cap) for cap in (1, 5, 19)}
         grow(3000)
         large = {cap: examined(cap) for cap in (1, 5, 19)}
-        # every read goes through the two indexes made for it: at b38d0ec a recipient's first row
-        # was a min(id) the planner served at 300 rows by walking the primary key past the other
+        # the choice reads only the two indexes made for it: at b38d0ec a recipient's first row was
+        # a min(id) the planner served at 300 rows by walking the primary key past the other
         # recipients' older rows (20 more rows read at every cap than at 3000)
         self.assertTrue(scans, scans)
-        self.assertEqual({(kind, index) for kind, index in scans
-                          if kind not in ('Index Scan', 'Index Only Scan')
-                          or index not in ('mail_log_sent', 'mail_log_owner_first')}, set(), scans)
-        self.assertEqual(small, large)
+        astray = {(kind, index) for kind, index in scans
+                  if kind not in ('Index Scan', 'Index Only Scan')
+                  or index not in ('mail_log_sent', 'mail_log_owner_first')}
+        self.assertEqual((small, astray), (large, set()), scans)
         self.assertEqual([m for _, m in self.sent(t.copy, 'flat', 3)], ['newest', 'tie 2999', 'tie 2998'])
 
     def test_a_save_and_a_native_mail_writer_with_its_event_both_commit(self) -> None:
