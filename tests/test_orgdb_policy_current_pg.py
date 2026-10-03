@@ -142,14 +142,20 @@ class CurrentPolicy(unittest.TestCase):
 
     def test_selected_sections_keep_missing_null_empty_and_misfit_records(self):
         for value in ('missing', None, []):
-            def edit(doc):
-                for key in ('asks', 'scope_requests', 'audience_requests', 'audiences'):
-                    if value == 'missing':
-                        doc.pop(key, None)
-                    else:
-                        doc[key] = value
-            self.twins.edit(edit)
             with fixture.storage(True), registry.connection(self.twins.copy) as raw:
+                # Conversion supports these containers, although legacy save's
+                # docket hook cannot write a null asks list. Establish the
+                # exact native section shape before exercising the reader.
+                for pos, (key, table) in enumerate((('asks', 'asks'),
+                        ('scope_requests', 'scope_requests'),
+                        ('audience_requests', 'audience_requests'),
+                        ('audiences', 'audience_grants'))):
+                    raw.execute(f'DELETE FROM orgtree.{table}')
+                    raw.execute('DELETE FROM orgtree.org_sections WHERE key=%s', (key,))
+                    if value != 'missing':
+                        raw.execute('INSERT INTO orgtree.org_sections(key,ord,state) '
+                                    'VALUES(%s,%s,%s)', (key, 900 + pos,
+                                                       'n' if value is None else 'v'))
                 with raw.transaction():
                     raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
                     got = policy_candidates.settings(SimpleNamespace(raw=raw, orgdb=True),
