@@ -180,7 +180,7 @@ class EventDifferences(unittest.TestCase):
         self.assertFalse(rewritten)
         after = copy.deepcopy(before)
         after['candidate_verdict'] = after['review_packet'] = None
-        _, (events, removed, rewritten) = self.plan(before, after)
+        old, (events, removed, rewritten) = self.plan(before, after)
         self.assertEqual(events, old)
         self.assertFalse(removed)
         self.assertFalse(rewritten)

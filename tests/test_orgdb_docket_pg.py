@@ -107,6 +107,12 @@ def setUpModule():
     rows, _, _ = sections.encode_document(DOC, mappers.sections(), ignored=mappers.ignored_keys())
     with conn.connect(RUNTIME, DATABASE) as raw, raw.transaction():
         rowio.write(raw, rows)
+    # Match Lifecycle.mark_filled: conversion supplies identities explicitly.
+    with conn.connect(ADMIN, DATABASE) as admin:
+        for table, column in admin.execute("SELECT table_name,column_name FROM information_schema.columns "
+                "WHERE table_schema='orgtree' AND is_identity='YES'").fetchall():
+            admin.execute(f"SELECT setval(pg_get_serial_sequence('orgtree.{table}','{column}'),"
+                          f"coalesce((SELECT max({column}) FROM orgtree.{table}),0)+1,false)")
 
 
 def cleanupModule():
@@ -268,6 +274,7 @@ class NativePaths(unittest.TestCase):
                         row[key] += base
                         if table=='work_items':
                             row['ord'] += base
+                            row['archive_seq'] += base
                 rowio.write(raw,converted)
                 for record in records:
                     with self.subTest(stamp=repr(record['docket_at']),node=repr(record['owner']['node'])):
@@ -419,12 +426,12 @@ class NativePaths(unittest.TestCase):
                                 record = dict(original_archive,docket_at='invalid\x00date',owner={'node':True})
                                 if path=='archive_append':
                                     record['slug'] = 'archive-derived-edge'
-                                    compat_rows.log_insert(raw,ls,None,json.dumps(record),compat_rows.Names(raw))
+                                    compat_rows.log_insert(raw,ls,None,json.dumps(record),compat_rows.Names(raw),tx=compat_rows.Tx())
                                 else:
-                                    rid = raw.execute("SELECT id FROM orgtree.work_items WHERE slug='old'").fetchone()[0]
-                                    self.assertEqual(compat_rows.log_replace(raw,ls,rid,json.dumps(record),expected=None),1)
-                                rid = raw.execute('SELECT id FROM orgtree.work_items WHERE slug=%s',(record['slug'],)).fetchone()[0]
-                                body = json.loads(compat_rows.log_rows(raw,ls,ids=[rid])[0][3])
+                                    seq = raw.execute("SELECT archive_seq FROM orgtree.work_items WHERE slug='old'").fetchone()[0]
+                                    self.assertEqual(compat_rows.log_replace(raw,ls,seq,json.dumps(record),expected=None,tx=compat_rows.Tx()),1)
+                                seq = raw.execute('SELECT archive_seq FROM orgtree.work_items WHERE slug=%s',(record['slug'],)).fetchone()[0]
+                                body = json.loads(compat_rows.log_rows(raw,ls,ids=[seq])[0][3])
                             self.assertEqual(body,record)
                             fields = docket.write_fields(record)
                             self.assertEqual(raw.execute('SELECT '+codec.quoted(fields)+
@@ -687,21 +694,22 @@ class NativePaths(unittest.TestCase):
 
     def test_hot_rows_exclude_retained_legacy_text_while_detail_preserves_it(self):
         from psycopg.types.json import Json
+        from orgtree.orgdb.compat import rows as compat_rows
         marker = 'detail-only-legacy-\x00' + 'z'*200
         encoded_marker = json.dumps(marker)[1:-1]
         archive = [dict(seq=-n,at=AT,kind='decision',text=marker) for n in range(1000,0,-1)]
         try:
             with writer() as raw:
-                original = raw.execute("SELECT extra FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
+                original = json.loads(compat_rows.item(raw,'one')[1])
                 for text in ('\x00','\\u0000','\x00\x00','\\\x00',
                              '__orgtree_docket_escape__\x00','\ud800','\U0001f600'):
                     with self.subTest(text=repr(text)), raw.transaction():
                         projected = raw.execute('SELECT orgtree.docket_extra(%s,ARRAY[\'objective\'])',
                             (Json(dict(objective=text,unrelated=text)),)).fetchone()[0]
                         self.assertEqual(projected,dict(objective=text))
-                extra = dict(original or {},scope_archive=archive,private_notes=marker,
+                record = dict(original,scope_archive=archive,private_notes=marker,
                              history=[dict(op='note',text=marker)],evidence=[dict(note=marker)])
-                raw.execute("UPDATE orgtree.work_items SET extra=%s WHERE slug='one'",(Json(extra),))
+                compat_rows.item_put(raw,compat_rows.Tx(),'one',record)
             with snapshot() as q:
                 row = q.lookup('one')
                 self.assertFalse(encoded_marker in json.dumps(row.summary))
@@ -718,7 +726,7 @@ class NativePaths(unittest.TestCase):
                 self.assertEqual(light['scope_archive_summary']['count'],1001)
         finally:
             with writer() as raw:
-                raw.execute("UPDATE orgtree.work_items SET extra=%s WHERE slug='one'",(Json(original),))
+                compat_rows.item_put(raw,compat_rows.Tx(),'one',original)
 
     def test_status_metadata_query_stays_bounded_as_history_grows(self):
         from orgtree.orgdb import docket
@@ -753,33 +761,34 @@ class NativePaths(unittest.TestCase):
             with writer() as raw:
                 iid = raw.execute("SELECT id FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
                 raw.execute('UPDATE orgtree.work_items SET status_at=NULL,status_at_text=NULL WHERE id=%s',(iid,))
-                raw.execute("INSERT INTO orgtree.work_item_history(item_id,pos,at,op) VALUES(%s,0,%s,'accept')",(iid,AT))
+                raw.execute("INSERT INTO orgtree.work_item_events(item_id,seq,source,kind,history_at,history_op,status_change) "
+                            "VALUES(%s,1,'history','history',%s,'accept',true)",(iid,AT))
             for size in (1000,10000):
                 with self.subTest(size=size):
                     with writer() as raw:
-                        raw.execute("INSERT INTO orgtree.work_item_history(item_id,pos,at,op) "
-                            "SELECT %s,p,'2026-10-03T00:00:00Z','update' FROM generate_series(1,%s) p "
+                        raw.execute("INSERT INTO orgtree.work_item_events(item_id,seq,source,kind,history_at,history_op,status_change) "
+                            "SELECT %s,p+1,'history','history','2026-10-03T00:00:00Z','update',false FROM generate_series(1,%s) p "
                             "ON CONFLICT DO NOTHING",(iid,size))
                     with conn.connect(ADMIN,DATABASE) as admin:
-                        admin.execute('ANALYZE orgtree.work_item_history')
+                        admin.execute('ANALYZE orgtree.work_item_events')
                     with snapshot() as original:
                         traced = Trace(original.raw)
                         q = docket.Snapshot(traced,OID,viewer=USER,now_ts=NOW)
                         row = q.lookup('one')
                         light = worklist.Context(q).light(row,SLUG)
                         self.assertEqual(light['status_at'],AT)
-                        queries = [(sql,args) for sql,args in traced.calls if 'orgtree.work_item_history h' in sql]
+                        queries = [(sql,args) for sql,args in traced.calls if 'orgtree.work_item_events h' in sql]
                         self.assertEqual(len(queries),1)
                         sql,args = queries[0]
                         self.assertNotIn('SELECT *',sql)
                         plan = original.raw.execute('EXPLAIN (ANALYZE,FORMAT JSON) '+sql,args).fetchone()[0][0]['Plan']
-                        history = [n for n in plans(plan) if n.get('Relation Name')=='work_item_history']
+                        history = [n for n in plans(plan) if n.get('Relation Name')=='work_item_events']
                         self.assertTrue(history)
                         self.assertTrue(all(n.get('Index Name')=='docket_status_history' for n in history))
                         self.assertLessEqual(sum(n.get('Actual Rows',0)*n.get('Actual Loops',1) for n in history),2)
         finally:
             with writer() as raw:
-                raw.execute("DELETE FROM orgtree.work_item_history WHERE item_id=(SELECT id FROM orgtree.work_items WHERE slug='one')")
+                raw.execute("DELETE FROM orgtree.work_item_events WHERE source='history' AND item_id=(SELECT id FROM orgtree.work_items WHERE slug='one')")
                 raw.execute("UPDATE orgtree.work_items SET status_at=%s,status_at_text=NULL WHERE slug='one'",(AT,))
 
 

@@ -113,7 +113,7 @@ class StableWrites(unittest.TestCase):
             with self.assertRaises(psycopg.errors.ForeignKeyViolation),view.raw.transaction():
                 view.raw.execute('UPDATE orgtree.work_items SET current_verdict_event_id=%s WHERE id=%s',(packet,rid))
                 view.raw.execute('SET CONSTRAINTS current_verdict_event_id_fk IMMEDIATE')
-            with self.assertRaises(psycopg.errors.ForeignKeyViolation),view.raw.transaction():
+            with self.assertRaises(psycopg.errors.RestrictViolation),view.raw.transaction():
                 view.raw.execute('DELETE FROM orgtree.work_item_events WHERE id=%s',(verdict,))
             record = event_record()
             record.update(candidate_verdict=None,review_packet=None)
