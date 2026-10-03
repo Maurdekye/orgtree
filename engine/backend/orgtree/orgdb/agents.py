@@ -7,7 +7,7 @@ used. Display normalization remains in the existing request-local contexts.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from decimal import Decimal
+from decimal import Decimal, localcontext
 import json
 from typing import Any
 
@@ -86,7 +86,9 @@ def stamp(raw, org_id, seq):
         extra = row_['extra'] or {}
         value = extra.get('cost_usd')
         if row_['cost_usd'] is None and type(value) in (int, float):
-            cost += Decimal(str(value))
+            with localcontext() as arithmetic:
+                arithmetic.prec=max(1000,len(cost.as_tuple().digits)+abs(cost.as_tuple().exponent)+2)
+                cost += Decimal(str(value))
         unknown_value = extra.get('cost_usd_unknown')
         if row_['cost_usd_unknown'] is None and (unknown_value is True or
                 (isinstance(unknown_value, str) and unknown_value == 'true')):
@@ -137,11 +139,15 @@ def rows(raw, ids):
         'SELECT c.origin,p.id,c.depth+1,c.path||p.id FROM chain c '
         'JOIN orgtree.agents a ON a.id=c.id JOIN orgtree.agents p ON p.id=a.predecessor_id '
         'WHERE NOT p.tombstone AND NOT p.id=ANY(c.path)) '
-        'SELECT a.name,p.name,p.generation,p.state,p.bearer_state,c.depth '
+        'SELECT a.name,p.name,p.generation,p.state,p.bearer_state,c.depth,p.extra IS NOT NULL '
         'FROM chain c JOIN orgtree.agents a ON a.id=c.origin JOIN orgtree.agents p ON p.id=c.id',
         (ids,)).fetchall()
     by_origin = {}
-    for name, pred, generation, state, bearer, depth in chains:
+    rare=_hot(raw,'a.name=ANY(%s)',(list({row[1] for row in chains if row[6]}),))
+    for name, pred, generation, state, bearer, depth, has_extra in chains:
+        if pred in rare:
+            value=rare[pred][1]
+            generation,state,bearer=value['generation'],value['state'],value['bearer_state']
         by_origin.setdefault(name, []).append((pred, generation or 0, state, bearer, depth))
     result = {}
     for name, (ordinal, value) in metadata.items():
@@ -184,11 +190,12 @@ def child_page(raw, parent, limit, after=None, last=False):
         suffix = ' AND (coalesce(a.ui_order,0),' + _CREATED + ',a.ord,a.name)>(%s::numeric,%s,%s,%s)'
         params.extend(after)
     typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,' + _CREATED + ',a.ord '
-        'FROM orgtree.agents a WHERE ' + base + parent_sql + ' AND a.ui_order IS NOT NULL' + suffix +
+        'FROM orgtree.agents a WHERE ' + base + parent_sql +
+        ' AND a.ui_order IS NOT NULL AND a.created IS NOT NULL' + suffix +
         ' ORDER BY coalesce(a.ui_order,0)' + direction + ',' + _CREATED + direction +
         ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*params, limit)).fetchall()
     candidates = {row[0]: row for row in typed}
-    for name, (ordinal, value) in _hot(raw, base + parent_sql + ' AND a.ui_order IS NULL',
+    for name, (ordinal, value) in _hot(raw, base + parent_sql + ' AND (a.ui_order IS NULL OR a.created IS NULL)',
                                       [] if not parent else [parent]).items():
         candidate = (name, str(value['order']), value['created'], ordinal)
         key = (Decimal(candidate[1]), candidate[2], ordinal, name)

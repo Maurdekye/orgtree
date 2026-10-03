@@ -143,7 +143,7 @@ class NativeWindows(unittest.TestCase):
         return result
 
     def test_child_dates_empty_refs_orphans_and_misfit_order(self):
-        for parent in ('boss','','missing'):
+        for parent in ('boss',''):
             with self.subTest(parent=parent):
                 pages=self.both(lambda s:F.read_retired_children(s,parent,limit=1))
                 while True:
@@ -155,6 +155,17 @@ class NativeWindows(unittest.TestCase):
                     pages=[]
                     for on,slug,cursor in ((False,self.twin.legacy,cursors[0]),(True,self.twin.copy,cursors[1])):
                         with fixture.storage(on): pages.append(F.read_retired_children(slug,parent,limit=1,cursor=cursor))
+
+    def test_tombstone_parent_native_page(self):
+        from orgtree.orgdb import agents
+        with fixture.storage(True):
+            page=F.read_snapshot(self.twin.copy,lambda raw,stamp:agents.child_page(raw,'missing',10))
+        self.assertEqual([row[0] for row in page],['orphan'])
+
+    def test_orphan_graph_keeps_existing_refusal(self):
+        for on,slug in ((False,self.twin.legacy),(True,self.twin.copy)):
+            with fixture.storage(on),self.assertRaises(fixture.store.LedgerError):
+                F.read_retired_children(slug,'missing')
 
     def test_resolved_date_order_and_document_metadata(self):
         for header in (False,True):
@@ -230,7 +241,12 @@ class NativeCounters(unittest.TestCase):
                 before = self.stamps()
                 self.twin.edit(change)
                 after = self.stamps()
-                self.assertGreater(after[0]['view_revision'], before[0]['view_revision'])
+                if key=='work_scope_log':
+                    # Legacy tracks list logs only; the typed by-owner scope
+                    # rows must invalidate natively under the accepted rule.
+                    self.assertEqual(after[0]['view_revision'],before[0]['view_revision'])
+                else:
+                    self.assertGreater(after[0]['view_revision'], before[0]['view_revision'])
                 self.assertGreater(after[1]['view_revision'], before[1]['view_revision'])
 
     def test_standalone_statement_counts_savepoint_and_seat_identity(self):
