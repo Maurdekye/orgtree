@@ -31,7 +31,7 @@ import json
 import secrets
 from typing import Any, Iterator
 
-from ... import orgtx, profiling, store
+from ... import orgtx, profiling, store, txlog
 from ...stateprobe import SaveChanges
 from .. import registry as _reg
 from . import conn as C
@@ -159,7 +159,8 @@ class OrgDbBackend:
                     raw.execute(f"BEGIN; "
                                 f"SET LOCAL lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'; "
                                 f"SET LOCAL idle_in_transaction_session_timeout = "
-                                f"'{int(orgtx.IDLE_IN_TX_TIMEOUT_S * 1000)}ms'")
+                                f"'{int(orgtx.IDLE_IN_TX_TIMEOUT_S * 1000)}ms'; "
+                                f"SET LOCAL application_name = {txlog.app_name(tx)}")
                     raw.execute("SELECT pg_advisory_xact_lock" + ("" if tx.whole else "_shared")
                                 + "(%s, hashtext(%s))", (conn.org_id, f"org:{orgtx._ORG_KEY}"))   # pyright: ignore[reportPrivateUsage]
                     # the registry row was read before this lock: an org trashed meanwhile

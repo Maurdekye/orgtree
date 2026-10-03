@@ -111,7 +111,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar, cast
 
-from . import profiling, store
+from . import profiling, store, txlog
 from .ledger import Org
 from .stateprobe import SaveChanges
 
@@ -263,6 +263,10 @@ class OrgTx:
     #: every node and doc row that exists, and any write allowed.
     #: `lock_nodes` / `lock_sections` / `logs` hold what was listed under it
     whole: bool = False
+    #: txlog: the caller label (also the session's application_name) and the
+    #: perf_counter time each lock point was reached in this attempt
+    log_label: str = ""
+    log_marks: dict[str, float] = field(default_factory=lambda: {})
 
     @property
     def d(self) -> dict[str, Any]:
@@ -290,6 +294,7 @@ def set_pause_hook(fn: Callable[[str, OrgTx], None] | None) -> None:
 
 
 def _pause(point: str, tx: OrgTx) -> None:
+    txlog.mark(point, tx)
     h = _pause_hook
     if h is not None:
         h(point, tx)
@@ -1017,7 +1022,8 @@ class PgBackend:
                 raw.execute(f"BEGIN; "
                             f"SET LOCAL lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'; "
                             f"SET LOCAL idle_in_transaction_session_timeout = "
-                            f"'{int(IDLE_IN_TX_TIMEOUT_S * 1000)}ms'")
+                            f"'{int(IDLE_IN_TX_TIMEOUT_S * 1000)}ms'; "
+                            f"SET LOCAL application_name = {txlog.app_name(order[0])}")
                 for tx in order:
                     conn = conns[tx.slug]
                     conn.use()
@@ -1380,6 +1386,7 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
     timeout = DEFAULT_LOCK_TIMEOUT_S if lock_timeout is None else lock_timeout
     b = backend()
     txs = first
+    _open.log_label = txlog.label()
     # the JSON fallback's only lock is DOC_LOCK, so it is taken here, before
     # any row-lock bookkeeping, whether or not the fence is on (decision 39)
     fence: contextlib.AbstractContextManager[Any] = (
@@ -1426,10 +1433,19 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
         _open.txs = registry
         loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
         loc.rowlock_depth = getattr(loc, "rowlock_depth", 0) + 1
+        lbl = getattr(_open, "log_label", "")
+        for t in txs:
+            t.log_label = lbl
+        started = time.perf_counter()
+        failed: BaseException | None = None
         try:
             with b.transaction_many(txs, timeout):
                 body_ran = True
-                yield txs
+                try:
+                    yield txs
+                except BaseException as e:
+                    failed = e
+                    raise
         except _HealNeeded as h:
             # locks released by the backend's exit; commit the heal, re-run
             heals += 1
@@ -1445,12 +1461,28 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
             time.sleep(random.uniform(0, 0.01 * (2 ** attempt)))
             txs = make()
             continue
+        except BaseException as e:
+            if failed is None:
+                failed = e
+            raise
         finally:
             loc.rowlock_depth -= 1
             for sl in slugs:
                 open_slugs.discard(sl)
                 registry.pop(sl, None)
+            if not _expected(failed):
+                txlog.finish(txs, started, failed)
         return txs
+
+
+def _expected(e: BaseException | None) -> bool:
+    """An attempt ending this way is ordinary control flow, not a failure
+    worth a transaction-log line: a refusal the caller reports (LedgerError,
+    and the lock-plan widening built on it), the internal heal rerun, or a
+    generator closed after a normal exit."""
+    from .ledger import LedgerError
+    return isinstance(e, (LedgerError, _HealNeeded, GeneratorExit)) \
+        or type(e).__name__ == "Widen"
 
 
 @contextlib.contextmanager

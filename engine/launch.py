@@ -376,6 +376,10 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
 def main() -> None:
     global _HUB_RUNTIME
     data = validate_data_root(_required_path("ORGTREE_DATA"))
+    # the engine's own log (diagnostics/engine.log): every stdout/stderr line,
+    # time-stamped; stdout still reaches the launcher unchanged
+    from engine.enginelog import install as _engine_log
+    _engine_log(data)
     from engine.startup_progress import StartupProgress
     progress = StartupProgress(data)
     progress.report("lifetime-preparation")

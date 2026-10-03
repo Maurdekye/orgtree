@@ -38,7 +38,9 @@ import urllib.error
 import urllib.request
 
 PROBE_INTERVAL = 30.0
-STALL_AFTER = 60.0
+#: 20 s, not 60: the 2026-10-03 jam stalled routes for up to 38 s and left no
+#: dump (engine-logging-persist-the-engine-s-output-and-r)
+STALL_AFTER = 20.0
 MAX_BYTES = 8 * 1024 * 1024
 DUMP = Path("diagnostics") / "engine-stall-stacks.txt"
 
