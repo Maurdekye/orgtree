@@ -153,7 +153,8 @@ function table(records: FeedRecord[]): RecordTable {
   return out
 }
 const agent = (key: string, name: string, parent_id: string | null, sibling_order = 0): FeedRecord => ({
-  entity: 'agent', id: key, body: { id: name, parent_id, sibling_order, children: ['ignored nested child'] },
+  entity: 'agent', id: key, body: { id: name, parent_id, sibling_order,
+    parent: 'stale serialized name', children: ['ignored nested child'] },
 })
 
 test('tree selector uses surrogate parent links, explicit sibling order, and updated names', () => {
@@ -161,9 +162,12 @@ test('tree selector uses surrogate parent links, explicit sibling order, and upd
     agent('1', 'renamed-parent', null), agent('2', 'last', '1', 9), agent('3', 'first', '1', 1)])
   const tree = projectTree(records)
   assert.equal(tree.roots[0].id, 'renamed-parent')
+  assert.equal(tree.roots[0].parent, null)
   assert.deepEqual(tree.roots[0].children.map(n => n.id), ['first', 'last'])
   assert.equal(agentRecordIds(records).get('renamed-parent'), '1')
   assert.equal(tree.roots[0].children[0].children.length, 0)
+  assert.equal(tree.roots[0].children[0].parent, 'renamed-parent',
+    'the UI parent name derives from the current parent record, even without child upserts')
 })
 
 test('partial sets keep missing parents unknown; cycles and duplicate names are refused', () => {

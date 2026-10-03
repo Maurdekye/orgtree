@@ -42,7 +42,8 @@ export function projectTree(records: RecordTable): TreePayload {
     if (!row) throw new Error('Feed tree is missing a node')
     seen.add(id)
     const { parent_id: _parent, sibling_order: _order, ...fields } = row
-    return { ...fields, children: (children.get(id) ?? []).map(build) } as TreeNode
+    const parent = row.parent_id === null ? null : (nodes.get(row.parent_id) as AgentRecord).id
+    return { ...fields, parent, children: (children.get(id) ?? []).map(build) } as TreeNode
   }
   const roots = (children.get(null) ?? []).map(build)
   return hydrateTree({ ...top, roots } as TreePayload)
