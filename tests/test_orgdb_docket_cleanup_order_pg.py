@@ -42,7 +42,8 @@ class CleanupOrder(unittest.TestCase):
         key = 'work_items\x1f' + record['slug']
         try:
             view.execute('BEGIN IMMEDIATE')
-            view.execute('INSERT INTO doc(key,val) VALUES(?,?)', (key, rows.dumps(record)))
+            view.execute('INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) '
+                         'DO UPDATE SET val=excluded.val', (key, rows.dumps(record)))
             rid = raw.execute('SELECT id FROM orgtree.work_items WHERE slug=%s',
                               (record['slug'],)).fetchone()[0]
             self.assertGreater(raw.execute('SELECT count(*) FROM orgtree.work_item_events '
