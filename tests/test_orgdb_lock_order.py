@@ -4,17 +4,27 @@ The revision row (orgtree.org_revision) is the last lock a writer takes: the sav
 (OrgDbConn.on_save_commit, just before COMMIT) and the deferred triggers that run at COMMIT take
 it. After it a transaction may wait only for rows that are themselves locked only under it. So
 two writers can never hold the revision row and another lock each while waiting for the other's.
+Before it, each writer locks only the rows its own statements write, in its own order: a trigger
+that wrote or locked any other row would put a lock into every writer of its table, in an order
+no writer chose (review A6 f8 and f9).
 
 What it proves, over every org migration and the engine's Python:
-  * a deferred (commit-time) trigger function writes or locks nothing but the revision row and
-    the tables locked only under it, and takes the revision row before those;
-  * no other function (a statement-time trigger, a plain function) writes or locks the revision
-    row or those tables;
-  * the engine's Python writes or locks the revision row only in OrgDbConn.on_save_commit, and
-    never writes the tables locked under it.
+  * a deferred (commit-time) trigger function, with every function it calls, writes or locks
+    nothing but the revision row and the tables locked only under it, and takes the revision
+    row before those;
+  * a statement-time trigger function, with every function it calls, writes only link rows of
+    its own statement's rows (a table with a foreign key to the trigger's table), takes no row
+    lock (FOR UPDATE / FOR SHARE), and never touches the revision row or the tables under it;
+  * no other function writes or locks a table;
+  * no function forces deferred checks (SET CONSTRAINTS ... IMMEDIATE): that runs the commit-time
+    triggers early, so the revision row would be taken before the statements that follow;
+  * the engine's Python writes or locks the revision row only in OrgDbConn.on_save_commit, never
+    writes the tables locked under it, and never forces deferred checks.
 The controls show the check rejects the round-2 settling that deadlocked in review f7 (a
-commit-time trigger locking an owner's key row and rewriting the owner's mail rows), a
-statement-time revision bump, a counter row taken before the revision row, and a Python write.
+commit-time trigger locking an owner's key row and rewriting the owner's mail rows), round 3's
+statement-time owner keys that deadlocked in f8 and f9, a link table of another table, a writing
+trigger on a table it cannot name, a writing plain function, a statement-time revision bump, a
+counter row taken before the revision row, a forced check, and a Python write.
 
 Run:  python tools/run-python-verification.py tests/test_orgdb_lock_order.py
 """
@@ -42,12 +52,19 @@ _FUNC = re.compile(r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(orgtree\.\w+)\s*\(
 _BODY = re.compile(r'\bAS\s+(\$\w*\$)', re.I)
 _TRIGGER = re.compile(r'CREATE\s+(CONSTRAINT\s+)?TRIGGER\b', re.I)
 _EXECUTE = re.compile(r'EXECUTE\s+(?:FUNCTION|PROCEDURE)\s+([\w.%]+)\s*\(', re.I)
+_ON = re.compile(r'\bON\s+(?:ONLY\s+)?(?:orgtree\.)?(%I|\w+)', re.I)
 _TOUCH = [re.compile(r'\bUPDATE\s+(?:ONLY\s+)?orgtree\.(\w+|%I)', re.I),
           re.compile(r'\bINSERT\s+INTO\s+orgtree\.(\w+|%I)', re.I),
           re.compile(r'\bDELETE\s+FROM\s+orgtree\.(\w+|%I)', re.I),
           re.compile(r'\bTRUNCATE\s+(?:TABLE\s+)?orgtree\.(\w+|%I)', re.I),
           re.compile(r'\bFROM\s+orgtree\.(\w+)\b[^;]*?\bFOR\s+(?:NO\s+KEY\s+)?(?:UPDATE|SHARE|KEY\s+SHARE)\b',
                      re.I | re.S)]
+_ROW_LOCK = re.compile(r'\bFOR\s+(?:NO\s+KEY\s+)?(?:UPDATE|SHARE|KEY\s+SHARE)\b', re.I)
+_FORCED = re.compile(r'\bSET\s+CONSTRAINTS\b[^;]*?\bIMMEDIATE\b', re.I | re.S)
+_CALL = re.compile(r'\b(orgtree\.\w+)\s*\(', re.I)
+_TABLE = re.compile(r'\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?orgtree\.(\w+)\s*\((.*?)\)\s*;', re.I | re.S)
+_ALTER = re.compile(r'\bALTER\s+TABLE\s+(?:ONLY\s+)?orgtree\.(\w+)\b([^;]*);', re.I | re.S)
+_REFERENCES = re.compile(r'\bREFERENCES\s+orgtree\.(\w+)', re.I)
 
 
 def functions(text: str) -> dict[str, tuple[bool, str]]:
@@ -67,12 +84,14 @@ def functions(text: str) -> dict[str, tuple[bool, str]]:
     return out
 
 
-def deferred_triggers(text: str) -> tuple[set[str], list[str]]:
-    """(functions fired by DEFERRABLE INITIALLY DEFERRED constraint triggers, problems), for the
-    triggers a migration text creates, written out or in a format() string."""
+def triggers(text: str) -> tuple[list[tuple[str, str, bool]], list[str]]:
+    """([(function, table, deferred)], problems) for the triggers a migration text creates,
+    written out or in a format() string. ``table`` is '%I' when a format() argument names it; a
+    function named by one is listed as 'orgtree.%i' (`violations` then judges every trigger
+    function no trigger names as if on a table it cannot name)."""
     text = re.sub(r"'\s*\n\s*'", '', text)        # adjacent string literals are one string
     starts = [m for m in _TRIGGER.finditer(text)]
-    fns, problems = set(), []
+    out, problems = [], []
     for i, m in enumerate(starts):
         stop = starts[i + 1].start() if i + 1 < len(starts) else len(text)
         ex = _EXECUTE.search(text, m.end(), stop)
@@ -80,12 +99,19 @@ def deferred_triggers(text: str) -> tuple[set[str], list[str]]:
             problems.append(f'a trigger with no EXECUTE FUNCTION near {text[m.start():m.start() + 80]!r}')
             continue
         span = text[m.start():ex.start()]
-        if m.group(1) and re.search(r'INITIALLY\s+DEFERRED', span, re.I):
-            if '%' in ex.group(1):
-                problems.append(f'a deferred trigger whose function is a format() argument: '
-                                f'{span[:120]!r}; name it, so its lock order can be checked')
-            fns.add(ex.group(1).lower())
-    return fns, problems
+        deferred = bool(m.group(1)) and re.search(r'INITIALLY\s+DEFERRED', span, re.I) is not None
+        if '%' in ex.group(1) and deferred:
+            problems.append(f'a deferred trigger whose function is a format() argument: '
+                            f'{span[:120]!r}; name it, so its lock order can be checked')
+        on = _ON.search(span)
+        out.append((ex.group(1).lower(), on.group(1).lower() if on else '%I', deferred))
+    return out, problems
+
+
+def deferred_triggers(text: str) -> tuple[set[str], list[str]]:
+    """(functions fired by DEFERRABLE INITIALLY DEFERRED constraint triggers, problems)."""
+    found, problems = triggers(text)
+    return {fn for fn, _, deferred in found if deferred}, problems
 
 
 def touches(body: str) -> list[tuple[int, str]]:
@@ -94,36 +120,100 @@ def touches(body: str) -> list[tuple[int, str]]:
     return sorted(found)
 
 
+def _code(body: str) -> str:
+    """A function body without its string literals (a function named in a string is not called)."""
+    return re.sub(r"'(?:[^']|'')*'", "''", body)
+
+
+def links(texts: dict[str, str]) -> dict[str, set[str]]:
+    """table -> the tables with a foreign key to it: the link tables a trigger on it may write."""
+    out: dict[str, set[str]] = {}
+    for text in texts.values():
+        for rx in (_TABLE, _ALTER):
+            for m in rx.finditer(text):
+                for ref in _REFERENCES.finditer(m.group(2)):
+                    out.setdefault(ref.group(1).lower(), set()).add(m.group(1).lower())
+    return out
+
+
 def violations(texts: dict[str, str]) -> list[str]:
     """Every breach of the lock order in these migration texts (file name -> text)."""
     defs: dict[str, tuple[str, bool, str]] = {}
-    deferred: set[str] = set()
+    fired: list[tuple[str, str, bool, str]] = []
     out: list[str] = []
     for name in sorted(texts):
         for fn, (trigger, body) in functions(texts[name]).items():
             defs[fn.lower()] = (name, trigger, body)       # a later definition replaces it
-        fns, problems = deferred_triggers(texts[name])
-        deferred |= fns
+        found, problems = triggers(texts[name])
+        fired += [(fn, table, deferred, name) for fn, table, deferred in found]
         out += [f'{name}: {p}' for p in problems]
+    deferred = {fn for fn, _, d, _ in fired if d}
+    calls = {fn: {c.lower() for c in _CALL.findall(_code(body))} & set(defs) - {fn}
+             for fn, (_, _, body) in defs.items()}
+
+    def reach(fn: str) -> list[str]:
+        seen, todo = [], [fn]
+        while todo:
+            f = todo.pop()
+            if f not in seen and f in defs:
+                seen.append(f)
+                todo += sorted(calls[f])
+        return seen
     guarded = {REVISION} | set(UNDER_REVISION)
+    linked = links(texts)
+    judged: set[str] = set()
+    for fn in sorted(deferred):
+        for f in reach(fn):
+            judged.add(f)
+            name, _, body = defs[f]
+            via = '' if f == fn else f' (through {f})'
+            for _, table in touches(body):
+                if table not in guarded:
+                    out.append(f'{name}: deferred {fn}{via} writes or locks orgtree.{table} at commit: '
+                               f'only the revision row and the rows locked under it may be taken then')
+        hits = touches(defs[fn][2]) if fn in defs else []
+        first_revision = min((p for p, t in hits if t == REVISION), default=None)
+        for pos, table in hits:
+            if table in UNDER_REVISION and (first_revision is None or pos < first_revision):
+                out.append(f'{defs[fn][0]}: deferred {fn} takes orgtree.{table} before the revision row')
+    attached = {fn for fn, _, _, _ in fired}
+    statement = ({(fn, table, where) for fn, table, d, where in fired if not d and fn in defs}
+                 | {(fn, '%i', defs[fn][0]) for fn in defs if defs[fn][1] and fn not in attached})
+    for fn, table, where in sorted(statement):
+        for f in reach(fn):
+            judged.add(f)
+            name, _, body = defs[f]
+            via = '' if f == fn else f' (through {f})'
+            if _ROW_LOCK.search(_code(body)):
+                out.append(f'{name}: statement-time trigger {fn}{via} on orgtree.{table} takes a row lock: '
+                           'a trigger locks no row its statement did not write (review A6 f8)')
+            for t in sorted({t for _, t in touches(body)}):
+                if t in guarded:
+                    continue                               # reported below, once per function
+                if table == '%i':
+                    out.append(f'{where}: statement-time trigger {fn}{via} on a table named by format() '
+                               f'writes orgtree.{t}: name the table, so the link can be checked')
+                elif t not in linked.get(table, set()):
+                    out.append(f'{name}: statement-time trigger {fn}{via} on orgtree.{table} writes or '
+                               f'locks orgtree.{t}: a trigger writes only link rows of its own '
+                               f"statement's rows (a table with a foreign key to orgtree.{table}), never "
+                               'rows another writer could hold (review A6 f8, f9)')
     for fn in sorted(defs):
         name, trigger, body = defs[fn]
-        hits = touches(body)
+        hits = sorted(set(t for _, t in touches(body)))
+        if _FORCED.search(_code(body)) or _FORCED.search(body):
+            out.append(f'{name}: {fn} forces deferred checks (SET CONSTRAINTS ... IMMEDIATE): the '
+                       'commit-time triggers would take the revision row before the statements after it')
         if fn in deferred:
-            for pos, table in hits:
-                if table not in guarded:
-                    out.append(f'{name}: deferred {fn} writes or locks orgtree.{table} at commit: only '
-                               f'the revision row and the rows locked under it may be taken then')
-            first_revision = min((p for p, t in hits if t == REVISION), default=None)
-            for pos, table in hits:
-                if table in UNDER_REVISION and (first_revision is None or pos < first_revision):
-                    out.append(f'{name}: deferred {fn} takes orgtree.{table} before the revision row')
-        else:
-            kind = 'statement-time trigger' if trigger else 'function'
-            for pos, table in hits:
-                if table in guarded:
-                    out.append(f'{name}: {kind} {fn} writes or locks orgtree.{table}: the revision row '
-                               f'and the rows under it are taken at commit only')
+            continue
+        kind = 'statement-time trigger' if trigger else 'function'
+        for table in hits:
+            if table in guarded:
+                out.append(f'{name}: {kind} {fn} writes or locks orgtree.{table}: the revision row '
+                           f'and the rows under it are taken at commit only')
+        if fn not in judged and not trigger and [t for t in hits if t not in guarded]:
+            out.append(f'{name}: function {fn} writes or locks {", ".join("orgtree." + t for t in hits)} '
+                       'outside a trigger: a writer writes in its own statements, in its own row order')
     for fn in sorted(deferred - set(defs)):
         out.append(f'deferred trigger function {fn} is not defined in the org migrations')
     return out
@@ -136,7 +226,8 @@ _PY_TOUCH = re.compile(
 
 def python_violations(sources: dict[str, str]) -> list[str]:
     """Every string in these Python sources (relative path -> text) that writes or locks the
-    revision row outside PYTHON_REVISION_WRITERS, or writes or locks a table under it."""
+    revision row outside PYTHON_REVISION_WRITERS, writes or locks a table under it, or forces
+    deferred checks."""
     out = []
     for rel in sorted(sources):
         tree = ast.parse(sources[rel], filename=rel)
@@ -147,15 +238,18 @@ def python_violations(sources: dict[str, str]) -> list[str]:
             if named:
                 stack.append(node.name)                                   # type: ignore[attr-defined]
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                where = stack[-1] if stack else '<module>'
                 for m in _PY_TOUCH.finditer(node.value):
                     table = (m.group(1) or m.group(2)).lower()
-                    where = stack[-1] if stack else '<module>'
                     if table == REVISION and (rel, where) not in PYTHON_REVISION_WRITERS:
                         out.append(f'{rel}: {where} writes or locks orgtree.{REVISION}: only '
                                    f'{sorted(PYTHON_REVISION_WRITERS)} may (design §2.4)')
                     elif table in UNDER_REVISION:
                         out.append(f'{rel}: {where} writes or locks orgtree.{table}, which only its '
                                    f'deferred trigger keeps, under the revision row')
+                if _FORCED.search(node.value):
+                    out.append(f'{rel}: {where} forces deferred checks (SET CONSTRAINTS ... IMMEDIATE): '
+                               'that takes the revision row before the statements after it (design §2.4)')
             for child in ast.iter_child_nodes(node):
                 visit(child)
             if named:
@@ -184,6 +278,70 @@ $fn$;
 CREATE CONSTRAINT TRIGGER mail_log_owner_pos_settle
   AFTER INSERT OR UPDATE OF agent_id, id OR DELETE ON orgtree.mail_log
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION orgtree.mail_log_owner_pos_settle();
+"""
+
+#: round 3's statement-time Sent keys of org migration 0008 (4afea43), as written there: an
+#: arriving row takes its owner's mail_log_first row, and the settling at each statement's end
+#: locks that row and rewrites the owner's other mail rows. Review f8 (an owner row against a mail
+#: row another writer edited) and f9 (the owner row against a forced revision row) deadlocked on it
+R3_OWNER_KEYS = """
+CREATE TABLE orgtree.mail_log_first (
+  agent_id bigint PRIMARY KEY REFERENCES orgtree.agents (id) ON DELETE CASCADE,
+  first_id bigint NOT NULL
+);
+CREATE FUNCTION orgtree.mail_log_owner_pos_arrive() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE first bigint;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.agent_id = OLD.agent_id AND NEW.id = OLD.id THEN
+    RETURN NEW;
+  END IF;
+  INSERT INTO orgtree.mail_log_first AS f (agent_id, first_id) VALUES (NEW.agent_id, NEW.id)
+    ON CONFLICT (agent_id) DO UPDATE SET first_id = EXCLUDED.first_id
+    WHERE EXCLUDED.first_id < f.first_id;
+  SELECT f.first_id INTO first FROM orgtree.mail_log_first f WHERE f.agent_id = NEW.agent_id;
+  NEW.owner_pos := least(first, NEW.id);
+  RETURN NEW;
+END
+$fn$;
+CREATE TRIGGER mail_log_owner_pos_insert BEFORE INSERT ON orgtree.mail_log
+  FOR EACH ROW EXECUTE FUNCTION orgtree.mail_log_owner_pos_arrive();
+CREATE FUNCTION orgtree.mail_log_owner_pos_settle(owners bigint[]) RETURNS void
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE a bigint; kept bigint; first bigint;
+BEGIN
+  FOR a IN SELECT DISTINCT x FROM unnest(owners) AS x WHERE x IS NOT NULL ORDER BY 1 LOOP
+    SELECT f.first_id INTO kept FROM orgtree.mail_log_first f WHERE f.agent_id = a FOR UPDATE;
+    first := NULL;
+    IF kept IS NOT NULL THEN
+      SELECT m.id INTO first FROM orgtree.mail_log m WHERE m.id = kept AND m.agent_id = a;
+    END IF;
+    IF first IS NULL THEN
+      DELETE FROM orgtree.mail_log_first WHERE agent_id = a;
+      CONTINUE;
+    END IF;
+    INSERT INTO orgtree.mail_log_first AS f (agent_id, first_id) VALUES (a, first)
+      ON CONFLICT (agent_id) DO UPDATE SET first_id = EXCLUDED.first_id
+      WHERE f.first_id <> EXCLUDED.first_id;
+    UPDATE orgtree.mail_log SET owner_pos = first
+      WHERE agent_id = a AND (owner_pos < first OR owner_pos > first);
+  END LOOP;
+END
+$fn$;
+CREATE FUNCTION orgtree.mail_log_owner_pos_settled() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE ids bigint[];
+BEGIN
+  IF TG_OP = 'INSERT' THEN SELECT array_agg(DISTINCT agent_id) INTO ids FROM new_rows;
+  ELSE SELECT array_agg(DISTINCT agent_id) INTO ids FROM old_rows; END IF;
+  PERFORM orgtree.mail_log_owner_pos_settle(ids);
+  RETURN NULL;
+END
+$fn$;
+CREATE TRIGGER mail_log_owner_pos_inserted AFTER INSERT ON orgtree.mail_log
+  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_settled();
+CREATE TRIGGER mail_log_owner_pos_deleted AFTER DELETE ON orgtree.mail_log
+  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_settled();
 """
 
 
@@ -216,12 +374,90 @@ class Migrations(unittest.TestCase):
         self.assertEqual(found, {'orgtree.foreground_flush', 'orgtree.events_count_flush',
                                  'orgtree.docket_archive_flush'})
 
+    def test_the_check_sees_every_writing_trigger_and_its_link_table(self) -> None:
+        # the statement-time triggers of today that write: each writes the link rows of its own
+        # statement's rows, a table with a foreign key to the trigger's table
+        texts = _migrations()
+        defs = {}
+        for text in texts.values():
+            defs.update({fn.lower(): body for fn, (_, body) in functions(text).items()})
+        writers = set()
+        for text in texts.values():
+            for fn, table, deferred in triggers(text)[0]:
+                if not deferred and fn in defs and touches(defs[fn]):
+                    writers.add((fn, table, tuple(sorted({t for _, t in touches(defs[fn])}))))
+        self.assertEqual(writers, {('orgtree.event_refs_keep', 'events', ('event_refs',)),
+                                   ('orgtree.docket_questions', 'asks', ('docket_question_links',))})
+        self.assertIn('event_refs', links(texts)['events'])
+        self.assertIn('docket_question_links', links(texts)['asks'])
+
     def test_control_the_round_2_settling_is_rejected(self) -> None:
         texts = _migrations()
         texts['0008_windows.sql'] += F7_SETTLE
         got = [v for v in violations(texts) if 'mail_log_owner_pos_settle' in v]
         self.assertTrue(any('orgtree.mail_log_first' in v for v in got), got)
         self.assertTrue(any('orgtree.mail_log at commit' in v for v in got), got)
+
+    def test_control_round_3s_statement_time_owner_keys_are_rejected(self) -> None:
+        # f8 and f9's lock: an arriving row takes its owner's shared row, and the settling locks
+        # it and rewrites rows other writers write; 4afea43's own 0008 fails the same way
+        texts = _migrations()
+        texts['0008_windows.sql'] += R3_OWNER_KEYS
+        got = violations(texts)
+        arrive = [v for v in got if 'mail_log_owner_pos_arrive' in v]
+        self.assertTrue(any('orgtree.mail_log_first' in v for v in arrive), got)
+        settled = [v for v in got if 'mail_log_owner_pos_settled' in v]
+        self.assertTrue(any('takes a row lock' in v and 'mail_log_owner_pos_settle)' in v
+                            for v in settled), got)
+        self.assertTrue(any('writes or locks orgtree.mail_log:' in v for v in settled), got)
+        self.assertTrue(any('writes or locks orgtree.mail_log_first' in v for v in settled), got)
+        self.assertEqual([v for v in got if 'mail_log_owner_pos' not in v], [])
+
+    def test_control_a_link_table_of_another_table_is_rejected(self) -> None:
+        # docket_question_links follows asks, so a trigger on events may not write it
+        texts = _migrations()
+        texts['0099_x.sql'] = """
+CREATE FUNCTION orgtree.x() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN DELETE FROM orgtree.docket_question_links WHERE item_slug = 'x'; RETURN NULL; END $fn$;
+CREATE TRIGGER x AFTER INSERT ON orgtree.events FOR EACH STATEMENT EXECUTE FUNCTION orgtree.x();
+"""
+        got = violations(texts)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn('statement-time trigger orgtree.x on orgtree.events writes or locks '
+                      'orgtree.docket_question_links', got[0])
+
+    def test_control_a_writing_trigger_on_a_format_table_must_name_it(self) -> None:
+        texts = _migrations()
+        texts['0099_x.sql'] = """
+CREATE FUNCTION orgtree.x() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN INSERT INTO orgtree.event_refs (ref, win_at, event_id) VALUES ('r', '', 1); RETURN NULL; END $fn$;
+DO $d$ BEGIN
+  EXECUTE format('CREATE TRIGGER x AFTER INSERT ON orgtree.%I FOR EACH STATEMENT '
+    'EXECUTE FUNCTION orgtree.x()', 'events');
+END $d$;
+"""
+        got = violations(texts)
+        self.assertTrue(any('on a table named by format() writes orgtree.event_refs' in v for v in got), got)
+
+    def test_control_a_writing_plain_function_is_rejected(self) -> None:
+        texts = _migrations()
+        texts['0099_x.sql'] = """
+CREATE FUNCTION orgtree.x(a bigint) RETURNS void LANGUAGE sql AS $fn$
+ UPDATE orgtree.mail_log SET body = 'x' WHERE agent_id = a $fn$;
+"""
+        got = violations(texts)
+        self.assertEqual(got, ['0099_x.sql: function orgtree.x writes or locks orgtree.mail_log outside a '
+                               'trigger: a writer writes in its own statements, in its own row order'])
+
+    def test_control_a_forced_check_in_a_function_is_rejected(self) -> None:
+        texts = _migrations()
+        texts['0099_x.sql'] = """
+CREATE FUNCTION orgtree.x() RETURNS void LANGUAGE plpgsql AS $fn$
+BEGIN SET CONSTRAINTS ALL IMMEDIATE; END $fn$;
+"""
+        got = violations(texts)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn('orgtree.x forces deferred checks', got[0])
 
     def test_control_a_statement_time_revision_bump_is_rejected(self) -> None:
         texts = {'0099_x.sql': """
@@ -276,6 +512,17 @@ class Python(unittest.TestCase):
         self.assertEqual(len(got), 2, got)
         self.assertIn('orgdb/x.py: bump writes or locks orgtree.org_revision', got[0])
         self.assertIn('orgdb/x.py: lock writes or locks orgtree.docket_counters', got[1])
+
+    def test_control_a_forced_check_is_rejected(self) -> None:
+        # review f9's first step; deferring a check again is allowed
+        sources = {'orgdb/x.py': (
+            'def force(c):\n'
+            '    c.execute("SET CONSTRAINTS ALL IMMEDIATE")\n'
+            'def defer(c):\n'
+            '    c.execute("SET CONSTRAINTS orgtree.events_count_flush DEFERRED")\n')}
+        got = python_violations(sources)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn('orgdb/x.py: force forces deferred checks', got[0])
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.4)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.5)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,14 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 7.5: a trigger locks only its own statement's rows (2026-10-03, after review A6 f8 and
+  f9).** No product decision changes. Rev 7.4's statement-end Sent key still deadlocked twice: a
+  key repair waited on a mail row another writer had edited (f8), and a forced deferred check
+  took the revision row before a later mail write that waited on the owner's key row (f9). So
+  §2.4 now also says that a statement-time trigger writes only link rows of its own statement's
+  rows and takes no row lock, and that no code forces deferred checks; the static test checks
+  both. A6's Sent tail key is no longer kept at all: the reader finds each recipient's first
+  archive row when it reads (org migration 0008, `compat.sql._sent_ids`).
 - **Rev 7.4: one lock order for every org-database writer (2026-10-03, after review A6 f7).** No
   product decision changes. Review found two lock-order deadlocks (stage 1-B f24, A6 f7). §2.4
   ("Lock order") now gives the order: advisory locks, then rows, then the revision row last, then
@@ -471,18 +479,29 @@ rewrite against the revision row). Every writer of an org database takes its loc
    slug), then its statements write. A body that needs a row outside its plan raises `Widen`:
    the transaction rolls back and reruns with the wider plan, so no row is locked late. A
    compare-and-set locks the one row it decides on. The job queue claims by `(run_at, id)` with
-   `SKIP LOCKED`. Several orgs: one transaction per org, in org_id order. A statement-time
-   trigger writes only rows that follow from its statement's rows: link tables
-   (`docket_question_links`, `event_refs`) and A6's mail owner keys (0008: a row arriving at an
-   owner takes that owner's `mail_log_first` row lock; the settling when the statement ends takes
-   its owners' locks in id order and writes only those owners' `mail_log_first` rows and
-   `mail_log.owner_pos`).
+   `SKIP LOCKED`. Several orgs: one transaction per org, in org_id order. **A statement-time
+   trigger writes only the link rows of its own statement's rows** (a table with a foreign key
+   to the trigger's table: `event_refs` for `events`, `docket_question_links` for `asks`), and
+   takes no row lock (rev 7.5). So a writer's locks are the rows its own statements write, in
+   its own order, and nothing a trigger adds. A value derived from other rows, such as A6's Sent
+   tail key (a recipient's first archive row), is computed by the reader; rev 7.4 kept that key
+   on every mail row, and its repair locked a shared owner row and rewrote rows other writers
+   hold (review A6 f8, f9).
 3. **The revision row last.** `orgtree.org_revision` is locked only by:
    - the save seam, `OrgDbConn.on_save_commit`, immediately before COMMIT;
    - the deferred constraint triggers, which run at COMMIT: 0006 `foreground_flush` (the node,
      catalog and view counters; 0007's `docket_rev` uses it too), 0008 `events_count_flush`,
      0012 `docket_archive_flush`;
    - a job handler, as its last statement (`orgdb/jobs.py`).
+
+   **No code forces deferred checks** (`SET CONSTRAINTS ... IMMEDIATE`, rev 7.5): that runs the
+   commit-time triggers at once, so the revision row would be held while the transaction's later
+   statements still lock rows, and a writer committing with one of those rows waits for the
+   revision row: review A6 f9. A caller that does it anyway has entered its commit, as after
+   `on_save_commit`: its counts stay right (the BEFORE statement triggers defer each flush
+   again), but it must write nothing that can wait. A lock timeout after the revision row is not
+   used to enforce this: `NOTIFY` takes one lock for the whole cluster at COMMIT, after the
+   revision row, so ordinary commits would fail on it.
 4. **After the revision row, only the rows locked under it:** `foreground_parent_counts` (0006)
    and `docket_counters` (0012). A transaction holding the revision row waits for nothing else.
 
@@ -491,20 +510,28 @@ Rules that follow:
 - A deferred trigger writes or locks only the revision row (first) and the rows under it. Work at
   COMMIT that would need any other row is not allowed. A derived key is then a generated column,
   is kept at statement time under the writer's own row locks, or is computed by the reader.
-  Example: A6's Sent tail. Its recipient key is kept on every mail row, so a removed first row
-  rewrites the owner's other rows. Round 2 did that at COMMIT, after the revision row (f7); it is
-  now done when the statement ends, under the owner's lock, as legacy's trigger does (org
-  migration 0008).
+  Example: A6's Sent tail. Round 2 kept its recipient key on every mail row and rewrote the
+  owner's other rows at COMMIT, after the revision row (f7). Round 3 did that when each statement
+  ended, under a shared owner row, and deadlocked against mail-row writers (f8) and a forced
+  check (f9). Round 4 keeps no key: the reader finds it (rev 7.5).
 - No statement-time trigger or other SQL function writes or locks the revision row or the rows
   under it.
 - The engine's Python writes or locks the revision row only in `OrgDbConn.on_save_commit`, and
   never writes the rows under it.
-- `tests/test_orgdb_lock_order.py` checks these three rules statically (no database) over every
-  org migration and the engine's Python. Its controls must fail: f7's round-2 settling, a
-  statement-time revision bump, a counter row taken before the revision row, and a Python writer.
-  Adding a table under the revision row, or a Python writer of it, means changing that test.
+- A statement-time trigger, with every function it calls, writes only link rows of its own
+  statement's rows and takes no row lock; no other function writes; nothing forces deferred
+  checks (rev 7.5).
+- `tests/test_orgdb_lock_order.py` checks these rules statically (no database) over every org
+  migration and the engine's Python. Its controls must fail: f7's round-2 settling, round 3's
+  statement-time owner keys (f8, f9; the test fails on `4afea43`'s own migrations), a link table
+  of another table, a writing trigger on a table only `format()` names, a writing plain function,
+  a statement-time revision bump, a counter row taken before the revision row, a forced check,
+  and a Python writer. Adding a table under the revision row, a Python writer of it, or a
+  writing trigger means changing that test.
 - Interleavings the static check cannot see have concurrency tests: f24 (`LockBlock` in
-  `tests/test_orgdb_compat_pg.py`) and f7 (`OwnerKeys.test_a_save_and_a_native_mail_writer_with_its_event_both_commit`).
+  `tests/test_orgdb_compat_pg.py`), f7 (`OwnerKeys.test_a_save_and_a_native_mail_writer_with_its_event_both_commit`),
+  f8 (`OwnerKeys.test_a_first_row_removal_and_an_edit_then_removal_of_another_row_both_commit`) and
+  f9 (`OwnerKeys.test_a_forced_event_check_then_a_mail_removal_and_an_audited_append_both_commit`).
 
 ### 2.5 The change log and the screen feed: per org database
 
