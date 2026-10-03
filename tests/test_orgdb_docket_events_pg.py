@@ -68,10 +68,11 @@ class StableWrites(unittest.TestCase):
             self.put(view,record)
             self.assertEqual(self.row(view)[0],rid)
             new = self.events(view,rid)
-            self.assertEqual([r[:3] for r in new if r[0] in (old[3][0],old[4][0])],
-                             [old[3][:3],old[4][:3]])
-            self.assertTrue(all(row in new for row in old[5:] if row[2]!='scope'))
-            self.assertFalse(any(r[0] in (old[1][0],old[2][0]) for r in new))
+            self.assertTrue(all(row in new for row in old if row[2]=='history' and
+                                row[0] not in [r[0] for r in old if r[2]=='history'][:3]))
+            self.assertTrue(all(row in new for row in old if row[2] not in ('history','scope')))
+            removed = [r[0] for r in old if r[2]=='history'][1:3]
+            self.assertFalse(any(r[0] in removed for r in new))
             self.assertEqual(json.loads(R.item(view.raw,SLUG)[1]),record)
             native = docket.Snapshot(view.raw,fixture.OID,viewer=USER,now_ts=fixture.NOW)
             self.assertEqual(native.body(native.lookup(SLUG)),record)
@@ -170,6 +171,28 @@ class StableWrites(unittest.TestCase):
             rows = R.log_rows(view.raw,archive,ids=[seq//R.SLOTS])
             self.assertEqual(json.loads(rows[0][3]),record)
             self.assertEqual(rows[0][0],seq)
+
+    def test_whole_docket_replacement_keeps_parent_ids_and_other_list(self):
+        from orgtree.orgdb.mappers.docket import Docket
+        with self.view() as view:
+            rid = self.row(view)[0]
+            old = self.events(view,rid)
+            archive = view.raw.execute("SELECT id,slug,archive_seq FROM orgtree.work_items "
+                                       "WHERE list_key='archive' ORDER BY ord").fetchall()
+            records = list(json.loads(v[1]) for v in R.items(view.raw).values())
+            record = next(r for r in records if r['slug']==SLUG)
+            record['history'].append({'at':fixture.AT,'op':'whole-save'})
+            R.section_put(view.raw,Docket(),'work_items',records,R.Names(view.raw),tx=view.tx)
+            self.assertEqual(self.row(view)[0],rid)
+            self.assertEqual(self.events(view,rid)[:len(old)],old)
+            self.assertEqual(view.raw.execute("SELECT id,slug,archive_seq FROM orgtree.work_items "
+                                             "WHERE list_key='archive' ORDER BY ord").fetchall(),archive)
+            self.assertEqual(json.loads(R.item(view.raw,SLUG)[1]),record)
+            R.section_clear(view.raw,Docket(),'work_items',tx=view.tx)
+            R.docket_finish(view.raw,view.tx)
+            self.assertFalse(view.raw.execute("SELECT 1 FROM orgtree.work_items WHERE list_key='active'").fetchone())
+            self.assertEqual(view.raw.execute("SELECT id,slug,archive_seq FROM orgtree.work_items "
+                                             "WHERE list_key='archive' ORDER BY ord").fetchall(),archive)
 
 
 if __name__=='__main__':

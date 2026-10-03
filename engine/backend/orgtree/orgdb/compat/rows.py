@@ -496,15 +496,22 @@ def section_value(c: Any, sec: Section, key: str, names: Names) -> Any:
     return out.get(key)
 
 
-def section_clear(c: Any, sec: Section, key: str) -> None:
+def section_clear(c: Any, sec: Section, key: str, *, tx: Tx | None = None) -> None:
+    if isinstance(sec,D.Docket):
+        _docket_section_put(c,key,[],tx)
+        return
     for t in sec.tables:
         c.execute(f"DELETE FROM orgtree.{t.spec.table}")      # children cascade
     if isinstance(sec, (ByAgentLists, ByAgentRecords, ByAgentMaps)):
         c.execute("DELETE FROM orgtree.org_section_owners WHERE section = %s", (key,))
 
 
-def section_put(c: Any, sec: Section, key: str, value: Any, names: Names) -> None:
+def section_put(c: Any, sec: Section, key: str, value: Any, names: Names,
+                *, tx: Tx | None = None) -> None:
     """Replace a whole-section key's records with ``value``'s."""
+    if isinstance(sec,D.Docket):
+        _docket_section_put(c,key,value,tx)
+        return
     section_clear(c, sec, key)
     if value is None:
         return
@@ -844,6 +851,38 @@ def owner_put(c: Any, sect: str, owner: str, value: Any, names: Names) -> None:
 
 
 # ----------------------------------------------------------------- the docket
+
+def _docket_section_put(c: Any, key: str, value: Any, tx: Tx | None) -> None:
+    """A whole docket list still uses stable parent/event writers.
+
+    The normal store dispatches the active header/items and archive log rows
+    separately. This section boundary also keeps a mapper-level replacement
+    from deleting every parent (including the other list) and recreating it.
+    """
+    records = [] if value is None else value
+    if not isinstance(records,list) or not all(isinstance(r,dict) for r in records):
+        raise ShapeError(f"{key}: expected a list of objects")
+    slugs = [model().workrows.slug_of(record) for record in records]
+    if len(slugs)!=len(set(slugs)):
+        raise ShapeError(f"{key}: duplicate work-item slug")
+    own_tx = tx is None
+    tx = tx or Tx()
+    if key=='work_items_archive':
+        archive = model().logs[key]
+        log_scope_delete(c,archive,tx=tx)
+        for record in records:
+            log_insert(c,archive,None,dumps(record),Names(c),tx=tx)
+    else:
+        rows = c.execute("SELECT id,slug FROM orgtree.work_items WHERE list_key='active' FOR UPDATE").fetchall()
+        state = docket_pending(c)
+        state['deleted'] = list(set(state['deleted']) | {rid for rid,slug in rows if slug not in slugs})
+        _docket_pending_put(c,tx,state)
+        header_put(c,tx,model().workrows.header(slugs))
+        for record in records:
+            item_put(c,tx,record['slug'],record)
+    if own_tx:
+        docket_finish(c,tx)
+
 
 def active_items(c: Any) -> list[tuple[str, tuple[str, str, str]]]:
     """(slug, (xmin, ctid, tableoid)) of the active items, in docket order."""

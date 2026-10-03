@@ -274,7 +274,8 @@ class NativePaths(unittest.TestCase):
                         row[key] += base
                         if table=='work_items':
                             row['ord'] += base
-                            row['archive_seq'] += base
+                            if row['archive_seq'] is not None:
+                                row['archive_seq'] += base
                 rowio.write(raw,converted)
                 for record in records:
                     with self.subTest(stamp=repr(record['docket_at']),node=repr(record['owner']['node'])):
@@ -333,6 +334,7 @@ class NativePaths(unittest.TestCase):
                         row['id' if table=='work_items' else 'item_id'] += base
                         if table=='work_items':
                             row['ord'] += base
+                            row['archive_seq'] += base
                 rowio.write(raw,encoded)
             actual,cursor = [],''
             while True:
@@ -761,14 +763,15 @@ class NativePaths(unittest.TestCase):
             with writer() as raw:
                 iid = raw.execute("SELECT id FROM orgtree.work_items WHERE slug='one'").fetchone()[0]
                 raw.execute('UPDATE orgtree.work_items SET status_at=NULL,status_at_text=NULL WHERE id=%s',(iid,))
+                top = raw.execute('SELECT coalesce(max(seq),0) FROM orgtree.work_item_events WHERE item_id=%s',(iid,)).fetchone()[0]
                 raw.execute("INSERT INTO orgtree.work_item_events(item_id,seq,source,kind,history_at,history_op,status_change) "
-                            "VALUES(%s,1,'history','history',%s,'accept',true)",(iid,AT))
+                            "VALUES(%s,%s,'history','history',%s,'accept',true)",(iid,top+1,AT))
             for size in (1000,10000):
                 with self.subTest(size=size):
                     with writer() as raw:
                         raw.execute("INSERT INTO orgtree.work_item_events(item_id,seq,source,kind,history_at,history_op,status_change) "
-                            "SELECT %s,p+1,'history','history','2026-10-03T00:00:00Z','update',false FROM generate_series(1,%s) p "
-                            "ON CONFLICT DO NOTHING",(iid,size))
+                            "SELECT %s,%s+p+1,'history','history','2026-10-03T00:00:00Z','update',false FROM generate_series(1,%s) p "
+                            "ON CONFLICT DO NOTHING",(iid,top,size))
                     with conn.connect(ADMIN,DATABASE) as admin:
                         admin.execute('ANALYZE orgtree.work_item_events')
                     with snapshot() as original:
@@ -784,7 +787,7 @@ class NativePaths(unittest.TestCase):
                         plan = original.raw.execute('EXPLAIN (ANALYZE,FORMAT JSON) '+sql,args).fetchone()[0][0]['Plan']
                         history = [n for n in plans(plan) if n.get('Relation Name')=='work_item_events']
                         self.assertTrue(history)
-                        self.assertTrue(all(n.get('Index Name')=='docket_status_history' for n in history))
+                        self.assertTrue(all(n.get('Index Name')=='work_item_events_status' for n in history))
                         self.assertLessEqual(sum(n.get('Actual Rows',0)*n.get('Actual Loops',1) for n in history),2)
         finally:
             with writer() as raw:
