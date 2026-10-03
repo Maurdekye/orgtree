@@ -15,7 +15,7 @@ from . import codec, reader_rows as R, registry
 from .mappers import agents as M
 from .mappers.records import DOCUMENTS
 from .. import store
-from ..ledger import ASK_HISTORY_KEEP, LedgerError
+from ..ledger import ASK_HISTORY_KEEP, EXTERN, USER, LedgerError
 
 _AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),'')=''"
 _CREATED = 'orgtree.foreground_time(a.created,a.created_text)'
@@ -150,13 +150,32 @@ def snapshot(slug):
         registry.release(raw, database)
 
 
+def _ref_closure(raw, ids, ref):
+    """Indexed closure, extending only selected rare links after exact decoding.
+
+    A preserved non-string reference has no typed FK, but its legacy text can
+    still name an agent. Resolve that boundary with another named query. Both
+    normal cycles and rare cycles are finite; missing names are attempted once.
+    """
+    assert ref in ('parent','predecessor')
+    found, attempted = set(), set()
+    pending = set(ids)
+    while pending:
+        attempted.update(pending)
+        selected = raw.execute(
+            f'WITH RECURSIVE wanted(id,ref_id) AS ('
+            f'SELECT id,{ref}_id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone UNION '
+            f'SELECT p.id,p.{ref}_id FROM orgtree.agents p JOIN wanted c ON p.id=c.ref_id '
+            'WHERE NOT p.tombstone) SELECT a.name,a.extra IS NOT NULL AND w.ref_id IS NULL '
+            'FROM wanted w JOIN orgtree.agents a ON a.id=w.id', (list(pending),)).fetchall()
+        found.update(name for name,rare in selected)
+        rare = _hot(raw,'a.name=ANY(%s)',([name for name,rare in selected if rare],))
+        pending = {value[ref] for ordinal,value in rare.values() if value[ref]} - found - attempted
+    return list(found)
+
+
 def ancestors(raw, ids):
-    return [r[0] for r in raw.execute(
-        'WITH RECURSIVE wanted(id,parent_id) AS ('
-        'SELECT id,parent_id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone UNION '
-        'SELECT p.id,p.parent_id FROM orgtree.agents p JOIN wanted c ON p.id=c.parent_id '
-        'WHERE NOT p.tombstone) SELECT a.name FROM wanted w JOIN orgtree.agents a ON a.id=w.id',
-        (ids,)).fetchall()]
+    return _ref_closure(raw, ids, 'parent')
 
 
 def rows(raw, ids):
@@ -180,6 +199,26 @@ def rows(raw, ids):
             value=rare[pred][1]
             generation,state,bearer=value['generation'],value['state'],value['bearer_state']
         by_origin.setdefault(name, []).append((pred, generation or 0, state, bearer, depth))
+    # Keep the normal recursive SQL path. Only an origin whose selected chain
+    # reaches a preserved reference needs exact metadata and a Python walk.
+    boundaries = _hot(raw,'a.name=ANY(%s) AND a.predecessor_id IS NULL AND a.extra IS NOT NULL',
+                      (list(set(metadata) | {r[1] for r in chains}),))
+    links = {name for name,(_,value) in boundaries.items() if value['predecessor']}
+    affected = [name for name in metadata if name in links or
+                any(c[0] in links for c in by_origin.get(name,[]))]
+    if affected:
+        exact = _hot(raw,'a.name=ANY(%s)',(_ref_closure(raw,affected,'predecessor'),))
+        for name in affected:
+            seen, chain, current = {name}, [], name
+            while True:
+                pred = exact[current][1]['predecessor']
+                if pred not in exact or pred in seen:
+                    break
+                seen.add(pred)
+                value = exact[pred][1]
+                chain.append((pred,value['generation'],value['state'],value['bearer_state'],len(chain)+1))
+                current = pred
+            by_origin[name] = chain
     result = {}
     for name, (ordinal, value) in metadata.items():
         chain = by_origin.get(name, [])
@@ -344,13 +383,10 @@ def identity(raw, slug, nid):
         raise CompatibilityRequired('organization identity changed')
     settings['audiences'] = [dict(grantee=nid,grantor=grantor) for grantor, in raw.execute(
         "SELECT DISTINCT grantor FROM orgtree.audience_grants WHERE grantee=%s AND grantor=ANY(%s)",
-        (nid,['user','extern'])).fetchall()]
-    names = [r[0] for r in raw.execute('WITH RECURSIVE wanted(id,parent_id) AS ('
-        'SELECT id,parent_id FROM orgtree.agents WHERE NOT tombstone AND (name=%s OR id=('
-        'SELECT predecessor_id FROM orgtree.agents WHERE name=%s AND NOT tombstone)) UNION '
-        'SELECT p.id,p.parent_id FROM orgtree.agents p JOIN wanted c ON p.id=c.parent_id '
-        'WHERE NOT p.tombstone) SELECT a.name FROM wanted w JOIN orgtree.agents a ON a.id=w.id',
-        (nid,nid)).fetchall()]
+        (nid,[USER,EXTERN])).fetchall()]
+    selected = _hot(raw,'a.name=%s',(nid,))
+    predecessor = selected.get(nid,(0,{}))[1].get('predecessor')
+    names = ancestors(raw,[nid]+([predecessor] if predecessor else []))
     bodies = R.read_agents(raw,names)
     ordinals = dict(raw.execute('SELECT name,ord FROM orgtree.agents WHERE NOT tombstone AND name=ANY(%s)',
                                (names,)).fetchall())
