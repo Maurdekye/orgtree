@@ -1573,8 +1573,9 @@ def orgs_list(request: Request) -> list[dict[str, Any]]:
     from . import orgdb
     if orgdb.enabled():
         from .orgdb import registry as org_registry
-        return _orgdb_fanout(_orgdb_org_row, [r for r in org_registry.rows()
-                                            if r['state'] in ('active', 'unavailable')])
+        rows = _orgdb_fanout(_orgdb_org_row, [r for r in sorted(org_registry.rows(), key=lambda r: r['slug'])
+                                           if r['state'] in ('active', 'unavailable')])
+        return [r for r in rows if r['state'] in ('active', 'unavailable')]
     from . import org_summary
     # Current-format orgs use coherent totals and active funding rows; legacy
     # settings or exceptional cost shapes use the complete per-org reader.
@@ -1663,6 +1664,10 @@ async def orgs_retry(slug: str) -> dict[str, Any]:
         await run_in_threadpool(org_registry.retry, row['org_id'])
     except lifecycle.Busy as e:
         raise HTTPException(409, str(e)) from e
+    except lifecycle.LifecycleError as e:
+        current = await run_in_threadpool(org_registry.rows)
+        exists = any(r['org_id'] == row['org_id'] and r['state'] != 'trashed' for r in current)
+        raise HTTPException(409 if exists else 404, str(e)) from e
     rows = await run_in_threadpool(org_registry.rows)
     current = next((r for r in rows if r['org_id'] == row['org_id']), None)
     if current is None:
@@ -4724,7 +4729,7 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
     if orgdb.enabled():
         from .orgdb import registry as org_registry
         out: dict[str, list[dict[str, str]]] = {}
-        for bindings in _orgdb_fanout(_orgdb_bound_rows, [r for r in org_registry.rows()
+        for bindings in _orgdb_fanout(_orgdb_bound_rows, [r for r in sorted(org_registry.rows(), key=lambda r: r['slug'])
                                                        if r['state'] == 'active']):
             for account, placed in bindings:
                 out.setdefault(account, []).append(placed)

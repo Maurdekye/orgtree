@@ -30,8 +30,12 @@ class RuntimeOrgLists(unittest.TestCase):
         cls.registry = org_registry
         cls.lc = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX, build='test')
         cls.lc.bootstrap()
+        lc_patch = patch.object(cls.registry, '_lc', [cls.lc])
+        lc_patch.start()
+        cls.addClassCleanup(lc_patch.stop)
         cls.addClassCleanup(cls.drop_databases)
         cls.docs = []
+        cls.ids = []
         for n in range(2):
             slug = f'api-org-{n}'
             org_id = cls.lc.register_org(slug, state='converting')
@@ -48,12 +52,15 @@ class RuntimeOrgLists(unittest.TestCase):
             cls.lc.mark_filled(build)
             cls.lc.publish(build)
             cls.docs.append(doc)
+            cls.ids.append(org_id)
         cls.held_id = cls.lc.register_org('held-api', state='unavailable',
                                         unavailable_step='conversion', state_reason='Bad record')
 
     @classmethod
     def drop_databases(cls):
         from psycopg import sql
+        cls.registry.close_idle()
+        cls.registry.close_registry()
         with conn.connect(ADMIN, 'postgres') as c:
             for (db,) in c.execute('SELECT datname FROM pg_database WHERE left(datname, %s) = %s',
                                    (len(PREFIX), PREFIX)).fetchall():
@@ -84,13 +91,45 @@ class RuntimeOrgLists(unittest.TestCase):
         # A real lifecycle Busy guard; the endpoint itself never edits lifecycle state.
         claim = self.lc.claim(self.held_id, 'retry')
         try:
-            with patch.object(self.registry, 'retry', side_effect=lambda oid: self.lc.claim(oid, 'retry')):
-                with self.assertRaises(api.HTTPException) as e:
-                    asyncio.run(api.orgs_retry('held-api'))
-                self.assertEqual(e.exception.status_code, 409)
+            with self.assertRaises(api.HTTPException) as e:
+                asyncio.run(api.orgs_retry('held-api'))
+            self.assertEqual(e.exception.status_code, 409)
             self.assertEqual(self.lc.row(self.held_id)['state_reason'], 'Bad record')
         finally:
             self.lc.abandon(claim, step='conversion', reason='Bad record')
+
+    def set_identity_slug(self, slug):
+        with conn.connect(ADMIN, self.lc.row(self.ids[0])['database']) as c:
+            c.execute('UPDATE orgtree.org_identity SET slug = %s', (slug,))
+
+    def test_retry_success_uses_real_runtime_service_and_makes_org_normal(self):
+        self.set_identity_slug('wrong-identity')
+        try:
+            self.assertFalse(self.lc.check_identity(self.ids[0]))
+            self.set_identity_slug('api-org-0')
+            result = asyncio.run(api.orgs_retry('api-org-0'))
+            self.assertEqual(result['state'], 'active')
+            self.assertEqual(result['name'], self.docs[0]['name'])
+            self.assertEqual(result['nodes'], 3)
+        finally:
+            self.set_identity_slug('api-org-0')
+            if self.lc.row(self.ids[0])['state'] == 'unavailable':
+                self.lc.retry_in_place(self.ids[0])
+
+    def test_retry_failure_uses_real_service_and_returns_new_reason(self):
+        self.set_identity_slug('wrong-identity')
+        try:
+            self.assertFalse(self.lc.check_identity(self.ids[0]))
+            before = self.lc.row(self.ids[0])['state_reason']
+            result = asyncio.run(api.orgs_retry('api-org-0'))
+            self.assertEqual(result['state'], 'unavailable')
+            self.assertNotEqual(result['state_reason'], before)
+            self.assertIn('org_identity does not match', result['state_reason'])
+            self.assertEqual(result['nodes'], 0)
+        finally:
+            self.set_identity_slug('api-org-0')
+            if self.lc.row(self.ids[0])['state'] == 'unavailable':
+                self.lc.retry_in_place(self.ids[0])
 
 
 if __name__ == '__main__':

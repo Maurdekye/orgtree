@@ -87,6 +87,7 @@ function UnavailableOrgRow({ org, onPick, onDelete }: {
   const [error, setError] = useState<string | null>(null)
   const pending = useRef(false)
   useEffect(() => { setRow(org) }, [org])
+  if (row.state === 'trashed') return null
   if (row.state === 'active') return <OrgRows orgs={[row]} slug={null}
     onPick={onPick} onDelete={onDelete} />
   const retry = async () => {

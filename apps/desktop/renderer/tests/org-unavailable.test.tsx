@@ -73,3 +73,15 @@ test('failed Retry keeps the row unavailable and shows the new reason', async t 
   assert.equal(view.el.querySelector('button')?.textContent, 'Retry')
   assert.equal(view.el.querySelector('.org-del'), null)
 })
+
+test('Retry of a legacy trashed org removes its row without making it openable', async t => {
+  const old = globalThis.fetch
+  globalThis.fetch = (async () => new Response(JSON.stringify({ ...unavailable, state: 'trashed' }),
+    { headers: { 'Content-Type': 'application/json' } })) as typeof fetch
+  t.after(() => { globalThis.fetch = old })
+  const view = await mountView(<OrgRows orgs={[unavailable]} slug={null}
+    onPick={() => assert.fail('trashed org opened')} onDelete={() => assert.fail('deleted')} />, el => el)
+  t.after(() => view.unmount())
+  await act(async () => { view.el.querySelector('button')!.click(); await flush() })
+  assert.equal(view.el.querySelector('.org'), null)
+})

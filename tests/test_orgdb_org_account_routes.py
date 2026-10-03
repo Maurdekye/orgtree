@@ -92,8 +92,8 @@ class OrgAccountRoutes(unittest.TestCase):
 
     def test_org_list_shape_and_order_without_opening_unavailable_or_trash(self):
         rows = api.orgs_list(None)
-        self.assertEqual([r['slug'] for r in rows], ['ready', 'held'])
-        ready, held = rows
+        self.assertEqual([r['slug'] for r in rows], ['held', 'ready'])
+        held, ready = rows
         self.assertEqual(ready['name'], 'Available org')
         self.assertEqual(ready['created'], '2026-01-01T00:00:00.000Z')
         self.assertEqual(ready['net_slug'], 'public-org')
@@ -116,11 +116,26 @@ class OrgAccountRoutes(unittest.TestCase):
         self.fake.connection = Mock(side_effect=OrgUnavailable('fenced'))
         self.assertEqual(api._orgdb_org_row(old)['state'], 'unavailable')
 
+    def test_trashed_during_fanout_never_becomes_an_openable_list_row(self):
+        snapshot = [r.copy() for r in self.rows]
+        self.fake.rows.side_effect = [snapshot, [entry('ready', 'trashed'), self.rows[1]]]
+        self.fake.connection = Mock(side_effect=OrgUnavailable('fenced'))
+        self.assertEqual([r['slug'] for r in api.orgs_list(None)], ['held'])
+
     def test_bindings_preserve_archived_and_skip_missing_unavailable_and_trash(self):
         self.assertEqual(api._account_bindings(), {'machine': [
             {'org': 'ready', 'node': 'live', 'state': 'live'},
             {'org': 'ready', 'node': 'bearer@0', 'state': 'archived'}]})
         self.assertEqual(self.opened, ['ready'])
+
+    def test_org_and_binding_order_stays_alphabetical_when_ids_are_not(self):
+        self.rows = [entry('z', org_id=1), entry('a', org_id=2)]
+        @contextmanager
+        def connection(slug):
+            yield self.c
+        self.fake.connection = connection
+        self.assertEqual([r['slug'] for r in api.orgs_list(None)], ['a', 'z'])
+        self.assertEqual([r['org'] for r in api._account_bindings()['machine']], ['a', 'a', 'z', 'z'])
 
     def test_retry_success_returns_final_normal_row_and_uses_registry_id(self):
         def retry(org_id):
@@ -159,6 +174,18 @@ class OrgAccountRoutes(unittest.TestCase):
                 asyncio.run(api.orgs_retry(slug))
             self.assertEqual(e.exception.status_code, status)
         self.fake.retry.assert_not_called()
+
+    def test_retry_lifecycle_races_map_to_404_or_409(self):
+        for state, status in [('active', 409), ('trashed', 404), (None, 404)]:
+            with self.subTest(state=state):
+                self.rows[1] = entry('held', 'unavailable', 2)
+                def retry(org_id):
+                    self.rows[1] = entry('held', state, 2) if state else entry('other', 'active', 99)
+                    raise lifecycle.LifecycleError('org changed during retry')
+                self.fake.retry.side_effect = retry
+                with self.assertRaises(api.HTTPException) as e:
+                    asyncio.run(api.orgs_retry('held'))
+                self.assertEqual(e.exception.status_code, status)
 
     def test_switch_off_preserves_org_reader_and_disables_retry(self):
         org = Mock()
