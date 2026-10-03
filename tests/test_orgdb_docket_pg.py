@@ -29,7 +29,7 @@ if RUNTIME:
 
 from orgtree import store, workdetail, worklist, workquery, work_ui  # noqa: E402
 from orgtree.ledger import Org, USER, LedgerError  # noqa: E402
-from orgtree.orgdb import conn, lifecycle, mappers, names, registry, sections  # noqa: E402
+from orgtree.orgdb import codec, conn, lifecycle, mappers, names, registry, sections  # noqa: E402
 from orgtree.orgdb.convert import rowio  # noqa: E402
 
 LC = None
@@ -126,6 +126,122 @@ class NativePaths(unittest.TestCase):
         self.switch.start()
         self.addCleanup(self.switch.stop)
         self.oracle = Org(copy.deepcopy(DOC))
+
+    @staticmethod
+    def replace_record(raw, record):
+        """Use the real mapper columns, including its preserved misfit values."""
+        from orgtree.orgdb.mappers.docket import WORK_ITEM, WORK_ITEMS
+        rid, placement, position = raw.execute(
+            'SELECT id,list_key,ord FROM orgtree.work_items WHERE slug=%s',
+            (record['slug'],)).fetchone()
+        rows = {}
+        codec.encode(WORK_ITEM, record, dict(id=rid,list_key=placement,ord=position),
+                     rows,link=WORK_ITEMS.link)
+        row = rows['work_items'][0]
+        columns = [c for c in row if c not in ('id','list_key','ord')]
+        raw.execute('UPDATE orgtree.work_items SET '+','.join(codec.quote(c)+'=%s' for c in columns)+
+                    ' WHERE id=%s',tuple(row[c] for c in columns)+(rid,))
+
+    def test_iso_deadlines_follow_the_canonical_parser_and_original_text(self):
+        original = next(r for r in DOC['work_items'] if r['slug']=='expired')
+        stamps = (AT,'2026-10-02X00:00:00+00:00','20261002T000000+0000',
+                  '2026-W40-5T00:00:00+00:00','2026-10-02\n00:00:00+00:00',
+                  '2026-10-02\U0001f60000:00:00+00:00','2026-10-02','2026-W40-5',
+                  '20261002','2026-10-02T00:00:00','2026-10-02T00:00:00+01:02:03.5',
+                  '2026-10-02T24:00:00+00:00','2026-02-30T00:00:00Z',
+                  '2026-10-02T00:00:00z','not-a-date',20261002,False)
+        try:
+            for stamp in stamps:
+                with self.subTest(stamp=repr(stamp)):
+                    record = dict(original,docket_at=stamp)
+                    with writer() as raw:
+                        self.replace_record(raw,record)
+                    age = self.oracle._work_age_s(record,NOW)
+                    deadline = None if age is None else NOW-age+3600
+                    with snapshot('worker') as q:
+                        self.assertEqual(q.detail('expired')[0],record)
+                        actual = q.raw.execute("SELECT docket_deadline FROM orgtree.work_items WHERE slug='expired'").fetchone()[0]
+                        if deadline is None:
+                            self.assertIsNone(actual)
+                        else:
+                            self.assertAlmostEqual(actual,deadline,places=5)
+                        main = {r.summary['slug'] for r in q.foreground()}
+                        self.assertEqual('expired' not in main,deadline is not None and deadline<NOW)
+                    if deadline is not None:
+                        with snapshot('worker',deadline) as q:
+                            self.assertIn('expired',{r.summary['slug'] for r in q.foreground()})
+                        with snapshot('worker',deadline+0.001) as q:
+                            self.assertNotIn('expired',{r.summary['slug'] for r in q.foreground()})
+        finally:
+            with writer() as raw:
+                self.replace_record(raw,original)
+
+    def test_unrepresentable_timestamp_text_saves_without_changing_detail_or_order(self):
+        original = next(r for r in DOC['work_items'] if r['slug']=='expired')
+        try:
+            for stamp in ('not-a-date\x00preserved','not-a-date\ud800preserved',
+                          '__orgtree_docket_escape__\x00','\\u0000literal'):
+                with self.subTest(stamp=repr(stamp)):
+                    record = dict(original,docket_at=stamp)
+                    with writer() as raw:
+                        self.replace_record(raw,record)
+                    with snapshot('worker') as q:
+                        self.assertEqual(q.detail('expired')[0],record)
+                        self.assertIn('expired',{r.summary['slug'] for r in q.foreground()})
+            # Unsupported characters must still sort in Python Unicode order.
+            records = [dict(next(r for r in DOC['work_items'] if r['slug']==slug),
+                            docket_at=stamp,status='in_progress')
+                       for slug,stamp in (('one','x\x00'),('expired','x\ud800'),('w12345678','x\U0001f600'))]
+            with writer() as raw:
+                for record in records:
+                    self.replace_record(raw,record)
+            expected = sorted(records,key=lambda r:(r['docket_at'],r['slug']),reverse=True)
+            with snapshot('worker') as q:
+                actual = [r.summary['slug'] for r in q.foreground() if r.summary['slug'] in {r['slug'] for r in records}]
+                self.assertEqual(actual,[r['slug'] for r in expected])
+        finally:
+            with writer() as raw:
+                for slug in ('one','expired','w12345678'):
+                    self.replace_record(raw,next(r for r in DOC['work_items'] if r['slug']==slug))
+
+    def test_recorded_role_names_and_anchor_follow_canonical_truth_and_str(self):
+        original = next(r for r in DOC['work_items'] if r['slug']=='expired')
+        cases = [(role,value) for role in ('owner','created_by','reviewer')
+                 for value in (1,True,1.5,[1],{'x':1})]
+        cases += [('fallback',value) for value in ('',0,False,None,[],{})]
+        try:
+            for role,value in cases:
+                with self.subTest(role=role,value=value):
+                    name = 'worker' if role=='fallback' else str(value)
+                    record = dict(original,owner={'node':'other'},created_by={'node':'other'},reviewer={'node':'other'})
+                    if role=='fallback':
+                        record.update(owner={'node':value},created_by={'node':name})
+                    else:
+                        record[role] = {'node':value}
+                    doc = copy.deepcopy(DOC)
+                    doc['nodes'][name] = doc['nodes'].pop('worker')
+                    oracle = Org(doc)
+                    self.assertTrue(oracle._work_can_read(name,record))
+                    boss_reads = oracle._work_can_read('boss',record)
+                    with writer() as raw:
+                        raw.execute("UPDATE orgtree.agents SET name=%s WHERE name='worker'",(name,))
+                        self.replace_record(raw,record)
+                    try:
+                        with snapshot(name) as q:
+                            self.assertEqual(q.detail('expired')[0],record)
+                            rows,_ = q.archive()
+                            self.assertIn('expired',{r.summary['slug'] for r in rows})
+                        with snapshot('boss') as q:
+                            self.assertEqual(q.lookup('expired') is not None,boss_reads)
+                            rows,_ = q.archive()
+                            self.assertEqual('expired' in {r.summary['slug'] for r in rows},boss_reads)
+                    finally:
+                        with writer() as raw:
+                            raw.execute('UPDATE orgtree.agents SET name=\'worker\' WHERE name=%s',(name,))
+                            self.replace_record(raw,original)
+        finally:
+            with writer() as raw:
+                self.replace_record(raw,original)
 
     def test_detail_full_compact_summary_and_disclosure(self):
         for options in ({}, {'compact': True}, {'projection': 'summary'},
