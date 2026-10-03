@@ -1008,7 +1008,9 @@ class OwnerKeys(unittest.TestCase):
     whoever writes the archive and however: rows inserted in any order, a row moved to another
     owner in place (no writer of today does; legacy's trigger keeps that case too), deleted, or
     rewritten. Two transactions writing one owner's rows wait for each other on the owner's
-    mail_log_first row, outside org_tx too; the keys settle at commit."""
+    mail_log_first row, outside org_tx too. Round 3 (review2-sol f7 on b339c20): the keys settle
+    when each statement ends, as legacy's trigger keeps mail_sent; nothing is left for COMMIT,
+    where it would run after the revision row's lock (design §2.4, "Lock order")."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -1216,20 +1218,106 @@ class OwnerKeys(unittest.TestCase):
                 self.assertEqual(tails[0], tails[1])
                 self.assertEqual(tails[1][:len(head)], head[:cap])
 
-    def test_rewriting_a_first_row_touches_no_other_row(self) -> None:
-        # the view rewrites a row by deleting it and inserting it again; the keys settle once,
-        # at commit, so an owner's other rows are not written twice over
+    def test_rewriting_a_row_that_is_not_first_touches_no_other_row(self) -> None:
+        # the view rewrites a row by deleting it and inserting it again with its id; the owner's
+        # key does not change, so none of the owner's other rows is written
         t = Twins('rewrite', before=windows_fixture)
         db = registry.lookup(t.copy)[1]
-        def others() -> list:
+        def others(skip: str) -> list:
             with dbconn.connect(ADMIN, db) as c:
                 return c.execute("SELECT m.id, m.xmin::text, m.owner_pos FROM orgtree.mail_log m "
                                  "JOIN orgtree.agents a ON a.id = m.agent_id WHERE a.name = 'ops' "
-                                 "AND m.public_id <> 'a1' ORDER BY m.id").fetchall()
-        before = others()
-        t.edit(lambda d: d['mail_log']['ops'][0].__setitem__('stale', True))
-        self.assertEqual(others(), before)
+                                 "AND m.public_id <> %s ORDER BY m.id", (skip,)).fetchall()
+        before = others('a2')
+        t.edit(lambda d: d['mail_log']['ops'][1].__setitem__('stale', True))
+        self.assertEqual(others('a2'), before)
         t.compare(self, 'after the rewrite')
+
+    def test_rewriting_a_first_row_keeps_every_key(self) -> None:
+        # the first row deleted and inserted again: its owner's key leaves and comes back, at the
+        # end of each statement, and ends as it was on every row
+        t = Twins('rewritefirst', before=windows_fixture)
+        t.edit(lambda d: d['mail_log']['ops'][0].__setitem__('stale', True))
+        self.assert_settled(t)
+        t.compare(self, 'after the rewrite')
+
+    def test_a_save_and_a_native_mail_writer_with_its_event_both_commit(self) -> None:
+        # review f7 (a 40P01 deadlock on b339c20): save A, through the production view connection,
+        # writes an owner's archive and then bumps the revision (on_save_commit takes the revision
+        # row before COMMIT). Native writer B, in a thread, runs its whole transaction on the same
+        # owner: its own archive write, an audit event, COMMIT. B may wait (for the owner's lock A
+        # took with its statement, or at COMMIT for the revision row A holds). Then A commits. Both
+        # must commit, for a first row deleted, moved or inserted by A, and an append, a delete or
+        # a move by B; then every key is the owner's smallest id
+        t = Twins('saverace', before=windows_fixture)
+        db = registry.lookup(t.copy)[1]
+        with self.connect(db=db) as c:
+            top = int(c.execute('SELECT max(id) FROM orgtree.mail_log').fetchone()[0])
+            owners = {}
+            for k in range(1, 6):
+                owners[k] = (self.new_agent(c, f'race-x{k}'), self.new_agent(c, f'race-y{k}'))
+                for j in range(3):          # x<k>'s rows: ids top+100k+j, positions j
+                    c.execute(self.APPEND, (top + 100 * k + j, owners[k][0], j, f'r{k}{j}',
+                                            self.LATE))
+        first = lambda k: top + 100 * k
+        append = ("INSERT INTO orgtree.mail_log (agent_id, idx, \"from\", body, at) "
+                  "VALUES (%s, %s, 'dev', %s, %s::timestamptz)")
+        cases = [
+            ('A deletes the first row, B appends',
+             ('DELETE FROM orgtree.mail_log WHERE id = %s', (first(1),)),
+             (append, (owners[1][0], 50, 'b append 1', self.LATE))),
+            ('A moves the first row away, B appends',
+             ('UPDATE orgtree.mail_log SET agent_id = %s, idx = 60 WHERE id = %s',
+              (owners[2][1], first(2))),
+             (append, (owners[2][0], 50, 'b append 2', self.LATE))),
+            ('A inserts a first row, B appends',
+             (append, (owners[3][1], 0, 'a first 3', self.LATE)),
+             (append, (owners[3][1], 50, 'b append 3', self.LATE))),
+            ('A deletes the first row, B deletes another',
+             ('DELETE FROM orgtree.mail_log WHERE id = %s', (first(4),)),
+             ('DELETE FROM orgtree.mail_log WHERE id = %s', (first(4) + 1,))),
+            ('A deletes the first row, B moves another away',
+             ('DELETE FROM orgtree.mail_log WHERE id = %s', (first(5),)),
+             ('UPDATE orgtree.mail_log SET agent_id = %s, idx = 70 WHERE id = %s',
+              (owners[5][1], first(5) + 2)))]
+        for name, (a_sql, a_args), (b_sql, b_args) in cases:
+            with self.subTest(case=name):
+                out: dict = {}
+                with storage(True):
+                    with store._POOL.acquire(t.copy) as a:
+                        a.execute('BEGIN IMMEDIATE')
+                        a.raw.execute(a_sql, a_args)
+                        a.on_save_commit(True)
+
+                        def native() -> None:
+                            try:
+                                with dbconn.connect(RUNTIME, db, autocommit=False) as b:
+                                    b.execute("SET LOCAL lock_timeout = '30s'")
+                                    b.execute(b_sql, b_args)
+                                    nxt = int(b.execute('SELECT max(ord) + 1 FROM orgtree.events'
+                                                        ).fetchone()[0])
+                                    b.execute("INSERT INTO orgtree.events (ord, op, actor, detail) "
+                                              "VALUES (%s, 'audit', 'dev', %s::json)",
+                                              (nxt, json.dumps({'to': 'ops'})))
+                                    b.commit()
+                                out['b'] = 'committed'
+                            except BaseException as e:      # noqa: BLE001  the outcome under test
+                                out['b'] = e
+                        th = threading.Thread(target=native)
+                        th.start()
+                        # B finishes, or waits on the server for a lock A holds
+                        wait_for(lambda: 'b' in out or lock_waiters(db) > 0)
+                        a.execute('COMMIT')
+                        out['a'] = 'committed'
+                    th.join(60)
+                self.assertFalse(th.is_alive(), 'the native writer never finished')
+                self.assertEqual(out, {'a': 'committed', 'b': 'committed'})
+        self.assert_settled(t)
+        with dbconn.connect(RUNTIME, db) as c:
+            self.assertEqual(sql._events_total(c),
+                             int(c.execute('SELECT count(*) FROM orgtree.events').fetchone()[0]))
+            self.assertEqual(int(c.execute("SELECT count(*) FROM orgtree.events WHERE op = 'audit'"
+                                           ).fetchone()[0]), len(cases))
 
 
 @needs_pg

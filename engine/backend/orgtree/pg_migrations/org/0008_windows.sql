@@ -97,10 +97,11 @@ ALTER TABLE orgtree.mail_log
 
 -- One row per owner that has mail_log rows: the smallest id among them. A row arriving at an owner
 -- (inserted, or moved there) can only lower it, which costs one upsert; that upsert takes this row's
--- lock, and the commit-time settling takes it too, so writers of one owner's archive keep its keys
--- one after the other, outside org_tx too (inside it, the (dict log, owner) lock already orders
--- them, so this lock is never waited for there). A row lock, not an advisory one: a conversion
--- writing thousands of owners takes no entry in the shared lock table.
+-- lock, and the settling at the end of each statement takes it too (a removal takes it there), so
+-- writers of one owner's archive keep its keys one after the other, outside org_tx too (inside it,
+-- the (dict log, owner) lock already orders them, so this lock is never waited for there). A row
+-- lock, not an advisory one: a conversion writing thousands of owners takes no entry in the shared
+-- lock table.
 CREATE TABLE orgtree.mail_log_first (
   agent_id bigint PRIMARY KEY REFERENCES orgtree.agents (id) ON DELETE CASCADE,
   first_id bigint NOT NULL
@@ -114,7 +115,8 @@ CREATE INDEX mail_log_owner_pos ON orgtree.mail_log (agent_id, owner_pos);
 CREATE INDEX mail_log_sent ON orgtree.mail_log (win_from, win_at DESC, owner_pos DESC, id DESC);
 
 -- A row arriving at an owner: the owner's lock, its smallest id lowered to this row's if that is
--- smaller, and this row's owner_pos from it. The owner's other rows are made right at commit.
+-- smaller, and this row's owner_pos from it. The owner's other rows are made right when the
+-- statement ends.
 CREATE FUNCTION orgtree.mail_log_owner_pos_arrive() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE first bigint;
@@ -135,64 +137,24 @@ CREATE TRIGGER mail_log_owner_pos_insert BEFORE INSERT ON orgtree.mail_log
 CREATE TRIGGER mail_log_owner_pos_move BEFORE UPDATE OF agent_id, id ON orgtree.mail_log
   FOR EACH ROW EXECUTE FUNCTION orgtree.mail_log_owner_pos_arrive();
 
--- The owners a statement gave rows to or took rows from, noted in a transaction-local setting (a
--- savepoint rollback discards its notes with its rows); at commit, mail_log_owner_pos_settle makes
--- each one's keys right once, whatever the transaction did in between: a row the compatibility
--- view rewrites is deleted and inserted again, which leaves the keys as they were.
-CREATE FUNCTION orgtree.mail_log_owner_pos_note(ids text) RETURNS void
+-- The owners a statement gave rows to or took rows from have their keys made right when that
+-- statement ends, as legacy's 0007 trigger keeps mail_sent: each owner in id order, its lock; its
+-- smallest id, which is the kept one while that row is still the owner's (whatever arrived since
+-- could only have lowered it, at its arrival) and is otherwise looked for among the owner's rows
+-- (the first row left: every other row's key changes too, as legacy rewrites every mail_sent row of
+-- that owner); then only the rows whose owner_pos differs from it, found by the (agent_id,
+-- owner_pos) index. An owner left with no rows loses its mail_log_first row. Nothing waits for
+-- COMMIT: work there runs after the revision row's lock, and a key settled there deadlocked with a
+-- writer of the same owner (review f7; design §2.4, "Lock order"). A savepoint rolled back takes
+-- its rows and their keys with it. A row the compatibility view rewrites (deleted, then inserted
+-- again with its id) costs its owner's other rows two passes when it is the first row, as a
+-- removed first row costs legacy one; legacy's own store removes an archive prefix newest first so
+-- the first row changes once.
+CREATE FUNCTION orgtree.mail_log_owner_pos_settle(owners bigint[]) RETURNS void
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-DECLARE had text;
+DECLARE a bigint; kept bigint; first bigint;
 BEGIN
-  IF ids IS NULL OR ids = '' THEN RETURN; END IF;
-  had := coalesce(current_setting('orgtree.mail_log_touched', true), '');
-  PERFORM set_config('orgtree.mail_log_touched',
-                     CASE WHEN had = '' THEN ids ELSE had || ',' || ids END, true);
-END
-$fn$;
-
-CREATE FUNCTION orgtree.mail_log_owner_pos_touch() RETURNS trigger
-LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-DECLARE ids text;
-BEGIN
-  IF TG_OP = 'INSERT' THEN SELECT string_agg(DISTINCT agent_id::text, ',') INTO ids FROM new_rows;
-  ELSE SELECT string_agg(DISTINCT agent_id::text, ',') INTO ids FROM old_rows; END IF;
-  PERFORM orgtree.mail_log_owner_pos_note(ids);
-  RETURN NULL;
-END
-$fn$;
-CREATE TRIGGER mail_log_owner_pos_inserted AFTER INSERT ON orgtree.mail_log
-  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_touch();
-CREATE TRIGGER mail_log_owner_pos_deleted AFTER DELETE ON orgtree.mail_log
-  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_touch();
-
--- a row moved between owners, or renumbered: both owners (a trigger naming columns cannot have
--- transition tables, so this one is per row; no writer of today moves rows)
-CREATE FUNCTION orgtree.mail_log_owner_pos_moved() RETURNS trigger
-LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-BEGIN
-  IF NEW.agent_id <> OLD.agent_id OR NEW.id <> OLD.id THEN
-    PERFORM orgtree.mail_log_owner_pos_note(OLD.agent_id::text || ',' || NEW.agent_id::text);
-  END IF;
-  RETURN NULL;
-END
-$fn$;
-CREATE TRIGGER mail_log_owner_pos_moved AFTER UPDATE OF agent_id, id ON orgtree.mail_log
-  FOR EACH ROW EXECUTE FUNCTION orgtree.mail_log_owner_pos_moved();
-
--- At commit, each noted owner in id order: its lock; its smallest id, which is the kept one while
--- that row is still the owner's (whatever arrived since could only have lowered it, at its arrival)
--- and is otherwise looked for among the owner's rows (the first row left: every other row's key
--- changes too, as legacy rewrites every mail_sent row of that owner); then only the rows whose
--- owner_pos differs from it, found by the (agent_id, owner_pos) index. An owner left with no rows
--- loses its mail_log_first row.
-CREATE FUNCTION orgtree.mail_log_owner_pos_settle() RETURNS trigger
-LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-DECLARE ids text; a bigint; kept bigint; first bigint;
-BEGIN
-  ids := coalesce(current_setting('orgtree.mail_log_touched', true), '');
-  IF ids = '' THEN RETURN NULL; END IF;
-  PERFORM set_config('orgtree.mail_log_touched', '', true);
-  FOR a IN SELECT DISTINCT x::bigint FROM unnest(string_to_array(ids, ',')) AS x ORDER BY 1 LOOP
+  FOR a IN SELECT DISTINCT x FROM unnest(owners) AS x WHERE x IS NOT NULL ORDER BY 1 LOOP
     SELECT f.first_id INTO kept FROM orgtree.mail_log_first f WHERE f.agent_id = a FOR UPDATE;
     first := NULL;
     IF kept IS NOT NULL THEN
@@ -214,25 +176,56 @@ BEGIN
     UPDATE orgtree.mail_log SET owner_pos = first
       WHERE agent_id = a AND (owner_pos < first OR owner_pos > first);
   END LOOP;
-  RETURN NULL;
 END
 $fn$;
-CREATE CONSTRAINT TRIGGER mail_log_owner_pos_settle
-  AFTER INSERT OR UPDATE OF agent_id, id OR DELETE ON orgtree.mail_log
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION orgtree.mail_log_owner_pos_settle();
 
--- A caller may force deferred checks (SET CONSTRAINTS ALL IMMEDIATE) before its next write. The
--- settling must stay deferred: run at the end of a statement, it would come before that statement's
--- note (row events fire before statement events) and miss it (as 0012 keeps its archive count).
-CREATE FUNCTION orgtree.mail_log_owner_pos_defer() RETURNS trigger
+CREATE FUNCTION orgtree.mail_log_owner_pos_settled() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE ids bigint[];
 BEGIN
-  SET CONSTRAINTS mail_log_owner_pos_settle DEFERRED;
+  IF TG_OP = 'INSERT' THEN SELECT array_agg(DISTINCT agent_id) INTO ids FROM new_rows;
+  ELSE SELECT array_agg(DISTINCT agent_id) INTO ids FROM old_rows; END IF;
+  PERFORM orgtree.mail_log_owner_pos_settle(ids);
   RETURN NULL;
 END
 $fn$;
-CREATE TRIGGER mail_log_owner_pos_defer BEFORE INSERT OR UPDATE OF agent_id, id OR DELETE
-  ON orgtree.mail_log FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_defer();
+CREATE TRIGGER mail_log_owner_pos_inserted AFTER INSERT ON orgtree.mail_log
+  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_settled();
+CREATE TRIGGER mail_log_owner_pos_deleted AFTER DELETE ON orgtree.mail_log
+  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_settled();
+
+-- A row moved between owners, or renumbered: both owners, noted per row in a transaction-local
+-- setting (a trigger naming columns cannot have transition tables) and settled when the statement
+-- ends. The settling's own UPDATE names neither column, so it fires neither trigger. No writer of
+-- today moves rows.
+CREATE FUNCTION orgtree.mail_log_owner_pos_moved() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE had text;
+BEGIN
+  IF NEW.agent_id <> OLD.agent_id OR NEW.id <> OLD.id THEN
+    had := coalesce(current_setting('orgtree.mail_log_moved', true), '');
+    PERFORM set_config('orgtree.mail_log_moved',
+                       concat_ws(',', nullif(had, ''), OLD.agent_id::text, NEW.agent_id::text), true);
+  END IF;
+  RETURN NULL;
+END
+$fn$;
+CREATE TRIGGER mail_log_owner_pos_moved AFTER UPDATE OF agent_id, id ON orgtree.mail_log
+  FOR EACH ROW EXECUTE FUNCTION orgtree.mail_log_owner_pos_moved();
+
+CREATE FUNCTION orgtree.mail_log_owner_pos_moves_settled() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE ids text;
+BEGIN
+  ids := coalesce(current_setting('orgtree.mail_log_moved', true), '');
+  IF ids = '' THEN RETURN NULL; END IF;
+  PERFORM set_config('orgtree.mail_log_moved', '', true);
+  PERFORM orgtree.mail_log_owner_pos_settle(string_to_array(ids, ',')::bigint[]);
+  RETURN NULL;
+END
+$fn$;
+CREATE TRIGGER mail_log_owner_pos_moves_settled AFTER UPDATE OF agent_id, id ON orgtree.mail_log
+  FOR EACH STATEMENT EXECUTE FUNCTION orgtree.mail_log_owner_pos_moves_settled();
 
 -- a truncated archive leaves no owner (as legacy's mail_sent_truncate)
 CREATE FUNCTION orgtree.mail_log_first_truncate() RETURNS trigger
@@ -348,7 +341,9 @@ $fn$;
 CREATE CONSTRAINT TRIGGER events_count_flush AFTER INSERT OR DELETE ON orgtree.events
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION orgtree.events_count_flush();
 
--- the flush stays deferred when a caller forces checks, for the same reason as the mail keys'
+-- A caller may force deferred checks (SET CONSTRAINTS ALL IMMEDIATE) before its next write. The
+-- flush must stay deferred: run at the end of a statement, it would come before that statement's
+-- count (row events fire before statement events) and miss it (as 0012 keeps its archive count).
 CREATE FUNCTION orgtree.events_count_defer() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 BEGIN
