@@ -14,19 +14,26 @@ stream name. Uncaught exceptions, in the main thread or any other, reach the
 file because Python's default hooks write them to `sys.stderr`.
 
 NO VALUES FROM EXCEPTIONS (review f1): an exception's message can carry
-any value the code handled (a token, a message body), so in the FILE the
-message line of every printed traceback is reduced to the exception type
-and its length (`RuntimeError: <message withheld, 72 chars>`), and so are
-the lines that continue it; the frames (file, line, function, source line)
-are kept. Every persisted line also has token-shaped strings replaced
-(`_scrub`: `sk-…`, `Bearer …`, `token=…`/`key: …`-style pairs, long opaque
-runs). The original stream still gets everything unchanged. LIMIT: a
-free-form line the engine prints itself (`[orgtree] save failed: {e}`) is
-kept as printed apart from `_scrub`.
+any value the code handled (a token, a message body), so before a line is
+persisted:
+  * every value of the exception being handled in the writing thread is
+    withheld from it (`_values`: str/repr of the exception and its args,
+    line by line, across its cause/context chain and exception-group
+    members). The engine prints errors from inside its `except` blocks
+    (`[orgtree] save failed: {e}`, `traceback.format_exc()`), and the
+    uncaught-exception hooks are wrapped (`_hooks`) so the exception they
+    print counts as being handled;
+  * the exception line of a printed traceback is reduced to its type and
+    length (`RuntimeError: <message withheld, 72 chars>`); frames are kept;
+  * token-shaped strings are blanked (`_scrub`).
+The original stream still gets everything unchanged. LIMIT: a value copied
+out of an exception and printed after its `except` block has ended is
+only `_scrub`bed.
 
 BOUNDED: the file rotates to `.1` … `.{KEEP}` before a line would take it
-past MAX_BYTES (counted in encoded bytes, line by line, so one large write
-cannot overshoot), and a single line is cut at MAX_LINE_BYTES.
+past its cap (counted in encoded bytes, line by line, so one large write
+cannot overshoot), and one persisted record, newline and cut marker
+included, is at most min(MAX_LINE_BYTES, the cap).
 NEVER IN THE WAY: a write to the file that fails is dropped silently and the
 original stream is always written first.
 """
@@ -46,8 +53,9 @@ KEEP = 4
 NAME = Path("diagnostics") / "engine.log"
 #: One persisted line is cut to this many bytes.
 MAX_LINE_BYTES = 8192
-#: A traceback's message state ends after this long without a line.
-_TB_QUIET_S = 0.5
+#: Exception values shorter than this are not searched for (a 1-2
+#: character value would blank ordinary text).
+_MIN_VALUE = 3
 
 _SECRETS = [
     (re.compile(r"\b(sk|pk|rk|ghp|gho|ghs|xox[abpr]|AKIA|AIza)[-_A-Za-z0-9]{12,}"), "<redacted>"),
@@ -66,9 +74,53 @@ def _scrub(line: str) -> str:
     return line
 
 
+_hook_exc = threading.local()
+
+
+def _values() -> list[str]:
+    """Every text fragment of the exception(s) the current thread is
+    handling (or an uncaught-exception hook is printing), longest first."""
+    roots = [sys.exc_info()[1], getattr(_hook_exc, "value", None)]
+    seen: set[int] = set()
+    out: set[str] = set()
+    todo = [e for e in roots if isinstance(e, BaseException)]
+    while todo and len(seen) < 64:
+        e = todo.pop()
+        if id(e) in seen:
+            continue
+        seen.add(id(e))
+        texts: list[str] = []
+        for f in (str, repr):
+            try:
+                texts.append(f(e))
+            except Exception:                                   # noqa: BLE001
+                pass
+        for a in getattr(e, "args", ()) or ():
+            try:
+                texts += [str(a), repr(a)]
+            except Exception:                                   # noqa: BLE001
+                pass
+        for n in getattr(e, "__notes__", None) or ():
+            texts.append(str(n))
+        for t in texts:
+            for part in t.splitlines():
+                part = part.strip()
+                if len(part) >= _MIN_VALUE:
+                    out.add(part)
+        todo += [x for x in (e.__cause__, e.__context__) if x is not None]
+        todo += [x for x in getattr(e, "exceptions", ()) or () if isinstance(x, BaseException)]
+    return sorted(out, key=len, reverse=True)
+
+
+def _withhold(line: str, values: list[str]) -> str:
+    for v in values:
+        if v in line:
+            line = line.replace(v, "<withheld>")
+    return line
+
+
 _EXC_LINE = re.compile(r"^([A-Za-z_][\w.]*)(?::\s?(.*))?$")
 _GROUP = re.compile(r"^(\s*\|\s?)(.*)$")
-_CHAIN = ("During handling of the above exception", "The above exception was the direct cause")
 
 
 def _withheld(line: str) -> str:
@@ -80,49 +132,50 @@ def _withheld(line: str) -> str:
 
 
 class _Redactor:
-    """Per-stream traceback state: what of each printed line may be kept.
-
-    `text` keeps the line; after `Traceback (most recent call last):` the
-    indented frame lines are kept and the first unindented line is the
-    exception line, which is withheld, and so is every line after it (a
-    multi-line message, notes) until a chain header, a new traceback, a
-    blank line followed by one, an `[`/`{`-led line (the engine's own tagged
-    and protocol lines) or a quiet gap."""
+    """Per-stream traceback state. After `Traceback (most recent call
+    last):` the indented frame lines are kept and the first unindented line
+    is the exception line, kept as its type only (inside an exception
+    group's `| ` block likewise). The message's other lines are covered by
+    `_values`, whatever they start with and however long the gap."""
 
     def __init__(self) -> None:
-        self.state = "text"
-        self.last = 0.0
+        self.tb = False
 
-    def line(self, ln: str) -> str | None:
-        now = time.monotonic()
-        if self.state != "text" and now - self.last > _TB_QUIET_S:
-            self.state = "text"
-        self.last = now
+    def line(self, ln: str) -> str:
         if ln.startswith("Traceback (most recent call last):") \
                 or "Exception Group Traceback (most recent call last):" in ln:
-            self.state = "tb"
+            self.tb = True
             return ln
-        if self.state == "text":
+        if not self.tb:
             return ln
-        if self.state == "tb":
-            g = _GROUP.match(ln)
-            if g is not None:                       # an exception group's nested block
-                inner = g.group(2)
-                if inner and not inner[:1].isspace() and not inner.startswith(("Traceback", "+")) \
-                        and _EXC_LINE.match(inner):
-                    return g.group(1) + _withheld(inner)
-                return ln
-            if ln[:1].isspace() or not ln:
-                return ln
-            self.state = "exc"
-            return _withheld(ln)
-        # state "exc": after the exception line
-        if not ln or ln.startswith(_CHAIN):
+        g = _GROUP.match(ln)
+        if g is not None:                           # an exception group's nested block
+            inner = g.group(2)
+            if inner and not inner[:1].isspace() and not inner.startswith(("Traceback", "+")) \
+                    and _EXC_LINE.match(inner):
+                return g.group(1) + _withheld(inner)
             return ln
-        if ln.startswith(("[", "{")):
-            self.state = "text"
+        if ln[:1].isspace() or not ln:
             return ln
-        return None
+        self.tb = False
+        return _withheld(ln)
+
+
+def _hooks() -> None:
+    """Make the exception an uncaught-exception hook prints count as being
+    handled (`_values`) while it prints."""
+    def wrap(orig: Any, get: Any) -> Any:
+        def hook(*a: Any) -> Any:
+            _hook_exc.value = get(*a)
+            try:
+                return orig(*a)
+            finally:
+                _hook_exc.value = None
+        hook.__wrapped__ = orig                     # type: ignore[attr-defined]
+        return hook
+    sys.excepthook = wrap(sys.excepthook, lambda t, v, tb: v)
+    sys.unraisablehook = wrap(sys.unraisablehook, lambda u: u.exc_value)
+    threading.excepthook = wrap(threading.excepthook, lambda a: a.exc_value)
 
 
 class _File:
@@ -148,11 +201,13 @@ class _File:
         try:
             ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
             with self.lock:
+                limit = max(64, min(MAX_LINE_BYTES, self.max_bytes))
                 for ln in lines:
                     b = f"{ts}Z {stream} {_scrub(ln)}".encode("utf-8", "replace")
-                    if len(b) > MAX_LINE_BYTES:
-                        cut = len(b) - MAX_LINE_BYTES
-                        b = b[:MAX_LINE_BYTES] + f" …[{cut} bytes cut]".encode()
+                    if len(b) + 1 > limit:
+                        mark = f" …[{len(b)} bytes, cut]".encode()
+                        keep = limit - len(mark) - 1
+                        b = b[:keep].decode("utf-8", "ignore").encode() + mark
                     b += b"\n"
                     if self.size and self.size + len(b) > self.max_bytes:
                         self._rotate()
@@ -179,7 +234,9 @@ class _Tee:
             with self._lock:
                 buf = self._partial + s
                 *done, self._partial = buf.split("\n")
-                done = [k for k in map(self._redact.line, done) if k is not None]
+                if done:
+                    vals = _values()
+                    done = [self._redact.line(_withhold(k, vals)) for k in done]
             if done:
                 self._log.write_lines(self._name, done)
         except Exception:                                       # noqa: BLE001
@@ -210,4 +267,5 @@ def install(data: Path, max_bytes: int = MAX_BYTES, keep: int = KEEP) -> Path | 
     log.write_lines("engine", [f"--- engine start pid {os.getpid()} ---"])
     sys.stdout = _Tee(sys.stdout, log, "out")   # type: ignore[assignment]
     sys.stderr = _Tee(sys.stderr, log, "err")   # type: ignore[assignment]
+    _hooks()
     return log.path
