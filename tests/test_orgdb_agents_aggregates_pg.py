@@ -25,9 +25,9 @@ class MaintainedAggregates(unittest.TestCase):
         cls.twin = fixture.Twins('a1 maintained')
 
     @contextmanager
-    def connection(self):
+    def connection(self, twin=None):
         with fixture.storage(True):
-            database = fixture.registry.lookup(self.twin.copy)[1]
+            database = fixture.registry.lookup((twin or self.twin).copy)[1]
             with fixture.dbconn.connect(fixture.RUNTIME, database) as raw:
                 yield raw
 
@@ -144,7 +144,7 @@ class MaintainedAggregates(unittest.TestCase):
             self.assertEqual(self.totals(raw), self.recount(raw))
 
     def test_forced_immediate_checks_before_one_write_preserve_commit_counters(self):
-        with self.connection() as raw:
+        with self.connection(fixture.Twins('forced single counters')) as raw:
             raw.execute("INSERT INTO orgtree.agents(name,ord,title,cost_usd) VALUES('forced-counter',43000,'before',0)")
             try:
                 before=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
@@ -170,7 +170,7 @@ class MaintainedAggregates(unittest.TestCase):
                 raw.execute("DELETE FROM orgtree.agents WHERE name='forced-counter'")
 
     def test_forced_checks_between_writes_keep_flags_once_and_rows_exact(self):
-        with self.connection() as raw:
+        with self.connection(fixture.Twins('forced between counters')) as raw:
             before=raw.execute('SELECT node_rev,catalog_rev,view_rev FROM orgtree.org_revision').fetchone()
             raw.execute('BEGIN')
             try:
@@ -186,6 +186,46 @@ class MaintainedAggregates(unittest.TestCase):
                 if raw.info.transaction_status != 0:
                     raw.execute('ROLLBACK')
                 raw.execute("DELETE FROM orgtree.agents WHERE name='forced-between'")
+
+    def test_forced_flags_and_savepoint_rollback_include_later_docket_counters(self):
+        with self.connection(fixture.Twins('forced shared flags')) as raw:
+            before=raw.execute('SELECT view_rev,docket_rev FROM orgtree.org_revision').fetchone()
+            raw.execute('BEGIN')
+            try:
+                raw.execute('SAVEPOINT discard_flush')
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("INSERT INTO orgtree.asks(ord,status) VALUES(44000,'open')")
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                self.assertEqual(raw.execute('SELECT view_rev,docket_rev FROM orgtree.org_revision').fetchone(),
+                                 (before[0]+1,before[1]+1))
+                raw.execute('ROLLBACK TO SAVEPOINT discard_flush')
+                self.assertEqual(raw.execute('SELECT view_rev,docket_rev FROM orgtree.org_revision').fetchone(),before)
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("INSERT INTO orgtree.asks(ord,status) VALUES(44001,'open')")
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("UPDATE orgtree.asks SET status='closed' WHERE ord=44001")
+                raw.execute('COMMIT')
+                self.assertEqual(raw.execute('SELECT view_rev,docket_rev FROM orgtree.org_revision').fetchone(),
+                                 (before[0]+1,before[1]+1))
+            finally:
+                if raw.info.transaction_status != 0:
+                    raw.execute('ROLLBACK')
+                raw.execute('DELETE FROM orgtree.asks WHERE ord=44001')
+
+    def test_internal_deferral_does_not_defer_unrelated_unique_constraints(self):
+        import psycopg
+        with self.connection() as raw:
+            raw.execute('CREATE TEMP TABLE immediate_control(value int UNIQUE DEFERRABLE INITIALLY DEFERRED)')
+            raw.execute('INSERT INTO immediate_control VALUES(1)')
+            raw.execute('BEGIN')
+            try:
+                raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                raw.execute("UPDATE orgtree.agents SET title=title WHERE name='dev'")
+                with self.assertRaises(psycopg.errors.UniqueViolation):
+                    raw.execute('INSERT INTO immediate_control VALUES(1)')
+            finally:
+                raw.execute('ROLLBACK')
+            self.assertEqual(raw.execute('SELECT count(*) FROM immediate_control').fetchone()[0],1)
 
     def test_random_committed_row_batches_match_recount(self):
         rng = random.Random(6320)

@@ -173,6 +173,23 @@ BEGIN
 END
 $fn$;
 
+-- Row constraint events precede AFTER STATEMENT accumulators when forced
+-- immediate. Re-defer only our flush constraints before every write. Looking
+-- up their function also includes counters installed on this table later.
+CREATE FUNCTION orgtree.foreground_defer() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE constraint_name text;
+BEGIN
+  FOR constraint_name IN SELECT DISTINCT tgname FROM pg_trigger
+    WHERE tgrelid=TG_RELID AND tgconstraint<>0
+      AND tgfoid='orgtree.foreground_flush()'::regprocedure
+  LOOP
+    EXECUTE format('SET CONSTRAINTS orgtree.%I DEFERRED',constraint_name);
+  END LOOP;
+  RETURN NULL;
+END
+$fn$;
+
 CREATE FUNCTION orgtree.foreground_flush() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE n bigint; k text; touched bigint; field text; parent_delta record;
@@ -182,6 +199,12 @@ BEGIN
   n := coalesce(nullif(current_setting(k,true),''),'0')::bigint;
   IF n=0 THEN RETURN NULL; END IF;
   PERFORM set_config(k,'0',true);
+  -- An explicit constraint check can flush in the middle of a transaction.
+  -- Flag counters still advance once; row/count/cost deltas always advance.
+  IF TG_ARGV[0]<>'node_rev' AND
+    coalesce(current_setting('orgtree.flushed_'||TG_ARGV[0],true),'')='1' THEN
+    RETURN NULL;
+  END IF;
   IF TG_ARGV[0]='node_rev' THEN
     -- A save already owns this lock from on_save_commit. Every flush must
     -- therefore acquire it before parent keys, even on a standalone write.
@@ -206,6 +229,9 @@ BEGIN
   END IF;
   GET DIAGNOSTICS touched=ROW_COUNT;
   IF touched<>1 THEN RAISE EXCEPTION 'foreground revision singleton missing'; END IF;
+  IF TG_ARGV[0]<>'node_rev' THEN
+    PERFORM set_config('orgtree.flushed_'||TG_ARGV[0],'1',true);
+  END IF;
   IF TG_ARGV[0]='node_rev' THEN
     FOREACH field IN ARRAY ARRAY['node_count','retired_axis_count','cost','cost_unknown'] LOOP
       PERFORM set_config('orgtree.pending_'||field,'0',true);
@@ -290,6 +316,8 @@ BEGIN
         'DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION orgtree.foreground_flush(%L)',
         counter||'_flush',t,counter);
     END LOOP;
+    EXECUTE format('CREATE TRIGGER foreground_defer BEFORE INSERT OR UPDATE OR DELETE '
+      'ON orgtree.%I FOR EACH STATEMENT EXECUTE FUNCTION orgtree.foreground_defer()',t);
   END LOOP;
 END
 $install$;
