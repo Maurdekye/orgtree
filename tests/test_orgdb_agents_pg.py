@@ -209,6 +209,40 @@ class NativeWindows(unittest.TestCase):
         for field in ('node_count','retired_axis_count','cost','cost_unknown'):
             self.assertEqual(values[0][field],values[1][field],field)
 
+    def test_request_clock_misfits_merge_before_window_limit(self):
+        for key in ('asks','credit_requests','scope_requests'):
+            with fixture.storage(False):
+                saved=fixture.store.load_org(self.twin.legacy).d.get(key)
+            try:
+                for value in (False,{'odd':1},'z-original'):
+                    with self.subTest(section=key,clock=value):
+                        records=[dict(id='typed',node='dev',status='resolved',
+                                      at='2026-10-30T00:00:00.000Z'),
+                                 dict(id='preserved',node='dev',status='resolved',
+                                      at=fixture.AT,resolved_at=value)]
+                        self.twin.edit(lambda d:d.__setitem__(key,records))
+                        values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
+                            F.read_card_windows(raw,['dev'],header=False)['asks'][key]))
+                        self.assertEqual([r['id'] for r in values[0]],[r['id'] for r in values[1]])
+            finally:
+                self.twin.edit(lambda d:d.__setitem__(key,saved) if saved is not None else d.pop(key,None))
+
+    def test_preserved_owner_matches_window_name(self):
+        with fixture.storage(False):
+            saved=fixture.store.load_org(self.twin.legacy).d
+            original={key:saved.get(key) for key in ('asks','documents')}
+        try:
+            self.twin.edit(lambda d:d.__setitem__('asks',[
+                dict(id='odd-owner',node=False,status='open',at=fixture.AT)]))
+            self.twin.edit(lambda d:d.__setitem__('documents',[
+                dict(id='odd-doc',node=False,title='metadata',at=fixture.AT,body='large text')]))
+            values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
+                F.read_card_windows(raw,['false'],header=False)))
+            self.assertEqual(values[0],values[1])
+        finally:
+            for key,value in original.items():
+                self.twin.edit(lambda d:d.__setitem__(key,value) if value is not None else d.pop(key,None))
+
 
 @fixture.needs_pg
 class NativeCounters(unittest.TestCase):
