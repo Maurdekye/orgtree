@@ -4253,8 +4253,12 @@ class LazyDoc(dict[str, Any]):
         if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
                 or k in self._dropped or k in self._pending
                 or k in self._snap_doc or k in self._deferred_doc
-                or k not in self._present or _orgdb_on()):
+                or k not in self._present):
             return None
+        if _orgdb_on():
+            from .orgdb import archive_reads
+            with _POOL.acquire(self._slug) as conn:
+                return archive_reads.identity(conn.raw)
         from . import workindex
         with _POOL.acquire(self._slug) as conn:
             raw = getattr(conn, "raw", None)
@@ -4273,7 +4277,7 @@ class LazyDoc(dict[str, Any]):
             return None
         return [(str(slug), legacy == "true") for slug, _, legacy in rows]
 
-    def archive_statuses(self) -> list[str | None] | None:
+    def archive_statuses(self) -> list[Any] | None:
         """The DISTINCT stored `status` values of the archived docket items,
         from the PostgreSQL docket index, WITHOUT reading an archived body;
         `None` whenever the index cannot stand in for the rows (the same
@@ -4291,8 +4295,12 @@ class LazyDoc(dict[str, Any]):
         if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
                 or k in self._dropped or k in self._pending
                 or k in self._snap_doc or k in self._deferred_doc
-                or k not in self._present or _orgdb_on()):
+                or k not in self._present):
             return None
+        if _orgdb_on():
+            from .orgdb import archive_reads
+            with _POOL.acquire(self._slug) as conn:
+                return archive_reads.statuses(conn.raw)
         from . import workindex
         with _POOL.acquire(self._slug) as conn:
             raw = getattr(conn, "raw", None)
