@@ -1,5 +1,5 @@
 """A1 presence metadata is derived; unrecognized authored columns stay checked."""
-import import_provenance  # noqa: F401  assert checkout imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import importlib.util
 from pathlib import Path

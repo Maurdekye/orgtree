@@ -1,5 +1,5 @@
 """A1 aggregate/rare-field controls on disposable PostgreSQL only."""
-import import_provenance  # noqa: F401  asserts checkout imports before the fixture opens PG
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from contextlib import contextmanager
 from decimal import Decimal
