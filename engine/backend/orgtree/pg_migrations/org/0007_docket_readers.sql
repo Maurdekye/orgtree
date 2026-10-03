@@ -15,8 +15,8 @@ $fn$;
 -- Project these fallbacks at writes, so hot reads do not parse their authored text.
 CREATE FUNCTION orgtree.docket_extra(v json, wanted text[]) RETURNS json
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
- SELECT json_object_agg(key,value) FROM json_each(
-   CASE WHEN json_typeof(v)='object' THEN v ELSE '{}'::json END) WHERE key=ANY(wanted)
+ SELECT json_object_agg(key,v->key) FROM unnest(wanted) key
+   WHERE json_typeof(v)='object' AND v->key IS NOT NULL
 $fn$;
 CREATE FUNCTION orgtree.docket_scope_meta(v json) RETURNS json
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
