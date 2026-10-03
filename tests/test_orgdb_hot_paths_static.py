@@ -84,6 +84,20 @@ class CapturedSql(unittest.TestCase):
             with self.subTest(sql=sql):
                 self.assertTrue(hot_sql_violations(sql))
 
+    def test_ansi_json_casts_are_caught_only_in_hot_clauses(self):
+        for sql in ("SELECT id FROM agents WHERE CAST(body AS json) IS NOT NULL",
+                    "SELECT id FROM agents ORDER BY CAST(body AS jsonb)",
+                    "SELECT id FROM agents WHERE EXISTS (SELECT id FROM bodies "
+                    "WHERE CAST(bodies.body AS jsonb) IS NOT NULL)"):
+            with self.subTest(sql=sql):
+                self.assertTrue(hot_sql_violations(sql))
+        for sql in ("SELECT CAST(body AS json) FROM bodies WHERE id=%s",
+                    "SELECT id FROM agents WHERE EXISTS (SELECT CAST(body AS jsonb) "
+                    "FROM bodies WHERE bodies.id=agents.id)",
+                    "SELECT id FROM agents WHERE CAST(id AS text) IS NOT NULL"):
+            with self.subTest(sql=sql):
+                self.assertFalse(hot_sql_violations(sql))
+
     def test_quotes_comments_and_projection_do_not_change_clause_state(self):
         self.assertFalse(hot_sql_violations("SELECT 'WHERE -> fake', extra->'x' AS \"ORDER BY\" "
             "FROM bodies /* WHERE extra->'x' */ WHERE id=%s -- ORDER BY body::json\n"))
