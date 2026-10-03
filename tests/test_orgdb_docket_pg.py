@@ -293,7 +293,7 @@ class NativePaths(unittest.TestCase):
                 if path.name<'0007':
                     (old/path.name).write_bytes(path.read_bytes())
             try:
-                with conn.connect(ADMIN) as admin:
+                with conn.connect(ADMIN,'postgres') as admin:
                     admin.execute('CREATE DATABASE '+codec.quote(database))
                 with conn.connect(ADMIN,database) as admin:
                     migrate.migrate(admin,old,migrate.ORG_LOCK)
@@ -308,7 +308,7 @@ class NativePaths(unittest.TestCase):
                     self.assertEqual(admin.execute("SELECT is_generated FROM information_schema.columns "
                         "WHERE table_schema='orgtree' AND table_name='work_items' AND column_name='docket_order'").fetchone()[0],'NEVER')
             finally:
-                with conn.connect(ADMIN) as admin:
+                with conn.connect(ADMIN,'postgres') as admin:
                     admin.execute('DROP DATABASE IF EXISTS '+codec.quote(database)+' WITH (FORCE)')
 
     def test_archive_cursor_keeps_unicode_order_for_preserved_unsupported_dates(self):
