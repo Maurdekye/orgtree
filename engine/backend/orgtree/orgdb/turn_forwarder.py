@@ -34,6 +34,11 @@ class Bridge:
                 # still commit together, before touching the app database.
                 requests.lock(c, job.dedupe_key)
                 jobs.execute(c, job, requests.queue_job)
+        with self.connect(org) as c:
+            pending = requests.pending_batch(c, limit=self.batch)
+        for request_id in pending:
+            with self.connect(org) as c, c.transaction():
+                requests.end_unrunnable(c, request_id)
         return self.repair(org)
 
     def repair(self, org: jobs.Org) -> int:
@@ -59,7 +64,7 @@ class Bridge:
                                 (self.instance_id, request_id)).fetchone()
                 if row is not None:
                     jobs.execute(c, jobs.Job(*row), requests.queue_job)
-            current = requests.get(c, request_id)
+            current = requests.end_unrunnable(c, request_id)
         if current is not None and current.app_pending:
             self.forward(org, current)
         return current

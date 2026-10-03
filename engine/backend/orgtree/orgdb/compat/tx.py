@@ -193,6 +193,7 @@ class OrgDbBackend:
         order = sorted(txs, key=lambda t: found[t.slug][0])
         conns: dict[str, C.OrgDbConn] = {}
         run_conn: C.OrgDbConn | None = None
+        run_guard: C.OrgDbConn | None = None
         loc = store._orgtx_local                                       # pyright: ignore[reportPrivateUsage]
         try:
             for tx in order:
@@ -230,6 +231,19 @@ class OrgDbBackend:
                         run_conn.raw.execute(f"SET LOCAL lock_timeout = "
                                              f"'{max(1, int(lock_timeout * 1000))}ms'")
                     turn_context.fence(run_conn.raw, run_conn.slug, run_conn.org_id)
+                    if len(order) > 1 and run.org in conns:
+                        # A multi-org save may commit its origin before the
+                        # other orgs. Keep a second origin share fence through
+                        # the whole operation, without changing the existing
+                        # per-org commit protocol. Both fences precede every
+                        # action row/advisory lock.
+                        origin = found[run.org]
+                        run_guard = C.OrgDbConn(_reg.checkout(run.org, origin[1], origin[3]),
+                                               run.org, origin[0], origin[1])
+                        run_guard.raw.execute('BEGIN')
+                        run_guard.raw.execute(f"SET LOCAL lock_timeout = "
+                                              f"'{max(1, int(lock_timeout * 1000))}ms'")
+                        turn_context.fence(run_guard.raw, run_guard.slug, run_guard.org_id)
                 for tx in order:
                     conn = conns[tx.slug]
                     raw = conn.raw
@@ -378,6 +392,8 @@ class OrgDbBackend:
             cleanup = list(conns.values())
             if run_conn is not None and run_conn not in cleanup:
                 cleanup.append(run_conn)
+            if run_guard is not None:
+                cleanup.append(run_guard)
             for c in cleanup:
                 with contextlib.suppress(Exception):
                     if c.in_transaction:

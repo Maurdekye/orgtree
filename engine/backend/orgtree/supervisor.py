@@ -1176,7 +1176,7 @@ class _InterruptibleTurnSlot:
                 with _state_lock:
                     self._state['turn_request_id'] = self._durable.request_id
                 self._durable.__enter__()
-        except turnslots.Cancelled:
+        except BaseException as exc:
             with _state_lock:
                 self._state.pop("admission_cancel_token", None)
                 self._state.pop("admission_wait_token", None)
@@ -1185,7 +1185,9 @@ class _InterruptibleTurnSlot:
                 self._state["admission_waiting"] = False
                 if self._durable is not None and self._state.get('turn_request_id') == self._durable.request_id:
                     self._state.pop('turn_request_id', None)
-            raise _AdmissionCancelled() from None
+            if isinstance(exc, turnslots.Cancelled):
+                raise _AdmissionCancelled() from None
+            raise
         self._acquired = True
         cancelled = False
         with _state_lock:
@@ -1267,6 +1269,35 @@ def _turn_transport_env(env: dict[str, str]) -> dict[str, str]:
             raise RuntimeError('a bound run has no turn host')
         result[turn_context.ENV] = host.credential(run)
     return result
+
+
+def _turn_callback(callback: Any, *, publication: bool = False) -> Any:
+    """Capture this run for a provider callback, even on another thread.
+
+    Publications hold a short request share lock. Tool dispatch and long
+    pumps bind identity only: their individual native transactions take
+    the fence, and a tool may legitimately cancel its own run.
+    """
+    from .orgdb import turn_context, turn_requests, turn_runtime   # noqa: PLC0415
+    run = turn_context.current()
+    if run is None:
+        return callback
+    host = turn_runtime.current()
+    if host is None:
+        raise RuntimeError('a bound callback has no turn host')
+
+    def called(*args: Any, **kwargs: Any) -> Any:
+        try:
+            if publication:
+                with host.operation(run):
+                    return callback(*args, **kwargs)
+            with turn_context.bind(run):
+                return callback(*args, **kwargs)
+        except turn_requests.StaleRun:
+            # The cancelled/finished callback belongs to its original run.
+            # Never turn it into a successor's result or journal write.
+            return None
+    return called
 
 
 # ---------------------------------------------------------- child-process leash
@@ -4695,7 +4726,7 @@ def clean_env() -> dict[str, str]:
     # and whether the HOST is reachable off loopback is not the agent's
     # business — strip it here rather than let it ride into every turn.
     env.pop("ORGTREE_EXPOSE_ADMIN", None)
-    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_BASE"):
+    for secret in ("ORGTREE_V2_TOKEN", "ORGTREE_AGENT_TOKEN", "ORGTREE_TURN_TOKEN", "ORGTREE_BASE"):
         env.pop(secret, None)
     # §9.5 (redteam finding 2026-08-05, measured): a HOST-level Anthropic key
     # silently switched EVERY keyless org off the
@@ -4776,7 +4807,7 @@ def env_overrides(slug: str, nid: str) -> dict[str, str]:
     for k, v in ent.items():
         ks = str(k)
         if ks.startswith(("ANTHROPIC_", "ORGTREE_AGENT_PARENT_", "ORGTREE_AGENT_LEGACY_")) or ks == "CLAUDE_CODE_OAUTH_TOKEN" or ks in {
-                "ORGTREE_BASE", "ORGTREE_PORT", "ORGTREE_DATA", "ORGTREE_AGENT_TOKEN",
+                "ORGTREE_BASE", "ORGTREE_PORT", "ORGTREE_DATA", "ORGTREE_AGENT_TOKEN", "ORGTREE_TURN_TOKEN",
                 "ORGTREE_V2_TOKEN", "ORGTREE_ORG", "ORGTREE_NODE"}:
             continue
         out[ks] = str(v)
@@ -18302,7 +18333,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 _queue_delta(d, _assistant_item(params, params.get('itemId')))
         if method in ("mcpServer/startupStatus/updated",
                       "mcpServer/event/stream/notification"):
-            threading.Thread(target=_refresh_codex_mcp, daemon=True,
+            threading.Thread(target=_turn_callback(_refresh_codex_mcp, publication=True), daemon=True,
                              name=f"codexmcp-{slug}-{nid}").start()
         if method == "model/rerouted":
             # the server's own word, MID-TURN, that it is serving a
@@ -18428,9 +18459,10 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         sandbox=_codex_sandbox(n["scope"]),
         dynamic_tools=dyn, developer_instructions=ident,
         config_overrides=mcp_overrides,
-        on_event=_on_event, tool_dispatch=codex_arg_guard(_tool_call),
-        approval_decide=_approve,
-        on_late_tool_result=_late_tool_result,
+        on_event=_turn_callback(_on_event, publication=True),
+        tool_dispatch=_turn_callback(codex_arg_guard(_tool_call)),
+        approval_decide=_turn_callback(_approve),
+        on_late_tool_result=_turn_callback(_late_tool_result, publication=True),
         env_extra=dict(process_spec["env_extra"]),
         usage_baseline=(n.get("codex_usage_total") if resume_tid else None),
         client=wp_turn.client if wp_turn is not None else None)
@@ -18871,8 +18903,9 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                     text=f"{n} mid-turn message(s): the late reply was a "
                          f"refusal — the redelivery already decided was right")
 
+        _late_steer = _turn_callback(_late_steer, publication=True)
         steer_thread = threading.Thread(
-            target=_steer_pump, daemon=True,
+            target=_turn_callback(_steer_pump), daemon=True,
             name=f"codexsteer-{slug}-{nid}")
         steer_thread.start()
         res_raw = turn.wait(timeout=turn_ceiling,
@@ -19339,6 +19372,13 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     st["ran_as"] = spec["env_extra"].get(registry.MARKER, accounts.PRIMARY)
     ih, components = warmpool.identity_snapshot(org, nid, provider_spec=spec)
     warm_on, _ = warmpool.warm_decision()
+    from .orgdb import turn_context   # noqa: PLC0415
+    if turn_context.current() is not None:
+        # The workspace MCP child inherits this immutable credential from
+        # the fresh provider transport. Preserve the conversation and prompt
+        # files; putting the token in their definitions would change them.
+        warm_on = False
+    spec['env_extra'] = _turn_transport_env(spec['env_extra'])
     wp = None
     if warm_on and warmpool.eligible(org, nid)[0]:
         wp, _ = warmpool.claim_snapshot(slug, nid, ih, components)
@@ -19805,10 +19845,10 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
 
     if wp is not None:
         turn = wp.client
-        turn._caller_on_event = _on_event
+        turn._caller_on_event = _turn_callback(_on_event, publication=True)
     else:
         turn = antigravityrun.AntigravityTurn(
-            spec["argv_head"], on_event=_on_event,
+            spec["argv_head"], on_event=_turn_callback(_on_event, publication=True),
             persistent=bool(warm_on and warmpool.eligible(org, nid)[0]),
             **antigravity_session.client_args(spec))
     # the turn object is the process generation's owner token here: the
@@ -19911,7 +19951,8 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                     with _state_lock:
                         st["queue"].extend(carriers)
                     continue
-                if turn.steer(wrapped, on_accepted=lambda: commit_steer(slug, nid, carriers)):
+                if turn.steer(wrapped, on_accepted=_turn_callback(
+                        lambda: commit_steer(slug, nid, carriers), publication=True)):
                     pass  # reader committed before releasing the corrected output
                 else:
                     # The run ended before a usable invocation boundary.
@@ -19921,7 +19962,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                         st["queue"].extend(carriers)
                     _steer_fold_log(slug, nid, len(carriers), "steer refused")
 
-        steer_thread = threading.Thread(target=_steer_pump, daemon=True,
+        steer_thread = threading.Thread(target=_turn_callback(_steer_pump), daemon=True,
                                         name=f"agysteer-{slug}-{nid}")
         steer_thread.start()
         res_raw = turn.wait(timeout=turn_ceiling)
@@ -27440,8 +27481,8 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             sandbox=_codex_sandbox(n["scope"]),
             developer_instructions=identity_prompt(org, nid),
             on_client=compact_client_started,
-        env_extra={**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
-                       "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360")})
+        env_extra=_turn_transport_env({**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+                       "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360")}))
         new_sid = str(compacted.get("thread_id") or "")
         token_usage = compacted.get("token_usage")
         usage = token_usage if isinstance(token_usage, dict) else None

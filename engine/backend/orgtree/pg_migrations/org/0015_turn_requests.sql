@@ -33,3 +33,6 @@ CREATE INDEX jobs_start_turn_due ON orgtree.jobs (run_at, id)
   WHERE kind = 'start_turn' AND state = 'queued';
 CREATE INDEX jobs_start_turn_expired ON orgtree.jobs (lease_until, id)
   WHERE kind = 'start_turn' AND state = 'running';
+-- Inspect one request's final job outcome without scanning finished jobs.
+CREATE INDEX jobs_start_turn_request ON orgtree.jobs (dedupe_key, id DESC)
+  WHERE kind = 'start_turn';

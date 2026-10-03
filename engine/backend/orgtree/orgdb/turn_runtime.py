@@ -110,6 +110,27 @@ class Host:
             raise RuntimeError('only the admitted owner signs its run')
         return context.sign(run, self.key)
 
+    @contextmanager
+    def operation(self, run: context.Run) -> Iterator[None]:
+        """Authorize a short callback through its actual origin request row.
+
+        The captured run never changes when another run starts. Keep this
+        lock around result publication only, never around a provider wait
+        or an HTTP tool which may cancel its own request.
+        """
+        org = self.org(run.org)
+        if org.org_id != run.org_id:
+            raise requests.StaleRun('turn origin was replaced')
+        with self.org_connection(org) as c, c.transaction():
+            requests.fence(c, run)
+            with context.bind(run):
+                yield
+
+    def authorize(self, run: context.Run) -> None:
+        """Refuse stale read-only calls; writes repeat the fence in their own TX."""
+        with self.operation(run):
+            pass
+
     def start(self, *, limit: int, previous_tree_stopped: bool = False) -> None:
         """Host calls after holding the root lock and the guardian's tree cleanup."""
         if self._thread is not None or self._stop.is_set():

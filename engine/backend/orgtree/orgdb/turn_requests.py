@@ -130,6 +130,32 @@ def queue_job(c: Any, job: jobs.Job) -> None:
               (_id(job.dedupe_key), job.agent_id))
 
 
+def end_unrunnable(c: Any, request_id: str) -> Request | None:
+    """Release pending intent whose start step cannot ever authorize a ticket.
+
+    Take the request first, then inspect the exact job. A normal handler
+    holding this request commits queued together with done, so done with
+    pending, failed or a missing job proves there is no runnable
+    start step. Retain the request UUID as a cancellation tombstone.
+    """
+    current = lock(c, request_id)
+    if current is None or current.state != 'pending':
+        return current
+    row = c.execute("SELECT state FROM orgtree.jobs WHERE kind='start_turn' "
+                    "AND dedupe_key=%s ORDER BY id DESC LIMIT 1", (current.request_id,)).fetchone()
+    if row is None or row[0] not in ('queued', 'running'):
+        return cancel(c, request_id, reason='start_turn job did not produce queued intent')
+    return current
+
+
+def pending_batch(c: Any, *, limit: int = 16) -> list[str]:
+    """Current pending intent only; retained terminal requests are excluded."""
+    _positive(limit, 'limit')
+    return [str(row[0]) for row in c.execute(
+        "SELECT request_id FROM orgtree.turn_requests WHERE state='pending' "
+        "ORDER BY created_at, request_id LIMIT %s", (limit,)).fetchall()]
+
+
 def claim_jobs(c: Any, instance_id: int, *, limit: int = 16) -> list[jobs.Job]:
     """The B5 bridge leases only start_turn jobs, never another domain's work."""
     _transaction(c)

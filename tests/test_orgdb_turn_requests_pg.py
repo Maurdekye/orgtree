@@ -580,6 +580,148 @@ class Requests(unittest.TestCase):
             finally:
                 host.stop()
 
+    def test_forwarder_current_selection_is_flat_across_retained_request_and_job_history(self):
+        request = self.create()
+        samples = []
+
+        class Spy:
+            def __init__(self, c):
+                self.c = c
+                self.sql = []
+
+            def __getattr__(self, key):
+                return getattr(self.c, key)
+
+            def execute(self, sql, args=None):
+                self.sql.append((sql, args))
+                return self.c.execute(sql, args)
+
+        def examined(plan):
+            return (plan.get('Actual Rows', 0) + plan.get('Rows Removed by Filter', 0) +
+                    plan.get('Rows Removed by Index Recheck', 0)) * plan.get('Actual Loops', 1) + \
+                   sum(examined(child) for child in plan.get('Plans', []))
+
+        previous = 0
+        for retained in (2048, 20480):
+            with conn.connect(ADMIN, self.org.database) as c, c.transaction():
+                c.execute("INSERT INTO orgtree.turn_requests "
+                          "(request_id,agent_id,reason,state,lease_owner,ended_at) "
+                          "SELECT md5('retained-'||g::text)::uuid,%s,'turn','cancelled',%s,clock_timestamp() "
+                          "FROM generate_series(%s,%s) AS g", (self.agent, self.owner, previous + 1, retained))
+                c.execute("INSERT INTO orgtree.jobs(kind,dedupe_key,state) "
+                          "SELECT 'start_turn',md5('retained-'||g::text)::uuid::text,'done' "
+                          "FROM generate_series(%s,%s) AS g", (previous + 1, retained))
+                c.execute('ANALYZE orgtree.turn_requests')
+                c.execute('ANALYZE orgtree.jobs')
+            previous = retained
+            with self.connection() as c, c.transaction():
+                spy = Spy(c)
+                self.assertEqual(requests.pending_batch(spy, limit=2), [request.request_id])
+                self.assertEqual(requests.repair_batch(spy, limit=2), [])
+                self.assertEqual(requests.end_unrunnable(spy, request.request_id).state, 'pending')
+                costs = []
+                for sql, args in spy.sql:
+                    if not sql.startswith('SELECT'):
+                        continue
+                    plan = c.execute('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + sql, args).fetchone()[0][0]
+                    costs.append(examined(plan['Plan']))
+                self.assertEqual(len(costs), 4, 'all real forwarder selection/lock queries must be measured')
+                samples.append(costs)
+        self.assertTrue(all(cost <= 12 for costs in samples for cost in costs), samples)
+        self.assertTrue(all(large <= small + 4 for small, large in zip(*samples)), samples)
+
+    def test_failed_missing_or_done_start_job_cancels_pending_without_new_uuid(self):
+        for state in ('failed', 'done', None):
+            with self.subTest(job_state=state):
+                request = self.create()
+                with self.connection() as c, c.transaction():
+                    if state is None:
+                        c.execute('DELETE FROM orgtree.jobs WHERE dedupe_key=%s', (request.request_id,))
+                    else:
+                        c.execute("UPDATE orgtree.jobs SET state=%s WHERE dedupe_key=%s",
+                                  (state, request.request_id))
+                self.bridge.step(self.org)
+                stopped = self.read(request)
+                self.assertEqual(stopped.state, 'cancelled')
+                self.assertEqual(stopped.request_id, request.request_id)
+                self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
+                # A delayed old start step/app insertion cannot revive it.
+                self.assertEqual(self.queue.enqueue(self.app(request), self.owner).state, 'cancelled')
+                self.assertEqual(self.read(request).state, 'cancelled')
+                self.assertEqual(self.queue.snapshot()['held'], 0)
+
+    def test_host_publication_fence_serializes_cancel_and_refuses_each_stale_identity(self):
+        import psycopg
+        host = self.host()
+        current, ticket = self.running()
+        run = turn_context.Run('alpha', 'seat', self.org.org_id, self.agent,
+                               current.request_id, current.epoch, current.owner, current.token)
+        with host.operation(run):
+            self.assertEqual(turn_context.current(), run)
+            with self.connection() as c:
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    with c.transaction():
+                        c.execute("SET LOCAL lock_timeout='100ms'")
+                        requests.cancel(c, run.request_id)
+        self.assertIsNone(turn_context.current())
+        for change in ({'agent_id': self.other}, {'epoch': run.epoch + 1},
+                       {'owner': self.owner + 1}, {'token': str(uuid4())},
+                       {'request_id': str(uuid4())}, {'org_id': run.org_id + 1}):
+            with self.assertRaises(requests.StaleRun):
+                host.authorize(replace(run, **change))
+        host.authorize(run)
+        host.cancel('alpha', run.request_id)
+        with self.assertRaises(requests.StaleRun):
+            host.authorize(run)
+        host.complete(self.org, run)
+
+    def test_real_provider_process_keeps_slot_until_terminated_and_waited(self):
+        import psycopg
+        from unittest.mock import patch
+        host = self.host()
+        stopped = threading.Event()
+        provider = None
+        with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
+                            _database_resolver=None, _host_slots=None, _host_limit=None,
+                            _activation_callbacks=[]):
+            try:
+                host.start(limit=1)
+                with turn_runtime.Admission(host, 'alpha', 'seat', 'turn', lambda: False,
+                                             lambda info: None, stopped.set) as run:
+                    # A real owned child, with no network/provider access.
+                    provider = subprocess.Popen(child_python.argv(
+                        '-c', 'import os,time;print(os.getpid(),flush=True);time.sleep(60)',
+                        flags=('-I',)), stdout=subprocess.PIPE, text=True)
+                    ready = messages.Queue()
+                    reader = threading.Thread(target=lambda: ready.put(provider.stdout.readline()))
+                    reader.start()
+                    self.assertEqual(int(ready.get(timeout=10)), provider.pid)
+                    reader.join(5)
+                    self.assertFalse(reader.is_alive())
+                    self.assertIsNone(provider.poll())
+                    host.cancel('alpha', run.request_id)
+                    host.tick()
+                    self.assertTrue(stopped.is_set())
+                    self.assertIsNone(provider.poll())
+                    self.assertEqual(self.queue.snapshot()['held'], 1)
+                    self.assertEqual(self.queue.get(run.request_id).state, 'stopping')
+                    with self.assertRaises(psycopg.errors.UniqueViolation):
+                        self.create()  # one request per agent includes stopping
+                    provider.terminate()
+                    provider.wait(timeout=5)
+                    self.assertIsNotNone(provider.poll())
+                self.assertEqual(self.queue.snapshot()['held'], 0)
+                self.assertEqual(self.queue.get(run.request_id).state, 'cancelled')
+                with self.connection() as c:
+                    self.assertEqual(requests.get(c, run.request_id).state, 'cancelled')
+            finally:
+                if provider is not None and provider.poll() is None:
+                    provider.kill()
+                    provider.wait(timeout=5)
+                if provider is not None:
+                    provider.stdout.close()
+                host.stop()
+
     def test_actual_ready_startup_activates_existing_instance_after_org_migrations(self):
         from tempfile import TemporaryDirectory
         from unittest.mock import patch
@@ -652,6 +794,59 @@ class Requests(unittest.TestCase):
         self.assertEqual(self.read(request).state, 'cancelled')
         self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
         self.assertEqual(host._unstarted, {})
+
+    def test_multi_org_fence_survives_origin_commit_until_whole_operation_ends(self):
+        import psycopg
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        with TemporaryDirectory() as root, patch.dict(os.environ, ORGTREE_DATA=root):
+            from orgtree import orgtx
+            from orgtree.orgdb.compat import tx as native
+        oid = self.lc.create_org('beta')
+        beta = self.lc.row(oid)
+        rows = {'alpha': (self.org.org_id, self.org.database, 'active', self.org.org_uuid),
+                'beta': (oid, beta['database'], 'active', str(beta['org_uuid']))}
+        host = self.host()
+        org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+        ticket = self.queue.claim(self.owner, request.request_id)
+        run = host.begin(org, 'seat', request.request_id, ticket, lambda: None)
+        opened = []
+
+        def checkout(slug, database, uuid):
+            raw = conn.connect(RUNTIME, database)
+            opened.append((slug, raw))
+            return raw
+
+        class AfterLocks(Exception):
+            pass
+
+        def pause(phase, tx):
+            if phase != 'after_lock' or tx.slug != 'beta':
+                return
+            origins = [raw for slug, raw in opened if slug == 'alpha']
+            self.assertEqual(len(origins), 2, 'multi-org origin needs the retained operation fence')
+            # The existing multi-org protocol can commit one action org
+            # before the other. Its actual origin connection releases its
+            # share lock here; the separate operation fence must remain.
+            origins[0].execute('COMMIT')
+            with self.connection() as c:
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    with c.transaction():
+                        c.execute("SET LOCAL lock_timeout='100ms'")
+                        requests.cancel(c, run.request_id)
+            raise AfterLocks()
+
+        actions = [orgtx.OrgTx(slug, None, share_nodes=frozenset(['seat'])) for slug in rows]
+        with patch.object(native._reg, 'lookup', side_effect=rows.get), \
+                patch.object(native._reg, 'checkout', side_effect=checkout), \
+                patch.object(native._reg, 'release', side_effect=lambda raw, db: raw.close()), \
+                patch.object(orgtx, '_pause', side_effect=pause), turn_context.bind(run):
+            with self.assertRaises(AfterLocks):
+                with native.OrgDbBackend().transaction_many(actions, 1):
+                    self.fail('multi-org lock barrier was not reached')
+        self.assertTrue(all(raw.closed for slug, raw in opened))
+        host.cancel('alpha', run.request_id)  # no retained share lock leaked
+        host.complete(org, run)
 
     def test_actual_native_transaction_fences_before_action_locks_and_rejects_stale_run(self):
         from tempfile import TemporaryDirectory

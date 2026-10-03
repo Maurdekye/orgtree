@@ -5,6 +5,8 @@ import ast
 from contextlib import contextmanager
 import json
 import os
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -12,7 +14,7 @@ from unittest.mock import patch
 import urllib.request
 from uuid import uuid4
 
-from orgtree.orgdb import turn_context, turn_runtime
+from orgtree.orgdb import turn_context, turn_requests, turn_runtime
 
 ROOT = Path(__file__).resolve().parents[1] / 'engine' / 'backend' / 'orgtree'
 
@@ -34,7 +36,9 @@ class Hooks(unittest.TestCase):
     def setUp(self):
         self.run = turn_context.Run('org', 'seat', 1, 2, str(uuid4()), 1, 3, str(uuid4()))
         self.key = b'x' * 32
-        self.host = SimpleNamespace(key_for=lambda owner: self.key if owner == 3 else None)
+        self.authorized = []
+        self.host = SimpleNamespace(key_for=lambda owner: self.key if owner == 3 else None,
+                                    authorize=self.authorized.append)
 
     def api(self, body):
         def inner(actual, request):
@@ -49,6 +53,24 @@ class Hooks(unittest.TestCase):
         request = SimpleNamespace(headers={turn_context.HEADER: turn_context.sign(self.run, self.key)})
         with patch.object(turn_runtime, 'current', return_value=self.host):
             self.assertEqual(self.api(body)(body, request), {'run': self.run})
+        self.assertIsNone(turn_context.current())
+        self.assertEqual(self.authorized, [self.run])
+
+    def test_signed_cancelled_run_and_transaction_race_are_http_refusals(self):
+        body = SimpleNamespace(org='org', node='seat')
+        request = SimpleNamespace(headers={turn_context.HEADER: turn_context.sign(self.run, self.key)})
+        with patch.object(turn_runtime, 'current', return_value=self.host), \
+                patch.object(self.host, 'authorize', side_effect=turn_requests.StaleRun('cancelled')):
+            with self.assertRaises(Refused) as caught:
+                self.api(body)(body, request)
+            self.assertEqual(caught.exception.status, 409)
+        api = function('api.py', 'agent_call', {
+            'USER': 'user', 'HTTPException': Refused,
+            '_agent_call_in_run': lambda *a: (_ for _ in ()).throw(turn_requests.StaleRun('race'))})
+        with patch.object(turn_runtime, 'current', return_value=self.host):
+            with self.assertRaises(Refused) as caught:
+                api(body, request)
+            self.assertEqual(caught.exception.status, 409)
         self.assertIsNone(turn_context.current())
 
     def test_missing_mutated_and_wrong_agent_run_headers_never_reach_dispatch(self):
@@ -102,6 +124,43 @@ class Hooks(unittest.TestCase):
                 child = env({turn_context.ENV: 'inherited', 'ORGTREE_AGENT_TOKEN': 'seat'})
                 self.assertEqual(turn_context.verify(child[turn_context.ENV], self.host.key_for), self.run)
                 self.assertEqual(child['ORGTREE_AGENT_TOKEN'], 'seat')
+
+    def test_callback_captures_origin_on_worker_thread_and_never_relabels_successor(self):
+        from dataclasses import replace
+        capture = function('supervisor.py', '_turn_callback', {})
+        seen = []
+        active = [True]
+
+        @contextmanager
+        def operation(run):
+            if not active[0]:
+                raise turn_requests.StaleRun('original request ended')
+            with turn_context.bind(run):
+                yield
+
+        host = SimpleNamespace(operation=operation)
+        with patch.object(turn_runtime, 'current', return_value=host), turn_context.bind(self.run):
+            callback = capture(lambda: seen.append(turn_context.current()), publication=True)
+            pump = capture(lambda: seen.append(turn_context.current()))
+        successor = replace(self.run, request_id=str(uuid4()), token=str(uuid4()))
+        with turn_context.bind(successor):
+            thread = threading.Thread(target=callback)
+            thread.start()
+            thread.join(2)
+            self.assertFalse(thread.is_alive())
+            pump()
+            self.assertEqual(turn_context.current(), successor)
+            active[0] = False
+            callback()
+            self.assertEqual(seen, [self.run, self.run])
+        self.assertIsNone(turn_context.current())
+
+    def test_environment_overrides_cannot_inject_run_or_seat_credentials(self):
+        overrides = function('supervisor.py', 'env_overrides', {
+            'time': time, '_ENV_OVERRIDES_TTL': 2,
+            '_ENV_OVERRIDES_CACHE': {'at': time.time(), 'val': {'org/seat': {
+                turn_context.ENV: 'forged', 'ORGTREE_AGENT_TOKEN': 'forged-seat', 'TASK_FLAG': 'yes'}}}})
+        self.assertEqual(overrides('org', 'seat'), {'TASK_FLAG': 'yes'})
 
 
 class Refused(Exception):

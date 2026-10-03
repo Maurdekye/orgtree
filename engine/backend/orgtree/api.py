@@ -12076,7 +12076,7 @@ presentdoor.declare(_present_door_before, _present_door_body, _report_door_body)
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     """Bind the separately signed run while preserving the seat authority gate."""
-    from .orgdb import turn_context, turn_runtime   # noqa: PLC0415
+    from .orgdb import turn_context, turn_requests, turn_runtime   # noqa: PLC0415
     host = turn_runtime.current()
     run = None
     if host is not None and body.node != USER:
@@ -12086,8 +12086,13 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     # A thread reused by the HTTP executor must never inherit another call's
     # identity. Native transactions authorize this signed claim on their own
     # connection before touching an agent, item or other action row.
-    with turn_context.bind(run):
-        return _agent_call_in_run(body, request)
+    try:
+        if run is not None:
+            host.authorize(run)
+        with turn_context.bind(run):
+            return _agent_call_in_run(body, request)
+    except turn_requests.StaleRun as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 def _agent_call_in_run(body: AgentCall, request: Request) -> dict[str, Any]:
