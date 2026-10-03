@@ -65,11 +65,6 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
         elif kind == "section":
             sect, sep, rest = name.partition(R.SEP)
             if not sep:
-                if exclusive and R.fence_key(name, creating=False) == R.SETTINGS_FENCE:
-                    # every writer of a settings key takes the settings fence before its rows
-                    # (rows.fence_key, review f21); so does the plan, in the same order
-                    lines.append("PERFORM pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
-                                 f"hashtext({lit(R.SETTINGS_FENCE)}));")
                 lines.append(f"PERFORM 1 FROM orgtree.org_sections WHERE key = {lit(name)}{how};")
             elif sect in m.split:
                 lines.append("PERFORM 1 FROM orgtree.org_section_owners o JOIN orgtree.agents a "
@@ -89,6 +84,14 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
                          f"ON a.id = t.agent_id WHERE a.name = {lit(owner)}{how} OF t;")
         else:
             raise R.CompatError(f"lock plan entry of kind {kind!r}")
+    if any(kind == "section" and exclusive and R.SEP not in name
+           and R.fence_key(name, creating=False) == R.SETTINGS_FENCE
+           for kind, name, exclusive in entries):
+        # a plan that may write a settings key takes the settings fence before ANY row, as
+        # every other settings writer does (rows.fence_key, reviews f21 and f24): its rows
+        # include settings rows it only reads, which a writer holding the fence may need
+        lines.insert(0, "PERFORM pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
+                        f"hashtext({lit(R.SETTINGS_FENCE)}));")
     body = "BEGIN\n" + "\n".join(lines) + "\nEND"
     while True:
         tag = "$orgtx_" + secrets.token_hex(6) + "$"
@@ -159,6 +162,12 @@ class OrgDbBackend:
                     if again is None or again[0] != conn.org_id or again[2] != "active":
                         raise LedgerError(f"no such org: {tx.slug!r}")
                     orgtx._receipt_scope(tx, False)                     # pyright: ignore[reportPrivateUsage]
+                    if tx.whole:
+                        # a whole-org transaction locks every row, settings rows included, and
+                        # may write any settings key: the settings fence first, as every other
+                        # settings writer takes it (rows.fence_key, review f24)
+                        raw.execute("SELECT pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
+                                    "hashtext(%s))", (R.SETTINGS_FENCE,))
                     ids: list[str] = []
                     if tx.all_nodes:
                         if not tx.whole:

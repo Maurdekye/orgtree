@@ -510,24 +510,35 @@ class LockBlock(unittest.TestCase):
                                 ('agents', 'FOR UPDATE'), ('org_sections', 'FOR UPDATE'),
                                 ('org_sections', 'FOR UPDATE')])
 
-    def test_a_settings_key_takes_the_settings_fence_before_its_row(self) -> None:
-        # every writer of a settings key takes the one settings fence before its rows
-        # (review f21); the plan does too, so the two orders never cross
+    def test_a_settings_writer_plan_takes_the_settings_fence_before_any_row(self) -> None:
+        # every writer of a settings key takes the one settings fence before its rows (review
+        # f21). A plan that may write one takes it before ANY of its rows, the settings rows it
+        # only reads included (review f24: a row first, then the fence, can deadlock with a
+        # writer that holds the fence); a plan that only reads settings takes none
+        import re
         from orgtree.orgdb.compat import rows as compat_rows
         t = Twins('settingsfence')
+        fence_text = f"hashtext('{compat_rows.SETTINGS_FENCE}')"
         with storage(True):
             seen, p = self._recording()
             with p:
-                with orgtx.org_tx(t.copy, sections=['asks', 'max_children']) as tx:
+                with orgtx.org_tx(t.copy, sections=['asks', 'max_children'],
+                                  share_sections=['killswitch']) as tx:
                     tx.d['max_children'] = 7
             self.assertEqual(store.load_org(t.copy).d['max_children'], 7)
-        block = [q for q in seen if q.startswith('DO $orgtx_')]
-        self.assertEqual(len(block), 1, seen)
-        fence = block[0].find(f"hashtext('{compat_rows.SETTINGS_FENCE}')")
-        row = block[0].find("org_sections WHERE key = 'max_children'")
-        self.assertGreater(fence, block[0].find("org_sections WHERE key = 'asks'"), block[0])
-        self.assertTrue(0 <= fence < row, block[0])
-        self.assertEqual(block[0].count('orgdb-doc-key'), 1, block[0])
+            block = [q for q in seen if q.startswith('DO $orgtx_')]
+            self.assertEqual(len(block), 1, seen)
+            rows = [m.start() for m in re.finditer(r'PERFORM 1 FROM', block[0])]
+            self.assertEqual(len(rows), 3, block[0])
+            self.assertTrue(0 <= block[0].find(fence_text) < min(rows), block[0])
+            self.assertEqual(block[0].count('orgdb-doc-key'), 1, block[0])
+            seen, p = self._recording()
+            with p:
+                with orgtx.org_tx(t.copy, sections=['asks'], share_sections=['killswitch']):
+                    pass
+            block = [q for q in seen if q.startswith('DO $orgtx_')]
+            self.assertEqual(len(block), 1, seen)
+            self.assertEqual(block[0].count('orgdb-doc-key'), 0, block[0])
 
 
 def wait_for(cond, timeout: float = 15.0) -> bool:
@@ -776,6 +787,43 @@ class InsertRaces(unittest.TestCase):
                     self.assertFalse(th.is_alive(), 'the upsert never finished')
                     self.assertEqual(out['rows'], 1)
                     self.assertEqual(store.load_org(slug).d['asks'], theirs)
+
+    def test_a_settings_upsert_waits_for_a_whole_org_tx_without_deadlock(self) -> None:
+        # review f24: a whole-org transaction locks every row, the seeded settings key's
+        # included; a settings upsert outside it took the settings fence and then waited for
+        # that row, while the whole transaction's save then needed the fence: PostgreSQL
+        # 40P01. The whole transaction now takes the fence before any row. (The switch-on
+        # store only: a legacy whole transaction holds no doc rows, so there is no wait.)
+        t = Twins('wholerace')
+        database = registry.lookup(t.copy)[1]
+        out: dict = {}
+        with storage(True):
+            org = store.load_org(t.copy)
+            org.d['max_children'] = 3                          # seeded: its row exists
+            store.save_org(org)
+            with orgtx.org_tx(t.copy, whole=True) as tx:
+                def other() -> None:
+                    try:
+                        with store._POOL.acquire(t.copy) as b:
+                            b.execute('BEGIN IMMEDIATE')
+                            try:
+                                out['rows'] = b.execute(self.UPSERT,
+                                                        ('max_children', json.dumps(5))).rowcount
+                                b.execute('COMMIT')
+                            except BaseException:
+                                b.execute('ROLLBACK')
+                                raise
+                    except BaseException as e:       # noqa: BLE001  the outcome under test
+                        out['rows'] = e
+                th = threading.Thread(target=other)
+                th.start()
+                self.assertTrue(wait_for(lambda: lock_waiters(database) > 0),
+                                'the upsert never waited for the whole-org transaction')
+                tx.d['max_children'] = 7
+            th.join(60)
+            self.assertFalse(th.is_alive(), 'the upsert never finished')
+            self.assertEqual(out['rows'], 1)
+            self.assertEqual(store.load_org(t.copy).d['max_children'], 5)
 
     def test_settings_writers_share_one_fence(self) -> None:
         # every settings key is one row: one transaction writing settings A then B, and
