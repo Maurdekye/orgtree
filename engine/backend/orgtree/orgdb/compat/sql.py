@@ -1077,9 +1077,14 @@ def _sent_ids(c: Any, table: str, sender: str, cap: int) -> list[int]:
         left = cap - len(ids)
         if left <= 0:
             break
+        # the recipient as a range, not an equality: with all three columns fixed the planner may
+        # read the rows in id order off the primary key, past every newer row of anyone (at
+        # 88d278c it chose that plan for a tie of 300 rows of one recipient). Only mail_log_sent
+        # gives (agent_id, id) order without a sort
         ids += [int(r[0]) for r in c.execute(
             f"SELECT m.id FROM {table} m WHERE m.win_from = %(s)s AND m.win_at = %(e)s "
-            "AND m.agent_id = %(a)s ORDER BY m.id DESC LIMIT %(n)s",
+            "AND m.agent_id >= %(a)s AND m.agent_id <= %(a)s "
+            "ORDER BY m.agent_id DESC, m.id DESC LIMIT %(n)s",
             {"s": sender, "e": edge, "a": owner, "n": left}).fetchall()]
     return ids
 
