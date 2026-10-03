@@ -66,10 +66,14 @@ class Names(unittest.TestCase):
 class AdminConnection(unittest.TestCase):
     def test_only_lifecycle_reads_the_admin_conninfo(self) -> None:
         needle = lifecycle.ADMIN_ENV
-        allowed = {ORGTREE / 'orgdb' / 'lifecycle.py', ENGINE / 'pg_process.py'}
+        # devguard names it only to drop it from an agent child's environment (A7b, G3-A2)
+        allowed = {ORGTREE / 'orgdb' / 'lifecycle.py', ENGINE / 'pg_process.py',
+                   ORGTREE / 'devguard.py'}
         offenders = [str(p.relative_to(REPO)) for p in _python_files(ENGINE)
                      if p not in allowed and needle in p.read_text(encoding='utf-8')]
         self.assertEqual(offenders, [])
+        from orgtree import devguard
+        self.assertIn(needle, devguard.ENGINE_STORE_VARS)
         self.assertIn('os.environ.get(ADMIN_ENV',
                       (ORGTREE / 'orgdb' / 'lifecycle.py').read_text(encoding='utf-8'))
 
