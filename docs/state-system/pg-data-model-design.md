@@ -2368,7 +2368,10 @@ predicate stays as the test oracle.
 ### A.4 Mail, notices and delivery
 
 - **`mailboxes(agent_id PK, next_recv_seq)`.** The row a delivery locks; it replaces
-  `mail_archive_bounds`.
+  `mail_archive_bounds`. `next_recv_seq` is `numeric` (CHECK at least 1 and integral), not
+  bigint: a legacy ordinal is any positive integer, and conversion must keep every one. The
+  row also keeps `version` and `nrows`, so the save keeps the legacy bound's compare-and-set
+  (A7b-M decision 1).
 - **`mail`.** One row per delivered copy (measured: no id or message id is shared between
   recipients). Columns:
   - `id`, `public_id UNIQUE`;
