@@ -34,6 +34,8 @@ What it proves:
     first writer's value stays. Mixed writers of an absent key of every kind (outside the
     registry, settings, split owner, docket item): an insert then an upsert ends with the
     upsert's value, an upsert then an insert keeps the upsert's, both rowcounts as legacy;
+    an upsert started while an insert is paused between its absent check and its write
+    waits for it (review f21's measured interleaving);
     two upserts of a section (absent, then present) leave the second value whole, never the
     two merged; an upsert outside an org_tx that locked the section waits without deadlock;
     two transactions writing settings keys queue on one fence;
@@ -669,6 +671,55 @@ class InsertRaces(unittest.TestCase):
                                     second_statement=self.INSERT)
                     self.assertEqual(got, (1, 0))
                     self.assertEqual(self.value(on, slug, key), first)
+
+    def test_an_upsert_cannot_commit_between_an_inserts_absent_check_and_its_write(self) -> None:
+        # review f21's measured interleaving, made deterministic: the insert that does
+        # nothing on conflict is paused right after it found the key absent; an upsert of
+        # the key then starts. Fenced, the upsert waits for the insert and replaces its
+        # value (the legacy outcome); unfenced it committed in the gap and the insert then
+        # overwrote it
+        from unittest.mock import patch
+        from orgtree.orgdb.compat import rows as compat_rows
+        t = Twins('reviewrace')
+        key, first, second = 'race_review', {'by': 'insert'}, {'by': 'upsert'}
+        database = registry.lookup(t.copy)[1]
+        original = compat_rows.doc_get
+        gate, decided = threading.Event(), threading.Event()
+        out: dict = {}
+
+        def paused(c, k, **kw):
+            got = original(c, k, **kw)
+            if k == key and got is None and threading.current_thread().name == 'inserter':
+                decided.set()
+                gate.wait(30)
+            return got
+
+        def writer(name: str, statement: str, value: dict) -> None:
+            try:
+                with store._POOL.acquire(t.copy) as c:
+                    c.execute('BEGIN IMMEDIATE')
+                    try:
+                        out[name] = c.execute(statement, (key, json.dumps(value))).rowcount
+                        c.execute('COMMIT')
+                    except BaseException:
+                        c.execute('ROLLBACK')
+                        raise
+                out[name + '_committed'] = True
+            except BaseException as e:       # noqa: BLE001  the outcome under test
+                out[name] = e
+        with storage(True), patch.object(compat_rows, 'doc_get', paused):
+            ins = threading.Thread(target=writer, name='inserter', args=('insert', self.INSERT, first))
+            ins.start()
+            self.assertTrue(decided.wait(30), 'the insert never reached its absent decision')
+            up = threading.Thread(target=writer, name='upserter', args=('upsert', self.UPSERT, second))
+            up.start()
+            wait_for(lambda: out.get('upsert_committed') or lock_waiters(database) > 0)
+            gate.set()
+            ins.join(60)
+            up.join(60)
+            self.assertFalse(ins.is_alive() or up.is_alive(), out)
+        self.assertEqual((out['insert'], out['upsert']), (1, 1))
+        self.assertEqual(self.value(True, t.copy, key), second)
 
     def test_two_upserts_of_a_section_leave_the_second_value_whole(self) -> None:
         # without a fence both upserts of an absent section wrote their records and neither
