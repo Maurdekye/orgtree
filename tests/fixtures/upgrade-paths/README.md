@@ -12,11 +12,15 @@ the fixture files' SHA256. Text file checksums normalize CRLF to LF; SQLite
 checksums use the exact bytes. Document checksums use Python's
 `json.dumps(value, sort_keys=True, ensure_ascii=False)` encoded as UTF-8.
 
-The generator supplies the current section registry as synthetic input, so
-every registered section is present, including keys that older releases kept
-without using. The release's own `Org`, `save_org` and `load_org` write and read
-that input. An exported tag's imports are checked against its export directory;
-its resolved git commit and writer checksum provide the source identity.
+The generator supplies synthetic values for the registered sections each
+release knows. Version 2.1.14 predates `turn_log` and `work_scope_log`, so its
+fixture omits them. All three release loaders remove `account_token_uuid`
+(routing is machine-wide) and `default_dirs` (org dirs carry modes). The
+manifests record these release-specific absences and normalized-away keys with
+reasons, and the coverage test accounts for them explicitly. The release's own
+`Org`, `save_org` and `load_org` write and read that input. An exported tag's
+imports are checked against its export directory; its resolved git commit and
+writer checksum provide the source identity.
 
 ## Regenerate
 
@@ -49,12 +53,30 @@ The heavy lock and normal memory gates apply, including during regeneration.
 The SQLite path uses the landed import-held CLI (`PgSink`, the same first-launch
 import implementation), then the converter CLI. The PostgreSQL paths restore
 the tag dumps without running any migration on them. Each path compares the
-conversion's section counts and checksums with the committed manifest, checks
+conversion's section counts and checksums against the fixed tag values and the
+explicit current-loader additions described below, checks
 actual destination fields with `tools/orgdb_verify.py`, and checks every legacy
 table and source file remains unchanged. Each path plants a duplicate docket
 slug in beta, checks beta is unavailable while alpha converts, removes the
 fault, and retries beta. A count-preserving destination corruption must fail
 the independent verifier on each successful path.
+
+The wrapper `tools/run-upgrade-converter.py` calls the production CLI's exact
+`main` and copies the read-only source loader's output without changing it.
+The test requires its canonical JSON checksum to equal the committed tag
+document before using it for the independent destination check, except for
+three explicit additions on the 2.1.14 path: `models.argon = gemini-4-argon`,
+`tiers.argon = 2`, and `_migrations.principal_seat_ids`. These are existing
+current-ledger load behavior: newer model defaults and the seat migration.
+The fixture already has a seat, so the marker must contain exactly zero
+`minted` and `shared`, plus a millisecond UTC timestamp inside the measured CLI
+execution window. All other fields remain identical to the fixed fixture.
+Checksums include the validated additions, including that timestamp; the
+independent verifier must preserve them as well. Legacy lazy
+sections materialize from a set, so their order can vary between processes;
+capturing the source in the converter process also checks the exact order
+that process was required to preserve. No destination values or mapper output
+become the source oracle.
 
 `published-migrations.json` is captured directly from all eleven published
 3.x tags. The checksum tests require the checkout's legacy files 0001-0020 to

@@ -111,15 +111,15 @@
   "kiosk": null,
   "_migrations": {
     "mail_log_ids": {
-      "at": "2026-10-02T23:38:27.530Z",
+      "at": "2026-10-02T23:58:47.089Z",
       "repaired": 0
     },
     "steer_attempt_views": {
-      "at": "2026-10-02T23:38:27.530Z",
+      "at": "2026-10-02T23:58:47.089Z",
       "stripped": 0
     },
     "extern_multi_holder_v1": {
-      "at": "2026-10-02T23:38:27.530Z",
+      "at": "2026-10-02T23:58:47.089Z",
       "mode": "inspect",
       "holders": [],
       "multi_holder": false
@@ -152,16 +152,6 @@
         "at": "2026-01-01T00:00:00.000Z",
         "mail": [],
         "notices": []
-      }
-    ]
-  },
-  "turn_log": {
-    "lead": [
-      {
-        "n": 1,
-        "at": "2026-01-01T00:00:00.000Z",
-        "cost": 1.5,
-        "ms": 10
       }
     ]
   },
@@ -281,9 +271,6 @@
   "work_deleted_names": [
     "deleted-task"
   ],
-  "work_scope_log": {
-    "lead": []
-  },
   "api_fallback": null,
   "api_fallback_since": null,
   "api_fallback_until": null,
@@ -313,7 +300,15 @@
   "reservations": null,
   "tool_result_receipts": null,
   "work_identity": null,
-  "op_receipts": [],
+  "documents": [
+    {
+      "id": "doc1",
+      "node": "lead",
+      "title": "Synthetic",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
   "steered_log": {
     "lead": [
       {
@@ -322,21 +317,6 @@
       }
     ]
   },
-  "watchdog_history": [
-    {
-      "watchdog": "watch0",
-      "node": "lead",
-      "at": "2026-01-01T00:00:00.000Z",
-      "gist": "Synthetic"
-    }
-  ],
-  "notice_log": [
-    {
-      "node": "lead",
-      "at": "2026-01-01T00:00:00.000Z",
-      "text": "Archived notice"
-    }
-  ],
   "work_items_archive": [
     {
       "slug": "old-task",
@@ -344,6 +324,30 @@
       "status": "done",
       "archived_at": "2026-01-01T00:00:00.000Z",
       "history": []
+    }
+  ],
+  "user_outbox": [
+    {
+      "id": "out1",
+      "to": "lead",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-01-01T00:00:00.000Z",
+      "op": "fixture",
+      "actor": "user"
+    }
+  ],
+  "org_inbox": [
+    {
+      "id": "org1",
+      "dir": "in",
+      "peer": "synthetic",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
     }
   ],
   "steer_attempts": {
@@ -366,23 +370,7 @@
       }
     ]
   },
-  "org_inbox": [
-    {
-      "id": "org1",
-      "dir": "in",
-      "peer": "synthetic",
-      "body": "Body",
-      "at": "2026-01-01T00:00:00.000Z"
-    }
-  ],
-  "user_mail_log": [
-    {
-      "id": "log1",
-      "from": "lead",
-      "body": "Body",
-      "at": "2026-01-01T00:00:00.000Z"
-    }
-  ],
+  "op_receipts": [],
   "turn_error_log": {
     "lead": [
       {
@@ -391,28 +379,27 @@
       }
     ]
   },
-  "events": [
+  "user_mail_log": [
     {
-      "at": "2026-01-01T00:00:00.000Z",
-      "op": "fixture",
-      "actor": "user"
+      "id": "log1",
+      "from": "lead",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
     }
   ],
-  "documents": [
+  "watchdog_history": [
     {
-      "id": "doc1",
+      "watchdog": "watch0",
       "node": "lead",
-      "title": "Synthetic",
-      "body": "Body",
-      "at": "2026-01-01T00:00:00.000Z"
+      "at": "2026-01-01T00:00:00.000Z",
+      "gist": "Synthetic"
     }
   ],
-  "user_outbox": [
+  "notice_log": [
     {
-      "id": "out1",
-      "to": "lead",
-      "body": "Body",
-      "at": "2026-01-01T00:00:00.000Z"
+      "node": "lead",
+      "at": "2026-01-01T00:00:00.000Z",
+      "text": "Archived notice"
     }
   ]
 }

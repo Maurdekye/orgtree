@@ -28,6 +28,10 @@ import tempfile
 import zipfile
 
 RELEASES = ('2.1.14', '3.0.9', '3.1.0')
+NOT_WRITTEN = {'2.1.14': {'turn_log': 'introduced after 2.1.14; absent from its store DICT_LOGS',
+                          'work_scope_log': 'introduced after 2.1.14; absent from its store DICT_LOGS'}}
+NORMALIZED_AWAY = {'account_token_uuid': 'removed by the release ledger: account routing is machine-wide',
+                   'default_dirs': 'removed by the release ledger: org dirs already carry modes'}
 FIXTURES = REPO / 'tests' / 'fixtures' / 'upgrade-paths'
 
 
@@ -48,8 +52,8 @@ def file_digest(path):
     return hashlib.sha256(data).hexdigest()
 
 
-def seed(ledger, slug, registry):
-    """Small, stable data, with every registered top-level section present."""
+def seed(ledger, slug, registry, release):
+    """Small synthetic rows covering each release's native registered sections."""
     at = '2026-01-01T00:00:00.000Z'
     doc = ledger.Org.create(slug, [], 'acceptEdits', workspace='fixture-workspace').d
     for key, (_, shape, _) in registry.items():
@@ -104,6 +108,8 @@ def seed(ledger, slug, registry):
                user_mail_log=[{'id': 'log1', 'from': 'lead', 'body': 'Body', 'at': at}],
                op_receipts=[], orphan_keys={}, work_scope_log={'lead': []},
                _migrations={}, work_deleted_names=['deleted-task'])
+    for key in NOT_WRITTEN.get(release, {}):
+        doc.pop(key, None)
     return doc
 
 
@@ -131,7 +137,7 @@ def worker(args):
     registry = json.loads(args.section_registry.read_text())
     documents = {}
     for slug in ('alpha', 'beta'):
-        org = ledger.Org(seed(ledger, slug, registry))
+        org = ledger.Org(seed(ledger, slug, registry, args.release))
         store.save_org(org)
         # Persist the release loader's initialization too, then read the saved source.
         store.save_org(store.load_org(slug))
@@ -149,6 +155,8 @@ def worker(args):
                 'writer': 'tag engine/backend/orgtree/store.py save_org/load_org',
                 'writer_sha256': hashlib.sha256(Path(store.__file__).read_bytes().replace(b'\r\n', b'\n')).hexdigest(),
                 'registered_sections': sorted(registry),
+                'not_written_by_release': NOT_WRITTEN.get(args.release, {}),
+                'normalized_away': NORMALIZED_AWAY,
                 'orgs': {s: section_manifest(d) for s, d in documents.items()}}
     (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
 

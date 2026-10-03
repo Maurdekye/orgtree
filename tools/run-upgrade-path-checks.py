@@ -55,7 +55,19 @@ def main():
                                                           'tests/test_published_migrations.py'])]
                 if a.json_output:
                     cmd += ['--json-output', str(a.json_output)]
-                return subprocess.run(cmd, cwd=REPO, env=env, timeout=1190).returncode
+                done = subprocess.run(cmd, cwd=REPO, env=env, timeout=1190,
+                                      capture_output=True, text=True)
+                receipt = json.loads(done.stdout)
+                print(json.dumps({'summary': receipt['summary'],
+                                  'modules': [{'module': m['module'], 'tests_ran': m['tests_ran'],
+                                               'tests_skipped': m['tests_skipped'],
+                                               'import_provenance': m['import_provenance']}
+                                              for m in receipt['modules']]}, indent=2), flush=True)
+                if done.returncode:
+                    for module in receipt['modules']:
+                        if module['exit_code']:
+                            print(module['stderr'][-5000:], file=sys.stderr)
+                return done.returncode
             return 0
         finally:
             if started:

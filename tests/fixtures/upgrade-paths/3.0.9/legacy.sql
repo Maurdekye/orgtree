@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict vkdTgVWotUZ2CdBNXNb2hcWO6gahona0kt4AQXXlMcFbGSazoCQW6u1oyELHb5e
+\restrict cRAxubLXMbFrD8PBn0P567FNskTNN4o5fzQh439XtJpPfwYrlNG26LydsgYPwfv
 
 -- Dumped from database version 18.6
 -- Dumped by pg_dump version 18.6
@@ -2699,7 +2699,7 @@ audience_requests	[{"id":"audience1","node":"lead","target":"user","at":"2026-01
 cascade_hire	true
 cascade_alloc	true
 kiosk	null
-_migrations	{"mail_log_ids":{"at":"2026-10-02T23:38:32.063Z","repaired":0},"steer_attempt_views":{"at":"2026-10-02T23:38:32.063Z","stripped":0},"extern_multi_holder_v1":{"at":"2026-10-02T23:38:32.063Z","mode":"inspect","holders":[],"multi_holder":false},"principal_seat_ids":{"at":"2026-10-02T23:38:32.063Z","minted":0,"shared":0}}
+_migrations	{"mail_log_ids":{"at":"2026-10-02T23:58:52.422Z","repaired":0},"steer_attempt_views":{"at":"2026-10-02T23:58:52.422Z","stripped":0},"extern_multi_holder_v1":{"at":"2026-10-02T23:58:52.422Z","mode":"inspect","holders":[],"multi_holder":false},"principal_seat_ids":{"at":"2026-10-02T23:58:52.422Z","minted":0,"shared":0}}
 whole_grants_v1	true
 _actors_typed	true
 mail	{}
@@ -2791,7 +2791,7 @@ COPY org_1.foreground_counts (source, sect, owner, total) FROM stdin;
 --
 
 COPY org_1.foreground_documents (source, seq, node, meta) FROM stdin;
-0	5	lead	{"at": "2026-01-01T00:00:00.000Z", "id": "doc1", "title": "Synthetic", "format": "markdown"}
+0	9	lead	{"at": "2026-01-01T00:00:00.000Z", "id": "doc1", "title": "Synthetic", "format": "markdown"}
 \.
 
 
@@ -2817,11 +2817,11 @@ COPY org_1.foreground_parents (parent, retired_children) FROM stdin;
 --
 
 COPY org_1.log_d (seq, sect, owner, at, val) FROM stdin;
-1	steer_attempts	lead	\N	["attempt1",{"at":"2026-01-01T00:00:00.000Z","toks":["delivery1"]}]
-2	turn_log	lead	2026-01-01T00:00:00.000Z	{"n":1,"at":"2026-01-01T00:00:00.000Z","cost":1.5,"ms":10}
-3	turn_error_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic error"}
-4	steered_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic steer"}
-5	mail_log	lead	2026-01-01T00:00:00.000Z	{"id":"m0","from":"user","body":"Archived mail","at":"2026-01-01T00:00:00.000Z"}
+1	turn_error_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic error"}
+2	mail_log	lead	2026-01-01T00:00:00.000Z	{"id":"m0","from":"user","body":"Archived mail","at":"2026-01-01T00:00:00.000Z"}
+3	turn_log	lead	2026-01-01T00:00:00.000Z	{"n":1,"at":"2026-01-01T00:00:00.000Z","cost":1.5,"ms":10}
+4	steer_attempts	lead	\N	["attempt1",{"at":"2026-01-01T00:00:00.000Z","toks":["delivery1"]}]
+5	steered_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic steer"}
 \.
 
 
@@ -2831,14 +2831,14 @@ COPY org_1.log_d (seq, sect, owner, at, val) FROM stdin;
 
 COPY org_1.log_l (seq, sect, at, val) FROM stdin;
 1	user_outbox	2026-01-01T00:00:00.000Z	{"id":"out1","to":"lead","body":"Body","at":"2026-01-01T00:00:00.000Z"}
-2	work_items_archive	\N	{"slug":"old-task","title":"Old task","status":"done","archived_at":"2026-01-01T00:00:00.000Z","history":[]}
-3	org_inbox	2026-01-01T00:00:00.000Z	{"id":"org1","dir":"in","peer":"synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
-4	watchdog_history	2026-01-01T00:00:00.000Z	{"watchdog":"watch0","node":"lead","at":"2026-01-01T00:00:00.000Z","gist":"Synthetic"}
-5	documents	2026-01-01T00:00:00.000Z	{"id":"doc1","node":"lead","title":"Synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
-6	notice_log	2026-01-01T00:00:00.000Z	{"node":"lead","at":"2026-01-01T00:00:00.000Z","text":"Archived notice"}
-7	user_mail_log	2026-01-01T00:00:00.000Z	{"id":"log1","from":"lead","body":"Body","at":"2026-01-01T00:00:00.000Z"}
+2	user_mail_log	2026-01-01T00:00:00.000Z	{"id":"log1","from":"lead","body":"Body","at":"2026-01-01T00:00:00.000Z"}
+3	events	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","op":"fixture","actor":"user"}
+4	org_inbox	2026-01-01T00:00:00.000Z	{"id":"org1","dir":"in","peer":"synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
+5	work_items_archive	\N	{"slug":"old-task","title":"Old task","status":"done","archived_at":"2026-01-01T00:00:00.000Z","history":[]}
+6	watchdog_history	2026-01-01T00:00:00.000Z	{"watchdog":"watch0","node":"lead","at":"2026-01-01T00:00:00.000Z","gist":"Synthetic"}
+7	notice_log	2026-01-01T00:00:00.000Z	{"node":"lead","at":"2026-01-01T00:00:00.000Z","text":"Archived notice"}
 8	lifecycle	2026-01-01T00:00:00.000Z	{"operation_id":"life1","kind":"fixture","state":"done","at":"2026-01-01T00:00:00.000Z"}
-9	events	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","op":"fixture","actor":"user"}
+9	documents	2026-01-01T00:00:00.000Z	{"id":"doc1","node":"lead","title":"Synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
 \.
 
 
@@ -2856,7 +2856,7 @@ lead	1	0	0	2	1
 --
 
 COPY org_1.mail_sent (seq, owner, sender, sent_at, owner_pos) FROM stdin;
-5	lead	user	2026-01-01T00:00:00.000Z	5
+2	lead	user	2026-01-01T00:00:00.000Z	2
 \.
 
 
@@ -2865,12 +2865,12 @@ COPY org_1.mail_sent (seq, owner, sender, sent_at, owner_pos) FROM stdin;
 --
 
 COPY org_1.meta (key, val) FROM stdin;
-owners:steer_attempts	["lead"]
-owners:turn_log	["lead"]
 owners:turn_error_log	["lead"]
-owners:work_scope_log	["lead"]
-owners:steered_log	["lead"]
 owners:mail_log	["lead"]
+owners:work_scope_log	["lead"]
+owners:turn_log	["lead"]
+owners:steer_attempts	["lead"]
+owners:steered_log	["lead"]
 key_order	["version","slug","name","created","tiers","models","workspace","dirs","permission_mode","default_tools","default_visibility","max_top_grant","default_top_grant","credit_requests","compact_at","fable_limit_policy","fable_filter_policy","fable_filter_model","nodes","external_inbox_multi_holder","org_inbox_multi_holder","audiences","audience_requests","events","cascade_hire","cascade_alloc","kiosk","_migrations","whole_grants_v1","_actors_typed","mail","mail_log","notices","steered_log","delivering","turn_error_log","turn_log","mail_transitions","steer_attempts","manual_attempts","op_receipts","documents","asks","scope_requests","watchdogs","watchdog_tombs","work_items","work_items_archive","lifecycle","notice_log","watchdog_history","org_inbox","user_inbox","user_outbox","user_mail_log","orphan_keys","account_fallback_default","api_cost_usd","default_account","desktop_import","reply_incarnation","work_deleted_names","work_scope_log","api_fallback","api_fallback_since","api_fallback_until","api_key","auto_cheap_compact","auto_resume","auto_resume_compact","auto_resume_last","cred_warned_at","default_effort","deleted_cost_usd","deleted_cost_usd_unknown","fable_api_fallback","fable_lock","headless","killswitch","mail_drain_version","max_children","max_depth","net_autoconnect","net_hubs","net_identity","net_spool","net_state","op_receipts_meta","org_inbox_read","reservations","tool_result_receipts","work_identity"]
 schema_version	1
 \.
@@ -2941,7 +2941,7 @@ COPY org_1.receipts (owner, token, ord, val, version) FROM stdin;
 COPY org_1.work_index (location, source_key, slug, summary, body_sha256) FROM stdin;
 active	work_itemssynthetic-task	synthetic-task	{"at": "2026-01-01T00:00:00.000Z", "slug": "synthetic-task", "owner": {"born": "fixture-lead", "node": "lead", "generation": 0}, "title": "Synthetic task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "open", "updated_at": "2026-01-01T00:00:00.000Z", "notification_attention_active": false}	\\xeacdac2a325e79ccd103784ffaaa9a3194acbcdde47ca58dcca3abab71a63ca4
 active	work_itemssecond-task	second-task	{"at": "2026-01-01T00:00:00.000Z", "slug": "second-task", "title": "Second synthetic task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "open", "updated_at": "2026-01-01T00:00:00.000Z", "notification_attention_active": false}	\\x527897fb23d0a67d270e835b62ca6676057c3a238d1760259f9c16b2c2de977c
-archive	2	old-task	{"slug": "old-task", "title": "Old task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "done", "archived_at": "2026-01-01T00:00:00.000Z"}	\\xea4a741b133e7e702c299afdb40a87df48e413e046c3145fbacf2975ff0a2726
+archive	5	old-task	{"slug": "old-task", "title": "Old task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "done", "archived_at": "2026-01-01T00:00:00.000Z"}	\\xea4a741b133e7e702c299afdb40a87df48e413e046c3145fbacf2975ff0a2726
 \.
 
 
@@ -3079,7 +3079,7 @@ audience_requests	[{"id":"audience1","node":"lead","target":"user","at":"2026-01
 cascade_hire	true
 cascade_alloc	true
 kiosk	null
-_migrations	{"mail_log_ids":{"at":"2026-10-02T23:38:32.364Z","repaired":0},"steer_attempt_views":{"at":"2026-10-02T23:38:32.364Z","stripped":0},"extern_multi_holder_v1":{"at":"2026-10-02T23:38:32.364Z","mode":"inspect","holders":[],"multi_holder":false},"principal_seat_ids":{"at":"2026-10-02T23:38:32.364Z","minted":0,"shared":0}}
+_migrations	{"mail_log_ids":{"at":"2026-10-02T23:58:52.732Z","repaired":0},"steer_attempt_views":{"at":"2026-10-02T23:58:52.732Z","stripped":0},"extern_multi_holder_v1":{"at":"2026-10-02T23:58:52.732Z","mode":"inspect","holders":[],"multi_holder":false},"principal_seat_ids":{"at":"2026-10-02T23:58:52.732Z","minted":0,"shared":0}}
 whole_grants_v1	true
 _actors_typed	true
 mail	{}
@@ -3171,7 +3171,7 @@ COPY org_2.foreground_counts (source, sect, owner, total) FROM stdin;
 --
 
 COPY org_2.foreground_documents (source, seq, node, meta) FROM stdin;
-0	5	lead	{"at": "2026-01-01T00:00:00.000Z", "id": "doc1", "title": "Synthetic", "format": "markdown"}
+0	9	lead	{"at": "2026-01-01T00:00:00.000Z", "id": "doc1", "title": "Synthetic", "format": "markdown"}
 \.
 
 
@@ -3197,11 +3197,11 @@ COPY org_2.foreground_parents (parent, retired_children) FROM stdin;
 --
 
 COPY org_2.log_d (seq, sect, owner, at, val) FROM stdin;
-1	steer_attempts	lead	\N	["attempt1",{"at":"2026-01-01T00:00:00.000Z","toks":["delivery1"]}]
-2	turn_log	lead	2026-01-01T00:00:00.000Z	{"n":1,"at":"2026-01-01T00:00:00.000Z","cost":1.5,"ms":10}
-3	turn_error_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic error"}
-4	steered_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic steer"}
-5	mail_log	lead	2026-01-01T00:00:00.000Z	{"id":"m0","from":"user","body":"Archived mail","at":"2026-01-01T00:00:00.000Z"}
+1	turn_error_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic error"}
+2	mail_log	lead	2026-01-01T00:00:00.000Z	{"id":"m0","from":"user","body":"Archived mail","at":"2026-01-01T00:00:00.000Z"}
+3	turn_log	lead	2026-01-01T00:00:00.000Z	{"n":1,"at":"2026-01-01T00:00:00.000Z","cost":1.5,"ms":10}
+4	steer_attempts	lead	\N	["attempt1",{"at":"2026-01-01T00:00:00.000Z","toks":["delivery1"]}]
+5	steered_log	lead	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","text":"Synthetic steer"}
 \.
 
 
@@ -3211,14 +3211,14 @@ COPY org_2.log_d (seq, sect, owner, at, val) FROM stdin;
 
 COPY org_2.log_l (seq, sect, at, val) FROM stdin;
 1	user_outbox	2026-01-01T00:00:00.000Z	{"id":"out1","to":"lead","body":"Body","at":"2026-01-01T00:00:00.000Z"}
-2	work_items_archive	\N	{"slug":"old-task","title":"Old task","status":"done","archived_at":"2026-01-01T00:00:00.000Z","history":[]}
-3	org_inbox	2026-01-01T00:00:00.000Z	{"id":"org1","dir":"in","peer":"synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
-4	watchdog_history	2026-01-01T00:00:00.000Z	{"watchdog":"watch0","node":"lead","at":"2026-01-01T00:00:00.000Z","gist":"Synthetic"}
-5	documents	2026-01-01T00:00:00.000Z	{"id":"doc1","node":"lead","title":"Synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
-6	notice_log	2026-01-01T00:00:00.000Z	{"node":"lead","at":"2026-01-01T00:00:00.000Z","text":"Archived notice"}
-7	user_mail_log	2026-01-01T00:00:00.000Z	{"id":"log1","from":"lead","body":"Body","at":"2026-01-01T00:00:00.000Z"}
+2	user_mail_log	2026-01-01T00:00:00.000Z	{"id":"log1","from":"lead","body":"Body","at":"2026-01-01T00:00:00.000Z"}
+3	events	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","op":"fixture","actor":"user"}
+4	org_inbox	2026-01-01T00:00:00.000Z	{"id":"org1","dir":"in","peer":"synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
+5	work_items_archive	\N	{"slug":"old-task","title":"Old task","status":"done","archived_at":"2026-01-01T00:00:00.000Z","history":[]}
+6	watchdog_history	2026-01-01T00:00:00.000Z	{"watchdog":"watch0","node":"lead","at":"2026-01-01T00:00:00.000Z","gist":"Synthetic"}
+7	notice_log	2026-01-01T00:00:00.000Z	{"node":"lead","at":"2026-01-01T00:00:00.000Z","text":"Archived notice"}
 8	lifecycle	2026-01-01T00:00:00.000Z	{"operation_id":"life1","kind":"fixture","state":"done","at":"2026-01-01T00:00:00.000Z"}
-9	events	2026-01-01T00:00:00.000Z	{"at":"2026-01-01T00:00:00.000Z","op":"fixture","actor":"user"}
+9	documents	2026-01-01T00:00:00.000Z	{"id":"doc1","node":"lead","title":"Synthetic","body":"Body","at":"2026-01-01T00:00:00.000Z"}
 \.
 
 
@@ -3236,7 +3236,7 @@ lead	1	0	0	2	1
 --
 
 COPY org_2.mail_sent (seq, owner, sender, sent_at, owner_pos) FROM stdin;
-5	lead	user	2026-01-01T00:00:00.000Z	5
+2	lead	user	2026-01-01T00:00:00.000Z	2
 \.
 
 
@@ -3245,12 +3245,12 @@ COPY org_2.mail_sent (seq, owner, sender, sent_at, owner_pos) FROM stdin;
 --
 
 COPY org_2.meta (key, val) FROM stdin;
-owners:steer_attempts	["lead"]
-owners:turn_log	["lead"]
 owners:turn_error_log	["lead"]
-owners:work_scope_log	["lead"]
-owners:steered_log	["lead"]
 owners:mail_log	["lead"]
+owners:work_scope_log	["lead"]
+owners:turn_log	["lead"]
+owners:steer_attempts	["lead"]
+owners:steered_log	["lead"]
 key_order	["version","slug","name","created","tiers","models","workspace","dirs","permission_mode","default_tools","default_visibility","max_top_grant","default_top_grant","credit_requests","compact_at","fable_limit_policy","fable_filter_policy","fable_filter_model","nodes","external_inbox_multi_holder","org_inbox_multi_holder","audiences","audience_requests","events","cascade_hire","cascade_alloc","kiosk","_migrations","whole_grants_v1","_actors_typed","mail","mail_log","notices","steered_log","delivering","turn_error_log","turn_log","mail_transitions","steer_attempts","manual_attempts","op_receipts","documents","asks","scope_requests","watchdogs","watchdog_tombs","work_items","work_items_archive","lifecycle","notice_log","watchdog_history","org_inbox","user_inbox","user_outbox","user_mail_log","orphan_keys","account_fallback_default","api_cost_usd","default_account","desktop_import","reply_incarnation","work_deleted_names","work_scope_log","api_fallback","api_fallback_since","api_fallback_until","api_key","auto_cheap_compact","auto_resume","auto_resume_compact","auto_resume_last","cred_warned_at","default_effort","deleted_cost_usd","deleted_cost_usd_unknown","fable_api_fallback","fable_lock","headless","killswitch","mail_drain_version","max_children","max_depth","net_autoconnect","net_hubs","net_identity","net_spool","net_state","op_receipts_meta","org_inbox_read","reservations","tool_result_receipts","work_identity"]
 schema_version	1
 \.
@@ -3321,7 +3321,7 @@ COPY org_2.receipts (owner, token, ord, val, version) FROM stdin;
 COPY org_2.work_index (location, source_key, slug, summary, body_sha256) FROM stdin;
 active	work_itemssynthetic-task	synthetic-task	{"at": "2026-01-01T00:00:00.000Z", "slug": "synthetic-task", "owner": {"born": "fixture-lead", "node": "lead", "generation": 0}, "title": "Synthetic task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "open", "updated_at": "2026-01-01T00:00:00.000Z", "notification_attention_active": false}	\\xeacdac2a325e79ccd103784ffaaa9a3194acbcdde47ca58dcca3abab71a63ca4
 active	work_itemssecond-task	second-task	{"at": "2026-01-01T00:00:00.000Z", "slug": "second-task", "title": "Second synthetic task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "open", "updated_at": "2026-01-01T00:00:00.000Z", "notification_attention_active": false}	\\x527897fb23d0a67d270e835b62ca6676057c3a238d1760259f9c16b2c2de977c
-archive	2	old-task	{"slug": "old-task", "title": "Old task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "done", "archived_at": "2026-01-01T00:00:00.000Z"}	\\xea4a741b133e7e702c299afdb40a87df48e413e046c3145fbacf2975ff0a2726
+archive	5	old-task	{"slug": "old-task", "title": "Old task", "_query": {"format": "orgtree.work-query/v1", "legacy_identity": false, "order_supported": true}, "status": "done", "archived_at": "2026-01-01T00:00:00.000Z"}	\\xea4a741b133e7e702c299afdb40a87df48e413e046c3145fbacf2975ff0a2726
 \.
 
 
@@ -3442,8 +3442,8 @@ COPY public.org_statistics_ready (org_id, schema_version, analyzed_at) FROM stdi
 --
 
 COPY public.orgs (org_id, slug, revision, created_at, deleted_at, work_revision) FROM stdin;
-1	alpha	1	2026-10-03 02:38:32.083005+03	\N	1
-2	beta	1	2026-10-03 02:38:32.365312+03	\N	1
+1	alpha	1	2026-10-03 02:58:52.443319+03	\N	1
+2	beta	1	2026-10-03 02:58:52.732759+03	\N	1
 \.
 
 
@@ -3460,25 +3460,25 @@ COPY public.receipts (org_id, op_key, fingerprint, result, at) FROM stdin;
 --
 
 COPY public.schema_migrations (name, sha256, applied_at) FROM stdin;
-0001_base.sql	887bccebdf1a53ba062d17acb091a106c267574ddd1a3c2d7e4c8e94e79b8b38	2026-10-03 02:38:31.94931+03
-0002_runtime_grants.sql	2abf59da7b929a8b05a8ab20f9eb9be40b48b68f23657857abc8deb85372d30b	2026-10-03 02:38:31.959459+03
-0003_work_item_rows.sql	e609ae457710e7f86dfa76ad476ab7cbe6742a273a860f3498882419347b92e4	2026-10-03 02:38:31.963998+03
-0004_foreground_nodes.sql	6a547d65b075b6173b76f77586044e78595b38f4ea755c70953e21714d47cdf0	2026-10-03 02:38:31.975348+03
-0005_mail_archive_bounds.sql	489ebe8120810b38ae573e7ecb91b7f44ed99d667417a311c040a4543e79123c	2026-10-03 02:38:31.98489+03
-0006_work_index.sql	3adb7085389cd2b8db51ae2dd0ff58c1ef70be458ee5866e040de8703c277a8b	2026-10-03 02:38:31.993633+03
-0007_mail_sent_index.sql	65b78160a855488f20167a000c8080d58e3fb58ff2506249a9edb9e4b4744d57	2026-10-03 02:38:31.995935+03
-0008_work_access.sql	a3e89bbee4218b15ba1551d5675ea8ec16c9dc166072ba9d79f23beb4f4e89d8	2026-10-03 02:38:31.997583+03
-0009_work_query.sql	ef0cede4372668fe442b0f1d1ccccae9e1287822feda4a770352dbf655ebbf68	2026-10-03 02:38:31.999335+03
-0010_policy_candidates.sql	64f1427b634f099b6e641955de4d1a196a8e0b11d312da151625da658c91ab97	2026-10-03 02:38:32.00087+03
-0011_initial_statistics.sql	71d7aeb436772e4efa0af523afbbbd5841ac75853226f2d253eb24de05ce89dc	2026-10-03 02:38:32.002255+03
-0012_work_list.sql	e5171c98b1052b04b08a78a4565178edee913d8c20263b132433509a247e5ade	2026-10-03 02:38:32.006379+03
-0013_custody_receipt_rows.sql	80840a75c1ef6dee12825fa9fd9730a7a73ceb0bba928f8432b73574ccd7a522	2026-10-03 02:38:32.014369+03
-0014_summary_cost_exceptions.sql	78622e24d4a27e29b93d23fee16cde10fde56d14c9eb4a6ed392f435842d3366	2026-10-03 02:38:32.023051+03
-0015_receipt_function_hardening.sql	e8ec848bdadee07ce63ae96022165c2cc1c801684a4b86f17b4c33bb47cf0c6c	2026-10-03 02:38:32.025017+03
-0016_steered_log_tail.sql	238deef0e6cb77bd50f005aff3e7ebc3b4d6c4f9616213b6e6d967f95a5ec917	2026-10-03 02:38:32.032467+03
-0017_foreground_tree_val.sql	855cbadfa7bdc6c36ebf8fc267f8ddf7dab22468a04855f70979b80522f284a4	2026-10-03 02:38:32.034361+03
-0018_foreground_asks_resolved_recent.sql	fbe3c77dfb1cbfd943ab81ce26a6aa35afbfcdcf47a05e39676681a875f31d08	2026-10-03 02:38:32.03617+03
-0019_present_evicted_index.sql	3b0ec7b21d52e428aa729fbd79ac2e4b6100e31ad0aefceb093cb84188085452	2026-10-03 02:38:32.037798+03
+0001_base.sql	887bccebdf1a53ba062d17acb091a106c267574ddd1a3c2d7e4c8e94e79b8b38	2026-10-03 02:58:52.218433+03
+0002_runtime_grants.sql	2abf59da7b929a8b05a8ab20f9eb9be40b48b68f23657857abc8deb85372d30b	2026-10-03 02:58:52.235839+03
+0003_work_item_rows.sql	e609ae457710e7f86dfa76ad476ab7cbe6742a273a860f3498882419347b92e4	2026-10-03 02:58:52.246923+03
+0004_foreground_nodes.sql	6a547d65b075b6173b76f77586044e78595b38f4ea755c70953e21714d47cdf0	2026-10-03 02:58:52.258978+03
+0005_mail_archive_bounds.sql	489ebe8120810b38ae573e7ecb91b7f44ed99d667417a311c040a4543e79123c	2026-10-03 02:58:52.269934+03
+0006_work_index.sql	3adb7085389cd2b8db51ae2dd0ff58c1ef70be458ee5866e040de8703c277a8b	2026-10-03 02:58:52.282398+03
+0007_mail_sent_index.sql	65b78160a855488f20167a000c8080d58e3fb58ff2506249a9edb9e4b4744d57	2026-10-03 02:58:52.292783+03
+0008_work_access.sql	a3e89bbee4218b15ba1551d5675ea8ec16c9dc166072ba9d79f23beb4f4e89d8	2026-10-03 02:58:52.302557+03
+0009_work_query.sql	ef0cede4372668fe442b0f1d1ccccae9e1287822feda4a770352dbf655ebbf68	2026-10-03 02:58:52.314442+03
+0010_policy_candidates.sql	64f1427b634f099b6e641955de4d1a196a8e0b11d312da151625da658c91ab97	2026-10-03 02:58:52.322093+03
+0011_initial_statistics.sql	71d7aeb436772e4efa0af523afbbbd5841ac75853226f2d253eb24de05ce89dc	2026-10-03 02:58:52.328528+03
+0012_work_list.sql	e5171c98b1052b04b08a78a4565178edee913d8c20263b132433509a247e5ade	2026-10-03 02:58:52.338618+03
+0013_custody_receipt_rows.sql	80840a75c1ef6dee12825fa9fd9730a7a73ceb0bba928f8432b73574ccd7a522	2026-10-03 02:58:52.346264+03
+0014_summary_cost_exceptions.sql	78622e24d4a27e29b93d23fee16cde10fde56d14c9eb4a6ed392f435842d3366	2026-10-03 02:58:52.354689+03
+0015_receipt_function_hardening.sql	e8ec848bdadee07ce63ae96022165c2cc1c801684a4b86f17b4c33bb47cf0c6c	2026-10-03 02:58:52.3611+03
+0016_steered_log_tail.sql	238deef0e6cb77bd50f005aff3e7ebc3b4d6c4f9616213b6e6d967f95a5ec917	2026-10-03 02:58:52.369972+03
+0017_foreground_tree_val.sql	855cbadfa7bdc6c36ebf8fc267f8ddf7dab22468a04855f70979b80522f284a4	2026-10-03 02:58:52.377525+03
+0018_foreground_asks_resolved_recent.sql	fbe3c77dfb1cbfd943ab81ce26a6aa35afbfcdcf47a05e39676681a875f31d08	2026-10-03 02:58:52.384694+03
+0019_present_evicted_index.sql	3b0ec7b21d52e428aa729fbd79ac2e4b6100e31ad0aefceb093cb84188085452	2026-10-03 02:58:52.391532+03
 \.
 
 
@@ -5678,4 +5678,4 @@ GRANT SELECT ON TABLE public.schema_migrations TO orgtree_runtime;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict vkdTgVWotUZ2CdBNXNb2hcWO6gahona0kt4AQXXlMcFbGSazoCQW6u1oyELHb5e
+\unrestrict cRAxubLXMbFrD8PBn0P567FNskTNN4o5fzQh439XtJpPfwYrlNG26LydsgYPwfv

@@ -113,21 +113,21 @@
   "kiosk": null,
   "_migrations": {
     "mail_log_ids": {
-      "at": "2026-10-02T23:38:32.364Z",
+      "at": "2026-10-02T23:58:52.732Z",
       "repaired": 0
     },
     "steer_attempt_views": {
-      "at": "2026-10-02T23:38:32.364Z",
+      "at": "2026-10-02T23:58:52.732Z",
       "stripped": 0
     },
     "extern_multi_holder_v1": {
-      "at": "2026-10-02T23:38:32.364Z",
+      "at": "2026-10-02T23:58:52.732Z",
       "mode": "inspect",
       "holders": [],
       "multi_holder": false
     },
     "principal_seat_ids": {
-      "at": "2026-10-02T23:38:32.364Z",
+      "at": "2026-10-02T23:58:52.732Z",
       "minted": 0,
       "shared": 0
     }
@@ -280,57 +280,10 @@
       "at": "2026-01-01T00:00:00.000Z"
     }
   ],
-  "steer_attempts": {
-    "lead": {
-      "attempt1": {
-        "at": "2026-01-01T00:00:00.000Z",
-        "toks": [
-          "delivery1"
-        ]
-      }
-    }
-  },
-  "work_items_archive": [
+  "user_mail_log": [
     {
-      "slug": "old-task",
-      "title": "Old task",
-      "status": "done",
-      "archived_at": "2026-01-01T00:00:00.000Z",
-      "history": []
-    }
-  ],
-  "turn_log": {
-    "lead": [
-      {
-        "n": 1,
-        "at": "2026-01-01T00:00:00.000Z",
-        "cost": 1.5,
-        "ms": 10
-      }
-    ]
-  },
-  "org_inbox": [
-    {
-      "id": "org1",
-      "dir": "in",
-      "peer": "synthetic",
-      "body": "Body",
-      "at": "2026-01-01T00:00:00.000Z"
-    }
-  ],
-  "watchdog_history": [
-    {
-      "watchdog": "watch0",
-      "node": "lead",
-      "at": "2026-01-01T00:00:00.000Z",
-      "gist": "Synthetic"
-    }
-  ],
-  "documents": [
-    {
-      "id": "doc1",
-      "node": "lead",
-      "title": "Synthetic",
+      "id": "log1",
+      "from": "lead",
       "body": "Body",
       "at": "2026-01-01T00:00:00.000Z"
     }
@@ -343,18 +296,22 @@
       }
     ]
   },
-  "work_scope_log": {
-    "lead": []
-  },
-  "steered_log": {
-    "lead": [
-      {
-        "at": "2026-01-01T00:00:00.000Z",
-        "text": "Synthetic steer"
-      }
-    ]
-  },
-  "op_receipts": [],
+  "events": [
+    {
+      "at": "2026-01-01T00:00:00.000Z",
+      "op": "fixture",
+      "actor": "user"
+    }
+  ],
+  "org_inbox": [
+    {
+      "id": "org1",
+      "dir": "in",
+      "peer": "synthetic",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
+    }
+  ],
   "mail_log": {
     "lead": [
       {
@@ -365,6 +322,36 @@
       }
     ]
   },
+  "work_items_archive": [
+    {
+      "slug": "old-task",
+      "title": "Old task",
+      "status": "done",
+      "archived_at": "2026-01-01T00:00:00.000Z",
+      "history": []
+    }
+  ],
+  "watchdog_history": [
+    {
+      "watchdog": "watch0",
+      "node": "lead",
+      "at": "2026-01-01T00:00:00.000Z",
+      "gist": "Synthetic"
+    }
+  ],
+  "work_scope_log": {
+    "lead": []
+  },
+  "turn_log": {
+    "lead": [
+      {
+        "n": 1,
+        "at": "2026-01-01T00:00:00.000Z",
+        "cost": 1.5,
+        "ms": 10
+      }
+    ]
+  },
   "notice_log": [
     {
       "node": "lead",
@@ -372,14 +359,7 @@
       "text": "Archived notice"
     }
   ],
-  "user_mail_log": [
-    {
-      "id": "log1",
-      "from": "lead",
-      "body": "Body",
-      "at": "2026-01-01T00:00:00.000Z"
-    }
-  ],
+  "op_receipts": [],
   "lifecycle": [
     {
       "operation_id": "life1",
@@ -388,13 +368,33 @@
       "at": "2026-01-01T00:00:00.000Z"
     }
   ],
-  "events": [
+  "steer_attempts": {
+    "lead": {
+      "attempt1": {
+        "at": "2026-01-01T00:00:00.000Z",
+        "toks": [
+          "delivery1"
+        ]
+      }
+    }
+  },
+  "documents": [
     {
-      "at": "2026-01-01T00:00:00.000Z",
-      "op": "fixture",
-      "actor": "user"
+      "id": "doc1",
+      "node": "lead",
+      "title": "Synthetic",
+      "body": "Body",
+      "at": "2026-01-01T00:00:00.000Z"
     }
   ],
+  "steered_log": {
+    "lead": [
+      {
+        "at": "2026-01-01T00:00:00.000Z",
+        "text": "Synthetic steer"
+      }
+    ]
+  },
   "work_items": [
     {
       "slug": "synthetic-task",

@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import subprocess
@@ -71,6 +72,8 @@ class FixtureIntegrity(unittest.TestCase):
             with self.subTest(release=release):
                 self.assertEqual(manifest['tag'], 'v' + release)
                 self.assertRegex(manifest['commit'], r'^[0-9a-f]{40}$')
+                self.assertEqual({p.name for p in folder.iterdir() if p.is_file()},
+                                 set(manifest['files']) | {'manifest.json'})
                 for name, checksum in manifest['files'].items():
                     data = (folder / name).read_bytes()
                     if Path(name).suffix in ('.json', '.pg', '.sql'):
@@ -78,7 +81,11 @@ class FixtureIntegrity(unittest.TestCase):
                     self.assertEqual(hashlib.sha256(data).hexdigest(), checksum, name)
                 for slug, sections in manifest['orgs'].items():
                     doc = json.loads((folder / (slug + '.json')).read_text())
-                    self.assertFalse(set(ledger.NODE_KEYED_SECTIONS) - set(doc))
+                    self.assertEqual(set(manifest['normalized_away']), {'account_token_uuid', 'default_dirs'})
+                    self.assertEqual(set(manifest['not_written_by_release']),
+                                     {'turn_log', 'work_scope_log'} if release == '2.1.14' else set())
+                    covered = set(doc) | set(manifest['normalized_away']) | set(manifest['not_written_by_release'])
+                    self.assertFalse(set(ledger.NODE_KEYED_SECTIONS) - covered)
                     self.assertEqual(set(sections), set(doc))
                     for key, value in doc.items():
                         self.assertEqual(sections[key], {'count': len(value) if isinstance(value, (dict, list))
@@ -126,17 +133,6 @@ class UpgradePath:
         with psycopg.connect(with_db(ADMIN, self.database)) as c:
             self.assertEqual(c.execute('SELECT count(*) FROM public.schema_migrations').fetchone()[0],
                              19 if self.release == '3.0.9' else 20)
-        # The source oracle is today's loader (§5.4). Tags can have a different lazy-section
-        # order; retain their fixed section hashes and check values before using today's order.
-        before = inventory(self.database)
-        for slug in self.docs:
-            output = Path(self.temp.name) / (slug + '-loaded.json')
-            self.child(str(ROOT / 'tools/read-upgrade-source.py'), '--slug', slug,
-                       '--output', str(output), extra={'ORGTREE_STORE': 'postgres'})
-            loaded = json.loads(output.read_text())
-            self.assertEqual(sha(loaded), sha(self.docs[slug]), 'source loader changed fixture values')
-            self.docs[slug] = loaded
-        self.assertEqual(inventory(self.database), before)
 
     def drop_databases(self):
         import psycopg
@@ -160,9 +156,38 @@ class UpgradePath:
 
     def convert(self, mode='first-pass', *args):
         report = Path(tempfile.mkdtemp(dir=self.temp.name))
-        self.child('-m', 'orgtree.orgdb.convert', mode, *args, '--data-root', str(self.data),
+        source_dir = report / 'source'
+        self.load_started = datetime.now(timezone.utc)
+        self.child(str(ROOT / 'tools/run-upgrade-converter.py'), str(source_dir), mode,
+                   *args, '--data-root', str(self.data),
                    '--report-dir', str(report), '--build', 'upgrade-path-test')
+        self.load_finished = datetime.now(timezone.utc)
+        self.sources = {p.stem: json.loads(p.read_text()) for p in source_dir.glob('*.json')}
         return json.loads((report / 'run.json').read_text())
+
+    def expected_source(self, slug, source):
+        """Fixed tag values plus only the measured current-loader additions.
+
+        2.1.14 predates Argon defaults and the principal-seat migration. Its
+        fixture already has a seat, so that migration must report zero changes.
+        Validate the generated timestamp before including it in the oracle;
+        no other value comes from the loaded or converted document.
+        """
+        expected = json.loads(json.dumps(self.docs[slug]))
+        if self.release == '2.1.14':
+            self.assertNotIn('argon', expected['models'])
+            self.assertNotIn('argon', expected['tiers'])
+            self.assertNotIn('principal_seat_ids', expected['_migrations'])
+            expected['models']['argon'] = 'gemini-4-argon'
+            expected['tiers']['argon'] = 2
+            stamp = source['_migrations']['principal_seat_ids']['at']
+            self.assertRegex(stamp, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$')
+            at = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+            # The ledger's timestamp has millisecond precision.
+            self.assertGreaterEqual(at.timestamp(), self.load_started.timestamp() - 0.001)
+            self.assertLessEqual(at, self.load_finished)
+            expected['_migrations']['principal_seat_ids'] = {'at': stamp, 'minted': 0, 'shared': 0}
+        return expected
 
     def registry(self):
         import psycopg
@@ -173,24 +198,32 @@ class UpgradePath:
     def verify(self, slug, row):
         import psycopg
         self.assertEqual(row['state'], 'active')
+        source = self.sources[slug]
+        expected_source = self.expected_source(slug, source)
+        changed = {key: {'expected': expected_source.get(key), 'loaded': source.get(key)}
+                   for key in set(source) | set(expected_source)
+                   if sha(source.get(key)) != sha(expected_source.get(key))}
+        self.assertEqual(sha(source), sha(expected_source),
+                         'source loader changed fixture values: ' + json.dumps(changed)[:6000])
         dest = with_db(RUNTIME, row['database'])
         with psycopg.connect(dest) as c:
             actual_keys = [r[0] for r in c.execute('SELECT key FROM orgtree.org_sections ORDER BY ord')]
-        expected_keys = [k for k in self.docs[slug] if k not in verifier.IGNORED_DEFAULT]
+        expected_keys = [k for k in source if k not in verifier.IGNORED_DEFAULT]
         if actual_keys != expected_keys:
             differences = [(i, a, b) for i, (a, b) in enumerate(zip(expected_keys, actual_keys)) if a != b]
             self.fail(f'top-level order: source-only={set(expected_keys) - set(actual_keys)}, '
                       f'destination-only={set(actual_keys) - set(expected_keys)}, '
                       f'first differences={differences[:8]}')
-        report = verifier.verify_report(self.docs[slug], dest)
+        report = verifier.verify_report(source, dest)
         self.assertEqual(report['problems'], [], json.dumps(report['problems'])[:5000])
         self.assertGreater(report['stats'].get('records agents', 0), 0)
         with psycopg.connect(dest) as c:
             actual = {kind: [sc, dc, ss, ds] for kind, sc, dc, ss, ds in c.execute(
                 'SELECT kind, source_count, dest_count, source_sha256, dest_sha256 FROM '
                 'orgtree.conversion_run_kinds')}
-        expected = {key: [v['count'], v['count'], v['sha256'], v['sha256']]
-                    for key, v in self.manifest['orgs'][slug].items() if key not in verifier.IGNORED_DEFAULT}
+        expected = {key: [len(v) if isinstance(v, (dict, list)) else 1,
+                          len(v) if isinstance(v, (dict, list)) else 1, sha(v), sha(v)]
+                    for key, v in expected_source.items() if key not in verifier.IGNORED_DEFAULT}
         self.assertEqual(actual, expected)
 
     def test_upgrade_checks_counts_checksums_and_independent_values(self):
@@ -212,7 +245,7 @@ class UpgradePath:
                                 "WHERE name = 'lead'").rowcount
             self.assertEqual(changed, 1)
             self.assertEqual(c.execute('SELECT count(*) FROM orgtree.agents').fetchone()[0], count)
-        self.assertTrue(verifier.verify(self.docs['alpha'], with_db(RUNTIME, rows['alpha']['database'])))
+        self.assertTrue(verifier.verify(self.sources['alpha'], with_db(RUNTIME, rows['alpha']['database'])))
 
     def test_fault_isolates_one_org_keeps_legacy_unchanged_and_retry_succeeds(self):
         import psycopg
