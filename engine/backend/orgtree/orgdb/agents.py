@@ -414,7 +414,10 @@ def card_windows(raw, ids, header=False):
                               'GROUP BY node',(ids,)).fetchall())
     for row in _dicts(raw,'SELECT selected.node AS owner,q.* '
         'FROM unnest(%s::text[]) selected(node) CROSS JOIN LATERAL ('
-        'SELECT id,public_id,title,at,at_text,format,extra,ord FROM orgtree.documents WHERE node=selected.node '
+        'SELECT id,public_id,title,at,at_text,format,'
+        "(SELECT json_object_agg(e.key,e.value) FROM json_each(extra) e "
+        "WHERE e.key IN ('id','title','at','format')) AS extra,ord "
+        'FROM orgtree.documents WHERE node=selected.node '
         'ORDER BY ord DESC LIMIT 10) q ORDER BY selected.node,q.ord',(ids,)):
         body=codec.decode(_DOCUMENT_META,row,codec.Children({},{}),(row['id'],))
         fmt=body.get('format')
