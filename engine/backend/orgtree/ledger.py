@@ -1867,7 +1867,7 @@ class Org:
             gen = [k for k in dict.fromkeys(frontier) if k not in index]
             if not gen:
                 break
-            found = store.lazy_children_index(self, gen)
+            found = store.lazy_children_index(self, gen, live_only=live_only)
             if found is None:
                 whole = found = self.children_index() if whole is None else whole
             frontier = []
@@ -1900,7 +1900,7 @@ class Org:
             if not gen:
                 break
             seen.update(gen)
-            found = store.lazy_children_index(self, gen)
+            found = store.lazy_children_index(self, gen, live_only=live_only)
             if found is None:
                 whole = found = self.children_index() if whole is None else whole
             frontier = []
@@ -5495,6 +5495,17 @@ class Org:
             n["scope"]["org_visibility"] = v
             warnings.append(
                 f"org_visibility adjusted to the parent's capability ({v})")
+        # D-102: a settings save no longer sweeps archived descendants
+        # (3-2-0-saving-a-big-manager-s-settings-must-not-l), so a mode the
+        # chain lowered while this node was archived is applied here
+        if parent is not None:
+            pm = n["scope"].get("permission_mode", "acceptEdits")
+            ppm = self.node(parent)["scope"].get("permission_mode", "acceptEdits")
+            if (pm in PM_LEVELS and ppm in PM_LEVELS
+                    and PM_LEVELS.index(pm) > PM_LEVELS.index(ppm)):
+                n["scope"]["permission_mode"] = ppm
+                warnings.append(
+                    f"permission_mode adjusted to the parent's capability ({ppm})")
 
         n["state"] = "live"
         n["grant"] = grant
@@ -7262,10 +7273,13 @@ class Org:
 
     # ------------------------------------------------------------------ dirs
     def revoke_dir(self, actor: str, nid: str, dir_: str) -> dict[str, Any]:
-        """№30 explicit revoke — cascades into the subtree (their sets must stay ⊆)."""
+        """№30 explicit revoke — cascades into the LIVE subtree (their sets
+        must stay ⊆). An archived descendant keeps the folder until it is
+        rehired: `rehire` clamps its folders to its parent's CURRENT set
+        (3-2-0-saving-a-big-manager-s-settings-must-not-l)."""
         self._require_authority(actor, nid)
         removed: list[str] = []
-        for k in [nid] + self.descendants(nid, live_only=False):
+        for k in [nid] + self.descendants(nid, live_only=True):
             dirs = self.nodes[k]["scope"]["add_dirs"]
             if any(d["path"] == dir_ for d in dirs):
                 self.nodes[k]["scope"]["add_dirs"] = [d for d in dirs if d["path"] != dir_]
@@ -7413,16 +7427,17 @@ class Org:
                 f"the org's top-level grant cap of {cap} — raise the cap in "
                 f"the org settings, or lower the ask")
 
-    def _lazy_subtree_index(self, nid: str
+    def _lazy_subtree_index(self, nid: str, live_only: bool = False
                             ) -> dict[str | None, list[str]] | None:
         """`children_index` for nid's org subtree, fetched one generation per
         statement (`store.lazy_children_index`) — or the whole-org
-        `children_index` when the nodes are not on on-demand rows."""
+        `children_index` when the nodes are not on on-demand rows.
+        `live_only` names (and decodes) no archived node."""
         from . import store                              # noqa: PLC0415 — cycle
         out: dict[str | None, list[str]] = {}
         gen = [nid]
         while gen:
-            index = store.lazy_children_index(self, gen)
+            index = store.lazy_children_index(self, gen, live_only=live_only)
             if index is None:
                 return self.children_index()
             out.update(index)
@@ -7430,7 +7445,8 @@ class Org:
         return out
 
     def _sweep_dirs(self, nid: str, clamp_root: bool = True,
-                    sweep_pm: bool = True) -> list[str]:
+                    sweep_pm: bool = True, live_only: bool = False,
+                    touched: set[str] | None = None) -> list[str]:
         """After a move or scope shrink: clamp the subtree's dirs, tools,
         visibility AND permission mode to each parent in turn (№30 + D-021 +
         D-102 — capability sets stay ⊆ all the way down).
@@ -7448,17 +7464,25 @@ class Org:
         it from a folder or visibility retool would mean any later retool
         anywhere up the chain silently revoked that grant. It is swept when
         the mode ITSELF is lowered (that is what revoking means) and on a
-        move (relocation is not an exception, it is a new chain)."""
+        move (relocation is not an exception, it is a new chain).
+
+        `live_only` walks the LIVE subtree only: a settings save leaves
+        archived descendants as they are, and `rehire` re-clamps one against
+        its parent's CURRENT scope when it comes back
+        (3-2-0-saving-a-big-manager-s-settings-must-not-l: re-clamping 1225
+        archived reports under the save's locks jammed the org). `touched`,
+        when given, collects every node whose scope the sweep changed."""
         dropped: list[str] = []
         # on on-demand rows: the subtree's children from one statement per
         # generation, not `children()` decoding the whole table (the sweep
         # only rewrites scopes, so the index stays true for the whole walk)
-        index = self._lazy_subtree_index(nid)
+        index = self._lazy_subtree_index(nid, live_only)
 
         def clamp(k: str, allowed: dict[str, str] | None,
                   ptools: ToolGrant | None, pvis: str | None,
                   ppm: str | None = None) -> None:
             sc = self.nodes[k]["scope"]
+            before = copy.deepcopy(sc) if touched is not None else None
             kept, lost = self._clamp_dirs(sc["add_dirs"], allowed, strict=False)
             sc["add_dirs"] = kept
             dropped.extend(lost)
@@ -7485,8 +7509,10 @@ class Org:
                 # inherited by still holding it
                 sc["permission_mode"] = ppm
                 dropped.append(f"permission_mode:{k}→{ppm}")
+            if touched is not None and sc != before:
+                touched.add(k)
             own: dict[str, str] = {d["path"]: d["mode"] for d in kept}
-            for ch in self.children(k, live_only=False, index=index):
+            for ch in self.children(k, live_only=live_only, index=index):
                 clamp(ch, own, tkept, sc.get("org_visibility", "full"),
                       sc.get("permission_mode", "acceptEdits"))
 
@@ -7501,7 +7527,7 @@ class Org:
                                                       "acceptEdits"))
         else:
             own = self.node(nid)["scope"]
-            for ch in self.children(nid, live_only=False, index=index):
+            for ch in self.children(nid, live_only=live_only, index=index):
                 clamp(ch, self.effective_dirs(nid), own["tools"],
                       own.get("org_visibility", "full"),
                       own.get("permission_mode", "acceptEdits"))
@@ -7662,6 +7688,9 @@ class Org:
                     "nothing to do: a self-retool sets team_charter only")
         else:
             self._require_authority(actor, nid)
+        #: the descendants this call's subtree sweep rewrote (empty when it
+        #: swept nothing) — read by the transaction around it
+        self.scope_touched: set[str] = set()
         n = self.node(nid)
         sc = n["scope"]
         warnings: list[str] = []
@@ -7890,8 +7919,12 @@ class Org:
             # visibility retool must not silently revoke a mode the user
             # deliberately granted below (D-101/D-102). Both flags were added
             # after the suite caught the second case revoking a live grant.
+            # live_only: archived descendants are re-clamped at rehire, not
+            # here; `scope_touched` tells the caller's transaction which
+            # descendants it must hold (lifecycle_tx.set_scope_body)
             swept = self._sweep_dirs(nid, clamp_root=False,
-                                     sweep_pm=lowered_pm)
+                                     sweep_pm=lowered_pm, live_only=True,
+                                     touched=self.scope_touched)
             if swept:
                 warnings.append(f"subtree grants clamped to the new set (№30): {swept}")
         if effort is not None:

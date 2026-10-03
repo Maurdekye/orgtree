@@ -622,6 +622,12 @@ def _children(conn: Any, p: Sequence[Any]) -> Result:
     return Result([(n,) for n in R.children_ids(conn.raw, list(p[0]))])
 
 
+@stmt("SELECT id FROM nodes WHERE id IN (SELECT id FROM node_index WHERE meta->>'parent' = ANY(?) "
+      "AND meta->>'state' <> 'archived') ORDER BY ord")
+def _live_children(conn: Any, p: Sequence[Any]) -> Result:
+    return Result([(n,) for n in R.children_ids(conn.raw, list(p[0]), live_only=True)])
+
+
 @stmt("SELECT id FROM nodes WHERE strpos(val, ?) > 0 AND jsonb_typeof((val::jsonb)->?) IS NOT NULL "
       "AND jsonb_typeof((val::jsonb)->?) <> 'null' ORDER BY ord")
 def _ids_with(conn: Any, p: Sequence[Any]) -> Result:

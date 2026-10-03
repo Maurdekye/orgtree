@@ -1103,13 +1103,15 @@ def node_field_texts(c: Any, key: str) -> list[tuple[str, str | None]]:
     return out
 
 
-def children_ids(c: Any, parents: Sequence[str]) -> list[str]:
+def children_ids(c: Any, parents: Sequence[str], live_only: bool = False) -> list[str]:
     """Candidates whose stored parent is one of ``parents`` ('' = the top level), in table
-    order: a superset (a row whose parent field is kept in extra counts)."""
+    order: a superset (a row whose parent field is kept in extra counts). ``live_only``
+    leaves out archived rows (a row whose state is kept in extra still counts)."""
+    live = " AND (a.state IS DISTINCT FROM 'archived' OR a.extra IS NOT NULL)" if live_only else ""
     return [str(n) for (n,) in c.execute(
         "SELECT a.name FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id = a.parent_id "
-        "WHERE NOT a.tombstone AND (coalesce(p.name, '') = ANY(%s) OR a.extra IS NOT NULL) "
-        "ORDER BY a.ord, a.id", (list(parents),)).fetchall()]
+        "WHERE NOT a.tombstone AND (coalesce(p.name, '') = ANY(%s) OR a.extra IS NOT NULL)"
+        + live + " ORDER BY a.ord, a.id", (list(parents),)).fetchall()]
 
 
 def _tool_list(c: Any) -> Callable[[str, list[str], Rows], int]:

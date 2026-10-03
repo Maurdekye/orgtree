@@ -3426,7 +3426,8 @@ def rollback_copy(doc: Any) -> Any:
     return _copy_lazy_doc(doc, whole_on_demand=False)
 
 
-def lazy_children_index(org: Org, parents: Iterable[str | None]
+def lazy_children_index(org: Org, parents: Iterable[str | None],
+                        live_only: bool = False
                         ) -> dict[str | None, list[str]] | None:
     """The candidate children of each of `parents` (every state), in the
     shape `Org.children(index=...)` takes — or None when the table is not on
@@ -3442,15 +3443,28 @@ def lazy_children_index(org: Org, parents: Iterable[str | None]
     parent as '' (`orgtree_foreground_meta`), and the same re-judging keeps
     only rows whose parent is really null. Without it every peer list of a
     top-level seat — any move to or from the top — decoded the whole table
-    (1206 rows on the live org, 2026-10-01)."""
+    (1206 rows on the live org, 2026-10-01).
+
+    `live_only` names only the children that are not archived, and decodes
+    no archived row: a manager's settings save walks its LIVE subtree, and
+    a manager with 1225 archived reports paid for every one of them
+    (3-2-0-saving-a-big-manager-s-settings-must-not-l)."""
     want = set(parents)
     nodes = dict.get(cast("dict[str, Any]", org.d), "nodes")
     if not want or not isinstance(nodes, LazyNodesMap) or nodes._complete:
         return None
-    ids = _node_ids_where(
-        org, "id IN (SELECT id FROM node_index WHERE meta->>'parent' = ANY(?))",
-        (sorted("" if p is None else p for p in want),),
-        lambda n: isinstance(n, dict) and n.get("parent") in want)
+    if live_only:
+        ids = _node_ids_where(
+            org, "id IN (SELECT id FROM node_index WHERE meta->>'parent' = ANY(?) "
+                 "AND meta->>'state' <> 'archived')",
+            (sorted("" if p is None else p for p in want),),
+            lambda n: (isinstance(n, dict) and n.get("parent") in want
+                       and n.get("state") != "archived"))
+    else:
+        ids = _node_ids_where(
+            org, "id IN (SELECT id FROM node_index WHERE meta->>'parent' = ANY(?))",
+            (sorted("" if p is None else p for p in want),),
+            lambda n: isinstance(n, dict) and n.get("parent") in want)
     idx: dict[str | None, list[str]] = {p: [] for p in want}
     for i in ids:
         idx[dict.__getitem__(nodes, i)["parent"]].append(i)

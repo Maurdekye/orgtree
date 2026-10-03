@@ -603,12 +603,19 @@ pgdoor.declare("rehire",
                body=_op_body(_rehire_op))
 
 
-# revoke_dir: the node and its whole subtree (live or not) have `add_dirs`
-# rewritten FOR UPDATE; the ancestors (authority) and the actor FOR SHARE
-def revoke_dir_rows(org: Any, actor: str, nid: str) -> "tuple[set[str], set[str]]":
+# revoke_dir: the node and every LIVE descendant holding the folder have
+# `add_dirs` rewritten FOR UPDATE; the ancestors (authority) and the actor FOR
+# SHARE. Archived descendants are left as they are (`Org.revoke_dir`): a
+# manager with 1225 archived reports locked all of them
+# (3-2-0-saving-a-big-manager-s-settings-must-not-l). `dir_` None (no folder
+# named yet) plans every live descendant.
+def revoke_dir_rows(org: Any, actor: str, nid: str,
+                    dir_: "str | None" = None) -> "tuple[set[str], set[str]]":
     if nid not in org.nodes:
         return {nid}, set()
-    upd = {nid, *org.descendants(nid, live_only=False)}
+    upd = {nid, *(k for k in org.descendants(nid, live_only=True)
+                  if dir_ is None or any(d["path"] == dir_ for d in
+                                         org.nodes[k]["scope"]["add_dirs"]))}
     share = set(lt._anc(org, nid))
     if actor in org.nodes:
         share.add(actor)
@@ -616,13 +623,15 @@ def revoke_dir_rows(org: Any, actor: str, nid: str) -> "tuple[set[str], set[str]
 
 
 def _revoke_dir_spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
-    upd, share = revoke_dir_rows(snap, str(body.actor), str(body.node or ""))
+    upd, share = revoke_dir_rows(snap, str(body.actor), str(body.node or ""),
+                                 body.dir)
     return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
                          share_nodes=tuple(sorted(share)), logs=("events",))
 
 
 def _revoke_dir_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
-    lt._need(tx.org, lambda o: revoke_dir_rows(o, actor, nid), *_held(tx))
+    lt._need(tx.org, lambda o: revoke_dir_rows(o, actor, nid, tx.body.dir),
+             *_held(tx))
     if tx.body.dir is None:
         raise LedgerError("revoke_dir needs dir")
     return tx.org.revoke_dir(actor, nid, tx.body.dir)

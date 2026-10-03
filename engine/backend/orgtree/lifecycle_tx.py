@@ -525,9 +525,18 @@ def swap_seats(slug: str, actor: str, a: str, b: str) -> dict[str, Any]:
 # §retool (`Org.set_scope`; lead decision 18.6: node_scope is PG-3a's). What
 # it writes depends on which fields the call carries, so the plan is per call:
 #   nodes FOR UPDATE: nid always. With a CAPABILITY field (add_dirs, tools,
-#     org_visibility, permission_mode) also nid's whole subtree + stacks
-#     (`_sweep_dirs` clamps it) and the path from the actor down to nid
-#     (`_raise_along` cascades the grant up it);
+#     org_visibility, permission_mode) also the path from the actor down to
+#     nid (`_raise_along` cascades the grant up it), and exactly the LIVE
+#     descendants the subtree sweep changes (`Org.scope_touched`, from a dry
+#     run on a copy: `_scope_sweep_rows`; a body that finds more raises
+#     Widen, and the rerun holds them). Never the whole
+#     subtree: a manager with 1225 archived reports locked and rewrote every
+#     one of them, and the org's other agents timed out behind it
+#     (3-2-0-saving-a-big-manager-s-settings-must-not-l). A descendant the
+#     sweep does not change is safe unlocked: every writer of a descendant's
+#     scope holds its ancestors (nid among them) at least FOR SHARE, and a
+#     hire under one is clamped to a parent that is already within nid's
+#     new set;
 #   nodes FOR SHARE: every other ancestor (authority) and the actor (its cap);
 #   sections: notices always. With a capability field: for a user/system
 #     actor the four org grant sections FOR UPDATE (a top-level seat's grant
@@ -547,7 +556,7 @@ def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any]
     sections = {"notices"}
     share_sections: set[str] = set()
     if caps and nid in org.nodes:
-        upd |= set(org._taken_with(nid))
+        upd |= _scope_sweep_rows(org, actor, nid, kw)
         top = actor if actor_kind(actor) not in ("user", "system") else USER
         upd |= {k for k in org._path_down(top, nid) if k in org.nodes}
         if actor_kind(actor) in ("user", "system"):
@@ -560,11 +569,28 @@ def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any]
             tuple(sorted(share_sections - sections)), ("events", "notice_log"))
 
 
+def _scope_sweep_rows(org, actor: str, nid: str, kw: dict[str, Any]) -> set[str]:
+    """The live descendants `Org.set_scope(actor, nid, **kw)` would rewrite,
+    from a dry run on a copy (`store.dry_run_copy`, never saved). A call that
+    refuses rewrites nothing; the real call refuses the same way."""
+    import copy                                          # noqa: PLC0415
+    sim = type(org)(store.dry_run_copy(org.d))
+    try:
+        sim.set_scope(actor, nid, **copy.deepcopy(kw))
+    except LedgerError:
+        return set()
+    return set(getattr(sim, "scope_touched", ()))
+
+
 def set_scope_body(tx, actor: str, nid: str, kw: dict[str, Any]) -> dict[str, Any]:
     """The door body."""
     upd, share, secs, ssecs, logs = _scope_plan(tx.org, actor, nid, kw)
     _plan_gap(tx, upd, share, secs, ssecs, logs)
-    return tx.org.set_scope(actor, nid, **kw)
+    res = tx.org.set_scope(actor, nid, **kw)
+    # the descendants the sweep rewrote: held, or the whole call reruns
+    # holding them (nothing of this attempt is committed)
+    _plan_gap(tx, getattr(tx.org, "scope_touched", set()), ())
+    return res
 
 
 def set_scope(slug: str, actor: str, nid: str, **kw: Any) -> dict[str, Any]:
