@@ -3,14 +3,15 @@
 No database. PostgreSQL writes, fences and lifecycle isolation have their own
 controls in test_orgdb_docket_events_pg.py.
 """
-import import_provenance  # noqa: F401  asserts imports resolve in this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import copy
 import json
 from pathlib import Path
 import unittest
 
-from orgtree.orgdb import codec, mappers, sections
+from orgtree.orgdb import codec, docket_events, mappers, sections
+from orgtree.orgdb.mappers import docket as D
 
 AT = '2026-10-03T09:00:00.000Z'
 
@@ -118,6 +119,74 @@ class EventConversion(unittest.TestCase):
         text = migration.read_text(encoding='utf-8')
         self.assertIn('converted before 0010: re-convert it from its legacy data', text)
         self.assertIn('ON DELETE RESTRICT', text)
+
+
+class EventDifferences(unittest.TestCase):
+    def plan(self, before, after):
+        old, _ = convert(before)
+        rows = old['work_item_events']
+        next_id = iter(range(100, 1000))
+        return rows, docket_events.difference(after, rows, item_id=1,
+                                              allocate=lambda: next(next_id))
+
+    def test_append_and_current_pointer_keep_every_old_event(self):
+        before = item()
+        after = copy.deepcopy(before)
+        after['history'].append({'at': AT, 'op': 'update', 'changes': {'status': {}}})
+        after['candidate_verdicts'].append(copy.deepcopy(after['candidate_verdict']))
+        old, (events, removed, rewritten) = self.plan(before, after)
+        self.assertFalse(removed)
+        self.assertFalse(rewritten)
+        self.assertEqual(events[:len(old)], old)
+        self.assertEqual([e['seq'] for e in events[len(old):]], [8, 9])
+        self.assertTrue(all(e['id'] >= 100 for e in events[len(old):]))
+        pointers = docket_events.pointers(after, events)
+        self.assertEqual(pointers['current_verdict_event_id'], events[-1]['id'])
+
+    def test_fold_rewrites_first_row_and_removes_only_the_old_prefix(self):
+        before = item()
+        before['history'] = [{'at': AT, 'op': str(n)} for n in range(5)]
+        after = copy.deepcopy(before)
+        after['history'] = [{'kind': 'folded', 'count': 3}, *before['history'][3:],
+                            {'at': AT, 'op': 'new'}]
+        old, (events, removed, rewritten) = self.plan(before, after)
+        hist = [e for e in events if e['source'] == 'history']
+        self.assertEqual((hist[0]['id'], hist[0]['seq']), (old[0]['id'], old[0]['seq']))
+        self.assertEqual(set(removed), {old[1]['id'], old[2]['id']})
+        self.assertEqual(rewritten, [old[0]['id']])
+        self.assertEqual(hist[1:3], old[3:5])
+        self.assertEqual(hist[-1]['seq'], max(e['seq'] for e in old)+1)
+        self.assertEqual([e for e in events if e['source'] != 'history'], old[5:])
+
+    def test_scope_supersession_rewrites_one_row_and_preserves_other_sources(self):
+        before = item()
+        after = copy.deepcopy(before)
+        after['scope'][0]['superseded_by'] = 2
+        after['scope'].append({'seq': 2, 'kind': 'decision', 'text': 'New ruling'})
+        old, (events, removed, rewritten) = self.plan(before, after)
+        old_scope = next(e for e in old if e['source'] == 'scope')
+        self.assertFalse(removed)
+        self.assertEqual(rewritten, [old_scope['id']])
+        keep = [e for e in events if e['id'] != old_scope['id'] and e['id'] < 100]
+        self.assertEqual(keep, [e for e in old if e['id'] != old_scope['id']])
+        new_scope = next(e for e in events if e['id'] == old_scope['id'])
+        self.assertEqual(docket_events.event_value(new_scope), after['scope'][0])
+
+    def test_clearing_current_values_keeps_their_history_and_noop_is_exact(self):
+        before = item()
+        old, (events, removed, rewritten) = self.plan(before, before)
+        self.assertEqual(events, old)
+        self.assertFalse(removed)
+        self.assertFalse(rewritten)
+        after = copy.deepcopy(before)
+        after['candidate_verdict'] = after['review_packet'] = None
+        _, (events, removed, rewritten) = self.plan(before, after)
+        self.assertEqual(events, old)
+        self.assertFalse(removed)
+        self.assertFalse(rewritten)
+        self.assertEqual(docket_events.pointers(after, events),
+                         {'current_verdict_event_id': None,
+                          'current_review_packet_event_id': None})
 
 
 if __name__ == '__main__':
