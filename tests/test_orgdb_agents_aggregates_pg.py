@@ -210,6 +210,47 @@ class MaintainedAggregates(unittest.TestCase):
             finally:
                 raw.execute('ROLLBACK')
 
+    def test_json_unicode_misfits_allow_agent_and_request_writes(self):
+        from psycopg.types.json import Json
+        from orgtree.orgdb import reader_rows
+        for literal in ('nul\x00tail', 'surrogate\ud800tail', r'literal\u0000tail'):
+            with self.subTest(literal=ascii(literal)), self.connection() as raw:
+                raw.execute('BEGIN')
+                try:
+                    extra={'title':literal, 'state':None}
+                    raw.execute("UPDATE orgtree.agents SET extra=%s WHERE name='dev'",(Json(extra),))
+                    flags=raw.execute("SELECT state_misfit,cost_usd_misfit FROM orgtree.agents WHERE name='dev'").fetchone()
+                    self.assertEqual(flags,(True,False))
+                    raw.execute("UPDATE orgtree.agents SET model='unicode-control' WHERE name='dev'")
+                    self.assertEqual(reader_rows.read_agents(raw,['dev'])['dev']['title'],literal)
+                    for table in ('asks','credit_requests','scope_requests'):
+                        rid=raw.execute(f'INSERT INTO orgtree.{table}(ord,node,status,extra) '
+                            "VALUES(41000,'dev','open',%s) RETURNING id",(Json({'odd':literal,'at':None}),)).fetchone()[0]
+                        raw.execute(f'UPDATE orgtree.{table} SET ord=41001 WHERE id=%s',(rid,))
+                        self.assertEqual(raw.execute(f'SELECT at_misfit,node_misfit FROM orgtree.{table} WHERE id=%s',(rid,)).fetchone(),(True,False))
+                        self.assertEqual(reader_rows.read_records(raw,table,[rid])[0]['odd'],literal)
+                    raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                finally:
+                    raw.execute('ROLLBACK')
+
+    def test_catalog_unicode_fallback_tracks_raw_extra_and_typed_fields(self):
+        from psycopg.types.json import Json
+        with self.connection() as raw:
+            raw.execute('BEGIN')
+            try:
+                raw.execute("UPDATE orgtree.agents SET extra=%s WHERE name='dev'",(Json({'odd':'nul\x00tail'}),))
+                before=raw.execute("SELECT orgtree.foreground_catalog(a) FROM orgtree.agents a WHERE name='dev'").fetchone()[0]
+                raw.execute("UPDATE orgtree.agents SET extra=%s WHERE name='dev'",(Json({'odd':'nul\x00changed'}),))
+                changed=raw.execute("SELECT orgtree.foreground_catalog(a) FROM orgtree.agents a WHERE name='dev'").fetchone()[0]
+                self.assertNotEqual(before,changed)
+                raw.execute("UPDATE orgtree.agents SET title='typed-change' WHERE name='dev'")
+                typed=raw.execute("SELECT orgtree.foreground_catalog(a) FROM orgtree.agents a WHERE name='dev'").fetchone()[0]
+                self.assertNotEqual(changed,typed)
+                raw.execute("UPDATE orgtree.agents SET cost_usd=cost_usd+1 WHERE name='dev'")
+                self.assertEqual(typed,raw.execute("SELECT orgtree.foreground_catalog(a) FROM orgtree.agents a WHERE name='dev'").fetchone()[0])
+            finally:
+                raw.execute('ROLLBACK')
+
     def test_request_flags_select_only_metadata_misfits_and_exact_extra_survives(self):
         from psycopg.types.json import Json
         from orgtree.orgdb import reader_rows
