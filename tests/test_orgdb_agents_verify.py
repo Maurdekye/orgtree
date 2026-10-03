@@ -48,8 +48,16 @@ def checked(connection):
 
 class A1DerivedColumns(unittest.TestCase):
     def test_presence_values_are_not_compared_or_selected(self):
+        expected = {
+            'agents': {field+'_misfit' for field in ('parent', 'predecessor', 'successor',
+                'state', 'ui_order', 'created', 'generation', 'bearer_state',
+                'cost_usd', 'cost_usd_unknown')},
+            **{table: {field+'_misfit' for field in ('node', 'status', 'at', 'resolved_at')}
+               for table in ('asks', 'credit_requests', 'scope_requests')},
+        }
         for table in ('agents', 'asks', 'credit_requests', 'scope_requests'):
-            for field in ov.DERIVED[table]:
+            self.assertEqual(ov.DERIVED[table], expected[table])
+            for field in expected[table]:
                 for value in (False, True):
                     with self.subTest(table=table, field=field, value=value):
                         connection = Connection(table, field, value)
