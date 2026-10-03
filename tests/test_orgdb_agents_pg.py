@@ -227,6 +227,23 @@ class NativeWindows(unittest.TestCase):
             finally:
                 self.twin.edit(lambda d:d.__setitem__(key,saved) if saved is not None else d.pop(key,None))
 
+    def test_request_header_merges_rare_clock_before_global_limit(self):
+        with fixture.storage(False):
+            saved=fixture.store.load_org(self.twin.legacy).d.get('asks')
+        try:
+            records=[dict(id=f'typed-{i}',node='elsewhere',status='resolved',
+                          at=f'2026-10-{i+1:02d}T00:00:00.000Z') for i in range(14)]
+            records.append(dict(id='preserved',node='elsewhere',status='resolved',
+                                at=fixture.AT,resolved_at=False))
+            self.twin.edit(lambda d:d.__setitem__('asks',records))
+            values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
+                F.read_card_windows(raw,[],header=True)['asks']['asks']))
+            self.assertEqual([r['id'] for r in values[0]],[r['id'] for r in values[1]])
+            self.assertEqual(len(values[1]),12)
+            self.assertIn('preserved',[r['id'] for r in values[1]])
+        finally:
+            self.twin.edit(lambda d:d.__setitem__('asks',saved))
+
     def test_preserved_owner_matches_window_name(self):
         with fixture.storage(False):
             saved=fixture.store.load_org(self.twin.legacy).d
@@ -235,10 +252,14 @@ class NativeWindows(unittest.TestCase):
             self.twin.edit(lambda d:d.__setitem__('asks',[
                 dict(id='odd-owner',node=False,status='open',at=fixture.AT)]))
             self.twin.edit(lambda d:d.__setitem__('documents',[
-                dict(id='odd-doc',node=False,title='metadata',at=fixture.AT,body='large text')]))
+                dict(id=f'odd-doc-{i}',node=False,title='metadata',at=fixture.AT,
+                     body={'authored':'large text'*10000}) for i in range(14)]))
             values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
                 F.read_card_windows(raw,['false'],header=False)))
             self.assertEqual(values[0],values[1])
+            self.assertEqual(values[1]['document_counts']['false'],14)
+            self.assertEqual([r['id'] for r in values[1]['documents']['false']],
+                             [f'odd-doc-{i}' for i in range(4,14)])
         finally:
             for key,value in original.items():
                 self.twin.edit(lambda d:d.__setitem__(key,value) if value is not None else d.pop(key,None))
