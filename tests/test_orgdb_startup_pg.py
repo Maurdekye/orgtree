@@ -22,6 +22,12 @@ What it proves:
     committed is published, one whose save never committed is removed; a trash, a restore and
     a purge are finished from their recorded step (folders included); an interrupted Retry
     goes back to unavailable, its reason saying so;
+  * a create stopped at any step is finished so (review f1): from just after its intent was
+    recorded, before its staging database has a schema (or can be opened at all), to just
+    before it was published; only facts prove that a staging database holds no save, and an
+    error reading one leaves its claim, and its save, for the next start;
+  * an automatic Retry whose converter cannot even be started counts as this build's attempt:
+    the same build does not launch it again (review f2);
   * at start every active org is migrated; a failing org becomes unavailable and fenced while
     the others start with the new file applied;
   * an unavailable org is retried automatically once per new build: not again by the same
@@ -415,6 +421,226 @@ class ClaimsLeftBehind(unittest.TestCase):
         self.assertIn('interrupted', row['state_reason'])
         self.assertEqual(row['attempted_build'], 'new')
         self.assertEqual(self.report['retried'], [], 'an org this build just released is not retried at once')
+
+
+class Stopped(BaseException):
+    """The engine process ends here. A BaseException, so no handler of the code under test
+    runs, as none runs in a killed process (begin_create's own cleanup included)."""
+
+
+def stopping(method: str, at: str | None = None):
+    """Lifecycle.<method> that ends the process right after it ran (for _step: right after it
+    recorded the step ``at``)."""
+    original = getattr(lifecycle.Lifecycle, method)
+
+    def run(self, *args, **kwargs):
+        out = original(self, *args, **kwargs)
+        if at is None or args[1] == at:
+            raise Stopped(f'{method} {at or ""}'.strip())
+        return out
+    return run
+
+
+def save_in(build: lifecycle.Build) -> None:
+    """The org's first save commits in its staging database, as the runtime role."""
+    with conn.connect(RUNTIME, build.database) as r:
+        r.execute('UPDATE orgtree.org_revision SET rev = rev + 1')
+
+
+def databases() -> list:
+    with conn.connect(ADMIN, 'postgres') as c:
+        return [d for (d,) in c.execute('SELECT datname FROM pg_database').fetchall()]
+
+
+def has_revision_table(database: str) -> bool:
+    with conn.connect(ADMIN, database) as c:
+        return c.execute("SELECT to_regclass('orgtree.org_revision')").fetchone()[0] is not None
+
+
+@needs_pg
+class CreateStoppedAtEveryStep(unittest.TestCase):
+    """Review f1: a create the engine stopped in at any point, from just after its intent was
+    recorded (its staging database not made yet, or made without its schema) to just before it
+    was published, is finished by the next start: published when its first save committed,
+    else removed with its staging database. A second start finds nothing left."""
+
+    #: slug -> (the step the stop leaves recorded, whether the first save committed)
+    LEFT = {'intent': ('claimed', False), 'created': ('claimed', False),
+            'unopenable': ('claimed', False), 'database': ('database', False),
+            'migrated': ('migrated', False), 'unsaved': ('identity', False),
+            'saved': ('identity', True), 'filled': ('filled', True),
+            'moved': ('filled', True), 'renamed': ('renamed', True)}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        _drop_new()
+        lc = host('old')
+        set_marker(lc)
+
+        def stopped(slug: str, method: str, at: str | None = None) -> None:
+            with mock.patch.object(lifecycle.Lifecycle, method, stopping(method, at)):
+                try:
+                    lc.begin_create(slug)
+                except Stopped:
+                    return
+            raise AssertionError(f'{slug}: the stop was never reached')
+        stopped('intent', '_step', 'claimed')     # its staging database named, not made
+        stopped('created', '_create_db')          # made, the step not recorded yet
+        stopped('unopenable', '_create_db')
+        stopped('database', '_step', 'database')  # made and recorded, its schema not migrated
+        stopped('migrated', '_step', 'migrated')  # its schema, not its identity
+        lc.begin_create('unsaved')                # handed to a first save that never committed
+        save_in(lc.begin_create('saved'))         # the save committed, nothing after it
+        build = lc.begin_create('filled')
+        save_in(build)
+        lc.mark_filled(build)
+        for slug, method, at in (('moved', '_rename_db', None), ('renamed', '_step', 'renamed')):
+            build = lc.begin_create(slug)
+            save_in(build)
+            lc.mark_filled(build)
+            with mock.patch.object(lifecycle.Lifecycle, method, stopping(method, at)):
+                try:
+                    lc.publish(build)
+                except Stopped:
+                    continue
+            raise AssertionError(f'{slug}: the stop was never reached')
+        before = rows()
+        # a staging database no session can open (as one an interrupted DROP DATABASE leaves
+        # invalid): the start must not need to read it
+        with conn.connect(ADMIN, 'postgres') as c:
+            c.execute(f'ALTER DATABASE "{before["unopenable"]["op_target_db"]}" ALLOW_CONNECTIONS false')
+        cls.left = {s: (r['op_kind'], r['op_step']) for s, r in before.items()}
+        cls.ids = {s: r['org_id'] for s, r in before.items()}
+        present = databases()
+        cls.stage_shape = {s: (r['op_target_db'] in present,
+                               r['op_target_db'] in present and has_revision_table(r['op_target_db']))
+                           for s, r in before.items() if s in ('intent', 'created', 'database', 'migrated')}
+        cls.first = run_start(build='new')
+        cls.after_first = rows()
+        cls.dbs_after_first = databases()
+        cls.second = run_start(build='new')
+        cls.after_second = rows()
+
+    def test_every_stop_left_a_create_claim(self) -> None:
+        self.assertEqual(self.left, {s: ('create', step) for s, (step, _) in self.LEFT.items()})
+        # (staging database exists, it has org_revision): the early cuts are before the schema
+        self.assertEqual(self.stage_shape, {'intent': (False, False), 'created': (True, False),
+                                            'database': (True, False), 'migrated': (True, True)})
+
+    def test_the_next_start_finishes_every_one(self) -> None:
+        outcomes = {e['slug']: e['outcome'] for e in self.first['resumed']}
+        self.assertEqual(outcomes, {s: 'active' if saved else 'removed'
+                                    for s, (_, saved) in self.LEFT.items()})
+        self.assertEqual([s for s, r in self.after_first.items() if r['op_kind']], [])
+        self.assertEqual([d for d in self.dbs_after_first if names.kind(d, PREFIX) == 'stage'], [])
+
+    def test_a_create_whose_save_never_committed_leaves_nothing(self) -> None:
+        for slug, (_, saved) in self.LEFT.items():
+            if not saved:
+                with self.subTest(slug):
+                    self.assertNotIn(slug, self.after_first)
+                    self.assertNotIn(names.org(self.ids[slug], PREFIX), self.dbs_after_first)
+
+    def test_a_create_whose_save_committed_is_published_with_it(self) -> None:
+        for slug, (_, saved) in self.LEFT.items():
+            if saved:
+                with self.subTest(slug):
+                    row = self.after_first[slug]
+                    self.assertEqual((row['state'], row['database']),
+                                     ('active', names.org(self.ids[slug], PREFIX)))
+                    with conn.connect(RUNTIME, row['database']) as r:
+                        self.assertEqual(r.execute('SELECT rev FROM org_revision').fetchone()[0], 1)
+
+    def test_a_second_start_finds_nothing_left(self) -> None:
+        self.assertEqual(self.second['resumed'], [])
+        self.assertEqual({s: r['state'] for s, r in self.after_second.items()},
+                         {s: r['state'] for s, r in self.after_first.items()})
+
+
+@needs_pg
+class WhatAStagingDatabaseHolds(unittest.TestCase):
+    """Review f1's limit: only facts prove that a staging database holds no committed save."""
+
+    def setUp(self) -> None:
+        _drop_new()
+        self.lc = host('old')
+        set_marker(self.lc)
+
+    def test_only_facts_answer_no(self) -> None:
+        bare = f'{PREFIX}stage_bare'
+        with conn.connect(ADMIN, 'postgres') as c:
+            c.execute(f'CREATE DATABASE {bare}')
+        build = self.lc.begin_create('read')
+        self.assertFalse(self.lc._holds_a_save(f'{PREFIX}stage_absent'))   # no such database
+        self.assertFalse(self.lc._holds_a_save(bare))                      # no org_revision table
+        self.assertFalse(self.lc._holds_a_save(build.database))            # its revision is 0
+        save_in(build)
+        self.assertTrue(self.lc._holds_a_save(build.database))
+
+    def test_an_error_reading_it_leaves_the_claim_for_the_next_start(self) -> None:
+        import psycopg
+        for error in (psycopg.OperationalError('injected: the connection failed'),
+                      psycopg.errors.InsufficientPrivilege('injected: permission denied')):
+            with self.subTest(type(error).__name__):
+                _drop_new()
+                lc = host('old')
+                set_marker(lc)
+                build = lc.begin_create('kept')
+                save_in(build)
+                original = lifecycle.Lifecycle._admin
+
+                def refusing(self_, dbname, _stage=build.database, _error=error):
+                    if dbname == _stage:
+                        raise _error
+                    return original(self_, dbname)
+                with mock.patch.object(lifecycle.Lifecycle, '_admin', refusing):
+                    first = run_start(build='new')
+                self.assertEqual([(e['slug'], e['outcome']) for e in first['resumed']], [('kept', 'failed')])
+                self.assertIn(type(error).__name__, first['resumed'][0]['error'])
+                row = rows()['kept']
+                self.assertEqual((row['state'], row['op_kind'], row['op_step'], row['op_target_db']),
+                                 ('provisioning', 'create', 'identity', build.database))
+                with conn.connect(ADMIN, build.database) as c:
+                    self.assertEqual(c.execute('SELECT rev FROM orgtree.org_revision').fetchone()[0], 1)
+                second = run_start(build='new')
+                self.assertEqual([(e['slug'], e['outcome']) for e in second['resumed']], [('kept', 'active')])
+                row = rows()['kept']
+                self.assertEqual(row['state'], 'active')
+                with conn.connect(RUNTIME, row['database']) as r:
+                    self.assertEqual(r.execute('SELECT rev FROM org_revision').fetchone()[0], 1)
+
+
+@needs_pg
+class RetryThatCannotStart(unittest.TestCase):
+    """Review f2: an automatic Retry whose converter child cannot even be started still counts
+    as this build's attempt, so the same build does not launch it at every start."""
+
+    def test_it_is_launched_once_per_build(self) -> None:
+        _drop_new()
+        lc = host('old')
+        set_marker(lc)
+        org = lc.create_org('refused')
+        self.assertTrue(lc._mark_unavailable(org, 'conversion', 'an old failure'))
+        before = rows()['refused']
+        self.assertEqual(before['attempted_build'], 'old')
+        with mock.patch('subprocess.run', side_effect=OSError('injected: the converter cannot start')) as launch:
+            first = run_start(build='new')
+            second = run_start(build='new')
+            self.assertEqual(launch.call_count, 1, 'the same build launched the failed Retry again')
+            self.assertEqual([(e['slug'], e['outcome']) for e in first['retried']], [('refused', 'failed')])
+            self.assertIn('injected: the converter cannot start', first['retried'][0]['error'])
+            self.assertEqual(second['retried'], [])
+            row = rows()['refused']
+            self.assertEqual((row['state'], row['unavailable_step'], row['op_kind'], row['attempted_build']),
+                             ('unavailable', 'conversion', None, 'new'))
+            self.assertEqual(row['attempts'], before['attempts'] + 1)
+            self.assertIn('injected: the converter cannot start', row['state_reason'])
+            # a newer build tries it once more, and only once
+            newer = run_start(build='newer')
+            self.assertEqual([(e['slug'], e['outcome']) for e in newer['retried']], [('refused', 'failed')])
+            self.assertEqual(run_start(build='newer')['retried'], [])
+            self.assertEqual(launch.call_count, 2)
+        self.assertEqual(rows()['refused']['attempted_build'], 'newer')
 
 
 # ----------------------------------------------------------------- migrations and Retry at start

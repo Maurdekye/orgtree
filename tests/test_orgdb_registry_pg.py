@@ -18,12 +18,18 @@ What it proves:
   * the idle pool keeps at most 2 per database and closes a connection idle past its limit;
   * lifecycle(): bootstrapped once, with the runtime role the engine's conninfo logs in as;
   * retry(): an org unavailable at 'identity' is retried in place and becomes active; an org
-    another operation holds is Busy before anything runs; an active org is refused.
+    another operation holds is Busy before anything runs; an active org is refused;
+  * a Retry whose converter could not be started records this build's attempt; one that
+    reached the org keeps the outcome it recorded, and an org another operation took meanwhile
+    is never written over (review f2).
 
 Run:  python tools/run-python-verification.py tests/test_orgdb_registry_pg.py
 """
 
 import os
+import shutil
+import subprocess
+import tempfile
 import time
 import unittest
 from unittest import mock
@@ -231,6 +237,116 @@ class Registry(unittest.TestCase):
             self.assertEqual(c.execute('SELECT slug FROM orgtree.org_identity').fetchone()[0], 'a')
         with self.assertRaises(lifecycle.LifecycleError):
             registry.retry(self.a)                       # active: nothing to retry
+
+
+@needs_pg
+class RetryThatNeverReachedTheOrg(unittest.TestCase):
+    """Review f2: a Retry that failed before it reached the org (its converter could not be
+    started) still records this build's attempt. One that reached the org keeps the outcome it
+    recorded, and an org another operation took meanwhile is never written over."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        _drop_all()
+        cls.root = tempfile.mkdtemp(prefix='v3-orgdb-registry-')
+        cls.old = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX,
+                                      build='old')
+        cls.old.bootstrap()
+        cls.lc = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX,
+                                     build='new')
+        cls.lc.bootstrap()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.root, ignore_errors=True)
+
+    def setUp(self) -> None:
+        p = mock.patch.object(registry, '_lc', [self.lc])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def unavailable(self, slug: str) -> int:
+        """An org unavailable at 'conversion' that the old build last attempted."""
+        return self.old.register_org(slug, state='unavailable', unavailable_step='conversion',
+                                     state_reason='an old failure', report_path='old-report.json')
+
+    def another(self, build: str) -> lifecycle.Lifecycle:
+        other = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX,
+                                    build=build)
+        other.bootstrap()
+        return other
+
+    def test_a_converter_that_cannot_start_records_this_builds_attempt(self) -> None:
+        org = self.unavailable('cannot-start')
+        before = self.lc.row(org)
+        with mock.patch('subprocess.run', side_effect=OSError('injected: cannot start')) as launch:
+            with self.assertRaises(OSError):
+                registry.retry(org, data_root=self.root, env={})
+        self.assertEqual(launch.call_count, 1)
+        row = self.lc.row(org)
+        self.assertEqual((row['state'], row['unavailable_step'], row['op_kind'], row['attempted_build']),
+                         ('unavailable', 'conversion', None, 'new'))
+        self.assertEqual(row['attempts'], before['attempts'] + 1)
+        self.assertEqual(row['state_reason'], 'Retry could not run: OSError: injected: cannot start')
+        self.assertEqual(row['report_path'], 'old-report.json')
+
+    def test_an_attempt_that_reached_the_org_keeps_its_own_outcome(self) -> None:
+        org = self.unavailable('reached')
+        before = self.lc.row(org)
+        child = self.another('new')
+
+        def the_child_ran_then_the_wait_failed(argv, *args, **kwargs):
+            claim = child.claim(org, 'retry', expect_state='unavailable',
+                                expect_steps=('conversion',))
+            child.abandon(claim, step='conversion', reason='what the child found')
+            raise subprocess.TimeoutExpired(argv, 3600)
+        with mock.patch('subprocess.run', side_effect=the_child_ran_then_the_wait_failed):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                registry.retry(org, data_root=self.root, env={})
+        row = self.lc.row(org)
+        self.assertEqual(row['state_reason'], 'what the child found')
+        self.assertEqual(row['attempts'], before['attempts'] + 1, 'one attempt recorded twice')
+        self.assertEqual((row['state'], row['op_kind'], row['attempted_build']),
+                         ('unavailable', None, 'new'))
+
+    def test_an_org_another_operation_took_is_not_written(self) -> None:
+        org = self.unavailable('taken')
+        before = self.lc.row(org)
+        other = self.another('other')
+        held = []
+
+        def another_operation_took_it(argv, *args, **kwargs):
+            held.append(other.claim(org, 'retry', expect_state='unavailable',
+                                    expect_steps=('conversion',)))
+            raise OSError('injected: cannot start')
+        with mock.patch('subprocess.run', side_effect=another_operation_took_it):
+            with self.assertRaises(OSError):
+                registry.retry(org, data_root=self.root, env={})
+        row = self.lc.row(org)
+        self.assertEqual((row['op_kind'], row['op_owner']), ('retry', other.instance_id))
+        for key in ('state', 'attempts', 'attempted_build', 'state_reason', 'report_path'):
+            self.assertEqual(row[key], before[key], key)
+        other.abandon(held[0], step='conversion', reason='given back')
+
+    def test_the_record_needs_the_row_as_read_unclaimed_and_unavailable(self) -> None:
+        org = self.unavailable('fenced')
+        other = self.another('other')
+        claim = other.claim(org, 'retry', expect_state='unavailable', expect_steps=('conversion',))
+        now = self.lc.row(org)
+        self.assertFalse(self.lc.note_retry_failure(org, row_version=now['row_version'], reason='x'))
+        self.assertEqual(self.lc.row(org), now, 'a claimed org was written')
+        other.abandon(claim, step='conversion', reason='given back')
+        now = self.lc.row(org)
+        self.assertFalse(self.lc.note_retry_failure(org, row_version=now['row_version'] - 1, reason='x'))
+        self.assertEqual(self.lc.row(org), now, 'a row written since it was read was written')
+        active = self.lc.create_org('working')
+        now = self.lc.row(active)
+        self.assertFalse(self.lc.note_retry_failure(active, row_version=now['row_version'], reason='x'))
+        self.assertEqual(self.lc.row(active), now, 'an active org was written')
+        org = self.unavailable('fresh')
+        now = self.lc.row(org)
+        self.assertTrue(self.lc.note_retry_failure(org, row_version=now['row_version'], reason='x'))
+        self.assertEqual(self.lc.row(org)['attempted_build'], 'new')
 
 
 if __name__ == '__main__':

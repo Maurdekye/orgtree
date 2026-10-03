@@ -36,6 +36,7 @@ What is here (landing step 1):
                      org becomes unavailable while the others start (§2.12)
   check_identity()   org_identity against the registry (step 'identity')
   retry_in_place()   Retry for the steps 'migration' and 'identity'
+  note_retry_failure()  a Retry that failed before it reached the org still records this build
   fence_runtime() / unfence_runtime()
 
 Trash, restore, purge, export and import land with design §6.3 step 3.
@@ -473,6 +474,25 @@ class Lifecycle:
                 (step, reason[:500], self.build, org_id)).rowcount
         return n == 1
 
+    def note_retry_failure(self, org_id: int, *, row_version: int, reason: str) -> bool:
+        """A Retry that failed before it reached the org (its converter child could not be
+        started, or stopped before claiming the org) still counts as this build's attempt: the
+        org stays unavailable at its step with attempted_build this build, so the automatic
+        Retry does not run it again at every start of this build (§2.13, review f2). The reason
+        is the attempt's, as every failed Retry records; the last report stays where it is.
+        Written only while the row is exactly as the caller read it before the attempt
+        (``row_version``) and no operation holds it. When anything wrote the row since (the
+        attempt itself, which records its own outcome, or another operation) nothing is
+        written, so an outcome is never recorded twice or over another's. Returns whether it
+        was written."""
+        with self._app() as c:
+            n = c.execute(
+                "UPDATE orgtree.orgs SET attempts = attempts + 1, attempted_build = %s, "
+                "state_reason = %s, state_at = now(), row_version = row_version + 1 "
+                "WHERE org_id = %s AND row_version = %s AND state = 'unavailable' "
+                "AND op_kind IS NULL", (self.build, reason[:500], org_id, row_version)).rowcount
+        return n == 1
+
     # ------------------------------------------------------------ create
 
     def create_org(self, slug: str, *, org_uuid: str | None = None,
@@ -507,7 +527,8 @@ class Lifecycle:
         'provisioning' and claimed, and gets a migrated staging database the runtime may fill;
         mark_filled() then publish() make it active, and cancel_create() removes every trace,
         as a failed create_org leaves nothing today. A crash in between leaves a 'create'
-        claim, which take_over() returns and resume_create() finishes as an empty org.
+        claim, which take_over() returns at the next start and finish_create() publishes when
+        its first save committed, else removes.
 
         The row is registered already claimed (one transaction). An ordinary error before the
         Build is returned (building and migrating the staging database) is a failed create too:
@@ -532,6 +553,10 @@ class Lifecycle:
         """begin_create()'s first save failed: drop its staging database and its row."""
         self._cancel_create(build.claim)
 
+    #: a create's steps before begin_create() hands its staging database to the first save
+    #: (the Build is returned only after 'identity'): no save can have begun in it
+    _CREATE_BEFORE_SAVE = ("claimed", "database", "migrated")
+
     def finish_create(self, claim: Claim) -> str:
         """At start (A7a): finish or remove a create claim a stopped engine left behind.
         Returns the outcome, 'active' or 'removed'.
@@ -542,34 +567,51 @@ class Lifecycle:
         save, and it is published, as an org whose save committed exists in the legacy store
         too. One that never received it is removed with its row, as a create that fails
         leaves nothing (the legacy create was one transaction). A claim at 'folder' is
-        create_org()'s empty org, which resume_create() finishes as before."""
+        create_org()'s empty org, which resume_create() finishes as before.
+
+        A claim stopped before 'identity' never handed its staging database to a save, so it
+        is removed without reading that database, which may be half made: created, its schema
+        not yet migrated (review f1). At 'identity' it is read (_holds_a_save), and an error
+        reading it leaves the claim for the next start. A step this build does not know is
+        refused, never removed."""
         row = self.row(claim.org_id)
         self._check_current(row, claim)
-        if row["op_step"] == "folder":
+        step = row["op_step"]
+        if step == "folder":
             self.resume_create(claim)
             return "active"
-        if row["op_step"] != "renamed" and self._renamed_already(row):
+        if step != "renamed" and self._renamed_already(row):
             self._step(claim, "renamed")
             row = self.row(claim.org_id)
+            step = "renamed"
         stage = row["op_target_db"]
         build = Build(claim, str(stage), str(row["database"]), str(row["slug"]),
                       str(row["org_uuid"]))
-        if row["op_step"] in ("filled", "renamed"):
+        if step in ("filled", "renamed"):
             self.publish(build)
             return "active"
-        if stage and self._holds_a_save(str(stage)):
-            self.mark_filled(build)
-            self.publish(build)
-            return "active"
+        if step == "identity":
+            if stage and self._holds_a_save(str(stage)):
+                self.mark_filled(build)
+                self.publish(build)
+                return "active"
+        elif step not in self._CREATE_BEFORE_SAVE:
+            raise LifecycleError(f"org {claim.org_id}: a create at step {step!r} is not one "
+                                 "this build finishes; it is left as it is")
         self._cancel_create(claim)
         return "removed"
 
     def _holds_a_save(self, dbname: str) -> bool:
-        """Did a save commit in this staging database: it exists and its org_revision moved."""
+        """Did a save commit in this staging database? Only facts answer no: the database does
+        not exist, its org_revision table does not (a save bumps it in its own transaction, so
+        none committed without it), or its revision never moved. An error reading it, such as a
+        connection or permission failure, is raised: it is no proof that nothing was saved."""
         with self._admin(MAINTENANCE_DB) as c:
             if not self._exists(c, dbname):
                 return False
         with self._admin(dbname) as c:
+            if c.execute("SELECT to_regclass('orgtree.org_revision')").fetchone()[0] is None:
+                return False
             row = c.execute("SELECT rev FROM orgtree.org_revision").fetchone()
         return row is not None and int(row[0]) > 0
 

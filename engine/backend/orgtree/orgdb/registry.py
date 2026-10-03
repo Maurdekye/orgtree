@@ -304,7 +304,12 @@ def retry(org_id: int, *, data_root: str | None = None,
     the store's root and this process's environment); the engine's start passes them, since
     it runs before the store is configured. Raises lifecycle.Busy, before anything runs, when
     another operation holds the org, and lifecycle.LifecycleError when the org is missing or
-    not unavailable."""
+    not unavailable.
+
+    A Retry that fails before it reached the org (the converter child could not be started,
+    or stopped before claiming it) raises its error and still records this build's attempt
+    (``Lifecycle.note_retry_failure``, fenced on the row as read here), so the automatic Retry
+    at start runs it once per build, not at every start (review f2)."""
     from . import lifecycle as L   # noqa: PLC0415
     lc = lifecycle()
     row = lc.row(org_id)
@@ -317,6 +322,13 @@ def retry(org_id: int, *, data_root: str | None = None,
             lc.retry_in_place(org_id)
         else:
             _convert_retry(org_id, lc, data_root=data_root, env=env)
+    except Exception as e:
+        # the attempt recorded its own outcome if it reached the org (the fence then writes
+        # nothing); a failure to record this one must not hide the error itself
+        with contextlib.suppress(Exception):
+            lc.note_retry_failure(org_id, row_version=int(row["row_version"]),
+                                  reason=f"Retry could not run: {type(e).__name__}: {e}")
+        raise
     finally:
         # the fence closed this org's sessions, and a conversion replaces its database: no
         # idle connection from before is any use
