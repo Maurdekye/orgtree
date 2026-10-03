@@ -39,8 +39,7 @@ class Connection:
 
 def checked(connection):
     dest = ov.Dest(connection)
-    checker = ov.Checker(dest)
-    checker.tool_list_ids = checker.used_tool_lists = set()
+    checker = ov.Verifier(dest, {}, ())
     for row in dest.rows(connection.table):
         dest.take(connection.table, row)
     checker.leftovers()
