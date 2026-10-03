@@ -65,6 +65,11 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
         elif kind == "section":
             sect, sep, rest = name.partition(R.SEP)
             if not sep:
+                if exclusive and R.fence_key(name, creating=False) == R.SETTINGS_FENCE:
+                    # every writer of a settings key takes the settings fence before its rows
+                    # (rows.fence_key, review f21); so does the plan, in the same order
+                    lines.append("PERFORM pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
+                                 f"hashtext({lit(R.SETTINGS_FENCE)}));")
                 lines.append(f"PERFORM 1 FROM orgtree.org_sections WHERE key = {lit(name)}{how};")
             elif sect in m.split:
                 lines.append("PERFORM 1 FROM orgtree.org_section_owners o JOIN orgtree.agents a "

@@ -19,7 +19,9 @@ What it proves:
     edit: settings keys (a value, a null), whole sections, nodes (update, insert, delete),
     split owner rows (a new owner, a dropped one), dict logs (append, edit in place, a dropped
     owner), list logs (append, edit), the keyed steering log, the docket (new item, edit,
-    archive), a key outside the registry (set, removed), a deferred key;
+    archive, reopen, also archive then reopen in one org_tx each), a key outside the registry
+    (set, removed), a deferred key; one slug active and archived at commit is refused (the
+    org database's one row per slug);
   * create: create_org with the switch on publishes an active org whose database loads as
     the created document; a create whose first save fails, or whose staging database cannot
     be built (review f23), leaves no registry row and no database, and the same name can be
@@ -29,7 +31,12 @@ What it proves:
   * insert races (review f21): two transactions insert the same absent doc key, or the same
     new node; the second waits for the first and gets the legacy outcome on both stores
     (DO NOTHING inserts nothing; the node insert is refused with IntegrityError), and the
-    first writer's value stays;
+    first writer's value stays. Mixed writers of an absent key of every kind (outside the
+    registry, settings, split owner, docket item): an insert then an upsert ends with the
+    upsert's value, an upsert then an insert keeps the upsert's, both rowcounts as legacy;
+    two upserts of a section (absent, then present) leave the second value whole, never the
+    two merged; an upsert outside an org_tx that locked the section waits without deadlock;
+    two transactions writing settings keys queue on one fence;
   * revision: a changing save bumps the org's revision by exactly one, a no-change save not;
   * org_tx: a named write commits through the view; an unlocked write refuses and lands
     nothing; an org's row locks are its org lock and ONE DO block, in the lock plan's order;
@@ -211,6 +218,7 @@ EDITS = [
     ('docket edit', lambda d: d['work_items'][0].__setitem__('status', 'in_progress')),
     ('docket archive', lambda d: d.setdefault('work_items_archive', []).append(
         d['work_items'].pop(1))),
+    ('docket reopen', lambda d: d['work_items'].append(d['work_items_archive'].pop())),
     ('extra key set', lambda d: d.__setitem__('custom_key', {'x': 2, 'y': [1, 2.5]})),
     ('extra key removed', lambda d: d.pop('custom_key')),
     ('deferred key', lambda d: d['watchdogs'][0].__setitem__('state', 'paused')),
@@ -320,6 +328,39 @@ class Writes(unittest.TestCase):
         with storage(True):
             self.assertEqual([w['slug'] for w in store.load_org(t.copy).d['work_items']],
                              ['fix-the-thing', 'third-item', 'fourth-item'])
+
+    def test_an_item_archived_then_reopened_in_one_org_tx_each(self) -> None:
+        # the reopen's save writes the active row before it deletes the archived one (found
+        # by upgrade-sol: it failed on the slug's unique key until that is checked at commit)
+        t = Twins('reopen')
+        docket = dict(sections=['work_items'], logs=['work_items_archive'])
+        for on, slug in ((False, t.legacy), (True, t.copy)):
+            with storage(on):
+                with orgtx.org_tx(slug, **docket) as tx:
+                    it = tx.d['work_items'].pop(1)
+                    it['archived_at'] = AT
+                    store.log_append(tx.d, 'work_items_archive', it)
+                with orgtx.org_tx(slug, **docket) as tx:
+                    it = tx.d['work_items_archive'].pop(0)
+                    it.pop('archived_at')
+                    it.update(status='open', rev=3)
+                    tx.d['work_items'].append(it)
+                d = store.load_org(slug).d
+                self.assertEqual([w['slug'] for w in d['work_items']], ['fix-the-thing', 'second-item'])
+                self.assertEqual(d.get('work_items_archive') or [], [])
+        t.compare(self, 'archived, then reopened')
+
+    def test_one_slug_active_and_archived_at_commit_is_refused(self) -> None:
+        # the org database holds one row per slug (design A.3); only the order inside a
+        # save is free. Legacy stores the two lists apart, so this is the view's own rule
+        t = Twins('both lists')
+        with storage(True):
+            with self.assertRaises(sqlite3.IntegrityError):
+                with orgtx.org_tx(t.copy, sections=['work_items'], logs=['work_items_archive']) as tx:
+                    store.log_append(tx.d, 'work_items_archive', dict(tx.d['work_items'][1]))
+            d = store.load_org(t.copy).d
+            self.assertEqual([w['slug'] for w in d['work_items']], ['fix-the-thing', 'second-item'])
+            self.assertEqual(d.get('work_items_archive') or [], [])
 
     def test_stale_write_refuses(self) -> None:
         t = Twins('stale')
@@ -467,6 +508,25 @@ class LockBlock(unittest.TestCase):
                                 ('agents', 'FOR UPDATE'), ('org_sections', 'FOR UPDATE'),
                                 ('org_sections', 'FOR UPDATE')])
 
+    def test_a_settings_key_takes_the_settings_fence_before_its_row(self) -> None:
+        # every writer of a settings key takes the one settings fence before its rows
+        # (review f21); the plan does too, so the two orders never cross
+        from orgtree.orgdb.compat import rows as compat_rows
+        t = Twins('settingsfence')
+        with storage(True):
+            seen, p = self._recording()
+            with p:
+                with orgtx.org_tx(t.copy, sections=['asks', 'max_children']) as tx:
+                    tx.d['max_children'] = 7
+            self.assertEqual(store.load_org(t.copy).d['max_children'], 7)
+        block = [q for q in seen if q.startswith('DO $orgtx_')]
+        self.assertEqual(len(block), 1, seen)
+        fence = block[0].find(f"hashtext('{compat_rows.SETTINGS_FENCE}')")
+        row = block[0].find("org_sections WHERE key = 'max_children'")
+        self.assertGreater(fence, block[0].find("org_sections WHERE key = 'asks'"), block[0])
+        self.assertTrue(0 <= fence < row, block[0])
+        self.assertEqual(block[0].count('orgdb-doc-key'), 1, block[0])
+
 
 def wait_for(cond, timeout: float = 15.0) -> bool:
     end = time.monotonic() + timeout
@@ -486,12 +546,13 @@ def lock_waiters(database: str) -> int:
 
 @needs_pg
 class InsertRaces(unittest.TestCase):
-    """Review f21: two transactions insert the same absent doc key, or the same new node. The
-    first holds its transaction open until the second is seen waiting on the server; then it
-    commits. Both stores must give the legacy outcome and keep the first writer's value."""
+    """Review f21: two transactions write the same doc key, at least one of them creating it,
+    or insert the same new node. The first holds its transaction open until the second is
+    seen waiting on the server; then it commits. Both stores must give the legacy outcome:
+    the same rowcounts and the same final value."""
 
     def race(self, on: bool, slug: str, database: str, statement: str,
-             first: tuple, second: tuple) -> tuple:
+             first: tuple, second: tuple, second_statement: str | None = None) -> tuple:
         """(first's rowcount, second's rowcount or the exception it raised)."""
         out: dict = {}
         with storage(on):
@@ -504,7 +565,8 @@ class InsertRaces(unittest.TestCase):
                         with store._POOL.acquire(slug) as b:
                             b.execute('BEGIN IMMEDIATE')
                             try:
-                                out['second'] = b.execute(statement, second).rowcount
+                                out['second'] = b.execute(second_statement or statement,
+                                                          second).rowcount
                                 b.execute('COMMIT')
                             except BaseException:
                                 b.execute('ROLLBACK')
@@ -549,6 +611,155 @@ class InsertRaces(unittest.TestCase):
                 self.assertIsInstance(second, sqlite3.IntegrityError)
                 with storage(on):
                     self.assertEqual(store.load_org(slug).d['nodes']['racer']['title'], 'FIRST')
+
+    INSERT = 'INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO NOTHING'
+    UPSERT = 'INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val'
+
+    def value(self, on: bool, slug: str, key: str):
+        """The doc row of ``key`` as the store answers it (None when absent)."""
+        with storage(on):
+            with store._POOL.acquire(slug) as c:
+                row = c.execute('SELECT val FROM doc WHERE key=?', (key,)).fetchone()
+        return None if row is None else json.loads(row[0])
+
+    def absent_keys(self, t: 'Twins', tag: str) -> list:
+        """(kind, key, first value, second value) for one key of each kind, absent in both
+        stores: a key outside the registry, a settings key, a split owner row, a docket item."""
+        from orgtree.orgdb.compat import rows as compat_rows
+        sep = compat_rows.SEP
+        settings = [k for k in ('cred_warned_at', 'desktop_import', 'headless', 'chain_notices',
+                                'api_fallback_since', 'op_receipts_meta')
+                    if all(self.value(on, slug, k) is None for on, slug, _ in self.databases(t))]
+        self.assertGreaterEqual(len(settings), 2, 'no absent settings keys to race on')
+        setting = settings[0] if tag == 'a' else settings[1]
+        owner = 'ops' if tag == 'a' else 'boss'
+        out = [('plain', f'race_{tag}', {'by': 'first'}, {'by': 'second'}),
+               ('settings', setting, {'by': 'first'}, {'by': 'second'}),
+               ('owner', f'mail{sep}{owner}', [{'id': 'r1', 'from': 'dev', 'body': 'first', 'at': AT}],
+                [{'id': 'r2', 'from': 'dev', 'body': 'second', 'at': AT}]),
+               ('item', f'work_items{sep}race-{tag}', item(f'race-{tag}', 'First'),
+                item(f'race-{tag}', 'Second'))]
+        for on, slug, _ in self.databases(t):
+            for kind, key, _, _ in out:
+                self.assertIsNone(self.value(on, slug, key), (kind, key))
+        return out
+
+    def test_an_insert_then_an_upsert_of_an_absent_key_ends_with_the_upserts_value(self) -> None:
+        # review f21 (r2): the insert decided "absent" under its fence, the upsert did not take
+        # it, committed in between, and the insert then overwrote it
+        t = Twins('mixedrace')
+        keys = self.absent_keys(t, 'a')
+        for on, slug, database in self.databases(t):
+            for kind, key, first, second in keys:
+                with self.subTest(storage='orgdb' if on else 'legacy', kind=kind):
+                    got = self.race(on, slug, database, self.INSERT,
+                                    (key, json.dumps(first)), (key, json.dumps(second)),
+                                    second_statement=self.UPSERT)
+                    self.assertEqual(got, (1, 1))
+                    self.assertEqual(self.value(on, slug, key), second)
+
+    def test_an_upsert_then_an_insert_of_an_absent_key_keeps_the_upserts_value(self) -> None:
+        t = Twins('mixedrace2')
+        keys = self.absent_keys(t, 'b')
+        for on, slug, database in self.databases(t):
+            for kind, key, first, second in keys:
+                with self.subTest(storage='orgdb' if on else 'legacy', kind=kind):
+                    got = self.race(on, slug, database, self.UPSERT,
+                                    (key, json.dumps(first)), (key, json.dumps(second)),
+                                    second_statement=self.INSERT)
+                    self.assertEqual(got, (1, 0))
+                    self.assertEqual(self.value(on, slug, key), first)
+
+    def test_two_upserts_of_a_section_leave_the_second_value_whole(self) -> None:
+        # without a fence both upserts of an absent section wrote their records and neither
+        # removed the other's: the section came back holding both values merged
+        t = Twins('upsertrace')
+        key = next((k for k in ('credit_requests', 'scope_requests')
+                    if all(self.value(on, slug, k) is None for on, slug, _ in self.databases(t))),
+                   'credit_requests')
+        req = lambda rid, n: {'id': rid, 'node': 'dev', 'old': n, 'new': n + 1, 'at': AT,  # noqa: E731
+                              'status': 'pending'}
+        rounds = [([req('c1', 1), req('c2', 2)], [req('c3', 3)]),        # absent, then present
+                  ([req('c4', 4)], [req('c5', 5), req('c6', 6)])]
+        for on, slug, database in self.databases(t):
+            for n, (first, second) in enumerate(rounds):
+                with self.subTest(storage='orgdb' if on else 'legacy', round=n):
+                    got = self.race(on, slug, database, self.UPSERT,
+                                    (key, json.dumps(first)), (key, json.dumps(second)))
+                    self.assertEqual(got, (1, 1))
+                    self.assertEqual(self.value(on, slug, key), second)
+                    with storage(on):
+                        self.assertEqual(store.load_org(slug).d[key], second)
+
+    def test_an_upsert_waits_for_an_org_tx_that_locked_the_section_without_deadlock(self) -> None:
+        # an org_tx locks the section's row first; an upsert outside it used to delete the
+        # section's records and then wait for that row, while the org_tx's save waited for
+        # those records: a deadlock. It now waits at the row, holding nothing
+        t = Twins('planrace')
+        theirs = [{'id': 'q9', 'node': 'ops', 'question': 'theirs?', 'at': AT, 'status': 'open'}]
+        for on, slug, database in self.databases(t):
+            with self.subTest(storage='orgdb' if on else 'legacy'):
+                out: dict = {}
+                with storage(on):
+                    with orgtx.org_tx(slug, sections=['asks']) as tx:
+                        def other() -> None:
+                            try:
+                                with store._POOL.acquire(slug) as b:
+                                    b.execute('BEGIN IMMEDIATE')
+                                    try:
+                                        out['rows'] = b.execute(
+                                            self.UPSERT, ('asks', json.dumps(theirs))).rowcount
+                                        b.execute('COMMIT')
+                                    except BaseException:
+                                        b.execute('ROLLBACK')
+                                        raise
+                            except BaseException as e:       # noqa: BLE001  the outcome under test
+                                out['rows'] = e
+                        th = threading.Thread(target=other)
+                        th.start()
+                        self.assertTrue(wait_for(lambda: lock_waiters(database) > 0),
+                                        'the upsert never waited for the org_tx')
+                        tx.d['asks'].append({'id': 'q8', 'node': 'dev', 'question': 'mine?',
+                                             'at': AT, 'status': 'open'})
+                    th.join(60)
+                    self.assertFalse(th.is_alive(), 'the upsert never finished')
+                    self.assertEqual(out['rows'], 1)
+                    self.assertEqual(store.load_org(slug).d['asks'], theirs)
+
+    def test_settings_writers_share_one_fence(self) -> None:
+        # every settings key is one row: one transaction writing settings A then B, and
+        # another writing B, must queue whole, not each hold a key the other needs
+        t = Twins('settingsrace')
+        a_key, b_key = [k for k in ('cred_warned_at', 'desktop_import', 'headless')
+                        if self.value(True, t.copy, k) is None][:2]
+        out: dict = {}
+        with storage(True):
+            with store._POOL.acquire(t.copy) as a:
+                a.execute('BEGIN IMMEDIATE')
+                a.execute(self.UPSERT, (a_key, json.dumps('a1')))
+
+                def other() -> None:
+                    try:
+                        with store._POOL.acquire(t.copy) as b:
+                            b.execute('BEGIN IMMEDIATE')
+                            try:
+                                out['b'] = b.execute(self.UPSERT, (b_key, json.dumps('b2'))).rowcount
+                                b.execute('COMMIT')
+                            except BaseException:
+                                b.execute('ROLLBACK')
+                                raise
+                    except BaseException as e:       # noqa: BLE001  the outcome under test
+                        out['b'] = e
+                th = threading.Thread(target=other)
+                th.start()
+                self.assertTrue(wait_for(lambda: lock_waiters(registry.lookup(t.copy)[1]) > 0))
+                a.execute(self.UPSERT, (b_key, json.dumps('b1')))
+                a.execute('COMMIT')
+            th.join(60)
+            self.assertFalse(th.is_alive())
+        self.assertEqual(out['b'], 1)
+        self.assertEqual(self.value(True, t.copy, a_key), 'a1')
+        self.assertEqual(self.value(True, t.copy, b_key), 'b2')
 
 
 @needs_pg

@@ -569,9 +569,42 @@ def doc_rows(c: Any, keys: Iterable[str] | None = None, *, names: Names | None =
 
 
 def lock_doc_key(c: Any, key: str) -> None:
-    """Serialise the inserters of one doc key until the transaction ends (an advisory lock:
+    """Serialise the writers of one doc key until the transaction ends (an advisory lock:
     a key that is absent has no row to lock)."""
     c.execute("SELECT pg_advisory_xact_lock(hashtext('orgdb-doc-key'), hashtext(%s))", (key,))
+
+
+#: the one fence of every settings key: they share one row (org_settings), so a fence per key
+#: would let two writers take each other's keys in opposite orders around that row. It starts
+#: with SEP, which no plain key does, and holds no NUL (PostgreSQL text cannot)
+SETTINGS_FENCE = "\x1fsettings"
+
+
+def fence_key(key: str, *, creating: bool) -> str | None:
+    """The advisory fence a writer of doc key ``key`` takes first, or None (review f21).
+
+    A legacy doc key is one row, so every writer that can create it (an insert that does
+    nothing on conflict, an upsert) waited for the other on that row's unique key. Here a
+    key's value is many rows, so those writers take this fence before they decide the key is
+    absent or write it, and the second one sees the first's commit. A split owner's fence is
+    its ``org_section_owners`` row, which ``owner_put`` claims first: None. A settings key's
+    fence is SETTINGS_FENCE, taken by its every writer, since they all lock the one settings
+    row after it. A writer that cannot create a key (a compare-and-set update or delete)
+    takes no fence for other keys: it locks the key's existing rows, as the legacy statement
+    locked its row (a docket header write locks every item row, so an item fence taken after
+    that by a compare-and-set could deadlock)."""
+    kind, _, _ = kind_of(key)
+    if kind == "owner":
+        return None
+    if kind == "key" and model().owner.get(key) is model().settings:
+        return SETTINGS_FENCE
+    return key if creating else None
+
+
+def fence(c: Any, key: str, *, creating: bool) -> None:
+    got = fence_key(key, creating=creating)
+    if got is not None:
+        lock_doc_key(c, got)
 
 
 def doc_get(c: Any, key: str, *, names: Names | None = None,
@@ -592,7 +625,12 @@ def doc_get(c: Any, key: str, *, names: Names | None = None,
 
 
 def doc_put(c: Any, tx: Tx, key: str, text: str, names: Names) -> None:
-    """Write one doc row (insert or replace), no comparison."""
+    """Write one doc row (insert or replace), no comparison.
+
+    A plain key's ``org_sections`` row is written FIRST, before its records: it is the row
+    an org_tx's lock plan and every compare-and-set lock for that key, so a writer that
+    finds it locked waits there holding nothing else, as the legacy writer waited on the one
+    doc row (writing the records first could hold them while waiting, and deadlock)."""
     m = model()
     kind, sect, rest = kind_of(key)
     value = json.loads(text)
@@ -614,30 +652,30 @@ def doc_put(c: Any, tx: Tx, key: str, text: str, names: Names) -> None:
                 raise CompatError(f"{key!r}: a container row with owners in it")
             ensure_section(c, key, "v")          # the split form's container
             return
-        section_put(c, m.owner[key], key, value, names)
         ensure_section(c, key, "n" if value is None else "v")
+        section_put(c, m.owner[key], key, value, names)
         return
     if key == m.workrows.SECTION:
-        header_put(c, tx, text)
         ensure_section(c, key, "v")
+        header_put(c, tx, text)
         return
     sec = m.owner.get(key)
     if sec is m.settings:
-        settings_put(c, key, value)
         ensure_section(c, key, "v")
+        settings_put(c, key, value)
     elif sec is None:
+        if value is not None and not codec.fits("json", value):
+            raise ShapeError(f"{key}: a value no JSON column can hold")
+        ensure_section(c, key, "n" if value is None else "v")
         if value is None:
             c.execute("DELETE FROM orgtree.org_extra WHERE key = %s", (key,))
         else:
-            if not codec.fits("json", value):
-                raise ShapeError(f"{key}: a value no JSON column can hold")
             c.execute("INSERT INTO orgtree.org_extra (key, val) VALUES (%s, %s) "
                       "ON CONFLICT (key) DO UPDATE SET val = EXCLUDED.val",
                       (key, codec.to_column("json", value)))
-        ensure_section(c, key, "n" if value is None else "v")
     else:
-        section_put(c, sec, key, value, names)
         ensure_section(c, key, "n" if value is None else "v")
+        section_put(c, sec, key, value, names)
 
 
 def doc_delete(c: Any, key: str, names: Names) -> int:
@@ -725,20 +763,24 @@ def owner_put(c: Any, sect: str, owner: str, value: Any, names: Names) -> None:
         raise CompatError(f"{sect}[{owner!r}] as an owner row must be a list")
     t = _owner_table(sect)
     aid = names.id(owner, mint=True)
-    c.execute(f"DELETE FROM orgtree.{t.spec.table} WHERE agent_id = %s", (aid,))
     out: Rows = {}
     for i, rec in enumerate(value):
         if not isinstance(rec, dict):
             raise ShapeError(f"{sect}[{owner!r}][{i}]: expected an object")
         codec.encode(t.spec, rec, {"id": i + 1, "agent_id": aid, "idx": i}, out, link=t.link)
-    store_encoded(c, t, out)
 
     def add() -> None:
         c.execute("INSERT INTO orgtree.org_section_owners (section, agent_id, ord, state) "
                   "SELECT %s, %s, coalesce(max(ord), -1) + 1, 'l' FROM orgtree.org_section_owners "
                   "WHERE section = %s ON CONFLICT (section, agent_id) DO UPDATE SET state = 'l'",
                   (sect, aid, sect))
+    # the owner row first: it is this key's fence (review f21). A concurrent writer of the
+    # same owner, an upsert or an insert that does nothing on conflict, waits here for this
+    # transaction, and its own records' delete then sees this one's commit, as the legacy
+    # writers waited on the one doc row
     savepoint_retry(c, add)
+    c.execute(f"DELETE FROM orgtree.{t.spec.table} WHERE agent_id = %s", (aid,))
+    store_encoded(c, t, out)
 
 
 # ----------------------------------------------------------------- the docket

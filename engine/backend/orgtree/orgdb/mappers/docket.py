@@ -144,7 +144,11 @@ WORK_ITEMS = table(
     derived=("anchor_name text GENERATED ALWAYS AS (coalesce(owner_node, created_by_node)) STORED",),
     indexes=(
         "CREATE UNIQUE INDEX work_items_list_ord ON orgtree.work_items (list_key, ord)",
-        "CREATE UNIQUE INDEX work_items_slug ON orgtree.work_items (slug)",
+        # one row per slug, active or archived, checked at COMMIT: a reopen in one save
+        # writes the item's active row before it deletes the archived one (store.py's
+        # order), so the two exist together inside that transaction only
+        "ALTER TABLE orgtree.work_items ADD CONSTRAINT work_items_slug UNIQUE (slug) "
+        "DEFERRABLE INITIALLY DEFERRED",
         "CREATE INDEX work_items_active_order ON orgtree.work_items "
         "(coalesce(docket_at, updated_at) DESC, slug DESC) WHERE archived_at IS NULL",
         "CREATE INDEX work_items_owner ON orgtree.work_items (owner_node)",

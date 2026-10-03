@@ -844,7 +844,7 @@ CREATE TABLE orgtree.work_item_finding_decisions (
 
 CREATE UNIQUE INDEX work_items_list_ord ON orgtree.work_items (list_key, ord);
 
-CREATE UNIQUE INDEX work_items_slug ON orgtree.work_items (slug);
+ALTER TABLE orgtree.work_items ADD CONSTRAINT work_items_slug UNIQUE (slug) DEFERRABLE INITIALLY DEFERRED;
 
 CREATE INDEX work_items_active_order ON orgtree.work_items (coalesce(docket_at, updated_at) DESC, slug DESC) WHERE archived_at IS NULL;
 

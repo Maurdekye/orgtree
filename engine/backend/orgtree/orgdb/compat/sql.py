@@ -369,6 +369,7 @@ def _doc_cas(conn: Any, p: Sequence[Any]) -> Result:
     c = conn.raw
     names = _names(conn)
     with conn.atomic(write=True):
+        R.fence(c, key, creating=False)
         got = R.doc_get(c, key, names=names, lock=True)
         if got is None or not R.same(got[1], expected):
             return _w(0)
@@ -392,10 +393,11 @@ def _doc_insert_absent(conn: Any, p: Sequence[Any]) -> Result:
             if not n:
                 return _w(0)
         else:
-            # the absent decision and the insert are one step (review f21): a second inserter
-            # of this key waits here for the first's transaction, then sees its row and
-            # inserts nothing, as the legacy statement waited on the uncommitted row
-            R.lock_doc_key(c, key)
+            # the absent decision and the insert are one step (review f21): a second writer
+            # of this key (another such insert, or an upsert) waits at the key's fence for
+            # the first's transaction, then sees its row, as the legacy statement waited on
+            # the uncommitted row
+            R.fence(c, key, creating=True)
             if R.doc_get(c, key, names=names, lock=True) is not None:
                 return _w(0)
         R.doc_put(c, conn.tx, key, text, names)
@@ -406,6 +408,10 @@ def _doc_insert_absent(conn: Any, p: Sequence[Any]) -> Result:
 def _doc_upsert(conn: Any, p: Sequence[Any]) -> Result:
     key, text = p
     with conn.atomic(write=True):
+        # the same fence as the insert above (review f21): an upsert of a key another
+        # transaction is inserting or upserting waits for it, then replaces its value whole,
+        # as the legacy upsert waited on the row and then updated it
+        R.fence(conn.raw, key, creating=True)
         R.doc_put(conn.raw, conn.tx, key, text, _names(conn))
         return _w(1)
 
@@ -415,6 +421,7 @@ def _doc_cas_delete(conn: Any, p: Sequence[Any]) -> Result:
     key, expected = p
     names = _names(conn)
     with conn.atomic(write=True):
+        R.fence(conn.raw, key, creating=False)
         got = R.doc_get(conn.raw, key, names=names, lock=True)
         if got is None or not R.same(got[1], expected):
             return _w(0)
@@ -424,6 +431,7 @@ def _doc_cas_delete(conn: Any, p: Sequence[Any]) -> Result:
 @stmt("DELETE FROM doc WHERE key=?")
 def _doc_delete(conn: Any, p: Sequence[Any]) -> Result:
     with conn.atomic(write=True):
+        R.fence(conn.raw, p[0], creating=False)
         return _w(R.doc_delete(conn.raw, p[0], _names(conn)))
 
 
