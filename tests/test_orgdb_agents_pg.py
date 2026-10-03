@@ -404,6 +404,36 @@ class NativeReferences(unittest.TestCase):
         self.assertEqual(values[0],values[1])
         self.assertEqual({r['grantor'] for r in values[1]},{USER,EXTERN})
 
+    def test_parent_boundary_after_typed_link_and_cycle(self):
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('parent','ops'))
+        self.twin.edit(lambda d:d['nodes']['ops'].__setitem__('parent',False))
+        self.twin.edit(lambda d:d['nodes']['false'].__setitem__('parent','ops'))
+        try:
+            values=self.both(lambda s:F.read_exact(s,'dev'))
+            self.assertEqual(set(values[0]['rows']),set(values[1]['rows']))
+            self.assertEqual(set(values[1]['rows']),{'dev','ops','false'})
+            self.assertEqual(values[0]['missing_ancestors'],values[1]['missing_ancestors'])
+        finally:
+            self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('parent','boss'))
+            self.twin.edit(lambda d:d['nodes']['ops'].__setitem__('parent','boss'))
+            self.twin.edit(lambda d:d['nodes']['false'].__setitem__('parent','boss'))
+
+    def test_predecessor_boundary_after_typed_link_and_cycle(self):
+        self.twin.edit(lambda d:d['nodes'].__setitem__('old',dict(
+            fixture.node('old','boss'),state='archived',generation=1,predecessor=False)))
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('predecessor','old'))
+        self.twin.edit(lambda d:d['nodes']['false'].__setitem__('predecessor','dev'))
+        try:
+            values=self.both(lambda s:F.read_exact(s,'dev')['rows']['dev'])
+            for key in ('lineage_count','consultable_predecessor'):
+                self.assertEqual(values[0][key],values[1][key])
+            self.assertEqual(values[1]['lineage_count'],2)
+            self.assertEqual(values[1]['consultable_predecessor'],{'id':'false','generation':7})
+        finally:
+            self.twin.edit(lambda d:d['nodes'].pop('old'))
+            self.twin.edit(lambda d:d['nodes']['dev'].pop('predecessor',None))
+            self.twin.edit(lambda d:d['nodes']['false'].pop('predecessor',None))
+
 
 if __name__ == '__main__':
     unittest.main()
