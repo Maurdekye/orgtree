@@ -253,6 +253,8 @@ def bind_agent(org: str, agent: str, lane: str = "turn") -> Any:
     from .orgdb import enabled
     if not enabled() or _database_queue is None:
         return nullcontext()
+    if _host_slots is not None:
+        raise RuntimeError('active turn host requires durable request admission')
     _configured()
     if _database_resolver is None:
         raise RuntimeError("orgdb turn admission needs the host's org/agent identity resolver")

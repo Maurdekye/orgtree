@@ -631,6 +631,38 @@ class Requests(unittest.TestCase):
         self.assertTrue(all(cost <= 12 for costs in samples for cost in costs), samples)
         self.assertTrue(all(large <= small + 4 for small, large in zip(*samples)), samples)
 
+    def test_final_journal_and_visible_publication_hold_the_original_request_fence(self):
+        from unittest.mock import patch
+        from test_orgdb_turn_hooks import function
+        host = self.host()
+        current, _ = self.running()
+        run = turn_context.Run('alpha', 'seat', self.org.org_id, self.agent,
+                               current.request_id, current.epoch, current.owner, current.token)
+        callback = function('supervisor.py', '_turn_callback', {})
+        publish = function('supervisor.py', '_publish_turn_records', {'_turn_callback': callback})
+        writes = []
+
+        def journal(rows):
+            import psycopg
+            self.assertEqual(turn_context.current(), run)
+            with self.connection() as c:
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    with c.transaction():
+                        c.execute("SET LOCAL lock_timeout='100ms'")
+                        requests.cancel(c, run.request_id)
+            writes.append(('journal', rows))
+
+        with patch.object(turn_runtime, 'current', return_value=host), turn_context.bind(run):
+            self.assertTrue(publish([{'text': 'final'}], journal,
+                                    lambda row: writes.append(('visible', row)), {'text': 'final'}))
+            self.assertEqual([kind for kind, _ in writes], ['journal', 'visible'])
+            with self.connection() as c, c.transaction():
+                requests.cancel(c, run.request_id)
+            self.assertFalse(publish([{'text': 'late'}], journal,
+                                     lambda row: writes.append(('visible', row)), {'text': 'late'}))
+            self.assertEqual([kind for kind, _ in writes], ['journal', 'visible'])
+        self.assertIsNone(turn_context.current())
+
     def test_failed_missing_or_done_start_job_cancels_pending_without_new_uuid(self):
         for state in ('failed', 'done', None):
             with self.subTest(job_state=state):

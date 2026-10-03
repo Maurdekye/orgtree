@@ -1300,6 +1300,17 @@ def _turn_callback(callback: Any, *, publication: bool = False) -> Any:
     return called
 
 
+def _publish_turn_records(records: list[dict[str, Any]], journal: Any,
+                          visible: Any, fallback: Any = None) -> bool:
+    """Publish final journal and visible rows under the original run fence."""
+    def publish() -> bool:
+        journal(records)
+        if fallback is not None:
+            visible(fallback)
+        return True
+    return bool(_turn_callback(publish, publication=True)())
+
+
 # ---------------------------------------------------------- child-process leash
 # Gap audit №29: nothing killed the CLI children when the backend died — and
 # update.ps1 force-kills the backend by design. Orphaned CLIs kept appending to
@@ -19276,9 +19287,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                         "cache_read_input_tokens":
                             int(last_tu.get("cachedInputTokens") or 0),
                         "output_tokens": int(last_tu.get("outputTokens") or 0)}}})
-    _journal_records(final_recs)
-    if fallback_live is not None:
-        _visible_live_row(fallback_live)
+    _publish_turn_records(final_recs, _journal_records, _visible_live_row, fallback_live)
     res: dict[str, Any] = {
         "status": status,
         "total_cost_usd": providers.codex_cost(tier, tu, route["model"]),
@@ -20172,7 +20181,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
                         "input_tokens": tu_in,
                         "cache_read_input_tokens": tu_cached,
                         "output_tokens": tu_out}}})
-    _journal_records(final_recs)
+    _publish_turn_records(final_recs, _journal_records, _visible_live_row, fallback_live)
     # THE DRAFT'S HANDOVER (user report 2026-09-04: "i see double messages in
     # antigravity agents"): `{kind:"text"}` is the seam's signal that a
     # streamed draft is superseded by a durable row (convo.ts sets
@@ -20180,8 +20189,6 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
     # Every committed text step already sent its own frame from
     # `_commit_text`, journal first; the fallback row above is the one case
     # left to hand over here. D-50 holds: the row is on disk before the frame.
-    if fallback_live is not None:
-        _visible_live_row(fallback_live)
     res: dict[str, Any] = {
         "status": status,
         "_antigravity_metered": metered,

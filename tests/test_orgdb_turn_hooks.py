@@ -56,6 +56,22 @@ class Hooks(unittest.TestCase):
         self.assertIsNone(turn_context.current())
         self.assertEqual(self.authorized, [self.run])
 
+    def test_final_provider_rows_and_activated_slots_have_no_unfenced_fallback(self):
+        from orgtree import turnslots
+        tree = ast.parse((ROOT / 'supervisor.py').read_text(encoding='utf-8'))
+        # Check the actual two provider footer calls, including the visible
+        # fallback row. The database method exercises this helper's lock.
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name)
+                 and node.args and isinstance(node.args[0], ast.Name)
+                 and node.args[0].id == 'final_recs']
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(node.func.id == '_publish_turn_records' for node in calls))
+        with patch.dict(os.environ, ORGTREE_STORAGE='orgdb'), \
+                patch.multiple(turnslots, _database_queue=object(), _host_slots=object()):
+            with self.assertRaisesRegex(RuntimeError, 'durable request admission'):
+                turnslots.bind_agent('org', 'seat')
+
     def test_signed_cancelled_run_and_transaction_race_are_http_refusals(self):
         body = SimpleNamespace(org='org', node='seat')
         request = SimpleNamespace(headers={turn_context.HEADER: turn_context.sign(self.run, self.key)})
