@@ -78,7 +78,7 @@ def clone(raw, table, template, start, stop):
             values['archive_seq'] = '1000000 + n'
         key = 'slug'
     raw.execute('INSERT INTO orgtree.' + table + ' (' + fixture.codec.quoted(columns) +
-                ') SELECT ' + ','.join(values[c] for c in columns) +
+                ') OVERRIDING SYSTEM VALUE SELECT ' + ','.join(values[c] for c in columns) +
                 ' FROM orgtree.' + table + ' original CROSS JOIN generate_series(%s::bigint,%s::bigint) n '
                 'WHERE original.' + key + '=%s', (start, stop, template))
 
