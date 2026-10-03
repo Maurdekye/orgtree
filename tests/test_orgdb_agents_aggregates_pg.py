@@ -257,10 +257,11 @@ class MaintainedAggregates(unittest.TestCase):
         import json
         from orgtree.orgdb import reader_rows
         twin=fixture.Twins('a1 unicode codec')
-        twin.edit(lambda d:d['nodes']['dev'].update(title='nul\x00tail', created='surrogate\ud800'))
-        with fixture.storage(False):
-            expected=fixture.store.load_org(twin.legacy).nodes['dev']
         with fixture.storage(True):
+            org=fixture.store.load_org(twin.copy)
+            org.nodes['dev'].update(title='nul\x00tail',created='surrogate\ud800')
+            expected=org.nodes['dev']
+            fixture.store.save_org(org)
             self.assertEqual(fixture.store.load_org(twin.copy).nodes['dev'],expected)
             database=fixture.registry.lookup(twin.copy)[1]
             with fixture.dbconn.connect(fixture.RUNTIME,database) as raw:
