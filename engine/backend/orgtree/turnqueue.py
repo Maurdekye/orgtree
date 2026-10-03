@@ -51,13 +51,14 @@ class Ticket:
     state: str
     epoch: int
     owner: int | None
+    token: str | None = None
 
 
-_TICKET_COLS = "request_id, org_id, agent_id, state, claim_epoch, lease_owner"
+_TICKET_COLS = "request_id, org_id, agent_id, state, claim_epoch, lease_owner, claim_token"
 
 
 def _ticket(row: Any) -> Ticket | None:
-    return None if row is None else Ticket(*row)
+    return None if row is None else Ticket(*row[:6], str(row[6]) if row[6] is not None else None)
 
 
 def clamp_limit(value: Any) -> int:
@@ -117,12 +118,12 @@ class Queue:
                 row = c.execute("SELECT " + _TICKET_COLS + ", agent_name, lane "
                                 "FROM orgtree.turn_tickets WHERE request_id = %s",
                                 (request.request_id,)).fetchone()
-                if (row[1], row[2], row[7]) != (request.org_id, request.agent_id, request.lane):
+                if (row[1], row[2], row[8]) != (request.org_id, request.agent_id, request.lane):
                     raise ValueError("request id already belongs to a different turn")
-                if row[3] == "waiting" and row[6] != request.agent_name:
+                if row[3] == "waiting" and row[7] != request.agent_name:
                     c.execute("UPDATE orgtree.turn_tickets SET agent_name = %s "
                               "WHERE request_id = %s", (request.agent_name, request.request_id))
-                return _ticket(row[:6])
+                return _ticket(row[:7])
         except psycopg.errors.UniqueViolation as exc:
             if exc.diag.constraint_name == "turn_tickets_one_open":
                 raise AgentBusy("agent still has an open turn") from None
@@ -134,7 +135,8 @@ class Queue:
                                     " FROM orgtree.turn_tickets WHERE request_id = %s",
                                     (request_id,)).fetchone())
 
-    def claim(self, instance_id: int, request_id: str | None = None) -> Ticket | None:
+    def claim(self, instance_id: int, request_id: str | None = None,
+              *, claim_token: str | None = None) -> Ticket | None:
         """Claim the fair head, or nothing. A busy admission gate never waits.
 
         With request_id supplied, only that caller's request can be claimed;
@@ -142,6 +144,8 @@ class Queue:
         Locked FIFO heads are skipped as whole orgs, never overtaken within
         their org. The host must start by CAS on the queued org request.
         """
+        from uuid import uuid4
+        token = claim_token or str(uuid4())
         with self.connect() as c, c.transaction():
             gate = self._gate(c, skip=True)
             if gate is None:
@@ -169,8 +173,9 @@ class Queue:
                 return None
             ticket = _ticket(c.execute("UPDATE orgtree.turn_tickets SET state = 'running', "
                                       "claim_epoch = claim_epoch + 1, lease_owner = %s, "
+                                      "claim_token = %s, "
                                       "started_at = clock_timestamp() WHERE request_id = %s "
-                                      "RETURNING " + _TICKET_COLS, (instance_id, row[0])).fetchone())
+                                      "RETURNING " + _TICKET_COLS, (instance_id, token, row[0])).fetchone())
             c.execute("UPDATE orgtree.turn_admission SET last_org_id = %s WHERE singleton",
                       (ticket.org_id,))
             return ticket
@@ -182,7 +187,30 @@ class Queue:
             return c.execute("UPDATE orgtree.turn_tickets SET state = 'done', "
                              "ended_at = clock_timestamp() WHERE request_id = %s "
                              "AND claim_epoch = %s AND lease_owner = %s AND state = 'running' "
-                             "RETURNING id", (ticket.request_id, ticket.epoch, ticket.owner)).fetchone() is not None
+                             "AND claim_token IS NOT DISTINCT FROM %s RETURNING id",
+                             (ticket.request_id, ticket.epoch, ticket.owner, ticket.token)).fetchone() is not None
+
+    def cancel_unstarted(self, request: Request, instance_id: int, claim_token: str) -> None:
+        """Resolve an abandoned acquire, including an uncertain claim commit.
+
+        The caller has not returned from acquire, so its provider cannot have
+        started. A running claim is cancelled only if its per-caller token
+        matches; a duplicate caller cannot cancel another provider. Waiting
+        cancellation and the claim race are serialized under the gate.
+        Retrying after a lost cancellation answer is harmless.
+        """
+        with self.connect() as c, c.transaction():
+            self._gate(c)
+            row = c.execute("SELECT " + _TICKET_COLS + ", lane FROM orgtree.turn_tickets "
+                            "WHERE request_id = %s FOR UPDATE", (request.request_id,)).fetchone()
+            ticket = _ticket(row) if row is not None else None
+            if ticket is None or (ticket.org_id, ticket.agent_id, ticket.owner, row[7]) != (
+                    request.org_id, request.agent_id, instance_id, request.lane):
+                return
+            if ticket.state == 'waiting' or (ticket.state in ('running', 'stopping') and ticket.token == claim_token):
+                c.execute("UPDATE orgtree.turn_tickets SET state = 'cancelled', "
+                          "claim_epoch = claim_epoch + CASE WHEN state = 'stopping' THEN 0 ELSE 1 END, "
+                          "ended_at = clock_timestamp() WHERE request_id = %s", (request.request_id,))
 
     def cancel(self, request: Request) -> Ticket:
         """App half of cancellation, after the org half commits.
@@ -200,7 +228,7 @@ class Queue:
                       (request.request_id, request.org_id, request.agent_id, request.agent_name, request.lane))
             row = c.execute("SELECT " + _TICKET_COLS + ", lane FROM orgtree.turn_tickets "
                             "WHERE request_id = %s", (request.request_id,)).fetchone()
-            if (row[1], row[2], row[6]) != (request.org_id, request.agent_id, request.lane):
+            if (row[1], row[2], row[7]) != (request.org_id, request.agent_id, request.lane):
                 raise ValueError("request id already belongs to a different turn")
             c.execute("UPDATE orgtree.turn_tickets SET "
                       "state = CASE WHEN state = 'waiting' THEN 'cancelled' ELSE 'stopping' END, "
@@ -217,8 +245,8 @@ class Queue:
             return c.execute("UPDATE orgtree.turn_tickets SET state = 'cancelled', "
                              "claim_epoch = claim_epoch + 1, ended_at = clock_timestamp() "
                              "WHERE request_id = %s AND claim_epoch = %s AND lease_owner = %s "
-                             "AND state = 'running' RETURNING id",
-                             (ticket.request_id, ticket.epoch, ticket.owner)).fetchone() is not None
+                             "AND claim_token IS NOT DISTINCT FROM %s AND state = 'running' RETURNING id",
+                             (ticket.request_id, ticket.epoch, ticket.owner, ticket.token)).fetchone() is not None
 
     def acknowledge_stop(self, request_id: str, instance_id: int, epoch: int) -> bool:
         """The current owner has stopped its provider; free a stopping claim."""
@@ -293,7 +321,7 @@ def stale_instances(conn: Any, max_age_s: float = LEASE_SECONDS) -> list[tuple[A
     if max_age_s <= 0:
         raise ValueError("lease age must be positive")
     return conn.execute("SELECT id, host, pid, started_at, heartbeat_at FROM orgtree.engine_instances "
-                        "WHERE dead_at IS NULL AND heartbeat_at <= clock_timestamp() - %s * interval '1 second' "
+                        "WHERE dead_at IS NULL AND heartbeat_at <= statement_timestamp() - %s * interval '1 second' "
                         "ORDER BY id", (max_age_s,)).fetchall()
 
 

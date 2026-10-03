@@ -6,6 +6,11 @@ CREATE TABLE orgtree.turn_queue_orgs (
   position bigint GENERATED ALWAYS AS IDENTITY UNIQUE
 );
 ALTER TABLE orgtree.engine_instances ADD COLUMN dead_at timestamptz;
+CREATE INDEX engine_instances_live_heartbeat ON orgtree.engine_instances (heartbeat_at, id)
+  WHERE dead_at IS NULL;
+-- Distinguishes a caller's uncertain admission from another caller of the
+-- same durable request, even when both callers belong to the same process.
+ALTER TABLE orgtree.turn_tickets ADD COLUMN claim_token uuid;
 ALTER TABLE orgtree.turn_admission DROP CONSTRAINT turn_admission_slot_limit_check;
 ALTER TABLE orgtree.turn_admission ADD CHECK (slot_limit BETWEEN 0 AND 512);
 -- A closed gate (0) is useful internally; the existing user setting still

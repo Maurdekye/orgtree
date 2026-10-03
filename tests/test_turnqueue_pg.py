@@ -7,6 +7,7 @@ lock. All actions use the runtime role after lifecycle bootstrap.
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import dataclasses
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -102,6 +103,18 @@ class QueueTests(unittest.TestCase):
         with runtime() as c:
             c.execute("UPDATE orgtree.engine_instances SET heartbeat_at = now() - interval '31 seconds' "
                       "WHERE id = %s", (self.instance,))
+
+    @contextmanager
+    def adapter(self):
+        with patch.dict(os.environ, {'ORGTREE_STORAGE': 'orgdb'}), \
+                patch.object(turnslots, '_database_queue', None), \
+                patch.object(turnslots, '_database_instance', None):
+            turnslots.configure(self.instance, runtime)
+            slots = turnslots.FairSlots()
+            try:
+                yield slots, turnslots._database_queue
+            finally:
+                slots.close()
 
     def test_migration_idempotent_runtime_rights_and_default(self):
         with conn.connect(ADMIN, APP) as c:
@@ -445,6 +458,232 @@ class QueueTests(unittest.TestCase):
                 slots.close()
                 thread.join(10)
             self.assertFalse(thread.is_alive())
+
+    def test_committed_enqueue_lost_reply_cleans_its_waiting_ticket(self):
+        request = self.request()
+        with self.adapter() as (slots, queue):
+            enqueue = queue.enqueue
+            def lost_reply(*args, **kwargs):
+                enqueue(*args, **kwargs)
+                raise ConnectionError('enqueue reply lost after commit')
+            with turnslots.bind_request(request), patch.object(queue, 'enqueue', side_effect=lost_reply):
+                with self.assertRaisesRegex(ConnectionError, 'enqueue reply lost'):
+                    slots.acquire('a')
+            self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
+            self.assertEqual(self.queue.snapshot()['waiting'], 0)
+            self.assertEqual(slots.pending_recovery(), [])
+
+    def test_committed_claim_lost_reply_cancels_only_its_unstarted_claim(self):
+        request = self.request()
+        with self.adapter() as (slots, queue):
+            claim = queue.claim
+            committed = []
+            def lost_reply(*args, **kwargs):
+                committed.append(claim(*args, **kwargs))
+                raise ConnectionError('claim reply lost after commit')
+            with turnslots.bind_request(request), patch.object(queue, 'claim', side_effect=lost_reply):
+                with self.assertRaisesRegex(ConnectionError, 'claim reply lost'):
+                    slots.acquire('a')
+            self.assertIsNotNone(committed[0], 'control: the real claim committed')
+            current = self.queue.get(request.request_id)
+            self.assertEqual(current.state, 'cancelled')
+            self.assertEqual(current.token, committed[0].token)
+            self.assertEqual(current.epoch, committed[0].epoch + 1)
+            self.assertEqual(self.queue.snapshot()['held'], 0)
+            self.assertIsNone(slots.current_claim)
+            self.assertEqual(slots.pending_recovery(), [])
+
+    def test_recovery_never_cancels_another_callers_same_owner_claim(self):
+        request = self.request()
+        with self.adapter() as (slots, queue):
+            claim = queue.claim
+            committed = []
+            def another_caller_won(instance_id, request_id, **_kwargs):
+                committed.append(claim(instance_id, request_id, claim_token=str(uuid.uuid4())))
+                raise ConnectionError('our claim outcome was lost')
+            with turnslots.bind_request(request), patch.object(queue, 'claim', side_effect=another_caller_won):
+                with self.assertRaises(ConnectionError):
+                    slots.acquire('a')
+            self.assertEqual(self.queue.get(request.request_id), committed[0])
+            self.assertEqual(self.queue.snapshot()['held'], 1)
+            self.assertEqual(slots.pending_recovery(), [])
+            self.assertTrue(self.queue.finish(committed[0]))
+
+    def test_pre_sql_finish_failure_keeps_exact_claim_for_retry(self):
+        with self.adapter() as (slots, queue):
+            for error_type in (ConnectionError, turnqueue.LostClaim):
+                with self.subTest(error_type=error_type):
+                    request = self.request()
+                    with turnslots.bind_request(request):
+                        slots.acquire('a')
+                    ticket = slots.current_claim
+                    with patch.object(queue, 'finish', side_effect=error_type('finish not sent')):
+                        with self.assertRaisesRegex(error_type, 'finish not sent'):
+                            slots.release()
+                        self.assertEqual(slots.current_claim, ticket)
+                        self.assertEqual(self.queue.get(request.request_id), ticket)
+                        self.assertEqual(len(slots.pending_recovery()), 1)
+                    slots.release()
+                    self.assertIsNone(slots.current_claim)
+                    self.assertEqual(slots.pending_recovery(), [])
+                    self.assertEqual(self.queue.get(request.request_id).state, 'done')
+
+    def test_committed_finish_and_stop_ack_lost_replies_are_reconciled(self):
+        with self.adapter() as (slots, queue):
+            for stopping in (False, True):
+                request = self.request()
+                with turnslots.bind_request(request):
+                    slots.acquire('a')
+                if stopping:
+                    self.queue.cancel(request)
+                method = 'acknowledge_stop' if stopping else 'finish'
+                write = getattr(queue, method)
+                committed = []
+                def lost_reply(*args, **kwargs):
+                    committed.append(write(*args, **kwargs))
+                    raise ConnectionError('terminal reply lost after commit')
+                with patch.object(queue, method, side_effect=lost_reply):
+                    slots.release()
+                self.assertEqual(committed, [True])
+                self.assertEqual(self.queue.get(request.request_id).state, 'cancelled' if stopping else 'done')
+                self.assertEqual(self.queue.snapshot()['held'], 0)
+                self.assertIsNone(slots.current_claim)
+                self.assertEqual(slots.pending_recovery(), [])
+
+    def test_cleanup_unreachable_then_listener_recovers_without_a_new_turn(self):
+        request = self.request()
+        with self.adapter() as (slots, queue):
+            enqueue = queue.enqueue
+            def lost_reply(*args, **kwargs):
+                enqueue(*args, **kwargs)
+                raise ConnectionError('enqueue committed')
+            with turnslots.bind_request(request), patch.object(queue, 'enqueue', side_effect=lost_reply), \
+                    patch.object(queue, 'cancel_unstarted', side_effect=ConnectionError('DB unreachable during cleanup')):
+                with self.assertRaisesRegex(ConnectionError, 'enqueue committed'):
+                    slots.acquire('a')
+                self.assertEqual(self.queue.get(request.request_id).state, 'waiting')
+                self.assertEqual(len(slots.pending_recovery()), 1)
+                slots.recover_pending()
+                self.assertEqual(len(slots.pending_recovery()), 1, 'failed cleanup retains identity')
+            # No new acquire/release repairs it. The existing listener retries.
+            slots.wake()
+            deadline = time.monotonic() + 10
+            while slots.pending_recovery() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(slots.pending_recovery(), [])
+            self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
+
+    def test_cleanup_lost_reply_and_shutdown_preserve_unresolved_identity(self):
+        request = self.request()
+        with self.adapter() as (slots, queue):
+            enqueue, cancel_unstarted = queue.enqueue, queue.cancel_unstarted
+            def lost_enqueue(*args, **kwargs):
+                enqueue(*args, **kwargs)
+                raise ConnectionError('enqueue reply lost')
+            def lost_cleanup(*args, **kwargs):
+                cancel_unstarted(*args, **kwargs)
+                raise ConnectionError('cleanup reply lost')
+            with turnslots.bind_request(request), patch.object(queue, 'enqueue', side_effect=lost_enqueue), \
+                    patch.object(queue, 'cancel_unstarted', side_effect=lost_cleanup):
+                with self.assertRaises(ConnectionError):
+                    slots.acquire('a')
+                self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
+                self.assertEqual(len(slots.pending_recovery()), 1)
+                with self.assertRaisesRegex(RuntimeError, 'unresolved database outcomes'):
+                    slots.close()
+                self.assertEqual(len(slots.pending_recovery()), 1)
+            slots.recover_pending()
+            self.assertEqual(slots.pending_recovery(), [])
+
+    def test_failed_release_and_read_are_retried_after_db_recovery(self):
+        request = self.request()
+        with self.adapter() as (slots, queue), turnslots.bind_request(request):
+            slots.acquire('a')
+            ticket = slots.current_claim
+            with patch.object(queue, 'finish', side_effect=ConnectionError('DB unreachable')), \
+                    patch.object(queue, 'get', side_effect=ConnectionError('DB unreachable')):
+                with self.assertRaises(ConnectionError):
+                    slots.release()
+                self.assertEqual(slots.current_claim, ticket)
+                self.assertEqual(len(slots.pending_recovery()), 1)
+            slots.wake()
+            deadline = time.monotonic() + 10
+            while slots.pending_recovery() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(slots.pending_recovery(), [])
+            self.assertEqual(self.queue.get(request.request_id).state, 'done')
+            slots.release()  # caller may resolve its retained exact token too
+            self.assertIsNone(slots.current_claim)
+
+    def test_recovered_release_allows_same_thread_next_acquire(self):
+        request = self.request()
+        with self.adapter() as (slots, queue):
+            with turnslots.bind_request(request):
+                slots.acquire('a')
+            with patch.object(queue, 'finish', side_effect=ConnectionError('DB unreachable')), \
+                    patch.object(queue, 'get', side_effect=ConnectionError('DB unreachable')):
+                with self.assertRaises(ConnectionError):
+                    slots.release()
+                self.assertEqual(len(slots.pending_recovery()), 1)
+            slots.recover_pending()
+            self.assertEqual(self.queue.get(request.request_id).state, 'done')
+            self.assertEqual(slots.pending_recovery(), [])
+            # A worker whose previous release raised has already unwound.
+            # It can serve the next request without manually repeating it.
+            another = self.request()
+            with turnslots.bind_request(another):
+                slots.acquire('a')
+            self.assertEqual(slots.current_claim.request_id, another.request_id)
+            slots.release()
+            self.assertEqual(self.queue.get(another.request_id).state, 'done')
+            self.assertEqual(self.queue.snapshot()['held'], 0)
+
+    def test_stale_instance_plan_excludes_retired_history_and_catches_missing_index(self):
+        class RecordingConnection:
+            def __init__(self, connection):
+                self.connection = connection
+            def execute(self, statement, args):
+                self.statement, self.args = statement, args
+                return self.connection.execute(statement, args)
+        def leaves(node):
+            return [node] if not node.get('Plans') else [leaf for child in node['Plans'] for leaf in leaves(child)]
+        def table_scans(node):
+            own = [node] if node.get('Relation Name') == 'engine_instances' else []
+            return own + [scan for child in node.get('Plans', []) for scan in table_scans(child)]
+        def assert_indexed(plan):
+            scans = leaves(plan['Plan'])
+            self.assertEqual([node.get('Index Name') for node in scans], ['engine_instances_live_heartbeat'])
+            self.assertIn('heartbeat_at', scans[0]['Index Cond'])
+            relation_scans = table_scans(plan['Plan'])
+            self.assertEqual(len(relation_scans), 1)
+            self.assertEqual(relation_scans[0].get('Rows Removed by Filter', 0), 0)
+            # A bitmap index leaf also counts invisible old row versions.
+            # The table scan counts visible rows for both plan strategies.
+            self.assertEqual(relation_scans[0]['Actual Rows'], 2)
+        with runtime() as c, conn.connect(ADMIN, APP) as admin:
+            c.execute('UPDATE orgtree.engine_instances SET dead_at = now() WHERE id <> %s', (self.instance,))
+            stale = [c.execute("INSERT INTO orgtree.engine_instances(host,pid,heartbeat_at) "
+                               "VALUES ('stale', 1, now() - interval '2 minutes') RETURNING id").fetchone()[0]
+                     for _ in range(2)]
+            plans = []
+            for history in (1000, 9000):
+                c.execute("INSERT INTO orgtree.engine_instances(host,pid,heartbeat_at,dead_at) "
+                          "SELECT 'retired', 1, now() - interval '1 day', now() FROM generate_series(1, %s)", (history,))
+                admin.execute('ANALYZE orgtree.engine_instances')
+                recorded = RecordingConnection(c)
+                self.assertEqual([r[0] for r in turnqueue.stale_instances(recorded)], stale)
+                plan = c.execute('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + recorded.statement,
+                                 recorded.args).fetchone()[0][0]
+                assert_indexed(plan)
+                plans.append(plan)
+            self.assertEqual([table_scans(p['Plan'])[0]['Actual Rows'] for p in plans], [2, 2])
+            with admin.transaction(force_rollback=True):
+                admin.execute('DROP INDEX orgtree.engine_instances_live_heartbeat')
+                control = admin.execute('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + recorded.statement,
+                                        recorded.args).fetchone()[0][0]
+                with self.assertRaises(AssertionError):
+                    assert_indexed(control)
+                self.assertGreater(sum(n.get('Rows Removed by Filter', 0) for n in leaves(control['Plan'])), 1000)
 
 
 if __name__ == '__main__':
