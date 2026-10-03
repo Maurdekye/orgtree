@@ -285,6 +285,7 @@ def parent(a):
                 setups[-1][side+'_warmup_ms'] = got['warmup_ms']
                 setups[-1][side+'_source_hash'] = got['source_hash']
                 setups[-1][side+'_import_provenance'] = got['import_provenance']
+                setups[-1][side+'_process_audit'] = got['refused_launches']
                 print(f'{label} {iteration+1}: {side} samples complete', flush=True)
             if setups[-1]['legacy_source_hash'] != setups[-1]['native_source_hash']:
                 raise RuntimeError('legacy/native starting documents differ')
@@ -334,10 +335,12 @@ def child():
         if cfg['side'] == 'native':
             lc.bootstrap()
             registry.use_lifecycle(lc)
-        from launch_guard import LaunchAudit
+        from launch_guard import LaunchAudit, pin_git
         # Production view code reads build identity. The shared guard permits
         # only its fixed read-only Git argument forms, never arbitrary Git.
-        audit = LaunchAudit(Path(cfg['root']), git=shutil.which('git'), providers=[])
+        git = shutil.which('git')
+        subprocess.Popen = pin_git(subprocess.Popen, git)
+        audit = LaunchAudit(Path(cfg['root']), git=git, providers=[])
         sys.addaudithook(audit)
         from orgtree import api, foreground_api, foreground_store, identity_context, orgtx, store
         from orgtree import worklist, workdetail, workread
@@ -452,7 +455,12 @@ def child():
                 rows.append(dict(operation=operation, side=cfg['side'], iteration=cfg['iteration'],
                     ok=False, ms=None, error=type(e).__name__, error_detail=error_detail(e), path='failed'))
         if audit.snapshot()['unexpected']:
-            raise RuntimeError('benchmark tried to launch an external process')
+            refused = json.loads((Path(cfg['root'])/'metrics/qualification-invalid.json').read_text(encoding='utf-8'))
+            words = refused.get('argv') or []
+            verb = words[1] if len(words)>1 and words[1] in ('rev-parse','status','--version') else '<other>'
+            raise ChildFailure({'error':'ProcessGuardRefusal', 'counts':audit.snapshot(),
+                'executable':Path(refused.get('executable') or (words[0] if words else 'unknown')).name,
+                'verb':verb})
         out = dict(rows=rows, warmup_ms=warmup_ms, import_provenance=PROVENANCE.as_dict(),
                    source_hash=source_hash, refused_launches=audit.snapshot())
     result.write_text(json.dumps(out, indent=2), encoding='utf-8')
@@ -475,7 +483,7 @@ def main():
         try:
             return child()
         except Exception as e:
-            print('HOT_ERROR='+json.dumps(error_detail(e)), file=sys.stderr)
+            print('HOT_ERROR='+json.dumps(e.detail if isinstance(e,ChildFailure) else error_detail(e)), file=sys.stderr)
             return 1
     if not a.agent or not 1 <= a.runs <= 100 or not 1 <= a.warmups <= 20 or not all(a.agents.split(',')):
         p.error('--agent, nonempty agents, runs 1..100 and warmups 1..20 are required')
