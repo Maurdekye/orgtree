@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from . import orgdb
 
 log = logging.getLogger(__name__)
 
 
 def ready(raw: Any, org_id: int) -> bool:
     """Constant-size health read inside the caller's committed snapshot."""
+    if orgdb.enabled():
+        return False
     schema = f"org_{int(org_id)}"
     if raw.execute("SELECT to_regclass(%s)", (schema + ".work_index_state",)).fetchone()[0] is None:
         return False
@@ -37,6 +40,8 @@ def reconcile(raw: Any, org_id: int) -> bool:
     callers retain exact compatibility behavior. Corrupt JSON/schema errors
     propagate; they must never become an empty successful answer.
     """
+    if orgdb.enabled():
+        return False
     schema = f"org_{int(org_id)}"
     with raw.transaction():
         raw.execute(f"LOCK TABLE {schema}.doc,{schema}.log_l IN SHARE MODE")

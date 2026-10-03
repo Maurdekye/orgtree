@@ -14,7 +14,7 @@ import threading
 from types import SimpleNamespace
 
 from .ledger import Org, USER
-from . import workindex, workrows
+from . import orgdb, workindex, workrows
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +167,8 @@ def _questions(raw,schema):
 
 
 def _installed(raw,schema):
+    if orgdb.enabled():
+        return False
     return raw.execute('SELECT to_regclass(%s)',(schema+'.work_read_state',)).fetchone()[0] is not None
 
 
@@ -221,6 +223,10 @@ def refresh(raw, org_id: int) -> bool:
     indexed answers and retains dirty markers; it must not break an otherwise
     supported raw save or manufacture an empty count.
     """
+    # Native docket tables need no legacy read-model refresh. False means the
+    # legacy projection is unavailable, not that the authoritative save failed.
+    if orgdb.enabled():
+        return False
     try:
         probe = _probe(raw,org_id)
         result = _refresh(raw,org_id,probe)
@@ -363,6 +369,8 @@ def reconcile(raw, org_id: int) -> bool:
     it: a writer can hold RowExclusive while its AFTER trigger waits on us.
     A mismatch emits ERROR and keeps readiness false; ordinary reads never scan.
     """
+    if orgdb.enabled():
+        return False
     schema=f'org_{int(org_id)}'
     with raw.transaction():
         raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
@@ -402,6 +410,8 @@ def _reconcile_locked(raw,org_id):
 
 def bootstrap(raw) -> None:
     """One-time post-migration build; future startups skip initialized schemas."""
+    if orgdb.enabled():
+        return
     for (org_id,) in raw.execute('SELECT org_id FROM public.orgs WHERE deleted_at IS NULL').fetchall():
         schema=f'org_{int(org_id)}'
         if not _installed(raw,schema): continue

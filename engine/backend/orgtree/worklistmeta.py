@@ -10,6 +10,7 @@ import json
 import logging
 
 from .ledger import Org
+from . import orgdb
 
 log = logging.getLogger(__name__)
 FORMAT = 'orgtree.work-list/v1'
@@ -51,6 +52,8 @@ class _Static:
 
 
 def installed(raw, schema):
+    if orgdb.enabled():
+        return False
     return raw.execute('SELECT to_regclass(%s)', (schema+'.work_list_state',)).fetchone()[0] is not None
 
 
@@ -91,6 +94,8 @@ def refresh(raw, org_id, known_pending=None, locked=False):
     `locked`: the caller already holds the work_read_state row lock in this
     transaction and has seen work_list_state exist (it cannot be dropped while
     this transaction holds it), so pending and initialized come in one read."""
+    if orgdb.enabled():
+        return
     schema = f'org_{int(org_id)}'
     if locked:
         state = raw.execute(f'SELECT initialized, NOT initialized OR EXISTS(SELECT 1 FROM {schema}.work_list_dirty) '
@@ -141,6 +146,8 @@ def reconcile(raw, org_id):
     commit past the state-row fence, and MVCC reads their previous committed
     values without waiting on their uncommitted source rows.
     """
+    if orgdb.enabled():
+        return False
     schema = f'org_{int(org_id)}'
     with raw.transaction():
         raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
