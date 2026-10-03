@@ -194,8 +194,9 @@ class ValueRules(unittest.TestCase):
     def test_independent_enum_sets_and_marker_sets_equal_all_document_checks(self) -> None:
         text = (MIGRATIONS / '0009_enum_checks.sql').read_text(encoding='utf-8')
         checks = {}
-        for table, column, members in re.findall(
-                r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT \w+ CHECK \((\w+) IN \((.*?)\)\);',
+        for table, _name, column, members in re.findall(
+                r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT (\w+)\s+'
+                r'CHECK \("(\w+)" IN \(([^;]+)\)\);',
                 text):
             values = tuple(m.replace("''", "'") for m in re.findall(r"'((?:[^']|'')*)'", members))
             checks[table, column] = set(values)
