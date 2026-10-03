@@ -103,6 +103,30 @@ class NativeReaders(unittest.TestCase):
         self.assertEqual((row['nodes'], row['live']), (5, 3))
         self.assertEqual(context.cost_total(), 1.25)
 
+    def test_native_foreground_context_uses_same_snapshot(self):
+        import types
+        from unittest.mock import patch
+        from orgtree import foreground_context, orgdb
+        calls=[]
+        counts={'active':2,'attention':0,'archived':0,'backlogged':0}
+        def count(raw,org_id,*,viewer,now_ts):
+            self.assertEqual(raw.execute("SELECT current_setting('transaction_isolation'),"
+                "current_setting('transaction_read_only')").fetchone(),('repeatable read','on'))
+            calls.append((raw,org_id,viewer,now_ts))
+            return counts
+        dependency=types.SimpleNamespace(counts_raw=count,attention_raises_raw=lambda *a,**k:[])
+        with patch.object(orgdb,'docket',dependency,create=True):
+            context=self.read(lambda s:F.read_exact(s,'dev',project=lambda raw,graph:
+                foreground_context.build(raw,s,graph,now_ts=123)))
+        self.assertEqual(set(context.nodes),{'boss','dev'})
+        self.assertEqual(context.work_counts(),counts)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0][3],123)
+        self.assertEqual([row['id'] for row in context.d['mail']['dev']],['m1'])
+        self.assertEqual(context.d['slug'],self.twin.copy)
+        self.assertEqual(context.inputs['blobs']['models'],context.d['models'])
+        self.assertGreater(context.committed('boss'),0)
+
     def test_empty_cursor_rejected(self):
         import base64
         cursor = base64.urlsafe_b64encode(b'[]').decode()
@@ -269,6 +293,71 @@ class NativeCounters(unittest.TestCase):
                 raw.execute("UPDATE orgtree.agents SET title='rollback' WHERE name='boss'")
                 raw.execute('ROLLBACK')
                 self.assertEqual(counters(), (before[0]+3,before[1]+1))
+
+
+@fixture.needs_pg
+class NativeMisfits(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.twin=fixture.Twins('a1 misfits')
+
+    def both(self,fn):
+        values=[]
+        for on,slug in ((False,self.twin.legacy),(True,self.twin.copy)):
+            with fixture.storage(on): values.append(fn(slug))
+        return values
+
+    def test_exact_text_metadata(self):
+        for value in ({'longer': [1e20, -0.0, 'é'], 'a': True},[False,{'z':1,'aa':2}],False,1e20):
+            with self.subTest(value=value):
+                self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('title',value))
+                values=self.both(lambda s:F.read_exact(s,'dev')['rows']['dev']['meta']['title'])
+                self.assertEqual(values[0],values[1])
+
+    def test_state_filter_misfit(self):
+        for value in (False,{'odd':1},['live'],None):
+            with self.subTest(value=value):
+                self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('state',value))
+                found=self.both(lambda s:[n['id'] for n in F.discover(s,state='live')['nodes']])
+                self.assertEqual(found[0],found[1])
+                found=self.both(lambda s:F.search(s,'dev',state='live')['matches'])
+                self.assertEqual(found[0],found[1])
+                found=self.both(lambda s:org_summary._read(s)[0]['live'])
+                self.assertEqual(found[0],found[1])
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('state','live'))
+
+    def test_summary_cost_exception_keeps_refusal(self):
+        from orgtree.foreground_context import CompatibilityRequired
+        for value in ('1.25',True):
+            with self.subTest(value=value):
+                self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('cost_usd',value))
+                for on,slug in ((False,self.twin.legacy),(True,self.twin.copy)):
+                    with fixture.storage(on),self.assertRaises(CompatibilityRequired):
+                        org_summary._read(slug)
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('cost_usd',0.25))
+
+    def test_null_state_live_count(self):
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('state',None))
+        values=self.both(lambda s:org_summary._read(s)[0]['live'])
+        self.assertEqual(values[0],values[1])
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('state','live'))
+
+    def test_successor_misfit_axis(self):
+        self.twin.edit(lambda d:d['nodes'].__setitem__('odd-retired',dict(
+            fixture.node('odd-retired','boss'),state='archived',successor=False)))
+        values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:stamp['retired_axis_count']))
+        self.assertEqual(values[0],values[1])
+        values=self.both(lambda s:F.read_retired_children(s,'boss')['matches'])
+        self.assertEqual(values[0],values[1])
+        values=self.both(lambda s:F.search(s,'odd-retired')['matches'])
+        self.assertEqual(values[0],values[1])
+
+    def test_document_format_text_misfit(self):
+        self.twin.edit(lambda d:d.__setitem__('documents',[dict(
+            id='odd',node='dev',title='odd',at=fixture.AT,
+            format={'longer':[1e20,-0.0],'a':True},body='large body')]))
+        values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:F.read_card_windows(raw,['dev'])))
+        self.assertEqual(values[0],values[1])
 
 
 if __name__ == '__main__':
