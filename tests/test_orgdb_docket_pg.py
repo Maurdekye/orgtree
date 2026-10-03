@@ -3,7 +3,7 @@
 Creates one disposable app and org database. Run only under the P03 heavy lock.
 Each public-path regression executes against stage 1-B before the native port.
 """
-import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts this checkout before engine imports
 
 import copy
 from contextlib import contextmanager
@@ -379,7 +379,8 @@ class NativePaths(unittest.TestCase):
 
     def test_hot_rows_exclude_retained_legacy_text_while_detail_preserves_it(self):
         from psycopg.types.json import Json
-        marker = 'detail-only-legacy-' + 'z'*200
+        marker = 'detail-only-legacy-\x00' + 'z'*200
+        encoded_marker = json.dumps(marker)[1:-1]
         archive = [dict(seq=-n,at=AT,kind='decision',text=marker) for n in range(1000,0,-1)]
         try:
             with writer() as raw:
@@ -389,12 +390,12 @@ class NativePaths(unittest.TestCase):
                 raw.execute("UPDATE orgtree.work_items SET extra=%s WHERE slug='one'",(Json(extra),))
             with snapshot() as q:
                 row = q.lookup('one')
-                self.assertNotIn(marker,json.dumps(row.summary))
+                self.assertFalse(encoded_marker in json.dumps(row.summary))
                 body = q.detail('one')[0]
                 self.assertEqual(body['scope_archive'],archive)
                 self.assertEqual(body['private_notes'],marker)
                 inputs = q.list_inputs([row])[0]
-                self.assertNotIn(marker,json.dumps(inputs))
+                self.assertFalse(encoded_marker in json.dumps(inputs))
                 self.assertNotIn('scope_archive',inputs)
                 light = worklist.Context(q).light(row,SLUG)
                 full = workdetail.get(SLUG,USER,'one',now_ts=NOW)
