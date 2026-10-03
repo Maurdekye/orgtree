@@ -444,7 +444,7 @@ def child():
                 tx.d['nodes'][ids[0]]['title'] = 'hot operation measurement'
 
         def settings():
-            with orgtx.org_tx(slug, nodes=[], sections=['settings']) as tx:
+            with orgtx.org_tx(slug, nodes=[], sections=['max_children']) as tx:
                 tx.d['max_children'] = int(tx.d.get('max_children') or 0)+1
 
         writes = dict(title=title, settings=settings,
