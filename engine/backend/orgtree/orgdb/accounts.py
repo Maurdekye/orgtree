@@ -81,6 +81,14 @@ def _active() -> list[str]:
     return [slug for slug, *_ in registry.active()]
 
 
+def _sources(org: str | None) -> Iterator[str | None]:
+    if org is not None:
+        yield org
+    yield None
+    if org is None:
+        yield from _active()
+
+
 def _org_part(org: str) -> dict:
     from .registry import OrgUnavailable
     try:
@@ -121,8 +129,7 @@ def _find_in(account_id: str, org: str | None) -> dict | None:
 def find(account_id: str, org: str | None = None) -> dict:
     from ..registry import UnknownAccount
     from .registry import OrgUnavailable
-    sources = [org, None] if org is not None else [None, *_active()]
-    for source in sources:
+    for source in _sources(org):
         try:
             row = _find_in(account_id, source)
         except OrgUnavailable:
@@ -134,8 +141,7 @@ def find(account_id: str, org: str | None = None) -> dict:
 
 def resolve_alias(account_id: str, org: str | None = None) -> str:
     from .registry import OrgUnavailable
-    sources = [org, None] if org is not None else [None, *_active()]
-    for source in sources:
+    for source in _sources(org):
         try:
             with connection(source) as raw:
                 alias = _specs(source)[3]
@@ -168,6 +174,8 @@ def _persist_account(raw: Any, org: str | None, before: dict, after: dict) -> No
     for rid, row in new.items():
         if row == old.get(rid):
             continue
+        if shape.restricted_to(row) != org:
+            raise ValueError('account scope must match its transaction database')
         found = raw.execute(f'SELECT ord FROM orgtree.{account.table} WHERE id = %s', (rid,)).fetchone()
         ord_ = found[0] if found else raw.execute(
             f'SELECT COALESCE(MAX(ord), -1) + 1 FROM orgtree.{account.table}').fetchone()[0]
@@ -198,6 +206,14 @@ def _persist_metadata(raw: Any, org: str | None, before: dict, after: dict) -> N
     for name, target in after['aliases'].items():
         if target == before['aliases'].get(name):
             continue
+        if org is None and isinstance(target, str):
+            from ..registry import UnknownAccount
+            try:
+                scope = find(target).get('origin_org')
+            except UnknownAccount:
+                scope = None
+            if scope:
+                raise ValueError('restricted aliases require their org transaction')
         found = raw.execute(f'SELECT ord FROM orgtree.{alias.table} WHERE alias = %s', (name,)).fetchone()
         ord_ = found[0] if found else raw.execute(
             f'SELECT COALESCE(MAX(ord), -1) + 1 FROM orgtree.{alias.table}').fetchone()[0]
@@ -263,7 +279,7 @@ def transaction(account_id: str | None = None, *, provider: str | None = None,
     with connection(org) as raw:
         with raw.transaction():
             # Serializes ord allocation and audit append/trim, before account locks.
-            raw.execute('SELECT 1 FROM orgtree.' + ('org_identity' if org else 'app_settings') + ' FOR UPDATE')
+            raw.execute('SELECT 1 FROM orgtree.' + ('org_settings' if org else 'app_settings') + ' FOR UPDATE')
             rid = target['id'] if target else account_id
             if rid is not None:
                 table = _specs(org)[0].table

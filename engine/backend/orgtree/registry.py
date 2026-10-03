@@ -45,10 +45,11 @@ per account, machine-global, every provider together:
                     org restriction; the declared exception to the
                     all-accounts-all-orgs rule).
 
-Same storage discipline as accounts.py, deliberately: strict loads for every
-read-modify-write so a mutation can never replace an unreadable file with a
-blank one, and `_reject_secrets` on every save — this file holds identity and
-state, never credentials.
+With orgdb enabled, orgdb.accounts stores machine rows in the app database
+and restricted rows in their org database, with row locks and one commit per
+mutation. JSON stays a frozen rollback copy. With the switch off, strict
+read-modify-write loads preserve the original file discipline. Both paths
+reject secrets: this registry holds identity and state, never credentials.
 
 This module is S1 of the staged implementation: rows, marks and allocation.
 Migration (ambient rows, universal bindings, org-key evidence) is S2; the
@@ -168,7 +169,7 @@ class _MutationDocument(dict):
     write_requested = False
 
 
-def _write(doc: dict[str, Any]) -> None:
+def _write(doc: _MutationDocument) -> None:
     """Request this context's commit, including legacy no-change saves."""
     _reject_secrets(doc)
     doc.write_requested = True
@@ -203,7 +204,7 @@ def transaction(account_id: str | None = None, *, provider: str | None = None,
 def availability_changed(reason: str) -> None:
     """Tell the warm staffing cache that what it holds may be wrong now.
 
-    ⚠ HOOKED AT `save`, NOT AT THE ROUTES, on purpose. Adding an account,
+    Hooked at the storage commit (JSON save or orgdb transaction), on purpose. Adding an account,
     removing one, a sign-in landing, a limit mark being stamped, the fallback
     order changing and the enable toggle are six different callers and every one
     of them ends here. A hook per route is a hook somebody forgets, and the

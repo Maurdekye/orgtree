@@ -1,10 +1,9 @@
 """Native account transactions. Creates databases: take the heavy P03 lock."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import copy
 import os
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -14,6 +13,7 @@ from unittest.mock import patch
 from orgtree import registry, registry_migration
 from orgtree.orgdb import accounts, conn, lifecycle, mappers, sections
 from orgtree.orgdb.convert import rowio
+import child_python
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
@@ -158,6 +158,18 @@ class NativeAccounts(unittest.TestCase):
         self.assertEqual(int(after['id'].split('-')[-1]), int(before['id'].split('-')[-1]) + 2)
         self.assertEqual(self.rollback_file.read_bytes(), b'poison rollback copy')
 
+    def test_app_transaction_refuses_restricted_rows_and_aliases(self):
+        row = self.make('a5-a')
+        with self.assertRaises(ValueError):
+            with registry.transaction() as doc:
+                doc['aliases']['leaked-alias'] = row['id']
+        with self.assertRaises(ValueError):
+            with registry.transaction() as doc:
+                doc['accounts'].append({**row, 'id': 'must-not-leak'})
+        with accounts.connection() as raw:
+            self.assertEqual(raw.execute("SELECT count(*) FROM orgtree.account_aliases WHERE alias = 'leaked-alias'").fetchone()[0], 0)
+            self.assertEqual(raw.execute("SELECT count(*) FROM orgtree.accounts WHERE id = 'must-not-leak'").fetchone()[0], 0)
+
     def test_exception_and_secret_rejection_roll_back_without_notification(self):
         row = self.make()
         before = copy.deepcopy(registry.get_account(row['id']))
@@ -210,7 +222,7 @@ class NativeAccounts(unittest.TestCase):
         worker = Path(__file__).with_name('orgdb_account_worker.py')
         barrier = Path(self.root.name) / ('go-' + str(time.time_ns()))
         env = dict(os.environ)
-        processes = [subprocess.Popen([sys.executable, str(worker), row['id'], str(barrier)],
+        processes = [subprocess.Popen(child_python.argv(str(worker), row['id'], str(barrier)),
                                       env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)) for _ in range(3)]
         try:

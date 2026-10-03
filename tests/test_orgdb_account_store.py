@@ -1,5 +1,5 @@
 """Account store switch boundary; physical locking is checked by the PG module."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import contextlib
 import os
