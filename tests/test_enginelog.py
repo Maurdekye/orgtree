@@ -12,12 +12,14 @@ lock jam nothing the engine had printed could be read back. These pin:
 
 No database. Run:  python tools/run-python-verification.py tests/test_enginelog.py
 """
+import ast
 import io
 from pathlib import Path
 import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -36,7 +38,11 @@ class EngineLog(unittest.TestCase):
         self.out, self.err = io.StringIO(), io.StringIO()
         patches = [mock.patch.object(sys, "stdout", self.out),
                    mock.patch.object(sys, "stderr", self.err),
-                   mock.patch.object(enginelog, "_INSTALLED", None)]
+                   mock.patch.object(enginelog, "_INSTALLED", None),
+                   # install() wraps the uncaught-exception hooks
+                   mock.patch.object(sys, "excepthook", sys.excepthook),
+                   mock.patch.object(sys, "unraisablehook", sys.unraisablehook),
+                   mock.patch.object(threading, "excepthook", threading.excepthook)]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -73,7 +79,7 @@ class EngineLog(unittest.TestCase):
         t.start()
         t.join()
         log = self.text()
-        self.assertIn("RuntimeError: <message withheld, 14 chars>", log)
+        self.assertIn("RuntimeError: <message withheld", log)
         self.assertNotIn("RuntimeError: thread blew up", log)
         self.assertIn("in boom", log)                   # the frames (and source) are kept
         self.assertRegex(log, TS + r" err Traceback \(most recent call last\):")
@@ -102,6 +108,90 @@ class EngineLog(unittest.TestCase):
         self.assertIn("The above exception was the direct cause", log)
         print("[orgtree] after the traceback", file=sys.stderr)
         self.assertIn("[orgtree] after the traceback", self.text())
+
+    def _thread_fails(self, exc):
+        def boom():
+            raise exc
+        t = threading.Thread(target=boom)
+        t.start()
+        t.join()
+        return self.text()
+
+    def test_an_error_print_inside_its_except_block_keeps_no_value(self):
+        # review r3 (1): `[orgtree] save failed: {e}`, the engine's own pattern
+        self.install()
+        body = "private body 5049"
+        try:
+            raise ValueError(body + "\n[second " + body + "]")
+        except ValueError as e:
+            print(f"[orgtree] save failed: {e}")
+            print(f"[orgtree] again: {e!r}", file=sys.stderr)
+            import traceback
+            print(f"[orgtree] stack: {traceback.format_exc()}")
+        log = self.text()
+        self.assertIn("[orgtree] save failed: <withheld>", log)
+        self.assertNotIn(body, log)
+        self.assertIn(body, self.out.getvalue())
+
+    def test_bracketed_and_group_continuations_keep_no_value(self):
+        # review r3 (2) and (3): a `[`-led continuation; a group member's lines
+        self.install()
+        a, b = "private body 2731", "private body 8052"
+        log = self._thread_fails(RuntimeError("first line\n[" + a + "]"))
+        log = self._thread_fails(ExceptionGroup("review group", [ValueError("first\n" + b)]))
+        self.assertNotIn(a, log)
+        self.assertNotIn(b, log)
+        self.assertIn("Exception Group Traceback", log)
+        self.assertIn(a, self.err.getvalue())
+        self.assertIn(b, self.err.getvalue())
+
+    def test_a_main_thread_uncaught_exception_keeps_no_value(self):
+        # sys.excepthook runs after the stack unwound: nothing is "handled"
+        # there, so install() wraps the hook
+        self.install()
+        body = "private body 6170"
+        try:
+            raise RuntimeError("x\n" + body)      # its second line is a value line
+        except RuntimeError as e:
+            exc = e
+        sys.excepthook(type(exc), exc, exc.__traceback__)
+        self.assertNotIn(body, self.text())
+        self.assertIn(body, self.err.getvalue())
+
+    def test_a_traceback_exception_line_keeps_no_value_whatever_the_timing(self):
+        # review r3 (4): no timing state any more; a traceback printed as
+        # text, with no exception being handled, still loses its value
+        self.install()
+        body = "private body 9018"
+        for ln in ("Traceback (most recent call last):\n",
+                   '  File "review.py", line 1, in example\n',
+                   "RuntimeError: " + body + "\n"):
+            sys.stderr.write(ln)
+            time.sleep(0.3)
+        self.assertNotIn(body, self.text())
+        self.assertIn("RuntimeError: <message withheld, 17 chars>", self.text())
+
+    def test_engine_prints_exception_values_only_while_handling_them(self):
+        # the guarantee above rests on this: every print/write in the engine
+        # that names an `except ... as <name>` variable, or calls format_exc /
+        # print_exc, sits inside the except block that binds it
+        root = Path(enginelog.__file__).resolve().parent
+        bad, scanned = [], 0
+        for path in sorted(root.rglob("*.py")):
+            if "runtime" in path.parts:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+            except SyntaxError:
+                continue
+            scanned += 1
+            bad += [f"{path.relative_to(root)}:{ln}: {n}" for ln, n in _outside_handler(tree)]
+        self.assertGreater(scanned, 100)
+        self.assertEqual(bad, [])
+        probe = ast.parse("def f():\n    try:\n        g()\n    except Exception as e:\n"
+                          "        print(f'ok {e}')\n    print(f'bad {e}')\n"
+                          "    print(traceback.format_exc())\n")
+        self.assertEqual(_outside_handler(probe), [(6, "e"), (7, "format_exc")])
 
     def test_token_shaped_strings_are_scrubbed_from_any_line(self):
         self.install()
@@ -133,8 +223,49 @@ class EngineLog(unittest.TestCase):
             print("xy " * 2000)
         last = self.text().splitlines()[-1]
         self.assertLessEqual(len(last.encode("utf-8")), 540)
-        self.assertIn("bytes cut]", last)
+        self.assertIn("bytes, cut]", last)
         self.assertIn("xy " * 2000, self.out.getvalue())
+
+    def test_one_line_is_bounded_by_a_cap_smaller_than_the_line_limit(self):
+        # review r3 f4: cap 2000 < MAX_LINE_BYTES; the record includes its
+        # timestamp, cut marker and newline
+        self.install(max_bytes=2000, keep=2)
+        print("ordinary diagnostic value " * 1000)
+        print("é€" * 1000)
+        for p in (self.data / "diagnostics").iterdir():
+            self.assertLessEqual(p.stat().st_size, 2000, p.name)
+        self.assertIn("bytes, cut]", self.text())
+
+
+def _outside_handler(tree):
+    """(line, name) of each print()/.write() naming an except-bound
+    variable outside its handler, or calling format_exc/print_exc outside
+    any handler."""
+    bad = []
+
+    def visit(node, handlers, names):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            names = {h.name for h in ast.walk(node) if isinstance(h, ast.ExceptHandler) and h.name}
+            handlers = []
+        elif isinstance(node, ast.ExceptHandler):
+            for c in node.body:
+                visit(c, handlers + [node.name], names)
+            return
+        elif isinstance(node, ast.Call):
+            f = node.func
+            fname = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+            if fname in ("print", "write"):
+                for a in list(node.args) + [k.value for k in node.keywords]:
+                    for n in ast.walk(a):
+                        if isinstance(n, ast.Name) and n.id in names and n.id not in handlers:
+                            bad.append((node.lineno, n.id))
+                        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                                and n.func.attr in ("format_exc", "print_exc") and not handlers:
+                            bad.append((node.lineno, n.func.attr))
+        for c in ast.iter_child_nodes(node):
+            visit(c, handlers, names)
+    visit(tree, [], set())
+    return bad
 
     def test_rotation_keeps_a_bounded_number_of_files(self):
         self.install(max_bytes=2000, keep=2)
