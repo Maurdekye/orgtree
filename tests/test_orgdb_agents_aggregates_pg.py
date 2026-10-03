@@ -4,6 +4,8 @@ import import_provenance  # noqa: F401  asserts checkout imports before the fixt
 from contextlib import contextmanager
 from decimal import Decimal
 import random
+import threading
+import time
 import unittest
 
 import test_orgdb_compat_pg as fixture
@@ -35,8 +37,107 @@ class MaintainedAggregates(unittest.TestCase):
 
     def recount(self, raw):
         return raw.execute("SELECT count(*),count(*) FILTER (WHERE state='archived' "
-            'AND successor_id IS NULL),coalesce(sum(cost_usd),0),'
-            'count(*) FILTER (WHERE cost_usd_unknown) FROM orgtree.agents WHERE NOT tombstone').fetchone()
+            "AND (successor_id IS NULL OR s.name='')),coalesce(sum(a.cost_usd),0),"
+            'count(*) FILTER (WHERE a.cost_usd_unknown) FROM orgtree.agents a '
+            'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone').fetchone()
+
+    def assert_parents(self, raw):
+        maintained=dict(raw.execute('SELECT parent_id,retired_children FROM orgtree.foreground_parent_counts '
+                                   'WHERE retired_children<>0'))
+        counted=dict(raw.execute('SELECT coalesce(a.parent_id,0),count(*) FROM orgtree.agents a '
+            'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone '
+            "AND a.state='archived' AND (a.successor_id IS NULL OR s.name='') GROUP BY a.parent_id"))
+        self.assertEqual(maintained,counted)
+        self.assertEqual(self.totals(raw),self.recount(raw))
+
+    def test_parent_counts_copy_moves_deletes_savepoints_and_rollback(self):
+        rng=random.Random(106320)
+        with self.connection() as raw:
+            self.assert_parents(raw)
+            parent_ids=[None,*[r[0] for r in raw.execute("SELECT id FROM orgtree.agents WHERE name IN ('boss','dev')")]]
+            for i in range(9):
+                raw.execute("INSERT INTO orgtree.agents(name,ord,parent_id,state) VALUES(%s,%s,%s,'archived')",
+                            (f'parent-count-{i}',20000+i,rng.choice(parent_ids)))
+            for step in range(30):
+                raw.execute('BEGIN')
+                for _ in range(3):
+                    raw.execute('UPDATE orgtree.agents SET state=%s,parent_id=%s,tombstone=%s WHERE name=%s',
+                        (rng.choice(['live','archived']),rng.choice(parent_ids),bool(rng.randrange(3)==0),
+                         f'parent-count-{rng.randrange(9)}'))
+                raw.execute('SAVEPOINT discard')
+                raw.execute("DELETE FROM orgtree.agents WHERE name='parent-count-0'")
+                raw.execute('ROLLBACK TO SAVEPOINT discard')
+                raw.execute('ROLLBACK' if step%5==0 else 'COMMIT')
+                self.assert_parents(raw)
+            raw.execute("DELETE FROM orgtree.agents WHERE name LIKE 'parent-count-%'")
+            self.assert_parents(raw)
+
+    def test_empty_reference_rename_updates_axis_and_keeps_parent_ids(self):
+        from orgtree.orgdb import agents
+        with self.connection() as raw:
+            target=raw.execute("INSERT INTO orgtree.agents(name,ord,state) VALUES('',30000,'live') RETURNING id").fetchone()[0]
+            raw.execute("INSERT INTO orgtree.agents(name,ord,parent_id,successor_id,state) "
+                "VALUES('empty-link-child',30001,%s,%s,'archived')",(target,target))
+            for name in ('','renamed-empty',''):
+                raw.execute('UPDATE orgtree.agents SET name=%s WHERE id=%s',(name,target))
+                self.assert_parents(raw)
+                expected=raw.execute("SELECT count(*) FROM orgtree.agents a LEFT JOIN orgtree.agents p "
+                    "ON p.id=a.parent_id LEFT JOIN orgtree.agents s ON s.id=a.successor_id "
+                    "WHERE NOT a.tombstone AND a.state='archived' AND coalesce(s.name,'')='' "
+                    "AND coalesce(p.name,'')='' ").fetchone()[0]
+                self.assertEqual(agents.retired_counts(raw,[''])[''],expected)
+            raw.execute("DELETE FROM orgtree.agents WHERE name='empty-link-child'")
+            raw.execute('DELETE FROM orgtree.agents WHERE id=%s',(target,))
+            self.assert_parents(raw)
+
+    def test_save_and_standalone_retire_share_singleton_before_parent_lock_order(self):
+        from orgtree.orgdb.compat import conn as compatibility
+        errors=[]
+        committing=threading.Event()
+        with fixture.storage(True), self.connection() as observer:
+            parent=observer.execute("SELECT id FROM orgtree.agents WHERE name='boss'").fetchone()[0]
+            observer.execute("INSERT INTO orgtree.agents(name,ord,parent_id,state) VALUES"
+                "('save-counter-child',31000,%s,'live'),('standalone-counter-child',31001,%s,'live')",(parent,parent))
+            saved=compatibility.open_conn(self.twin.copy)
+            saved.raw.execute("SET statement_timeout='8s'")
+            saved.raw.execute('BEGIN')
+            saved.raw.execute("UPDATE orgtree.agents SET state='archived' WHERE name='save-counter-child'")
+            saved.on_save_commit(True)  # the real save seam already owns org_revision
+            pid=[]
+            def standalone():
+                try:
+                    with self.connection() as raw:
+                        raw.execute("SET statement_timeout='8s'")
+                        raw.execute('BEGIN')
+                        raw.execute("UPDATE orgtree.agents SET state='archived' WHERE name='standalone-counter-child'")
+                        pid.append(raw.execute('SELECT pg_backend_pid()').fetchone()[0])
+                        committing.set()
+                        raw.execute('COMMIT')
+                except BaseException as error:
+                    errors.append(error)
+                    committing.set()
+            worker=threading.Thread(target=standalone)
+            worker.start()
+            try:
+                self.assertTrue(committing.wait(3))
+                self.assertFalse(errors)
+                deadline=time.monotonic()+3
+                while time.monotonic()<deadline:
+                    if observer.execute('SELECT cardinality(pg_blocking_pids(%s))',(pid[0],)).fetchone()[0]:
+                        break
+                    time.sleep(.01)
+                else:
+                    self.fail('standalone COMMIT never waited for the save singleton')
+                saved.raw.execute('COMMIT')
+            finally:
+                if saved.in_transaction:
+                    saved.raw.execute('ROLLBACK')
+                worker.join(10)
+                saved.close()
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors,[],str(errors))
+            self.assert_parents(observer)
+            observer.execute("DELETE FROM orgtree.agents WHERE name IN ('save-counter-child','standalone-counter-child')")
 
     def test_converter_copy_initializes_all_maintained_values(self):
         with self.connection() as raw:
@@ -106,6 +207,29 @@ class MaintainedAggregates(unittest.TestCase):
                     got = raw.execute('SELECT '+','.join(f+'_misfit' for f in FIELDS)+
                                       " FROM orgtree.agents WHERE name='dev'").fetchone()
                     self.assertEqual(got, tuple(field in extra for field in FIELDS))
+            finally:
+                raw.execute('ROLLBACK')
+
+    def test_request_flags_select_only_metadata_misfits_and_exact_extra_survives(self):
+        from psycopg.types.json import Json
+        from orgtree.orgdb import reader_rows
+        with self.connection() as raw:
+            raw.execute('BEGIN')
+            try:
+                for table in ('asks','credit_requests','scope_requests'):
+                    rid=raw.execute(f'INSERT INTO orgtree.{table}(ord,node,status,extra) '
+                        "VALUES(40000,'dev','open',%s) RETURNING id",(Json({'unrelated':'kept'}),)).fetchone()[0]
+                    flags='node_misfit,status_misfit,at_misfit,resolved_at_misfit'
+                    self.assertEqual(raw.execute(f'SELECT {flags} FROM orgtree.{table} WHERE id=%s',(rid,)).fetchone(),
+                                     (False,False,False,False))
+                    raw.execute(f'UPDATE orgtree.{table} SET extra=%s WHERE id=%s',
+                                (Json({'unrelated':'kept','at':None,'resolved_at':'odd'}),rid))
+                    self.assertEqual(raw.execute(f'SELECT {flags} FROM orgtree.{table} WHERE id=%s',(rid,)).fetchone(),
+                                     (False,False,True,True))
+                    body=reader_rows.read_records(raw,table,[rid])[0]
+                    self.assertEqual(body['unrelated'],'kept')
+                    self.assertEqual(body['resolved_at'],'odd')
+                    self.assertFalse(any(key.endswith('_misfit') for key in body))
             finally:
                 raw.execute('ROLLBACK')
 

@@ -21,6 +21,7 @@ _AXIS = "coalesce((SELECT name FROM orgtree.agents s WHERE s.id=a.successor_id),
 _CREATED = 'orgtree.foreground_time(a.created,a.created_text)'
 _RARE_AXIS = '(a.parent_misfit OR a.successor_misfit)'
 _RARE_SEARCH = '(a.state_misfit OR a.successor_misfit)'
+_REQUEST_MISFITS = '(node_misfit OR status_misfit OR at_misfit OR resolved_at_misfit)'
 _DOCUMENT_META = codec.Spec('documents',tuple(f for f in DOCUMENTS.fields if f.key in ('id','node','title','at','format')))
 _REQUEST_META = {s.table:codec.Spec(s.table,tuple(f for f in s.fields if f.key in
                 ('node','status','at','resolved_at'))) for s in (ASKS,CREDIT_REQUESTS,SCOPE_REQUESTS)}
@@ -37,9 +38,10 @@ def _hot(raw, where, params=()):
     """Small metadata from hot rows only; decode rare preserved misfits exactly."""
     rows = _dicts(raw, 'SELECT a.*,p.name AS parent_name,b.name AS predecessor_name,'
         's.name AS successor_name FROM orgtree.agents a '
-        'LEFT JOIN orgtree.agents p ON p.id=a.parent_id '
-        'LEFT JOIN orgtree.agents b ON b.id=a.predecessor_id '
-        'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone AND ' + where, params)
+        'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.parent_id OFFSET 0) p ON true '
+        'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.predecessor_id OFFSET 0) b ON true '
+        'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.successor_id OFFSET 0) s ON true '
+        'WHERE NOT a.tombstone AND ' + where, params)
     children = codec.Children({}, M.AGENTS.layout())
     result = {}
     for row in rows:
@@ -164,9 +166,11 @@ def _ref_closure(raw, ids, ref):
         selected = raw.execute(
             f'WITH RECURSIVE wanted(id,ref_id) AS ('
             f'SELECT id,{ref}_id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone UNION '
-            f'SELECT p.id,p.{ref}_id FROM orgtree.agents p JOIN wanted c ON p.id=c.ref_id '
-            f'WHERE NOT p.tombstone) SELECT a.name,a.{ref}_misfit '
-            'FROM wanted w JOIN orgtree.agents a ON a.id=w.id', (list(pending),)).fetchall()
+            f'SELECT p.id,p.{ref}_id FROM wanted c CROSS JOIN LATERAL ('
+            f'SELECT id,{ref}_id FROM orgtree.agents WHERE id=c.ref_id AND NOT tombstone OFFSET 0) p) '
+            f'SELECT a.name,a.{ref}_misfit FROM wanted w CROSS JOIN LATERAL '
+            f'(SELECT name,{ref}_misfit FROM orgtree.agents WHERE id=w.id OFFSET 0) a',
+            (list(pending),)).fetchall()
         found.update(name for name,rare in selected)
         rare = _hot(raw,'a.name=ANY(%s)',([name for name,rare in selected if rare],))
         pending = {value[ref] for ordinal,value in rare.values() if value[ref]} - found - attempted
@@ -183,14 +187,18 @@ def rows(raw, ids):
     chains = raw.execute(
         'WITH RECURSIVE chain(origin,id,depth,path) AS ('
         'SELECT a.id,p.id,1,ARRAY[a.id,p.id] FROM orgtree.agents a '
-        'JOIN orgtree.agents p ON p.id=a.predecessor_id AND NOT p.tombstone '
+        'CROSS JOIN LATERAL (SELECT id FROM orgtree.agents WHERE id=a.predecessor_id '
+        'AND NOT tombstone OFFSET 0) p '
         'WHERE a.name=ANY(%s) AND NOT a.tombstone AND a.id<>p.id UNION ALL '
         'SELECT c.origin,p.id,c.depth+1,c.path||p.id FROM chain c '
-        'JOIN orgtree.agents a ON a.id=c.id JOIN orgtree.agents p ON p.id=a.predecessor_id '
-        'WHERE NOT p.tombstone AND NOT p.id=ANY(c.path)) '
+        'CROSS JOIN LATERAL (SELECT predecessor_id FROM orgtree.agents WHERE id=c.id OFFSET 0) a '
+        'CROSS JOIN LATERAL (SELECT id FROM orgtree.agents WHERE id=a.predecessor_id '
+        'AND NOT tombstone AND NOT id=ANY(c.path) OFFSET 0) p) '
         'SELECT a.name,p.name,p.generation,p.state,p.bearer_state,c.depth,'
         '(p.generation_misfit OR p.state_misfit OR p.bearer_state_misfit) '
-        'FROM chain c JOIN orgtree.agents a ON a.id=c.origin JOIN orgtree.agents p ON p.id=c.id',
+        'FROM chain c CROSS JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=c.origin OFFSET 0) a '
+        'CROSS JOIN LATERAL (SELECT name,generation,state,bearer_state,generation_misfit,state_misfit,'
+        'bearer_state_misfit FROM orgtree.agents WHERE id=c.id OFFSET 0) p',
         (ids,)).fetchall()
     by_origin = {}
     rare=_hot(raw,'a.name=ANY(%s)',(list({row[1] for row in chains if row[6]}),))
@@ -230,13 +238,19 @@ def rows(raw, ids):
 
 
 def retired_counts(raw, parents):
-    result = dict(raw.execute("SELECT coalesce(p.name,''),count(*) FROM orgtree.agents a "
-        'LEFT JOIN orgtree.agents p ON p.id=a.parent_id WHERE NOT a.tombstone '
-        "AND a.state='archived' AND " + _AXIS + " AND coalesce(p.name,'')=ANY(%s) "
-        'GROUP BY p.name', (parents,)).fetchall())
+    result = dict.fromkeys(parents,0)
+    for name,count in raw.execute('SELECT p.name,c.retired_children FROM unnest(%s::text[]) selected(name) '
+        'CROSS JOIN LATERAL (SELECT id,name FROM orgtree.agents WHERE name=selected.name OFFSET 0) p '
+        'CROSS JOIN LATERAL (SELECT retired_children FROM orgtree.foreground_parent_counts '
+        'WHERE parent_id=p.id OFFSET 0) c UNION ALL '
+        "SELECT '',retired_children FROM orgtree.foreground_parent_counts WHERE parent_id=0 AND ''=ANY(%s)",
+        (parents,parents)).fetchall():
+        result[name]+=count
     candidates = raw.execute("SELECT a.name,coalesce(p.name,''),coalesce(s.name,'') "
-        'FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id=a.parent_id '
-        'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone '
+        'FROM orgtree.agents a '
+        'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.parent_id OFFSET 0) p ON true '
+        'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.successor_id OFFSET 0) s ON true '
+        'WHERE NOT a.tombstone '
         "AND a.state='archived' AND "+_RARE_AXIS).fetchall()
     metadata=_hot(raw,'a.name=ANY(%s)',([r[0] for r in candidates],))
     for name,parent,successor in candidates:
@@ -410,21 +424,21 @@ def _request_window(raw, key, ids, header):
     clock = ('orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text)'
              if key!='credit_requests' else 'orgtree.foreground_time(at,at_text)')
     visible = " AND coalesce(status,'')<>'withdrawn'" if key!='asks' else ''
-    picked = dict(raw.execute(f'SELECT id,ord FROM orgtree.{key} WHERE extra IS NULL AND '
+    picked = dict(raw.execute(f'SELECT id,ord FROM orgtree.{key} WHERE NOT '+_REQUEST_MISFITS+' AND '
         "status IN ('open','pending') AND (%s OR node=ANY(%s))",(header,ids)).fetchall())
-    closed = (raw.execute(f'SELECT id,ord,{clock} FROM orgtree.{key} WHERE extra IS NULL AND '
+    closed = (raw.execute(f'SELECT id,ord,{clock} FROM orgtree.{key} WHERE NOT '+_REQUEST_MISFITS+' AND '
         "coalesce(status,'') NOT IN ('open','pending')" + visible +
         f' ORDER BY {clock} DESC,ord DESC LIMIT %s',(ASK_HISTORY_KEEP,)).fetchall() if header else [])
     latest = {node:(rid,ordinal,stamp) for node,rid,ordinal,stamp in raw.execute(
         'SELECT selected.node,q.id,q.ord,q.stamp FROM unnest(%s::text[]) selected(node) '
         f'CROSS JOIN LATERAL (SELECT id,ord,{clock} AS stamp FROM orgtree.{key} '
-        'WHERE extra IS NULL AND node=selected.node'+visible+
+        'WHERE NOT '+_REQUEST_MISFITS+' AND node=selected.node'+visible+
         f' ORDER BY {clock} DESC,ord LIMIT 1) q',(ids,)).fetchall()}
     # All normal rows stay on the indexed windows. Only rare metadata is
     # decoded/merged before each limit, including a credit resolved_at retained
     # in extra because its mapper has no resolved_at column.
     for row,body in _small_records(raw,_REQUEST_META[key],['node','status','at','resolved_at'],
-                                  'a.extra IS NOT NULL'):
+                                  _REQUEST_MISFITS):
         node,status=_window_text(body.get('node')),_window_text(body.get('status'))
         stamp=_window_text(body.get('resolved_at') if body.get('resolved_at') is not None else body.get('at'))
         item=(row['id'],row['ord'],stamp)

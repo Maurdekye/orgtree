@@ -25,6 +25,39 @@ BEGIN
 END
 $flags$;
 CREATE INDEX agents_name_all ON orgtree.agents(name,tombstone,id);
+CREATE TABLE orgtree.foreground_parent_counts (
+  parent_id bigint PRIMARY KEY,
+  retired_children bigint NOT NULL DEFAULT 0
+);
+
+-- This table contains numeric aggregates only. The key is a stable agent id,
+-- with 0 for a missing parent; empty-name parents merge at read time.
+CREATE FUNCTION orgtree.foreground_parent_delta(parent bigint, amount bigint) RETURNS void
+LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
+DECLARE pending jsonb; key text:=parent::text;
+BEGIN
+  IF amount=0 THEN RETURN; END IF;
+  pending:=coalesce(nullif(current_setting('orgtree.pending_parents',true),''),'{}')::jsonb;
+  pending:=jsonb_set(pending,ARRAY[key],to_jsonb(coalesce((pending->>key)::bigint,0)+amount));
+  PERFORM set_config('orgtree.pending_parents',pending::text,true);
+END
+$fn$;
+
+DO $requests$
+DECLARE relation text; field text;
+BEGIN
+  FOREACH relation IN ARRAY ARRAY['asks','credit_requests','scope_requests'] LOOP
+    FOREACH field IN ARRAY ARRAY['node','status','at','resolved_at'] LOOP
+      EXECUTE format('ALTER TABLE orgtree.%I ADD COLUMN %I boolean '
+        'GENERATED ALWAYS AS ((extra -> %L) IS NOT NULL) STORED',relation,field||'_misfit',field);
+    END LOOP;
+    EXECUTE format('CREATE INDEX %I ON orgtree.%I(id) WHERE '
+      'node_misfit OR status_misfit OR at_misfit OR resolved_at_misfit',relation||'_foreground_misfit',relation);
+    EXECUTE format('CREATE INDEX %I ON orgtree.%I(node,ord) WHERE status IN (''open'',''pending'')',
+      relation||'_foreground_open',relation);
+  END LOOP;
+END
+$requests$;
 
 -- The codec omits *_text for canonical UTC milliseconds; keep legacy's text
 -- order for noncanonical strings without converting JSON or loading bodies.
@@ -44,7 +77,7 @@ LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE n bigint; k text; previous bigint;
   old_nodes bigint:=0; new_nodes bigint:=0; old_retired bigint:=0; new_retired bigint:=0;
   old_cost numeric:=0; new_cost numeric:=0; old_unknown bigint:=0; new_unknown bigint:=0;
-  field text; amount numeric; renamed_retired bigint;
+  field text; amount numeric; renamed_retired bigint; parent_delta record;
 BEGIN
   IF TG_ARGV[0] !~ '^[a-z][a-z0-9_]*_rev$' OR TG_ARGV[1] NOT IN ('rows','flag') THEN
     RAISE EXCEPTION 'invalid foreground counter arguments';
@@ -61,6 +94,13 @@ BEGIN
         (successor_id IS NULL OR successor_id IN (SELECT id FROM orgtree.agents WHERE name=''))),
         coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown)
         INTO new_nodes,new_retired,new_cost,new_unknown FROM new_rows WHERE NOT tombstone;
+      FOR parent_delta IN SELECT coalesce(parent_id,0) AS parent_id,count(*) AS amount
+        FROM new_rows WHERE NOT tombstone AND state='archived' AND
+          (successor_id IS NULL OR successor_id IN (SELECT id FROM orgtree.agents WHERE name=''))
+        GROUP BY parent_id
+      LOOP
+        PERFORM orgtree.foreground_parent_delta(parent_delta.parent_id,parent_delta.amount);
+      END LOOP;
     END IF;
     IF TG_OP<>'INSERT' THEN
       -- References in OLD name the old target even when this statement also
@@ -71,19 +111,39 @@ BEGIN
           SELECT id FROM orgtree.agents WHERE name='' AND id NOT IN (SELECT id FROM old_rows)))),
         coalesce(sum(cost_usd),0),count(*) FILTER (WHERE cost_usd_unknown)
         INTO old_nodes,old_retired,old_cost,old_unknown FROM old_rows WHERE NOT tombstone;
+      FOR parent_delta IN SELECT coalesce(parent_id,0) AS parent_id,-count(*) AS amount
+        FROM old_rows WHERE NOT tombstone AND state='archived' AND
+          (successor_id IS NULL OR successor_id IN (
+            SELECT id FROM old_rows WHERE name='' UNION ALL
+            SELECT id FROM orgtree.agents WHERE name='' AND id NOT IN (SELECT id FROM old_rows)))
+        GROUP BY parent_id
+      LOOP
+        PERFORM orgtree.foreground_parent_delta(parent_delta.parent_id,parent_delta.amount);
+      END LOOP;
     END IF;
     IF TG_OP='UPDATE' THEN
       IF EXISTS(SELECT 1 FROM old_rows o JOIN new_rows v USING(id)
           WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')) THEN
       -- Only the exceptional empty-name boundary can change another row's
       -- typed axis without writing it. Probe incoming links by successor_id.
-      SELECT count(*) FILTER (WHERE v.name='')-count(*) FILTER (WHERE o.name='')
-        INTO renamed_retired FROM old_rows o JOIN new_rows v USING(id)
-        JOIN orgtree.agents a ON a.successor_id=o.id
-        WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')
-          AND NOT a.tombstone AND a.state='archived'
-          AND a.id NOT IN (SELECT id FROM new_rows);
+        SELECT count(*) FILTER (WHERE v.name='')-count(*) FILTER (WHERE o.name='')
+          INTO renamed_retired FROM old_rows o JOIN new_rows v USING(id)
+          JOIN orgtree.agents a ON a.successor_id=o.id
+          WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')
+            AND NOT a.tombstone AND a.state='archived'
+            AND a.id NOT IN (SELECT id FROM new_rows);
         new_retired:=new_retired+renamed_retired;
+        FOR parent_delta IN
+          SELECT coalesce(a.parent_id,0) AS parent_id,
+            count(*) FILTER (WHERE v.name='')-count(*) FILTER (WHERE o.name='') AS amount
+          FROM old_rows o JOIN new_rows v USING(id)
+          JOIN orgtree.agents a ON a.successor_id=o.id
+          WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='')
+            AND NOT a.tombstone AND a.state='archived'
+            AND a.id NOT IN (SELECT id FROM new_rows) GROUP BY a.parent_id
+        LOOP
+          PERFORM orgtree.foreground_parent_delta(parent_delta.parent_id,parent_delta.amount);
+        END LOOP;
       END IF;
     END IF;
     FOR field,amount IN SELECT 'node_count',(new_nodes-old_nodes)::numeric
@@ -101,7 +161,7 @@ $fn$;
 
 CREATE FUNCTION orgtree.foreground_flush() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-DECLARE n bigint; k text; touched bigint; field text;
+DECLARE n bigint; k text; touched bigint; field text; parent_delta record;
 BEGIN
   IF TG_ARGV[0] !~ '^[a-z][a-z0-9_]*_rev$' THEN RAISE EXCEPTION 'invalid foreground counter'; END IF;
   k := 'orgtree.pending_' || TG_ARGV[0];
@@ -109,6 +169,18 @@ BEGIN
   IF n=0 THEN RETURN NULL; END IF;
   PERFORM set_config(k,'0',true);
   IF TG_ARGV[0]='node_rev' THEN
+    -- A save already owns this lock from on_save_commit. Every flush must
+    -- therefore acquire it before parent keys, even on a standalone write.
+    PERFORM 1 FROM orgtree.org_revision WHERE singleton FOR UPDATE;
+    FOR parent_delta IN SELECT key::bigint AS parent_id,value::bigint AS amount
+      FROM jsonb_each_text(coalesce(nullif(current_setting('orgtree.pending_parents',true),''),'{}')::jsonb)
+      WHERE value::bigint<>0 ORDER BY key::bigint
+    LOOP
+      INSERT INTO orgtree.foreground_parent_counts AS counts(parent_id,retired_children)
+        VALUES(parent_delta.parent_id,parent_delta.amount)
+        ON CONFLICT(parent_id) DO UPDATE SET retired_children=counts.retired_children+EXCLUDED.retired_children;
+    END LOOP;
+    PERFORM set_config('orgtree.pending_parents','{}',true);
     UPDATE orgtree.org_revision SET node_rev=node_rev+n,
       node_count=node_count+coalesce(nullif(current_setting('orgtree.pending_node_count',true),''),'0')::bigint,
       retired_axis_count=retired_axis_count+coalesce(nullif(current_setting('orgtree.pending_retired_axis_count',true),''),'0')::bigint,
@@ -200,6 +272,8 @@ $install$;
 
 CREATE INDEX agents_foreground_live ON orgtree.agents(ord,name)
   WHERE coalesce(state,'live')<>'archived' AND NOT tombstone;
+CREATE INDEX agents_foreground_discovery ON orgtree.agents(coalesce(state,'live'),name COLLATE "C")
+  WHERE NOT tombstone AND NOT state_misfit;
 CREATE INDEX agents_foreground_retired ON orgtree.agents(parent_id,coalesce(ui_order,0),orgtree.foreground_time(created,created_text),ord,name)
   WHERE state='archived' AND NOT tombstone;
 CREATE FUNCTION orgtree.agent_name_grams(value text) RETURNS text[]
@@ -215,4 +289,8 @@ CREATE INDEX asks_foreground_recent ON orgtree.asks(orgtree.foreground_request_t
   WHERE coalesce(status,'') NOT IN ('open','pending');
 CREATE INDEX credit_foreground_node ON orgtree.credit_requests(node,orgtree.foreground_time(at,at_text) DESC,ord);
 CREATE INDEX scope_foreground_node ON orgtree.scope_requests(node,orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text) DESC,ord);
+CREATE INDEX credit_requests_foreground_recent ON orgtree.credit_requests(orgtree.foreground_time(at,at_text) DESC,ord DESC)
+  WHERE coalesce(status,'') NOT IN ('open','pending') AND coalesce(status,'')<>'withdrawn';
+CREATE INDEX scope_requests_foreground_recent ON orgtree.scope_requests(orgtree.foreground_request_time(resolved_at,resolved_at_text,at,at_text) DESC,ord DESC)
+  WHERE coalesce(status,'') NOT IN ('open','pending') AND coalesce(status,'')<>'withdrawn';
 CREATE INDEX documents_foreground_node ON orgtree.documents(node,ord DESC);
