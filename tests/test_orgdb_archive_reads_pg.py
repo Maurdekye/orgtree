@@ -230,12 +230,22 @@ class ArchiveReads(unittest.TestCase):
         row = registry.lookup(self.slug)
         with conn.connect(f.ADMIN, row[1]) as admin:
             admin.execute('VACUUM (ANALYZE) orgtree.work_items')
+            first_visible = admin.execute("SELECT relpages,relallvisible FROM pg_class "
+                                          "WHERE oid='orgtree.work_items'::regclass").fetchone()
+            # The private cluster commits asynchronously. Advance a committed
+            # xid/WAL boundary before requiring a fully visible covering scan;
+            # this fixture maintenance changes no record and no reader setting.
+            admin.execute('SET synchronous_commit=on')
+            with admin.transaction():
+                admin.execute('SELECT pg_current_xact_id()')
+            admin.execute('VACUUM (FREEZE, ANALYZE, DISABLE_PAGE_SKIPPING) orgtree.work_items')
             visible = admin.execute("SELECT relpages,relallvisible FROM pg_class "
                                     "WHERE oid='orgtree.work_items'::regclass").fetchone()
             horizons = admin.execute("SELECT pid,state,backend_xmin::text "
                                      "FROM pg_stat_activity WHERE backend_xmin IS NOT NULL "
                                      "AND pid<>pg_backend_pid()").fetchall()
         REPORT.setdefault('vacuum', []).append(dict(headers=count, pages=visible[0],
+                                                    first_visible_pages=first_visible[1],
                                                     visible_pages=visible[1], horizons=horizons))
 
     def test_status_probes_are_flat_and_identity_is_covering(self):
