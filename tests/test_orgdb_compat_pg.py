@@ -582,11 +582,15 @@ class LockBlock(unittest.TestCase):
         self.assertEqual(got, [(f'node:{orgtx._ALL_NODES_KEY}', 'S'), ('node:boss', 'X'),
                                ('node:dev', 'S'), ('node:ops', 'X'),
                                ('section:asks', 'X'), ('section:killswitch', 'X')])
-        # each named row's advisory lock is followed by the row's own lock (the node
-        # pseudo-row has no row)
+        # Advisories first, then agents by physical id, then other rows (design 2.4).
+        block = locks[1]
+        self.assertLess(block.rfind('pg_advisory_xact_lock'), block.find('FOR r IN SELECT id,name'))
+        self.assertIn('ORDER BY id LOOP', block)
+        self.assertIn("r.name IN ('boss','ops')", block)
+        self.assertIn('FOR UPDATE; ELSE PERFORM id FROM orgtree.agents', block)
+        self.assertIn('FOR SHARE; END IF; END LOOP;', block)
         rows = re.findall(r"PERFORM 1 FROM orgtree\.(\w+)[^;]*?(FOR UPDATE|FOR SHARE)", locks[1])
-        self.assertEqual(rows, [('agents', 'FOR UPDATE'), ('agents', 'FOR SHARE'),
-                                ('agents', 'FOR UPDATE'), ('org_sections', 'FOR UPDATE'),
+        self.assertEqual(rows, [('org_sections', 'FOR UPDATE'),
                                 ('org_sections', 'FOR UPDATE')])
 
     def test_a_settings_writer_plan_takes_the_settings_fence_before_any_row(self) -> None:

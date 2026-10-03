@@ -1231,6 +1231,9 @@ def _scope(ls: LogSect, extra: str = "") -> str:
 
 
 def log_has(c: Any, ls: LogSect) -> bool:
+    if ls.name == "mail_log":
+        return bool(c.execute("SELECT EXISTS (SELECT 1 FROM orgtree.mailboxes WHERE nrows > 0)")
+                    .fetchone()[0])
     return bool(c.execute(f"SELECT EXISTS (SELECT 1 FROM orgtree.{ls.table.spec.table} "
                           f"WHERE {_scope(ls)})").fetchone()[0])
 

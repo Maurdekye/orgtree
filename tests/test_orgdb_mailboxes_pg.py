@@ -8,6 +8,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 import contextlib
 import json
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -155,18 +156,18 @@ class Mailboxes(unittest.TestCase):
                 with orgtx.org_tx(t.copy, **mailtx.send_rows('dev')) as tx:
                     tx.org.deposit_mail('dev', {'id': 'refused'})
                     c = store._orgtx_local.pinned[t.copy]
-                    seq, raw = c.execute("SELECT seq,val FROM log_d WHERE sect=? AND owner=? ORDER BY seq",
+                    seq, raw = c.execute("SELECT seq, val FROM log_d WHERE sect=? AND owner=? ORDER BY seq",
                                          ('mail_log', 'dev')).fetchone()
                     altered = dict(json.loads(raw), body='same count and ordinal, changed body')
-                    self.assertEqual(c.execute('UPDATE log_d SET val=? WHERE seq=? AND val=?',
-                                               (json.dumps(altered), seq, raw)).rowcount, 1)
+                    self.assertEqual(c.execute('UPDATE log_d SET at=?, val=? WHERE seq=? AND val=?',
+                                               (altered.get('at'), json.dumps(altered), seq, raw)).rowcount, 1)
             self.assertEqual(self.bound(t), before)
             self.assertEqual(self.send(t)['recv_seq'], 10)
 
     def test_save_failure_rolls_back_archive_summary_and_node_sequence(self):
-        from orgtree.orgdb.compat import mailboxes
         t = self.twin()
         self.present(t)
+        from orgtree.orgdb.compat import mailboxes
         original = mailboxes.advance
 
         def fail_after_advance(*args):
@@ -181,6 +182,24 @@ class Mailboxes(unittest.TestCase):
             self.assertEqual(self.bound(t), before)
             self.assertEqual(store.load_org(t.copy).node('dev')['mail_seq'], 0)
             self.assertEqual(self.send(t)['recv_seq'], 10)
+
+    def test_missing_empty_owner_and_migration_backfill_use_exact_legacy_domain(self):
+        values = [2**63, 10**90, 4.0, True, '99', 0, -1, None]
+        t = self.twin(values)
+        self.present(t)
+        # Migration of an already-populated development database must also work.
+        migration = Path(__file__).resolve().parents[1] / 'engine/backend/orgtree/pg_migrations/org/0013_mailboxes.sql'
+        with dbconn.connect(fixture.ADMIN, registry.lookup(t.copy)[1], autocommit=False) as c:
+            c.execute('UPDATE orgtree.mail_log SET extra=%s::json WHERE public_id=%s',
+                      (json.dumps({'recv_seq': 10**90, 'unrelated': 'nul\u0000text'}), 'old-1'))
+            c.execute('DROP TABLE orgtree.mailboxes')
+            c.execute(migration.read_text(encoding='utf-8'))
+            c.commit()
+        self.assertEqual(self.bound(t)[1:], (len(values), 10**90))
+        self.assertEqual(self.bound(t, 'boss'), (0, 0, 0))
+        with fixture.storage(True), no_archive_load():
+            self.assertEqual(self.send(t, owner='boss')['recv_seq'], 1)
+        self.assertEqual(self.bound(t, 'boss')[1:], (1, 1))
 
     def test_tombstone_rehire_and_org_trash_restore_preserve_archive_floor(self):
         t = self.twin()
