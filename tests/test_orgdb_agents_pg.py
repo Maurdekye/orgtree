@@ -376,6 +376,22 @@ class NativeSettingsChildren(unittest.TestCase):
             self.assertNotEqual(before[1], after[1])
             self.assertEqual(after[1][section]['child-source'][field], ['after'])
             self.assertEqual(after[0]['view_revision'], before[0]['view_revision'] + 1)
+            parent = 'net_state_id' if section == 'net_state' else 'org_doc_migrations_id'
+            with fixture.dbconn.connect(fixture.RUNTIME, database) as raw:
+                raw.execute('BEGIN')
+                owner, pos = raw.execute('DELETE FROM orgtree.' + table +
+                    " WHERE value='after' RETURNING " + parent + ',pos').fetchone()
+                raw.execute('INSERT INTO orgtree.' + table + '(' + parent +
+                    ',pos,value) VALUES (%s,%s,%s)', (owner, pos, 'replacement'))
+                raw.execute('COMMIT')
+            replaced = read()
+            self.assertEqual(replaced[1][section]['child-source'][field], ['replacement'])
+            self.assertEqual(replaced[0]['view_revision'], after[0]['view_revision'] + 1)
+            with fixture.dbconn.connect(fixture.RUNTIME, database) as raw:
+                raw.execute('BEGIN')
+                raw.execute('UPDATE orgtree.' + table + " SET value='discarded'")
+                raw.execute('ROLLBACK')
+            self.assertEqual(read(), replaced)
 
     def test_migration_holders_invalidates_view(self):
         self.check_child('_migrations', 'org_doc_migration_holders', 'holders')

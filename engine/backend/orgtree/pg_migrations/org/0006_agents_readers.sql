@@ -91,6 +91,7 @@ BEGIN
     WHERE s.nspname='orgtree' AND c.relkind='r' AND (
       c.relname IN ('agents','org_settings','org_sections','org_section_owners','org_extra',
         'org_dirs','org_tier_prices','org_tier_models','org_doc_migrations','net_state',
+        'org_doc_migration_holders','org_doc_migration_healed','net_state_seen_ids',
         'net_hubs','mail','delivery_batches','audience_grants','audience_requests',
         'watchdogs','watchdog_tombs','credit_requests','scope_requests','asks',
         'documents','org_inbox','user_inbox','work_items','work_scope_log') OR
