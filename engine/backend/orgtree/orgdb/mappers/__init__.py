@@ -58,6 +58,6 @@ def ddl() -> list[str]:
     for s in secs:
         if s is nodes:
             continue
-        for t in s.tables:
+        for t in getattr(s,'migration_tables',s.tables):
             out.extend(t.ddl())
     return out

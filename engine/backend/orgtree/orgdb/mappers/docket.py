@@ -24,7 +24,7 @@ from typing import Any, Mapping
 from .. import codec
 from .. import enum_values as V
 from ..codec import Field as F, Rows, ShapeError, Spec
-from ..sections import Context, Section, table
+from ..sections import Context, Section, Table, table
 
 BY = F("by", "obj", spec=Spec("", (F("node", "text"), F("generation", "int"))))
 
@@ -137,13 +137,33 @@ WORK_ITEM = Spec("work_items", (
 
 LISTS = {"work_items": "active", "work_items_archive": "archive"}
 
-def row_keys(record: Mapping[str, Any], *, id: int, list_key: str, ord: int) -> dict[str, Any]:
+def row_keys(record: Mapping[str, Any], *, id: int, list_key: str, ord: int,
+             archive_seq: int | None = None) -> dict[str, Any]:
     """Placement plus the native read header; the exact codec ignores the header.
 
     The converter and the compat per-item writer must both call this helper.
     """
     from ..docket import write_fields
-    return dict(id=id,list_key=list_key,ord=ord,**write_fields(record))
+    keys = dict(id=id,list_key=list_key,ord=ord,**write_fields(record))
+    keys['archive_seq'] = (id if archive_seq is None else archive_seq) if list_key=='archive' else None
+    scope = record.get('scope')
+    archive = record.get('scope_archive')
+    archive = archive if isinstance(archive,list) else []
+    def endpoint(entry):
+        return {'seq':entry.get('seq'),'at':entry.get('at')} if isinstance(entry,dict) else {'seq':None,'at':None}
+    keys['docket_scope_meta'] = codec.to_column('json',dict(
+        archive_count=len(archive), first=endpoint(archive[0]) if archive else endpoint(None),
+        last=endpoint(archive[-1]) if archive else endpoint(None),
+        inline_count=len(scope) if isinstance(scope,list) else None))
+    for source in EVENT_SOURCES:
+        value = record.get(source, codec.MISSING)
+        keys[source+'_events_is'] = (None if value is codec.MISSING else 'n' if value is None
+                                     else 'l' if isinstance(value,list) else 'x')
+    for field, column in CURRENT_POINTERS.items():
+        value = record.get(field, codec.MISSING)
+        keys[column] = None
+        keys[column+'_is'] = None if value is codec.MISSING else 'n' if value is None else 'v'
+    return keys
 
 
 WORK_ITEMS = table(
@@ -169,10 +189,55 @@ WORK_ITEMS = table(
     ),
 )
 
+# 0002 remains the historical foundation schema. 0010 owns this replacement;
+# generating a fresh 0002 from the current runtime mapper would rewrite history.
+LEGACY_WORK_ITEM, LEGACY_WORK_ITEMS = WORK_ITEM, WORK_ITEMS
+EVENT_SOURCES = ('history', 'evidence', 'scope', 'candidate_verdicts', 'review_packets',
+                 'dismissals', 'scope_archive', 'quick_staff_receipts')
+CURRENT_POINTERS = {'candidate_verdict':'current_verdict_event_id',
+                    'review_packet':'current_review_packet_event_id'}
+VERDICT = Spec('', (F('at','ts'), holder('by'), F('candidate','text'), F('decision','text'),
+                    F('evidence','json'), F('note','text',nullable=True), holder('next_actor')))
+PACKET = Spec('', (F('at','ts'), holder('by'), F('candidate','text',nullable=True),
+                   F('base','text',nullable=True), F('note','text'), F('evidence','json'),
+                   holder('next_actor')))
+SOURCE_SPECS = {source:Spec('',LEGACY_WORK_ITEM.field(source).spec.fields)
+                for source in ('history','evidence','scope','dismissals')}
+SOURCE_SPECS.update(candidate_verdicts=VERDICT,review_packets=PACKET,
+                    scope_archive=SOURCE_SPECS['scope'])
+EVENT = Spec('work_item_events', tuple(
+    F(source,'obj',spec=SOURCE_SPECS[source]) if source in SOURCE_SPECS else F(source,'json')
+    for source in EVENT_SOURCES))
+EVENTS = table(EVENT,child_key='event_id',placement=(
+    ('item_id','bigint','item_id bigint NOT NULL REFERENCES orgtree.work_items(id) ON DELETE CASCADE'),
+    ('seq','bigint','seq bigint NOT NULL CHECK(seq>0)'),
+    ('source','text',"source text NOT NULL CHECK(source IN ("+
+     ','.join("'"+source+"'" for source in EVENT_SOURCES)+'))'),
+    ('kind','text',"kind text NOT NULL CHECK(kind IN ('history','evidence','scope','decision',"
+     "'verdict','review_packet','dismissal','quick_staff_receipt'))"),
+    ('at','timestamptz','at timestamptz'), ('by_node','text','by_node text'),
+    ('by_generation','bigint','by_generation bigint'), ('by_born','text','by_born text'),
+    ('content','text','content text'), ('status_change','boolean','status_change boolean NOT NULL'),
+    ('original_at','json','original_at json'), ('original_scope_seq','json','original_scope_seq json'),
+),indexes=(
+    'CREATE UNIQUE INDEX work_item_events_seq ON orgtree.work_item_events(item_id,seq)',
+    'CREATE INDEX work_item_events_source ON orgtree.work_item_events(item_id,source,seq)',
+    'CREATE INDEX work_item_events_status ON orgtree.work_item_events(item_id,seq DESC) '
+    "WHERE source='history' AND status_change",
+))
+WORK_ITEM = Spec('work_items',tuple(f for f in LEGACY_WORK_ITEM.fields
+                                   if f.key not in (*EVENT_SOURCES,*CURRENT_POINTERS)))
+_placement = (('archive_seq','bigint'),)+tuple((source+'_events_is','char(1)') for source in EVENT_SOURCES)
+_placement += tuple((column,typ) for column in CURRENT_POINTERS.values()
+                    for column,typ in ((column,'bigint'),(column+'_is','char(1)')))
+WORK_ITEMS = Table(WORK_ITEM,LEGACY_WORK_ITEMS.keys+_placement,LEGACY_WORK_ITEMS.link,
+                   LEGACY_WORK_ITEMS.record_columns,LEGACY_WORK_ITEMS.indexes)
+
 
 class Docket(Section):
     keys = tuple(LISTS)
-    tables = (WORK_ITEMS,)
+    tables = (WORK_ITEMS,EVENTS)
+    migration_tables = (LEGACY_WORK_ITEMS,)
 
     def encode(self, doc: Mapping[str, Any], ctx: Context, out: Rows) -> None:
         n = 0
@@ -186,8 +251,8 @@ class Docket(Section):
                 if not isinstance(rec, dict):
                     raise ShapeError(f"{key}[{i}]: expected an object")
                 n += 1
-                codec.encode(WORK_ITEM, rec, row_keys(rec,id=n,list_key=list_key,ord=i), out,
-                             link=WORK_ITEMS.link)
+                from ..docket_events import encode_item
+                encode_item(rec,row_keys(rec,id=n,list_key=list_key,ord=i),out)
 
     def decode(self, rows, ctx, present, doc) -> None:
         ch = self._children(rows, WORK_ITEMS)
@@ -197,4 +262,6 @@ class Docket(Section):
         for key, list_key in LISTS.items():
             if key in present:
                 recs = sorted(by_list.get(list_key, []), key=lambda r: r["ord"])
-                doc[key] = [codec.decode(WORK_ITEM, r, ch, (r["id"],)) for r in recs]
+                from ..docket_events import decode_item
+                events = rows.get('work_item_events',[])
+                doc[key] = [decode_item(r,ch,[e for e in events if e['item_id']==r['id']]) for r in recs]

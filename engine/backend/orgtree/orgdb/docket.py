@@ -99,6 +99,13 @@ def _decode(raw, main, spec):
     children = {table: _dicts(raw, f'SELECT * FROM orgtree.{table} WHERE item_id=ANY(%s)', (ids,))
                 for table in wanted if table != 'work_items'}
     ch = codec.Children(children, layout)
+    if spec is WORK_ITEM:
+        from .docket_events import decode_item
+        events = _dicts(raw,'SELECT * FROM orgtree.work_item_events WHERE item_id=ANY(%s)',(ids,))
+        groups = {}
+        for event in events:
+            groups.setdefault(event['item_id'],[]).append(event)
+        return [decode_item(row,ch,groups.get(row['id'],[])) for row in main]
     return [codec.decode(spec, row, ch, (row['id'],)) for row in main]
 
 
@@ -225,14 +232,12 @@ class Snapshot:
         main = {r['id']:r for r in _dicts(self.raw,
             f'SELECT {_columns(_LIST)} FROM orgtree.work_items i WHERE i.id=ANY(%s)',(ids,))}
         bodies = _decode(self.raw,[main[n] for n in ids],_LIST)
-        counts = dict(self.raw.execute('SELECT item_id,count(*) FROM orgtree.work_item_scope '
-            'WHERE item_id=ANY(%s) GROUP BY item_id',(ids,)))
         ctx, targets, endpoints = Context(self), {'log':[],'inline':[]}, {}
         for row,b in zip(rows,bodies):
             n = int(row.source_key)
             meta = main[n]['docket_scope_meta']
             legacy_n = int(meta['archive_count'])
-            inline_n = int(meta['inline_count'] if meta['inline_count'] is not None else counts.get(n,0))
+            inline_n = int(meta['inline_count'] or 0)
             logged = int(b.get('scope_logged') or 0)
             rolled = int(b.get('scope_rolled') or 0)+legacy_n
             size = min(rolled,legacy_n+logged+inline_n)
@@ -254,19 +259,24 @@ class Snapshot:
             params = [v for group in wanted for v in group]
             source = ('JOIN orgtree.agents a ON a.name=w.slug JOIN orgtree.work_scope_log l '
                       'ON l.agent_id=a.id AND l.idx=w.position' if kind=='log' else
-                      'JOIN orgtree.work_item_scope l ON l.item_id=w.item_id AND l.pos=w.position')
+                      "JOIN LATERAL (SELECT scope_seq AS seq,scope_at AS at,scope_at_text AS at_text,"
+                      " original_scope_seq AS extra_seq,original_at AS extra_at FROM orgtree.work_item_events "
+                      " WHERE item_id=w.item_id AND source='scope' ORDER BY seq "
+                      " OFFSET w.position LIMIT 1) l ON true")
+            extras = "l.extra->'seq' AS extra_seq,l.extra->'at' AS extra_at" if kind=='log' else 'l.extra_seq,l.extra_at'
             for r in _dicts(self.raw,f'''WITH wanted(slug,which,position,item_id) AS (VALUES {values})
-                SELECT w.slug,w.which,l.seq,l.at,l.at_text,l.extra->'seq' AS extra_seq,
-                l.extra->'at' AS extra_at FROM wanted w {source}''',params):
+                SELECT w.slug,w.which,l.seq,l.at,l.at_text,{extras} FROM wanted w {source}''',params):
                 self._endpoint(endpoints[r['slug']],r['which'],self._scope_header(r))
         unstamped = [n for n in ids if not main[n].get('status_at') and not
                      (main[n].get('extra') or {}).get('status_at')]
         if unstamped:
             by_id = dict(zip(ids,bodies))
             for r in _dicts(self.raw,f'''WITH wanted(item_id) AS (SELECT unnest(%s::bigint[]))
-                SELECT w.item_id,h.at,h.at_text,h.extra->'at' AS extra_at FROM wanted w
-                JOIN LATERAL (SELECT h.at,h.at_text,h.extra FROM orgtree.work_item_history h
-                  WHERE h.item_id=w.item_id AND {_STATUS_CHANGE} ORDER BY h.pos DESC LIMIT 1) h ON true''',(unstamped,)):
+                SELECT w.item_id,h.at,h.at_text,h.extra_at FROM wanted w
+                JOIN LATERAL (SELECT h.history_at AS at,h.history_at_text AS at_text,
+                  h.original_at AS extra_at FROM orgtree.work_item_events h
+                  WHERE h.item_id=w.item_id AND h.source='history' AND h.status_change
+                  ORDER BY h.seq DESC LIMIT 1) h ON true''',(unstamped,)):
                 by_id[r['item_id']]['status_at'] = str(self._scope_header(r).get('at'))
         for b in bodies:
             b['scope_archive_summary'] = endpoints[b['slug']]
