@@ -153,6 +153,12 @@ def digest(admin, db):
     return values
 
 
+def measurement_environment(env, side):
+    if side not in ('legacy', 'native'):
+        raise ValueError('unknown storage side')
+    return dict(env, ORGTREE_STORAGE='orgdb' if side == 'native' else 'legacy')
+
+
 def call_child(config, root, env, result_name):
     # Config contains secrets; deliver through stdin, never argv, logs or files.
     result = root / result_name
@@ -295,10 +301,8 @@ def parent(a):
             original = digest(admin, legacy)
             order = ('legacy', 'native') if iteration % 2 == 0 else ('native', 'legacy')
             for side in order:
-                side_env = dict(env)
-                if side == 'native':
-                    side_env['ORGTREE_STORAGE'] = 'orgdb'
-                elif label != 'reads':
+                side_env = measurement_environment(env, side)
+                if side == 'legacy' and label != 'reads':
                     with psycopg.connect(admin, autocommit=True) as c:
                         c.execute(sql.SQL('ALTER DATABASE {} SET default_transaction_read_only=off').format(sql.Identifier(legacy)))
                 got = call_child(dict(cfg, phase='measure', side=side), group_root, side_env, side+'.json')
@@ -356,6 +360,9 @@ def child():
         out = dict(start_ms=(time.perf_counter()-t)*1000, active_orgs=len(lc.rows()),
                    import_provenance=PROVENANCE.as_dict())
     else:
+        from orgtree.orgdb import enabled
+        if enabled() != (cfg['side'] == 'native'):
+            raise ValueError('engine storage switch does not match the measured side')
         # Register an in-process lifecycle without carrying admin into the engine environment.
         if cfg['side'] == 'native':
             lc.bootstrap()

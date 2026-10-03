@@ -1,8 +1,10 @@
 # Hot-operation comparison on a disposable copy
 
 `measure-orgdb-hot.py` emits `<output>.json` and `<output>.md`. It measures the
-current checkout twice: `ORGTREE_STORAGE` off, and `ORGTREE_STORAGE=orgdb`.
+current checkout twice: `ORGTREE_STORAGE=legacy`, and `ORGTREE_STORAGE=orgdb`.
 This compares storage paths in the same code, not two release versions.
+Each measurement child checks the engine's actual storage-switch decision before
+loading the org. Neither side relies on the checkout's default switch value.
 
 Restore the authorized dump from `artifacts/livecopy-20261002/orgtree.dump`
 into a uniquely named template on **your own custodian dev cluster**. Do not

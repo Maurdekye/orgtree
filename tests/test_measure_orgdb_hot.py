@@ -16,6 +16,18 @@ SPEC.loader.exec_module(HOT)
 
 
 class Measurement(unittest.TestCase):
+    def test_storage_sides_use_the_actual_engine_switch_without_ambient_defaults(self):
+        from orgtree.orgdb import enabled
+        ambient = {'ORGTREE_STORAGE': 'orgdb', 'OTHER': 'retained'}
+        for side, expected in [('legacy', False), ('native', True)]:
+            env = HOT.measurement_environment(ambient, side)
+            with patch.dict(HOT.os.environ, env, clear=True):
+                self.assertEqual(enabled(), expected)
+            self.assertEqual(env['OTHER'], 'retained')
+        self.assertEqual(ambient['ORGTREE_STORAGE'], 'orgdb')
+        with self.assertRaises(ValueError):
+            HOT.measurement_environment(ambient, 'unknown')
+
     def test_operator_adapter_matches_the_current_door_signature(self):
         def door(slug, body, harness):
             return slug, body.op, harness
