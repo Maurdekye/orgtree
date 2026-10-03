@@ -277,9 +277,10 @@ def sqlite_copy(source, target):
         for suffix in ('-wal', '-shm'):
             if Path(str(source) + suffix).is_file():
                 shutil.copyfile(str(source) + suffix, str(private) + suffix)
-        with sqlite3.connect(private.resolve().as_uri() + '?mode=ro', uri=True) as src, \
-                sqlite3.connect(target) as dest:
-            src.backup(dest)
+        with contextlib.closing(sqlite3.connect(private.resolve().as_uri() + '?mode=ro', uri=True)) as src, \
+                contextlib.closing(sqlite3.connect(target)) as dest:
+            with dest:
+                src.backup(dest)
 
 
 def import_sqlite(a, data, database):
@@ -557,6 +558,14 @@ def worker(a):
     orgs = prepare(a, database, data)
     original = inventory(admin, database)
     chosen = next(((i, s) for i, s in orgs if s == a.fault_org), None) if a.fault_org else orgs[0]
+    if a.fault == 'dup-slug' and not a.fault_org:
+        chosen = None
+        with psycopg.connect(with_db(admin, database)) as c:
+            for i, s in orgs:
+                if c.execute(sql.SQL("SELECT EXISTS(SELECT 1 FROM {}.log_l WHERE sect='work_items_archive')")
+                             .format(sql.Identifier('org_' + str(i)))).fetchone()[0]:
+                    chosen = (i, s)
+                    break
     require(chosen is not None, 'selected fault org is not live')
     undo = plant(admin, database, chosen[0], a.fault) if a.fault != 'none' else None
     with psycopg.connect(admin, autocommit=True) as c:
@@ -849,7 +858,9 @@ def main():
     if a.worker:
         return worker(a)
     report = {'release': a.release, 'fault': a.fault, 'import_provenance': PROVENANCE.as_dict(),
-              'passed': False, 'runs': [], 'cleanup': []}
+              'passed': False, 'runs': [], 'cleanup': [], 'input_preparation':
+              'pgimport.main import --hold-back --cutover; private-cluster attachment injected; offline SQLite backup'
+              if a.sqlite_orgs else 'read-only clones of supplied/restored legacy template'}
     try:
         execute_report(a, report)
     finally:

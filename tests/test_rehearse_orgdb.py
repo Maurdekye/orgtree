@@ -2,6 +2,7 @@
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import importlib.util
+import contextlib
 from pathlib import Path
 import sys
 import tempfile
@@ -156,7 +157,7 @@ class RehearsalControls(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             source, target = root / 'input.db', root / 'output.db'
-            with sqlite3.connect(source) as c:
+            with contextlib.closing(sqlite3.connect(source)) as c:
                 c.execute('PRAGMA journal_mode=WAL')
                 c.execute('CREATE TABLE test(value text)')
                 c.commit()
@@ -169,7 +170,7 @@ class RehearsalControls(unittest.TestCase):
                 self.assertIn('input.db-wal', before)
                 r.sqlite_copy(source, target)
                 self.assertEqual(before, files())
-                with sqlite3.connect(target) as dest:
+                with contextlib.closing(sqlite3.connect(target)) as dest:
                     self.assertEqual(dest.execute('SELECT value FROM test').fetchall(), [('committed in WAL',)])
             self.assertFalse(Path(str(source) + '-wal').exists())
             r.sqlite_copy(source, root / 'closed-copy.db')
