@@ -360,5 +360,50 @@ class NativeMisfits(unittest.TestCase):
         self.assertEqual(values[0],values[1])
 
 
+@fixture.needs_pg
+class NativeReferences(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.twin=fixture.Twins('a1 references')
+        cls.twin.edit(lambda d:d['nodes'].__setitem__('false',dict(
+            fixture.node('false','boss'),state='archived',generation=7)))
+
+    def both(self,fn):
+        values=[]
+        for on,slug in ((False,self.twin.legacy),(True,self.twin.copy)):
+            with fixture.storage(on): values.append(fn(slug))
+        return values
+
+    def test_parent_misfit_matching_a_name(self):
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('parent',False))
+        try:
+            values=self.both(lambda s:F.read_exact(s,'dev'))
+            self.assertEqual(set(values[0]['rows']),set(values[1]['rows']))
+            self.assertEqual(values[0]['missing_ancestors'],values[1]['missing_ancestors'])
+        finally:
+            self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('parent','boss'))
+
+    def test_predecessor_misfit_matching_a_name(self):
+        self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('predecessor',False))
+        try:
+            values=self.both(lambda s:F.read_exact(s,'dev'))
+            for key in ('lineage_count','consultable_predecessor'):
+                self.assertEqual(values[0]['rows']['dev'][key],values[1]['rows']['dev'][key])
+            values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
+                set(identity_context._read(raw,s,'dev').nodes)))
+            self.assertEqual(values[0],values[1])
+        finally:
+            self.twin.edit(lambda d:d['nodes']['dev'].pop('predecessor',None))
+
+    def test_identity_user_extern_audiences(self):
+        from orgtree.ledger import USER,EXTERN
+        self.twin.edit(lambda d:d.__setitem__('audiences',[
+            dict(grantee='dev',grantor=USER),dict(grantee='dev',grantor=EXTERN)]))
+        values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
+            identity_context._read(raw,s,'dev').d['audiences']))
+        self.assertEqual(values[0],values[1])
+        self.assertEqual({r['grantor'] for r in values[1]},{USER,EXTERN})
+
+
 if __name__ == '__main__':
     unittest.main()
