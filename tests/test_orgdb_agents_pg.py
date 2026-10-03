@@ -3,7 +3,7 @@
 The shared twins fixture provisions only throwaway databases. Run under P03's
 heavy lock through tools/run-python-verification.py, never on live data.
 """
-import import_provenance  # noqa: F401  asserts this checkout before engine imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import unittest
 
 import test_orgdb_compat_pg as fixture
