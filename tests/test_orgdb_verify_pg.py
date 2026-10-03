@@ -437,10 +437,10 @@ CORRUPTIONS = {
         "UPDATE orgtree.work_items SET list_key = 'active', ord = 2 WHERE slug = 'old-thing'"], [
         "UPDATE orgtree.work_items SET list_key = 'archive', ord = 0 WHERE slug = 'old-thing'"]),
     'value inside extra changed': ('agents', [
-        "UPDATE orgtree.agents SET extra = replace(extra::text, '\"ui_order\": 2', "
-        "'\"ui_order\": 3')::json WHERE name = 'odd'"], [
-        "UPDATE orgtree.agents SET extra = replace(extra::text, '\"ui_order\": 3', "
-        "'\"ui_order\": 2')::json WHERE name = 'odd'"]),
+        "UPDATE orgtree.agents SET extra = replace(extra::text, '\"title\": \"nul', "
+        "'\"title\": \"nil')::json WHERE name = 'odd'"], [
+        "UPDATE orgtree.agents SET extra = replace(extra::text, '\"title\": \"nil', "
+        "'\"title\": \"nul')::json WHERE name = 'odd'"]),
     'presence flag flipped': ('agents', [
         "UPDATE orgtree.agents SET is_halted = NOT is_halted WHERE name = 'x'"], [
         "UPDATE orgtree.agents SET is_halted = NOT is_halted WHERE name = 'x'"]),
