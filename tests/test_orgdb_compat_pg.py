@@ -1273,6 +1273,8 @@ class OwnerKeys(unittest.TestCase):
                           "FROM generate_series(%s, %s - 1) g", (r, self.LATE, have, to))
                 c.execute('ANALYZE orgtree.mail_log')
 
+        scans: set = set()
+
         def examined(cap: int) -> tuple[int, int]:
             seen = recorded_with_params(lambda: self.sent(t.copy, 'flat', cap))
             mine = [(q, p) for q, p in seen if 'orgtree.mail_log' in q
@@ -1283,11 +1285,19 @@ class OwnerKeys(unittest.TestCase):
                 for q, p in mine:
                     plan = c.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + q, p).fetchone()[0][0]['Plan']
                     total += plan_examined(plan)
+                    scans.update(plan_scans(plan, 'mail_log'))
             return len(mine), total
         grow(300)
         small = {cap: examined(cap) for cap in (1, 5, 19)}
         grow(3000)
         large = {cap: examined(cap) for cap in (1, 5, 19)}
+        # every read goes through the two indexes made for it: at b38d0ec a recipient's first row
+        # was a min(id) the planner served at 300 rows by walking the primary key past the other
+        # recipients' older rows (20 more rows read at every cap than at 3000)
+        self.assertTrue(scans, scans)
+        self.assertEqual({(kind, index) for kind, index in scans
+                          if kind not in ('Index Scan', 'Index Only Scan')
+                          or index not in ('mail_log_sent', 'mail_log_owner_first')}, set(), scans)
         self.assertEqual(small, large)
         self.assertEqual([m for _, m in self.sent(t.copy, 'flat', 3)], ['newest', 'tie 2999', 'tie 2998'])
 
@@ -1649,6 +1659,16 @@ def plan_examined(plan: dict) -> int:
     return sum((n.get('Actual Rows', 0) + n.get('Rows Removed by Filter', 0)
                 + n.get('Rows Removed by Index Recheck', 0)) * n.get('Actual Loops', 0)
                for n in nodes(plan) if 'Relation Name' in n)
+
+
+def plan_scans(plan: dict, relation: str) -> list[tuple[str, str | None]]:
+    """(node type, index name or None) of every node of a plan that reads ``relation``."""
+    def nodes(p):
+        yield p
+        for child in p.get('Plans', ()):
+            yield from nodes(child)
+    return [(n['Node Type'], n.get('Index Name')) for n in nodes(plan)
+            if n.get('Relation Name') == relation]
 
 
 @needs_pg

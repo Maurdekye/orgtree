@@ -1030,6 +1030,18 @@ def _mail_sent_tail(conn: Any, p: Sequence[Any]) -> Result:
         return Result([got[rid] for rid in ids])
 
 
+def _first_row(table: str, owner: str) -> str:
+    """A LATERAL probe for ``owner``'s first archive row (its smallest id): one entry of
+    mail_log_owner_first (agent_id, id). It asks for the first row AT OR AFTER the recipient in
+    (agent_id, id) order, not for min(id) of the recipient's rows: with an equality the planner
+    may serve that min by walking the primary key in id order past every other recipient's older
+    rows, and at b38d0ec it did (one recipient holding most of the table, the flat-tie test).
+    Only the (agent_id, id) index gives this order without a sort. ``owner`` always has a row
+    in the same snapshot (the row that named it), so the first row found is its own."""
+    return (f"(SELECT f.id AS first FROM {table} f WHERE f.agent_id >= {owner} "
+            "ORDER BY f.agent_id, f.id LIMIT 1)")
+
+
 def _sent_ids(c: Any, table: str, sender: str, cap: int) -> list[int]:
     """The ids of ``sender``'s newest ``cap`` mail rows in ``table``, newest first, in the legacy
     order (`_mail_sent_tail`).
@@ -1044,7 +1056,7 @@ def _sent_ids(c: Any, table: str, sender: str, cap: int) -> list[int]:
     head = c.execute(
         f"SELECT n.id, n.win_at FROM (SELECT m.id, m.win_at, m.agent_id FROM {table} m "
         "WHERE m.win_from = %(s)s ORDER BY m.win_at DESC LIMIT %(n)s) n CROSS JOIN LATERAL "
-        f"(SELECT min(f.id) AS first FROM {table} f WHERE f.agent_id = n.agent_id) k "
+        f"{_first_row(table, 'n.agent_id')} k "
         "ORDER BY n.win_at DESC, k.first DESC, n.id DESC", {"s": sender, "n": cap + 1}).fetchall()
     if len(head) <= cap:
         return [int(r[0]) for r in head]
@@ -1058,8 +1070,8 @@ def _sent_ids(c: Any, table: str, sender: str, cap: int) -> list[int]:
         "ORDER BY m.agent_id LIMIT 1) UNION ALL "
         f"SELECT (SELECT m.agent_id FROM {table} m WHERE m.win_from = %(s)s AND m.win_at = %(e)s "
         "AND m.agent_id > o.agent_id ORDER BY m.agent_id LIMIT 1) FROM o WHERE o.agent_id IS NOT NULL) "
-        f"SELECT o.agent_id FROM o CROSS JOIN LATERAL (SELECT min(f.id) AS first FROM {table} f "
-        "WHERE f.agent_id = o.agent_id) k WHERE o.agent_id IS NOT NULL ORDER BY k.first DESC",
+        f"SELECT o.agent_id FROM o CROSS JOIN LATERAL {_first_row(table, 'o.agent_id')} k "
+        "WHERE o.agent_id IS NOT NULL ORDER BY k.first DESC",
         {"s": sender, "e": edge}).fetchall()
     for (owner,) in owners:
         left = cap - len(ids)
