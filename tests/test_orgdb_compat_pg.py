@@ -56,6 +56,7 @@ import contextlib
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 import threading
@@ -96,6 +97,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from orgtree import orgtx, pgstore, store  # noqa: E402
 from orgtree.orgdb import conn as dbconn, lifecycle, mappers, names, sections  # noqa: E402
 from orgtree.orgdb import registry  # noqa: E402
+from orgtree.orgdb.compat import sql  # noqa: E402
 from orgtree.orgdb.convert import legacy, rowio, run  # noqa: E402
 
 orgtx.TRANSITION_FENCE = False      # row-lock behaviour is what is under test
@@ -618,22 +620,34 @@ def _t(s: int) -> str:
     return f'2026-10-01T10:00:0{s}.000Z'
 
 
+#: the Sent tail statement store._mail_tails runs, as written there (the view answers its text)
+SENT_TAIL_SQL = ("WITH tail AS MATERIALIZED (SELECT seq,sent_at,owner_pos FROM mail_sent "
+                 "WHERE sender=? ORDER BY sent_at DESC,owner_pos DESC,seq DESC LIMIT ?) "
+                 "SELECT l.owner,l.val FROM tail CROSS JOIN LATERAL "
+                 "(SELECT owner,val FROM log_d WHERE seq=tail.seq LIMIT 1) l "
+                 "ORDER BY tail.sent_at DESC,tail.owner_pos DESC,tail.seq DESC")
+
+
 def windows_fixture(slug: str) -> None:
     """Content for the bounded window readers (piece A6): equal timestamps across owners and
     inside one owner, a timestamp in another text form, records whose `at` is null or absent,
     a detail that is not an object, a sender that is null, a document id presented twice and
-    an eviction sharing its `at` with a document."""
+    an eviction sharing its `at` with a document. Round 2 (the windows read through org
+    migration 0008's kept columns): a node, a sender and detail fields of another shape (a
+    number, an object), more `at` text forms, and the two owner-tail logs."""
     def mail(mid: str, frm, at: str) -> dict:
         return {'id': mid, 'from': frm, 'body': f'body {mid}', 'at': at}
     org = store.load_org(slug)
     d = org.d
     d['mail_log'] = {
-        'ops': [mail('a1', 'dev', _t(1)), mail('a2', 'boss', _t(2)), mail('a3', 'dev', _t(2))],
+        'ops': [mail('a1', 'dev', _t(1)), mail('a2', 'boss', _t(2)), mail('a3', 'dev', _t(2)),
+                mail('a4', 7, _t(3)), mail('a5', 'dev', '2026-10-01T10:00:02Z')],
         'dev': [mail('b1', 'boss', _t(2)), mail('b2', 'ops', _t(3)), mail('b3', 'boss', _t(2))],
         'boss': [mail('c1', 'dev', _t(2)), mail('c2', 'dev', '2026-10-01T10:00:02Z')],
     }
     d['user_mail_log'] = [mail('u1', 'dev', _t(1)), mail('u2', 'ops', _t(2)),
-                          mail('u3', 'dev', _t(2)), mail('u4', None, _t(2))]
+                          mail('u3', 'dev', _t(2)), mail('u4', None, _t(2)),
+                          mail('u5', 7, _t(1)), mail('u6', 'dev', '2026-10-01T10:00:02Z')]
     d['user_inbox'] = [mail('i1', 'dev', _t(3))]
     for op, actor, detail, at in (
             ('hire', 'boss', {'node': 'dev'}, _t(1)), ('mail', 'ops', {'to': 'dev'}, _t(2)),
@@ -645,6 +659,11 @@ def windows_fixture(slug: str) -> None:
             ('accent', 'dev', {}, ['é']), ('ascii', 'dev', {}, ['z']),
             ('object at', 'dev', {}, {'zz': 1, 'a': 'é'}),
             ('numeric actor', 7, {'node': 'ops'}, _t(2)),       # matched as the text '7'
+            ('numeric node', 'ops', {'node': 7}, _t(3)),
+            ('float recipient', 'ops', {'to': 7.0}, _t(1)),      # the text '7.0', not '7'
+            ('object node', 'ops', {'node': {'b': 1, 'a': 'é'}}, _t(2)),  # its jsonb text
+            ('every role', 'boss', {'node': 'dev', 'to': 'dev', 'grantee': 'ops', 'from': 'boss'},
+             '2026-10-01T10:00:03Z'),
             ('present_evicted', 'dev', {'id': 'd0', 'title': 'Old', 'format': 'html'}, _t(2))):
         e = {'op': op, 'actor': actor, 'detail': detail}
         if at == 'NULL':
@@ -655,7 +674,18 @@ def windows_fixture(slug: str) -> None:
     d['notice_log'] = [{'node': 'dev', 'at': _t(1), 'text': 'n1'},
                        {'node': 'dev', 'at': _t(2), 'text': 'n2'},
                        {'node': 'ops', 'at': _t(2), 'text': 'n3'},
-                       {'node': 'dev', 'at': _t(2), 'text': 'n4'}]
+                       {'node': 'dev', 'at': _t(2), 'text': 'n4'},
+                       {'node': 7, 'at': _t(3), 'text': 'n5'},
+                       {'node': 'dev', 'at': '2026-10-01T10:00:02Z', 'text': 'n6'},
+                       {'node': 'dev', 'at': ['z'], 'text': 'n7'},
+                       {'node': 'dev', 'text': 'n8'}]
+    # the owner tails order a non-string `at` as '' (store._at_of), unlike the windows
+    d['steered_log'] = {'dev': [
+        {'at': _t(2), 'level': 'a'}, {'at': '2026-10-01T10:00:02Z', 'level': 'b'},
+        {'at': ['x'], 'level': 'c'}, {'level': 'd'}, {'at': 'yesterday', 'level': 'e'},
+        {'at': _t(2), 'level': 'f'}, {'at': _t(1), 'level': 'g'}]}
+    d['turn_error_log'] = {'dev': [{'at': _t(1), 'text': 'e1'}, {'at': None, 'text': 'e2'},
+                                   {'at': _t(3), 'text': 'e3'}, {'at': 5, 'text': 'e4'}]}
     d['documents'] = [
         {'id': 'd1', 'node': 'dev', 'title': 'One', 'body': 'one', 'at': _t(1), 'format': 'markdown'},
         {'id': 'd2', 'node': 'ops', 'title': 'Two', 'body': '<p>2</p>', 'at': _t(2), 'format': 'html',
@@ -694,7 +724,7 @@ class WindowReads(unittest.TestCase):
                     self.assertEqual(want, got)
 
     def test_history_rows(self) -> None:
-        for nid in ('dev', 'ops', 'nobody', '7'):
+        for nid in ('dev', 'ops', 'boss', 'nobody', '7', '7.0', '{"a": "é", "b": 1}'):
             for cap in (1, 3, 100):
                 with self.subTest(nid=nid, cap=cap):
                     want, got = self.both(lambda s: store.read_node_history_rows(s, nid, cap))
@@ -735,58 +765,213 @@ class WindowReads(unittest.TestCase):
                 self.assertIsNotNone(got)
                 self.assertEqual(want, got)
                 self.assertIn('x2', [m['id'] for m in got[4]])
+        # round 2: the Sent statement itself with caps smaller than the tie group, so the
+        # index's newest rows alone (by `at` text, then row) would pick x3 where the legacy key
+        # picks x2 (boss's first archive row is after ops')
+        for cap in (1, 2, 3, 4):
+            with self.subTest(cap=cap):
+                want, got = [], []
+                for on, slug, out in ((False, t.legacy, want), (True, t.copy, got)):
+                    with storage(on):
+                        out.extend(store._bounded_read(slug, lambda conn: [
+                            (o, json.loads(v)['id']) for o, v in
+                            conn.execute(SENT_TAIL_SQL, ('dev', cap)).fetchall()]))
+                self.assertEqual(want, got)
+                self.assertEqual(got[0], ('boss', 'x2'))
+        # removing ops' early rows moves ops' first archive row after boss's, so the tie order
+        # flips: legacy repairs that owner's keys (mail_sent.owner_pos), and so must 0008. The
+        # store re-inserts rows it repositions, so the rows kept (x1, x3) must be removed around
+        # at the storage level, in both stores, for the repair to be what decides the order
+        with storage(False):
+            oid = int(pgstore.read_marker(str(DATA / 'orgs' / f'{t.legacy}.pg')))
+            with pgstore.connect() as c:
+                c.execute(f"DELETE FROM org_{oid}.log_d WHERE sect = 'mail_log' AND owner = 'ops' "
+                          "AND (val::jsonb ->> 'id') LIKE 'a%'")
+        with dbconn.connect(ADMIN, registry.lookup(t.copy)[1]) as c:
+            c.execute("DELETE FROM orgtree.mail_log WHERE public_id LIKE 'a%' AND agent_id = "
+                      "(SELECT id FROM orgtree.agents WHERE name = 'ops' AND NOT tombstone)")
+        for cap in (1, 2, 3, 4):
+            with self.subTest(cap=cap, after='first rows removed'):
+                want, got = [], []
+                for on, slug, out in ((False, t.legacy, want), (True, t.copy, got)):
+                    with storage(on):
+                        out.extend(store._bounded_read(slug, lambda conn: [
+                            (o, json.loads(v)['id']) for o, v in
+                            conn.execute(SENT_TAIL_SQL, ('dev', cap)).fetchall()]))
+                self.assertEqual(want, got)
+                self.assertEqual(got[0], ('ops', 'x3'))
 
     def test_the_gallery_never_reads_a_body(self) -> None:
         # review A6 f1: the gallery is metadata; no statement it runs may select the body
         # column (equal answers alone cannot show that the bodies travelled)
-        from unittest.mock import patch
-        seen: list[str] = []
-        real_checkout, real_release = registry.checkout, registry.release
-
-        class Cur:
-            def __init__(self, cur):
-                self._cur = cur
-
-            def __enter__(self):
-                self._cur.__enter__()
-                return self
-
-            def __exit__(self, *exc):
-                return self._cur.__exit__(*exc)
-
-            def execute(self, q, *a, **k):
-                seen.append(str(q))
-                return self._cur.execute(q, *a, **k)
-
-            def __getattr__(self, n):
-                return getattr(self._cur, n)
-
-        class Rec:
-            def __init__(self, raw):
-                object.__setattr__(self, '_raw', raw)
-
-            def execute(self, q, *a, **k):
-                seen.append(str(q))
-                return self._raw.execute(q, *a, **k)
-
-            def cursor(self, *a, **k):
-                return Cur(self._raw.cursor(*a, **k))
-
-            def __getattr__(self, n):
-                return getattr(self._raw, n)
-
-        def release(raw, database):
-            return real_release(getattr(raw, '_raw', raw), database)
-        registry.close_idle()
-        with storage(True), patch.multiple(registry, checkout=lambda *a: Rec(real_checkout(*a)),
-                                           release=release):
-            rows = store.read_document_gallery(self.t.copy)
+        got: list = []
+        seen = recorded(lambda: got.append(store.read_document_gallery(self.t.copy)))
+        rows = got[0]
         self.assertTrue(rows)
         documents = [q for q in seen if 'orgtree.documents' in q]
         self.assertTrue(documents, seen)
         for q in documents:
             self.assertNotIn('"body"', q)
             self.assertNotIn('SELECT *', q)
+
+    def test_sent_tails_of_a_sender_of_another_shape(self) -> None:
+        # a sender stored as the number 7 is the text '7' (the json_extract rule) in the Sent tail
+        # and the user mail log alike; read_node_inbox wants an existing node, so the tails are
+        # read through the same store function it uses
+        for keep, slack in ((1, 0), (2, 1), (50, 40)):
+            with self.subTest(keep=keep):
+                want, got = self.both(lambda s: store._bounded_read(
+                    s, lambda conn: store._mail_tails(conn, '7', keep, slack)))
+                self.assertIsNotNone(got)
+                self.assertEqual(want, got)
+                self.assertIn('a4', [m['id'] for m in got[3]], got)   # (box, delivering, delivered, sent)
+
+    def test_owner_tails(self) -> None:
+        for sect in ('steered_log', 'turn_error_log'):
+            for limit in (1, 2, 3, 50):
+                with self.subTest(sect=sect, limit=limit):
+                    want, got = self.both(
+                        lambda s: store.log_owner_tail(store.load_org(s).d, sect, 'dev', limit))
+                    self.assertIsNotNone(want)
+                    self.assertIsNotNone(got, 'the tail fell back to a whole-section read')
+                    self.assertEqual(want, got)
+
+    def test_events_page(self) -> None:
+        for kw in ({'last': 0}, {'last': 1}, {'last': 3}, {'last': 1000}, {'since': 0},
+                   {'since': 2}, {'since': -2}, {'since': 1000}):
+            with self.subTest(**kw):
+                want, got = self.both(lambda s: store.read_events_page(s, **kw))
+                self.assertIsNotNone(want)
+                self.assertIsNotNone(got, 'the events page fell back to a whole-org load')
+                self.assertEqual(want, got)
+
+    def test_no_window_statement_selects_by_json(self) -> None:
+        # round 2: what a window returns is decided by kept columns and their indexes, never by
+        # a JSON predicate (umbrella acceptance 7), and every window statement on a log is
+        # bounded: by LIMIT, by ids it already chose, by one exact key and `at` text, or as an
+        # EXISTS probe (the org's load, outside the windows, is not what is checked here)
+        logs = ('events', 'event_refs', 'notice_log', 'mail_log', 'user_mail_log',
+                'steer_records', 'agent_turn_errors')
+        with storage(True):
+            loaded = store.load_org(self.t.copy).d
+        calls = {'inbox': lambda s: store.read_node_inbox(s, 'dev', keep=2, slack=1),
+                 'history': lambda s: store.read_node_history_rows(s, 'dev', 3),
+                 'events': lambda s: store.read_events_page(s, last=3),
+                 'events since': lambda s: store.read_events_page(s, since=2),
+                 'steered': lambda s: store.log_owner_tail(loaded, 'steered_log', 'dev', 2)}
+        for name, fn in calls.items():
+            with self.subTest(name):
+                seen = recorded(lambda: fn(self.t.copy))
+                mine = [q for q in seen if re.search(r'\borgtree\.(%s)\b' % '|'.join(logs), q)]
+                self.assertTrue(mine, seen)
+                for q in mine:
+                    where = re.split(r'\bWHERE\b', q, maxsplit=1, flags=re.I)[1:]
+                    self.assertFalse(where and re.search(r'->|#>|::jsonb?\b', where[0]), q)
+                    self.assertTrue(re.search(r'\bLIMIT\b|= ANY\(|win_at = %s|\bEXISTS\b', q), q)
+
+
+@needs_pg
+class EventsCount(unittest.TestCase):
+    """Round 2: the number of events is kept at commit (org migration 0008), so the events page
+    never counts them; a reader sees its own transaction's events, and a savepoint rolled back
+    takes its events out of the count."""
+
+    def test_the_count_follows_commits_savepoints_and_deletes(self) -> None:
+        t = Twins('evcount', before=windows_fixture)
+        db = registry.lookup(t.copy)[1]
+        with dbconn.connect(RUNTIME, db, autocommit=False) as c:
+            count = lambda: int(c.execute('SELECT count(*) FROM orgtree.events').fetchone()[0])
+            before = sql._events_total(c)
+            self.assertEqual(before, count())
+            nxt = int(c.execute('SELECT max(ord) + 1 FROM orgtree.events').fetchone()[0])
+            c.execute("INSERT INTO orgtree.events (ord, op, actor) VALUES (%s, 'x', 'dev')", (nxt,))
+            self.assertEqual(sql._events_total(c), before + 1)
+            c.execute('SAVEPOINT s')
+            c.execute("INSERT INTO orgtree.events (ord, op, actor) VALUES (%s, 'y', 'dev')",
+                      (nxt + 1,))
+            self.assertEqual(sql._events_total(c), before + 2)
+            c.execute('ROLLBACK TO SAVEPOINT s')
+            self.assertEqual(sql._events_total(c), before + 1)
+            c.commit()
+            self.assertEqual(sql._events_total(c), count())
+            c.execute("DELETE FROM orgtree.events WHERE ord = %s", (nxt,))
+            c.commit()
+            self.assertEqual(sql._events_total(c), count())
+            self.assertEqual(sql._events_total(c), before)
+        # writes through the view keep it, and the page agrees with the legacy twin
+        t.edit(lambda d: store.log_append(d, 'events', {'op': 'later', 'actor': 'boss',
+                                                        'detail': {'to': 'dev'}, 'at': _t(4)}))
+        with dbconn.connect(RUNTIME, db) as c:
+            self.assertEqual(sql._events_total(c),
+                             int(c.execute('SELECT count(*) FROM orgtree.events').fetchone()[0]))
+        with storage(False):
+            want = store.read_events_page(t.legacy, last=2)
+        with storage(True):
+            got = store.read_events_page(t.copy, last=2)
+        self.assertEqual(want, got)
+
+    def test_event_refs_follow_the_events(self) -> None:
+        # the link table holds exactly each event's participants, after the conversion's COPY
+        # and after writes through the view
+        t = Twins('evrefs', before=windows_fixture)
+        t.edit(lambda d: store.log_append(d, 'events', {'op': 'later', 'actor': 'ops',
+                                                        'detail': {'grantee': 'boss'}, 'at': _t(4)}))
+        db = registry.lookup(t.copy)[1]
+        with dbconn.connect(ADMIN, db) as c:
+            kept = sorted(c.execute('SELECT event_id, ref, win_at FROM orgtree.event_refs').fetchall())
+            again = sorted(c.execute(
+                'SELECT e.id, r, e.win_at FROM orgtree.events e CROSS JOIN LATERAL '
+                'unnest(orgtree.event_refs_of(e.actor, e.detail, e.extra)) AS r').fetchall())
+        self.assertEqual(kept, again)
+        newest = max(e for e, _, _ in kept)
+        self.assertEqual({r for e, r, _ in kept if e == newest}, {'ops', 'boss'})   # actor, grantee
+
+
+def recorded(fn) -> list:
+    """The statements ``fn`` runs on the org databases' pooled runtime connections."""
+    from unittest.mock import patch
+    seen: list = []
+    real_checkout, real_release = registry.checkout, registry.release
+
+    class Cur:
+        def __init__(self, cur):
+            self._cur = cur
+
+        def __enter__(self):
+            self._cur.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self._cur.__exit__(*exc)
+
+        def execute(self, q, *a, **k):
+            seen.append(str(q))
+            return self._cur.execute(q, *a, **k)
+
+        def __getattr__(self, n):
+            return getattr(self._cur, n)
+
+    class Rec:
+        def __init__(self, raw):
+            object.__setattr__(self, '_raw', raw)
+
+        def execute(self, q, *a, **k):
+            seen.append(str(q))
+            return self._raw.execute(q, *a, **k)
+
+        def cursor(self, *a, **k):
+            return Cur(self._raw.cursor(*a, **k))
+
+        def __getattr__(self, n):
+            return getattr(self._raw, n)
+
+    def release(raw, database):
+        return real_release(getattr(raw, '_raw', raw), database)
+    registry.close_idle()
+    with storage(True), patch.multiple(registry, checkout=lambda *a: Rec(real_checkout(*a)),
+                                       release=release):
+        fn()
+    return seen
 
 
 def wait_for(cond, timeout: float = 15.0) -> bool:

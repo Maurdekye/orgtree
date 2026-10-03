@@ -1296,23 +1296,16 @@ def log_owner_tail(c: Any, ls: LogSect, aid: int, limit: int, names: Names
                    ) -> list[tuple[int, str | None, str | None, str]]:
     """The legacy owner tail: one owner's rows by (``at`` as text, C order) descending, then
     seq descending, the first ``limit``. ``at`` is the entry's ``at`` when it is a string,
-    else ''."""
+    else ''. Org migration 0008 keeps that text as ``win_at`` (orgtree.owner_at) and indexes
+    (agent_id, win_at, id), so only the rows returned are read (A6 round 2)."""
     f = ls.table.spec.field("at")
     if f is None or f.kind != "ts":
         raise CompatError(f"{ls.name}: no timestamp column to order a tail by")
-    keys = []
-    for rid, at, at_text, ex in c.execute(
-            f"SELECT id, at, at_text, extra FROM orgtree.{ls.table.spec.table} "
-            "WHERE agent_id = %s", (aid,)).fetchall():
-        if at is not None:
-            s = at_text if at_text is not None else codec.canonical_ts(at)
-        elif isinstance(ex, dict) and isinstance(ex.get("at"), str):
-            s = ex["at"]
-        else:
-            s = ""
-        keys.append((s, int(rid)))
-    keys.sort(reverse=True)
-    pick = [rid for _, rid in keys[:max(0, limit)]]
+    if limit <= 0:
+        return []
+    pick = [int(r[0]) for r in c.execute(
+        f"SELECT id FROM orgtree.{ls.table.spec.table} WHERE agent_id = %s "
+        "ORDER BY win_at DESC, id DESC LIMIT %s", (aid, limit)).fetchall()]
     if not pick:
         return []
     got = {s: row for row in log_rows(c, ls, ids=pick, names=names) for s in (row[0],)}

@@ -28,7 +28,6 @@ import re
 import sqlite3
 from typing import Any, Callable, Sequence
 
-from .. import codec
 from . import rows as R
 from .rows import CompatError, Names
 
@@ -859,9 +858,19 @@ def _llog_count_range(conn: Any, p: Sequence[Any]) -> Result:
     return Result([(R.log_count(conn.raw, ls),)])
 
 
+def _events_total(c: Any) -> int:
+    """The number of events, without counting them (A6 round 2): the count org migration 0008
+    keeps at commit, plus this transaction's own events not yet added to it."""
+    return int(c.execute(
+        "SELECT events_count + coalesce(nullif(current_setting("
+        "'orgtree.pending_events_count', true), '')::bigint, 0) FROM orgtree.org_revision"
+    ).fetchone()[0])
+
+
 @stmt("SELECT COUNT(*) FROM log_l WHERE sect='events'")
 def _events_count(conn: Any, p: Sequence[Any]) -> Result:
-    return Result([(R.log_count(conn.raw, _need_log("log_l", "events")),)])
+    _need_log("log_l", "events")
+    return Result([(_events_total(conn.raw),)])
 
 
 @stmt("DELETE FROM log_d WHERE sect=? AND owner=?")
@@ -895,8 +904,12 @@ def _events_newest(conn: Any, p: Sequence[Any]) -> Result:
 
 @stmt("SELECT val FROM log_l WHERE sect='events' ORDER BY seq LIMIT -1 OFFSET ?")
 def _events_from(conn: Any, p: Sequence[Any]) -> Result:
+    """``events[offset:]``: the newest (total - offset) events, read backwards from the newest,
+    so the rows skipped are never read (A6 round 2)."""
+    ls = _need_log("log_l", "events")
     with conn.atomic():
-        rows = R.log_rows_page(conn.raw, _need_log("log_l", "events"), offset=int(p[0]))
+        n = _events_total(conn.raw) - max(0, int(p[0]))
+        rows = R.log_rows_page(conn.raw, ls, newest=n) if n > 0 else []
         return Result([(t,) for _, _, _, t in rows])
 
 
@@ -953,48 +966,22 @@ PATTERNS.append((re.compile(r"^SELECT json_extract\(val,((?:'\$\.[A-Za-z0-9_]+',
 # ----------------------------------------------------------------- bounded window readers
 # (piece A6.) A node's inbox window (store._mail_tails), its history (_pg_node_history_rows),
 # the presentations gallery (_pg_document_gallery) and one presentation (read_document): each
-# reads a few rows out of a large log. They are answered from the typed columns that select and
-# order them; only the rows returned are decoded. A record whose selecting or ordering field is
-# not in its typed column (a value of another shape, kept in ``extra``) is decided from that
-# value with the legacy text rule, so no record is missed or misplaced.
+# reads a few rows out of a large log, and (round 2) reads ONLY those rows, however long the
+# archive grows. Org migration 0008 keeps each window's selecting value and its ordering text
+# (the legacy `at` text, C order) as stored generated columns, computed by the legacy text rules
+# from the typed columns and from a value of another shape kept in extra, and indexes them; so a
+# window is one index range scan in the legacy order, no JSON decides which rows it returns, and
+# only the rows returned are decoded.
 
-def _extra_text(key_sql: str) -> str:
-    """SQL for the legacy json_extract / ``->>`` text of a field kept in ``extra`` (a value of
-    another shape than its column's), computed by PostgreSQL exactly as the legacy store did
-    (pg_migrations/0001's json_extract over jsonb): a string as itself, JSON null as NULL,
-    anything else as its jsonb text (key order, number form and unescaped characters
-    included, which a Python rendering would not reproduce)."""
-    v = f"(extra->{key_sql})::jsonb"
-    return (f"CASE jsonb_typeof({v}) WHEN 'string' THEN {v} #>> '{{}}' WHEN 'null' THEN NULL "
-            f"ELSE {v}::text END")
-
-
-def _at_text(at: Any, at_text: Any, extra_at: str | None) -> str:
-    """COALESCE(json_extract(val,'$.at'),'') from a record's columns: the typed timestamp's
-    stored text, else the legacy text of a value of another shape kept in extra, else ''."""
-    if at is not None:
-        return str(at_text) if at_text is not None else codec.canonical_ts(at)
-    return "" if extra_at is None else str(extra_at)
-
-
-def _matching(c: Any, ls: R.LogSect, col: str, value: str, test: str = "",
-              test_params: Sequence[Any] = ()) -> list[tuple[int, int | None, str]]:
-    """(id, agent_id or None, at text) of ``ls``'s records whose text field ``col`` is
-    ``value`` (in its typed column, or as the text of a value of another shape kept in
-    extra), or that ``test`` matches (more ``OR`` conditions on the record's columns)."""
-    t = ls.table.spec.table
-    agent = "agent_id" if ls.kind in ("agent", "agent_map") else "NULL::bigint"
-    qc = codec.quote(col)
-    hit = f"({qc} = %s{test})"
-    at_other, col_other = _extra_text("'at'"), _extra_text("%s")
-    q = (f"SELECT id, {agent}, at, at_text, {at_other}, coalesce({hit}, false), {col_other} "
-         f"FROM orgtree.{t} WHERE {R._scope(ls)} AND ({hit} OR ({qc} IS NULL AND extra->%s IS NOT NULL))")
-    params = (value, *test_params, col, col, col, value, *test_params, col)
-    out = []
-    for rid, aid, at, att, ate, is_hit, other in c.execute(q, params).fetchall():
-        if is_hit or other == value:
-            out.append((int(rid), None if aid is None else int(aid), _at_text(at, att, ate)))
-    return out
+def _window_ids(c: Any, table: str, key_col: str, value: str, cap: int) -> list[int]:
+    """The ids of ``table``'s newest ``cap`` records whose selecting value (``key_col``, a stored
+    generated column holding the field's legacy text) is ``value``, in the legacy order: the
+    ``at`` text (``win_at``) descending, then the row descending."""
+    if cap <= 0:
+        return []
+    return [int(r[0]) for r in c.execute(
+        f"SELECT id FROM orgtree.{table} WHERE {key_col} = %s "
+        "ORDER BY win_at DESC, id DESC LIMIT %s", (value, cap)).fetchall()]
 
 
 def _decoded(c: Any, ls: R.LogSect, ids: Sequence[int], names: Names | None = None
@@ -1006,12 +993,6 @@ def _decoded(c: Any, ls: R.LogSect, ids: Sequence[int], names: Names | None = No
             for seq, owner, _, text in R.log_rows(c, ls, ids=ids, names=names)}
 
 
-def _newest(rows: list[tuple[Any, ...]], cap: int) -> list[tuple[Any, ...]]:
-    """The first ``cap`` of ``rows`` by their keys descending (Python's string order, which is
-    the legacy ``COLLATE "C"`` order)."""
-    return sorted(rows, reverse=True)[:max(0, cap)]
-
-
 @stmt("SELECT val FROM log_d WHERE sect='mail_log' AND owner=? ORDER BY seq DESC LIMIT ?")
 def _mail_owner_newest(conn: Any, p: Sequence[Any]) -> Result:
     ls = _need_log("log_d", "mail_log")
@@ -1019,7 +1000,11 @@ def _mail_owner_newest(conn: Any, p: Sequence[Any]) -> Result:
         aid = _names(conn).id(p[0], mint=False)
         if aid is None:
             return Result([])
-        rows, ch = R.fetch(conn.raw, ls.table, "agent_id = %s", (aid,), order="id DESC",
+        # by idx, which orders an owner's rows as id does (0008's note): only the unique
+        # (agent_id, idx) index gives that order, so the planner never walks the primary key
+        # past other owners' rows
+        rows, ch = R.fetch(conn.raw, ls.table, "agent_id = %s", (aid,),
+                           order="idx DESC",
                            limit=max(0, int(p[1])))
         return Result([(R.dumps(R.entry_of(ls, r, ch)),) for r in rows])
 
@@ -1032,48 +1017,43 @@ def _mail_owner_newest(conn: Any, p: Sequence[Any]) -> Result:
 def _mail_sent_tail(conn: Any, p: Sequence[Any]) -> Result:
     """A sender's newest mail in every recipient's archive, in the legacy index's order: the
     entry's ``at`` text, then its recipient's first archive row (the dict order owners load
-    in), then the row, all descending."""
+    in), then the row, all descending. Org migration 0008 keeps that first row on every row
+    (``owner_pos``, as legacy's mail_sent keeps it) and indexes the whole key, so this is one
+    index range scan, however many rows share a timestamp."""
     ls = _need_log("log_d", "mail_log")
     sender, cap = str(p[0]), int(p[1])
     with conn.atomic():
         c = conn.raw
-        found = _matching(c, ls, "from", sender)
-        if not found or cap <= 0:
-            return Result([])
-        owners = sorted({aid for _, aid, _ in found if aid is not None})
-        first = {int(a): int(m) for a, m in c.execute(
-            f"SELECT agent_id, min(id) FROM orgtree.{ls.table.spec.table} "
-            "WHERE agent_id = ANY(%s) GROUP BY agent_id", (owners,)).fetchall()}
-        pick = _newest([(at, first[aid], rid) for rid, aid, at in found], cap)
+        ids = [] if cap <= 0 else [int(r[0]) for r in c.execute(
+            f"SELECT id FROM orgtree.{ls.table.spec.table} WHERE win_from = %s "
+            "ORDER BY win_at DESC, owner_pos DESC, id DESC LIMIT %s", (sender, cap)).fetchall()]
         names = _names(conn)
-        got = _decoded(c, ls, [rid for _, _, rid in pick], names)
-        return Result([got[rid] for _, _, rid in pick])
+        got = _decoded(c, ls, ids, names)
+        return Result([got[rid] for rid in ids])
 
 
-def _list_tail(conn: Any, sect: str, col: str, value: str, cap: int, test: str = "",
-               test_params: Sequence[Any] = ()) -> Result:
-    """A list log's newest ``cap`` records matching (by ``at`` text, then position),
-    newest first, as (text,) rows."""
+def _list_tail(conn: Any, sect: str, key_col: str, value: str, cap: int) -> Result:
+    """A list log's newest ``cap`` records whose ``key_col`` is ``value`` (by ``at`` text,
+    then position), newest first, as (text,) rows."""
     ls = _need_log("log_l", sect)
     with conn.atomic():
         c = conn.raw
-        found = _matching(c, ls, col, value, test, test_params)
-        pick = _newest([(at, rid) for rid, _, at in found], cap)
-        got = _decoded(c, ls, [rid for _, rid in pick])
-        return Result([(got[rid][1],) for _, rid in pick])
+        ids = _window_ids(c, ls.table.spec.table, key_col, value, cap)
+        got = _decoded(c, ls, ids)
+        return Result([(got[rid][1],) for rid in ids])
 
 
 @stmt("SELECT val FROM log_l WHERE sect='user_mail_log' AND json_extract(val,'$.from')=? "
       "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC LIMIT ?")
 def _user_mail_from(conn: Any, p: Sequence[Any]) -> Result:
-    return _list_tail(conn, "user_mail_log", "from", str(p[0]), int(p[1]))
+    return _list_tail(conn, "user_mail_log", "win_from", str(p[0]), int(p[1]))
 
 
 @stmt("SELECT val FROM (SELECT val, seq, val::jsonb AS j FROM log_l WHERE sect='notice_log' "
       "OFFSET 0) r WHERE j->>'node'=? ORDER BY COALESCE(j->>'at','') COLLATE \"C\" DESC, seq DESC "
       "LIMIT ?")
 def _notices_of(conn: Any, p: Sequence[Any]) -> Result:
-    return _list_tail(conn, "notice_log", "node", str(p[0]), int(p[1]))
+    return _list_tail(conn, "notice_log", "win_node", str(p[0]), int(p[1]))
 
 
 @stmt("SELECT val FROM (SELECT val, seq, val::jsonb AS j FROM log_l WHERE sect='events' "
@@ -1082,11 +1062,17 @@ def _notices_of(conn: Any, p: Sequence[Any]) -> Result:
       "ORDER BY COALESCE(j->>'at','') COLLATE \"C\" DESC, seq DESC LIMIT ?")
 def _events_touching(conn: Any, p: Sequence[Any]) -> Result:
     """The node's newest events: its actor, or the node, recipient, grantee or sender in the
-    event's detail (``detail`` is a JSON column, read with the same ``->>`` text rule)."""
-    nid = str(p[0])
-    test = (" OR detail->>'node' = %s OR detail->>'to' = %s OR detail->>'grantee' = %s "
-            "OR detail->>'from' = %s")
-    return _list_tail(conn, "events", "actor", nid, int(p[5]), test, (nid, nid, nid, nid))
+    event's detail. Org migration 0008's event_refs holds each event's participants by the
+    legacy text rules (``->>``, ``#>>``), so this is one index range scan."""
+    nid, cap = str(p[0]), int(p[5])
+    ls = _need_log("log_l", "events")
+    with conn.atomic():
+        c = conn.raw
+        ids = [] if cap <= 0 else [int(r[0]) for r in c.execute(
+            "SELECT event_id FROM orgtree.event_refs WHERE ref = %s "
+            "ORDER BY win_at DESC, event_id DESC LIMIT %s", (nid, cap)).fetchall()]
+        got = _decoded(c, ls, ids)
+        return Result([(got[rid][1],) for rid in ids])
 
 
 @stmt("SELECT (val::jsonb - 'body')::text FROM log_l WHERE sect BETWEEN ? AND ? ORDER BY seq")
