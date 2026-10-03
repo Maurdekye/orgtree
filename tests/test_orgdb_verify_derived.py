@@ -1,5 +1,5 @@
 """Independent verifier keeps derived projections separate from legacy data."""
-import import_provenance  # noqa: F401  asserts imports resolve in this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import importlib.util
 from pathlib import Path
