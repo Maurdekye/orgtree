@@ -254,6 +254,7 @@ class MaintainedAggregates(unittest.TestCase):
                 raw.execute('ROLLBACK')
 
     def test_unicode_copy_compat_save_and_escaped_metadata_keys(self):
+        import json
         from orgtree.orgdb import reader_rows
         twin=fixture.Twins('a1 unicode codec')
         twin.edit(lambda d:d['nodes']['dev'].update(title='nul\x00tail', created='surrogate\ud800'))
@@ -266,6 +267,11 @@ class MaintainedAggregates(unittest.TestCase):
                 self.assertEqual(reader_rows.read_agents(raw,['dev'])['dev'],expected)
                 raw.execute('BEGIN')
                 try:
+                    with raw.cursor().copy('COPY orgtree.agents(name,ord,extra) FROM STDIN') as copied:
+                        copied.write_row(('unicode-copy-agent',42000,json.dumps({'title':'nul\x00surrogate\ud800'})))
+                    raw.execute("UPDATE orgtree.agents SET model='copied' WHERE name='unicode-copy-agent'")
+                    self.assertEqual(reader_rows.read_agents(raw,['unicode-copy-agent'])['unicode-copy-agent']['title'],
+                                     'nul\x00surrogate\ud800')
                     raw.execute("UPDATE orgtree.agents SET extra=%s::json WHERE name='dev'",
                         (r'{"\u0073tate":null,"odd":"nul\u0000","literal":"\\u0000"}',))
                     self.assertEqual(raw.execute("SELECT state_misfit,cost_usd_misfit FROM orgtree.agents WHERE name='dev'").fetchone(),(True,False))
