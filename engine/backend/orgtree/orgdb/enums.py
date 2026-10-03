@@ -8,7 +8,7 @@ from . import codec
 from .sections import Section
 
 
-def columns(secs: Iterable[Section]) -> Iterator[dict[str, Any]]:
+def columns(secs: Iterable[Section], *, include_markers: bool = False) -> Iterator[dict[str, Any]]:
     """One entry per constrained column; child records have their own local paths."""
     seen: set[tuple[str, str]] = set()
     for section in secs:
@@ -17,13 +17,16 @@ def columns(secs: Iterable[Section]) -> Iterator[dict[str, Any]]:
                 spec = layout['spec']
                 if spec is None:
                     continue
-                for column, path, values in codec.enumerated(spec):
+                fields = [(col, path, vals, 'value') for col, path, vals in codec.enumerated(spec)]
+                if include_markers:
+                    fields += [(col, path, vals, 'marker') for col, path, vals in codec.markers(spec)]
+                for column, path, values, kind in fields:
                     key = (table, column)
                     if key in seen:
                         raise ValueError(f'enum column declared twice: {table}.{column}')
                     seen.add(key)
                     yield dict(table=table, column=column, path=path, values=values,
-                               keys=tuple(k for k, _ in layout['keys']), spec=spec,
+                               kind=kind, keys=tuple(k for k, _ in layout['keys']), spec=spec,
                                layout=layout)
 
 

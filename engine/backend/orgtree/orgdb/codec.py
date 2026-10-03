@@ -78,6 +78,9 @@ MISSING: Any = object()
 
 SCALARS = ("text", "int", "float", "num", "bool", "ts", "json")
 KINDS = SCALARS + ("obj", "list")
+SHAPE_NULL, SHAPE_OBJECT, SHAPE_LIST, SHAPE_EXTRA = 'n', 'o', 'l', 'x'
+MARKER_VALUES = {'obj': (SHAPE_NULL, SHAPE_OBJECT, SHAPE_EXTRA),
+                 'list': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA)}
 SQL_TYPES = {"text": "text", "int": "bigint", "float": "double precision", "num": "numeric",
              "bool": "boolean", "ts": "timestamptz", "json": "json"}
 _INT_MIN, _INT_MAX = -(2 ** 63), 2 ** 63 - 1
@@ -305,6 +308,17 @@ def enumerated(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
             yield from enumerated(f.spec, prefix + f.col + "_", path + (f.key,))
 
 
+def markers(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
+            ) -> Iterator[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+    """Derived shape markers of this row; list children have their own specs."""
+    for f in spec.fields:
+        if f.kind in MARKER_VALUES:
+            yield prefix + f.col + '_is', path + (f.key,), MARKER_VALUES[f.kind]
+            if f.kind == 'obj':
+                assert f.spec is not None
+                yield from markers(f.spec, prefix + f.col + '_', path + (f.key,))
+
+
 def _linked(keys: Mapping[str, Any], link: Mapping[str, str] | None) -> dict[str, Any]:
     """A record's key values under the names its children use. Without
     ``link`` the children carry every key column under its own name. With it
@@ -456,26 +470,26 @@ def _fill(spec: Spec, record: dict[str, Any], row: dict[str, Any], extra: dict[s
             if v is MISSING:
                 row[c + "_is"] = None
             elif v is None:
-                row[c + "_is"] = "n"
+                row[c + "_is"] = SHAPE_NULL
             elif isinstance(v, dict):
-                row[c + "_is"] = "o"
+                row[c + "_is"] = SHAPE_OBJECT
                 sub: dict[str, Any] = {}
                 _fill(f.spec, v, row, sub, c + "_", keys, out, depth)
                 if sub:
                     extra[f.key] = sub
             else:
-                row[c + "_is"] = "x"
+                row[c + "_is"] = SHAPE_EXTRA
                 extra[f.key] = v
         else:
             if v is MISSING:
                 row[c + "_is"] = None
             elif v is None:
-                row[c + "_is"] = "n"
+                row[c + "_is"] = SHAPE_NULL
             elif isinstance(v, list) and _list_fits(f, v):
-                row[c + "_is"] = "l"
+                row[c + "_is"] = SHAPE_LIST
                 _encode_list(f, v, keys, out, depth)
             else:
-                row[c + "_is"] = "x"
+                row[c + "_is"] = SHAPE_EXTRA
                 extra[f.key] = v
     for k, v in record.items():
         if k not in index:
@@ -557,12 +571,12 @@ def _read(spec: Spec, row: Mapping[str, Any], children: Children | None,
                 out[f.key] = None
             continue
         state = row.get(c + "_is")
-        if state == "n":
+        if state == SHAPE_NULL:
             out[f.key] = None
-        elif state == "o":
+        elif state == SHAPE_OBJECT:
             assert f.spec is not None
             out[f.key] = _read(f.spec, row, children, parent, c + "_", depth)
-        elif state == "l":
+        elif state == SHAPE_LIST:
             out[f.key] = _read_list(f, children, parent, depth)
     return out
 

@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / 'engine/backend/orgtree/pg_migrations/org/0009_enum_checks.sql'
 
 
-def entries():
-    return list(enums.columns(mappers.sections() + [OrgAccounts()]))
+def entries(include_markers=False):
+    return list(enums.columns(mappers.sections() + [OrgAccounts()], include_markers=include_markers))
 
 
 def record(path, value):
@@ -54,7 +54,7 @@ def fixture(bad=False):
     secs = mappers.sections()
     doc = {'slug': 'acme'}
     for section in secs:
-        if not any(list(codec.enumerated(lay['spec'])) for table in section.tables
+        if not any(list(codec.enumerated(lay['spec'])) or list(codec.markers(lay['spec'])) for table in section.tables
                    for lay in table.layout().values() if lay['spec']):
             continue
         if isinstance(section, sections.Settings):
@@ -159,7 +159,7 @@ class EnumMigration(unittest.TestCase):
             vals = tuple(v.replace("''", "'") for v in re.findall(r"'((?:''|[^'])*)'", values))
             self.assertNotIn((table, col), actual)
             actual[table, col] = vals
-        expected = {(e['table'], e['column']): e['values'] for e in entries()}
+        expected = {(e['table'], e['column']): e['values'] for e in entries(True)}
         self.assertEqual(expected, actual)
         stripped = re.sub(r'--[^\n]*', '', text)
         self.assertEqual('', re.sub(pattern, '', stripped).strip())
@@ -196,6 +196,36 @@ class EnumMigration(unittest.TestCase):
         }.items():
             with self.subTest(column=key):
                 self.assertEqual(set(writer_set), set(values[key]))
+
+    def test_every_codec_shape_marker_has_its_exact_check(self):
+        all_columns = entries(True)
+        markers = {(e['table'], e['column']): e for e in all_columns if e['kind'] == 'marker'}
+        expected = set()
+        for sec in mappers.sections() + [OrgAccounts()]:
+            for root in sec.tables:
+                for table, lay in root.layout().items():
+                    expected.update((table, col) for col, typ in lay['columns'] if col.endswith('_is'))
+        self.assertEqual(expected, set(markers))
+        for entry in markers.values():
+            for value in (None, {}, [], 7):
+                with self.subTest(table=entry['table'], column=entry['column'], value=value):
+                    source = record(entry['path'], value)
+                    rows = {}
+                    codec.encode(entry['spec'], source, {k: 1 for k in entry['keys']}, rows)
+                    row = rows[entry['table']][0]
+                    self.assertIn(row[entry['column']], entry['values'])
+                    back = codec.decode(entry['spec'], row, codec.Children({}, {}), (1,))
+                    self.assertEqual(source, back)
+        self.assertEqual(('n', 'o', 'x'), codec.MARKER_VALUES['obj'])
+        self.assertEqual(('n', 'l', 'x'), codec.MARKER_VALUES['list'])
+
+    def test_legacy_deleted_state_is_a_reported_misfit(self):
+        entry = next(e for e in entries() if (e['table'], e['column']) == ('agents', 'state'))
+        self.assertEqual(('live', 'archived', 'unrecoverable'), entry['values'])
+        source, row, back, rows = encoded(entry, 'deleted')
+        self.assertIsNone(row['state'])
+        self.assertEqual(source, back)
+        self.assertEqual('state', enums.misfits('acme', rows, mappers.sections())[0]['field'])
 
 
 class EnumReports(unittest.TestCase):

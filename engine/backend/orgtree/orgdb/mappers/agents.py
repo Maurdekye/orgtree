@@ -83,7 +83,7 @@ HOT = Spec("agents", (
     F("created", "ts"),
     F("archived_at", "ts", nullable=True),
     F("rescinded_at", "ts", nullable=True),
-    F("state", "text", values=('live', 'archived', 'unrecoverable', 'deleted')),
+    F("state", "text", values=('live', 'archived', 'unrecoverable')),
     F("title", "text"),
     F("model", "text"),
     F("grant", "num", col="credit_grant"),

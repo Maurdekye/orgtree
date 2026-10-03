@@ -46,7 +46,7 @@ class EnumConstraints(unittest.TestCase):
         with conn.connect(RUNTIME, self.build.database, autocommit=False) as c:
             rowio.write(c, rows, order=rowio.tables(secs))
             c.commit()
-            for entry in entries():
+            for entry in entries(True):
                 table, column = entry['table'], entry['column']
                 with self.subTest(table=table, column=column):
                     statement = sql.SQL('UPDATE orgtree.{} SET {}=%s').format(
@@ -54,7 +54,7 @@ class EnumConstraints(unittest.TestCase):
                     # The exact CHECK must fail, not some unrelated FK / trigger.
                     with self.assertRaises(psycopg.errors.CheckViolation) as caught:
                         with c.transaction():
-                            c.execute(statement, ('zz-out-of-set',))
+                            c.execute(statement, ('z' if entry['kind'] == 'marker' else 'zz-out-of-set',))
                     self.assertEqual(f'{table}_{column}_enum', caught.exception.diag.constraint_name)
                     for value in entry['values'] + (None,):
                         with self.assertRaises(RollbackProbe):
@@ -62,6 +62,24 @@ class EnumConstraints(unittest.TestCase):
                                 changed = c.execute(statement, (value,)).rowcount
                                 self.assertEqual(1, changed)
                                 raise RollbackProbe()
+
+            # Every *_is column also includes the manually generated account containers,
+            # whose object-marker CHECKs predate 0009. Check physical catalog coverage.
+            marker_cols = c.execute("SELECT table_name, column_name FROM information_schema.columns "
+                                    "WHERE table_schema='orgtree' AND right(column_name,3)='_is'").fetchall()
+            known = {(e['table'], e['column']) for e in entries(True) if e['kind'] == 'marker'}
+            self.assertEqual(known | {('org_accounts', 'marks_is'), ('org_accounts', 'spend_is')},
+                             set(marker_cols))
+            for col in ('marks_is', 'spend_is'):
+                for value in codec.MARKER_VALUES['obj'] + (None,):
+                    with self.assertRaises(RollbackProbe):
+                        with c.transaction():
+                            self.assertEqual(1, c.execute(sql.SQL('UPDATE orgtree.org_accounts SET {}=%s')
+                                                          .format(sql.Identifier(col)), (value,)).rowcount)
+                            raise RollbackProbe()
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    with c.transaction():
+                        c.execute(sql.SQL('UPDATE orgtree.org_accounts SET {}=%s').format(sql.Identifier(col)), ('z',))
 
     def test_every_legacy_enum_misfit_is_null_reported_and_round_trips_through_pg(self):
         doc, secs, side = fixture(bad=True)
