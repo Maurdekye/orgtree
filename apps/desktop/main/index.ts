@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
-import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
+import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, resolvePackagedPythonPath, type EngineOptions, type RuntimeStats } from './engine'
 import { postgresLaunchOptions, writeEnginePaths } from './postgres-runtime'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
@@ -40,6 +40,7 @@ import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashR
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
 import type { ProcessFailureStage } from './process-failure'
+import { detectState, install, resolveMacEnginePythonPath, LABEL, autostartRemediationDialog, LOGIN_ITEMS_SETTINGS_URL } from './launchagent-mac'
 
 // Who this process is — installed release, installed DEV-channel build (see
 // docs/dev-builds.md), or unpackaged development — is decided in one place
@@ -323,6 +324,24 @@ else {
     }
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
+  // macOS menu-bar-only (UI-05): a Template image so the OS auto-inverts the
+  // glyph for light/dark menu bars. A Template image is alpha-channel-only -
+  // the OS discards color and renders black/white regardless of source
+  // pixels - so this deliberately zeroes runtimeIcon()'s (possibly
+  // provider-recolored) B/G/R bytes the same way the recolor loop above sets
+  // them, keeping only the eye silhouette's alpha. The Dock icon and every
+  // window icon keep their full-color runtimeIcon() untouched; only the two
+  // tray-specific call sites (rebuildTray's tray image, the initial Tray
+  // construction) use this wrapper.
+  const trayIcon = () => {
+    if (process.platform !== 'darwin') return runtimeIcon()
+    const base = runtimeIcon()
+    const bitmap = base.toBitmap(), size = base.getSize()
+    for (let i = 0; i < bitmap.length; i += 4) { bitmap[i] = 0; bitmap[i + 1] = 0; bitmap[i + 2] = 0 }
+    const image = nativeImage.createFromBitmap(bitmap, size)
+    image.setTemplateImage(true)
+    return image
+  }
   // Explorer's taskbar button reads this file path, not the window icon, so the
   // same themed eye the tray shows has to exist as a real .ico for it.
   const runtimeIconFile = (image: Electron.NativeImage) => {
@@ -371,11 +390,13 @@ else {
   // slug and answers from the registry's own record of which window is bound
   // to it. No window id from the renderer is consulted, here or anywhere: one
   // supplied by a caller would let an organization aim another's taskbar.
+  // `() => app.dock` is only ever dereferenced lazily inside the darwin-gated
+  // branch in TaskbarAttention, so it is never touched on non-mac platforms.
   const taskbarAttention = new TaskbarAttention(org => {
     const bound = org ? windows.byOrg(org) : undefined
     const record = bound ? records.get(bound.id) : undefined
     return (record ?? lastUsed())?.window
-  })
+  }, () => app.dock)
   /** Put a window in front of the user. See revealPopout for why restoring a
    *  minimized window must come first. */
   const revealWindow = (record: MainWindowRecord) => {
@@ -543,7 +564,7 @@ else {
     return dialog.showMessageBox({ type: 'error', message: 'Orgtree could not install the update.', detail })
   }
   const refreshTrayUpdates = () => {
-    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold)
+    if (trayMenu) refreshTrayUpdateMenu(trayMenu, updater.current(), downloaded, updateApplying || quitting, updateHold, process.platform)
     const automatic = trayMenu?.getMenuItemById('update-automatic')
     if (automatic) {
       automatic.checked = preferences.get().automaticUpdates
@@ -585,8 +606,12 @@ else {
     finally { rebuildTray() }
   }
   const rebuildTray = () => {
+    // Two separate images, deliberately: the tray glyph goes through
+    // trayIcon() (monochrome Template on darwin, UI-05), but the Dock icon
+    // and every window icon must stay on the unwrapped, full-color
+    // runtimeIcon() - they are NOT the same call as the tray's.
+    tray?.setImage(trayIcon())
     const image = runtimeIcon()
-    tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) applyWindowIcon(window, image)
     if (!tray) return
     if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); return }
@@ -596,15 +621,26 @@ else {
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
     // place. Not "up to date" - a build with no feed cannot claim that.
-    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported ? [
-      { id: 'update-status', label: 'Updates have not been checked', enabled: false },
-      { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
-        click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
-      { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
-        enabled: canInstallUnattended(),
-        click: item => setPreferences({ automaticUpdates: item.checked }) },
-      { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
-    ] : [{ label: 'Updates are disabled in this development build', enabled: false }]
+    // macOS never offers auto-install (UPD-01): update-install/update-automatic
+    // are dropped entirely and replaced by a "View release" row that opens the
+    // same MANUAL_UPGRADE_URL the mac update-notice component (Task 1) uses -
+    // one implementation, two entry points, never a forked copy.
+    const updateRows: Electron.MenuItemConstructorOptions[] = updatesSupported
+      ? process.platform === 'darwin' ? [
+        { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+        { id: 'update-view-release', label: 'View release', visible: false,
+          click: () => { void shell.openExternal(MANUAL_UPGRADE_URL).catch(() => {}) } },
+        { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+      ] : [
+        { id: 'update-status', label: 'Updates have not been checked', enabled: false },
+        { id: 'update-install', label: 'Update now', visible: downloaded, enabled: !updateApplying && !quitting,
+          click: () => { void requestUpdateInstall().catch(error => { void showUpdateInstallError(error) }) } },
+        { id: 'update-automatic', label: 'Automatic updates', type: 'checkbox', checked: prefs.automaticUpdates,
+          enabled: canInstallUnattended(),
+          click: item => setPreferences({ automaticUpdates: item.checked }) },
+        { id: 'update-check', label: 'Check for updates', click: () => { void checkForUpdates().catch(() => {}) } },
+      ]
+      : [{ label: 'Updates are disabled in this development build', enabled: false }]
     // The mail hub's running status, on the right-click menu (user
     // requirement 2026-09-15). One honest line from the last stats poll:
     // running (with its port, and whether it is exposed beyond this
@@ -1384,6 +1420,37 @@ else {
   })
   app.on('activate', () => { void showLastUsedOrHomepage() })
   app.on('window-all-closed', () => { /* Tray/main remain alive by default. */ })
+  // Native macOS chrome (UI-03): Orgtree/Edit/Window, nothing else - no File
+  // or Help menu, nothing in scope needs either. editMenu/windowMenu are the
+  // built-in roles wholesale (Cmd+C/Cmd+V/Cmd+Z and the open-window list) -
+  // never hand-rolled. The appMenu role auto-fills its own label from
+  // app.name; never hardcode "Orgtree" there.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        role: 'appMenu',
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { label: 'Preferences…', accelerator: 'Cmd+,', click: () => { const target = lastUsed(); if (target) sendTo(target.id, { type: 'open-settings', data: null }) } },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          // Same handler body as rebuildTray()'s update-check row - one
+          // implementation, two entry points, never a forked copy.
+          { label: 'Check for Updates…', click: () => { void checkForUpdates().catch(() => {}) } },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      { role: 'editMenu' },
+      { role: 'windowMenu' },
+    ]))
+  }
   // ---------------------------------------------------- console signals
   // A CONSOLE CLOSING MUST NOT KILL THIS PROCESS COLD (user report: closing a
   // console window they had not opened made Orgtree exit immediately).
@@ -1522,7 +1589,7 @@ else {
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
     loginPreference()
-    tray = new Tray(runtimeIcon())
+    tray = new Tray(trayIcon())
     // primary click = the org activity list; double-click keeps opening the
     // app itself (second click of the pair dismisses the just-shown popup)
     tray.on('click', (_event, iconBounds) => { void showTrayList(iconBounds) })
@@ -1671,7 +1738,22 @@ else {
       return notifications.notify(value, preferences.get())
     })
     handleOwner('desktop:sync-notifications', value => notifications.sync(value))
-    handleOwner('desktop:pending-attention', (ids, items) => { taskbarAttention.set(attentionPayload(ids, items)) })
+    handleOwner('desktop:pending-attention', (ids, items) => {
+      // The dock bounce and badge must never drift apart: both read the same
+      // payload from the same handler invocation, not two independently
+      // maintained counts. app.setBadgeCount is a documented no-op on
+      // Windows, so no platform guard is needed around it.
+      const payload = attentionPayload(ids, items)
+      taskbarAttention.set(payload)
+      app.setBadgeCount(payload.length)
+    })
+    // No renderer-supplied argument, ever: this always opens the one hardcoded
+    // MANUAL_UPGRADE_URL, never a URL the renderer could forge — closing off
+    // the classic Electron arbitrary-external-URL-open vulnerability class.
+    handleApp('desktop:open-release-page', () =>
+      shell.openExternal(MANUAL_UPGRADE_URL)
+        .then(() => ({ ok: true }))
+        .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) })))
     handleApp('desktop:open-harness', id => {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
@@ -1765,7 +1847,7 @@ else {
     try {
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
-        python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
+        python: app.isPackaged ? resolvePackagedPythonPath(directory) : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
         uiDirectory: app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(app.getAppPath(), 'dist', 'renderer') }
@@ -1794,6 +1876,27 @@ else {
             throw error
           }
         }
+      }
+      // Best-effort auxiliary to the already-succeeded engine start above:
+      // never blocks or delays it, and never throws into the startup path.
+      // Autostart installs itself automatically (03-RESEARCH.md Open
+      // Question 2 — no separate settings toggle in this phase, BOOT-02).
+      if (process.platform === 'darwin') {
+        try {
+          const entrypointPath = path.join(directory, 'service_host.py')
+          const pythonPath = resolveMacEnginePythonPath(directory)
+          const logDir = app.getPath('logs')
+          const stdoutLog = path.join(logDir, 'boot-engine.out.log')
+          const stderrLog = path.join(logDir, 'boot-engine.err.log')
+          const autostartState = detectState(LABEL)
+          if (autostartState === 'not-installed') {
+            install({ label: LABEL, pythonPath, entrypointPath, workingDirectory: directory, stdoutLog, stderrLog })
+          } else if (autostartState === 'disabled') {
+            dialog.showMessageBox(autostartRemediationDialog('disabled')).then(({ response }) => {
+              if (response === 0) void shell.openExternal(LOGIN_ITEMS_SETTINGS_URL)
+            }).catch(() => { /* best-effort remediation prompt; a failure here must not affect startup */ })
+          }
+        } catch (error) { console.warn('LaunchAgent install failed:', error) }
       }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       // The preload origin is fixed per window; session signing reads LIVE

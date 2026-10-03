@@ -16,7 +16,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { assertRuntimeLayout, runtimeTreeDigest, RuntimeLayoutError } from './runtime-layout.mjs'
+import { assertRuntimeLayout, assertRuntimeLayoutMac, runtimeTreeDigest, RuntimeLayoutError } from './runtime-layout.mjs'
 
 function fail(message) {
   throw new RuntimeLayoutError(message)
@@ -55,11 +55,13 @@ function copyTree(sourceDir, destinationDir) {
 export function stageRuntime({ from, root = process.cwd() }) {
   if (!from) fail('runtime:stage needs --from <provisioned-checkout-or-runtime-dir>')
   const fromResolved = path.resolve(from)
-  const sourceRuntime = fs.existsSync(path.join(fromResolved, 'engine', 'runtime', 'python.exe'))
-    ? path.join(fromResolved, 'engine', 'runtime')
+  const nestedRuntime = path.join(fromResolved, 'engine', 'runtime')
+  const sourceRuntime = fs.existsSync(path.join(nestedRuntime, 'python.exe')) || fs.existsSync(path.join(nestedRuntime, 'bin', 'python3.13'))
+    ? nestedRuntime
     : fromResolved
+  const assertLayoutFn = fs.existsSync(path.join(sourceRuntime, 'bin', 'python3.13')) ? assertRuntimeLayoutMac : assertRuntimeLayout
   realDirOrFail(sourceRuntime, 'runtime source')
-  assertRuntimeLayout(sourceRuntime, { label: 'runtime source' })
+  assertLayoutFn(sourceRuntime, { label: 'runtime source' })
 
   const destination = path.join(path.resolve(root), 'engine', 'runtime')
   if (path.relative(sourceRuntime, destination) === '') fail('Source and destination runtime are the same directory')
@@ -69,7 +71,7 @@ export function stageRuntime({ from, root = process.cwd() }) {
   realDirOrFail(path.dirname(destination), 'destination engine directory')
 
   copyTree(sourceRuntime, destination)
-  assertRuntimeLayout(destination, { label: 'staged runtime' })
+  assertLayoutFn(destination, { label: 'staged runtime' })
   const sourceDigest = runtimeTreeDigest(sourceRuntime)
   const stagedDigest = runtimeTreeDigest(destination)
   if (sourceDigest.sha256 !== stagedDigest.sha256 || sourceDigest.files !== stagedDigest.files) {

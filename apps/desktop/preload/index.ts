@@ -35,6 +35,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     documentToken = announced?.token ?? ''
   } catch { windowIdentity = null; documentToken = '' }
   const bridge: DesktopBridge = {
+    platform: process.platform,
     windowIdentity,
     getWindowIdentity: () => ipcRenderer.invoke('desktop:window-identity'),
     openHomepageWindow: () => ipcRenderer.invoke('desktop:open-homepage-window'),
@@ -71,6 +72,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getRunAsAdministrator: () => ipcRenderer.invoke('desktop:run-as-admin'),
     setRunAsAdministrator: (enabled: boolean, restartNow: boolean) =>
       ipcRenderer.invoke('desktop:set-run-as-admin', enabled, restartNow),
+    openReleasePage: () => ipcRenderer.invoke('desktop:open-release-page'),
     getPopoutState: (name: string) => ipcRenderer.invoke('desktop:popout-state', name),
     minimizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-minimize', name),
     toggleMaximizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-toggle-maximize', name),

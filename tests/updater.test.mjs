@@ -702,7 +702,10 @@ test('tray update controls show progress and allow installation without a render
   let ready = false
   const { controller } = rig({
     run: async () => ({ hasUpdate: true, version: '2.0.3' }),
-    report: status => refreshTrayUpdateMenu(menu, status, ready, false),
+    // Explicit win32: this rig exercises the pre-existing install-row
+    // behaviour, which must stay deterministic regardless of the host OS
+    // actually running this test suite.
+    report: status => refreshTrayUpdateMenu(menu, status, ready, false, undefined, 'win32'),
   })
   const checking = controller.check()
   assert.equal(statusItem.label, 'Checking for updates...')
@@ -719,32 +722,61 @@ test('tray update controls show progress and allow installation without a render
   assert.match(statusItem.label, /2.0.3 ready to install/)
   assert.equal(items['update-install'].visible, true)
   assert.equal(items['update-install'].enabled, true)
-  refreshTrayUpdateMenu(menu, controller.current(), true, true)
+  refreshTrayUpdateMenu(menu, controller.current(), true, true, undefined, 'win32')
   assert.equal(statusItem.label, 'Installing update...')
   assert.equal(items['update-install'].enabled, false)
 })
 
+// ── macOS: never an install row, always a View release row (UI-01/UPD-01) ─
+test('on darwin, the tray shows a View release row instead of Update now, toggled by pending-idle', () => {
+  const items = Object.fromEntries(['update-status', 'update-check', 'update-view-release']
+    .map(id => [id, { label: '', enabled: true, visible: true }]))
+  const menu = { getMenuItemById: id => items[id] ?? null }
+  refreshTrayUpdateMenu(menu, { state: 'checking' }, false, false, undefined, 'darwin')
+  assert.equal(items['update-view-release'].visible, false, 'not pending-idle yet')
+  refreshTrayUpdateMenu(menu, { state: 'pending-idle', version: '2.0.5' }, true, false, undefined, 'darwin')
+  assert.equal(items['update-view-release'].visible, true)
+  assert.match(items['update-view-release'].label, /Orgtree 2\.0\.5 available.*View release/)
+  refreshTrayUpdateMenu(menu, { state: 'up-to-date' }, false, false, undefined, 'darwin')
+  assert.equal(items['update-view-release'].visible, false, 'clears once no longer pending-idle')
+})
+
+test('trayUpdateState never populates installVisible/installEnabled on darwin - mac must never offer auto-install', () => {
+  const pending = { state: 'pending-idle', version: '2.0.5' }
+  const mac = trayUpdateState(pending, true, false, undefined, 'darwin')
+  assert.equal(mac.installVisible, false)
+  assert.equal(mac.installEnabled, false)
+  assert.equal(mac.viewReleaseVisible, true)
+  const win = trayUpdateState(pending, true, false, undefined, 'win32')
+  assert.equal(win.installVisible, true, 'non-mac platforms are unaffected')
+  assert.equal(win.viewReleaseVisible, undefined)
+})
+
+// win32 explicit throughout: this test's assertions are about the pre-existing
+// install-row behaviour, which must stay deterministic regardless of the host
+// OS actually running this test suite (trayUpdateState's platform default is
+// the real process.platform).
 test('the tray lets a prepared update be re-checked, and refuses to install one that may be being replaced', () => {
   const pending = { state: 'pending-idle', version: '2.0.4' }
-  const ready = trayUpdateState(pending, true, false)
+  const ready = trayUpdateState(pending, true, false, undefined, 'win32')
   assert.equal(ready.checkEnabled, true, 'a prepared update must no longer disable checking - that was the whole bug')
   assert.equal(ready.installEnabled, true)
-  const checking = trayUpdateState({ state: 'checking' }, true, false)
+  const checking = trayUpdateState({ state: 'checking' }, true, false, undefined, 'win32')
   assert.equal(checking.checkEnabled, false, 'but a check already running still does')
   assert.equal(checking.installVisible, true, 'the item stays put rather than flickering out of an open menu')
   assert.equal(checking.installEnabled, false, 'the running check may be deleting the very package this would install')
   assert.match(checking.label, /Checking/, 'and the status line says what is actually happening')
-  const replacing = trayUpdateState({ state: 'downloading', version: '2.0.5', percent: 12 }, true, false)
+  const replacing = trayUpdateState({ state: 'downloading', version: '2.0.5', percent: 12 }, true, false, undefined, 'win32')
   assert.equal(replacing.installEnabled, false)
   assert.equal(replacing.checkEnabled, false)
   assert.match(replacing.label, /2.0.5.*12%/, 'a replacement download reports itself, not "ready to install"')
-  assert.match(trayUpdateState({ ...pending, recheck: 'up-to-date' }, true, false).label, /ready to install - no newer release/)
-  assert.match(trayUpdateState({ ...pending, recheck: 'unavailable' }, true, false).label, /could not reach the update feed/)
-  assert.match(trayUpdateState({ ...pending, recheck: 'up-to-date' }, true, false, 'use Update now').label, /use Update now/,
+  assert.match(trayUpdateState({ ...pending, recheck: 'up-to-date' }, true, false, undefined, 'win32').label, /ready to install - no newer release/)
+  assert.match(trayUpdateState({ ...pending, recheck: 'unavailable' }, true, false, undefined, 'win32').label, /could not reach the update feed/)
+  assert.match(trayUpdateState({ ...pending, recheck: 'up-to-date' }, true, false, 'use Update now', 'win32').label, /use Update now/,
     'a hold still outranks the note from the last check')
   // applying outranks everything, exactly as before
-  assert.equal(trayUpdateState(pending, true, true).checkEnabled, false)
-  assert.equal(trayUpdateState(pending, true, true).installEnabled, false)
+  assert.equal(trayUpdateState(pending, true, true, undefined, 'win32').checkEnabled, false)
+  assert.equal(trayUpdateState(pending, true, true, undefined, 'win32').installEnabled, false)
 })
 
 test('updateReplacementInFlight names the two states that can be deleting the prepared package', () => {
@@ -1381,7 +1413,7 @@ test('a cached package reported downloaded before any check still carries its ve
 
 test('a held update still reads as installable in the tray, and says why it is waiting', () => {
   const pending = { state: 'pending-idle', version: '2.0.4' }
-  const held = trayUpdateState(pending, true, false, 'needs administrator approval - use Update now')
+  const held = trayUpdateState(pending, true, false, 'needs administrator approval - use Update now', 'win32')
   assert.equal(held.label, 'Update 2.0.4: needs administrator approval - use Update now')
   assert.equal(held.installVisible, true)
   assert.equal(held.installEnabled, true, 'holding the AUTOMATIC path must never disable the manual one')

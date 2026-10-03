@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
+import { execFileSync } from 'node:child_process'
 
 // Keep conversion dependency-free: the SVG remains the source of truth and this
 // small rasterizer creates the Windows ICO frames used by Electron/electron-builder.
@@ -104,6 +105,29 @@ function writeIcon(filename, color, center = color, iris = pupil) {
   console.log(`wrote ${output} (${sizes.join(', ')}px PNG frames)`)
 }
 
+// macOS Icon Image format requires this exact set of 10 PNG sizes, written into
+// a `.iconset` folder that `iconutil` then packs into a `.icns` container. The
+// retina filename is built from a char code rather than a literal '@2x.png' —
+// tooling in this repo's edit path pattern-matches literal name@domain.tld text
+// as an email address and redacts it, which silently collapsed all four retina
+// filenames into one file when they were written as string literals.
+const retina = String.fromCharCode(64) + '2x.png'
+const iconsetSizes = [16, 32, 128, 256, 512].flatMap(base => [
+  [`icon_${base}x${base}.png`, base],
+  [`icon_${base}x${base}${retina}`, base * 2],
+])
+
+function writeIcns(filename, color, center = color, iris = pupil) {
+  const iconsetDirectory = path.join(outputDirectory, 'orgtree-eye.iconset')
+  fs.mkdirSync(iconsetDirectory, { recursive: true })
+  for (const [name, size] of iconsetSizes) {
+    fs.writeFileSync(path.join(iconsetDirectory, name), png(size, color, center, iris))
+  }
+  const output = path.join(outputDirectory, filename)
+  execFileSync('iconutil', ['-c', 'icns', iconsetDirectory, '-o', output])
+  console.log(`wrote ${output} (${iconsetSizes.length} iconset PNG frames via iconutil)`)
+}
+
 // The orange artwork remains the static app/installer icon. Tray and window
 // icons are monochrome variants so their state and the saved visual theme can
 // change without recoloring pixels in Electron's platform-specific bitmap.
@@ -111,3 +135,4 @@ writeIcon('orgtree-eye.ico', orange, orange, pupil)
 for (const [name, color] of Object.entries(trayColors)) {
   writeIcon(`orgtree-eye-tray-${name}.ico`, color, color, name === 'grey' ? loadingIris : pupil)
 }
+writeIcns('orgtree-eye.icns', orange, orange, pupil)

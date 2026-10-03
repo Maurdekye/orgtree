@@ -78,6 +78,15 @@ export function mailhubStats(value: unknown): MailhubStats | undefined {
     ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}) }
 }
 
+/** The packaged interpreter's location under the platform-provisioned
+ *  `engine/runtime` directory: `bin/python3.13` on darwin, `python.exe`
+ *  elsewhere. Mirrors the same marker tools/runtime-layout.mjs's
+ *  locateEngineRuntime uses; duplicated here rather than imported since
+ *  tools/ is a build-time script, not part of the Electron bundle. */
+export function resolvePackagedPythonPath(directory: string): string {
+  return path.join(directory, 'runtime', process.platform === 'darwin' ? 'bin/python3.13' : 'python.exe')
+}
+
 /** HUNG-ENGINE RECOVERY for an engine THIS APP started (item
  *  v3-hung-engine-recovery-also-for-an-engine-the-d). On 2026-09-30 the engine
  *  stopped answering for ten minutes while its process lived on and kept the
@@ -284,7 +293,7 @@ export class Engine extends EventEmitter {
     this.state({ state: 'starting' })
     const env = { ...process.env, ...postgresRuntimeEnvironment(options.directory, options.packagedPostgres),
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
-      ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
+      ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1' }
     // Never inherit a v1 backend port or root selector.
     delete env['ORGTREE_PORT' as keyof typeof env]
     // Fresh bootstrap is an installed-app capability, never inherited from a

@@ -54,7 +54,7 @@ export interface DesktopWindowState { visible: boolean; restoreWindows: boolean 
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
 
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'open-settings'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is
@@ -115,6 +115,11 @@ export interface ProviderLoginStatus {
   error?: string
 }
 export interface DesktopBridge {
+  /** `process.platform` from the main process, surfaced so the renderer can
+   *  branch on OS-specific chrome (e.g. macOS never offers auto-apply
+   *  updates). A plain value, not an IPC round trip — it never changes for
+   *  the lifetime of the process. */
+  platform: string
   getAppVersion(): Promise<string>
   installUpdate(): Promise<void>
   getStatus(): Promise<EngineStatus>
@@ -147,6 +152,10 @@ export interface DesktopBridge {
   revealFile?(path: string): Promise<{ ok: boolean; error?: string }>
   getUpdateStatus(): Promise<UpdateStatus>
   getUpdateCapability?(): Promise<UpdateCapability>
+  /** macOS: opens MANUAL_UPGRADE_URL (the releases page) in the default
+   *  browser via the main process — the renderer never gets a raw URL to
+   *  pass, closing off arbitrary-external-URL requests at the IPC boundary. */
+  openReleasePage?(): Promise<{ ok: boolean; error?: string }>
   getRunAsAdministrator?(): Promise<RunAsAdministratorState>
   /** Change the setting (a UAC prompt). `restartNow` then restarts the
    *  background engine so the change applies at once; otherwise it applies at

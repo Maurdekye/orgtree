@@ -10,6 +10,15 @@ interface FlashWindow {
  *  keeps working. */
 export interface AttentionItem { id: string; org?: string }
 
+/** macOS's equivalent of `FlashWindow`: `app.dock.bounce('critical')` returns
+ *  an id used to cancel that specific bounce later. Injected the same way as
+ *  `target` (not `import { app } from 'electron'` directly) - requiring the
+ *  real `electron` package outside an Electron process, exactly how
+ *  tests/taskbarattention.test.mjs runs this file via esbuild+plain node:test,
+ *  resolves to a path string rather than `{ app }` and would break every
+ *  existing test here. */
+type Dock = { bounce(type: 'critical'): number; cancelBounce(id: number): void }
+
 /** THE WINDOWS TASKBAR PULSE (user ruling 2026-09-12): while any attached
  *  question, attention ticket or urgent mail is waiting, the taskbar button
  *  uses the platform's own attention behaviour — `flashFrame`, which is what
@@ -49,7 +58,9 @@ export class TaskbarAttention {
   /** The windows with a flash currently running. v2 held one boolean, which
    *  was the same statement when there was one window. */
   private flashing = new Set<FlashWindow>()
-  constructor(private target: (org?: string) => FlashWindow | undefined) {}
+  private bouncing = false
+  private bounceId: number | undefined
+  constructor(private target: (org?: string) => FlashWindow | undefined, private dock?: () => Dock | undefined) {}
 
   /** @returns whether this call started a pulse — for tests and for callers
    *  that want to log a real attention event rather than a poll. */
@@ -63,6 +74,7 @@ export class TaskbarAttention {
     this.known = new Set(next.keys())
     if (!next.size) { this.stopAll(); return false }
     if (!arrived.length) return false
+    if (process.platform === 'darwin') return this.startBounce()
     // One pulse per affected window even when several items arrive for it at
     // once, and only for the windows actually affected.
     const targets = new Set<FlashWindow>()
@@ -77,18 +89,40 @@ export class TaskbarAttention {
 
   /** A window was activated: the platform has already stopped its flash.
    *  Called without one, every flash is forgotten — which is what a single
-   *  window meant before there were several. */
+   *  window meant before there were several. On macOS the dock bounce is
+   *  app-wide and activation ends it, so it is forgotten either way. */
   focused(window?: FlashWindow): void {
+    this.bouncing = false
     if (window) this.flashing.delete(window)
     else this.flashing.clear()
   }
 
   /** Nothing is waiting any more, anywhere. */
   private stopAll(): void {
+    if (process.platform === 'darwin') {
+      if (!this.bouncing) return
+      this.bouncing = false
+      if (this.bounceId !== undefined) { this.dock?.()?.cancelBounce(this.bounceId); this.bounceId = undefined }
+      return
+    }
     for (const window of this.flashing) {
       if (!window.isDestroyed()) window.flashFrame(false)
     }
     this.flashing.clear()
+  }
+
+  private startBounce(): boolean {
+    // A bounce is already running for this app - there is only ever one
+    // dock animation, so a further arrival while it is in progress has
+    // nothing to start. Re-calling bounce() here would overwrite
+    // bounceId with a second native call's id, orphaning the first one
+    // that stopAll()'s cancelBounce() would otherwise still need.
+    if (this.bouncing) return false
+    const dock = this.dock?.()
+    if (!dock) return false
+    this.bounceId = dock.bounce('critical')
+    this.bouncing = true
+    return true
   }
 
   private start(window: FlashWindow): boolean {
