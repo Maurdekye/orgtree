@@ -130,6 +130,17 @@ class UpgradePath:
             self.assertEqual(done.returncode, 0, done.stderr[-4000:])
             for slug in self.docs:
                 shutil.copyfile(self.folder / (slug + '.pg'), self.data / 'orgs' / (slug + '.pg'))
+            # The tag dumps carry no operation receipts (their COPY public.receipts is empty), so
+            # each org gets one here, in the tag's own receipts table (the same columns in 3.0.9
+            # and 3.1.0), as that release's org_tx stores one. Without it the receipt check below
+            # would compare empty with empty on these paths.
+            with psycopg.connect(with_db(ADMIN, self.database)) as c:
+                for slug in self.docs:
+                    self.assertEqual(c.execute(
+                        'INSERT INTO public.receipts (org_id, op_key, fingerprint, result, at) '
+                        'SELECT org_id, %s, %s, %s, %s FROM public.orgs WHERE slug = %s',
+                        ('upgrade-path/seeded', 'fp-' + slug, json.dumps({'ok': True, 'org': slug}),
+                         '2026-10-01T10:00:00.123456+00:00', slug)).rowcount, 1)
         with psycopg.connect(with_db(ADMIN, self.database)) as c:
             self.assertEqual(c.execute('SELECT count(*) FROM public.schema_migrations').fetchone()[0],
                              19 if self.release == '3.0.9' else 20)
@@ -237,6 +248,8 @@ class UpgradePath:
         # stage 1-B copies the org's operation receipts into its own tx_receipts and records
         # them as one more kind: checked here against the legacy rows, and read back directly
         receipts = self.legacy_receipts(row['legacy_org_id'])
+        # one per org on every path: 2.1.14's import writes one, the PG paths' is seeded in setUp
+        self.assertEqual(len(receipts), 1, receipts)
         expected['tx_receipts'] = [len(receipts), len(receipts), sha(receipts), sha(receipts)]
         self.assertEqual(actual, expected)
         with psycopg.connect(dest) as c:
