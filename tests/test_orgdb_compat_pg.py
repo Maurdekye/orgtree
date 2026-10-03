@@ -1015,8 +1015,8 @@ class OwnerKeys(unittest.TestCase):
         cls.t = Twins('ownerkeys', before=windows_fixture)
         cls.db = registry.lookup(cls.t.copy)[1]
 
-    def connect(self, autocommit: bool = True):
-        return dbconn.connect(ADMIN, self.db, autocommit=autocommit)
+    def connect(self, autocommit: bool = True, db: 'str | None' = None):
+        return dbconn.connect(ADMIN, db or self.db, autocommit=autocommit)
 
     def assert_settled(self, t: 'Twins | None' = None) -> None:
         db = registry.lookup(t.copy)[1] if t is not None else self.db
@@ -1113,25 +1113,33 @@ class OwnerKeys(unittest.TestCase):
             c.commit()
         self.assert_settled()
 
-    def first_appends(self, owner: int, ids: tuple[int, int], first_commits: bool = True) -> None:
+    #: a row the concurrent appends write: public id c<id>, sent by dev, newer than the fixture's
+    LATE = '2099-01-01T00:00:00.000Z'
+    APPEND = ('INSERT INTO orgtree.mail_log (id, agent_id, idx, public_id, "from", body, at) '
+              "OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, 'dev', 'first', %s::timestamptz) "
+              'RETURNING id')
+
+    def appended(self, rid: int, owner: int) -> tuple:
+        return (rid, owner, rid, f'c{rid}', self.LATE)
+
+    def first_appends(self, owner: int, ids: tuple[int, int], first_commits: bool = True,
+                      db: 'str | None' = None) -> None:
         """Two transactions each insert a first row of ``owner`` (ids and positions ``ids``)
         before either ends: the second waits until the first commits (or rolls back)."""
-        a, b = self.connect(autocommit=False), self.connect(autocommit=False)
+        a, b = self.connect(autocommit=False, db=db), self.connect(autocommit=False, db=db)
         try:
-            ins = ("INSERT INTO orgtree.mail_log (id, agent_id, idx, \"from\", body) "
-                   "OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, 'dev', 'first') RETURNING id")
-            a.execute(ins, (ids[0], owner, ids[0]))
+            a.execute(self.APPEND, self.appended(ids[0], owner))
             b_pid = int(b.execute('SELECT pg_backend_pid()').fetchone()[0])
             failed: list = []
 
             def second() -> None:
                 try:
-                    b.execute(ins, (ids[1], owner, ids[1]))
+                    b.execute(self.APPEND, self.appended(ids[1], owner))
                 except Exception as e:      # reported below
                     failed.append(e)
             th = threading.Thread(target=second)
             th.start()
-            with self.connect() as w:
+            with self.connect(db=db) as w:
                 deadline = time.monotonic() + 20
                 while time.monotonic() < deadline:
                     ev = w.execute('SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s',
@@ -1154,22 +1162,59 @@ class OwnerKeys(unittest.TestCase):
             b.close()
 
     def test_concurrent_first_appends_settle_on_one_first_row(self) -> None:
-        with self.connect() as c:
+        # review f4: two transactions append an owner's first rows at once; the second waits for
+        # the first and then counts its row, so both rows keep the smaller id. A recipient whose
+        # first row lies between the two ids would show a split key in dev's Sent tail, which is
+        # then checked against legacy holding the same rows in the same order
+        t = Twins('firstappends', before=windows_fixture)
+        db = registry.lookup(t.copy)[1]
+        with self.connect(db=db) as c:
             top = int(c.execute('SELECT max(id) FROM orgtree.mail_log').fetchone()[0])
-            one, two = self.new_agent(c, 'fresh-one'), self.new_agent(c, 'fresh-two')
-        self.first_appends(one, (top + 1000, top + 1001))     # the first to insert is first
-        self.assert_settled()
-        self.first_appends(two, (top + 2001, top + 2000))     # the second to insert is first
-        self.assert_settled()
-        with self.connect() as c:
+            aid = {n: self.new_agent(c, n) for n in
+                   ('fresh-one', 'fresh-mid', 'fresh-two', 'fresh-mid2', 'fresh-three')}
+            for name, rid in (('fresh-mid', top + 1005), ('fresh-mid2', top + 2005)):
+                c.execute(self.APPEND, self.appended(rid, aid[name]))
+        self.first_appends(aid['fresh-one'], (top + 1000, top + 1010), db=db)  # first is first
+        self.assert_settled(t)
+        self.first_appends(aid['fresh-two'], (top + 2010, top + 2000), db=db)  # second is first
+        self.assert_settled(t)
+        with self.connect(db=db) as c:
             self.assertEqual(c.execute('SELECT first_id FROM orgtree.mail_log_first '
-                                       'WHERE agent_id = %s', (two,)).fetchone()[0], top + 2000)
-            three = self.new_agent(c, 'fresh-three')
-        self.first_appends(three, (top + 3000, top + 3001), first_commits=False)
-        self.assert_settled()
-        with self.connect() as c:
+                                       'WHERE agent_id = %s', (aid['fresh-two'],)).fetchone()[0],
+                             top + 2000)
+        self.first_appends(aid['fresh-three'], (top + 3000, top + 3001), first_commits=False,
+                           db=db)
+        self.assert_settled(t)
+        with self.connect(db=db) as c:
             self.assertEqual(c.execute('SELECT id, owner_pos FROM orgtree.mail_log WHERE agent_id = %s',
-                                       (three,)).fetchall(), [(top + 3001, top + 3001)])
+                                       (aid['fresh-three'],)).fetchall(), [(top + 3001, top + 3001)])
+        # legacy gets the same committed rows one save each, in id order, so its seqs (and so
+        # each recipient's MIN(seq)) follow the ids
+        kept = sorted([(top + 1000, 'fresh-one'), (top + 1005, 'fresh-mid'),
+                       (top + 1010, 'fresh-one'), (top + 2000, 'fresh-two'),
+                       (top + 2005, 'fresh-mid2'), (top + 2010, 'fresh-two'),
+                       (top + 3001, 'fresh-three')])
+        with storage(False):
+            for rid, owner in kept:
+                org = store.load_org(t.legacy)
+                org.d['mail_log'].setdefault(owner, []).append(
+                    {'id': f'c{rid}', 'from': 'dev', 'body': 'first', 'at': self.LATE})
+                store.save_org(org)
+        # one tie group: recipients by their first row (newest first), then rows
+        head = [('fresh-three', f'c{top + 3001}'), ('fresh-mid2', f'c{top + 2005}'),
+                ('fresh-two', f'c{top + 2010}'), ('fresh-two', f'c{top + 2000}'),
+                ('fresh-mid', f'c{top + 1005}'), ('fresh-one', f'c{top + 1010}'),
+                ('fresh-one', f'c{top + 1000}')]
+        for cap in (1, 2, 3, 4, 5, 6, 7, 10):
+            with self.subTest(cap=cap):
+                tails = []
+                for on, slug in ((False, t.legacy), (True, t.copy)):
+                    with storage(on):
+                        tails.append(store._bounded_read(slug, lambda conn: [
+                            (o, json.loads(v)['id']) for o, v in
+                            conn.execute(SENT_TAIL_SQL, ('dev', cap)).fetchall()]))
+                self.assertEqual(tails[0], tails[1])
+                self.assertEqual(tails[1][:len(head)], head[:cap])
 
     def test_rewriting_a_first_row_touches_no_other_row(self) -> None:
         # the view rewrites a row by deleting it and inserting it again; the keys settle once,
