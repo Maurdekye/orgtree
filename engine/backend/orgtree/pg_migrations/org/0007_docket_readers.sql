@@ -20,7 +20,7 @@ CREATE FUNCTION orgtree.docket_deadline(status text, stamp text) RETURNS double 
 LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE SET timezone='UTC' AS $fn$
 BEGIN
  IF status='dropped' THEN RETURN '-Infinity'::double precision; END IF;
- IF status NOT IN ('done','superseded') OR stamp IS NULL OR
+ IF coalesce(status,'') NOT IN ('done','superseded') OR stamp IS NULL OR
     stamp !~ '^\d{4}-\d{2}-\d{2}([Tt ]|$)' THEN RETURN NULL; END IF;
  RETURN extract(epoch FROM stamp::timestamptz)::double precision+3600;
 EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RETURN NULL;
@@ -45,6 +45,12 @@ CREATE INDEX docket_owner_ids ON orgtree.work_items(owner_node,id);
 CREATE INDEX docket_creator_ids ON orgtree.work_items(created_by_node,id);
 CREATE INDEX docket_reviewer_ids ON orgtree.work_items(reviewer_node,id);
 CREATE INDEX docket_anchor_ids ON orgtree.work_items(anchor_name,id);
+CREATE INDEX docket_archived_ids ON orgtree.work_items(id) WHERE list_key='archive';
+CREATE INDEX docket_status_history ON orgtree.work_item_history(item_id,pos DESC)
+ WHERE kind IS DISTINCT FROM 'folded' AND (op IN ('accept','reopen','supersede')
+   OR (op='update' AND json_typeof(changes)='object' AND changes->'status' IS NOT NULL)
+   OR (op='dismiss_attention' AND coalesce("from"::text,'null')<>'"blocked"'))
+   AND (at IS NOT NULL OR orgtree.docket_truth(extra->'at'));
 
 -- An ask's per-tab link is authoritative, even if an old roll-up disagrees.
 -- Parse the shapeless tab payload only at writes, never in a hot count/query.

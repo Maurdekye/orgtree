@@ -200,17 +200,19 @@ def etag(ctx, org_slug, backlogged):
     """
     q = ctx.query
     if getattr(q, 'native', False):
-        return _etag(org_slug, q.org_id, q.viewer, backlogged, q.catalog, q.deadline_count())
+        return _etag(org_slug, q.org_id, q.viewer, backlogged, q.catalog, q.deadline_count(), identity=q.incarnation)
     passed = q.raw.execute(
         f"SELECT count(*) FROM {q.schema}.work_read_policy "
         "WHERE location='active' AND deadline < %s", (q.now,)).fetchone()[0]
     return _etag(org_slug, q.org_id, q.viewer, backlogged, q.catalog, passed)
 
 
-def _etag(org_slug, org_id, viewer, backlogged, catalog, passed):
-    return '"f' + work_ui._hash([_ETAG_EPOCH, FORMAT, org_slug, int(org_id), viewer,
-                                 bool(backlogged), [int(c) for c in catalog],
-                                 int(passed)]) + '"'
+def _etag(org_slug, org_id, viewer, backlogged, catalog, passed, *, identity=None):
+    inputs = [_ETAG_EPOCH, FORMAT, org_slug, int(org_id), viewer,
+              bool(backlogged), [int(c) for c in catalog], int(passed)]
+    if identity is not None:
+        inputs.append(identity)
+    return '"f' + work_ui._hash(inputs) + '"'
 
 
 def foreground_unchanged(slug, *, backlogged=False, since='', now_ts=None):
@@ -229,7 +231,7 @@ def foreground_unchanged(slug, *, backlogged=False, since='', now_ts=None):
     if enabled():
         from .orgdb import docket
         with docket.read(store._safe_slug(slug),now_ts=now_ts) as q:
-            return since == _etag(slug,q.org_id,USER,backlogged,q.catalog,q.deadline_count())
+            return since == _etag(slug,q.org_id,USER,backlogged,q.catalog,q.deadline_count(),identity=q.incarnation)
     try:
         slug = store._safe_slug(slug)
         if not os.path.exists(store._db_path(slug)):
@@ -320,8 +322,10 @@ def _foreground_body(ctx, org_slug, viewer, backlogged, archive_limit):
     # views. Remote archive-only edits must invalidate positive/negative
     # lookups even when active rows and counts are unchanged. Hash the
     # same-snapshot catalog without returning hidden rows or raw counters.
-    body['revision'] = work_ui._hash([
-        {k: v for k, v in body.items() if k != 'now'}, q.catalog])
+    inputs = [{k: v for k, v in body.items() if k != 'now'}, q.catalog]
+    if getattr(q, 'native', False):
+        inputs.append(q.incarnation)
+    body['revision'] = work_ui._hash(inputs)
     return body
 
 

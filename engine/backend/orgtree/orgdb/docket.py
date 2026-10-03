@@ -12,6 +12,7 @@ import time
 
 from ..ledger import Org, USER
 from .. import workquery
+from ..work_ui import FIELDS
 from . import codec, registry
 from .mappers.docket import WORK_ITEM, WORK_ITEMS
 from .mappers.records import ASKS, WORK_SCOPE_LOG
@@ -20,12 +21,23 @@ _POLICY_KEYS = frozenset(('slug', 'rev', 'kind', 'title', 'status', 'owner', 're
     'created_by', 'participants', 'at', 'updated_at', 'docket_at', 'archived_at',
     'manual_attention', 'manual_attention_rev', 'parent', 'superseded_by'))
 _POLICY = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields if f.key in _POLICY_KEYS))
-_LIST = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields
-    if f.key not in ('history', 'scope', 'artifacts', 'findings', 'evidence', 'acceptance',
-                     'review_seat_requests')))
+_LIST = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields if f.key in FIELDS or
+    f.key in ('scope_seq','scope_guard','scope_logged')))
+
+
+def _columns(spec):
+    fields = [c for c,_ in codec.layout(spec,WORK_ITEMS.keys,WORK_ITEMS.link)['work_items']['columns']]
+    return ','.join('i.'+codec.quote(c) for c in ('id','list_key','ord','docket_order','extra',*fields))
+
+
+_POLICY_COLUMNS = _columns(_POLICY)
+_STATUS_CHANGE = '''h.kind IS DISTINCT FROM 'folded' AND (h.op IN ('accept','reopen','supersede')
+    OR (h.op='update' AND json_typeof(h.changes)='object' AND h.changes->'status' IS NOT NULL)
+    OR (h.op='dismiss_attention' AND coalesce(h."from"::text,'null')<>'"blocked"'))
+    AND (h.at IS NOT NULL OR orgtree.docket_truth(h.extra->'at'))'''
 _ORDER = 'i.docket_order COLLATE "C"'
 _ATTENTION = '(i.docket_manual OR EXISTS (SELECT 1 FROM orgtree.docket_question_links q WHERE q.item_slug=i.slug))'
-_ARCHIVE = f'(NOT {_ATTENTION} AND (i.list_key=\'archive\' OR i.docket_deadline < %s))'
+_ARCHIVE = f'(NOT {_ATTENTION} AND (i.list_key=\'archive\' OR coalesce(i.docket_deadline < %s,false)))'
 
 
 def _dicts(raw, sql, params=()):
@@ -74,11 +86,13 @@ class Snapshot:
                 raw.execute('SHOW transaction_read_only').fetchone()[0] != 'on':
             raise ValueError('docket query requires repeatable-read read-only transaction')
         self.raw, self.org_id, self.viewer, self.now = raw, int(org_id), viewer, now_ts
-        stamp = raw.execute('SELECT docket_rev,catalog_rev,view_rev,rev '
-                            'FROM orgtree.org_revision WHERE singleton').fetchone()
+        stamp = raw.execute('SELECT r.docket_rev,r.catalog_rev,r.view_rev,r.rev,i.incarnation '
+                            'FROM orgtree.org_revision r CROSS JOIN orgtree.org_identity i '
+                            'WHERE r.singleton AND i.singleton').fetchone()
         if stamp is None:
             raise RuntimeError('docket revision singleton missing')
         self.catalog, self.revision = [int(v) for v in stamp[:3]], int(stamp[3])
+        self.incarnation = str(stamp[4])
         self._main, self._questions = {}, {}
 
     def _access(self):
@@ -135,7 +149,7 @@ class Snapshot:
         if not slugs:
             return []
         prefix, join, access = self._prefix()
-        return self._rows(prefix + f' SELECT i.* FROM orgtree.work_items i{join} '
+        return self._rows(prefix + f' SELECT {_POLICY_COLUMNS} FROM orgtree.work_items i{join} '
                           f'WHERE i.slug=ANY(%s) AND {access}', self._args()+[slugs])
 
     def detail(self, slug):
@@ -143,17 +157,83 @@ class Snapshot:
         return None if row is None else (self.bodies([row])[0], row.physical_archive)
 
     def bodies(self, rows):
-        return _decode(self.raw, [self._main[r.source_key] for r in rows], WORK_ITEM)
+        if not rows:
+            return []
+        main = {str(r['id']):r for r in _dicts(self.raw,
+            'SELECT * FROM orgtree.work_items WHERE id=ANY(%s)',([int(r.source_key) for r in rows],))}
+        return _decode(self.raw,[main[r.source_key] for r in rows],WORK_ITEM)
 
     def list_inputs(self, rows):
+        """List fields plus bounded scope endpoints and the last status change.
+
+        No authored scope/history/evidence bodies. Spilled scope positions are
+        direct index lookups, so an older rolled prefix adds no rows to this read.
+        """
         from ..workdetail import Context
-        bodies = self.bodies(rows)
-        ctx = Context(self)
-        ctx._scope.update(self.scope_many([b['slug'] for b in bodies if b.get('scope_logged')]))
+        if not rows:
+            return []
+        ids = [int(r.source_key) for r in rows]
+        main = {r['id']:r for r in _dicts(self.raw,
+            f'SELECT {_columns(_LIST)} FROM orgtree.work_items i WHERE i.id=ANY(%s)',(ids,))}
+        bodies = _decode(self.raw,[main[n] for n in ids],_LIST)
+        counts = dict(self.raw.execute('SELECT item_id,count(*) FROM orgtree.work_item_scope '
+            'WHERE item_id=ANY(%s) GROUP BY item_id',(ids,)))
+        ctx, targets, endpoints = Context(self), {'log':[],'inline':[]}, {}
+        for row,b in zip(rows,bodies):
+            n = int(row.source_key)
+            legacy = b.get('scope_archive') or []
+            inline = b.get('scope')
+            inline_n = len(inline) if isinstance(inline,list) else int(counts.get(n,0))
+            logged = int(b.get('scope_logged') or 0)
+            rolled = int(b.get('scope_rolled') or 0)+len(legacy)
+            size = min(rolled,len(legacy)+logged+inline_n)
+            endpoints[b['slug']] = dict(count=size,first_seq=None,last_seq=None,first_at=None,last_at=None)
+            for which,pos in (('first',0),('last',size-1)) if size else ():
+                if pos<len(legacy):
+                    self._endpoint(endpoints[b['slug']],which,legacy[pos])
+                elif pos<len(legacy)+logged:
+                    targets['log'].append((b['slug'],which,pos-len(legacy),n))
+                elif isinstance(inline,list):
+                    self._endpoint(endpoints[b['slug']],which,inline[pos-len(legacy)-logged])
+                else:
+                    targets['inline'].append((b['slug'],which,pos-len(legacy)-logged,n))
+            b['objective_notice'] = ctx._work_objective_notice({**b,'scope':range(inline_n)})
+            b['status_at'] = b.get('status_at') or str(b.get('at') or '')
+        for kind,wanted in targets.items():
+            if not wanted:
+                continue
+            values = ','.join(['(%s::text,%s::text,%s::int,%s::bigint)']*len(wanted))
+            params = [v for group in wanted for v in group]
+            source = ('JOIN orgtree.agents a ON a.name=w.slug JOIN orgtree.work_scope_log l '
+                      'ON l.agent_id=a.id AND l.idx=w.position' if kind=='log' else
+                      'JOIN orgtree.work_item_scope l ON l.item_id=w.item_id AND l.pos=w.position')
+            for r in _dicts(self.raw,f'''WITH wanted(slug,which,position,item_id) AS (VALUES {values})
+                SELECT w.slug,w.which,l.seq,l.at,l.at_text,l.extra->'seq' AS extra_seq,
+                l.extra->'at' AS extra_at FROM wanted w {source}''',params):
+                self._endpoint(endpoints[r['slug']],r['which'],self._scope_header(r))
+        unstamped = [n for n in ids if not main[n].get('status_at') and not
+                     (main[n].get('extra') or {}).get('status_at')]
+        if unstamped:
+            by_id = dict(zip(ids,bodies))
+            for r in _dicts(self.raw,f'''WITH wanted(item_id) AS (SELECT unnest(%s::bigint[]))
+                SELECT w.item_id,h.at,h.at_text,h.extra->'at' AS extra_at FROM wanted w
+                JOIN LATERAL (SELECT h.at,h.at_text,h.extra FROM orgtree.work_item_history h
+                  WHERE h.item_id=w.item_id AND {_STATUS_CHANGE} ORDER BY h.pos DESC LIMIT 1) h ON true''',(unstamped,)):
+                by_id[r['item_id']]['status_at'] = str(self._scope_header(r).get('at'))
         for b in bodies:
-            b.update(objective_notice=ctx._work_objective_notice(b),status_at=ctx._work_status_at(b),
-                     scope_archive_summary=ctx._work_scope_archive_summary(b))
+            b['scope_archive_summary'] = endpoints[b['slug']]
         return bodies
+
+    @staticmethod
+    def _scope_header(row):
+        return dict(seq=row.get('extra_seq') if row.get('extra_seq') is not None else row.get('seq'),
+                    at=row['extra_at'] if row.get('extra_at') is not None else
+                    codec.from_column('ts',row['at'],row.get('at_text')) if row.get('at') is not None else None)
+
+    @staticmethod
+    def _endpoint(summary,which,row):
+        summary[which+'_seq'] = int(row.get('seq') or 0)
+        summary[which+'_at'] = row.get('at')
 
     def foreground(self, *, include_backlogged=False):
         prefix, join, access = self._prefix()
@@ -162,7 +242,7 @@ class Snapshot:
           UNION SELECT id FROM orgtree.work_items WHERE docket_manual
           UNION SELECT i.id FROM orgtree.docket_question_links q
             JOIN orgtree.work_items i ON i.slug=q.item_slug)'''
-        rows = self._rows(prefix + f' SELECT i.* FROM candidates c JOIN orgtree.work_items i ON i.id=c.id{join}'
+        rows = self._rows(prefix + f' SELECT {_POLICY_COLUMNS} FROM candidates c JOIN orgtree.work_items i ON i.id=c.id{join}'
             f' WHERE {access} AND NOT {_ARCHIVE} ORDER BY {_ORDER} DESC,i.slug COLLATE "C" DESC',
             self._args()+[self.now])
         return rows if include_backlogged else [r for r in rows
@@ -174,7 +254,7 @@ class Snapshot:
         clock, after = self.now, None
         if cursor:
             value = workquery._decode(cursor)
-            if not isinstance(value,dict) or value.get('binding') != [self.org_id,self.viewer,self.catalog,limit]:
+            if not isinstance(value,dict) or value.get('binding') != [self.org_id,self.viewer,self.catalog,limit,self.incarnation]:
                 raise workquery.CursorReset('archive catalog or viewer changed; restart paging')
             clock, after = value.get('clock'), value.get('after')
             if type(clock) not in (int,float) or not math.isfinite(clock) or not 0<=self.now-clock<=workquery.CURSOR_SECONDS:
@@ -183,7 +263,7 @@ class Snapshot:
                 raise workquery.CursorReset('invalid archive position; restart paging')
         self.now = clock
         prefix, join, access = self._prefix(cold=True)
-        sql = prefix + f' SELECT i.* FROM orgtree.work_items i{join} WHERE {access} AND {_ARCHIVE}'
+        sql = prefix + f' SELECT {_POLICY_COLUMNS} FROM orgtree.work_items i{join} WHERE {access} AND {_ARCHIVE}'
         args = self._args(True)+[clock]
         if after is not None:
             sql += f' AND ({_ORDER},i.slug COLLATE "C") < (%s COLLATE "C",%s COLLATE "C")'
@@ -193,26 +273,31 @@ class Snapshot:
         token = None
         if more:
             last = self._main[rows[-1].source_key]
-            token = workquery._encode(dict(binding=[self.org_id,self.viewer,self.catalog,limit],clock=clock,
+            token = workquery._encode(dict(binding=[self.org_id,self.viewer,self.catalog,limit,self.incarnation],clock=clock,
                 after=[last['docket_order'],last['slug']]))
         return rows, token
 
     def counts(self, *, include_archived=True):
-        prefix, join, access = self._prefix(cold=include_archived)
-        if not include_archived:
+        cold = include_archived and self.viewer != USER
+        prefix, join, access = self._prefix(cold=cold)
+        if not cold:
             prefix += ''' , candidates(id) AS (
               SELECT id FROM orgtree.work_items WHERE list_key='active'
               UNION SELECT id FROM orgtree.work_items WHERE docket_manual
               UNION SELECT i.id FROM orgtree.docket_question_links q JOIN orgtree.work_items i ON i.slug=q.item_slug)'''
             join = ' JOIN candidates c ON c.id=i.id' + join
+        archived = 'count(*) FILTER (WHERE archived)'
+        if self.viewer == USER and include_archived:
+            archived += " + (SELECT count(*) FROM orgtree.work_items WHERE list_key='archive') - count(*) FILTER (WHERE attention AND physical_archive)"
         sql = prefix + f''' SELECT count(*) FILTER (WHERE attention),
           count(*) FILTER (WHERE NOT archived AND status<>ALL(%s)),
-          count(*) FILTER (WHERE archived),
+          {archived},
           count(*) FILTER (WHERE NOT archived AND status='backlogged' AND NOT attention)
           FROM (SELECT {_ATTENTION} AS attention,{_ARCHIVE} AS archived,
-            CASE WHEN i.status='waiting' THEN 'blocked' ELSE i.status END AS status
+            CASE WHEN i.status='waiting' THEN 'blocked' ELSE coalesce(i.status,'') END AS status,
+            i.list_key='archive' AS physical_archive
             FROM orgtree.work_items i{join} WHERE {access}) policy'''
-        values = self.raw.execute(sql,self._args(include_archived)+[list(Org.WORK_UNCOUNTED),self.now]).fetchone()
+        values = self.raw.execute(sql,self._args(cold)+[list(Org.WORK_UNCOUNTED),self.now]).fetchone()
         out = dict(zip(('attention','active','archived','backlogged'),map(int,values)))
         if not include_archived:
             out.pop('archived')

@@ -94,6 +94,10 @@ def _dependencies(conn: Any) -> list[Any]:
     return [list(map(list, docs)), list(map(list, nodes))]
 
 
+def _native_stamp(query) -> str:
+    return _hash([query.org_id,query.incarnation,query.catalog,query.deadline_count()])
+
+
 def stamp(slug: str) -> str:
     """Use PG's committed docket revision; legacy stores hash docket sections.
 
@@ -104,7 +108,7 @@ def stamp(slug: str) -> str:
     if enabled():
         from .orgdb import docket
         with docket.read(store._safe_slug(slug)) as q:
-            return _hash([q.org_id,q.catalog,q.deadline_count()])
+            return _native_stamp(q)
     reader = getattr(store, "read_work_items_rows", None)
     header = reader(slug, []) if reader else None
 
@@ -153,15 +157,27 @@ def project(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _build(slug: str, *, archived=True, backlogged=True) -> dict[str, Any]:
+def _build(slug: str, *, archived=True, backlogged=True, query=None) -> dict[str, Any]:
     from .orgdb import enabled
     if enabled():
         from . import worklist
-        payload = worklist.agent_list(slug,USER,include_archived=archived,include_backlogged=backlogged)
-        for group in GROUPS[:3]:
-            for item in payload.get(group,[]):
-                item['ref'] = refs.item(slug,item['slug'])
-        return project(payload)
+        def build(ctx,org_slug):
+            row = ctx.query.raw.execute('SELECT work_identity FROM orgtree.org_settings WHERE singleton').fetchone()
+            if not row or row[0] != 'slug':
+                raise IdentityMigrationRequired('work identity migration required')
+            payload = worklist._foreground_body(ctx,org_slug,USER,backlogged,0)
+            if archived:
+                payload['archived'],cursor = [],''
+                while True:
+                    rows,cursor = ctx.query.archive(limit=worklist.workquery.MAX_PAGE,cursor=cursor)
+                    ctx.prime(rows)
+                    payload['archived'].extend(ctx.light(r,org_slug) for r in rows)
+                    if not cursor:
+                        break
+            return project(payload)
+        if query is not None:
+            return build(worklist.Context(query),slug)
+        return worklist._read(slug,USER,build,None)
     org = store.load_org(slug)
     if org.work_identity_state() != "slug":
         raise IdentityMigrationRequired("work identity migration required")
@@ -201,7 +217,16 @@ def read(slug: str, archived: bool = False, backlogged: bool = False,
     cause an extra rebuild, never stamp an old body with a newer revision.
     """
     from .orgdb import enabled
-    native = enabled()
+    if enabled():
+        from .orgdb import docket
+        slug = store._safe_slug(slug)
+        with docket.read(slug) as query:
+            return _read_cached(slug,archived,backlogged,since,query=query)
+    return _read_cached(slug,archived,backlogged,since)
+
+
+def _read_cached(slug, archived, backlogged, since, *, query=None):
+    native = query is not None
     key = (str(store.DATA_ROOT), slug, bool(archived), bool(backlogged)) if native else (str(store.DATA_ROOT), slug)
     with _lock:
         build_lock = _build_locks.setdefault(key, threading.RLock())
@@ -213,10 +238,11 @@ def read(slug: str, archived: bool = False, backlogged: bool = False,
             entry = _cache.get(key)
             if entry and now - entry["used"] > IDLE_S:
                 entry = None
-        current = stamp(slug)
+        current = _native_stamp(query) if native else stamp(slug)
         if entry is None or entry["stamp"] != current:
-            body = _build(slug,archived=archived,backlogged=backlogged) if native else _build(slug)
-            encoded = _json({k: v for k, v in body.items() if k != "now"})
+            body = _build(slug,archived=archived,backlogged=backlogged,query=query) if native else _build(slug)
+            content = {k: v for k, v in body.items() if k != "now"}
+            encoded = _json([content,current] if native else content)
             token = hashlib.sha256(encoded).hexdigest()[:32]
             versions = entry["versions"] if entry else OrderedDict()
             sizes = entry["sizes"] if entry else {}
