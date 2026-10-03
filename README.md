@@ -44,10 +44,6 @@ These screenshots come from earlier versions. The layout differs in places, but 
 
 **Orgtree 2: a large team on the canvas.** You sit at the top, a single coordinator reports to you, and a row of about two dozen agents works beneath it. The bar along the top shows how many agents are live, and small icons give quick access to mail, tickets and settings.
 
-![A small example organization chart with you at the top, a coordinator, an implementer, a researcher and two explorers](docs/images/orgtree-org-chart.png)
-
-**Earlier version: the org chart.** A small example team as a tree: you at the top, a coordinator under you, and specialists beneath the coordinator.
-
 ![Several agent desks open side by side as tabs in one window](docs/images/orgtree-desks.png)
 
 **Earlier version: agent desks.** Several agents' desks open side by side as tabs, so you can follow more than one conversation at once.
