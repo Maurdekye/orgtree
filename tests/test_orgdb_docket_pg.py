@@ -53,7 +53,7 @@ def seed():
     nodes = {}
     for name, parent, state in [('boss', None, 'live'), ('worker', 'boss', 'live'),
                                 ('other', None, 'live'), ('worker@0', 'other', 'retired')]:
-        nodes[name] = dict(parent=parent, state=state, generation=0,
+        nodes[name] = dict(parent=parent, state=state, generation=0, created=AT,
                            seat_id=name + '-seat', model='sonnet', grant=0, charter='test')
     doc = dict(name=SLUG, nodes=nodes, work_identity='slug',
                work_items=[item('one', dependencies=['secret'], parent='secret',
@@ -81,22 +81,24 @@ def setUpModule():
     global LC, OID, DATABASE, DOC
     if not (ADMIN and RUNTIME):
         return
+    unittest.addModuleCleanup(cleanupModule)
+    DOC = seed()
     LC = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX)
     LC.bootstrap()
     registry.use_lifecycle(LC)
     OID = LC.create_org(SLUG)
     DATABASE = LC.row(OID)['database']
-    DOC = seed()
     rows, _, _ = sections.encode_document(DOC, mappers.sections(), ignored=mappers.ignored_keys())
     with conn.connect(RUNTIME, DATABASE) as raw, raw.transaction():
         rowio.write(raw, rows)
 
 
-def tearDownModule():
+def cleanupModule():
     registry.close_idle()
     registry.close_registry()
     if LC is not None:
-        LC._drop_db(DATABASE)
+        if DATABASE is not None:
+            LC._drop_db(DATABASE)
         LC._drop_db(names.app(PREFIX))
     TEMP.cleanup()
 
