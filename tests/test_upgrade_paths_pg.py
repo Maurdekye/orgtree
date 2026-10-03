@@ -195,6 +195,16 @@ class UpgradePath:
         with psycopg.connect(with_db(RUNTIME, self.prefix + 'app'), row_factory=dict_row) as c:
             return {r['slug']: r for r in c.execute('SELECT * FROM orgs')}
 
+    def legacy_receipts(self, legacy_org_id):
+        """The org's operation receipts in the legacy database, read here: op_key order, each
+        time as UTC ISO text (the form stage 1-B's conversion record digests)."""
+        import psycopg
+        with psycopg.connect(with_db(ADMIN, self.database)) as c:
+            rows = c.execute('SELECT op_key, fingerprint, result, at FROM public.receipts '
+                             'WHERE org_id = %s ORDER BY op_key COLLATE "C"',
+                             (legacy_org_id,)).fetchall()
+        return [[k, f, r, at.astimezone(timezone.utc).isoformat()] for k, f, r, at in rows]
+
     def verify(self, slug, row):
         import psycopg
         self.assertEqual(row['state'], 'active')
@@ -224,7 +234,16 @@ class UpgradePath:
         expected = {key: [len(v) if isinstance(v, (dict, list)) else 1,
                           len(v) if isinstance(v, (dict, list)) else 1, sha(v), sha(v)]
                     for key, v in expected_source.items() if key not in verifier.IGNORED_DEFAULT}
+        # stage 1-B copies the org's operation receipts into its own tx_receipts and records
+        # them as one more kind: checked here against the legacy rows, and read back directly
+        receipts = self.legacy_receipts(row['legacy_org_id'])
+        expected['tx_receipts'] = [len(receipts), len(receipts), sha(receipts), sha(receipts)]
         self.assertEqual(actual, expected)
+        with psycopg.connect(dest) as c:
+            copied = c.execute('SELECT op_key, fingerprint, result, at FROM orgtree.tx_receipts '
+                               'ORDER BY op_key COLLATE "C"').fetchall()
+        self.assertEqual([[k, f, r, at.astimezone(timezone.utc).isoformat()]
+                          for k, f, r, at in copied], receipts)
 
     def test_upgrade_checks_counts_checksums_and_independent_values(self):
         import psycopg

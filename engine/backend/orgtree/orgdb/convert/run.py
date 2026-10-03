@@ -152,8 +152,11 @@ def section_digest(doc: dict[str, Any]) -> dict[str, list[Any]]:
 
 
 def receipt_digest(rows: list[tuple[Any, ...]]) -> list[Any]:
-    """[rows, sha256] of operation receipts (``legacy.receipts`` form) for conversion_runs."""
-    flat = [[None if v is None else (v.isoformat() if isinstance(v, _dt.datetime) else v)
+    """[rows, sha256] of operation receipts (``legacy.receipts`` form) for conversion_runs:
+    the canonical JSON of the rows, each time as UTC ISO text (so the digest does not depend
+    on the reading session's time zone)."""
+    flat = [[None if v is None else (v.astimezone(_dt.timezone.utc).isoformat()
+                                     if isinstance(v, _dt.datetime) else v)
              for v in r] for r in rows]
     return [len(rows), hashlib.sha256(canon(flat).encode("utf-8")).hexdigest()]
 
