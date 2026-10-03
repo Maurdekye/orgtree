@@ -217,14 +217,15 @@ class MaintainedAggregates(unittest.TestCase):
         with self.connection() as raw:
             # Use the real deferred slug constraint: runtime deliberately has
             # no CREATE TEMP privilege in an org database.
-            slug=raw.execute('SELECT slug FROM orgtree.work_items WHERE slug IS NOT NULL LIMIT 1').fetchone()[0]
+            records=raw.execute('SELECT id,slug FROM orgtree.work_items WHERE slug IS NOT NULL ORDER BY id LIMIT 2').fetchall()
+            self.assertEqual(len(records),2)
+            slug=records[0][1]
             raw.execute('BEGIN')
             try:
                 raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
                 raw.execute("UPDATE orgtree.agents SET title=title WHERE name='dev'")
                 with self.assertRaises(psycopg.errors.UniqueViolation):
-                    raw.execute("INSERT INTO orgtree.work_items(list_key,ord,slug) "
-                                "SELECT 'active',coalesce(max(ord),0)+1,%s FROM orgtree.work_items",(slug,))
+                    raw.execute('UPDATE orgtree.work_items SET slug=%s WHERE id=%s',(slug,records[1][0]))
             finally:
                 raw.execute('ROLLBACK')
             self.assertEqual(raw.execute('SELECT count(*) FROM orgtree.work_items WHERE slug=%s',(slug,)).fetchone()[0],1)
