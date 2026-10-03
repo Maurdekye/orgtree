@@ -97,9 +97,12 @@ BOOTSTRAP_ENV = "ORGTREE_PG_BOOTSTRAP"
 BOOTSTRAP_VIA = "fresh-bootstrap"
 CUSTODIAN_ENV = "ORGTREE_PG_CUSTODIAN"
 CONNINFO_ENV = "ORGTREE_PG_CONNINFO"
-#: 3.2.0's one-database-per-org storage switch (orgtree.orgdb.SWITCH_ENV), off
-#: until landing step 3 of the rewrite
+#: 3.2.0's one-database-per-org storage switch (orgtree.orgdb.SWITCH_ENV). The
+#: launch bracket turns it on when it is unset (landing step 3 of the rewrite,
+#: piece A7b); ``legacy`` keeps the legacy storage, a developer escape hatch that
+#: no UI or installer writes.
 ORGDB_SWITCH_ENV = "ORGTREE_STORAGE"
+ORGDB_ON = "orgdb"
 MARKER_FILE = "orgtree-p03-prototype-root.json"
 PRODUCT_FILE = "orgtree-product-root.json"
 CUTOVER_FILE = "store-backend.json"
@@ -446,7 +449,7 @@ OrgdbStart = Callable[[str, str, Path, Mapping[str, str], Progress], Mapping[str
 
 def orgdb_wanted(env: Mapping[str, str]) -> bool:
     """Is 3.2.0's one-database-per-org storage switched on for this engine."""
-    return env.get(ORGDB_SWITCH_ENV, "").strip().lower() == "orgdb"
+    return env.get(ORGDB_SWITCH_ENV, "").strip().lower() == ORGDB_ON
 
 
 def default_orgdb_start() -> OrgdbStart:
@@ -934,7 +937,14 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
     (after writing the event-log line) when the engine must not start. With
     3.2.0's storage switched on (``ORGTREE_STORAGE=orgdb``) the legacy
     migrations never run; ``orgdb_start`` (default: the bundled
-    ``orgtree.orgdb.startup``) runs in their place."""
+    ``orgtree.orgdb.startup``) runs in their place. The switch is ON unless
+    ``ORGTREE_STORAGE`` names something else (``legacy``): an unset or empty value
+    is set to ``orgdb`` here, so the engine runs on it (an agent child never
+    inherits it: devguard.ENGINE_STORE_VARS); an inert bracket puts it back as it
+    found it."""
+    defaulted = not env.get(ORGDB_SWITCH_ENV, "").strip()
+    if defaulted:
+        env[ORGDB_SWITCH_ENV] = ORGDB_ON
     try:
         if bootstrap_wanted(root, env):
             if bootstrap_fresh_root(root, env, progress) == "existing":
@@ -943,6 +953,8 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
             finish_interrupted_conversion(root, env)
         if not wanted(env, root):
             env.pop(CONNINFO_ENV, None)  # never a stale connection from a parent
+            if defaulted:
+                env.pop(ORGDB_SWITCH_ENV, None)  # not PostgreSQL: the storage switch means nothing
             return None
         mode = check_root(root, env)
         check_cutover_finished(root, env)

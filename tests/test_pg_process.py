@@ -154,6 +154,9 @@ class BracketTests(unittest.TestCase):
             "STUB_LOG": str(self.log),
             "STUB_STATE": str(self.state),
             "STUB_PGPASS": str(self.root / "pg" / "current" / "secrets" / "pgpass.conf"),
+            # these tests exercise the legacy migrations unless they switch the new storage on;
+            # the bracket's default (on, piece A7b) has its own tests
+            bracket.ORGDB_SWITCH_ENV: "legacy",
         }
         # No test may reach the real event log.
         patcher = mock.patch.object(bracket, "record_refusal", side_effect=self._refusal)
@@ -455,14 +458,45 @@ class BracketTests(unittest.TestCase):
                          "no conversion ran, so no conversion status is written")
         owned.stop()
 
-    def test_without_the_switch_the_legacy_migrations_run_and_the_new_start_does_not(self) -> None:
+    def test_with_legacy_the_legacy_migrations_run_and_the_new_start_does_not(self) -> None:
+        # the developer escape hatch (piece A7b): ORGTREE_STORAGE=legacy keeps the legacy storage
         self.mark()
         start, calls = self.orgdb_start()
-        owned = bracket.start_for_engine(self.root, self.configured(), self.migrator, orgdb_start=start)
+        env = self.configured(ORGTREE_STORAGE="legacy")
+        owned = bracket.start_for_engine(self.root, env, self.migrator, orgdb_start=start)
         self.assertEqual(len(self.migrated), 1)
         self.assertEqual(calls, [])
         self.assertIsNone(owned.orgdb)
+        self.assertEqual(env[bracket.ORGDB_SWITCH_ENV], "legacy")
         owned.stop()
+
+    def test_the_new_storage_is_on_by_default(self) -> None:
+        # piece A7b: an unset (or empty) switch starts on the new storage, and the engine's
+        # environment says so (an agent child never inherits it: devguard.ENGINE_STORE_VARS)
+        for given in (None, "", "  "):
+            with self.subTest(given=given):
+                self.mark()
+                self.migrated.clear()
+                start, calls = self.orgdb_start()
+                env = self.configured(ORGTREE_STORAGE="" if given is None else given)
+                if given is None:
+                    env.pop(bracket.ORGDB_SWITCH_ENV)
+                owned = bracket.start_for_engine(self.root, env, self.migrator, orgdb_start=start)
+                self.assertEqual(self.migrated, [], "the legacy chain must not run by default")
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(env[bracket.ORGDB_SWITCH_ENV], "orgdb")
+                self.assertEqual(calls[0][3].get(bracket.ORGDB_SWITCH_ENV), "orgdb")
+                owned.stop()
+
+    def test_an_inert_bracket_leaves_the_switch_as_it_found_it(self) -> None:
+        # not PostgreSQL: no database, and an unset switch stays unset (the engine runs on the
+        # store the root chose); a given value is left alone
+        for given in (None, "legacy", "orgdb"):
+            with self.subTest(given=given):
+                env = {} if given is None else {bracket.ORGDB_SWITCH_ENV: given}
+                env[bracket.STORE_ENV] = "sqlite"
+                self.assertIsNone(bracket.start_for_engine(self.root, env, self.migrator))
+                self.assertEqual(env.get(bracket.ORGDB_SWITCH_ENV), given)
 
     def test_a_first_pass_keeps_the_conversion_status_and_ends_done(self) -> None:
         self.mark()
