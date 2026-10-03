@@ -12,7 +12,8 @@ connection, design §2.11 / Q10):
   conn       connections to a named database, from a base conninfo
   migrate    the app and org migration folders, one database at a time
   lifecycle  the registry's claims, create, fences, unavailable and retry
-  registry   the runtime's reads of the registry
+  registry   the runtime's side: registry reads, the per-org connection pool,
+             the process's lifecycle handle, and Retry of an unavailable org
 """
 
 from __future__ import annotations

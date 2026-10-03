@@ -16,8 +16,9 @@ only on an explicit Retry of an unavailable org.
 
 **Per org** (§5.2 steps 1–7): claim and build a staging database (lifecycle); read the org
 through today's loader on one read-only snapshot, with the legacy inventory of that snapshot;
-encode every section and the org's side-file rows; COPY them as the runtime role; read every
-row back, decode and compare with the loaded document as canonical JSON; take the legacy
+encode every section and the org's side-file rows; COPY them, and the org's operation receipts
+(``public.receipts``), as the runtime role; read every row back, decode and compare with the
+loaded document as canonical JSON, and the receipts row by row; take the legacy
 inventory again in a new snapshot and require it unchanged; record ``conversion_runs``; then
 publish (active, or trashed for a legacy trashed org). Any failure, mismatch or legacy change
 abandons the build: the staging database is dropped, the org becomes unavailable with a
@@ -150,6 +151,24 @@ def section_digest(doc: dict[str, Any]) -> dict[str, list[Any]]:
     return out
 
 
+def receipt_digest(rows: list[tuple[Any, ...]]) -> list[Any]:
+    """[rows, sha256] of operation receipts (``legacy.receipts`` form) for conversion_runs."""
+    flat = [[None if v is None else (v.isoformat() if isinstance(v, _dt.datetime) else v)
+             for v in r] for r in rows]
+    return [len(rows), hashlib.sha256(canon(flat).encode("utf-8")).hexdigest()]
+
+
+def receipt_differences(want: list[tuple[Any, ...]], got: list[tuple[Any, ...]]
+                        ) -> list[dict[str, Any]]:
+    """The receipts whose read-back differs, by op_key."""
+    w = {r[0]: r for r in want}
+    g = {r[0]: r for r in got}
+    out = [{"path": f"/tx_receipts/{k}", "want": _short(str(w.get(k))),
+            "got": _short(str(g.get(k)))}
+           for k in sorted(set(w) | set(g), key=str) if w.get(k) != g.get(k)]
+    return out[:MAX_MISMATCHES] or [{"path": "/tx_receipts", "want": "order", "got": "differs"}]
+
+
 def write_report(cfg: Config, org: legacy.LegacyOrg, report: dict[str, Any]) -> str:
     folder = Path(cfg.report_dir)
     folder.mkdir(parents=True, exist_ok=True)
@@ -187,7 +206,7 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         if build.ready:                  # renamed before a crash: only publishing remains
             lc.publish(build, state=state, trashed_at=org.deleted_at)
             return {"slug": org.slug, "org_id": org_id, "outcome": state, "resumed": "publish"}
-        doc, before = legacy.load_document(org)
+        doc, before, receipts = legacy.load_document(org)
         report["inventory_before"] = before
         secs = mappers.sections()
         side_secs = cfg.side.sections_for(org, doc) if cfg.side else []
@@ -200,10 +219,12 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         order = rowio.tables(secs + side_secs)
         with conn.connect(cfg.runtime_base, build.database, autocommit=False) as c:
             report["rows_written"] = rowio.write(c, rows, order=order)
+            report["rows_written"]["tx_receipts"] = rowio.write_receipts(c, receipts)
             c.commit()
         rows = None   # noqa: F841  free before the read-back
         with conn.connect(cfg.runtime_base, build.database) as c:
             back_rows = rowio.read(c, order=order)
+            back_receipts = rowio.read_receipts(c)
         back = sections.decode_document(back_rows, mappers.sections(), sections.Context())
         ignored = set(mappers.ignored_keys())
         want = {k: v for k, v in doc.items() if k not in ignored}
@@ -213,13 +234,16 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         side_diff = cfg.side.check(org, back_rows) if cfg.side else []
         if side_diff:
             raise Mismatch(side_diff)
+        if back_receipts != receipts:
+            raise Mismatch(receipt_differences(receipts, back_receipts))
         after = _inventory_now(cfg, org)
         if after != before:
             changed = sorted(t for t in set(before) | set(after) if before.get(t) != after.get(t))
             report["inventory_after"] = after
             raise LegacyChanged(f"the legacy data changed during conversion: {changed[:10]}")
         digest = section_digest(want)
-        _record_run(cfg, build, org, started, digest, report)
+        _record_run(cfg, build, org, started, digest, report,
+                    receipts=(receipt_digest(receipts), receipt_digest(back_receipts)))
         out = {"slug": org.slug, "org_id": org_id, "outcome": state,
                "rows": sum(report["rows_written"].values()),
                "ignored_with_values": report["ignored_with_values"],
@@ -266,9 +290,11 @@ def _legacy_db(cfg: Config) -> str:
 
 
 def _record_run(cfg: Config, build: Build, org: legacy.LegacyOrg, started: _dt.datetime,
-                digest: dict[str, list[Any]], report: dict[str, Any]) -> None:
+                digest: dict[str, list[Any]], report: dict[str, Any], *,
+                receipts: tuple[list[Any], list[Any]] | None = None) -> None:
     """conversion_runs + its per-kind counts and checksums, in the staging database. The
-    destination side is the decoded document, which equals the source here."""
+    destination side is the decoded document, which equals the source here. The operation
+    receipts are the kind ``tx_receipts``: the legacy rows' digest against the read-back's."""
     with conn.connect(cfg.runtime_base, build.database, autocommit=False) as c:
         level = cfg.legacy_level
         run_id = c.execute(
@@ -279,7 +305,9 @@ def _record_run(cfg: Config, build: Build, org: legacy.LegacyOrg, started: _dt.d
             cur.executemany(
                 "INSERT INTO conversion_run_kinds (run_id, kind, source_count, dest_count, "
                 "source_sha256, dest_sha256) VALUES (%s, %s, %s, %s, %s, %s)",
-                [(run_id, k, n, n, sha, sha) for k, (n, sha) in digest.items()])
+                [(run_id, k, n, n, sha, sha) for k, (n, sha) in digest.items()]
+                + ([(run_id, "tx_receipts", receipts[0][0], receipts[1][0], receipts[0][1],
+                     receipts[1][1])] if receipts is not None else []))
         c.commit()
 
 
@@ -402,34 +430,48 @@ def _register(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg) -> int:
 
 
 def retry(lc: Lifecycle, cfg: Config, org_id: int) -> dict[str, Any]:
-    """Retry an org that is unavailable at step 'conversion' (§2.13): classify its legacy
-    org again and convert it in a new staging database. Step 'import' is the first-launch
-    import's (it imports the held-back file, then calls this)."""
+    """Retry an org that is unavailable at step 'conversion' or 'import' (§2.13): classify
+    its legacy org again and convert it in a new staging database. An org the 2.1.14
+    first-launch import held back (step 'import') has its file imported again first. The org
+    is claimed before anything runs: Busy when another operation holds it."""
+    steps = ("conversion", "import")
     row = lc.row(org_id)
-    if row["state"] != "unavailable" or row["unavailable_step"] not in ("conversion", "import"):
+    if row["state"] != "unavailable" or row["unavailable_step"] not in steps:
         raise ValueError(f"org {org_id} is not unavailable at step 'conversion' or 'import'")
-    if row["unavailable_step"] == "import":
-        got = lc.import_held_back(str(row["slug"]), str(row["legacy_file"]),
-                                  legacy_database=_legacy_db(cfg),
-                                  orgs_dir=str(Path(cfg.data_root) / "orgs"))
-        if not got["imported"]:
-            claim = lc.claim(org_id, "retry")
-            lc.abandon(claim, step="import", reason="the import refused it again: " + got["reason"])
-            return {"org_id": org_id, "outcome": "unavailable", "reason": got["reason"]}
-    with conn.connect(cfg.legacy_base, _legacy_db(cfg)) as legacy_conn:
-        orgs = {o.org_id: o for o in legacy.classify(legacy_conn, cfg.data_root)}
-    if row["legacy_org_id"] is None:      # imported just now: find it by its marker's name
-        found = [o for o in orgs.values() if o.slug == row["slug"] and o.status == "active"]
-        org = found[0] if len(found) == 1 else None
-        if org is not None:
-            lc.set_legacy_source(org_id, legacy_database=_legacy_db(cfg), legacy_org_id=org.org_id)
-    else:
-        org = orgs.get(int(row["legacy_org_id"]))
-    if org is None or org.status not in ("active", "trashed"):
-        reason = ("the legacy org is gone" if org is None else
-                  f"the legacy org is {org.status}: {org.note}")
-        claim = lc.claim(org_id, "retry")
-        lc.abandon(claim, step="conversion", reason=reason)
+    # claimed first, and only while it is still unavailable at one of these steps: a second
+    # Retry is Busy before anything runs (the held-back file is never imported twice), and a
+    # Retry never claims an org another Retry has just converted
+    claim = lc.claim(org_id, "retry", expect_state="unavailable", expect_steps=steps)
+    row = lc.row(org_id)
+    try:
+        if row["unavailable_step"] == "import":
+            got = lc.import_held_back(str(row["slug"]), str(row["legacy_file"]),
+                                      legacy_database=_legacy_db(cfg),
+                                      orgs_dir=str(Path(cfg.data_root) / "orgs"))
+            if not got["imported"]:
+                reason = "the import refused it again: " + got["reason"]
+                lc.abandon(claim, step="import", reason=reason)
+                return {"org_id": org_id, "outcome": "unavailable", "reason": got["reason"]}
+        with conn.connect(cfg.legacy_base, _legacy_db(cfg)) as legacy_conn:
+            orgs = {o.org_id: o for o in legacy.classify(legacy_conn, cfg.data_root)}
+        if row["legacy_org_id"] is None:      # imported just now: find it by its marker's name
+            found = [o for o in orgs.values() if o.slug == row["slug"] and o.status == "active"]
+            org = found[0] if len(found) == 1 else None
+            if org is not None:
+                lc.set_legacy_source(org_id, legacy_database=_legacy_db(cfg),
+                                     legacy_org_id=org.org_id)
+        else:
+            org = orgs.get(int(row["legacy_org_id"]))
+        if org is None or org.status not in ("active", "trashed"):
+            reason = ("the legacy org is gone" if org is None else
+                      f"the legacy org is {org.status}: {org.note}")
+            lc.abandon(claim, step="conversion", reason=reason)
+            return {"org_id": org_id, "outcome": "unavailable", "reason": reason}
+        legacy.prepare_root(cfg.work_root, [org])
+    except (Busy, LostClaim):
+        raise                                # the claim is not ours (any more)
+    except Exception as e:   # noqa: BLE001  a failure before the build is still this org's
+        reason = _one_line(e)
+        lc.abandon(claim, step=str(row["unavailable_step"]), reason=reason)
         return {"org_id": org_id, "outcome": "unavailable", "reason": reason}
-    legacy.prepare_root(cfg.work_root, [org])
-    return convert_org(lc, cfg, org, org_id, kind="retry")
+    return convert_org(lc, cfg, org, org_id, claim=claim, kind="retry")

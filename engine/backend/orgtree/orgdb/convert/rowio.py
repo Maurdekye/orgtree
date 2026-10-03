@@ -61,6 +61,25 @@ def write(conn: Any, rows: Mapping[str, list[dict[str, Any]]], *,
     return counts
 
 
+def write_receipts(conn: Any, rows: list[tuple[Any, ...]]) -> int:
+    """COPY an org's operation receipts (``legacy.receipts`` rows) into its ``tx_receipts``;
+    returns the rows written. The caller owns the transaction."""
+    if rows:
+        with conn.cursor() as cur:
+            with cur.copy("COPY orgtree.tx_receipts (op_key, fingerprint, result, at) "
+                          "FROM STDIN") as cp:
+                for r in rows:
+                    cp.write_row(r)
+    return len(rows)
+
+
+def read_receipts(conn: Any) -> list[tuple[Any, ...]]:
+    """The org's ``tx_receipts`` rows, in ``legacy.receipts``'s form and order."""
+    return [tuple(r) for r in conn.execute(
+        "SELECT op_key, fingerprint, result, at FROM orgtree.tx_receipts "
+        "ORDER BY op_key COLLATE \"C\"").fetchall()]
+
+
 def read(conn: Any, *, order: list[str] | None = None) -> dict[str, list[dict[str, Any]]]:
     """Every row of every section table, as dicts keyed by column name."""
     from psycopg.rows import dict_row   # noqa: PLC0415

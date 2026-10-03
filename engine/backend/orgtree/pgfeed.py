@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import threading
 import time
-from typing import Callable, Iterable, Protocol
+from typing import Any, Callable, Iterable, Protocol
 
 CHANNEL = "org_rev"
 #: every org's current revision. PG-0 (pypg/pg-0-storage a8b0ad6) keeps it in
@@ -504,3 +504,109 @@ def psycopg_conn(conninfo: str) -> Conn:
             self.c.close()
 
     return _P()
+
+
+def orgdb_conn() -> Conn:
+    """A ``Conn`` over every active org's own database (the storage switch on, orgdb). An
+    org's commit bumps its ``orgtree.org_revision`` and NOTIFYs on ITS database, so the feed
+    holds one LISTEN session per org. The registry names them, and every ``revisions`` (the
+    catch-up and each poll) reads it again: an org published since gets a session, LISTENing
+    before its revision is read, so its first revision is its baseline as at startup; an org
+    that left loses its session. One org's session failing (its database gone, another
+    org's identity) closes only that session: the org is tried again at the next poll, which
+    finds what it missed as a gap. The sessions are waited on together (``select``)."""
+    import select  # noqa: PLC0415
+    import psycopg  # noqa: PLC0415
+    from .orgdb import conn as dbconn  # noqa: PLC0415
+    from .orgdb import registry  # noqa: PLC0415
+
+    class _O:
+        def __init__(self) -> None:
+            #: slug -> (database, session)
+            self.c: dict[str, tuple[str, Any]] = {}
+            self.channel: str | None = None
+            #: the last per-org failures (a session that failed is retried at the next poll)
+            self.errors: list[str] = []
+            self._sync()
+
+        def _drop(self, slug: str, e: BaseException | None = None) -> None:
+            _, s = self.c.pop(slug, ("", None))
+            if e is not None:
+                self.errors.append(f"{slug}: {type(e).__name__}: {e}"[:300])
+                del self.errors[:-20]
+            if s is not None:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+        def _sync(self) -> None:
+            want = {slug: (db, uuid) for slug, _, db, uuid in registry.active()}
+            for slug in [s for s, (db, _) in self.c.items() if want.get(s, ("",))[0] != db]:
+                self._drop(slug)
+            for slug, (db, uuid) in want.items():
+                if slug in self.c:
+                    continue
+                s = None
+                try:
+                    s = dbconn.connect(dbconn.runtime_base(), db, application_name="orgtree-feed")
+                    row = s.execute("SELECT org_uuid::text, slug FROM orgtree.org_identity").fetchone()
+                    if row is None or row[0] != uuid or row[1] != slug:
+                        raise RuntimeError(f"{db} holds another org's identity ({row})")
+                    if self.channel is not None:
+                        s.execute(f"LISTEN {self.channel}")
+                except Exception as e:
+                    self.c[slug] = (db, s)
+                    self._drop(slug, e)
+                    continue
+                self.c[slug] = (db, s)
+
+        def listen(self, channel: str) -> None:
+            self.channel = channel
+            for slug, (_, s) in list(self.c.items()):
+                try:
+                    s.execute(f"LISTEN {channel}")
+                except psycopg.Error as e:
+                    self._drop(slug, e)
+
+        def revisions(self) -> list[tuple[str, int]]:
+            self._sync()
+            out: list[tuple[str, int]] = []
+            for slug, (_, s) in list(self.c.items()):
+                try:
+                    out.append((slug, int(s.execute(
+                        "SELECT rev FROM orgtree.org_revision").fetchone()[0])))
+                except psycopg.Error as e:
+                    self._drop(slug, e)
+            return out
+
+        def notifications(self, timeout: float) -> Iterable[str]:
+            # a generator, like psycopg_conn's: each pass drains every session's received
+            # notifications, and returns once it found some or the timeout passed
+            deadline = time.monotonic() + timeout
+            while True:
+                got = False
+                for slug, (_, s) in list(self.c.items()):
+                    try:
+                        for n in s.notifies(timeout=0):
+                            got = True
+                            yield n.payload
+                    except psycopg.Error as e:
+                        self._drop(slug, e)
+                remaining = deadline - time.monotonic()
+                if got or remaining <= 0:
+                    return
+                socks = [s.fileno() for _, s in self.c.values()]
+                if not socks:
+                    time.sleep(min(remaining, 0.25))
+                    continue
+                try:
+                    select.select(socks, [], [], remaining)
+                except (OSError, ValueError):
+                    time.sleep(0.01)     # a socket closed meanwhile: the next pass drops it
+
+        def close(self) -> None:
+            for slug in list(self.c):
+                self._drop(slug)
+
+    return _O()

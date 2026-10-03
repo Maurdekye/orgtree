@@ -17,7 +17,8 @@ that routine would have made of every legacy org:
 
 ``load_document`` reads one org through today's loader on ONE pinned read-only REPEATABLE READ
 transaction, so every lazy section shares one snapshot; ``inventory`` hashes every table of the
-org's legacy schema, and its rows in ``public.receipts``, for the before/after guard.
+org's legacy schema, and its rows in ``public.receipts``, for the before/after guard;
+``receipts`` reads those rows, which move into the org's own database (design §2.1).
 
 This module runs in the converter's child process, whose ``ORGTREE_DATA`` is a throwaway root
 holding one marker per org to load (``prepare_root``): the real data root is never written.
@@ -151,21 +152,36 @@ def inventory(raw: Any, org_id: int) -> dict[str, list[Any]]:
     return out
 
 
+def receipts(raw: Any, org_id: int) -> list[tuple[Any, ...]]:
+    """The org's ``public.receipts`` rows, ``(op_key, fingerprint, result, at)`` in op_key
+    order: org_tx's operation receipts, which move into the org's ``tx_receipts`` (design
+    §2.1 "Idempotency", §5.2 step 3). ``raw`` is a psycopg connection; run it in the snapshot
+    the document is read in."""
+    if raw.execute("SELECT to_regclass('public.receipts')").fetchone()[0] is None:
+        return []
+    return [tuple(r) for r in raw.execute(
+        "SELECT op_key, fingerprint, result, at FROM public.receipts WHERE org_id = %s "
+        "ORDER BY op_key COLLATE \"C\"", (org_id,)).fetchall()]
+
+
 class SnapshotLost(RuntimeError):
     """The pinned transaction ended while the loader read: the org was not read from one
     snapshot."""
 
 
-def load_document(org: LegacyOrg) -> tuple[dict[str, Any], dict[str, list[Any]]]:
+def load_document(org: LegacyOrg) -> tuple[dict[str, Any], dict[str, list[Any]],
+                                           list[tuple[Any, ...]]]:
     """One org's whole document, as today's loader builds it, from one read-only snapshot,
-    with the inventory taken in that same snapshot. The process's store must point at the
-    root ``prepare_root`` made (``ORGTREE_DATA``) and at the legacy database."""
+    with the inventory and the org's operation receipts (``receipts``) taken in that same
+    snapshot. The process's store must point at the root ``prepare_root`` made
+    (``ORGTREE_DATA``) and at the legacy database."""
     from ... import pgstore, store   # noqa: PLC0415  the legacy store, in the child only
     marker = os.path.join(store.DATA_ROOT, "orgs", f"{org.slug}{MARKER_EXT}")
     conn = pgstore.open_conn(org.slug, marker)
     try:
         conn.raw.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         before = inventory(conn.raw, org.org_id)
+        rcpts = receipts(conn.raw, org.org_id)
         conn.pinned = True
         store._orgtx_local.pinned = {org.slug: conn}      # pyright: ignore[reportPrivateUsage]
         try:
@@ -186,7 +202,7 @@ def load_document(org: LegacyOrg) -> tuple[dict[str, Any], dict[str, list[Any]]]
         finally:
             store._orgtx_local.pinned = None              # pyright: ignore[reportPrivateUsage]
             conn.pinned = False
-        return doc, before
+        return doc, before, rcpts
     finally:
         try:
             conn.raw.execute("ROLLBACK")

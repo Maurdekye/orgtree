@@ -76,7 +76,7 @@ os.environ.pop('ORGTREE_STORAGE', None)
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import child_python  # noqa: E402
-from orgtree import pgstore, store  # noqa: E402
+from orgtree import orgtx, pgstore, store  # noqa: E402
 from orgtree.orgdb import conn, mappers, names, sections  # noqa: E402
 from orgtree.orgdb.convert import rowio  # noqa: E402
 
@@ -102,8 +102,8 @@ def _drop_new() -> None:
             c.execute(sql.SQL('DROP DATABASE IF EXISTS {} WITH (FORCE)').format(sql.Identifier(db)))
 
 
-def convert(*args: str) -> dict:
-    """Run the converter as the host does: a child process. Returns its run report."""
+def convert_raw(*args: str) -> tuple:
+    """Run the converter as the host does: a child process. Returns it and its report folder."""
     report = Path(tempfile.mkdtemp(dir=_temp.name)) / 'conversion'
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(
         ('ORGTREE_', 'OPENAI_', 'ANTHROPIC_', 'CLAUDE_', 'CODEX_', 'GEMINI_', 'PYTHON'))}
@@ -114,9 +114,31 @@ def convert(*args: str) -> dict:
     r = subprocess.run(child_python.argv('-c', code, *args, '--data-root', str(DATA),
                                          '--report-dir', str(report), '--build', 'test-build'),
                        env=env, capture_output=True, text=True, timeout=600)
+    return r, report
+
+
+def convert(*args: str) -> dict:
+    """Run the converter as the host does: a child process. Returns its run report."""
+    r, report = convert_raw(*args)
     if r.returncode != 0:
         raise AssertionError(f'converter exit {r.returncode}\n{r.stdout[-3000:]}\n{r.stderr[-6000:]}')
     return json.loads((report / 'run.json').read_text(encoding='utf-8'))
+
+
+def host_lifecycle():
+    """A new engine instance on this module's registry."""
+    from orgtree.orgdb import lifecycle
+    lc = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME), prefix=PREFIX,
+                             build='test-build')
+    lc.bootstrap()
+    return lc
+
+
+def stages_of(org_id: int) -> list:
+    """The staging databases that exist for one org."""
+    with conn.connect(ADMIN, 'postgres') as c:
+        return [d for (d,) in c.execute("SELECT datname FROM pg_database").fetchall()
+                if names.kind(d, PREFIX) == 'stage' and d.startswith(f'{PREFIX}stage_{org_id}_')]
 
 
 def write_v2_org(path: Path, name: str) -> None:
@@ -179,6 +201,16 @@ class FirstPass(unittest.TestCase):
     def setUpClass(cls) -> None:
         _drop_new()
         cls.alpha = make_org('Alpha')
+        # org_tx operation receipts (public.receipts) move with their org (design §2.1): one
+        # from an org_tx with an op_key, one written the way the legacy migrations write theirs
+        def credit(tx):
+            tx.d['nodes']['lead']['credits'] = 5
+            return {'credits': 5}
+        orgtx.org_tx_call(cls.alpha, credit, nodes=['lead'], op_key='alpha-op', fingerprint='fp-1')
+        cls.alpha_legacy = pgstore.read_marker(str(DATA / 'orgs' / f'{cls.alpha}.pg'))
+        with pgstore.connect() as c:
+            c.execute("INSERT INTO public.receipts (org_id, op_key, result) VALUES (%s, %s, %s)",
+                      (cls.alpha_legacy, 'layout/v1', '{"count": 2}'))
         cls.beta = make_org('Beta', items=('same-slug', 'other'))
         org = store.load_org(cls.beta)
         org.d['kiosk'] = {'token': 'kept in the legacy data only'}
@@ -242,6 +274,24 @@ class FirstPass(unittest.TestCase):
         # these test nodes carry fields real agents do not (`children`): kept exactly, counted
         self.assertEqual(self.outcome(self.alpha)['kept_in_extra']['agents'].get('children'), 1)
 
+    def test_operation_receipts_move_with_their_org(self) -> None:
+        def receipts(c, where: str, *args) -> list:
+            return [tuple(r) for r in c.execute(
+                f'SELECT op_key, fingerprint, result, at FROM {where} ORDER BY op_key COLLATE "C"',
+                args).fetchall()]
+        with pgstore.connect() as c:
+            want = receipts(c, 'public.receipts WHERE org_id = %s', self.alpha_legacy)
+            beta_legacy = pgstore.read_marker(str(DATA / 'orgs' / f'{self.beta}.pg'))
+            beta_want = receipts(c, 'public.receipts WHERE org_id = %s', beta_legacy)
+        self.assertEqual([(r[0], r[1]) for r in want], [('alpha-op', 'fp-1'), ('layout/v1', None)])
+        with conn.connect(RUNTIME, self.rows[self.alpha]['database']) as c:
+            self.assertEqual(receipts(c, 'orgtree.tx_receipts'), want)        # exactly, `at` too
+            self.assertEqual(c.execute(
+                "SELECT source_count, dest_count, source_sha256 = dest_sha256 FROM "
+                "orgtree.conversion_run_kinds WHERE kind = 'tx_receipts'").fetchone(), (2, 2, True))
+        with conn.connect(RUNTIME, self.rows[self.beta]['database']) as c:
+            self.assertEqual(receipts(c, 'orgtree.tx_receipts'), beta_want)   # only its own
+
     def test_a_second_pass_does_nothing(self) -> None:
         self.assertIn('skipped', convert('first-pass'))
 
@@ -294,14 +344,45 @@ class FirstPass(unittest.TestCase):
         with conn.connect(ADMIN, 'postgres') as c:
             self.assertIsNone(c.execute('SELECT 1 FROM pg_database WHERE datname = %s',
                                         (row['database'],)).fetchone())
+        # Retry as the engine runs it (orgdb.registry.retry: the converter in a child process),
+        # as the runtime role. While another operation holds the org it is Busy before
+        # anything runs, both in the engine and in the converter child.
+        from orgtree.orgdb import lifecycle
+        from orgtree.orgdb import registry as orgdb_registry
+        lc = host_lifecycle()
+        engine_env = {'ORGTREE_PG_CONNINFO': _with_db(RUNTIME, LEGACY),
+                      'ORGTREE_PG_ADMIN_CONNINFO': ADMIN}
+        other = lc.claim(row['org_id'], 'trash')
+        try:
+            with mock.patch.object(orgdb_registry, '_lc', [lc]), \
+                    mock.patch.dict(os.environ, engine_env):
+                with self.assertRaises(lifecycle.Busy):
+                    orgdb_registry.retry(row['org_id'])
+            r, _ = convert_raw('retry', '--org-id', str(row['org_id']))
+            self.assertEqual(r.returncode, orgdb_registry.EXIT_BUSY, r.stderr[-3000:])
+            self.assertEqual(stages_of(row['org_id']), [])           # nothing was built
+            self.assertEqual(registry()[self.faulty]['attempts'], 1)
+        finally:
+            lc.abandon(other, step='conversion', reason=row['state_reason'])   # attempts + 1
         with pgstore.connect() as c:           # repair exactly the planted rows, then Retry
             c.execute(f'SET search_path = org_{self.faulty_legacy}')
             c.execute("SET session_replication_role = replica")
             for key, val in self.planted.items():
                 c.execute('UPDATE doc SET val = %s WHERE key = %s', (val, key))
-        out = convert('retry', '--org-id', str(row['org_id']))
-        self.assertEqual(out['outcome'], 'active', out)
-        self.assertEqual(registry()[self.faulty]['attempts'], 1)
+        try:
+            with mock.patch.object(orgdb_registry, '_lc', [lc]), \
+                    mock.patch.dict(os.environ, engine_env):
+                out = orgdb_registry.retry(row['org_id'])
+        finally:
+            orgdb_registry.close_registry()
+        self.assertEqual((out['outcome'], out['reason']), ('active', ''), out)
+        now = registry()[self.faulty]
+        self.assertEqual((now['state'], now['attempts']), ('active', 2))
+        self.assertEqual(canon(new_document(now['database'])),
+                         canon(legacy_document(self.faulty)))
+        # an org that is not unavailable is refused by the child, and nothing runs
+        r, _ = convert_raw('retry', '--org-id', str(row['org_id']))
+        self.assertEqual(r.returncode, orgdb_registry.EXIT_NOT_RETRYABLE, r.stderr[-3000:])
 
     def test_legacy_trashed_org_is_trashed_and_fenced(self) -> None:
         row = self.rows[self.trashed]
@@ -322,8 +403,18 @@ class FirstPass(unittest.TestCase):
         self.assertEqual(Path(row['legacy_file']), DATA / 'pre-postgres' / 'orgs' / 'held.json')
 
     def test_retry_imports_a_held_back_org_and_converts_it(self) -> None:
+        from orgtree.orgdb import registry as orgdb_registry
         row = self.rows['later']
         self.assertEqual((row['state'], row['unavailable_step']), ('unavailable', 'import'))
+        # claimed first: while another operation holds the org, the file is not imported
+        lc = host_lifecycle()
+        other = lc.claim(row['org_id'], 'trash')
+        try:
+            r, _ = convert_raw('retry', '--org-id', str(row['org_id']))
+            self.assertEqual(r.returncode, orgdb_registry.EXIT_BUSY, r.stderr[-3000:])
+            self.assertFalse((DATA / 'orgs' / 'later.pg').exists())       # no import ran
+        finally:
+            lc.abandon(other, step='import', reason=row['state_reason'])
         out = convert('retry', '--org-id', str(row['org_id']))
         self.assertEqual(out['outcome'], 'active', out)
         now = registry()['later']

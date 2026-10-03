@@ -1216,7 +1216,14 @@ def backend() -> Backend:
     global _backend
     with _backend_lock:
         if _backend is None:
-            _backend = PgBackend() if store.STORE_BACKEND == "postgres" else SeamBackend()
+            if store.STORE_BACKEND != "postgres":
+                _backend = SeamBackend()
+            elif store._orgdb_on():                    # pyright: ignore[reportPrivateUsage]
+                # one database per org: each org its own transaction (orgdb.compat.tx)
+                from .orgdb.compat.tx import OrgDbBackend
+                _backend = OrgDbBackend()
+            else:
+                _backend = PgBackend()
         return _backend
 
 

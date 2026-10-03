@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.2)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.3)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,18 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 7.3: notes from building stage 1-B (2026-10-03).** No design decision changes; these say
+  how the parts were built and correct one line that departed from today's behaviour.
+  - §6.2 item 3 says how the compatibility view is built: it answers the storage layer's own SQL
+    statements from the org database, and a static test proves every statement is served.
+  - §2.11 names the runtime's registry module (`orgdb.registry`): registry reads, the per-org
+    pool, the process's lifecycle handle and Retry, which the parallel pieces build on.
+  - §2.6: `GET /api/accounts` keeps today's placements exactly (every agent bound to an account,
+    archived ones included). The earlier "live-only" line would have changed what the accounts
+    screen shows.
+  - §6.3 step 3 adds the accounts store: `registry.py` must read and write the app database's
+    accounts tables before the switch turns on. Until then the converter's copy is only a
+    snapshot of `accounts-registry.json`.
 - **Rev 7.2: decision 21 (the user's ruling, 2026-10-02), replacing decision 19's f13 part.**
   - An agent's docket list header and its `orgtree_work list` totals count items that are not
     archived only. An agent's archived total comes only from an explicit archive request
@@ -558,7 +570,7 @@ each org's pool and merged in Python. There are three such reads today.
 
 | Read | Today | Rev 3 |
 |---|---|---|
-| `GET /api/accounts` (which agents are bound to which account) | loads every org's whole document and walks every agent (audit §3.4) | per org: `SELECT account, count(*) FROM agents WHERE state = 'live' AND account IS NOT NULL GROUP BY account` (live-only partial index, rev 4 f13), plus the org's own `org_accounts`; merged with the machine-wide `accounts` rows from the app database |
+| `GET /api/accounts` (which agents are bound to which account) | loads every org's whole document and walks every agent (audit §3.4) | per org: `SELECT name, account, state FROM agents WHERE account IS NOT NULL AND NOT tombstone`, i.e. every placement, archived agents included, exactly as today's `bound` list (rev 7.3: rev 4's live-only count would have changed the accounts screen); merged with the account rows the accounts store serves (the app database's `accounts` once `registry.py` is ported, §6.3 step 3) |
 | `GET /api/orgs` (the org list with summary counts) | the registry and per-org summaries | the registry from the app database, plus one summary query per org (live agents, open items, unread mail, all by partial index) |
 | `list_orgs_with_docs` (bridge traffic, 5 s TTL; the public kiosk traffic is gone, decision 17) | loads every org | the registry plus the needed per-org columns |
 
@@ -744,6 +756,23 @@ listener for the app database.
 | A heavy day: 10 active orgs, 2 processes | up to 2 × (10 × 3 + 2) = 64, which needs `max_connections` raised |
 
 An idle org costs nothing. With 3.2.0's two processes (§2.9), today's 4 orgs use about 20–28.
+
+**The runtime's registry module (rev 7.3, built in stage 1-B).** `orgdb.registry` is what engine
+code uses to reach orgs, as the runtime role:
+
+- `rows()` (every registry row, any state), `lookup(slug)`, `exists(slug)`, `active()` and
+  `active_slugs()`, over one shared connection to the app database;
+- `connection(slug)`: a pooled connection to that org's own database. The first connection to a
+  database checks its `org_identity` against the registry row, so a database that is not this
+  org's is never used;
+- `lifecycle()`: the process's lifecycle handle (the only holder of the admin connection);
+- `retry(org_id)`: Retry of an unavailable org, by the step it failed at (§2.13).
+
+As built for the one-process prototype, the pool keeps at most 2 idle connections per database
+and 16 in all, and a connection idle for 10 minutes is closed at the next checkout or release
+(no sweeper thread). The cap of 4 per database and the per-process queue come with the worker
+process (§6.3 step 8). Retry closes the org's idle connections, since its fence ended their
+sessions.
 
 **`max_connections` is 100 (Q11, decided).** The custodian writes it into the cluster settings it
 owns, for fresh installs and on upgrade. Memory cost: about 4 MB private per backend, so 0.4 GB at
@@ -1632,6 +1661,28 @@ alpha use it, with one process.
    mappers on the org's own database, through a per-org pool. All existing engine code therefore
    runs on the new databases, and the legacy database is never read again after conversion.
 
+   **How it is built (rev 7.3, stage 1-B).** The storage layer keeps issuing its own SQL against
+   the five legacy tables, unchanged. With the switch on, its connection is an org-database
+   connection (`orgdb.compat`) that recognises each of those statements by its text and answers
+   it from the org database's tables, through the section mappers and the exact codec:
+   - legacy rows become views over the new tables: `doc` rows by key, `nodes` by agent name,
+     log rows by a sequence number derived from the record id, `meta` rows;
+   - a write is a compare-and-set against the current row, compared as canonical JSON, and
+     replaces exactly that row's records inside the save's transaction;
+   - a row's version (for the storage layer's lazy rows) is the version of the database row
+     every write of it touches;
+   - a statement the view does not know raises at once, never a silent wrong answer. A static
+     test extracts every SQL statement from the storage layer's source and fails when one is
+     neither served nor listed as unreachable with the switch on;
+   - a few readers that bypass the storage layer's rows (presentations, node history, mail
+     tails) are declined by the view, so the storage layer takes its ordinary load path for
+     them.
+
+   So the storage layer has no second code path to keep equal to the first; its behaviour with
+   the switch off is byte-for-byte what it was. Equivalence is tested on built orgs and on a
+   converted copy of the live data (every org loads equal; the ignored `kiosk` key aside), and
+   the existing storage suites are run with the switch on, every failure classified.
+
    **Rev 4 (prep finding): the storage layer is not the only code on the old tables.**
    - **The size of it.** 25 other modules issue about 238 SQL statements against the old tables
      or their side tables:
@@ -1688,7 +1739,7 @@ Each step is reviewed (`approve_stage`) before it lands.
 |---|---|
 | 1 | App and org migrations, provisioning, the converter with the `unavailable` state, retry and the one-time marker, the first-launch import's hold-back, and the compatibility view, behind the storage switch (off). Lands as one step, because a conversion is all or nothing per org. |
 | 2 | The native agents module and the agent-tree readers, still behind the switch. |
-| 3 | The native docket module and the docket stack, the lifecycle and the fan-outs, the small reader groups, and the org list's unavailable entry. The switch turns **on**. **This completes the first prototype:** review-sol's implementation review, the rehearsals, then the alpha build. |
+| 3 | The native docket module and the docket stack, the lifecycle and the fan-outs, the small reader groups, and the org list's unavailable entry. The accounts store (`registry.py`) reads and writes the app database's accounts tables (rev 7.3: until then the converter's copy is only a snapshot of `accounts-registry.json`). The switch turns **on**. **This completes the first prototype:** review-sol's implementation review, the rehearsals, then the alpha build. |
 | 4 | The mail and watchdogs modules with their jobs; cross-org mail jobs. |
 | 5 | Questions, audiences, documents, reservations, events and org settings modules. Every remaining polling loop becomes a job (§2.7). |
 | 6 | The per-org change log. Frames carry the changed records, and the renderer applies them with no refetch; renderer polling is removed. |

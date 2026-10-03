@@ -322,6 +322,20 @@ class Race:
 
         setattr(pgstore, name, wrapped)
         self._undo.append(lambda: setattr(pgstore, name, orig))
+        # one database per org (ORGTREE_STORAGE=orgdb): org_tx's sessions come from the
+        # registry module's pool (the compatibility view checks out there)
+        from orgtree.orgdb import registry as orgdb_registry
+        corig = orgdb_registry.checkout
+
+        def cwrapped(*a: Any, **k: Any) -> Any:
+            got = corig(*a, **k)
+            act = race._current()
+            if act is not None:
+                act.pg_pids.append(int(got.info.backend_pid))
+            return got
+
+        orgdb_registry.checkout = cwrapped
+        self._undo.append(lambda: setattr(orgdb_registry, "checkout", corig))
         probe = psycopg.connect(os.environ["ORGTREE_PG_URL"], autocommit=True)
         self._undo.append(probe.close)
 

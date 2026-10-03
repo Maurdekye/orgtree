@@ -1488,12 +1488,13 @@ _REV_FEED: Any = None
 
 def _start_revision_feed() -> None:
     global _REV_FEED
-    from . import orgtx, pgfeed, pgstore
+    from . import orgdb, orgtx, pgfeed, pgstore
     if _REV_FEED is not None:
         return
     orgtx.commit_listeners.append(lambda c: pgfeed.note_local(c.slug, c.revision))
     feed = pgfeed.RevisionFeed(
-        lambda: pgfeed.psycopg_conn(pgstore.url()),
+        # one database per org (the storage switch): each org NOTIFYs on its own
+        pgfeed.orgdb_conn if orgdb.enabled() else lambda: pgfeed.psycopg_conn(pgstore.url()),
         pgfeed.engine_callback(lambda s: store.external_change(s, "feed"),
                                hub_changed))
     feed.start()

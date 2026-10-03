@@ -804,7 +804,9 @@ def claim_data_root(root: str | None = None) -> None:
             names = set(os.listdir(os.path.join(base, "orgs")))
             shadowed = [s for s in dbs if f"{s}.json" in names]
             raise BackendMismatch(_mismatch_text(base, dbs, shadowed))
-    elif STORE_BACKEND == "postgres" and on_data_root:
+    elif STORE_BACKEND == "postgres" and on_data_root and not _orgdb_on():
+        # (orgdb: the legacy database is never migrated or written, and its
+        # markers never change -- design §5.3; the registry is the org list)
         # PG-0: an org still in a `.json` or `.db` is not on PostgreSQL yet.
         # Importing it is PG-2's operator step; starting would show it as
         # missing, so refuse, exactly like the two arms above.
@@ -833,6 +835,12 @@ def claim_data_root(root: str | None = None) -> None:
         for _s in pgstore.revive_marked(os.path.join(base, "orgs")):
             _log(f"postgres org {_s!r} is back in orgs/; revived (restored from the trash)")
         pgstore.backfill_always_rows(ALWAYS_ROWS)
+    elif STORE_BACKEND == "postgres" and on_data_root:
+        # orgdb: the app database (the registry) is created and migrated, and this
+        # engine instance registered, before any org is opened; a failure refuses
+        # the start (design §2.12). The legacy database is not touched.
+        from .orgdb import registry as _orgdb_registry
+        _orgdb_registry.lifecycle()
     os.makedirs(base, exist_ok=True)
     fd = os.open(owner_file(base), os.O_RDWR | os.O_CREAT, 0o644)
     if not _try_lock(fd):
@@ -861,7 +869,7 @@ def claim_data_root(root: str | None = None) -> None:
     except OSError:
         pass
     _owner_fd = fd              # held for the process lifetime, deliberately
-    if STORE_BACKEND == "postgres" and on_data_root:
+    if STORE_BACKEND == "postgres" and on_data_root and not _orgdb_on():
         # after the claim, so a process refused the root changes nothing; and
         # before any org is loaded or cached, so no view holds the old format
         reconcile_receipt_storage()
@@ -1008,6 +1016,35 @@ def org_path(slug: str) -> str:
     """The org's document on disk under the ACTIVE backend — `<slug>.json` or
     `<slug>.db`. Putting a file at this path IS the restore (delete_org)."""
     return _db_path(slug) if row_store() else _json_path(slug)
+
+
+def _orgdb_on() -> bool:
+    """One database per org (orgdb, design §6.2): with the storage switch on, an org
+    exists in the registry, not as a marker file, and its database is read and written
+    through orgdb.compat. PostgreSQL only."""
+    if STORE_BACKEND != "postgres":
+        return False
+    from . import orgdb
+    return orgdb.enabled()
+
+
+def _org_stored(slug: str) -> bool:
+    """Does the row store hold the org `slug`: its database file or marker, or (orgdb)
+    an active registry row."""
+    if _orgdb_on():
+        from .orgdb import registry as _orgdb_registry
+        return _orgdb_registry.exists(_safe_slug(slug))
+    return os.path.exists(_db_path(slug))
+
+
+def _stored_slugs() -> list[str]:
+    """Every org the row store holds, sorted: its database files or markers, or (orgdb)
+    the registry's active orgs. Not validated."""
+    if _orgdb_on():
+        from .orgdb import registry as _orgdb_registry
+        return _orgdb_registry.active_slugs()
+    ext = db_ext()
+    return [f[:-len(ext)] for f in sorted(os.listdir(_orgs_dir())) if f.endswith(ext)]
 
 
 def scratch_root(slug: str) -> str:
@@ -1643,6 +1680,11 @@ class _Pool:
             self._busy[slug] = self._busy.get(slug, 0) + 1
         keep = False
         try:
+            if conn is None and _orgdb_on():
+                # orgdb: the org's own database, through the compatibility view
+                from .orgdb.compat import conn as _orgdb_conn
+                conn = cast("sqlite3.Connection",
+                            _orgdb_conn.open_conn(_safe_slug(slug), create=create))
             if conn is None:
                 if create:
                     _orgs_dir()        # a minting open writes into orgs/ (slice D)
@@ -4188,7 +4230,7 @@ class LazyDoc(dict[str, Any]):
         if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
                 or k in self._dropped or k in self._pending
                 or k in self._snap_doc or k in self._deferred_doc
-                or k not in self._present):
+                or k not in self._present or _orgdb_on()):
             return None
         from . import workindex
         with _POOL.acquire(self._slug) as conn:
@@ -4226,7 +4268,7 @@ class LazyDoc(dict[str, Any]):
         if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
                 or k in self._dropped or k in self._pending
                 or k in self._snap_doc or k in self._deferred_doc
-                or k not in self._present):
+                or k not in self._present or _orgdb_on()):
             return None
         from . import workindex
         with _POOL.acquire(self._slug) as conn:
@@ -6648,7 +6690,7 @@ def export_json(slug: str, dest: str | None = None) -> str:
     _assert_synced_data_root()
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
-    if not os.path.exists(_db_path(slug)):
+    if not _org_stored(slug):
         raise LedgerError(f"no such org: {slug!r}")
     with _POOL.acquire(slug) as conn:
         doc = reconstruct_full(conn)
@@ -6699,7 +6741,7 @@ def _scan_orgs(skip: str = "", *, listing: bool = False
     `list_orgs_with_docs`. Under SQLite the doc is a `LazyDoc`: the heavy
     logs are not read for a listing."""
     if row_store():
-        for f in sorted(os.listdir(_orgs_dir())):
+        for f in ([] if _orgdb_on() else sorted(os.listdir(_orgs_dir()))):
             # an org that arrived as JSON (restored from a pre-migration
             # trash copy, say) is migrated before it is listed
             if f.endswith(".json"):
@@ -6713,10 +6755,7 @@ def _scan_orgs(skip: str = "", *, listing: bool = False
                 except MigrationError as e:
                     _log(f"{slug!r} not listed: {e}")
                     continue
-        for f in sorted(os.listdir(_orgs_dir())):
-            if not f.endswith(db_ext()):
-                continue
-            slug = f[:-len(db_ext())]
+        for slug in _stored_slugs():
             if skip and slug == skip:
                 # ⚠ the sqlite arm honours `skip` for the same reason the JSON
                 # arm does, even though its parse is cheaper: `_load_lazy`
@@ -6851,10 +6890,7 @@ def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
         skip_slug = str((loaded or {}).get("slug") or "")
         if loaded is not None:
             take(skip_slug, loaded)
-        for f in sorted(os.listdir(_orgs_dir())):
-            if not f.endswith(db_ext()):
-                continue
-            slug = f[:-len(db_ext())]
+        for slug in _stored_slugs():
             if slug == skip_slug:
                 continue
             try:
@@ -6921,8 +6957,7 @@ def _load_sqlite_org(slug: str, preload: Iterable[str] = (), *,
     """Shared SQLite half for ordinary and bounded-snapshot loads."""
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
-    db = _db_path(slug)
-    if not os.path.exists(db):
+    if not _org_stored(slug):
         raise LedgerError(f"no such org: {slug!r}")
     try:
         t0 = time.perf_counter()
@@ -6939,7 +6974,7 @@ def _load_sqlite_org(slug: str, preload: Iterable[str] = (), *,
         stateprobe.record("org_init", ms=(t2 - t1) * 1000.0)
         return org
     except sqlite3.OperationalError as e:
-        if not os.path.exists(db):
+        if not _org_stored(slug):
             raise LedgerError(f"no such org: {slug!r}") from None
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
 
@@ -7113,7 +7148,7 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
     db = _db_path(slug)
-    if not os.path.exists(db):
+    if not _org_stored(slug):
         raise LedgerError(f"no such org: {slug!r}")
     try:
         with _POOL.acquire(slug) as conn:
@@ -7140,7 +7175,7 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
                     conn.execute("ROLLBACK")
                 raise
     except sqlite3.OperationalError as e:
-        if not os.path.exists(db):
+        if not _org_stored(slug):
             raise LedgerError(f"no such org: {slug!r}") from None
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
 
@@ -7152,7 +7187,8 @@ def read_work_items_rows(slug: str, item_slugs: Iterable[str]) -> dict[str, Any]
     use its ordinary ledger path. An absent requested item is omitted, but
     a header naming a missing/corrupt requested row is an error.
     """
-    if STORE_BACKEND != "postgres":
+    if STORE_BACKEND != "postgres" or _orgdb_on():
+        # orgdb: no work revision is kept yet (the native docket, landing step 3)
         return None
     wanted = tuple(dict.fromkeys(item_slugs))
     for item in wanted:
@@ -7233,7 +7269,7 @@ def _bounded_read(slug: str, body: Callable[[sqlite3.Connection], Any]) -> Any:
         return None
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
-    if not os.path.exists(_db_path(slug)):
+    if not _org_stored(slug):
         raise LedgerError(f"no such org: {slug!r}")
     with _POOL.acquire(slug) as conn:
         conn.execute("BEGIN")
@@ -8268,7 +8304,7 @@ def _load_pinned(slug: str, *, resident: bool = False) -> tuple[Org, int]:
     (see `_res_changed_keys`)."""
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
-    if not os.path.exists(_db_path(slug)):
+    if not _org_stored(slug):
         raise LedgerError(f"no such org: {slug!r}")
     t0 = time.perf_counter()
     with _POOL.acquire(slug) as conn:
@@ -8985,10 +9021,7 @@ def org_slugs() -> list[str]:
     if not row_store():
         return [str(o["slug"]) for o in list_orgs()]
     out: list[str] = []
-    for f in sorted(os.listdir(_orgs_dir())):
-        if not f.endswith(db_ext()):
-            continue
-        slug = f[:-len(db_ext())]
+    for slug in _stored_slugs():
         try:
             _safe_slug(slug)
         except (LedgerError, ValueError):
@@ -9006,10 +9039,7 @@ def cached_list() -> list[dict[str, Any]]:
     if not row_store():
         return list_orgs()
     out: list[dict[str, Any]] = []
-    for f in sorted(os.listdir(_orgs_dir())):
-        if not f.endswith(db_ext()):
-            continue
-        slug = f[:-len(db_ext())]
+    for slug in _stored_slugs():
         try:
             _safe_slug(slug)
             out.append(_summary_row(slug, cached_org(slug).d))
@@ -9155,7 +9185,13 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
     _assert_synced_data_root()
     slug = slugify(name)
     _ensure_migrated(slug)
-    if os.path.exists(org_path(slug)):
+    if _orgdb_on():
+        # orgdb: the name is taken by any org the registry holds that is not in the trash
+        from .orgdb import registry as _orgdb_registry
+        taken = _orgdb_registry.lookup(slug) is not None
+    else:
+        taken = os.path.exists(org_path(slug))
+    if taken:
         raise LedgerError(f"org {slug!r} already exists")
     ws = os.path.normpath(workspace_dir(slug))
     os.makedirs(ws, exist_ok=True)
@@ -9184,6 +9220,9 @@ def delete_org(slug: str) -> None:
     in a `-wal` the renamed file no longer owns; any sidecar that still exists
     afterwards travels with the database under the same trash stem."""
     p = org_path(slug)                      # validates the slug (see _safe_slug)
+    if _orgdb_on():
+        # orgdb: delete is the lifecycle's trash (design §2.13), landing step 3
+        raise LedgerError("deleting an org is not available yet with ORGTREE_STORAGE=orgdb")
     trash = os.path.join(DATA_ROOT, "deleted")
     ext = db_ext() if row_store() else ".json"
     # EXCLUSIVE against every writer: without it a load-modify-save cycle

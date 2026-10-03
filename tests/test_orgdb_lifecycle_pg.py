@@ -23,7 +23,10 @@ What it proves:
   * migrations: a partly migrated set is finished; a failing file makes only
     that org unavailable (rolled back, fenced) and Retry recovers it; an org
     newer than the build is unavailable; a newer app database refuses;
-  * identity: a mismatch makes the org unavailable and fenced.
+  * identity: a mismatch makes the org unavailable and fenced;
+  * a Retry claims only while the org is still unavailable at a step it may
+    retry: one that read the row before another Retry made the org active is
+    refused and changes nothing; a held org is Busy.
 
 Run:  python tools/run-python-verification.py tests/test_orgdb_lifecycle_pg.py
 """
@@ -370,6 +373,37 @@ class Migrations(Base):
         self.assertTrue(self.lc.check_identity(self.b))
         self.admin_exec(self.a, "UPDATE orgtree.org_identity SET slug = 'a'")
         self.assertTrue(self.lc.retry_in_place(self.a))
+
+    def test_a_retry_claims_only_while_the_org_is_still_unavailable(self) -> None:
+        # a Retry that read the row just before another Retry made the org active: its claim
+        # carries the state, so it is refused (not Busy: nothing holds the org) and changes
+        # nothing
+        stale = dict(self.lc.row(self.a), state='unavailable', unavailable_step='identity')
+        real_row = self.lc.row
+        calls: list[int] = []
+
+        def row_once_stale(org_id: int):
+            calls.append(org_id)
+            return stale if len(calls) == 1 else real_row(org_id)
+        with patch.object(self.lc, 'row', row_once_stale):
+            with self.assertRaises(lifecycle.LifecycleError) as cm:
+                self.lc.retry_in_place(self.a)
+        self.assertNotIsInstance(cm.exception, lifecycle.Busy)
+        self.assertIn('is active', str(cm.exception))
+        now = self.lc.row(self.a)
+        self.assertEqual((now['state'], now['op_kind'], now['attempts']), ('active', None, 0))
+        # an org another operation holds is Busy, whatever its state
+        self.lc.claim(self.b, 'trash')
+        with self.assertRaises(lifecycle.Busy):
+            self.lc.claim(self.b, 'retry', expect_state='unavailable')
+        # and an unavailable org at another step is refused, not claimed
+        self.admin_exec(self.a, "UPDATE orgtree.org_identity SET slug = 'someone-else'")
+        self.assertFalse(self.lc.check_identity(self.a))
+        with self.assertRaises(lifecycle.LifecycleError) as cm:
+            self.lc.claim(self.a, 'retry', expect_state='unavailable',
+                          expect_steps=('conversion', 'import'))
+        self.assertNotIsInstance(cm.exception, lifecycle.Busy)
+        self.assertIsNone(self.lc.row(self.a)['op_kind'])
 
 
 if __name__ == '__main__':

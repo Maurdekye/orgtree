@@ -47,7 +47,7 @@ import re
 import sqlite3
 import threading
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Any
+from typing import Any, cast
 
 MIGRATIONS_DIR = pathlib.Path(__file__).with_name("pg_migrations")
 _MIGRATION_RE = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
@@ -797,6 +797,10 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
 def on_save_commit(conn: PgConn, changed: bool, *, work_changed: bool = False) -> None:
     """Just before a save's COMMIT: bump the org revision and NOTIFY, in the
     same transaction, when the save changed anything."""
+    if getattr(conn, "orgdb", False):
+        # one database per org: its own revision and channel (orgdb.compat.conn)
+        cast(Any, conn).on_save_commit(changed, work_changed=work_changed)
+        return
     if not changed:
         return
     conn.use()
@@ -825,6 +829,8 @@ def on_save_commit(conn: PgConn, changed: bool, *, work_changed: bool = False) -
 
 
 def revision(conn: PgConn) -> int:
+    if getattr(conn, "orgdb", False):
+        return int(cast(Any, conn).revision())
     row = conn.raw.execute("SELECT revision FROM public.orgs WHERE org_id = %s",
                            (conn.org_id,)).fetchone()
     return int(row[0])

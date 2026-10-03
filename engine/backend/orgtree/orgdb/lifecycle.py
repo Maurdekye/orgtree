@@ -288,20 +288,37 @@ class Lifecycle:
 
     # ------------------------------------------------------------ claims
 
-    def _claim_in(self, c: Any, org_id: int, kind: str) -> Claim:
+    def _claim_in(self, c: Any, org_id: int, kind: str, *, expect_state: str | None = None,
+                  expect_steps: tuple[str, ...] | None = None) -> Claim:
+        steps = list(expect_steps) if expect_steps else None
         row = c.execute(
             "UPDATE orgtree.orgs SET op_kind = %s, op_epoch = op_epoch + 1, op_owner = %s, "
             "op_step = 'claimed', op_target_db = NULL, op_started_at = now(), "
             "row_version = row_version + 1 "
-            "WHERE org_id = %s AND op_kind IS NULL RETURNING op_epoch",
-            (kind, self._me(), org_id)).fetchone()
+            "WHERE org_id = %s AND op_kind IS NULL AND (%s::text IS NULL OR state = %s) "
+            "AND (%s::text[] IS NULL OR unavailable_step = ANY(%s::text[])) RETURNING op_epoch",
+            (kind, self._me(), org_id, expect_state, expect_state, steps, steps)).fetchone()
         if row is None:
-            raise Busy(f"org {org_id} is busy with another operation")
+            now = self._row(c, org_id)
+            fits = ((expect_state is None or now["state"] == expect_state)
+                    and (steps is None or now["unavailable_step"] in steps))
+            if now["op_kind"] is not None or fits:     # held, or held until a moment ago
+                raise Busy(f"org {org_id} is busy with another operation")
+            at = f" at {now['unavailable_step']}" if now["unavailable_step"] else ""
+            raise LifecycleError(f"org {org_id} is {now['state']}{at}, not "
+                                 f"{expect_state or now['state']}"
+                                 + (f" at {' or '.join(steps)}" if steps else ""))
         return Claim(org_id, kind, int(row[0]))
 
-    def claim(self, org_id: int, kind: str) -> Claim:
+    def claim(self, org_id: int, kind: str, *, expect_state: str | None = None,
+              expect_steps: tuple[str, ...] | None = None) -> Claim:
+        """Claim ``org_id`` for one operation (§2.13 rule 1); Busy when another holds it.
+        With ``expect_state`` (and ``expect_steps``, the unavailable steps allowed) the claim
+        is taken only while the org is in that state, in the same statement: a Retry can never
+        claim an org that another Retry has just made active."""
         with self._app() as c:
-            return self._claim_in(c, org_id, kind)
+            return self._claim_in(c, org_id, kind, expect_state=expect_state,
+                                  expect_steps=expect_steps)
 
     def _step(self, claim: Claim, step: str, **cols: Any) -> None:
         bad = set(cols) - _STEP_COLUMNS
@@ -430,6 +447,33 @@ class Lifecycle:
         self.unfence_runtime(final)
         with self._app() as c:
             self._release(c, claim, "active")
+
+    def begin_create(self, slug: str, *, org_uuid: str | None = None) -> Build:
+        """A new org that its first save fills: the engine's create_org with the storage
+        switch on (the compatibility view, design §6.2 item 3). The org is registered
+        'provisioning' and claimed, and gets a migrated staging database the runtime may fill;
+        mark_filled() then publish() make it active, and cancel_create() removes every trace,
+        as a failed create_org leaves nothing today. A crash in between leaves a 'create'
+        claim, which take_over() returns and resume_create() finishes as an empty org."""
+        org_id = self.register_org(slug, state="provisioning", org_uuid=org_uuid)
+        claim = self.claim(org_id, "create")
+        row = self.row(org_id)
+        stage = self._prepare(claim, row, writer=True)
+        return Build(claim, stage, str(row["database"]), slug, str(row["org_uuid"]))
+
+    def cancel_create(self, build: Build) -> None:
+        """begin_create()'s first save failed: drop its staging database and its row."""
+        row = self.row(build.claim.org_id)
+        self._check_current(row, build.claim)
+        stage = row["op_target_db"]
+        if stage and stage != row["database"] and names.kind(stage, self.prefix) == "stage":
+            self._drop_db(stage)
+        with self._app() as c:
+            n = c.execute("DELETE FROM orgtree.orgs WHERE org_id = %s AND op_kind = 'create' "
+                          "AND op_epoch = %s AND op_owner = %s AND state = 'provisioning'",
+                          (build.claim.org_id, build.claim.epoch, self._me())).rowcount
+        if n != 1:
+            raise LostClaim(f"org {build.claim.org_id}: claim create#{build.claim.epoch} moved on")
 
     def _renamed_already(self, row: dict[str, Any]) -> bool:
         """A crash between the rename and its record leaves the final database
@@ -653,10 +697,12 @@ class Lifecycle:
     def retry_in_place(self, org_id: int) -> bool:
         """Retry an org that is unavailable at step 'migration' or 'identity'
         (§2.13). The steps 'conversion' and 'import' are the converter's."""
+        steps = ("migration", "identity")
         row = self.row(org_id)
-        if row["state"] != "unavailable" or row["unavailable_step"] not in ("migration", "identity"):
+        if row["state"] != "unavailable" or row["unavailable_step"] not in steps:
             raise LifecycleError(f"org {org_id} is not unavailable at migration or identity")
-        claim = self.claim(org_id, "retry")
+        claim = self.claim(org_id, "retry", expect_state="unavailable", expect_steps=steps)
+        row = self.row(org_id)
         db = str(row["database"])
         try:
             self._migrate_org_db(db)

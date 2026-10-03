@@ -13,7 +13,9 @@ The legacy loader is pointed at a throwaway data root holding only markers, and 
 switch is cleared for this process, so the loader reads exactly as today's engine does. The
 run's report is written to <report-dir>/run.json and printed. Exit status 0 means the run
 finished (an org that failed is unavailable, which is a finished run); anything else means the
-run itself could not proceed, and the host refuses to start with that reason.
+run itself could not proceed, and the host refuses to start with that reason. A retry also
+exits ``registry.EXIT_BUSY`` when another operation holds the org (nothing ran) and
+``registry.EXIT_NOT_RETRYABLE`` when the org is not unavailable at 'conversion' or 'import'.
 """
 
 from __future__ import annotations
@@ -46,8 +48,9 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.pop("ORGTREE_STORAGE", None)
     Path(os.environ["ORGTREE_DATA"]).mkdir(parents=True, exist_ok=True)
     try:
-        from ..lifecycle import Lifecycle            # noqa: PLC0415  after the environment
+        from ..lifecycle import Busy, Lifecycle, LifecycleError, LostClaim   # noqa: PLC0415
         from .. import conn                          # noqa: PLC0415
+        from ..registry import EXIT_BUSY, EXIT_NOT_RETRYABLE   # noqa: PLC0415
         from . import run                            # noqa: PLC0415
         base = conn.runtime_base()
         cfg = run.Config(data_root=a.data_root, work_root=os.environ["ORGTREE_DATA"],
@@ -55,7 +58,19 @@ def main(argv: list[str] | None = None) -> int:
                          runtime_base=base, side=_side_inputs(a.data_root))
         lc = Lifecycle(runtime_role=conn.role_of(base), build=a.build)
         lc.bootstrap()
-        report = run.first_pass(lc, cfg) if a.mode == "first-pass" else run.retry(lc, cfg, a.org_id)
+        if a.mode == "first-pass":
+            report = run.first_pass(lc, cfg)
+        else:
+            try:
+                report = run.retry(lc, cfg, a.org_id)
+            except Busy as e:
+                print(f"BUSY: {e}", file=sys.stderr)
+                return EXIT_BUSY
+            except LostClaim:
+                raise
+            except (ValueError, LifecycleError) as e:
+                print(f"NOT RETRYABLE: {e}", file=sys.stderr)
+                return EXIT_NOT_RETRYABLE
         Path(a.report_dir).mkdir(parents=True, exist_ok=True)
         (Path(a.report_dir) / "run.json").write_text(
             json.dumps(report, indent=1, ensure_ascii=False, default=str), encoding="utf-8")

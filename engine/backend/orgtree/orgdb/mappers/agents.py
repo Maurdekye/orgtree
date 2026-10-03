@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .. import codec
 from ..codec import Field, Rows, ShapeError, Spec
@@ -264,44 +264,20 @@ class Nodes(Section):
                 raise ShapeError("nodes: a node id no text column can hold")
             ctx.add_node(name)
         lists: dict[str, int] = {}
-        for i, (name, rec) in enumerate(nodes.items()):
-            if not isinstance(rec, dict):
-                raise ShapeError(f"nodes[{name}]: expected an object")
-            self._encode_node(name, i, rec, ctx, out, lists)
 
-    def _encode_node(self, name: str, i: int, rec: dict[str, Any], ctx: Context, out: Rows,
-                     lists: dict[str, int]) -> None:
-        aid = ctx.ids[name]
-        hot = {k: v for k, v in rec.items() if k not in _TEXT_KEYS and k not in _RUNTIME_KEYS}
-        derived: dict[str, Any] = {}
-        for ref in REFS:
-            v = hot.get(ref)
-            if isinstance(v, str) and codec.fits("text", v):
-                derived[f"{ref}_id"] = ctx.agent(v)
-                del hot[ref]
-            else:
-                derived[f"{ref}_id"] = None
-        tools = hot.get(TOOL_KEY)
-        derived["tool_list_id"] = None
-        if isinstance(tools, list) and all(codec.fits("text", t) for t in tools):
-            sha = _list_sha(tools)
+        def list_id(sha: str, tools: list[str], out: Rows) -> int:
             lid = lists.get(sha)
             if lid is None:
                 lid = lists[sha] = len(lists) + 1
                 out.setdefault("tool_lists", []).append({"id": lid, "sha256": sha})
                 items = out.setdefault("tool_list_items", [])
                 items.extend({"list_id": lid, "pos": p, "tool": t} for p, t in enumerate(tools))
-            derived["tool_list_id"] = lid
-            del hot[TOOL_KEY]
-        for key, col in FLAGS.items():
-            derived[col] = bool(rec.get(key))
-        codec.encode(HOT, hot, {"id": aid}, out, link=AGENTS.link)
-        row = out["agents"][-1]
-        row.update({"name": name, "ord": i, "tombstone": False, **derived})
-        codec.encode(TEXTS, {k: rec[k] for k in _TEXT_KEYS if k in rec}, {"agent_id": aid}, out,
-                     link=TEXTS_T.link)
-        codec.encode(RUNTIME, {k: rec[k] for k in _RUNTIME_KEYS if k in rec}, {"agent_id": aid},
-                     out, link=RUNTIME_T.link)
+            return lid
+
+        for i, (name, rec) in enumerate(nodes.items()):
+            if not isinstance(rec, dict):
+                raise ShapeError(f"nodes[{name}]: expected an object")
+            encode_node(name, ctx.ids[name], i, rec, ctx, out, list_id)
 
     def finish(self, ctx: Context, out: Rows) -> None:
         """Tombstone rows for the names other sections minted (after every section ran)."""
@@ -328,13 +304,55 @@ class Nodes(Section):
         runtime = {r["agent_id"]: r for r in rows.get("agent_runtime", [])}
         nodes: dict[str, Any] = {}
         for r in sorted((r for r in agents if not r["tombstone"]), key=lambda r: r["ord"]):
-            rec = codec.decode(HOT, r, ch_hot, (r["id"],))
-            for ref in REFS:
-                if r[f"{ref}_id"] is not None:
-                    rec[ref] = ctx.name(r[f"{ref}_id"])
-            if r["tool_list_id"] is not None:
-                rec[TOOL_KEY] = [t for _, t in sorted(tool_lists.get(r["tool_list_id"], []))]
-            rec.update(codec.decode(TEXTS, texts[r["id"]], None, (r["id"],)))
-            rec.update(codec.decode(RUNTIME, runtime[r["id"]], ch_rt, (r["id"],)))
-            nodes[r["name"]] = rec
+            nodes[r["name"]] = decode_node(r, ch_hot, ch_rt, texts[r["id"]], runtime[r["id"]],
+                                           tool_lists, ctx.name)
         doc["nodes"] = nodes
+
+
+def encode_node(name: str, aid: int, ord_: int, rec: dict[str, Any], ctx: Context, out: Rows,
+                list_id: Callable[[str, list[str], Rows], int]) -> None:
+    """One node's rows (``agents`` + ``agent_texts`` + ``agent_runtime`` and their children)
+    under agent id ``aid``. ``ctx.agent`` gives the id a reference names (a tombstone for a
+    name no node carries); ``list_id(sha, tools, out)`` the shared tool list's id, adding its
+    rows when the list is new."""
+    hot = {k: v for k, v in rec.items() if k not in _TEXT_KEYS and k not in _RUNTIME_KEYS}
+    derived: dict[str, Any] = {}
+    for ref in REFS:
+        v = hot.get(ref)
+        if isinstance(v, str) and codec.fits("text", v):
+            derived[f"{ref}_id"] = ctx.agent(v)
+            del hot[ref]
+        else:
+            derived[f"{ref}_id"] = None
+    tools = hot.get(TOOL_KEY)
+    derived["tool_list_id"] = None
+    if isinstance(tools, list) and all(codec.fits("text", t) for t in tools):
+        derived["tool_list_id"] = list_id(_list_sha(tools), tools, out)
+        del hot[TOOL_KEY]
+    for key, col in FLAGS.items():
+        derived[col] = bool(rec.get(key))
+    codec.encode(HOT, hot, {"id": aid}, out, link=AGENTS.link)
+    row = out["agents"][-1]
+    row.update({"name": name, "ord": ord_, "tombstone": False, **derived})
+    codec.encode(TEXTS, {k: rec[k] for k in _TEXT_KEYS if k in rec}, {"agent_id": aid}, out,
+                 link=TEXTS_T.link)
+    codec.encode(RUNTIME, {k: rec[k] for k in _RUNTIME_KEYS if k in rec}, {"agent_id": aid},
+                 out, link=RUNTIME_T.link)
+
+
+def decode_node(r: Mapping[str, Any], ch_hot: codec.Children, ch_rt: codec.Children,
+                text_row: Mapping[str, Any], runtime_row: Mapping[str, Any],
+                tool_lists: Mapping[int, list[tuple[int, str]]],
+                name_of: Callable[[int], str]) -> dict[str, Any]:
+    """The node ``encode_node`` was given, from its rows: ``r`` its ``agents`` row, the
+    children of the agents and runtime tables, its ``agent_texts`` and ``agent_runtime``
+    rows, ``tool_lists`` {list id: [(pos, tool)]} and ``name_of`` for the references."""
+    rec = codec.decode(HOT, r, ch_hot, (r["id"],))
+    for ref in REFS:
+        if r[f"{ref}_id"] is not None:
+            rec[ref] = name_of(r[f"{ref}_id"])
+    if r["tool_list_id"] is not None:
+        rec[TOOL_KEY] = [t for _, t in sorted(tool_lists.get(r["tool_list_id"], []))]
+    rec.update(codec.decode(TEXTS, text_row, None, (r["id"],)))
+    rec.update(codec.decode(RUNTIME, runtime_row, ch_rt, (r["id"],)))
+    return rec
