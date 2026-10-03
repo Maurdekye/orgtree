@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 import test_orgdb_compat_pg as fixture
 import orgdb_history_fixture as history_fixture
-from test_orgdb_hot_paths_static import hot_sql_violations
+from test_orgdb_hot_paths_static import hot_sql_violations, large_relations, MIN_SCAN_PAGES, BIG_TABLE_ROWS
 from orgtree import (desktop_notifications as notices, foreground_store as foreground,
                      identity_context, policy_candidates, policy_context, policy_reads,
                      settingstx, store, tree_ui, turn_inputs, workdetail, worklist, work_ui)
@@ -28,7 +28,6 @@ from orgtree.ledger import Org, USER
 setUpModule = fixture.setUpModule
 tearDownModule = fixture.tearDownModule
 
-BIG_TABLE_ROWS = 256
 NOW = 1791028800.0  # fixed classification clock; old completed rows stay archived
 JSON_LOOKUP = re.compile(r"->|#>>?|json(?:b)?_extract_path|::\s*json(?:b)?\b", re.I)
 # Only predicates and ordering, never Output: exact body decoding may use JSON.
@@ -309,15 +308,29 @@ def measure(slug, reader, sizes, *, plan_options=()):
     with registry.connection(slug) as raw:
         with raw.transaction():
             raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            # A small heap can be cheaper to scan even with a selective index.
+            # Record physical pages rather than treating 427 narrow rows as a
+            # large history relation. JSON predicates remain forbidden always.
+            pages = dict(raw.execute("SELECT c.relname, pg_relation_size(c.oid) "
+                "/ current_setting('block_size')::int FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname='orgtree' AND c.relkind IN ('r','p')").fetchall())
+            large = large_relations(sizes, pages)
             for option in plan_options:
                 raw.execute(option)
             for statement, params in queries:
                 plan = raw.execute('EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) '
                                    + statement, params).fetchone()[0][0]['Plan']
                 records.append(dict(sql=statement, plan=plan, rows=examined(plan),
-                    violations=violations(plan, {table for table, count in sizes.items()
-                                                if count >= BIG_TABLE_ROWS}, statement)))
-    return dict(statements=len(queries), rows=sum(record['rows'] for record in records), queries=records)
+                    violations=violations(plan, large, statement),
+                    sequential_scans=[dict(table=node['Relation Name'],
+                        pages=pages[node['Relation Name']],
+                        small_relation=node['Relation Name'] not in large)
+                        for node in nodes(plan) if node['Node Type'] == 'Seq Scan'
+                        and node.get('Schema') == 'orgtree']))
+    return dict(statements=len(queries), rows=sum(record['rows'] for record in records),
+                queries=records, relation_pages=pages, min_scan_pages=MIN_SCAN_PAGES,
+                big_table_rows=BIG_TABLE_ROWS)
 
 
 @fixture.needs_pg

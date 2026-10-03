@@ -9,6 +9,14 @@ TOKENS = re.compile(r"--[^\n]*|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|"
                     r"ORDER\s+BY|GROUP\s+BY|->>?|#>>?|::\s*json(?:b)?\b|"
                     r"[()]|[A-Za-z_][A-Za-z_0-9]*", re.I | re.S)
 JSON_TOKEN = re.compile(r"->|#>|::\s*json|json(?:b)?_extract_path", re.I)
+MIN_SCAN_PAGES = 16
+BIG_TABLE_ROWS = 256
+
+
+def large_relations(rows, pages):
+    """Require indexes once retained tables exceed the small-relation floor."""
+    return {table for table, count in rows.items()
+            if count >= BIG_TABLE_ROWS and pages[table] >= MIN_SCAN_PAGES}
 
 
 def hot_sql_violations(statement):
@@ -45,6 +53,14 @@ def hot_sql_violations(statement):
 
 
 class CapturedSql(unittest.TestCase):
+    def test_small_page_count_allows_seq_scan_without_relaxing_json_guard(self):
+        rows = dict(small=500, big=500, few=4)
+        pages = dict(small=15, big=16, few=200)
+        self.assertEqual(large_relations(rows, pages), {'big'})
+        with self.assertRaises(KeyError):
+            large_relations(rows, {})
+        self.assertTrue(hot_sql_violations("SELECT id FROM small WHERE extra->>'owner'='dev'"))
+
     def test_distinct_from_operator_keeps_predicate_context(self):
         for comparison in ('IS DISTINCT FROM', 'IS NOT DISTINCT FROM'):
             with self.subTest(comparison=comparison):
