@@ -340,7 +340,11 @@ def child():
         # only its fixed read-only Git argument forms, never arbitrary Git.
         git = shutil.which('git')
         subprocess.Popen = pin_git(subprocess.Popen, git)
-        audit = LaunchAudit(Path(cfg['root']), git=git, providers=[])
+        # Identify probes so the guard can count them separately. LaunchAudit
+        # still raises for these --version calls: no provider process runs.
+        provider_paths = [path for name in ('codex.exe','claude.exe','gemini.exe')
+                          if (path := shutil.which(name))]
+        audit = LaunchAudit(Path(cfg['root']), git=git, providers=provider_paths)
         sys.addaudithook(audit)
         from orgtree import api, foreground_api, foreground_store, identity_context, orgtx, store
         from orgtree import worklist, workdetail, workread

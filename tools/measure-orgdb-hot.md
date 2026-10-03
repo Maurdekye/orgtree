@@ -32,6 +32,9 @@ or output files. Children use isolated homes/data roots and scrubbed provider
 credentials. Provider and other process launches are denied during measurement;
 the shared guard allows only its fixed read-only Git metadata commands. Startup
 alone may launch its real converter.
+Known provider `--version` probes are counted as capability probes and refused
+by that guard; they never execute. This isolated environment supplies the same
+unavailable provider capabilities to both sides. The JSON retains those counts.
 
 The default operation set is all reads and writes. `--operations` accepts a
 comma-separated subset for shorter P03 batches (keep each run below 20 minutes).
