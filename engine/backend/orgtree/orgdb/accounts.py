@@ -289,13 +289,13 @@ def transaction(account_id: str | None = None, *, provider: str | None = None,
                 raw.execute('SELECT provider FROM orgtree.account_counters WHERE provider = %s FOR UPDATE', (provider,))
             from ..registry import _MutationDocument
             doc = _MutationDocument(_read(raw, org, rid, metadata_only=rid is None))
-            if account_id is not None:
+            if target is not None:
                 # Lookup chooses one database before locking. Validate that
                 # choice against its locked alias view; never inject a stale
                 # alias target or replay the mutation in another database.
                 if doc['aliases'].get(account_id, account_id) != rid:
                     raise UnknownAccount(account_id)
-                if target and not any(row['id'] == rid for row in doc['accounts']):
+                if not any(row['id'] == rid for row in doc['accounts']):
                     raise UnknownAccount(account_id)
             before = copy.deepcopy(doc)
             yield doc

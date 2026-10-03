@@ -256,6 +256,14 @@ class NativeAccounts(unittest.TestCase):
     def test_restricted_alias_retarget_after_lookup_rejects_before_mutation(self):
         self.assert_retargeted_alias_rejects_mutation('a5-a')
 
+    def test_removing_a_dangling_alias_keeps_existing_false_result(self):
+        with registry.transaction() as doc:
+            doc['aliases']['dangling-removal'] = 'missing-account'
+        with patch.object(registry, 'availability_changed') as changed:
+            self.assertFalse(registry.remove_account('dangling-removal'))
+        self.assertEqual(registry.resolve_alias('dangling-removal'), 'missing-account')
+        changed.assert_not_called()
+
     def test_metadata_migration_and_alias_are_database_writes(self):
         row = self.make()
         registry_migration.mark_migrated(123.5)
