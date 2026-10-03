@@ -217,7 +217,8 @@ class MaintainedAggregates(unittest.TestCase):
             with self.subTest(literal=ascii(literal)), self.connection() as raw:
                 raw.execute('BEGIN')
                 try:
-                    extra={'title':literal, 'state':None}
+                    before=raw.execute('SELECT catalog_rev FROM orgtree.org_revision').fetchone()[0]
+                    extra={'title':literal, 'state':None, 'literal':r'literal\u0000tail'}
                     raw.execute("UPDATE orgtree.agents SET extra=%s WHERE name='dev'",(Json(extra),))
                     flags=raw.execute("SELECT state_misfit,cost_usd_misfit FROM orgtree.agents WHERE name='dev'").fetchone()
                     self.assertEqual(flags,(True,False))
@@ -230,6 +231,7 @@ class MaintainedAggregates(unittest.TestCase):
                         self.assertEqual(raw.execute(f'SELECT at_misfit,node_misfit FROM orgtree.{table} WHERE id=%s',(rid,)).fetchone(),(True,False))
                         self.assertEqual(reader_rows.read_records(raw,table,[rid])[0]['odd'],literal)
                     raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                    self.assertEqual(raw.execute('SELECT catalog_rev FROM orgtree.org_revision').fetchone()[0],before+1)
                 finally:
                     raw.execute('ROLLBACK')
 
@@ -250,6 +252,25 @@ class MaintainedAggregates(unittest.TestCase):
                 self.assertEqual(typed,raw.execute("SELECT orgtree.foreground_catalog(a) FROM orgtree.agents a WHERE name='dev'").fetchone()[0])
             finally:
                 raw.execute('ROLLBACK')
+
+    def test_unicode_copy_compat_save_and_escaped_metadata_keys(self):
+        from orgtree.orgdb import reader_rows
+        twin=fixture.Twins('a1 unicode codec')
+        twin.edit(lambda d:d['nodes']['dev'].update(title='nul\x00tail', created='surrogate\ud800'))
+        with fixture.storage(False):
+            expected=fixture.store.load_org(twin.legacy).nodes['dev']
+        with fixture.storage(True):
+            self.assertEqual(fixture.store.load_org(twin.copy).nodes['dev'],expected)
+            database=fixture.registry.lookup(twin.copy)[1]
+            with fixture.dbconn.connect(fixture.RUNTIME,database) as raw:
+                self.assertEqual(reader_rows.read_agents(raw,['dev'])['dev'],expected)
+                raw.execute('BEGIN')
+                try:
+                    raw.execute("UPDATE orgtree.agents SET extra=%s::json WHERE name='dev'",
+                        (r'{"\u0073tate":null,"odd":"nul\u0000","literal":"\\u0000"}',))
+                    self.assertEqual(raw.execute("SELECT state_misfit,cost_usd_misfit FROM orgtree.agents WHERE name='dev'").fetchone(),(True,False))
+                finally:
+                    raw.execute('ROLLBACK')
 
     def test_request_flags_select_only_metadata_misfits_and_exact_extra_survives(self):
         from psycopg.types.json import Json
