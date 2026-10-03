@@ -552,11 +552,21 @@ class AgainstARealConversion(unittest.TestCase):
         """The clean database with one corruption committed, undone afterwards; the undo must
         give back exactly the clean content, or the run stops (RestoreFailed)."""
         _table, corrupt, undo = CORRUPTIONS[name]
+        original_extra = None
+        if name == 'value moved into extra':
+            # Enum misfits can already occupy extra; retain its exact stored JSON text.
+            with conn.connect(ADMIN, self.final) as c:
+                original_extra = c.execute("SELECT extra::text FROM orgtree.agents "
+                                           "WHERE name='boss'").fetchone()[0]
         self._run(corrupt)
         try:
             yield self.dest
         finally:
             self._run(undo)
+            if name == 'value moved into extra':
+                with conn.connect(ADMIN, self.final) as c:
+                    c.execute("UPDATE orgtree.agents SET extra=%s::json WHERE name='boss'",
+                              (original_extra,))
             if fingerprint(self.final) != self.clean:
                 raise RestoreFailed(f'{name}: the undo did not restore the clean database')
 

@@ -181,6 +181,13 @@ Every codec object/list `*_is` column also gets a CHECK. Object markers use `cod
 
 ## Fields without a closed value set
 
+The independent destination verifier declares its own `Col.values` from these writer contracts.
+It imports no mapper or converter code. A static control compares its document enum and shape
+marker sets against migration 0009. Account and side-file tables remain outside that verifier's
+document scope. Physical controls check all document enum fields: valid typed members pass,
+out-of-set values preserved in extra pass, and valid members moved into extra fail. The native
+CHECK controls separately refuse every out-of-set typed write, including account columns.
+
 Model/tier strings, account harness overrides, provider-reported cost sources, human relationship descriptions, finding severity, operation IDs and lifecycle/event operation labels are open values. Their writers accept arbitrary text or new event/verb names; treating their observed values as a closed set would change accepted inputs.
 
 Legacy/future mapper columns with no current writer include `audience_requests.status` and `org_inbox.state`. No set is guessed for them. Existing placement/framework CHECKs and manual account marks_is/spend_is CHECKs are retained. The latter use the codec object marker set.

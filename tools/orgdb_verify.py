@@ -43,7 +43,7 @@ THE DESTINATION FORMAT, as this verifier reads it
   'l' list, 'n' null, 'x' the value is in ``extra``, NULL absent.
 * ``extra`` (one JSON object per row) keeps exactly what no typed column can hold: a value of
   another type, a string with U+0000, an unparseable or offset-less timestamp, a null where the
-  column has no null flag, an unknown field. Nested parts nest: an unknown ``scope.tools`` key
+  column has no null flag, an unknown field, or an out-of-set enum member. Nested parts nest: an unknown ``scope.tools`` key
   is ``extra.scope.tools.<key>``. A field must be in exactly one place: never in both its column
   and ``extra``, never in neither, and a value its column CAN hold exactly must be in the column.
 * Links resolve to natural keys: ``agents.parent_id``/``predecessor_id``/``successor_id`` point
@@ -90,12 +90,36 @@ SQL_TYPES = {TEXT: {'text'}, INT: {'bigint', 'integer'}, FLOAT: {'double precisi
              NUM: {'numeric'}, BOOL: {'boolean'}, TS: {'timestamp with time zone'},
              JSON: {'json', 'jsonb'}}
 
+# Independently read from the engine's validation/writer contracts, as recorded in
+# docs/state-system/org-enum-inventory.md. Never import the converter's declarations.
+PERMISSION = ('plan', 'default', 'acceptEdits', 'bypassPermissions')  # ledger.PM_LEVELS
+VISIBILITY = ('self', 'team', 'subtree', 'full')  # ledger.VIS_LEVELS
+EFFORT = ('low', 'medium', 'high', 'xhigh', 'max', '')  # set_scope permits empty to clear
+DIR_MODE = ('rw', 'ro')  # schema.DirMode / Org._dirs
+WORK_STATUS = ('backlogged', 'open', 'in_progress', 'blocked', 'review', 'approved',
+               'deploy_ready', 'done', 'superseded', 'dropped')  # Org.WORK_STATUSES
+CLASSIFICATION = ('met', 'not_exercised', 'environment_limited', 'known_negative')
+EXECUTION = ('independent', 'owner_report', 'source_inspection')
+RESULT = ('passed', 'expected_negative', 'failed', 'crashed', 'not_executed')  # workevidence
+DISPOSITION = ('open', 'fixed', 'rejected', 'deferred', 'duplicate')  # Org.WORK_DISPOSITIONS
+STAGE = ('implemented', 'committed', 'pushed', 'deployed', 'in_build')  # workitems.STAGES
+MAIL_KIND = ('message', 'question', 'request', 'decision', 'status', 'notice', 'watchdog')
+SEQ_ORIGIN = ('deposit', 'migration_unproven', 'unresolved_mailbox')  # Org.MAIL_SEQ_ORIGIN_*
+WATCHDOG_KIND = ('file', 'command', 'process', 'stream', 'activity')  # watchdog_create
+MARKER_VALUES = {'obj': ('n', 'o', 'x'), 'list': ('n', 'l', 'x')}  # destination format above
+
 
 # ------------------------------------------------------------------ the field correspondence
 class Col:
     """A scalar field in one typed column (``col`` when it is renamed)."""
-    def __init__(self, src: str, kind: str, col: str | None = None, table: str | None = None):
+    def __init__(self, src: str, kind: str, col: str | None = None, table: str | None = None,
+                 *, values: tuple[str, ...] = ()):
         self.src, self.kind, self.col, self.table = src, kind, col or src, table
+        if not isinstance(values, tuple) or (values and (kind != TEXT
+                or any(not isinstance(v, str) or '\x00' in v for v in values)
+                or len(set(values)) != len(values))):
+            raise ValueError('enum values must be distinct text members')
+        self.values = values
 
 
 class Obj:
@@ -141,7 +165,8 @@ def _holder(src: str) -> Obj:
 
 
 def _status(src: str) -> Obj:
-    return Obj(src, [Col('status', TEXT), Col('summary', TEXT), Col('at', TS)])
+    return Obj(src, [Col('status', TEXT, values=('working', 'blocked', 'idle')),
+                     Col('summary', TEXT), Col('at', TS)])
 
 
 def _texts(*names: str) -> list:
@@ -187,21 +212,26 @@ NODE = [
     Col('seat_id', TEXT, col='lineage_born'), Col('generation', INT),
     Link('parent'), Link('predecessor'), Link('successor'),
     Col('ui_order', NUM), *_stamps('created', 'archived_at', 'rescinded_at'),
-    *_texts('state', 'title', 'model'), Col('grant', NUM, col='credit_grant'),
-    *_texts('lineage', 'bearer_state', 'lost_reason', 'session_id', 'transcript_incarnation',
-            'reply_incarnation'),
+    Col('state', TEXT, values=('live', 'archived', 'unrecoverable')),
+    *_texts('title', 'model'), Col('grant', NUM, col='credit_grant'),
+    *_texts('lineage'),
+    Col('bearer_state', TEXT, values=('knowledge', 'preserving', 'lost')),
+    *_texts('lost_reason', 'session_id', 'transcript_incarnation', 'reply_incarnation'),
     Col('pid', INT), Col('session_began_at', TS),
     *_bools('session_unrun', 'cheap_compacted', 'compacted_unrun'),
     Col('account', TEXT), Col('account_primary', BOOL),
     *_texts('codex_account', 'codex_thread', 'codex_native_home', 'antigravity_account',
             'antigravity_conversation', 'mailbox_id'),
     Col('mail_seq', INT),
-    Obj('scope', [*_texts('permission_mode', 'org_visibility', 'effort', 'model_version'),
+    Obj('scope', [Col('permission_mode', TEXT, values=PERMISSION),
+                  Col('org_visibility', TEXT, values=VISIBILITY),
+                  Col('effort', TEXT, values=EFFORT),
+                  *_texts('model_version'),
                   *_bools('prefer_reserve', 'account_fallback'),
                   Obj('tools', [*_bools('bash', 'web', 'edit', 'subagents'),
                                 Lst('mcp', 'agent_mcp_servers', ('agent_id',), TEXT)]),
                   Lst('add_dirs', 'agent_dir_grants', ('agent_id',),
-                      Rec(_texts('path', 'mode'), key=('agent_id', 'pos')))]),
+                      Rec([Col('path', TEXT), Col('mode', TEXT, values=DIR_MODE)], key=('agent_id', 'pos')))]),
     Col('cost_usd', NUM), Col('cost_usd_unknown', BOOL), Col('context_window', INT),
     Col('occupancy', INT), Col('occupancy_est', BOOL),
     *_ints('cli_compactions', 'cli_boundary_offset', 'turn_seq'),
@@ -227,22 +257,41 @@ NODE = [
 ]
 
 CHECK = [Col('at', TS), _by(), Col('evidence_ref', TEXT), Col('note', TEXT),
-         *_texts('classification', 'artifact', 'runner', 'execution', 'execution_means', 'result',
-                 'classification_means', 'composition', 'gate'), Col('blocked_count', INT)]
+         Col('classification', TEXT, values=CLASSIFICATION),
+         *_texts('artifact', 'runner'),
+         Col('execution', TEXT, values=EXECUTION),
+         *_texts('execution_means'),
+         Col('result', TEXT, values=RESULT),
+         *_texts('classification_means', 'composition', 'gate'), Col('blocked_count', INT)]
 ACCEPTANCE = [Col('text', TEXT), Obj('checked', CHECK),
               Lst('check_history', 'work_item_acceptance_checks', ('item_id', 'pos'),
                   Rec(CHECK, key=('item_id', 'pos', 'pos_2')), pos='pos_2')]
-EVIDENCE = [Col('at', TS), _by(), *_texts('kind', 'ref', 'note', 'execution', 'execution_means'),
+EVIDENCE = [Col('at', TS), _by(), Col('kind', TEXT, values=('note', 'link', 'file', 'commit', 'log')),
+                                  *_texts('ref', 'note'),
+                                  Col('execution', TEXT, values=EXECUTION),
+                                  *_texts('execution_means'),
             Col('receipt', JSON),
-            *_texts('classification', 'artifact', 'runner', 'result', 'classification_means')]
+            Col('classification', TEXT, values=CLASSIFICATION),
+            *_texts('artifact', 'runner'),
+            Col('result', TEXT, values=RESULT),
+            *_texts('classification_means')]
 SEAT_REQUEST = [Col('seq', INT), *_texts('reviewer', 'requested_by', 'owner', 'to'), Col('at', TS),
-                *_texts('state', 'note', 'decided_by'), Col('decided_at', TS),
+                Col('state', TEXT, values=('pending', 'granted', 'withdrawn', 'declined')),
+                *_texts('note', 'decided_by'), Col('decided_at', TS),
                 Col('decision_note', TEXT)]
 HISTORY = [Col('at', TS), Col('by', JSON), Col('op', TEXT), Col('kind', TEXT),
            *_jsons('from', 'to', 'done', 'next', 'changes', 'now'),
-           *_texts('why', 'note', 'reason', 'status', 'status_from', 'status_to', 'stage',
-                   'reviewer', 'candidate', 'decision', 'disposition', 'finding', 'artifact',
-                   'name', 'scope', 'via', 'evidence_gap', 'answer'),
+           *_texts('why', 'note', 'reason'),
+           Col('status', TEXT, values=WORK_STATUS),
+           Col('status_from', TEXT, values=WORK_STATUS),
+           Col('status_to', TEXT, values=WORK_STATUS),
+           Col('stage', TEXT, values=STAGE),
+           *_texts('reviewer', 'candidate'),
+           Col('decision', TEXT, values=('approve', 'changes', 'approve_stage')),
+           Col('disposition', TEXT, values=DISPOSITION),
+           *_texts('finding', 'artifact', 'name'),
+           Col('scope', TEXT, values=('item', 'named')),
+           *_texts('via', 'evidence_gap', 'answer'),
            *_ints('scope_seq', 'batch', 'index', 'set_rev', 'supersedes', 'count',
                   'answered_request'),
            *_bools('already_seated', 'after_completion', 'atomic_completion', 'review_in_flight',
@@ -253,14 +302,17 @@ HISTORY = [Col('at', TS), Col('by', JSON), Col('op', TEXT), Col('kind', TEXT),
                    'superseded_by_was', 'dropped_reason_was', 'candidate_verdict_was')]
 HOLDER = [Col('node', TEXT), Col('generation', INT), Col('born', TEXT), Col('from', TS),
           Col('by', JSON), Col('derived', BOOL)]
-SCOPE_ENTRY = [Col('seq', INT), Col('at', TS), _by(), *_texts('kind', 'before', 'after', 'mode'),
+SCOPE_ENTRY = [Col('seq', INT), Col('at', TS), _by(), Col('kind', TEXT, values=('objective', 'acceptance', 'decision')),
+                                                      *_texts('before', 'after'),
+                                                      Col('mode', TEXT, values=('append', 'replace')),
                Col('supersedes', INT), Col('superseded_by', INT), Col('text', TEXT)]
 ARTIFACT = [Col('id', TEXT, col='public_id'), Col('seq', INT), Col('at', TS), _by(),
-            Col('name', TEXT), Col('bytes', INT), *_texts('sha256', 'path', 'scope'),
+            Col('name', TEXT), Col('bytes', INT), *_texts('sha256', 'path'),
+                                                  Col('scope', TEXT, values=('item', 'named')),
             Col('grants', JSON), Col('note', TEXT)]
-DECISION = [Col('at', TS), _by(), Col('disposition', TEXT), Col('note', TEXT)]
+DECISION = [Col('at', TS), _by(), Col('disposition', TEXT, values=DISPOSITION), Col('note', TEXT)]
 FINDING = [Col('id', TEXT, col='public_id'), Col('seq', INT), Col('at', TS), _by(),
-           Col('title', TEXT), Col('disposition', TEXT),
+           Col('title', TEXT), Col('disposition', TEXT, values=DISPOSITION),
            Lst('decisions', 'work_item_finding_decisions', ('item_id', 'pos'),
                Rec(DECISION, key=('item_id', 'pos', 'pos_2')), pos='pos_2'),
            *_texts('detail', 'severity', 'evidence_ref')]
@@ -274,9 +326,10 @@ def _item_list(src: str, table: str, elem: Any) -> Lst:
 
 
 ITEM = [
-    Col('slug', TEXT), Col('rev', INT), *_texts('kind', 'title', 'objective', 'status',
-                                                 'blocked_reason', 'waiting_reason',
-                                                 'dropped_reason'),
+    Col('slug', TEXT), Col('rev', INT), Col('kind', TEXT, values=('code', 'non-code')),
+                                        *_texts('title', 'objective'),
+                                        Col('status', TEXT, values=WORK_STATUS),
+                                        *_texts('blocked_reason', 'waiting_reason', 'dropped_reason'),
     _holder('owner'), _holder('reviewer'), _by('created_by'), _by('last_updater'),
     _item_list('participants', 'work_item_participants', TEXT),
     *_stamps('at', 'updated_at', 'docket_at', 'status_at', 'archived_at'),
@@ -308,47 +361,56 @@ def _child(src: str, table: str, fk: str, elem: Any) -> Lst:
     return Lst(src, table, (fk,), Rec(elem, key=(fk, 'pos')) if isinstance(elem, list) else elem)
 
 
-ASK = [Col('id', TEXT, col='public_id'), *_texts('node', 'kind', 'question'),
+ASK = [Col('id', TEXT, col='public_id'), *_texts('node'),
+                                         Col('kind', TEXT, values=('question',)),
+                                         *_texts('question'),
        Col('questions', JSON), Col('at', TS),
        _child('options', 'ask_options', 'asks_id', _texts('label', 'description')),
        Col('header', TEXT), _child('work_items', 'ask_work_items', 'asks_id', TEXT),
-       Col('rev', INT), *_texts('status', 'reason'), Col('answer', JSON), Col('resolved_at', TS),
+       Col('rev', INT), Col('status', TEXT, values=('open', 'answered', 'dismissed', 'moot', 'withdrawn')),
+                        *_texts('reason'), Col('answer', JSON), Col('resolved_at', TS),
        Col('answer_mail', TEXT)]
 CREDIT_REQUEST = [Col('id', TEXT, col='public_id'), Col('node', TEXT), Col('old', NUM),
                   Col('new', NUM), Col('reason', TEXT), Col('at', TS), Col('rev', INT),
-                  Col('status', TEXT), Col('granted', NUM), Col('notice', TEXT)]
+                  Col('status', TEXT, values=('pending', 'answered', 'denied', 'dismissed', 'moot', 'withdrawn')), Col('granted', NUM), Col('notice', TEXT)]
 SCOPE_REQUEST = [Col('id', TEXT, col='public_id'), Col('node', TEXT),
                  _child('items', 'scope_request_items', 'scope_requests_id',
-                        _texts('kind', 'path', 'mode', 'decision', 'tool', 'server')),
-                 Col('reason', TEXT), Col('at', TS), Col('rev', INT), Col('status', TEXT),
+                        [Col('kind', TEXT, values=('dir', 'tool', 'mcp', 'permission_mode')), Col('path', TEXT), Col('mode', TEXT, values=DIR_MODE + PERMISSION), Col('decision', TEXT, values=('approve', 'deny', 'skip', 'approve (clamped — not in effect)', 'approve (partial)')), Col('tool', TEXT, values=('bash', 'edit', 'web', 'subagents')), Col('server', TEXT)]),
+                 Col('reason', TEXT), Col('at', TS), Col('rev', INT), Col('status', TEXT, values=('pending', 'answered', 'moot', 'withdrawn')),
                  Col('resolved_at', TS)]
 AUDIENCE = [*_texts('grantee', 'grantor'), Col('granted_at', TS), *_texts('reason', 'delegated_by')]
 AUDIENCE_REQUEST = [Col('id', TEXT, col='public_id'), *_texts('node', 'target', 'reason'),
                     Col('at', TS), Col('status', TEXT)]
-WATCHDOG = [Col('id', TEXT, col='public_id'), *_texts('owner', 'name', 'kind', 'target', 'pattern'),
-            Col('interval_s', INT), Col('state', TEXT), Col('at', TS), Col('fired', INT),
+WATCHDOG = [Col('id', TEXT, col='public_id'), *_texts('owner', 'name'),
+                                              Col('kind', TEXT, values=WATCHDOG_KIND),
+                                              *_texts('target', 'pattern'),
+            Col('interval_s', INT), Col('state', TEXT, values=('armed', 'paused')), Col('at', TS), Col('fired', INT),
             _child('events', 'watchdog_events', 'watchdogs_id', [Col('at', TS), Col('gist', TEXT)]),
             Col('high_water', JSON), Col('last_check', TS),
             Col('_last_check_ts', FLOAT, col='last_check_ts'), Col('checks_run', INT),
             *_texts('last_output', 'paused_why'), Col('last_exit', INT), Col('last_fired', TS),
-            *_bools('history_retained', 'notice', 'once'), Col('shell', TEXT),
-            Col('fire_mode', TEXT), Col('quiet_period_s', INT), Col('silence_since', TS)]
-WATCHDOG_TOMB = [Col('id', TEXT, col='public_id'), *_texts('owner', 'name', 'kind', 'target'),
+            *_bools('history_retained', 'notice', 'once'), Col('shell', TEXT, values=('native', 'bash')),
+            Col('fire_mode', TEXT, values=('event', 'silence')), Col('quiet_period_s', INT), Col('silence_since', TS)]
+WATCHDOG_TOMB = [Col('id', TEXT, col='public_id'), *_texts('owner', 'name'),
+                                                   Col('kind', TEXT, values=WATCHDOG_KIND),
+                                                   *_texts('target'),
                  Col('interval_s', INT), *_stamps('at', 'spent_at'), Col('fired', INT),
                  Col('orphaned_from', TEXT), Col('notice', BOOL),
-                 *_texts('state', 'superseded_by', 'reason'), Col('once', BOOL),
-                 Col('fire_mode', TEXT), Col('quiet_period_s', INT), Col('silence_since', TS)]
+                 Col('state', TEXT, values=('superseded',)),
+                 *_texts('superseded_by', 'reason'), Col('once', BOOL),
+                 Col('fire_mode', TEXT, values=('event', 'silence')), Col('quiet_period_s', INT), Col('silence_since', TS)]
 WATCHDOG_HISTORY = [Col('at', TS), *_texts('gist', 'watchdog', 'node', 'body')]
 RESERVATION = [Col('id', TEXT, col='public_id'),
                *_texts('owner', 'item', 'resource', 'candidate', 'base'),
-               _child('paths', 'reservation_paths', 'reservations_id', TEXT), Col('state', TEXT),
+               _child('paths', 'reservation_paths', 'reservations_id', TEXT), Col('state', TEXT, values=('held', 'released', 'recovered', 'stale', 'landed')),
                *_stamps('created_at', 'updated_at'),
                *[Col(n, FLOAT) for n in ('created_ts', 'updated_ts', 'expires_ts')],
                Col('expires_at', TS), Col('heartbeat_ts', FLOAT), Col('heartbeat_at', TS),
                Col('stale_s', FLOAT), *_texts('integration_key', 'integration_receipt'),
                Col('landed_at', TS), Col('release_receipt', TEXT), Col('successor', JSON)]
 DOCUMENT = [Col('id', TEXT, col='public_id'), *_texts('node', 'title', 'body'), Col('at', TS),
-            *_texts('format', 'file'), Col('bytes', INT), Col('orphaned_from', TEXT)]
+            Col('format', TEXT, values=('markdown', 'html')),
+            *_texts('file'), Col('bytes', INT), Col('orphaned_from', TEXT)]
 EVENT = [*_texts('op', 'actor'), Col('at', TS), Col('detail', JSON),
          _child('warnings', 'event_warnings', 'events_id', TEXT)]
 LIFECYCLE = [*_texts('operation_id', 'kind', 'state'), Col('at', TS), Col('count', INT),
@@ -358,62 +420,80 @@ LIFECYCLE = [*_texts('operation_id', 'kind', 'state'), Col('at', TS), Col('count
              Col('current_candidate', JSON),
              *_texts('node', 'cleanup', 'door', 'reason', 'status')]
 NOTICE_LOG = [Col('node', TEXT), Col('at', TS), Col('text', TEXT), Col('ev', JSON)]
-ORG_INBOX = [Col('id', TEXT, col='public_id'), *_texts('dir', 'peer', 'body'), Col('at', TS),
+ORG_INBOX = [Col('id', TEXT, col='public_id'), Col('dir', TEXT, values=('in', 'out')),
+                                               *_texts('peer', 'body'), Col('at', TS),
              *_texts('by', 'state'), Col('state_at', TS), Col('net_id', TEXT),
              Col('attributed', BOOL)]
-USER_INBOX = [Col('id', TEXT, col='public_id'), *_texts('from', 'kind', 'body'), Col('at', TS),
+USER_INBOX = [Col('id', TEXT, col='public_id'), *_texts('from'),
+                                                Col('kind', TEXT, values=MAIL_KIND),
+                                                *_texts('body'), Col('at', TS),
               *_texts('message_id', 'operation_id'),
               _child('attachments', 'user_inbox_attachments', 'user_inbox_id', ATTACHMENT),
               Col('ev', JSON)]
-USER_OUTBOX = [Col('id', TEXT, col='public_id'), *_texts('from', 'kind', 'body'), Col('at', TS),
+USER_OUTBOX = [Col('id', TEXT, col='public_id'), *_texts('from'),
+                                                 Col('kind', TEXT, values=MAIL_KIND),
+                                                 *_texts('body'), Col('at', TS),
                *_texts('relationship', 'message_id', 'operation_id', 'client_op'),
                Col('ev', JSON), Col('to', TEXT), Col('recv_seq', INT),
-               *_texts('seq_origin', 'mailbox'),
+               Col('seq_origin', TEXT, values=SEQ_ORIGIN),
+               *_texts('mailbox'),
                _child('attachments', 'user_outbox_attachments', 'user_outbox_id', ATTACHMENT),
                Col('reply_to', JSON),
                _child('attachments_missing', 'user_outbox_attachments_missing', 'user_outbox_id',
                       TEXT)]
-USER_MAIL_LOG = [Col('id', TEXT, col='public_id'), *_texts('from', 'kind', 'body'), Col('at', TS),
+USER_MAIL_LOG = [Col('id', TEXT, col='public_id'), *_texts('from'),
+                                                   Col('kind', TEXT, values=MAIL_KIND),
+                                                   *_texts('body'), Col('at', TS),
                  *_texts('message_id', 'operation_id'),
                  _child('attachments', 'user_mail_log_attachments', 'user_mail_log_id',
                         ATTACHMENT),
                  Col('ev', JSON), Col('urgent', BOOL), Col('urgent_reason', TEXT)]
 OP_RECEIPT = [Col('v', INT), Col('id', TEXT, col='public_id'), Col('at', TS), Col('mint_ms', INT),
               Col('node', TEXT), Col('gen', INT), *_texts('tool', 'key', 'fp'),
-              Col('targets', JSON), *_texts('cls', 'outcome'),
+              Col('targets', JSON), Col('cls', TEXT, values=('transaction', 'transaction+post', 'pre_transaction', 'unrolled_side_effect', 'none')),
+                                    Col('outcome', TEXT, values=('applied', 'fenced')),
               *_jsons('result', 'ev_from', 'ev_to', 'post_effects'),
               *_texts('fp_node', 'orphaned_from')]
-DIR = _texts('path', 'mode')
+DIR = [Col('path', TEXT), Col('mode', TEXT, values=DIR_MODE)]
 NET_HUB = [Col('id', TEXT, col='public_id'), Col('address', TEXT), Col('enabled', BOOL),
            Col('name', TEXT)]
-MAIL = [Col('id', TEXT, col='public_id'), *_texts('from', 'kind', 'body'), Col('at', TS),
+MAIL = [Col('id', TEXT, col='public_id'), *_texts('from'),
+                                          Col('kind', TEXT, values=MAIL_KIND),
+                                          *_texts('body'), Col('at', TS),
         Col('relationship', TEXT), Col('restart_notice', BOOL), Col('ev', JSON),
-        Col('recv_seq', INT), *_texts('seq_origin', 'mailbox', 'message_id', 'operation_id'),
+        Col('recv_seq', INT), Col('seq_origin', TEXT, values=SEQ_ORIGIN),
+                              *_texts('mailbox', 'message_id', 'operation_id'),
         Col('redelivered', INT)]
 NOTICE = [Col('at', TS), Col('text', TEXT), Col('ev', JSON)]
-BATCH = [Col('tok', TEXT), Col('at', TS), *_jsons('mail', 'notices'), Col('via', TEXT),
+BATCH = [Col('tok', TEXT), Col('at', TS), *_jsons('mail', 'notices'), Col('via', TEXT, values=('turn', 'steer')),
          Obj('custody', [Col('mailbox', TEXT), Col('generation', INT), Col('session', TEXT)]),
-         Col('engines', JSON), Col('mode', TEXT), *_jsons('attempt', 'drive', 'segments', 'manual'),
+         Col('engines', JSON), Col('mode', TEXT, values=('turn', 'steer', 'manual_fetch')), *_jsons('attempt', 'drive', 'segments', 'manual'),
          Obj('claim', [Col('delivery_id', TEXT), Col('tool_use_id', TEXT),
                        Col('claimed_at', FLOAT), Col('lease_until', FLOAT)]),
          Col('attempts', INT),
          _child('delivery_ids', 'delivery_batch_ids', 'delivery_batches_id', TEXT)]
-MAIL_LOG = [Col('id', TEXT, col='public_id'), *_texts('from', 'kind', 'body'), Col('at', TS),
+MAIL_LOG = [Col('id', TEXT, col='public_id'), *_texts('from'),
+                                              Col('kind', TEXT, values=MAIL_KIND),
+                                              *_texts('body'), Col('at', TS),
             *_texts('relationship', 'message_id', 'operation_id', 'client_op'), Col('ev', JSON),
-            Col('restart_notice', BOOL), Col('recv_seq', INT), *_texts('seq_origin', 'mailbox'),
+            Col('restart_notice', BOOL), Col('recv_seq', INT), Col('seq_origin', TEXT, values=SEQ_ORIGIN),
+                                                               *_texts('mailbox'),
             _child('attachments', 'mail_log_attachments', 'mail_log_id', ATTACHMENT),
             Col('stale', BOOL), Col('stale_at', TS), Col('stale_revision', INT),
             Col('stale_candidate', TEXT), Col('net_id', TEXT), Col('reply_to', JSON),
             *_bools('model_only', 'retracted'),
             _child('attachments_missing', 'mail_log_attachments_missing', 'mail_log_id', TEXT)]
-STEER_RECORD = [Col('at', TS), *_texts('delivery_id', 'level'),
+STEER_RECORD = [Col('at', TS), *_texts('delivery_id'),
+                               Col('level', TEXT, values=('accepted', 'handoff', 'recorded')),
                 *[_child(n, f'steer_record_{n}', 'steer_records_id', TEXT)
                   for n in ('mail_ids', 'delivery_ids', 'acked_ids', 'recorded_ids')],
                 Col('attempts', INT), *_bools('retried', 'confirmed_duplicate'),
                 *_texts('text', 'visible_id'), Col('segments', JSON), Col('fold', INT),
                 *_texts('where', 'outcome')]
 TURN_ERROR = [Col('at', TS), Col('text', TEXT), Col('ran_as', TEXT)]
-TRANSITION = [*_texts('operation', 'outcome', 'node'), *_jsons('identity', 'before', 'deliveries')]
+TRANSITION = [*_texts('operation'),
+              Col('outcome', TEXT, values=('reclaimed', 'confirmed')),
+              *_texts('node'), *_jsons('identity', 'before', 'deliveries')]
 MANUAL_ATTEMPT = [Col('v', INT), Col('at', TS), *_texts('tok', 'mailbox'), Col('generation', INT),
                   *_texts('session', 'attempt', 'engine', 'delivery_id', 'seat', 'op_key', 'op_id'),
                   _child('mail_ids', 'manual_attempt_mail_ids', 'manual_attempts_id', TEXT),
@@ -423,10 +503,10 @@ STEER_ATTEMPT = [Col('at', TS), Col('tool_use_id', TEXT),
                  _child('toks', 'steer_attempt_toks', 'steer_attempts_id', TEXT),
                  _child('mail_ids', 'steer_attempt_mail_ids', 'steer_attempts_id', TEXT),
                  Col('transcript_path', TEXT), *_ints('tp_offset', 'texts_n'), Col('retried', BOOL),
-                 *_stamps('acked_at', 'recorded_at'), Col('resolved', TEXT),
+                 *_stamps('acked_at', 'recorded_at'), Col('resolved', TEXT, values=('unconfirmable', 'delivered-elsewhere', 'superseded')),
                  _child('views', 'steer_attempt_views', 'steer_attempts_id', TEXT),
                  Col('view_segments', JSON)]
-MIGRATION = [Col('at', TS), *_ints('repaired', 'stripped'), Col('mode', TEXT),
+MIGRATION = [Col('at', TS), *_ints('repaired', 'stripped'), Col('mode', TEXT, values=('inspect',)),
              _child('holders', 'org_doc_migration_holders', 'org_doc_migrations_id', TEXT),
              Col('multi_holder', BOOL),
              _child('healed', 'org_doc_migration_healed', 'org_doc_migrations_id', TEXT),
@@ -439,10 +519,15 @@ ORPHAN_KEY = [Col('from', TEXT), Col('at', TS), Col('cause', TEXT), *_jsons('arr
 #: org_settings: one typed column per scalar setting (A.1)
 SETTINGS = [
     Col('version', INT), *_texts('slug', 'name'), Col('created', TS),
-    *_texts('workspace', 'permission_mode', 'default_visibility', 'default_effort'),
+    *_texts('workspace'),
+    Col('permission_mode', TEXT, values=PERMISSION),
+    Col('default_visibility', TEXT, values=VISIBILITY),
+    Col('default_effort', TEXT, values=EFFORT),
     *[Col(n, NUM) for n in ('max_top_grant', 'default_top_grant', 'compact_at')],
     *_ints('max_children', 'max_depth'),
-    *_texts('fable_limit_policy', 'fable_filter_policy', 'fable_filter_model'),
+    Col('fable_limit_policy', TEXT, values=('halt', 'opus', 'dissolve')),
+    Col('fable_filter_policy', TEXT, values=('halt', 'opus', 'auto-autopsy')),
+    *_texts('fable_filter_model'),
     *_jsons('fable_api_fallback', 'fable_lock'),
     *_bools('cascade_hire', 'cascade_alloc', 'auto_resume', 'auto_resume_compact'),
     Col('auto_resume_last', NUM), *_jsons('auto_cheap_compact', 'default_tools', 'default_dirs'),
@@ -605,6 +690,46 @@ def correspondence() -> dict[str, dict[str, str]]:
     out['org_section_owners'].update({'section': TEXT, 'agent_id': KEY, 'ord': KEY, 'state': KEY})
     out['org_extra'].update({'key': TEXT, 'val': JSON})
     return {t: dict(cols) for t, cols in out.items()}
+
+
+def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tuple[str, ...]]:
+    """Independent closed sets for the DOCUMENT columns this verifier compares.
+
+    Account and side-file tables remain outside this verifier's stated scope.
+    Enumerating the existing correspondence lets static controls check completeness.
+    """
+    out: dict[tuple[str, str], tuple[str, ...]] = {}
+
+    def put(table: str, column: str, values: tuple[str, ...]) -> None:
+        key = (table, column)
+        if key in out and out[key] != values:
+            raise ValueError(f'inconsistent enum declaration: {table}.{column}')
+        out[key] = values
+
+    def walk(fields: list, table: str, prefix: str = '') -> None:
+        for field in fields:
+            owner = field.table or table
+            if isinstance(field, Col):
+                if field.values:
+                    put(owner, _cn(prefix, field.col), field.values)
+            elif isinstance(field, Obj):
+                name = _cn(prefix, field.src)
+                if include_markers:
+                    put(owner, name + '_is', MARKER_VALUES['obj'])
+                walk(field.fields, owner, name)
+            elif isinstance(field, Lst):
+                if include_markers:
+                    put(owner, _cn(prefix, field.src) + '_is', MARKER_VALUES['list'])
+                if isinstance(field.elem, Rec):
+                    walk(field.elem.fields, field.ctable)
+
+    walk(NODE, 'agents')
+    walk(ITEM, 'work_items')
+    walk(SETTINGS, 'org_settings')
+    for kind, *rest in SECTIONS.values():
+        if kind in ('list', 'dict', 'agent_list', 'agent_dict'):
+            walk(rest[1], rest[0])
+    return out
 
 
 def known_columns() -> dict[str, set[str]]:
@@ -925,6 +1050,8 @@ class Checker:
                          dv if dv is not None else (xv if x_has else '<absent>'))
             return
         fit = fit_of(f.kind, val) if exists else 'no'
+        if f.values and val not in f.values:
+            fit = 'no'
         if f.kind == TS and fit != 'no' and not has_text and not _CANON.match(val):
             fit = 'no'                 # no _text column: a non-canonical stamp cannot round-trip
         why = self.matches(f.kind, val, dv, dtext, has_text) if exists else 'no column'

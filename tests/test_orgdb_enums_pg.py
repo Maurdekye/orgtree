@@ -5,7 +5,11 @@ Each method creates an org database and drops it, along with its app database.
 """
 
 import json
+import copy
+import importlib.util
 import os
+from pathlib import Path
+import sys
 import unittest
 
 import import_provenance  # noqa: F401
@@ -17,6 +21,12 @@ from test_orgdb_enums import entries, fixture
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
 PREFIX = f't{os.getpid()}_enums_'
+
+_SPEC = importlib.util.spec_from_file_location(
+    'enum_destination_verifier', Path(__file__).resolve().parents[1] / 'tools/orgdb_verify.py')
+verifier = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = verifier
+_SPEC.loader.exec_module(verifier)
 
 
 def drop_all():
@@ -102,6 +112,56 @@ class EnumConstraints(unittest.TestCase):
         # A legacy out-of-set state retains legacy's non-live meaning.
         with conn.connect(RUNTIME, self.build.database) as c:
             self.assertEqual(0, c.execute("SELECT count(*) FROM orgtree.agents WHERE state='live'").fetchone()[0])
+
+    def test_independent_verifier_accepts_exact_misfits_and_refuses_misplaced_valid_members(self):
+        from psycopg import sql
+        from psycopg.types.json import Json
+
+        def check(connection, doc):
+            checker = verifier.Verifier(verifier.Dest(connection), doc, verifier.IGNORED_DEFAULT)
+            checker.run()
+            return checker
+
+        # Full correspondence through physical columns: every declared document enum appears.
+        for bad in (False, True):
+            doc, secs, _ = fixture(bad=bad)
+            rows, _, _ = sections.encode_document(doc, secs)
+            with conn.connect(RUNTIME, self.build.database, autocommit=False) as c:
+                with self.assertRaises(RollbackProbe):
+                    with c.transaction():
+                        rowio.write(c, rows, order=rowio.tables(secs))
+                        checker = check(c, doc)
+                        self.assertEqual([], checker.problems)
+                        self.assertGreater(sum(checker.stats.values()), len(verifier.enum_columns()))
+                        raise RollbackProbe()
+
+        doc, secs, _ = fixture()
+        rows, _, _ = sections.encode_document(doc, secs)
+        with conn.connect(RUNTIME, self.build.database, autocommit=False) as c:
+            rowio.write(c, rows, order=rowio.tables(secs))
+            c.commit()
+            physical = rowio.read(c, order=rowio.tables(secs))
+            for entry in entries():
+                table, column = entry['table'], entry['column']
+                if (table, column) not in verifier.enum_columns():
+                    continue  # account side tables are explicitly outside this document verifier
+                extra = copy.deepcopy(physical[table][0]['extra'] or {})
+                target = extra
+                for key in entry['path'][:-1]:
+                    target = target.setdefault(key, {})
+                target[entry['path'][-1]] = entry['values'][0]
+                with self.subTest(table=table, column=column):
+                    with self.assertRaises(RollbackProbe):
+                        with c.transaction():
+                            changed = c.execute(sql.SQL('UPDATE orgtree.{} SET {}=NULL, extra=%s')
+                                                .format(sql.Identifier(table), sql.Identifier(column)),
+                                                (Json(extra),)).rowcount
+                            self.assertEqual(1, changed)
+                            checker = check(c, doc)
+                            self.assertTrue(any(p['table'] == table and p['field'] == column
+                                                and p['problem'] == 'value its column can hold is in extra instead'
+                                                for p in checker.problems), checker.problems)
+                            raise RollbackProbe()
 
 
 class RollbackProbe(Exception):

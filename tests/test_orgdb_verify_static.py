@@ -191,6 +191,37 @@ class MatchesTheSchema(unittest.TestCase):
 
 
 class ValueRules(unittest.TestCase):
+    def test_independent_enum_sets_and_marker_sets_equal_all_document_checks(self) -> None:
+        text = (MIGRATIONS / '0009_enum_checks.sql').read_text(encoding='utf-8')
+        checks = {}
+        for table, column, members in re.findall(
+                r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT \w+ CHECK \((\w+) IN \((.*?)\)\);',
+                text):
+            values = tuple(m.replace("''", "'") for m in re.findall(r"'((?:[^']|'')*)'", members))
+            checks[table, column] = set(values)
+        # Only the documented account/side-file exclusion is outside this verifier.
+        outside = {'org_accounts', 'org_account_marks', 'org_account_mark_audit'}
+        expected = {key: value for key, value in checks.items() if key[0] not in outside}
+        actual = {key: set(value) for key, value in ov.enum_columns(include_markers=True).items()}
+        self.assertEqual(expected, actual)
+        self.assertTrue(expected)
+        marker_columns = {(table, col) for table, columns in ov.correspondence().items()
+                          for col, role in columns.items() if role == ov.CODE}
+        self.assertEqual(marker_columns, {key for key in actual if key[1].endswith('_is')})
+
+    def test_enum_column_rules_keep_misplaced_members_as_failures(self) -> None:
+        from types import SimpleNamespace
+        field = ov.Col('state', ov.TEXT, values=('live', 'archived', 'unrecoverable'))
+        for value, typed, extra, expected in (
+                ('live', 'live', False, []), ('zz-state', None, True, []),
+                ('live', None, True, ['value its column can hold is in extra instead']),
+                ('zz-state', 'zz-state', False,
+                 ['value its column cannot hold exactly is in the column'])):
+            checker = ov.Checker(SimpleNamespace(columns={'agents': {'state': 'text'}}))
+            checker.col('nodes', 'lead.state', field, True, value, extra, value,
+                        {'agents': {'state': typed}}, '', 'agents')
+            self.assertEqual(expected, [p['problem'] for p in checker.problems])
+
     def test_json_equality_keeps_types(self) -> None:
         self.assertTrue(ov.jeq({'a': [1, 2.5, None, True]}, {'a': [1, 2.5, None, True]}))
         for a, b in ((1, 1.0), (1, True), (0, False), ([1], [1.0]), ({'a': 1}, {'a': 1, 'b': 2}),
