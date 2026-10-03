@@ -54,7 +54,7 @@ NOT_IN_THIS_MODE = {
     'read_document_gallery': 'its SQLite branch; on PostgreSQL it returns before them',
     'reconcile_receipt_storage': 'custody receipt rows (ORGTREE_RECEIPT_ROWS, off)',
     '_receipt_view': 'custody receipt rows (ORGTREE_RECEIPT_ROWS, off)',
-    'delete_org': 'refused with the switch on (landing step 3) before any statement',
+    'delete_org': 'with the switch on it is the lifecycle trash (_orgdb_delete), before any statement',
 }
 
 #: statements of NOT_IN_THIS_MODE functions that ARE reached (the guards): checked served

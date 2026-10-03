@@ -9208,6 +9208,48 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
     return org
 
 
+def org_folders(slug: str) -> tuple[tuple[str, str], ...]:
+    """The folders that belong to one org (label, path): what its trash keeps."""
+    return (("workspace", workspace_dir(slug)), ("scratch", scratch_root(slug)))
+
+
+def _orgdb_delete(slug: str) -> None:
+    """delete_org with the storage switch on: the org lifecycle's trash (design §2.13).
+
+    The org's database is fenced and renamed into the trash, and its folders move to
+    <data>/deleted/<slug>-<stamp>-<org_id>/; its registry row becomes trashed, which frees
+    the name. Every org_tx in flight finishes first, as the legacy delete waits for them
+    (org_exclusive); the trash's fence then ends that hold with every other connection. An
+    org left closing by a delete that was refused part-way (a folder held open) is finished
+    by the same delete asked again."""
+    from . import orgtx
+    from .orgdb import lifecycle as _lc
+    from .orgdb import registry as _reg
+    row = _reg.lookup(slug)
+    if row is None or row[2] not in ("active", "closing"):
+        raise LedgerError(f"no such org: {slug!r}")
+    org_id, database, state, _ = row
+    lc = _reg.lifecycle()
+    trash = os.path.join(DATA_ROOT, "deleted")
+    try:
+        if state == "active":
+            with orgtx.org_exclusive(slug):
+                lc.trash(org_id, folders=org_folders(slug), trash_dir=trash)
+        else:
+            lc.trash(org_id, folders=org_folders(slug), trash_dir=trash)
+    except _lc.Busy as e:
+        raise orgtx.LockTimeout(f"org {slug!r} is busy with another operation ({e})") from e
+    finally:
+        _reg.close_idle(database)
+    try:
+        from . import reply_events
+        reply_events.clear_org(slug)
+    except Exception as e:                                       # noqa: BLE001
+        _log(f"org {slug!r} trashed, but its reply snapshots were not cleared ({e})")
+    _invalidate_snapshot(slug)
+    _bump_org_seq(slug)
+
+
 def delete_org(slug: str) -> None:
     _assert_synced_data_root()
     """Gap audit №16: one confirmed hover-click used to `os.remove` the whole
@@ -9221,8 +9263,8 @@ def delete_org(slug: str) -> None:
     afterwards travels with the database under the same trash stem."""
     p = org_path(slug)                      # validates the slug (see _safe_slug)
     if _orgdb_on():
-        # orgdb: delete is the lifecycle's trash (design §2.13), landing step 3
-        raise LedgerError("deleting an org is not available yet with ORGTREE_STORAGE=orgdb")
+        _orgdb_delete(slug)
+        return
     trash = os.path.join(DATA_ROOT, "deleted")
     ext = db_ext() if row_store() else ".json"
     # EXCLUSIVE against every writer: without it a load-modify-save cycle

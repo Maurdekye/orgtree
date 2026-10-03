@@ -1203,5 +1203,59 @@ class Create(unittest.TestCase):
             self.assertEqual(self.stages_left(), [])
 
 
+@needs_pg
+class Delete(unittest.TestCase):
+    """Piece A3: store.delete_org with the switch on is the org lifecycle's trash."""
+
+    def test_delete_trashes_the_org_moves_its_folder_and_frees_the_name(self) -> None:
+        from orgtree.ledger import LedgerError
+        with storage(True):
+            slug = store.create_org('Delete Me').d['slug']
+            ws = Path(store.workspace_dir(slug))
+            (ws / 'note.txt').write_text('mine', encoding='utf-8')
+            org_id = registry.lookup(slug)[0]
+            store.delete_org(slug)
+            self.assertIsNone(registry.lookup(slug))            # trashed rows are set aside
+            with self.assertRaises(LedgerError):
+                store.load_org(slug)
+            row = LC[0].row(org_id)
+            self.assertEqual((row['state'], names.kind(row['database'], PREFIX)), ('trashed', 'trash'))
+            keep = Path(LC[0].trash_folder(str(DATA / 'deleted'), slug, row['database'], org_id))
+            self.assertEqual((keep / 'workspace' / 'note.txt').read_text(encoding='utf-8'), 'mine')
+            self.assertFalse(ws.exists())
+            again = store.create_org('Delete Me')               # the name is free: another org
+            self.assertEqual(again.d['slug'], slug)
+            self.assertNotEqual(registry.lookup(slug)[0], org_id)
+            with self.assertRaises(LedgerError):
+                store.delete_org('no-such-org')
+
+    def test_an_org_tx_in_flight_holds_the_delete_off(self) -> None:
+        # as the legacy delete: it waits for an org_tx in flight; past the lock timeout it is
+        # refused (the API answers 409) and nothing has moved
+        from unittest.mock import patch
+        with storage(True):
+            slug = store.create_org('Busy Org').d['slug']
+            entered, done = threading.Event(), threading.Event()
+
+            def holder() -> None:
+                with orgtx.org_tx(slug, sections=['asks']):
+                    entered.set()
+                    done.wait(30)
+            th = threading.Thread(target=holder)
+            th.start()
+            try:
+                self.assertTrue(entered.wait(30))
+                with patch.object(orgtx, 'DEFAULT_LOCK_TIMEOUT_S', 0.5):
+                    with self.assertRaises(orgtx.LockTimeout):
+                        store.delete_org(slug)
+                self.assertEqual(registry.lookup(slug)[2], 'active')
+                self.assertIsNone(LC[0].row(registry.lookup(slug)[0])['op_kind'])
+            finally:
+                done.set()
+                th.join(60)
+            store.delete_org(slug)
+            self.assertIsNone(registry.lookup(slug))
+
+
 if __name__ == '__main__':
     unittest.main()

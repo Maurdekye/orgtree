@@ -1653,6 +1653,15 @@ def orgs_delete(slug: str) -> dict[str, Any]:
         doc = dict(store.load_org(slug).d)
     except LedgerError:
         doc = {}                       # unloadable: delete_org still decides
+    from . import orgdb
+    if doc and store.STORE_BACKEND == "postgres" and orgdb.enabled():
+        # the storage switch on: the trash moves the org's folders, which a running agent
+        # holds open, so its turns stop first (best effort: a folder still held refuses the
+        # delete, the org stays closed, and the same delete asked again finishes it)
+        try:
+            supervisor.interrupt_all(slug)
+        except Exception:                                        # noqa: BLE001
+            pass
     try:
         store.delete_org(slug)
     except LedgerError as e:

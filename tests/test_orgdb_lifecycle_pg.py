@@ -26,7 +26,16 @@ What it proves:
   * identity: a mismatch makes the org unavailable and fenced;
   * a Retry claims only while the org is still unavailable at a step it may
     retry: one that read the row before another Retry made the org active is
-    refused and changes nothing; a held org is Busy.
+    refused and changes nothing; a held org is Busy;
+  * trash (piece A3): admission closes and the runtime is fenced before the
+    drain; the database is renamed to a trash name the runtime cannot reach;
+    the folders move to the trash; the name is free; restore brings data and
+    folders back, is refused while another org has the name, and leaves the org
+    unavailable when its identity does not match; purge leaves nothing and only
+    empties the trash; a refused step leaves the org closed and claimed (Busy to
+    others) and the same operation asked again finishes it; a crash after (and
+    before recording) every step of trash, restore and purge is finished by the
+    next host.
 
 Run:  python tools/run-python-verification.py tests/test_orgdb_lifecycle_pg.py
 """
@@ -404,6 +413,160 @@ class Migrations(Base):
                           expect_steps=('conversion', 'import'))
         self.assertNotIsInstance(cm.exception, lifecycle.Busy)
         self.assertIsNone(self.lc.row(self.a)['op_kind'])
+
+
+class Trash(Base):
+    """§2.13 Trash, Restore and Purge (piece A3): every step recorded and repeatable."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tmp = tempfile.mkdtemp(prefix='orgdb-trash-')
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.trash_dir = str(Path(self.tmp) / 'data' / 'deleted')
+
+    def folders(self, slug: str) -> tuple:
+        root = Path(self.tmp) / 'data'
+        return (('workspace', str(root / 'workspaces' / slug)),
+                ('scratch', str(root / 'scratch' / slug)))
+
+    def make(self, slug: str, lc=None) -> int:
+        """An active org with content in its database and in both folders."""
+        lc = lc or self.lc
+        org_id = lc.create_org(slug)
+        for label, path in self.folders(slug):
+            os.makedirs(path)
+            Path(path, f'{label}.txt').write_text(label, encoding='utf-8')
+        with conn.connect(ADMIN, lc.row(org_id)['database']) as c:
+            c.execute("INSERT INTO orgtree.org_extra (key, val) VALUES ('mark', '\"kept\"')")
+        return org_id
+
+    def assert_trashed(self, lc, org_id: int, slug: str = 'alpha') -> str:
+        row = lc.row(org_id)
+        self.assertEqual((row['state'], row['op_kind']), ('trashed', None))
+        target = row['database']
+        self.assertEqual(names.kind(target, PREFIX), 'trash')
+        self.assertIsNotNone(row['trashed_at'])
+        self.assertEqual([d for d in _prefixed() if names.kind(d, PREFIX) in ('org', 'trash')],
+                         [target])
+        self.assert_runtime_refused(target)
+        keep = lc.trash_folder(self.trash_dir, slug, target, org_id)
+        for label, path in self.folders(slug):
+            self.assertFalse(os.path.exists(path), path)
+            self.assertEqual(Path(keep, label, f'{label}.txt').read_text(encoding='utf-8'), label)
+        return target
+
+    def assert_restored(self, lc, org_id: int, slug: str = 'alpha') -> None:
+        row = lc.row(org_id)
+        self.assertEqual((row['state'], row['op_kind'], row['trashed_at']), ('active', None, None))
+        self.assertEqual(row['database'], names.org(org_id, PREFIX))
+        with self.runtime(row['database']) as r:
+            self.assertEqual(r.execute("SELECT val::text FROM org_extra WHERE key = 'mark'"
+                                       ).fetchone()[0], '"kept"')
+            self.assertEqual(r.execute('SELECT slug FROM org_identity').fetchone()[0], slug)
+        for label, path in self.folders(slug):
+            self.assertEqual(Path(path, f'{label}.txt').read_text(encoding='utf-8'), label)
+
+    def test_trash_closes_fences_moves_renames_and_frees_the_name(self) -> None:
+        org_id = self.make('alpha')
+        seen = []
+
+        def drain() -> None:
+            # admission is closed and the runtime is fenced off before the drain runs
+            seen.append(self.lc.row(org_id)['state'])
+            self.assert_runtime_refused(self.lc.row(org_id)['database'])
+        self.lc.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir, drain=drain)
+        self.assertEqual(seen, ['closing'])
+        self.assert_trashed(self.lc, org_id)
+        other = self.lc.create_org('alpha')
+        self.assertNotEqual(other, org_id)
+        with self.assertRaises(lifecycle.LifecycleError):
+            self.lc.trash(org_id, trash_dir=self.trash_dir)   # trashed already: not active
+
+    def test_restore_brings_the_org_back_and_is_refused_while_its_name_is_used(self) -> None:
+        org_id = self.make('alpha')
+        self.lc.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+        other = self.lc.create_org('alpha')
+        with self.assertRaises(lifecycle.LifecycleError) as cm:
+            self.lc.restore(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+        self.assertNotIsInstance(cm.exception, lifecycle.Busy)
+        self.assertIn('another org', str(cm.exception))
+        self.assert_trashed(self.lc, org_id)                    # refused: nothing moved
+        self.lc.trash(other, trash_dir=self.trash_dir)          # the name is free again
+        self.lc.restore(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+        self.assert_restored(self.lc, org_id)
+
+    def test_restore_checks_the_identity_before_the_runtime_comes_back(self) -> None:
+        org_id = self.make('alpha')
+        target = self.lc.trash(org_id, trash_dir=self.trash_dir)
+        self.lc._allow_connections(target, True)
+        with conn.connect(ADMIN, target) as c:
+            c.execute("UPDATE orgtree.org_identity SET slug = 'someone-else'")
+        self.lc._allow_connections(target, False)
+        self.lc.restore(org_id, trash_dir=self.trash_dir)
+        row = self.lc.row(org_id)
+        self.assertEqual((row['state'], row['unavailable_step']), ('unavailable', 'identity'))
+        self.assert_runtime_refused(row['database'])
+
+    def test_purge_leaves_nothing_and_only_from_the_trash(self) -> None:
+        org_id = self.make('alpha')
+        with self.assertRaises(lifecycle.LifecycleError) as cm:
+            self.lc.purge(org_id, trash_dir=self.trash_dir)     # active
+        self.assertNotIsInstance(cm.exception, lifecycle.Busy)
+        target = self.lc.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+        self.lc.purge(org_id, trash_dir=self.trash_dir)
+        self.assertNotIn(target, _prefixed())
+        self.assertFalse(os.path.exists(self.lc.trash_folder(self.trash_dir, 'alpha', target, org_id)))
+        self.assertEqual(self.lc.rows(), [])
+
+    def test_a_second_operation_is_busy_and_the_same_one_asked_again_finishes_it(self) -> None:
+        org_id = self.make('alpha')
+        held = Path(self.folders('alpha')[0][1])
+
+        def refuse(src: str, dst: str) -> None:
+            raise OSError(f'{src} is held open')
+        with patch.object(lifecycle.Lifecycle, '_move_once', staticmethod(refuse)):
+            with self.assertRaises(OSError):
+                self.lc.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+        row = self.lc.row(org_id)
+        self.assertEqual((row['state'], row['op_kind'], row['op_step']), ('closing', 'trash', 'closed'))
+        self.assertTrue(held.is_dir())
+        with self.assertRaises(lifecycle.Busy):
+            self.lc.claim(org_id, 'purge')
+        self.lc.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+        self.assert_trashed(self.lc, org_id)
+
+    def test_a_crash_after_every_step_is_finished_by_the_next_host(self) -> None:
+        L = lifecycle.Lifecycle
+        cases = ([('trash', s, b) for s in L._TRASH_STEPS[1:] for b in (False, True)]
+                 + [('restore', s, b) for s in L._RESTORE_STEPS[1:] for b in (False, True)]
+                 + [('purge', s, b) for s in L._PURGE_STEPS[1:] for b in (False, True)])
+        for kind, at, before in cases:
+            with self.subTest(kind=kind, at=at, before=before):
+                _drop_all()
+                shutil.rmtree(Path(self.tmp) / 'data', ignore_errors=True)
+                first = self.host()
+                org_id = self.make('alpha', first)
+                if kind != 'trash':
+                    first.trash(org_id, folders=self.folders('alpha'), trash_dir=self.trash_dir)
+                op = getattr(first, kind)
+                args = ({} if kind == 'purge' else {'folders': self.folders('alpha')})
+                with patch.object(L, '_step', crashing_step(at, before=before)):
+                    with self.assertRaises(Crash):
+                        op(org_id, trash_dir=self.trash_dir, **args)
+                second = self.host()
+                (claim,) = second.take_over()
+                self.assertEqual(claim.kind, kind)
+                second.resume_lifecycle(claim, folders=self.folders('alpha'),
+                                        trash_dir=self.trash_dir)
+                if kind == 'trash':
+                    self.assert_trashed(second, org_id)
+                elif kind == 'restore':
+                    self.assert_restored(second, org_id)
+                else:
+                    self.assertEqual(second.rows(), [])
+                    self.assertEqual([d for d in _prefixed()
+                                      if names.kind(d, PREFIX) in ('org', 'trash')], [])
+                    self.assertEqual(os.listdir(self.trash_dir), [])
 
 
 if __name__ == '__main__':
