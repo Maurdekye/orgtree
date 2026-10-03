@@ -12075,6 +12075,22 @@ presentdoor.declare(_present_door_before, _present_door_body, _report_door_body)
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
+    """Bind the separately signed run while preserving the seat authority gate."""
+    from .orgdb import turn_context, turn_runtime   # noqa: PLC0415
+    host = turn_runtime.current()
+    run = None
+    if host is not None and body.node != USER:
+        run = turn_context.verify(request.headers.get(turn_context.HEADER), host.key_for)
+        if run is None or (run.org, run.agent) != (body.org, body.node):
+            raise HTTPException(403, "turn credential is missing, invalid or names another agent")
+    # A thread reused by the HTTP executor must never inherit another call's
+    # identity. Native transactions authorize this signed claim on their own
+    # connection before touching an agent, item or other action row.
+    with turn_context.bind(run):
+        return _agent_call_in_run(body, request)
+
+
+def _agent_call_in_run(body: AgentCall, request: Request) -> dict[str, Any]:
     """Execute one authenticated tool through the existing authority/admission gates."""
     # the tool verb is the operation the storage instrumentation attributes
     # to — far more useful than the one dispatch route all verbs share

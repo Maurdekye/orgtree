@@ -6,7 +6,7 @@ death from a heartbeat. Old trees are reclaimed only on the host's proof.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import json
 import logging
 from pathlib import Path
@@ -65,6 +65,7 @@ class Host:
         self._thread: threading.Thread | None = None
         self._active_lock = threading.Lock()
         self._active: dict[str, tuple[context.Run, Callable[[], None]]] = {}
+        self._unstarted: dict[str, tuple[jobs.Org, Any]] = {}
         self._condition = threading.Condition()
         self._version = 0
 
@@ -247,6 +248,18 @@ class Host:
             self.bridge.forward(org, current)
         return current is not None and current.state == 'cancelled'
 
+    def abandon(self, org: jobs.Org, request_id: str, ticket: Any = None) -> None:
+        """Retain an unstarted caller's org cleanup through uncertain replies."""
+        with self._active_lock:
+            self._unstarted[request_id] = (org, ticket)
+        if not self.abort_unstarted(org, request_id, ticket):
+            with self.org_connection(org) as c:
+                if requests.get(c, request_id) is not None:
+                    raise RuntimeError('unstarted request no longer belongs to this caller')
+        with self._active_lock:
+            self._unstarted.pop(request_id, None)
+            self._active.pop(request_id, None)
+
     def complete(self, org: jobs.Org, run: context.Run) -> None:
         """Only after the provider scope stops; suitable as a retained release guard."""
         with self.org_connection(org) as c, c.transaction():
@@ -277,6 +290,12 @@ class Host:
                 LOG.exception('turn bridge failed for %s', org.slug)
         with self._active_lock:
             active = dict(self._active)
+            unstarted = dict(self._unstarted)
+        for request_id, (org, ticket) in unstarted.items():
+            try:
+                self.abandon(org, request_id, ticket)
+            except Exception:
+                LOG.exception('unstarted turn cleanup failed for %s', request_id)
         states = {ticket.request_id: ticket for ticket in tickets}
         for request_id, (_, stop) in active.items():
             ticket = states.get(request_id)
@@ -329,3 +348,71 @@ def start(*, runtime: str, instance_id: int, data_root: str,
 def stop() -> None:
     if _host is not None:
         _host.stop()
+
+
+class Admission:
+    """One supervisor slot/provider scope, with a UUID minted once.
+
+    The supervisor supplies only memory publication, its cancel predicate
+    and provider-stop signal. No database operation runs under its state
+    lock. A release guard owns org completion before the app slot is freed.
+    """
+    def __init__(self, host: Host, slug: str, agent: str, reason: str,
+                 cancelled: Callable[[], bool], queued: Callable[[dict[str, Any]], None],
+                 stop_provider: Callable[[], None]) -> None:
+        self.host, self.slug, self.agent, self.reason = host, slug, agent, reason
+        self.cancelled, self.queued, self.stop_provider = cancelled, queued, stop_provider
+        self.request_id = str(uuid4())
+        self.org: jobs.Org | None = None
+        self.run: context.Run | None = None
+        self._contexts = ExitStack()
+        self._acquired = False
+
+    def __enter__(self) -> context.Run:
+        try:
+            # Remember the registry identity even if prepare's committed
+            # deciding request loses its reply before returning to us.
+            self.org = self.host.org(self.slug)
+            org, request = self.host.prepare(self.slug, self.agent, self.reason,
+                                             self.request_id, self.cancelled)
+            self.org = org
+            app = turnqueue.Request(request.request_id, org.org_id, request.agent_id,
+                                    self.agent, self.reason)
+            self._contexts.enter_context(turnslots.bind_request(app))
+            self.host.slots.acquire(self.slug, self.cancelled, self.queued)
+            self._acquired = True
+            claim = self.host.slots.current_claim
+            self.host.slots.guard_release(lambda: self.host.abandon(org, self.request_id, claim))
+            self.run = self.host.begin(org, self.agent, self.request_id, claim, self.stop_provider)
+            if self.cancelled():
+                raise turnslots.Cancelled()
+            self.host.slots.guard_release(lambda: self.host.complete(org, self.run))
+            self._contexts.enter_context(context.bind(self.run))
+            return self.run
+        except BaseException:
+            try:
+                if self._acquired:
+                    self.host.slots.release()
+                elif self.org is not None:
+                    # The app adapter retains any uncertain enqueue/claim;
+                    # the host retains the corresponding native cleanup.
+                    self.host.abandon(self.org, self.request_id)
+            except Exception:
+                LOG.exception('unstarted admission cleanup retained for retry')
+            finally:
+                self._contexts.close()
+            raise
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        try:
+            if self._acquired:
+                self.host.slots.release()
+        finally:
+            self._contexts.close()
+
+    def abort_before_launch(self) -> None:
+        """A final supervisor gate refused after entry but before any provider."""
+        if self._acquired:
+            claim = self.host.slots.current_claim
+            self.host.slots.guard_release(lambda: self.host.abandon(self.org, self.request_id, claim))
+        self.__exit__(None, None, None)

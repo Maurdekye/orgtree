@@ -131,7 +131,31 @@ def start(*, runtime: str, data_root: str, admin: str | None = None, lc: Any = N
     step("database-orgdb-migrate")
     report["migrations"] = lc.migrate_orgs()
     report["retried"] = retry_new_build(lc, data_root, child_env, step)
+    # The host owns the data-root lock and the guardian has stopped the
+    # previous engine tree before this lifecycle was bootstrapped. Org
+    # migrations must finish before its durable request bridge can start.
+    from . import turn_runtime   # noqa: PLC0415
+    turn_runtime.start(runtime=runtime, instance_id=lc.instance_id,
+                       data_root=data_root, env=child_env, prefix=lc.prefix)
+    _register_turn_shutdown()
     return report
+
+
+_turn_shutdown_registered = False
+
+
+def _register_turn_shutdown() -> None:
+    global _turn_shutdown_registered
+    if not _turn_shutdown_registered:
+        import atexit   # noqa: PLC0415
+        atexit.register(stop)
+        _turn_shutdown_registered = True
+
+
+def stop() -> None:
+    """Stop this host's heartbeat and listener without freeing active turns."""
+    from . import turn_runtime   # noqa: PLC0415
+    turn_runtime.stop()
 
 
 def cutover_at(lc: Any) -> Any:

@@ -2235,6 +2235,8 @@ def _post(payload: dict[str, Any], timeout: float = 30) -> tuple[str, str]:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if os.environ.get("ORGTREE_AGENT_TOKEN"):
         headers["X-Orgtree-Agent-Token"] = os.environ["ORGTREE_AGENT_TOKEN"]
+    if os.environ.get("ORGTREE_TURN_TOKEN"):
+        headers["X-Orgtree-Turn-Token"] = os.environ["ORGTREE_TURN_TOKEN"]
     req = urllib.request.Request(f"{BASE}/api/agent",
                                  data=json.dumps(payload).encode(),
                                  headers=headers, method="POST")

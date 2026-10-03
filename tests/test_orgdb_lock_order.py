@@ -494,6 +494,21 @@ END $d$;
 
 
 class Python(unittest.TestCase):
+    def test_bound_run_fence_precedes_the_native_action_lock_phase(self) -> None:
+        tree = ast.parse((ORGTREE / 'orgdb/compat/tx.py').read_text(encoding='utf-8'))
+        method = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                      and n.name == 'transaction_many')
+        calls = [n for n in ast.walk(method) if isinstance(n, ast.Call)]
+        fence = next(n for n in calls if isinstance(n.func, ast.Attribute)
+                     and n.func.attr == 'fence' and isinstance(n.func.value, ast.Name)
+                     and n.func.value.id == 'turn_context')
+        action = [n for n in calls if isinstance(n.func, ast.Attribute)
+                  and n.func.attr == 'execute' and n.args
+                  and any('pg_advisory_xact_lock' in x.value for x in ast.walk(n.args[0])
+                          if isinstance(x, ast.Constant) and isinstance(x.value, str))]
+        self.assertTrue(action, 'the native action lock phase disappeared')
+        self.assertLess(fence.lineno, min(n.lineno for n in action))
+
     def test_only_the_save_seam_writes_the_revision_row(self) -> None:
         sources = {p.relative_to(ORGTREE).as_posix(): p.read_text(encoding='utf-8')
                    for p in sorted(ORGTREE.rglob('*.py')) if '__pycache__' not in p.parts}

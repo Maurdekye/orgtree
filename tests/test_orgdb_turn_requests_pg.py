@@ -580,6 +580,145 @@ class Requests(unittest.TestCase):
             finally:
                 host.stop()
 
+    def test_actual_ready_startup_activates_existing_instance_after_org_migrations(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from orgtree.orgdb import registry, startup
+        events = []
+        migrate_orgs = self.lc.migrate_orgs
+
+        def migrated():
+            events.append('migrations')
+            return migrate_orgs()
+
+        with TemporaryDirectory() as root, patch.multiple(
+                turnslots, _database_queue=None, _database_instance=None,
+                _database_resolver=None, _host_slots=None, _host_limit=None,
+                _activation_callbacks=[]), patch.object(turn_runtime, '_host', None), \
+                patch.object(registry, 'use_lifecycle'), \
+                patch.object(startup, 'first_pass', return_value={'ran': False}), \
+                patch.object(startup, 'resume_claims', return_value=[]), \
+                patch.object(self.lc, 'migrate_orgs', side_effect=migrated), \
+                patch.object(startup, 'retry_new_build', side_effect=lambda *a: events.append('retry') or []):
+            turnslots.on_activation(lambda *a: events.append('slots'))
+            try:
+                report = startup.start(runtime=RUNTIME, data_root=root, lc=self.lc,
+                                       env={'ORGTREE_MAX_TURNS': '4'})
+                host = turn_runtime.current()
+                self.assertIsNotNone(host)
+                self.assertEqual(host.instance_id, self.owner)
+                self.assertEqual(events, ['migrations', 'retry', 'slots'])
+                self.assertEqual(host.slots.limit, 4)
+                with host.app_connection() as c:
+                    self.assertEqual(c.execute('SELECT count(*) FROM orgtree.engine_instances').fetchone()[0], 1)
+                self.assertIn('migrations', report)
+            finally:
+                startup.stop()
+            self.assertFalse(host._thread.is_alive())
+
+    def test_admission_binds_full_scope_and_keeps_stopping_until_scope_is_stopped(self):
+        from unittest.mock import patch
+        host = self.host()
+        with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
+                            _database_resolver=None, _host_slots=None, _host_limit=None,
+                            _activation_callbacks=[]):
+            try:
+                host.start(limit=1)
+                admission = turn_runtime.Admission(host, 'alpha', 'seat', 'turn',
+                                                   lambda: False, lambda info: None, lambda: None)
+                with admission as run:
+                    self.assertEqual(turn_context.current(), run)
+                    self.assertEqual(host.slots.current_claim.request_id, run.request_id)
+                    host.cancel('alpha', run.request_id)
+                    self.assertEqual(self.queue.get(run.request_id).state, 'stopping')
+                    self.assertEqual(self.queue.snapshot()['held'], 1)
+                    with self.connection() as c:
+                        self.assertEqual(requests.get(c, run.request_id).state, 'stopping')
+                self.assertIsNone(turn_context.current())
+                self.assertEqual(self.queue.get(admission.request_id).state, 'cancelled')
+                self.assertEqual(self.queue.snapshot()['held'], 0)
+            finally:
+                host.stop()
+
+    def test_failed_unstarted_org_cleanup_is_retained_and_repaired_by_host(self):
+        from unittest.mock import patch
+        host = self.host()
+        org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+        with patch.object(host, 'abort_unstarted', side_effect=OSError('org unreachable')):
+            with self.assertRaises(OSError):
+                host.abandon(org, request.request_id)
+            self.assertIn(request.request_id, host._unstarted)
+        host.tick()
+        self.assertEqual(self.read(request).state, 'cancelled')
+        self.assertEqual(self.queue.get(request.request_id).state, 'cancelled')
+        self.assertEqual(host._unstarted, {})
+
+    def test_actual_native_transaction_fences_before_action_locks_and_rejects_stale_run(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        # Import the actual backend with an owned data root, without starting
+        # the API or a provider. The lock-phase barrier ends before a ledger
+        # load: the protection exercised is the backend's real transaction.
+        with TemporaryDirectory() as root, patch.dict(os.environ, ORGTREE_DATA=root):
+            from orgtree import orgtx
+            from orgtree.orgdb.compat import tx as native
+        host = self.host()
+        org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+        ticket = self.queue.claim(self.owner, request.request_id)
+        run = host.begin(org, 'seat', request.request_id, ticket, lambda: None)
+        row = (org.org_id, org.database, 'active', org.org_uuid)
+        statements = []
+        connections = []
+
+        class Spy:
+            def __init__(self, raw):
+                self.raw = raw
+
+            def __getattr__(self, key):
+                return getattr(self.raw, key)
+
+            def execute(self, sql, args=None):
+                statements.append(str(sql))
+                return self.raw.execute(sql, args)
+
+        def checkout(*a):
+            raw = conn.connect(RUNTIME, org.database)
+            connections.append(raw)
+            return Spy(raw)
+
+        class AfterLocks(Exception):
+            pass
+
+        def pause(phase, tx):
+            if phase == 'after_lock':
+                import psycopg
+                with self.connection() as canceller:
+                    with self.assertRaises(psycopg.errors.LockNotAvailable):
+                        with canceller.transaction():
+                            canceller.execute("SET LOCAL lock_timeout='100ms'")
+                            requests.cancel(canceller, run.request_id)
+                raise AfterLocks()
+
+        action = orgtx.OrgTx('alpha', None, share_nodes=frozenset(['seat']))
+        with patch.object(native._reg, 'lookup', return_value=row), \
+                patch.object(native._reg, 'checkout', side_effect=checkout), \
+                patch.object(native._reg, 'release', side_effect=lambda raw, db: raw.close()), \
+                patch.object(orgtx, '_pause', side_effect=pause), turn_context.bind(run):
+            with self.assertRaises(AfterLocks):
+                with native.OrgDbBackend().transaction(action, 1):
+                    self.fail('lock barrier was not reached')
+            fence_at = next(i for i, sql in enumerate(statements) if 'turn_requests' in sql and 'FOR SHARE' in sql)
+            advisory_at = next(i for i, sql in enumerate(statements) if 'pg_advisory_xact_lock' in sql)
+            self.assertLess(fence_at, advisory_at)
+            host.cancel('alpha', run.request_id)
+            statements.clear()
+            with self.assertRaises(requests.StaleRun):
+                with native.OrgDbBackend().transaction(action, 1):
+                    self.fail('cancelled run reached the body')
+            self.assertFalse(any('pg_advisory_xact_lock' in sql for sql in statements))
+        self.assertTrue(all(raw.closed for raw in connections))
+        host.complete(org, run)
+
 
 if __name__ == '__main__':
     unittest.main()

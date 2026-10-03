@@ -1071,6 +1071,9 @@ COMPACT_TIMEOUT = int(os.environ.get("ORGTREE_COMPACT_TIMEOUT", "600"))
 # 16. `MAX_CONCURRENT` is only the boot value; the live limit is
 # `_turn_slots.limit`, changed by `set_turn_limit`.
 def _initial_turn_limit() -> int:
+    activated = turnslots.activated_limit()
+    if activated is not None:
+        return activated
     try:
         stored = appsettings.max_concurrent_turns()
     except Exception:                                      # noqa: BLE001
@@ -1093,6 +1096,7 @@ SLOT_WAIT_WARN_S = float(os.environ.get("ORGTREE_SLOT_WAIT_WARN_S", "5"))
 MCP_READINESS_TIMEOUT_S = 30.0
 
 _turn_slots = turnslots.FairSlots(MAX_CONCURRENT)
+_turn_limit_value = MAX_CONCURRENT
 
 
 def set_turn_limit(limit: int) -> None:
@@ -1104,9 +1108,11 @@ def set_turn_limit(limit: int) -> None:
     force when it queued), which also moves the tree fingerprint so the desk
     re-renders. The scheduler's lock is released before `_state_lock` is
     taken — the two are never held together."""
+    global _turn_limit_value
     _turn_slots.set_limit(limit)
     live = _turn_slots.limit
     with _state_lock:
+        _turn_limit_value = live
         for st in _state.values():
             q = st.get("queued_for_slot")
             if isinstance(q, dict) and q.get("limit") != live:
@@ -1134,6 +1140,7 @@ class _InterruptibleTurnSlot:
         self._lane = lane
         self._token = object()
         self._acquired = False
+        self._durable: Any = None
 
     def _cancelled(self) -> bool:
         st = self._state
@@ -1143,11 +1150,13 @@ class _InterruptibleTurnSlot:
     def _queued(self, info: dict[str, Any]) -> None:
         with _state_lock:
             if self._state.get("admission_wait_token") is self._token:
-                # the LIVE limit, read under _state_lock: a set_turn_limit
+                # The published live limit is memory-only under this lock.
+                # Reading the database slot here would hold a state lock
+                # while waiting for PostgreSQL. A set_turn_limit
                 # racing this either ran its refresh after us (and rewrites
                 # it) or changed the limit before this read
                 self._state["queued_for_slot"] = {**info,
-                                                  "limit": _turn_slots.limit}
+                                                  "limit": _turn_limit_value}
 
     def __enter__(self) -> None:
         with _state_lock:
@@ -1155,8 +1164,18 @@ class _InterruptibleTurnSlot:
             self._state["admission_waiting"] = True
             self._state["admission_wait_token"] = self._token
         try:
-            with turnslots.bind_agent(self._org, self._agent, self._lane):
-                _turn_slots.acquire(self._org, self._cancelled, self._queued)
+            from .orgdb import turn_runtime   # noqa: PLC0415
+            host = turn_runtime.current()
+            if host is None:
+                with turnslots.bind_agent(self._org, self._agent, self._lane):
+                    _turn_slots.acquire(self._org, self._cancelled, self._queued)
+            else:
+                self._durable = turn_runtime.Admission(
+                    host, self._org, self._agent, self._lane, self._cancelled,
+                    self._queued, lambda: interrupt_turn(self._org, self._agent))
+                with _state_lock:
+                    self._state['turn_request_id'] = self._durable.request_id
+                self._durable.__enter__()
         except turnslots.Cancelled:
             with _state_lock:
                 self._state.pop("admission_cancel_token", None)
@@ -1164,8 +1183,11 @@ class _InterruptibleTurnSlot:
                 self._state.pop("queued_for_slot", None)
                 self._state["waiting"] = False
                 self._state["admission_waiting"] = False
+                if self._durable is not None and self._state.get('turn_request_id') == self._durable.request_id:
+                    self._state.pop('turn_request_id', None)
             raise _AdmissionCancelled() from None
         self._acquired = True
+        cancelled = False
         with _state_lock:
             self._state["waiting"] = False
             self._state["admission_waiting"] = False
@@ -1174,21 +1196,77 @@ class _InterruptibleTurnSlot:
             if (self._state.get("halt_requested")
                     or self._state.get("admission_cancel_token") is self._token):
                 self._state.pop("admission_cancel_token", None)
-                self._acquired = False
-                _turn_slots.release()
-                raise _AdmissionCancelled()
+                cancelled = True
+        if cancelled:
+            if self._durable is not None:
+                try:
+                    self._durable.abort_before_launch()
+                finally:
+                    self._acquired = False
+                    with _state_lock:
+                        if self._state.get('turn_request_id') == self._durable.request_id:
+                            self._state.pop('turn_request_id', None)
+            else:
+                self.__exit__(None, None, None)
+            raise _AdmissionCancelled()
         return None
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         if self._acquired:
             self._acquired = False
-            _turn_slots.release()
+            try:
+                if self._durable is not None:
+                    self._durable.__exit__(exc_type, exc, tb)
+                else:
+                    _turn_slots.release()
+            finally:
+                with _state_lock:
+                    if self._durable is not None and self._state.get('turn_request_id') == self._durable.request_id:
+                        self._state.pop('turn_request_id', None)
 
 
 # per-(slug, nid) in-memory runtime state — see state() for the key set
 # (busy/waiting/queue/steer/proc/responding/…); values are heterogeneous
 _state: dict[tuple[str, str], dict[str, Any]] = {}
 _state_lock = threading.Lock()
+
+
+def _activate_turn_slots(slots: Any, limit: int) -> None:
+    """Replace an import-time slot after bootstrap; this callback does no I/O."""
+    global _turn_slots, MAX_CONCURRENT, _turn_limit_value
+    with _state_lock:
+        _turn_slots, MAX_CONCURRENT, _turn_limit_value = slots, limit, limit
+
+
+turnslots.on_activation(_activate_turn_slots)
+
+
+def _cancel_durable_turn(slug: str, nid: str,
+                         runtimes: list[dict[str, Any]] | None = None) -> None:
+    """Commit org cancellation before interrupt/halt can terminate a provider."""
+    from .orgdb import turn_runtime   # noqa: PLC0415
+    host = turn_runtime.current()
+    if host is None:
+        return
+    states = runtimes if runtimes is not None else [state(slug, nid)]
+    with _state_lock:
+        request_ids = {st['turn_request_id'] for st in states if st.get('turn_request_id')}
+    for request_id in sorted(request_ids):
+        host.cancel(slug, request_id)
+
+
+def _turn_transport_env(env: dict[str, str]) -> dict[str, str]:
+    """Immutable child transports get this run, never an inherited run token."""
+    from .orgdb import turn_context, turn_runtime   # noqa: PLC0415
+    result = dict(env)
+    result.pop(turn_context.ENV, None)
+    run = turn_context.current()
+    if run is not None:
+        host = turn_runtime.current()
+        if host is None:
+            raise RuntimeError('a bound run has no turn host')
+        result[turn_context.ENV] = host.credential(run)
+    return result
 
 
 # ---------------------------------------------------------- child-process leash
@@ -12318,11 +12396,11 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     chosen["orgtree"] = {
         "command": sys.executable,
         "args": ["-m", "orgtree.mcptool"],
-    "env": {**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+    "env": _turn_transport_env({**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                 "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360"),
                 "PYTHONPATH": BACKEND_DIR,
                 deployment.PROFILE_ENV:
-                    deployment.current_policy().name},
+                    deployment.current_policy().name}),
     }
     # Do not force `alwaysLoad` here. In CLI 2.1.220 it blocks construction of
     # the first request until each MCP server connects (up to its timeout).
@@ -17590,6 +17668,13 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     scoped_token = agentauth.child_env(slug, nid).get("ORGTREE_AGENT_TOKEN")
     if scoped_token:
         tool_headers["X-Orgtree-Agent-Token"] = scoped_token
+    from .orgdb import turn_context, turn_runtime   # noqa: PLC0415
+    run = turn_context.current()
+    if run is not None:
+        host = turn_runtime.current()
+        if host is None:
+            raise RuntimeError('a bound run has no turn host')
+        tool_headers[turn_context.HEADER] = host.credential(run)
 
     # P08a: the seat and generation this turn authenticated as — half of a
     # manual-inbox call's original key (`codex_keyed_dispatch`)
@@ -21471,6 +21556,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 billed_on_key = True
             env["ORGTREE_ORG"], env["ORGTREE_NODE"] = slug, nid
             env.update(agentauth.child_env(slug, nid))
+            env = _turn_transport_env(env)
             env["ORGTREE_PORT"] = os.environ.get("ORGTREE_PORT", "7360")
             env["PYTHONPATH"] = BACKEND_DIR + os.pathsep + env.get("PYTHONPATH", "")
             # ── D-201: serve this turn from the warm pool when a parked
@@ -21491,6 +21577,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # flag, arm unknown). Re-reading anywhere later in this turn
             # could label a row with an arm it was not served under.
             warm_on, warm_lbl = warmpool.warm_decision()
+            from .orgdb import turn_context   # noqa: PLC0415
+            if turn_context.current() is not None:
+                warm_on = False  # its immutable MCP credential belongs to the old run
             # S1: does this turn begin as a cheap-compaction successor whose
             # prompt carries the breadcrumbs splice? Captured here so the
             # boundary below only pays the retirement write for the one turn
@@ -22563,6 +22652,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             turn_began_cc = False
                             retired_splice = True
                         proc_current, may_feed, bnd_lbl = True, True, warm_lbl
+                        if turn_context.current() is not None:
+                            may_feed = False  # the next carrier receives a new request/transport
                         if turn_hash is not None:
                             proc_current, bnd_lbl, _bnd_why = \
                                 warmpool.boundary_check(
@@ -22571,9 +22662,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             # a delivery condition. All other negative reasons
                             # (kill switch, exclusion, provider/scope
                             # eligibility) still close this process's input.
-                            may_feed = proc_current or (
+                            may_feed = turn_context.current() is None and (proc_current or (
                                 _bnd_why == "identity-changed"
-                                and not retired_splice)
+                                and not retired_splice))
                             if not proc_current and wp_turn is not None:
                                 # note WHY on the process now — its exit row
                                 # (written once, at EOF) must be classified,
@@ -28254,7 +28345,11 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     the guards here make the whole class structural: a lane that cannot be
     asked to stop is a RESULT saying so, with a reason, never an exception."""
     st = state(slug, nid)
+    request_id = st.get('turn_request_id')
+    _cancel_durable_turn(slug, nid, [st])
     with _state_lock:
+        if request_id is not None and st.get('turn_request_id') != request_id:
+            return {'interrupted': False, 'reason': 'the turn was already over'}
         operation_id = str(st.get("lifecycle_operation_id") or "")
         proc = st.get("proc") if st.get("responding") else None
         codex_turn = st.get("codex_turn") if st.get("responding") else None
@@ -28273,10 +28368,11 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
             st["deploy_hold_cancel"] = st.get("deploy_hold_token")
         elif admission_waiting:
             st["admission_cancel_token"] = admission_token
-            _turn_slots.wake()   # the fair queue blocks; wake it to re-check
         elif (proc is not None or codex_turn is not None \
               or antigravity_turn is not None or readiness_wait):
             st["interrupted"] = True
+    if admission_waiting:
+        _turn_slots.wake()   # no state lock is held while PostgreSQL is touched
     def _result(interrupted: bool, reason: str | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {"interrupted": interrupted}
         if reason:

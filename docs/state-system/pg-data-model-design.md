@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.5)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.6)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -8,6 +8,14 @@ reviews the implementation again before the local alpha build. The companion
 [`pg-columns-audit.md`](pg-columns-audit.md) measures today's costs on a copy of the live data.
 
 **What changed:**
+
+- **Rev 7.6: the durable turn request is the first lock tier (2026-10-03, B5).**
+  Tools and result transactions hold the signed run's request row `FOR SHARE` on the native
+  org connection before the action locks. Finish, cancellation and verified-dead reclaim take
+  it `FOR UPDATE` before an agent, job or other row. The short `start_turn` wrapper takes this
+  request lock before the unchanged jobs framework locks its job. Host forwarding commits
+  pending-to-queued and job completion together, then inserts the app ticket separately;
+  committed queued intent repairs that gap even if the job is already done.
 
 - **Rev 7.5: a trigger locks only its own statement's rows (2026-10-03, after review A6 f8 and
   f9).** No product decision changes. Rev 7.4's statement-end Sent key still deadlocked twice: a
@@ -464,17 +472,24 @@ its lease expired. Rev 4 gives every turn a durable identity, numbered claims an
      cancellation at every boundary (pending, between the two steps, waiting, admitted but not
      started, running).
 
-**Lock order inside an org database (rev 7.4, after review A6 f7).** Review found two lock-order
+**Lock order inside an org database (rev 7.6, including B5's run fence).** Review found two lock-order
 deadlocks: stage 1-B f24 (the settings fence against node locks) and A6 f7 (a commit-time key
 rewrite against the revision row). Every writer of an org database takes its locks in this order:
 
-1. **Advisory locks first.** In `org_tx` (`orgdb.compat.tx`): the org lock (shared, or exclusive
+1. **The bound turn request first.** Tools and result writers take its exact request, agent,
+   owner, token and epoch in `state = 'running'` `FOR SHARE` on the action's native org
+   connection. Transitions take the request `FOR UPDATE` before agents, jobs or other rows.
+   A cross-org action holds its origin request's share lock through the action; its signed
+   identity is never relabelled as the destination. The `start_turn` domain wrapper locks
+   the request before `jobs.execute`. An already-in-progress operation may finish before
+   cancellation obtains this lock; an old epoch presented later is refused before the body.
+2. **Then advisory locks.** In `org_tx` (`orgdb.compat.tx`): the org lock (shared, or exclusive
    for a whole-org transaction), then the settings fence when the plan may write a settings key
    (f24), then the node, key and `(dict log, owner)` locks in the plan's sorted order, then the
    operation receipt's lock. Outside `org_tx`, an insert that needs its key or name absent takes
    that key's or name's advisory lock before it looks (`rows.fence_key`, `rows.lock_doc_key`,
    the agent-name lock).
-2. **Then rows, in a fixed order per writer.** `org_tx` locks its plan's rows `FOR UPDATE` /
+3. **Then rows, in a fixed order per writer.** `org_tx` locks its plan's rows `FOR UPDATE` /
    `FOR SHARE` in plan order (agents by name, sections by key, owners' records, docket items by
    slug), then its statements write. A body that needs a row outside its plan raises `Widen`:
    the transaction rolls back and reruns with the wider plan, so no row is locked late. A
@@ -487,7 +502,7 @@ rewrite against the revision row). Every writer of an org database takes its loc
    tail key (a recipient's first archive row), is computed by the reader; rev 7.4 kept that key
    on every mail row, and its repair locked a shared owner row and rewrote rows other writers
    hold (review A6 f8, f9).
-3. **The revision row last.** `orgtree.org_revision` is locked only by:
+4. **The revision row last.** `orgtree.org_revision` is locked only by:
    - the save seam, `OrgDbConn.on_save_commit`, immediately before COMMIT;
    - the deferred constraint triggers, which run at COMMIT: 0006 `foreground_flush` (the node,
      catalog and view counters; 0007's `docket_rev` uses it too), 0008 `events_count_flush`,
@@ -502,7 +517,7 @@ rewrite against the revision row). Every writer of an org database takes its loc
    again), but it must write nothing that can wait. A lock timeout after the revision row is not
    used to enforce this: `NOTIFY` takes one lock for the whole cluster at COMMIT, after the
    revision row, so ordinary commits would fail on it.
-4. **After the revision row, only the rows locked under it:** `foreground_parent_counts` (0006)
+5. **After the revision row, only the rows locked under it:** `foreground_parent_counts` (0006)
    and `docket_counters` (0012). A transaction holding the revision row waits for nothing else.
 
 Rules that follow:

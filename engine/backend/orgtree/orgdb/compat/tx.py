@@ -192,6 +192,7 @@ class OrgDbBackend:
             found[tx.slug] = row
         order = sorted(txs, key=lambda t: found[t.slug][0])
         conns: dict[str, C.OrgDbConn] = {}
+        run_conn: C.OrgDbConn | None = None
         loc = store._orgtx_local                                       # pyright: ignore[reportPrivateUsage]
         try:
             for tx in order:
@@ -212,6 +213,26 @@ class OrgDbBackend:
                                 f"SET LOCAL idle_in_transaction_session_timeout = "
                                 f"'{int(orgtx.IDLE_IN_TX_TIMEOUT_S * 1000)}ms'; "
                                 f"SET LOCAL application_name = {txlog.app_name(tx)}")
+                # A bound run's request is the first lock tier. Begin every
+                # action connection, then fence the origin before acquiring
+                # any org/settings/row lock, including a cross-org action.
+                from .. import turn_context   # noqa: PLC0415
+                run = turn_context.current()
+                if run is not None:
+                    run_conn = conns.get(run.org)
+                    if run_conn is None:
+                        origin = _reg.lookup(run.org)
+                        if origin is None or origin[0] != run.org_id or origin[2] != 'active':
+                            raise LedgerError('turn origin is not open')
+                        run_conn = C.OrgDbConn(_reg.checkout(run.org, origin[1], origin[3]),
+                                               run.org, origin[0], origin[1])
+                        run_conn.raw.execute('BEGIN')
+                        run_conn.raw.execute(f"SET LOCAL lock_timeout = "
+                                             f"'{max(1, int(lock_timeout * 1000))}ms'")
+                    turn_context.fence(run_conn.raw, run_conn.slug, run_conn.org_id)
+                for tx in order:
+                    conn = conns[tx.slug]
+                    raw = conn.raw
                     raw.execute("SELECT pg_advisory_xact_lock" + ("" if tx.whole else "_shared")
                                 + "(%s, hashtext(%s))", (conn.org_id, f"org:{orgtx._ORG_KEY}"))   # pyright: ignore[reportPrivateUsage]
                     # the registry row was read before this lock: an org trashed meanwhile
@@ -354,7 +375,10 @@ class OrgDbBackend:
         finally:
             from ... import receiptcommit   # noqa: PLC0415
             receiptcommit.discard(conns.values())
-            for c in conns.values():
+            cleanup = list(conns.values())
+            if run_conn is not None and run_conn not in cleanup:
+                cleanup.append(run_conn)
+            for c in cleanup:
                 with contextlib.suppress(Exception):
                     if c.in_transaction:
                         c.raw.execute("ROLLBACK")

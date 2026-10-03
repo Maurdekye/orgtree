@@ -1197,7 +1197,9 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
                 for runtime in owners:
                     runtime["halt_requested"] = True
             # a turn queued in the fair turn-slot queue sees the halt now
-            sup._turn_slots.wake()
+            from .orgdb import turn_runtime   # noqa: PLC0415
+            if turn_runtime.current() is None:
+                sup._turn_slots.wake()
 
             def undo() -> None:
                 if not requested(slug, nid):
@@ -1211,6 +1213,14 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
                 _capture(org, nid, runtime)
 
     _retrying(begin)
+    # The durable halting write has committed. Cancel its request before
+    # the settle loop's first provider termination, without an agent lock.
+    with _reg:
+        owners = list(_halt_states.get((slug, nid), [st]))
+    sup._cancel_durable_turn(slug, nid, owners)
+    from .orgdb import turn_runtime   # noqa: PLC0415
+    if turn_runtime.current() is not None:
+        sup._turn_slots.wake()
     sup.notify(slug, nid, "halting")
     deadline = time.monotonic() + (SETTLE_TIMEOUT if timeout is None else timeout)
     # ⚠ THE SETTLE POLL MUST NOT CYCLE THE DOCUMENT LOCK (beta.1 wave finding,
