@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 SPEC = importlib.util.spec_from_file_location('measure_orgdb_hot',
     Path(__file__).resolve().parents[1] / 'tools/measure-orgdb-hot.py')
@@ -15,6 +16,29 @@ SPEC.loader.exec_module(HOT)
 
 
 class Measurement(unittest.TestCase):
+    def test_operator_adapter_matches_the_current_door_signature(self):
+        def door(slug, body, harness):
+            return slug, body.op, harness
+        api = SimpleNamespace(_op_door=door, Op=SimpleNamespace)
+        self.assertEqual(HOT.operator_call(api, 'copy', op='move'), ('copy', 'move', None))
+
+    def test_worker_refuses_foreign_output_and_database_before_engine_start(self):
+        root = Path(tempfile.gettempdir()) / 'orgdb-hot-control' / ('hot'+'a'*12+'_')
+        cfg = dict(agent='deltas-sol', admin='unused', runtime='dbname='+root.name+'legacy',
+                   root=str(root), prefix=root.name, result=str(root/'result.json'))
+        with patch.object(HOT, 'require_lock'), patch.object(HOT, 'private_cluster'), patch.dict(
+                HOT.os.environ, {'ORGTREE_DATA':str(root/'data'), 'ORGTREE_ORGDB_PREFIX':root.name}):
+            HOT.validate_child(cfg)
+            for replacement in ({'result':str(root.parent/'outside.json')}, {'runtime':'dbname=orgtree'},
+                    {'prefix':'orgtree_'}):
+                with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                    HOT.validate_child(dict(cfg, **replacement))
+
+    def test_incomplete_operation_rows_are_flagged_in_markdown(self):
+        report = dict(commit='test', org='copy', agents=['dev'], runs=2, warmups=1,
+                      table=[], cleanup_ok=True, source_unchanged=True, failure=None, complete=False)
+        self.assertIn('not acceptance evidence', HOT.markdown(report))
+
     def test_failed_or_missing_samples_never_get_a_median(self):
         rows = [dict(operation='tree', side='legacy', ok=True, ms=1, path='legacy'),
                 dict(operation='tree', side='legacy', ok=True, ms=3, path='legacy'),

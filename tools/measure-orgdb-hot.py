@@ -101,6 +101,27 @@ def require_lock(agent, lock_root):
         raise ValueError('run inside this agent\'s P03 heavy wrapper')
 
 
+def validate_child(cfg):
+    """The hidden worker entry point has the same containment gate as its parent."""
+    from psycopg.conninfo import conninfo_to_dict
+    repo_root = REPO.parents[1] if REPO.parent.name == '.worktrees' else REPO
+    require_lock(cfg['agent'], repo_root / 'artifacts' / 'machine-test-run')
+    private_cluster(cfg['admin'], cfg['runtime'], cfg['agent'], repo_root / 'artifacts' / 'p03-db')
+    prefix = cfg['prefix']
+    root = Path(cfg['root']).resolve()
+    if (not re.fullmatch(r'hot[0-9a-f]{12}_', prefix) or root.name != prefix
+            or not root.parent.name.startswith('orgdb-hot-')
+            or Path(cfg['result']).resolve().parent != root
+            or Path(os.environ['ORGTREE_DATA']).resolve() != root / 'data'
+            or os.environ.get('ORGTREE_ORGDB_PREFIX') != prefix
+            or conninfo_to_dict(cfg['runtime']).get('dbname') != prefix + 'legacy'):
+        raise ValueError('worker escaped its private measurement group')
+
+
+def operator_call(api, slug, **fields):
+    return api._op_door(slug, api.Op(**fields), None)
+
+
 def clean_environment(root):
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith(
         ('ORGTREE_', 'OPENAI_', 'ANTHROPIC_', 'CLAUDE_', 'CODEX_', 'GEMINI_',
@@ -198,7 +219,7 @@ def markdown(report):
         'Ratios above 1 mean the native side was slower. Missing medians mean incomplete or failed samples.', '',
         '| Operation | Legacy ms | Native ms | Native / legacy | Native path |',
         '|---|---:|---:|---:|---|']
-    if report.get('failure'):
+    if report.get('failure') or not report.get('complete', True):
         lines.insert(2, '**Run failed: these timings are incomplete and are not acceptance evidence.**')
     for row in report['table']:
         def cell(side):
@@ -259,7 +280,7 @@ def parent(a):
                 for org_id, slug in c.execute('SELECT org_id,slug FROM public.orgs WHERE deleted_at IS NULL'):
                     (group_root / 'data/orgs' / f'{slug}.pg').write_text(
                         json.dumps({'org_id': org_id, 'slug': slug}), encoding='utf-8')
-            cfg = dict(admin=admin, runtime=with_db(runtime, legacy), root=str(group_root), prefix=prefix,
+            cfg = dict(admin=admin, runtime=with_db(runtime, legacy), root=str(group_root), prefix=prefix, agent=a.agent,
                        org=a.org, agents=a.agents.split(','), operations=operations,
                        runs=a.runs if label == 'reads' else 1, warmups=a.warmups, iteration=iteration)
             cloned_inventory = digest(admin, legacy)
@@ -308,15 +329,19 @@ def parent(a):
         report['cleanup_errors'] = cleanup_errors
         shutil.rmtree(root)
         report['setup'], report['table'] = setups, summarize(rows, a.runs)
+        report['complete'] = (not report['failure'] and report['cleanup_ok'] and report['source_unchanged']
+            and len(report['table']) == len(set(selected))
+            and all(set(row['sides']) == {'legacy', 'native'} and
+                all(side['completed'] == a.runs for side in row['sides'].values()) for row in report['table']))
         a.output.parent.mkdir(parents=True, exist_ok=True)
         a.output.with_suffix('.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         a.output.with_suffix('.md').write_text(markdown(report), encoding='utf-8')
-    return 0 if (not report['failure'] and report['cleanup_ok'] and report['source_unchanged']
-        and all(s['completed'] == a.runs for r in report['table'] for s in r['sides'].values())) else 1
+    return 0 if report['complete'] else 1
 
 
 def child():
     cfg = json.load(sys.stdin)
+    validate_child(cfg)
     from orgtree.orgdb import lifecycle, registry
     lc = lifecycle.Lifecycle(admin=cfg.pop('admin'), prefix=cfg['prefix'], build='hot-measure')
     result = Path(cfg['result'])
@@ -373,7 +398,11 @@ def child():
         def counts():
             if cfg['side'] == 'native' and not native_docket:
                 return store.load_org(slug).work_counts()
-            got = foreground_store.read_snapshot(slug, lambda raw, stamp: workread.counts_raw(
+            counter = workread
+            if cfg['side'] == 'native':
+                from orgtree.orgdb import docket
+                counter = docket
+            got = foreground_store.read_snapshot(slug, lambda raw, stamp: counter.counts_raw(
                 raw, stamp['org_id'], viewer=USER, now_ts=time.time()))
             return got if got is not None else store.load_org(slug).work_counts()
 
@@ -403,7 +432,7 @@ def child():
             docket_list=docket_list, docket_get=docket_get, docket_counts=counts)
 
         def op(**fields):
-            return api._op_door(slug, api.Op(**fields), True, None)
+            return operator_call(api, slug, **fields)
 
         def agent(tool, **args):
             return api._agent_door(api.AgentCall(org=slug, node='coordinator-opus', tool=tool, args=args),
