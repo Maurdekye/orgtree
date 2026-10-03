@@ -110,9 +110,14 @@ def _db_stamp(stamp):
     return tuple(sorted((k, v) for k, v in stamp.items() if k != 'seq'))
 
 
+def _storage_identity(stamp):
+    return tuple(stamp.get(k) for k in ('org_id', 'org_uuid', 'incarnation'))
+
+
 def _page_context(raw, slug, graph):
     stamp = graph['stamp']
-    org = (str(store.DATA_ROOT), slug, stamp['org_id'])
+    owner = (str(store.DATA_ROOT), slug)
+    org = (*owner, *_storage_identity(stamp))
     key = (*org, stamp['view_revision'], tuple(sorted(graph['rows'])))
     with _page_lock:
         inputs = _page_inputs.get(key)
@@ -128,8 +133,14 @@ def _page_context(raw, slug, graph):
         context = _context(raw, slug, graph, header=False, inputs={**inputs, 'funding': funding})
     read = context.inputs
     with _page_lock:
+        # Independent counters can coincide after storage replacement. Never
+        # retain that identity's inputs or funding under the current owner.
+        for old in [k for k in _page_inputs if k[:2] == owner and k[:5] != org]:
+            del _page_inputs[old]
+        for old in [k for k in _page_funding if k[:2] == owner and k != org]:
+            del _page_funding[old]
         if inputs is None:
-            for old in [k for k in _page_inputs if k[:3] == org and k[3] < stamp['view_revision']]:
+            for old in [k for k in _page_inputs if k[:5] == org and k[5] < stamp['view_revision']]:
                 del _page_inputs[old]
             _page_inputs[key] = {name: read[name] for name in ('blobs', 'windows', 'inbox')}
             while len(_page_inputs) > _PAGE_INPUTS_MAX:
@@ -178,7 +189,9 @@ def _page_keep(key, page):
     with _page_lock:
         current = _pages.get(key)
         # never replace an answer built from a newer committed snapshot
-        if current is not None and dict(current.stamp)['org_revision'] > dict(page.stamp)['org_revision']:
+        if (current is not None
+                and _storage_identity(dict(current.stamp)) == _storage_identity(dict(page.stamp))
+                and dict(current.stamp)['org_revision'] > dict(page.stamp)['org_revision']):
             return
         _pages[key] = page
         _pages.move_to_end(key)

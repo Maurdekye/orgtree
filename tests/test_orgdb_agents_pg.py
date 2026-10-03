@@ -475,6 +475,9 @@ class NativePageIdentity(unittest.TestCase):
         self.assertNotEqual(old['incarnation'], after[0]['incarnation'])
         self.assertEqual({k: v for k, v in old.items() if k != 'incarnation'},
                          {k: v for k, v in after[0].items() if k != 'incarnation'})
+        with foreground_api._page_lock:
+            self.assertEqual(len(foreground_api._page_inputs), 1)
+            self.assertEqual(len(foreground_api._page_funding), 1)
         return after[1], after[2]
 
     def test_equal_counter_replacement_rereads_settings(self):
@@ -486,6 +489,20 @@ class NativePageIdentity(unittest.TestCase):
         kept, fresh = self.replacement()
         self.assertEqual(next(row['grant'] for row in fresh.inputs['funding'] if row['id'] == 'dev'), 11)
         self.assertEqual(kept.inputs['funding'], fresh.inputs['funding'])
+
+    def test_finished_page_revision_order_is_local_to_storage_identity(self):
+        from orgtree import foreground_api
+        stamp = {'org_id': 1, 'org_uuid': 'old-org', 'incarnation': 'old-copy', 'org_revision': 999}
+        for field in ('org_uuid', 'incarnation'):
+            with self.subTest(identity=field):
+                key = ('replacement-order', field)
+                old = foreground_api._Page(foreground_api._db_stamp(stamp), (), 0, None, 'old', {}, b'old')
+                newer = {**stamp, field: 'replacement', 'org_revision': 1}
+                new = foreground_api._Page(foreground_api._db_stamp(newer), (), 0, None, 'new', {}, b'new')
+                foreground_api._page_keep(key, old)
+                foreground_api._page_keep(key, new)
+                self.assertIs(foreground_api._page_hit(key, newer, (), 0), new)
+                self.assertIsNone(foreground_api._page_hit(key, stamp, (), 0))
 
 
 @fixture.needs_pg
