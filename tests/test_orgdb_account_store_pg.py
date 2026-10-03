@@ -211,6 +211,51 @@ class NativeAccounts(unittest.TestCase):
             registry.set_auth(row['id'], 'authenticated')
         self.assertEqual(observed, ['authenticated'])
 
+    def assert_retargeted_alias_rejects_mutation(self, scope):
+        old, new = self.make(scope), self.make(scope)
+        alias = 'retarget-' + (scope or 'machine')
+        with registry.transaction(old['id'], org=scope) as doc:
+            doc['aliases'][alias] = old['id']
+        actual_find = accounts.find
+        observed = []
+
+        def preflight_then_retarget(account_id, org=None):
+            found = actual_find(account_id, org)
+            if account_id == alias and not observed:
+                # Separate committed connection models another process changing
+                # the alias after lookup, before this mutation acquires locks.
+                settings = 'org_settings' if scope else 'app_settings'
+                table = 'org_account_aliases' if scope else 'account_aliases'
+                with accounts.connection(scope) as raw, raw.transaction():
+                    raw.execute(f'SELECT 1 FROM orgtree.{settings} FOR UPDATE')
+                    raw.execute(f'UPDATE orgtree.{table} SET account_id = %s WHERE alias = %s',
+                                (new['id'], alias))
+                # Completed public reads rule out ordering the mutation before
+                # the committed retarget, even when its lookup saw the old row.
+                observed.append((registry.get_account(old['id'])['auth'],
+                                 registry.resolve_alias(alias, org=scope)))
+            return found
+
+        rejected = False
+        with patch.object(accounts, 'find', side_effect=preflight_then_retarget), \
+             patch.object(registry, 'availability_changed') as changed:
+            try:
+                registry.set_auth(alias, 'authenticated')
+            except registry.UnknownAccount:
+                rejected = True
+        self.assertEqual(observed, [('unobserved', new['id'])])
+        self.assertEqual(registry.get_account(old['id'])['auth'], 'unobserved')
+        self.assertEqual(registry.get_account(new['id'])['auth'], 'unobserved')
+        self.assertEqual(registry.resolve_alias(alias, org=scope), new['id'])
+        self.assertTrue(rejected, 'stale preflight target must be rejected before mutation')
+        changed.assert_not_called()
+
+    def test_machine_alias_retarget_after_lookup_rejects_before_mutation(self):
+        self.assert_retargeted_alias_rejects_mutation(None)
+
+    def test_restricted_alias_retarget_after_lookup_rejects_before_mutation(self):
+        self.assert_retargeted_alias_rejects_mutation('a5-a')
+
     def test_metadata_migration_and_alias_are_database_writes(self):
         row = self.make()
         registry_migration.mark_migrated(123.5)
