@@ -1333,7 +1333,7 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names) 
     if ls.kind == "list":
         keys["ord"] = rid
     elif ls.kind == "archive":
-        keys.update(list_key="archive", ord=rid)
+        keys = D.row_keys(rec,id=rid,list_key="archive",ord=rid)
     else:
         if owner is None:
             raise CompatError(f"{ls.name}: a row without an owner")
@@ -1368,6 +1368,8 @@ def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | Non
             keys[col] = r[col]
     if key is not None and ls.kind == "agent_map":
         keys["key"] = key
+    if ls.kind == "archive":
+        keys = D.row_keys(rec,**keys)
     c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE id = %s", (rid,))
     out: Rows = {}
     codec.encode(ls.table.spec, rec, keys, out, link=ls.table.link)

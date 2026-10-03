@@ -30,6 +30,20 @@ class DocketWrites(unittest.TestCase):
             'engine/backend/orgtree/orgdb/mappers/docket.py',
             'engine/backend/orgtree/orgdb/compat/rows.py'})
 
+    def test_generic_archive_encoders_use_the_same_helper(self):
+        tree = ast.parse((BACKEND/'compat'/'rows.py').read_text(encoding='utf-8'))
+        for name in ('log_insert','log_replace'):
+            function = next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name)
+            with self.subTest(function=name):
+                branches = [n for n in ast.walk(function) if isinstance(n,ast.If) and
+                    isinstance(n.test,ast.Compare) and isinstance(n.test.left,ast.Attribute) and
+                    n.test.left.attr=='kind' and ast.literal_eval(n.test.comparators[0])=='archive']
+                self.assertEqual(len(branches),1)
+                assignments = [n for n in ast.walk(branches[0]) if isinstance(n,ast.Assign) and
+                    any(isinstance(t,ast.Name) and t.id=='keys' for t in n.targets)]
+                self.assertTrue(any(isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute)
+                    and n.value.func.attr=='row_keys' for n in assignments))
+
 
 if __name__=='__main__':
     unittest.main()

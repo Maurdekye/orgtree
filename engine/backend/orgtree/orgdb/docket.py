@@ -45,12 +45,12 @@ def write_fields(record):
     stamp = str(record.get('docket_at') or record.get('updated_at') or '')
     status = record.get('status')
     deadline = None
-    if status == 'dropped':
+    if status in Org.WORK_ARCHIVES_AT_ONCE:
         deadline = float('-inf')
-    elif status in ('done','superseded'):
+    elif status in Org.WORK_ARCHIVES_ITSELF:
         age = Org._work_age_s(record,0)
         if age is not None:
-            deadline = 3600-age
+            deadline = Org.WORK_ARCHIVE_AFTER_S-age
     owner = Org._work_actor_node(record.get('owner'))
     creator = Org._work_actor_node(record.get('created_by'))
     reviewer = Org._work_actor_node(record.get('reviewer'))
