@@ -14,9 +14,8 @@ Three kinds of statement besides the ordinary ones:
   answered "yes" so the reader takes its whole-org load path. None is declined now: the
   bounded window readers (presentations, a node's history, the inbox tails) are served
   (piece A6), because their load path cost 0.9-1.5 s per window on the live org's copy.
-* UNREACHABLE in this mode: SQLite-only, migration-only and receipt-row statements; and the
-  mail-archive append door, whose bound the projection never hands out (the caller takes its
-  ordinary path). They raise if reached.
+* UNREACHABLE in this mode: SQLite-only, migration-only and receipt-row statements.
+  They raise if reached. The archive append door uses the explicit mailbox summary.
 
 A statement that is not listed raises ``UnknownStatement``: the view never guesses.
 """
@@ -29,6 +28,7 @@ import sqlite3
 from typing import Any, Callable, Sequence
 
 from . import rows as R
+from . import mailboxes as M
 from .rows import CompatError, Names
 
 _WS = re.compile(r"\s+")
@@ -937,13 +937,16 @@ def _owner_tail(conn: Any, p: Sequence[Any], sect: str) -> Result:
 @stmt("SELECT version,nrows,assigned_max FROM mail_archive_bounds WHERE owner=? AND format=1 "
       "AND unknown_rows=0 AND nrows>=0 AND assigned_max>=0")
 def _mail_bounds(conn: Any, p: Sequence[Any]) -> Result:
-    # no bound: mail_archive_max answers None and its caller takes the ordinary path
-    return Result([])
+    with conn.atomic(write=True):
+        aid = _names(conn).id(p[0], mint=False)
+        return Result([(0, 0, 0) if aid is None else M.lock(conn.raw, aid)])
 
 
-UNREACHABLE[normalize(
+@stmt(
     "SELECT version,nrows,assigned_max FROM mail_archive_bounds WHERE owner=? AND format=1 "
-    "AND unknown_rows=0 FOR UPDATE")] = "the mail append door: no bound is ever handed out here"
+    "AND unknown_rows=0 FOR UPDATE")
+def _mail_bounds_locked(conn: Any, p: Sequence[Any]) -> Result:
+    return _mail_bounds(conn, p)
 
 
 def _project(conn: Any, p: Sequence[Any], m: re.Match[str]) -> Result:

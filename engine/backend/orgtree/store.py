@@ -5481,8 +5481,8 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
             cas_old=snap.get(owner))
     # Only the validated mail append door creates this buffer. Its owner node
     # is locked by the transaction; the summary version also catches an archive
-    # edit/import that happened after its bounded read. The trigger advances the
-    # summary in the same transaction as every inserted source row.
+    # edit/import that happened after its bounded read. Each inserted source row
+    # advances the summary in this transaction (the legacy trigger or native view).
     for owner in sorted(cur._appends):
         rows = cur._appends[owner]
         if not rows:
@@ -5497,10 +5497,11 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
         expected = cur._mail_bounds.get(owner)
         if sect != "mail_log" or expected is None or STORE_BACKEND != "postgres":
             raise StaleWrite("unvalidated buffered mail archive append")
-        # Same order as the source-row trigger: mailbox advisory, then bound
-        # row. Taking the row first could deadlock an import holding advisory.
-        conn.execute("SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))",
-                     (f"org_{conn.org_id}", "mail-bound:" + owner))
+        # Legacy writers take their mailbox advisory before the bound row.
+        # The native lock plan already holds the agent and mailbox rows.
+        if not getattr(conn, "orgdb", False):
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))",
+                         (f"org_{conn.org_id}", "mail-bound:" + owner))
         actual = conn.execute("SELECT version,nrows,assigned_max FROM mail_archive_bounds "
                               "WHERE owner=? AND format=1 AND unknown_rows=0 FOR UPDATE",
                               (owner,)).fetchone()

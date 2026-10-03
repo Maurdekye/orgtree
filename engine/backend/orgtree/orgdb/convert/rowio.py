@@ -58,6 +58,9 @@ def write(conn: Any, rows: Mapping[str, list[dict[str, Any]]], *,
                         raise ValueError(f"{table}: rows with different columns")
                     cp.write_row([r[c] for c in cols])
             counts[table] = len(rs)
+    if rows.get("mail_log"):
+        from ..compat import mailboxes   # noqa: PLC0415
+        counts["mailboxes"] = mailboxes.converted(conn)
     return counts
 
 

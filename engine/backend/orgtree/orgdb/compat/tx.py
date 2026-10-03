@@ -44,13 +44,24 @@ def _writes_settings(tx: orgtx.OrgTx) -> bool:
                for name in tx.lock_sections)
 
 
-def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> str | None:
+def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
+               mail_owners: list[str] | None = None) -> str | None:
     """``orgtx._lock_block`` for an org database: one DO block, entries in plan order."""
-    if not entries:
+    if not entries and not mail_owners:
         return None
     from psycopg import sql   # noqa: PLC0415
     m = R.model()
     lines: list[str] = []
+    items: list[str] = []
+    others: list[str] = []
+    agents: dict[str, bool] = {}
+    mail_owners = list(mail_owners or [])
+    for kind, name, _ in entries:
+        if kind == "log":
+            sect, owner = json.loads(name)
+            if sect == "mail_log":
+                mail_owners.append(owner)
+    mail_owners = sorted(set(mail_owners))
 
     def lit(v: Any) -> str:
         return sql.Literal(v).as_string(raw)
@@ -66,18 +77,17 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
         if name == orgtx._ALL_NODES_KEY:                                # pyright: ignore[reportPrivateUsage]
             continue
         if kind == "node":
-            lines.append(f"PERFORM 1 FROM orgtree.agents WHERE name = {lit(name)} "
-                         f"AND NOT tombstone{how};")
+            agents[name] = exclusive
         elif kind == "section":
             sect, sep, rest = name.partition(R.SEP)
             if not sep:
-                lines.append(f"PERFORM 1 FROM orgtree.org_sections WHERE key = {lit(name)}{how};")
+                others.append(f"PERFORM 1 FROM orgtree.org_sections WHERE key = {lit(name)}{how};")
             elif sect in m.split:
-                lines.append("PERFORM 1 FROM orgtree.org_section_owners o JOIN orgtree.agents a "
+                others.append("PERFORM 1 FROM orgtree.org_section_owners o JOIN orgtree.agents a "
                              f"ON a.id = o.agent_id WHERE o.section = {lit(sect)} "
                              f"AND a.name = {lit(rest)}{how} OF o;")
             elif sect == m.workrows.SECTION:
-                lines.append(f"PERFORM 1 FROM orgtree.work_items WHERE slug = {lit(rest)} "
+                items.append(f"PERFORM 1 FROM orgtree.work_items WHERE slug = {lit(rest)} "
                              f"AND list_key = 'active'{how};")
             else:
                 raise R.CompatError(f"lock of section row {name!r}: no such row form")
@@ -86,7 +96,7 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
             ls = m.logs.get(sect)
             if ls is None or ls.kind not in ("agent", "agent_map"):
                 raise R.CompatError(f"lock of log row {name!r}: not a dict log")
-            lines.append(f"PERFORM 1 FROM orgtree.{ls.table.spec.table} t JOIN orgtree.agents a "
+            others.append(f"PERFORM 1 FROM orgtree.{ls.table.spec.table} t JOIN orgtree.agents a "
                          f"ON a.id = t.agent_id WHERE a.name = {lit(owner)}{how} OF t;")
         else:
             raise R.CompatError(f"lock plan entry of kind {kind!r}")
@@ -98,7 +108,29 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]]) -> s
         # include settings rows it only reads, which a writer holding the fence may need
         lines.insert(0, "PERFORM pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
                         f"hashtext({lit(R.SETTINGS_FENCE)}));")
-    body = "BEGIN\n" + "\n".join(lines) + "\nEND"
+    # Every advisory precedes every row. Agents by physical id, then items,
+    # mailboxes, other rows. A mailbox is locked even for an append-only plan
+    # that deliberately never locks or reads retained archive rows.
+    for owner in mail_owners:
+        agents[owner] = True
+    if agents:
+        wanted = ','.join(lit(n) for n in agents)
+        exclusive = ','.join(lit(n) for n, write in agents.items() if write)
+        condition = f"r.name IN ({exclusive})" if exclusive else "false"
+        retained = ','.join(lit(n) for n in mail_owners)
+        live = f"(NOT tombstone OR name IN ({retained}))" if retained else "NOT tombstone"
+        lines.append(f"FOR r IN SELECT id,name FROM orgtree.agents WHERE name IN ({wanted}) "
+                     f"AND {live} ORDER BY id LOOP "
+                     f"IF {condition} THEN PERFORM id FROM orgtree.agents WHERE id=r.id FOR UPDATE; "
+                     "ELSE PERFORM id FROM orgtree.agents WHERE id=r.id FOR SHARE; END IF; END LOOP;")
+    lines.extend(items)
+    if mail_owners:
+        wanted = ','.join(lit(n) for n in mail_owners)
+        lines.append(f"FOR r IN SELECT id FROM orgtree.agents WHERE name IN ({wanted}) ORDER BY id LOOP "
+                     "INSERT INTO orgtree.mailboxes(agent_id) VALUES(r.id) ON CONFLICT DO NOTHING; "
+                     "PERFORM 1 FROM orgtree.mailboxes WHERE agent_id=r.id FOR UPDATE; END LOOP;")
+    lines.extend(others)
+    body = "DECLARE r record; BEGIN\n" + "\n".join(lines) + "\nEND"
     while True:
         tag = "$orgtx_" + secrets.token_hex(6) + "$"
         if tag not in body:
@@ -123,18 +155,17 @@ def _gone(slug: str, org_id: int, e: BaseException) -> BaseException:
 
 
 def _whole(raw: Any) -> tuple[list[str], list[tuple[str, str]]]:
-    """Every doc row name (locked FOR UPDATE) and every (dict log, owner) pair."""
+    """Discover row names; the lock block takes their locks in table order."""
     m = R.model()
     keys = [str(k) for (k,) in raw.execute(
-        "SELECT key FROM orgtree.org_sections ORDER BY key FOR UPDATE").fetchall()]
+        "SELECT key FROM orgtree.org_sections ORDER BY key").fetchall()]
     for sect, owner in raw.execute(
             "SELECT o.section, a.name FROM orgtree.org_section_owners o JOIN orgtree.agents a "
             "ON a.id = o.agent_id WHERE o.section = ANY(%s) AND o.state = 'l' "
-            "ORDER BY o.section, a.name FOR UPDATE OF o", (sorted(m.split),)).fetchall():
+            "ORDER BY o.section, a.name", (sorted(m.split),)).fetchall():
         keys.append(f"{sect}{R.SEP}{owner}")
     keys += [m.workrows.PREFIX + str(s) for (s,) in raw.execute(
-        "SELECT slug FROM orgtree.work_items WHERE list_key = 'active' ORDER BY slug "
-        "FOR UPDATE").fetchall()]
+        "SELECT slug FROM orgtree.work_items WHERE list_key = 'active' ORDER BY slug").fetchall()]
     pairs: list[tuple[str, str]] = []
     for ls in m.logs.values():
         if ls.kind in ("agent", "agent_map"):
@@ -203,14 +234,15 @@ class OrgDbBackend:
                             raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
                                         (conn.org_id, f"node:{orgtx._ALL_NODES_KEY}"))   # pyright: ignore[reportPrivateUsage]
                         ids = [str(r[0]) for r in raw.execute(
-                            "SELECT name FROM orgtree.agents WHERE NOT tombstone ORDER BY name "
+                            "SELECT name FROM orgtree.agents WHERE NOT tombstone ORDER BY id "
                             "FOR UPDATE").fetchall()]
                         tx.lock_nodes = frozenset(ids)
                         if tx.whole:
                             orgtx._whole_rows(tx, *_whole(raw))         # pyright: ignore[reportPrivateUsage]
                     block = _lock_rows(raw, conn.org_id, [
                         e for e in orgtx._lock_plan(tx, ids)            # pyright: ignore[reportPrivateUsage]
-                        if not (e[0] == "org" or (tx.all_nodes and e[0] == "node"))])
+                        if not (e[0] == "org" or (tx.all_nodes and e[0] == "node"))],
+                        mail_owners=sorted(tx.lock_nodes) if "mail_log" in tx.logs else [])
                     if block is not None:
                         raw.execute(block)
             except Exception as e:

@@ -54,6 +54,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .. import codec, mappers
+from . import mailboxes as M
 from ..codec import Rows, ShapeError
 from ..mappers import agents as A
 from ..mappers import docket as D
@@ -1337,15 +1338,23 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names) 
         keys.update(agent_id=names.id(owner, mint=True), idx=rid)
         if key is not None:
             keys["key"] = key
+    if ls.name == "mail_log":
+        M.lock(c, keys["agent_id"])
     out: Rows = {}
     codec.encode(ls.table.spec, rec, keys, out, link=ls.table.link)
     store_encoded(c, ls.table, out, ids=[rid])
+    if ls.name == "mail_log":
+        M.advance(c, keys["agent_id"], rec.get("recv_seq"))
     ensure_section(c, ls.name, touch=False)
     return seq_of(ls, rid)
 
 
 def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | None) -> int:
     """Rewrite the row ``rid`` (compare-and-set when ``expected`` is given); 0 or 1."""
+    if ls.name == "mail_log":
+        owners = [int(r[0]) for r in c.execute(
+            "SELECT agent_id FROM orgtree.mail_log WHERE id=%s", (rid,)).fetchall()]
+        M.lock_many(c, owners)
     rows, ch = fetch(c, ls.table, _scope(ls, " AND id = %s"), (rid,), lock=True)
     if not rows:
         return 0
@@ -1371,17 +1380,26 @@ def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | Non
     out: Rows = {}
     codec.encode(ls.table.spec, rec, keys, out, link=ls.table.link)
     store_encoded(c, ls.table, out, ids=[rid])
+    if ls.name == "mail_log":
+        M.recount(c, owners)
     return 1
 
 
 def log_delete(c: Any, ls: LogSect, rids: Sequence[int], *, expected: str | None = None) -> int:
     """Delete rows by id (compare-and-set for one row when ``expected`` is given)."""
+    if ls.name == "mail_log":
+        owners = [int(r[0]) for r in c.execute(
+            "SELECT DISTINCT agent_id FROM orgtree.mail_log WHERE id=ANY(%s)", (list(rids),)).fetchall()]
+        M.lock_many(c, owners)
     if expected is not None:
         rows, ch = fetch(c, ls.table, _scope(ls, " AND id = %s"), (rids[0],), lock=True)
         if not rows or not same(dumps(entry_of(ls, rows[0], ch)), expected):
             return 0
-    return int(c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE {_scope(ls)} "
-                         "AND id = ANY(%s)", (list(rids),)).rowcount)
+    n = int(c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE {_scope(ls)} "
+                      "AND id = ANY(%s)", (list(rids),)).rowcount)
+    if n and ls.name == "mail_log":
+        M.recount(c, owners)
+    return n
 
 
 def log_scope_delete(c: Any, ls: LogSect, owner_id: int | None = None) -> int:
@@ -1390,8 +1408,14 @@ def log_scope_delete(c: Any, ls: LogSect, owner_id: int | None = None) -> int:
     if owner_id is not None:
         where += " AND agent_id = %s"
         params.append(owner_id)
-    return int(c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE {where}",
-                         params).rowcount)
+    if ls.name == "mail_log":
+        owners = [owner_id] if owner_id is not None else [int(r[0]) for r in c.execute(
+            "SELECT DISTINCT agent_id FROM orgtree.mail_log").fetchall()]
+        M.lock_many(c, owners)
+    n = int(c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE {where}", params).rowcount)
+    if n and ls.name == "mail_log":
+        M.recount(c, owners)
+    return n
 
 
 def log_count(c: Any, ls: LogSect, owner_id: int | None = None) -> int:

@@ -229,6 +229,7 @@ class Race:
     # ------------------------------------------------------------ arming
     def __enter__(self) -> "Race":
         from orgtree import orgtx
+        from orgtree.orgdb.compat.tx import OrgDbBackend
         self.facts = isolation_proof()
         self.facts["transition_fence"] = fence_state()
         self.facts["pair"] = self.pair or "unspecified"
@@ -241,7 +242,7 @@ class Race:
         self._undo.append(lambda: orgtx.set_pause_hook(None))
         if isinstance(self._backend, orgtx.SeamBackend):
             self._wrap_row_locks(self._backend.locks)
-        elif isinstance(self._backend, orgtx.PgBackend):
+        elif isinstance(self._backend, (orgtx.PgBackend, OrgDbBackend)):
             self._wrap_pg_open()
         else:
             raise RaceFailure(f"no lock-wait probe for backend {type(self._backend).__name__}")
