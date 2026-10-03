@@ -504,10 +504,13 @@ OUTSIDE = {'org_identity', 'org_revision', 'org_topology', 'conversion_runs',
 
 # Derived from verified source fields or maintained by database triggers.
 # 0006_agents_readers.sql supplies the revision counters; 0007_docket_readers.sql
-# supplies docket projections and its counter. These are not legacy data.
+# supplies docket projections and its counter; 0008_windows.sql supplies the bounded
+# windows' keys (generated win_* columns, the Sent tail's owner_pos) and the events
+# count. These are not legacy data.
 DERIVED = {
     'org_revision': {'node_rev', 'catalog_rev', 'view_rev', 'docket_rev',
-                     'node_count', 'retired_axis_count', 'cost', 'cost_unknown'},
+                     'node_count', 'retired_axis_count', 'cost', 'cost_unknown',
+                     'events_count'},
     'agents': {'parent_misfit', 'predecessor_misfit', 'successor_misfit',
                'state_misfit', 'ui_order_misfit', 'created_misfit',
                'generation_misfit', 'bearer_state_misfit',
@@ -515,6 +518,12 @@ DERIVED = {
     'asks': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
     'credit_requests': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
     'scope_requests': {'node_misfit', 'status_misfit', 'at_misfit', 'resolved_at_misfit'},
+    'notice_log': {'win_node', 'win_at'},
+    'user_mail_log': {'win_from', 'win_at'},
+    'mail_log': {'win_from', 'win_at', 'owner_pos'},
+    'events': {'win_at'},
+    'steer_records': {'win_at'},
+    'agent_turn_errors': {'win_at'},
     'work_items': {'docket_policy_extra', 'docket_list_extra', 'docket_scope_meta',
                    'docket_manual', 'docket_order', 'docket_deadline',
                    'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
