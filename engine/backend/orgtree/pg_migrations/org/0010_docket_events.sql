@@ -250,3 +250,6 @@ BEGIN
  END LOOP;
 END
 $triggers$;
+
+CREATE TRIGGER foreground_defer BEFORE INSERT OR UPDATE OR DELETE
+ ON orgtree.work_item_events FOR EACH STATEMENT EXECUTE FUNCTION orgtree.foreground_defer();
