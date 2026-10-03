@@ -37,7 +37,7 @@ class MaintainedAggregates(unittest.TestCase):
 
     def recount(self, raw):
         return raw.execute("SELECT count(*),count(*) FILTER (WHERE a.state='archived' "
-            "AND (successor_id IS NULL OR s.name='')),coalesce(sum(a.cost_usd),0),"
+            "AND (a.successor_id IS NULL OR s.name='')),coalesce(sum(a.cost_usd),0),"
             'count(*) FILTER (WHERE a.cost_usd_unknown) FROM orgtree.agents a '
             'LEFT JOIN orgtree.agents s ON s.id=a.successor_id WHERE NOT a.tombstone').fetchone()
 
@@ -128,10 +128,10 @@ class MaintainedAggregates(unittest.TestCase):
                     time.sleep(.01)
                 else:
                     self.fail('standalone COMMIT never waited for the save singleton')
-                saved.raw.execute('COMMIT')
+                saved.execute('COMMIT')
             finally:
                 if saved.in_transaction:
-                    saved.raw.execute('ROLLBACK')
+                    saved.execute('ROLLBACK')
                 worker.join(10)
                 saved.close()
             self.assertFalse(worker.is_alive())
