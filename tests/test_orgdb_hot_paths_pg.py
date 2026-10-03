@@ -21,6 +21,7 @@ from orgtree import (desktop_notifications as notices, foreground_store as foreg
                      identity_context, policy_candidates, policy_context, policy_reads,
                      settingstx, store, tree_ui, turn_inputs)
 from orgtree.orgdb import registry
+from orgtree.ledger import Org
 
 setUpModule = fixture.setUpModule
 tearDownModule = fixture.tearDownModule
@@ -127,7 +128,7 @@ def capture(queries):
         yield
 
 
-def seeded_document(template, slug, history):
+def seeded_document(template, slug, history, *, stray_names=False):
     """Real codec records; archive rows precede active rows in stored order.
 
     Active nodes, relationships, current mail, recent turns, presentation
@@ -137,14 +138,32 @@ def seeded_document(template, slug, history):
     """
     doc = copy.deepcopy(template)
     doc['slug'] = slug
+    # The primary fixture comes from the engine's actual constructor. Names
+    # belong to the outer node map, never to the node body. Keep the supported
+    # stray-name shape separately so rare-extra correction is guarded too.
+    seed = Org(copy.deepcopy(template))
+    seed.d['nodes'] = {}
+    for name, parent in (('boss', None), ('dev', 'boss'), ('ops', 'boss')):
+        seed._new_node('opus', parent, 10, name, [],
+                       copy.deepcopy(seed.d['default_tools']), 'self', 'guard fixture')
+    prototypes = seed.nodes
     doc['nodes'] = {}
     for i in range(history):
         name = f'archive-{i:06}'
-        doc['nodes'][name] = dict(fixture.node(name, 'boss'), state='archived',
-            turns=[dict(n=j, at=fixture.AT) for j in range(8)], ui_order=-i-1)
+        node = copy.deepcopy(prototypes['dev'])
+        node.update(state='archived', archived_at=fixture.AT, title=name,
+                    seat_id=f'seat-{name}', session_id=f'session-{name}', lineage=name,
+                    cost_usd=0.25, turns=[dict(n=j, at=fixture.AT) for j in range(8)],
+                    ui_order=-i-1)
+        if stray_names:
+            node['name'] = name
+        doc['nodes'][name] = node
     for name, parent in (('boss', None), ('dev', 'boss'), ('ops', 'boss')):
-        doc['nodes'][name] = fixture.node(name, parent)
-        doc['nodes'][name]['turns'] = [dict(n=j, at=fixture.AT) for j in range(8)]
+        node = copy.deepcopy(prototypes[name])
+        node.update(cost_usd=0.25, turns=[dict(n=j, at=fixture.AT) for j in range(8)])
+        if stray_names:
+            node['name'] = name
+        doc['nodes'][name] = node
     doc['nodes']['ops']['frozen'] = {'reason': 'usage'}
     doc['mail'] = {'dev': [dict(id='current', **{'from': 'boss'}, body='current', at=fixture.AT)]}
     doc['delivering'] = {'dev': []}
@@ -197,7 +216,7 @@ def publish(doc):
 
 
 def readers():
-    return {
+    selected = {
         'a1_foreground': lambda slug: foreground.read_foreground(slug),
         'a1_exact': lambda slug: foreground.read_exact(slug, 'dev'),
         'a1_references': lambda slug: foreground.read_references(slug, ['dev', 'boss']),
@@ -224,6 +243,9 @@ def readers():
         'a6_gallery': store.read_document_gallery,
         'a6_document': lambda slug: store.read_document(slug, 'document-0'),
     }
+    selected.update({'robust_' + name: reader for name, reader in list(selected.items())
+                     if name.startswith('a1_')})
+    return selected
 
 
 def measure(slug, reader, sizes, *, plan_options=()):
@@ -264,16 +286,24 @@ class HotReaders(unittest.TestCase):
         with fixture.storage(False):
             template = store.create_org('hot-template').d
         with fixture.storage(True):
-            for multiplier in (1, 10):
-                slug = f'hot-history-{multiplier}'
-                sizes = publish(seeded_document(template, slug, BASE_HISTORY * multiplier))
-                cls.sizes[multiplier] = sizes
-                cls.results[multiplier] = {}
-                for name, reader in readers().items():
-                    try:
-                        cls.results[multiplier][name] = measure(slug, reader, sizes)
-                    except Exception as exc:
-                        cls.results[multiplier][name] = dict(error=f'{type(exc).__name__}: {exc}')
+            for stray_names in (False, True):
+                for multiplier in (1, 10):
+                    slug = f'hot-robust-{multiplier}' if stray_names else f'hot-history-{multiplier}'
+                    doc = seeded_document(template, slug, BASE_HISTORY * multiplier,
+                                          stray_names=stray_names)
+                    if not stray_names and any('name' in n or 'id' in n for n in doc['nodes'].values()):
+                        raise AssertionError('primary fixture must use engine-shaped node bodies')
+                    sizes = publish(doc)
+                    if not stray_names:
+                        cls.sizes[multiplier] = sizes
+                        cls.results[multiplier] = {}
+                    for name, reader in readers().items():
+                        if name.startswith('robust_') != stray_names:
+                            continue
+                        try:
+                            cls.results[multiplier][name] = measure(slug, reader, sizes)
+                        except Exception as exc:
+                            cls.results[multiplier][name] = dict(error=f'{type(exc).__name__}: {exc}')
         if destination := os.environ.get('ORGTREE_HOT_PATH_REPORT'):
             Path(destination).write_text(json.dumps(cls.results, indent=2, default=str), encoding='utf-8')
 
@@ -301,7 +331,7 @@ class HotReaders(unittest.TestCase):
     def _label(name):
         # These remain ordinary assertions, never skips/expectedFailure. The
         # finding points to the product remedy; a fixed path must turn green.
-        finding = ('f1' if name.startswith('a1_') else
+        finding = ('f1' if name.startswith(('a1_', 'robust_a1_')) else
                    'f2' if name in ('a6_mail', 'a6_history', 'a6_events', 'a6_gallery') else
                    'f3' if name == 'a4_policy_context' else None)
         return f'{name} (known product finding {finding})' if finding else name
@@ -347,7 +377,7 @@ class HotReaders(unittest.TestCase):
         with fixture.storage(True), patch.object(reader_rows, '_rows', fault):
             results = [measure(f'hot-history-{m}', policy_candidates.read, self.sizes[m])
                        for m in (1, 10)]
-        self.assertEqual(len(changed), 2, 'fault must reach both real reader calls')
+        self.assertEqual(len(changed), 4, 'fault must reach warmup and captured calls at both sizes')
         self.assertGreater(results[1]['rows'], results[0]['rows'] * 1.05 + 32, results)
 
     def test_control_json_body_projection_remains_allowed(self):
