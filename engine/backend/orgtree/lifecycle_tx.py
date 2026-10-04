@@ -567,20 +567,22 @@ def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any]
                 ) -> tuple[set[str], set[str], tuple[str, ...], tuple[str, ...],
                            tuple[Any, ...]]:
     from .ledger import actor_kind
+    from .orgdb import native_move   # noqa: PLC0415
     caps = any(kw.get(k) is not None for k in _SCOPE_CAPS)
     upd = {nid}
     share: set[str] = set(_anc(org, nid))
     sections = {"notices"}
     share_sections: set[str] = set()
     if caps and nid in org.nodes:
-        upd |= _scope_sweep_rows(org, actor, nid, kw)
+        if not native_move.enabled():
+            upd |= _scope_sweep_rows(org, actor, nid, kw)
         top = actor if actor_kind(actor) not in ("user", "system") else USER
         upd |= {k for k in org._path_down(top, nid) if k in org.nodes}
         if actor_kind(actor) in ("user", "system"):
             sections |= set(_ORG_GRANTS)
         else:
             share_sections |= set(_ORG_GRANTS)
-    if actor in org.nodes:
+    if actor_kind(actor) not in ("user", "system") and actor in org.nodes:
         share.add(actor)
     return (upd, share - upd, tuple(sorted(sections)),
             tuple(sorted(share_sections - sections)), ("events", "notice_log"))
@@ -623,8 +625,12 @@ def set_scope_observed(slug: str, actor: str, nid: str, kw: dict[str, Any],
     and the committed private `tx.org` comes back for reads after the commit
     (the live-effort delivery). Returns (result, before's value or None, the
     committed document)."""
-    upd, share, sections, share_sections, logs = _scope_plan(
-        store.cached_org(slug), actor, nid, kw)
+    from .orgdb import native_move   # noqa: PLC0415
+    from . import pgdoor   # noqa: PLC0415
+    derive = lambda org: _scope_plan(org, actor, nid, kw)
+    upd, share, sections, share_sections, logs = (
+        native_move.planned_rows(slug, derive) if native_move.enabled()
+        else derive(store.cached_org(slug)))
     for _ in range(MAX_WIDEN + 1):
         try:
             with halt.txn(slug, nodes=upd, share_nodes=share - upd,
@@ -640,6 +646,10 @@ def set_scope_observed(slug: str, actor: str, nid: str, kw: dict[str, Any],
             share |= w.share_nodes
             sections = tuple(sorted(set(sections) | w.sections))
             share_sections = tuple(sorted(set(share_sections) | w.share_sections))
+        except pgdoor.Widen as w:
+            # Current scope authority never acquires an ancestor lock late.
+            upd.update(w.spec.nodes)
+            share.update(w.spec.share_nodes)
     raise WidenExhausted(f"set_scope: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
 

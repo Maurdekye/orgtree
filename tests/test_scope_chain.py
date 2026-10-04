@@ -13,7 +13,7 @@ _data = tempfile.TemporaryDirectory(prefix="orgtree-scope-chain-")
 os.environ["ORGTREE_DATA"] = _data.name
 
 from orgtree import scope_chain as sc  # noqa: E402
-from orgtree import ledger   # noqa: E402
+from orgtree import ledger, lifecycle_tx   # noqa: E402
 from orgtree.orgdb import native_move   # noqa: E402
 
 
@@ -39,6 +39,92 @@ class CurrentScope(unittest.TestCase):
     def setUp(self):
         self.root = Path(_data.name)
         self.project = self.root / "project"
+
+    def org_with_reports(self):
+        org = ledger.Org.create('native-scope-controls')
+        org.hire(ledger.USER, None, 'luna', 20, 'boss')
+        org.hire(ledger.USER, 'boss', 'luna', 5, 'parent')
+        org.hire(ledger.USER, 'parent', 'luna', 0, 'child')
+        for name in ('boss', 'parent', 'child'):
+            org.node(name)['scope'] = node(dirs=[(self.project, 'rw')])['scope']
+        return org
+
+    def test_native_scope_shrink_and_expansion_leave_descendant_configuration_untouched(self):
+        org = self.org_with_reports()
+        before = deepcopy(org.nodes)
+        with patch.object(native_move, 'enabled', return_value=True), \
+                patch.object(ledger.Org, '_lazy_subtree_index',
+                             side_effect=AssertionError('descendant sweep')):
+            tools = dict(before['parent']['scope']['tools'], bash=False, mcp=['mail'])
+            org.set_scope(ledger.USER, 'parent', tools=tools, permission_mode='plan')
+            self.assertFalse(org.capability_scope('child')['tools']['bash'])
+            self.assertEqual(org.capability_scope('child')['tools']['mcp'], ['mail'])
+            self.assertEqual(org.capability_scope('child')['permission_mode'], 'plan')
+            self.assertEqual(org.scope_touched, set())
+            self.assertEqual(org.node('child'), before['child'])
+            org.set_scope(ledger.USER, 'parent', tools=before['parent']['scope']['tools'],
+                          permission_mode='bypassPermissions')
+            self.assertEqual(org.capability_scope('child'), before['child']['scope'])
+            self.assertEqual(org.node('child'), before['child'])
+
+    def test_native_folder_revoke_changes_only_selected_configuration(self):
+        org = self.org_with_reports()
+        before = deepcopy(org.node('child'))
+        with patch.object(native_move, 'enabled', return_value=True), \
+                patch.object(ledger.Org, 'descendants',
+                             side_effect=AssertionError('descendant walk')):
+            result = org.revoke_dir(ledger.USER, 'parent', str(self.project))
+            self.assertEqual(result['removed_from'], ['parent'])
+            self.assertEqual(org.capability_scope('child')['add_dirs'], [])
+            self.assertEqual(org.node('child'), before)
+            org.set_scope(ledger.USER, 'parent', add_dirs=before['scope']['add_dirs'])
+            self.assertEqual(org.capability_scope('child')['add_dirs'],
+                             before['scope']['add_dirs'])
+
+    def test_native_scope_plan_names_only_selected_bubble_and_ancestors(self):
+        org = self.org_with_reports()
+        with patch.object(native_move, 'enabled', return_value=True), \
+                patch.object(lifecycle_tx, '_scope_sweep_rows',
+                             side_effect=AssertionError('whole dry-run copy')):
+            update, shared, *_ = lifecycle_tx._scope_plan(
+                org, ledger.USER, 'parent', {'tools': {'bash': False}})
+            self.assertEqual(update, {'boss', 'parent'})
+            self.assertEqual(shared, set())
+            update, shared, *_ = lifecycle_tx._scope_plan(
+                org, 'boss', 'parent', {'tools': {'bash': False}})
+            self.assertEqual(update, {'parent'})
+            self.assertEqual(shared, {'boss'})
+
+    def test_native_hire_defaults_and_explicit_ceiling_use_effective_parent(self):
+        org = self.org_with_reports()
+        org.node('boss')['scope']['tools']['bash'] = False
+        org.node('boss')['scope']['add_dirs'][0]['mode'] = 'ro'
+        with patch.object(native_move, 'enabled', return_value=True):
+            result = org.hire(ledger.USER, 'parent', 'luna', 0, 'new-report')
+            scope = org.node(result['node'])['scope']
+            self.assertFalse(scope['tools']['bash'])
+            self.assertEqual(scope['add_dirs'], [{'path': str(self.project), 'mode': 'ro'}])
+            before = deepcopy(org.d)
+            with self.assertRaisesRegex(ledger.LedgerError, 'bash'):
+                org.hire('parent', 'parent', 'luna', 0, 'refused', add_dirs=[],
+                         tools=node()['scope']['tools'], org_visibility='self', charter='role')
+            self.assertEqual(org.d, before)
+
+    def test_native_rehire_preserves_configured_grants_and_derives_current_scope(self):
+        org = self.org_with_reports()
+        org.retire(ledger.USER, 'child')
+        configured = deepcopy(org.node('child')['scope'])
+        org.node('boss')['scope']['tools']['bash'] = False
+        org.node('boss')['scope']['permission_mode'] = 'plan'
+        with patch.object(native_move, 'enabled', return_value=True):
+            result = org.rehire(ledger.USER, 'child')
+            self.assertEqual(org.node('child')['scope'], configured)
+            self.assertFalse(org.capability_scope('child')['tools']['bash'])
+            self.assertEqual(org.capability_scope('child')['permission_mode'], 'plan')
+            self.assertTrue(any('configured grants are retained' in w for w in result['warnings']))
+            org.node('boss')['scope']['tools']['bash'] = True
+            org.node('boss')['scope']['permission_mode'] = 'bypassPermissions'
+            self.assertEqual(org.capability_scope('child'), configured)
 
     def test_ledger_actor_parent_and_scope_request_checks_use_effective_grants(self):
         org = ledger.Org.__new__(ledger.Org)

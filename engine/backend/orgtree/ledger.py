@@ -4613,13 +4613,13 @@ class Org:
         else:
             parent_map = self.effective_dirs(parent)
             default = cast("list[DirGrant]",  # dict() copies lose the TypedDict
-                           [dict(d) for d in self.node(parent)["scope"]["add_dirs"]])
+                           [dict(d) for d in self.capability_scope(parent)["add_dirs"]])
         if add_dirs is None:
             dirs = default
         else:
             dirs, _ = self._clamp_dirs(norm_dirs(add_dirs), parent_map, strict=True)
 
-        parent_tools = None if parent is None else self.node(parent)["scope"]["tools"]
+        parent_tools = None if parent is None else self.capability_scope(parent)["tools"]
         # unspecified tools (user hires) fall back to the org's agent defaults —
         # applied directly at top level, ∩ the superior's capability below
         requested = tools if tools is not None else self.d.get("default_tools")
@@ -5502,34 +5502,38 @@ class Org:
             warnings.append("the weekly Fable usage limit is exhausted — this agent "
                             "will not be able to run yet; rehiring it now is futile")
 
-        # №30: grants re-validate against the parent's CURRENT capability at rehire
-        kept, lost = self._clamp_dirs(
-            n["scope"]["add_dirs"], self.effective_dirs(parent), strict=False)
-        if lost:
-            n["scope"]["add_dirs"] = kept
-            warnings.append(f"dir grants adjusted to the parent's capability (№30): {lost}")
-        ptools = None if parent is None else self.node(parent)["scope"]["tools"]
-        tkept, tlost = self._clamp_tools(n["scope"]["tools"], ptools, strict=False)
-        n["scope"]["tools"] = tkept
-        if tlost:
-            warnings.append(f"tool grants adjusted to the parent's capability: {tlost}")
-        v, vclamped = self._clamp_vis(
-            n["scope"].get("org_visibility", "full"), parent, strict=False)
-        if vclamped:
-            n["scope"]["org_visibility"] = v
-            warnings.append(
-                f"org_visibility adjusted to the parent's capability ({v})")
-        # D-102: a settings save no longer sweeps archived descendants
-        # (3-2-0-saving-a-big-manager-s-settings-must-not-l), so a mode the
-        # chain lowered while this node was archived is applied here
-        if parent is not None:
-            pm = n["scope"].get("permission_mode", "acceptEdits")
-            ppm = self.node(parent)["scope"].get("permission_mode", "acceptEdits")
-            if (pm in PM_LEVELS and ppm in PM_LEVELS
-                    and PM_LEVELS.index(pm) > PM_LEVELS.index(ppm)):
-                n["scope"]["permission_mode"] = ppm
+        from .orgdb import native_move   # noqa: PLC0415
+        if native_move.enabled():
+            effective = self.capability_scope(nid)
+            if any(effective.get(k) != n["scope"].get(k) for k in
+                   ("add_dirs", "tools", "org_visibility", "permission_mode")):
+                warnings.append("scope follows the current parent chain; configured grants are retained")
+        else:
+            # Legacy rehire keeps its existing destructive clamp.
+            kept, lost = self._clamp_dirs(
+                n["scope"]["add_dirs"], self.effective_dirs(parent), strict=False)
+            if lost:
+                n["scope"]["add_dirs"] = kept
+                warnings.append(f"dir grants adjusted to the parent's capability (№30): {lost}")
+            ptools = None if parent is None else self.node(parent)["scope"]["tools"]
+            tkept, tlost = self._clamp_tools(n["scope"]["tools"], ptools, strict=False)
+            n["scope"]["tools"] = tkept
+            if tlost:
+                warnings.append(f"tool grants adjusted to the parent's capability: {tlost}")
+            v, vclamped = self._clamp_vis(
+                n["scope"].get("org_visibility", "full"), parent, strict=False)
+            if vclamped:
+                n["scope"]["org_visibility"] = v
                 warnings.append(
-                    f"permission_mode adjusted to the parent's capability ({ppm})")
+                    f"org_visibility adjusted to the parent's capability ({v})")
+            if parent is not None:
+                pm = n["scope"].get("permission_mode", "acceptEdits")
+                ppm = self.node(parent)["scope"].get("permission_mode", "acceptEdits")
+                if (pm in PM_LEVELS and ppm in PM_LEVELS
+                        and PM_LEVELS.index(pm) > PM_LEVELS.index(ppm)):
+                    n["scope"]["permission_mode"] = ppm
+                    warnings.append(
+                        f"permission_mode adjusted to the parent's capability ({ppm})")
 
         n["state"] = "live"
         n["grant"] = grant
@@ -7342,13 +7346,15 @@ class Org:
 
     # ------------------------------------------------------------------ dirs
     def revoke_dir(self, actor: str, nid: str, dir_: str) -> dict[str, Any]:
-        """№30 explicit revoke — cascades into the LIVE subtree (their sets
-        must stay ⊆). An archived descendant keeps the folder until it is
-        rehired: `rehire` clamps its folders to its parent's CURRENT set
-        (3-2-0-saving-a-big-manager-s-settings-must-not-l)."""
+        """Remove the selected configured grant. Native descendants derive it.
+
+        Legacy storage retains its destructive live-subtree cascade.
+        """
         self._require_authority(actor, nid)
+        from .orgdb import native_move   # noqa: PLC0415
         removed: list[str] = []
-        for k in [nid] + self.descendants(nid, live_only=True):
+        targets = [nid] if native_move.enabled() else [nid] + self.descendants(nid, live_only=True)
+        for k in targets:
             dirs = self.nodes[k]["scope"]["add_dirs"]
             if any(d["path"] == dir_ for d in dirs):
                 self.nodes[k]["scope"]["add_dirs"] = [d for d in dirs if d["path"] != dir_]
@@ -7541,6 +7547,11 @@ class Org:
         (3-2-0-saving-a-big-manager-s-settings-must-not-l: re-clamping 1225
         archived reports under the save's locks jammed the org). `touched`,
         when given, collects every node whose scope the sweep changed."""
+        from .orgdb import native_move   # noqa: PLC0415
+        if native_move.enabled():
+            # Configured scope is retained. The current ancestor fold applies
+            # narrowing at use time, so no descendant is selected or written.
+            return []
         dropped: list[str] = []
         # on on-demand rows: the subtree's children from one statement per
         # generation, not `children()` decoding the whole table (the sweep

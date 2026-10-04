@@ -109,6 +109,34 @@ class NativeMoveEndpoints(unittest.TestCase):
         org.node('b')['scope']['tools']['bash'] = False
         store.save_org(org)
 
+    def test_actual_scope_edit_avoids_whole_preflight_and_keeps_descendant_header(self):
+        from orgtree import lifecycle_tx
+        self.configure_capabilities()
+        configured = copy.deepcopy(store.load_org(self.slug).node('leaf')['scope'])
+        with store._POOL.acquire(self.slug) as conn:
+            before = conn.raw.execute("SELECT row_to_json(a) FROM orgtree.agents a "
+                                      "WHERE name='leaf'").fetchone()[0]
+        with patch.object(store, 'cached_org', side_effect=AssertionError('whole preflight')), \
+                patch.object(store, 'write_org', side_effect=AssertionError('whole write')), \
+                patch.object(lifecycle_tx, '_scope_sweep_rows',
+                             side_effect=AssertionError('whole simulation')), \
+                patch.object(ledger.Org, '_lazy_subtree_index',
+                             side_effect=AssertionError('descendant sweep')):
+            lifecycle_tx.set_scope(self.slug, ledger.USER, 'a',
+                tools=dict(configured['tools'], bash=False), permission_mode='plan')
+            with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+                self.assertFalse(tx.org.capability_scope('leaf')['tools']['bash'])
+                self.assertEqual(tx.org.capability_scope('leaf')['permission_mode'], 'plan')
+                self.assertEqual(graph.current_plan(native_move.connection(tx.org))['stats'], [])
+            lifecycle_tx.set_scope(self.slug, ledger.USER, 'a',
+                tools=configured['tools'], permission_mode=configured['permission_mode'])
+        with store._POOL.acquire(self.slug) as conn:
+            after = conn.raw.execute("SELECT row_to_json(a) FROM orgtree.agents a "
+                                     "WHERE name='leaf'").fetchone()[0]
+        self.assertEqual(after, before)
+        with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+            self.assertEqual(tx.org.capability_scope('leaf'), configured)
+
     def test_locked_scope_uses_current_chain_and_move_back_restores_configured_grants(self):
         self.configure_capabilities()
         configured = copy.deepcopy(store.load_org(self.slug).node('leaf')['scope'])
