@@ -503,6 +503,15 @@ class Requests(unittest.TestCase):
                                 with self.connection() as c, c.transaction():
                                     with self.assertRaises(requests.StaleRun):
                                         requests.fence(c, run)
+                                with turn_runtime.Admission(host, 'alpha', 'seat', 'turn',
+                                        lambda: False, lambda info: None, lambda: None) as successor:
+                                    self.assertNotEqual(successor.request_id, rid)
+                                    self.assertEqual(successor.owner, self.owner)
+                                    self.assertEqual(self.queue.snapshot()['held'], 1)
+                                    self.assertTrue(all(kernel.WaitForSingleObject(h, 0) == 0
+                                                        for h in handles))
+                                self.assertEqual(self.queue.get(successor.request_id).state, 'done')
+                                self.assertEqual(self.queue.snapshot()['held'], 0)
                             finally:
                                 host.stop()
                     finally:
