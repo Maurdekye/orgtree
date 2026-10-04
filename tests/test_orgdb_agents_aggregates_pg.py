@@ -203,7 +203,7 @@ class MaintainedAggregates(unittest.TestCase):
                 raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
                 raw.execute("INSERT INTO orgtree.asks(ord,status) VALUES(44001,'open')")
                 raw.execute('SET CONSTRAINTS ALL IMMEDIATE')
-                raw.execute("UPDATE orgtree.asks SET status='closed' WHERE ord=44001")
+                raw.execute("UPDATE orgtree.asks SET status='answered' WHERE ord=44001")
                 raw.execute('COMMIT')
                 self.assertEqual(raw.execute('SELECT view_rev,docket_rev FROM orgtree.org_revision').fetchone(),
                                  (before[0]+1,before[1]+1))
@@ -312,8 +312,9 @@ class MaintainedAggregates(unittest.TestCase):
                     raw.execute("UPDATE orgtree.agents SET model='unicode-control' WHERE name='dev'")
                     self.assertEqual(reader_rows.read_agents(raw,['dev'])['dev']['title'],literal)
                     for table in ('asks','credit_requests','scope_requests'):
+                        status = 'pending' if table == 'credit_requests' else 'open'
                         rid=raw.execute(f'INSERT INTO orgtree.{table}(ord,node,status,extra) '
-                            "VALUES(41000,'dev','open',%s) RETURNING id",(Json({'odd':literal,'at':None}),)).fetchone()[0]
+                            "VALUES(41000,'dev',%s,%s) RETURNING id",(status,Json({'odd':literal,'at':None}))).fetchone()[0]
                         raw.execute(f'UPDATE orgtree.{table} SET ord=41001 WHERE id=%s',(rid,))
                         self.assertEqual(raw.execute(f'SELECT at_misfit,node_misfit FROM orgtree.{table} WHERE id=%s',(rid,)).fetchone(),(True,False))
                         self.assertEqual(reader_rows.read_records(raw,table,[rid])[0]['odd'],literal)
@@ -373,8 +374,9 @@ class MaintainedAggregates(unittest.TestCase):
             raw.execute('BEGIN')
             try:
                 for table in ('asks','credit_requests','scope_requests'):
+                    status = 'pending' if table == 'credit_requests' else 'open'
                     rid=raw.execute(f'INSERT INTO orgtree.{table}(ord,node,status,extra) '
-                        "VALUES(40000,'dev','open',%s) RETURNING id",(Json({'unrelated':'kept'}),)).fetchone()[0]
+                        "VALUES(40000,'dev',%s,%s) RETURNING id",(status,Json({'unrelated':'kept'}))).fetchone()[0]
                     flags='node_misfit,status_misfit,at_misfit,resolved_at_misfit'
                     self.assertEqual(raw.execute(f'SELECT {flags} FROM orgtree.{table} WHERE id=%s',(rid,)).fetchone(),
                                      (False,False,False,False))

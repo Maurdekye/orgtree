@@ -16,7 +16,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 
 from orgtree.orgdb import codec, conn, enums, lifecycle, sections
 from orgtree.orgdb.convert import rowio
-from test_orgdb_enums import entries, fixture
+from test_orgdb_enums import entries, entry_row, fixture
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
@@ -56,20 +56,35 @@ class EnumConstraints(unittest.TestCase):
         with conn.connect(RUNTIME, self.build.database, autocommit=False) as c:
             rowio.write(c, rows, order=rowio.tables(secs))
             c.commit()
+            catalog = set(c.execute("SELECT rel.relname, con.conname FROM pg_constraint con "
+                                    "JOIN pg_class rel ON rel.oid=con.conrelid "
+                                    "JOIN pg_namespace ns ON ns.oid=rel.relnamespace "
+                                    "WHERE ns.nspname='orgtree' AND con.contype='c'").fetchall())
+            event_checks = [entry for entry in entries(True) if entry['table'] == 'work_item_events']
+            self.assertEqual(30, len(event_checks))
+            for entry in event_checks:
+                self.assertIn((entry['table'], f"{entry['table']}_{entry['column']}_enum"), catalog)
             for entry in entries(True):
                 table, column = entry['table'], entry['column']
                 with self.subTest(table=table, column=column):
+                    witness = entry_row(rows, entry)
+                    where = sql.SQL(' WHERE source=%s') if table == 'work_item_events' else sql.SQL('')
+                    params = (witness['source'],) if table == 'work_item_events' else ()
                     statement = sql.SQL('UPDATE orgtree.{} SET {}=%s').format(
                         sql.Identifier(table), sql.Identifier(column))
+                    statement += where
+                    reached = c.execute(sql.SQL('SELECT count(*) FROM orgtree.{}').format(
+                        sql.Identifier(table)) + where, params).fetchone()[0]
+                    self.assertEqual(1, reached, 'the refusal probe must reach a real row')
                     # The exact CHECK must fail, not some unrelated FK / trigger.
                     with self.assertRaises(psycopg.errors.CheckViolation) as caught:
                         with c.transaction():
-                            c.execute(statement, ('z' if entry['kind'] == 'marker' else 'zz-out-of-set',))
+                            c.execute(statement, ('z' if entry['kind'] == 'marker' else 'zz-out-of-set',) + params)
                     self.assertEqual(f'{table}_{column}_enum', caught.exception.diag.constraint_name)
                     for value in entry['values'] + (None,):
                         with self.assertRaises(RollbackProbe):
                             with c.transaction():
-                                changed = c.execute(statement, (value,)).rowcount
+                                changed = c.execute(statement, (value,) + params).rowcount
                                 self.assertEqual(1, changed)
                                 raise RollbackProbe()
 
@@ -78,7 +93,10 @@ class EnumConstraints(unittest.TestCase):
             marker_cols = c.execute("SELECT table_name, column_name FROM information_schema.columns "
                                     "WHERE table_schema='orgtree' AND right(column_name,3)='_is'").fetchall()
             known = {(e['table'], e['column']) for e in entries(True) if e['kind'] == 'marker'}
-            self.assertEqual(known | {('org_accounts', 'marks_is'), ('org_accounts', 'spend_is')},
+            from orgtree.orgdb.mappers import docket
+            placements = {('work_items', source + '_events_is') for source in docket.EVENT_SOURCES}
+            placements.update(('work_items', col + '_is') for col in docket.CURRENT_POINTERS.values())
+            self.assertEqual(known | placements | {('org_accounts', 'marks_is'), ('org_accounts', 'spend_is')},
                              set(marker_cols))
             for col in ('marks_is', 'spend_is'):
                 for value in codec.MARKER_VALUES['obj'] + (None,):
@@ -101,7 +119,7 @@ class EnumConstraints(unittest.TestCase):
             back_rows = rowio.read(c, order=rowio.tables(secs))
         for entry in entries():
             with self.subTest(table=entry['table'], column=entry['column']):
-                self.assertIsNone(back_rows[entry['table']][0][entry['column']])
+                self.assertIsNone(entry_row(back_rows, entry)[entry['column']])
         reports = enums.misfits('acme', back_rows, secs)
         self.assertEqual(len(entries()), len(reports))
         self.assertEqual({(e['table'], e['column']) for e in entries()},
@@ -145,7 +163,8 @@ class EnumConstraints(unittest.TestCase):
                 table, column = entry['table'], entry['column']
                 if (table, column) not in verifier.enum_columns():
                     continue  # account side tables are explicitly outside this document verifier
-                extra = copy.deepcopy(physical[table][0]['extra'] or {})
+                witness = entry_row(physical, entry)
+                extra = copy.deepcopy(witness['extra'] or {})
                 target = extra
                 for key in entry['path'][:-1]:
                     target = target.setdefault(key, {})
@@ -153,9 +172,11 @@ class EnumConstraints(unittest.TestCase):
                 with self.subTest(table=table, column=column):
                     with self.assertRaises(RollbackProbe):
                         with c.transaction():
+                            where = sql.SQL(' WHERE source=%s') if table == 'work_item_events' else sql.SQL('')
+                            params = (witness['source'],) if table == 'work_item_events' else ()
                             changed = c.execute(sql.SQL('UPDATE orgtree.{} SET {}=NULL, extra=%s')
-                                                .format(sql.Identifier(table), sql.Identifier(column)),
-                                                (Json(extra),)).rowcount
+                                                .format(sql.Identifier(table), sql.Identifier(column)) + where,
+                                                (Json(extra),) + params).rowcount
                             self.assertEqual(1, changed)
                             checker = check(c, doc)
                             self.assertTrue(any(p['table'] == table and p['field'] == column

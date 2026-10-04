@@ -13,11 +13,21 @@ from orgtree.orgdb.mappers import agents, docket
 from orgtree import ledger, opreceipts, registry, workevidence, workitems
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / 'engine/backend/orgtree/pg_migrations/org/0009_enum_checks.sql'
+MIGRATIONS = ROOT / 'engine/backend/orgtree/pg_migrations/org'
 
 
 def entries(include_markers=False):
     return list(enums.columns(mappers.sections() + [OrgAccounts()], include_markers=include_markers))
+
+
+def entry_row(rows, entry):
+    """Select the real source event, rather than an unrelated event's NULL columns."""
+    candidates = rows.get(entry['table'], [])
+    if entry['table'] == 'work_item_events':
+        candidates = [row for row in candidates if row['source'] == entry['path'][0]]
+    if len(candidates) != 1:
+        raise AssertionError(f"expected one witness for {entry['table']}.{entry['column']}, got {len(candidates)}")
+    return candidates[0]
 
 
 def record(path, value):
@@ -65,7 +75,10 @@ def fixture(bad=False):
                 rec.update(sample(table.spec, bad))
             doc['nodes'] = {'boss': rec}
         elif isinstance(section, docket.Docket):
-            doc['work_items'] = [dict(sample(section.tables[0].spec, bad), slug='one')]
+            item = dict(sample(docket.WORK_ITEM, bad), slug='one')
+            item.update({source: [sample(spec, bad)]
+                         for source, spec in docket.SOURCE_SPECS.items()})
+            doc['work_items'] = [item]
         elif isinstance(section, sections.RecordList):
             doc[section.key] = [sample(section.t.spec, bad)]
         elif isinstance(section, sections.ByAgentLists):
@@ -137,30 +150,50 @@ class EnumCodec(unittest.TestCase):
             rows, _, _ = sections.encode_document(doc, secs)
             for entry in entries():
                 with self.subTest(bad=bad, table=entry['table'], column=entry['column']):
-                    self.assertGreater(len(rows.get(entry['table'], [])), 0)
                     self.assertEqual(None if bad else entry['values'][0],
-                                     rows[entry['table']][0][entry['column']])
+                                     entry_row(rows, entry)[entry['column']])
             reports = enums.misfits('acme', rows, secs)
             self.assertEqual(len(entries()) if bad else 0, len(reports))
             back = sections.decode_document(rows, secs, sections.Context())
             self.assertEqual(json.dumps(doc, sort_keys=True), json.dumps(back, sort_keys=True))
             self.assertEqual(side.part, side.read_back)
 
+    def test_event_witness_requires_the_matching_source_row(self):
+        doc, secs, _ = fixture()
+        rows, _, _ = sections.encode_document(doc, secs)
+        events = [entry for entry in entries(True) if entry['table'] == 'work_item_events']
+        self.assertEqual(30, len(events))
+        for entry in events:
+            with self.subTest(column=entry['column']):
+                witness = entry_row(rows, entry)
+                self.assertEqual(entry['path'][0], witness['source'])
+                missing = dict(rows, work_item_events=[row for row in rows['work_item_events']
+                                                       if row['source'] != witness['source']])
+                with self.assertRaisesRegex(AssertionError, 'expected one witness'):
+                    entry_row(missing, entry)
+
 
 class EnumMigration(unittest.TestCase):
     def test_migration_covers_exactly_the_mapper_sets(self):
-        text = MIGRATION.read_text(encoding='utf-8')
-        pattern = (r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT (\w+)\s+'
-                   r'CHECK \("(\w+)" IN \(([^;]+)\)\);')
+        from test_orgdb_verify_static import schema
+        final = schema()
+        pattern = (r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT "?(\w+)"?\s+'
+                   r'CHECK\s*\("(\w+)" IN \(([^;]+)\)\);')
         actual = {}
-        for table, name, col, values in re.findall(pattern, text):
-            self.assertEqual(f'{table}_{col}_enum', name)
-            self.assertLessEqual(len(name), 63)
-            vals = tuple(v.replace("''", "'") for v in re.findall(r"'((?:''|[^'])*)'", values))
-            self.assertNotIn((table, col), actual)
-            actual[table, col] = vals
+        for migration in sorted(MIGRATIONS.glob('*.sql')):
+            text = migration.read_text(encoding='utf-8')
+            for table, name, col, values in re.findall(pattern, text):
+                self.assertEqual(f'{table}_{col}_enum', name)
+                self.assertLessEqual(len(name), 63)
+                # Later migrations drop the old child tables and parent markers.
+                if col not in final.get(table, {}):
+                    continue
+                vals = tuple(v.replace("''", "'") for v in re.findall(r"'((?:''|[^'])*)'", values))
+                self.assertNotIn((table, col), actual)
+                actual[table, col] = vals
         expected = {(e['table'], e['column']): e['values'] for e in entries(True)}
         self.assertEqual(expected, actual)
+        text = (MIGRATIONS / '0009_enum_checks.sql').read_text(encoding='utf-8')
         stripped = re.sub(r'--[^\n]*', '', text)
         self.assertEqual('', re.sub(pattern, '', stripped).strip())
         self.assertNotIn('NOT VALID', text)
@@ -181,9 +214,9 @@ class EnumMigration(unittest.TestCase):
             ('agents', 'scope_org_visibility'): ledger.VIS_LEVELS,
             ('scope_request_items', 'tool'): ledger.TOOL_KEYS,
             ('work_items', 'status'): ledger.Org.WORK_STATUSES,
-            ('work_item_evidence', 'kind'): ledger.Org.WORK_EVIDENCE_KINDS,
+            ('work_item_events', 'evidence_kind'): ledger.Org.WORK_EVIDENCE_KINDS,
             ('work_item_findings', 'disposition'): ledger.Org.WORK_DISPOSITIONS,
-            ('work_item_history', 'stage'): workitems.STAGES,
+            ('work_item_events', 'history_stage'): workitems.STAGES,
             ('work_item_acceptance', 'checked_classification'): workevidence.ACCEPTANCE_CLASSES,
             ('work_item_acceptance', 'checked_execution'): workevidence.EXECUTION,
             ('work_item_acceptance', 'checked_result'): workevidence.RESULTS,
