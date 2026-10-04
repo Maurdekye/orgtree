@@ -498,6 +498,95 @@ class GraphStats(unittest.TestCase):
                                         'ORDER BY agent_id').fetchall(), before)
         self.check_reference()
 
+    def native_move_org(self):
+        """Real native ledger/scalar seam; only notice transport is controlled."""
+        from orgtree import ledger, store
+        from orgtree.orgdb.compat import conn as C, rows as R
+        self.scalar_payload()
+        for name, parent, grant, state, extras in (
+                ('root', None, 100.0, 'live', {}),
+                ('destination', None, 10.0, 'live', {}),
+                ('bearer', 'root', 0.0, 'archived', {'successor': 'a'})):
+            R.node_put(self.c, name, {'parent': parent, 'grant': grant, 'state': state,
+                                     'model': 'sol', **extras}, R.Names(self.c))
+        value = json.loads(R.nodes(self.c, ['a'])[0][1])
+        R.node_put(self.c, 'a', {**value, 'predecessor': 'bearer'}, R.Names(self.c))
+        # A retained child is under B, not under X. The actual move reparents B.
+        self.c.execute('UPDATE orgtree.agents SET parent_id=8 WHERE id=7')
+        self.scalar_plan(['root', 'a', 'bearer', 'destination'], ['a', 'bearer', 'destination'])
+        doc = self.scalar_doc(['root', 'a', 'bearer', 'destination'])
+        for key, value in {'slug': 'test', 'tiers': {'sol': 2.0},
+                           'max_depth': 20, 'max_children': 10, 'max_top_grant': 1000}.items():
+            dict.__setitem__(doc, key, value)
+        # The controlled document has no intended org settings edits.
+        doc._snap_doc = store._dump({k: v for k, v in dict.items(doc) if k != 'nodes'})
+        org = ledger.Org.__new__(ledger.Org)
+        org.d = doc
+        wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
+        self.enterContext(patch.object(store, '_orgdb_on', return_value=True))
+        self.enterContext(patch.object(store._orgtx_local, 'pinned', {'test': wrapped}, create=True))
+        self.enterContext(patch.object(org, '_peers_of', return_value=[]))
+        self.enterContext(patch.object(org, '_notify_ev'))
+        self.enterContext(patch.object(org, '_log'))
+        for method in ('descendants', 'descendant_set', '_sweep_dirs', '_sweep_audiences'):
+            self.enterContext(patch.object(org, method, side_effect=AssertionError(method)))
+        return org, wrapped
+
+    def test_actual_native_move_preserves_descendants_payload_and_scalar_only_save(self):
+        from orgtree import ledger, store
+        from orgtree.orgdb.compat import rows as R
+        from orgtree.stateprobe import SaveChanges
+        org, wrapped = self.native_move_org()
+        before = self.c.execute('SELECT a.id,a.xmin::text,a.ctid::text,s.xmin::text,s.ctid::text '
+                                'FROM orgtree.agents a JOIN orgtree.agent_subtree_stats s ON s.agent_id=a.id '
+                                'WHERE a.id IN (3,4,7) ORDER BY a.id').fetchall()
+        payload = self.c.execute('SELECT extra::text,scope_tools_bash,model FROM orgtree.agents WHERE id=2').fetchone()
+        children = self.c.execute('SELECT xmin::text,ctid::text FROM orgtree.agent_dir_grants WHERE agent_id=2').fetchall()
+        result = org.move(ledger.USER, 'a', 'destination')
+        self.assertIn('configured grants are kept', result['warnings'][0])
+        self.assertEqual(self.c.execute('SELECT id,parent_id,credit_grant FROM orgtree.agents '
+                                       'WHERE id IN (1,2,5,8) ORDER BY id').fetchall(),
+                         [(1, None, 95), (2, 5, 3), (5, None, 15), (8, 5, 0)])
+        self.assertEqual(self.c.execute('SELECT a.id,a.xmin::text,a.ctid::text,s.xmin::text,s.ctid::text '
+                                       'FROM orgtree.agents a JOIN orgtree.agent_subtree_stats s ON s.agent_id=a.id '
+                                       'WHERE a.id IN (3,4,7) ORDER BY a.id').fetchall(), before)
+        self.assertEqual(self.c.execute('SELECT extra::text,scope_tools_bash,model FROM orgtree.agents WHERE id=2').fetchone(), payload)
+        self.assertEqual(self.c.execute('SELECT xmin::text,ctid::text FROM orgtree.agent_dir_grants WHERE agent_id=2').fetchall(), children)
+        changes = SaveChanges()
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_ROW_CAS', True), \
+                patch.object(store, '_SCOPED_SAVE', False), patch.object(R, 'node_put', wraps=R.node_put) as put:
+            store._write_doc(wrapped, org.d, org.d, changes)
+        self.assertEqual(put.call_count, 0)
+        self.assertEqual(set(changes.node_updates), {'root', 'a', 'destination', 'bearer'})
+        self.check_reference()
+
+    def test_actual_native_batch_refusal_restores_sql_stats_gucs_and_memory(self):
+        from orgtree import ledger
+        org, _ = self.native_move_org()
+        before = self.c.execute('SELECT id,parent_id,credit_grant,row_version FROM orgtree.agents ORDER BY id').fetchall()
+        stats = self.c.execute('SELECT * FROM orgtree.agent_subtree_stats ORDER BY agent_id').fetchall()
+        with self.assertRaisesRegex(ledger.LedgerError, 'step 2/2'):
+            org.move_batch(ledger.USER, [('a', 'destination'), ('a', 'a')])
+        self.assertEqual(self.c.execute('SELECT id,parent_id,credit_grant,row_version FROM orgtree.agents ORDER BY id').fetchall(), before)
+        self.assertEqual(self.c.execute('SELECT * FROM orgtree.agent_subtree_stats ORDER BY agent_id').fetchall(), stats)
+        self.assertEqual(graph._scalar_records(self.c), {})
+        self.assertEqual(org.node('a')['parent'], 'root')
+        self.assertEqual(org.node('root')['grant'], 100.0)
+        self.assertEqual(org.node('destination')['grant'], 10.0)
+        self.check_reference()
+
+    def test_actual_native_batch_later_leg_uses_fresh_versions_and_eager_stats(self):
+        from orgtree import ledger
+        org, _ = self.native_move_org()
+        result = org.move_batch(ledger.USER, [('a', 'destination'), ('a', 'root')])
+        self.assertEqual(len(result['results']), 2)
+        self.assertEqual(self.c.execute('SELECT id,parent_id,credit_grant FROM orgtree.agents '
+                                       'WHERE id IN (1,2,5,8) ORDER BY id').fetchall(),
+                         [(1, None, 100), (2, 1, 3), (5, None, 10), (8, 1, 0)])
+        self.assertEqual(graph.subtree_stats(self.c, 'a').descendants, 2)
+        self.assertEqual(org.node('a')['parent'], 'root')
+        self.check_reference()
+
 
 if __name__ == '__main__':
     unittest.main()
