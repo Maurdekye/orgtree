@@ -65,6 +65,9 @@ class EnumConstraints(unittest.TestCase):
             for entry in event_checks:
                 self.assertIn((entry['table'], f"{entry['table']}_{entry['column']}_enum"), catalog)
             native = native_entries()
+            from orgtree.orgdb.mappers import docket
+            pointers = {column + '_is': (column, field + 's')
+                        for field, column in docket.CURRENT_POINTERS.items()}
             self.assertEqual({(e['table'], e['table'] + '_' + e['column'] + '_enum')
                               for e in native if e['kind'] != 'manual'},
                              {(table, name) for table, name in catalog if name.endswith('_enum')})
@@ -90,7 +93,22 @@ class EnumConstraints(unittest.TestCase):
                     for value in entry['values'] + ((None,) if entry.get('nullable', True) else ()):
                         with self.assertRaises(RollbackProbe):
                             with c.transaction():
-                                changed = c.execute(statement, (value,) + params).rowcount
+                                member_statement = statement
+                                bindings = (value,) + params
+                                if table == 'work_items' and column in pointers:
+                                    pointer, source = pointers[column]
+                                    event_id = None
+                                    if value == 'v':
+                                        events = c.execute('SELECT id FROM orgtree.work_item_events '
+                                                           'WHERE source=%s AND item_id=%s',
+                                                           (source, witness['id'])).fetchall()
+                                        self.assertEqual(1, len(events), 'present pointer needs its real event')
+                                        event_id = events[0][0]
+                                    member_statement = sql.SQL('UPDATE orgtree.{} SET {}=%s, {}=%s').format(
+                                        sql.Identifier(table), sql.Identifier(column), sql.Identifier(pointer))
+                                    member_statement += where
+                                    bindings = (value, event_id) + params
+                                changed = c.execute(member_statement, bindings).rowcount
                                 self.assertEqual(1, changed)
                                 raise RollbackProbe()
 
