@@ -83,11 +83,11 @@ class ForegroundContext:
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
         'children_index', 'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
         'seat_cost', 'free', '_has_audience', '_audience_available', 'audience_records',
-        'audience_summary', 'capability_scope', 'effective_agent',
+        'audience_summary', 'capability_scope', 'display_scope', 'effective_agent',
         'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
     def __init__(self, *, settings, graph, funding, windows, inbox, work_counts, reuse=None,
-                 work_raises=None):
+                 work_raises=None, audience_parents=None):
         if work_counts is None:
             raise CompatibilityRequired('coherent work counts unavailable')
         # `reuse`: nodes an earlier context of THE SAME settings already
@@ -130,6 +130,9 @@ class ForegroundContext:
         self._work_raises = [list(r) for r in work_raises or ()]
         self._stamp = copy.deepcopy(graph['stamp'])
         self._funding = {r['id']: dict(r) for r in funding}
+        self._audience_parents = (dict(audience_parents) if audience_parents is not None
+                                  else {nid: row['parent'] for nid, row in self._funding.items()})
+        self._audience_parents.update({nid: row['parent'] for nid, row in nodes.items()})
         self._committed = {}
         for row in funding:
             tier = {'gpt-6-sol': 'sol', 'gpt-6-luna': 'luna'}.get(row['model'], row['model'])
@@ -175,8 +178,17 @@ class ForegroundContext:
     def extern_holders(self):
         from types import SimpleNamespace
         view = SimpleNamespace(d=self.d, nodes=self._funding,
-                               multi_holder_enabled=self.multi_holder_enabled)
+                               multi_holder_enabled=self.multi_holder_enabled,
+                               _audience_available=self._display_audience_available)
         return Org.extern_holders(view)
+
+    def _display_audience_available(self, grant):
+        from .orgdb import enabled
+        if not enabled():
+            return True
+        from .audience_scope import available
+        return available(grant, self._audience_parents.__contains__,
+                         self._audience_parents.__getitem__, user=USER, extern=EXTERN)
 
     def tree_node(self, nid, *, children_index=None, descend=False, lineage=False):
         if descend or lineage:
@@ -268,8 +280,13 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
     settings_key = tree_delta.encode({key: blobs.get(key) for key in SETTINGS})
     if reuse_settings != settings_key:
         reuse = None
+    audience_parents = None
+    if native:
+        from .audience_scope import read_paths
+        audience_parents = read_paths(raw, blobs.get('audiences', ()))
     context = ForegroundContext(settings=blobs, graph=graph, funding=funding,
-        windows=windows, inbox=inbox, work_counts=counts, work_raises=raises, reuse=reuse)
+        windows=windows, inbox=inbox, work_counts=counts, work_raises=raises, reuse=reuse,
+        audience_parents=audience_parents)
     # What was read, kept so a later advance with no doc change reuses it.
     context.inputs = {'blobs': blobs, 'funding': funding, 'windows': windows, 'inbox': inbox}
     context.settings_key = settings_key

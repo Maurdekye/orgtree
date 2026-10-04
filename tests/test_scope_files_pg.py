@@ -10,7 +10,8 @@ from unittest.mock import patch
 import uuid
 
 import test_orgdb_compat_pg as fixture
-from orgtree import api, ledger, lifecycle_tx, orgtx, pgdoor, store, supervisor
+from orgtree import (api, foreground_context, foreground_store, ledger,
+                     lifecycle_tx, orgtx, pgdoor, store, supervisor)
 from orgtree.orgdb import registry
 
 setUpModule = fixture.setUpModule
@@ -177,6 +178,34 @@ class CurrentScopeFiles(unittest.TestCase):
         self.assertEqual(orgtx.org_read(self.slug).audience_records(),
                          [dict(grant, available=True)])
         self.assertEqual(store.load_org(self.slug).d['audiences'], [grant])
+
+    def test_actual_foreground_snapshot_projects_current_scope_and_archived_audience_paths(self):
+        org = store.load_org(self.slug)
+        org.hire(ledger.USER, 'boss', 'luna', 0, 'archived')
+        org.retire(ledger.USER, 'archived')
+        grants = [dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'),
+                  dict(grantee='archived', grantor=ledger.EXTERN, delegated_by='boss')]
+        org.d['audiences'] = grants
+        store.save_org(org)
+        def read():
+            return foreground_store.read_foreground(self.slug, project=lambda raw, graph:
+                foreground_context.build(raw, self.slug, graph))
+        before = read()
+        self.move('other')
+        narrow = read()
+        value = narrow.tree_node('leaf')
+        self.assertEqual(value['configured_scope'], self.configured)
+        self.assertFalse(value['scope']['tools']['edit'])
+        self.assertEqual(value['audiences_paused'], [ledger.EXTERN])
+        self.assertEqual(narrow.extern_holders(), [])
+        self.assertEqual(narrow.audience_records(), [dict(grants[0], available=False),
+                                                   dict(grants[1], available=True)])
+        self.assertEqual(before.tree_node('leaf')['scope'], self.configured)
+        self.assertEqual(before.extern_holders(), ['leaf'])
+        self.assertEqual(before.tree_header([])['audiences'],
+                         [dict(grant, available=True) for grant in grants])
+        self.move('boss')
+        self.assertEqual(read().tree_node('leaf')['scope'], self.configured)
 
     def test_receipt_checkout_and_log_bytes_use_the_current_grant(self):
         args = {'checkout': str(self.project), 'logs': [str(self.source)]}

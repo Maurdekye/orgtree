@@ -96,6 +96,28 @@ class ContextTests(unittest.TestCase):
             org.d['org_inbox_multi_holder']=multi;args['settings']['org_inbox_multi_holder']=multi
             self.assertEqual(ForegroundContext(**args).extern_holders(),org.extern_holders())
 
+    def test_native_partial_display_keeps_paused_audiences_and_effective_scopes(self):
+        from orgtree.orgdb import native_move
+        org, args = fixture(('parent', 'a'))
+        org.node('parent')['scope']['tools']['edit'] = False
+        args['graph']['rows']['parent']['node']['scope']['tools']['edit'] = False
+        grants = [dict(grantee='a', grantor=ledger.EXTERN, delegated_by='parent'),
+                  dict(grantee='b', grantor=ledger.EXTERN, delegated_by='parent')]
+        args['settings']['audiences'] = grants
+        args['settings']['org_inbox_multi_holder'] = True
+        args['audience_parents'] = {'parent': None, 'a': 'parent', 'b': None}
+        with patch.object(native_move, 'enabled', return_value=True):
+            view = ForegroundContext(**args)
+            row = view.tree_node('a')
+            self.assertFalse(row['scope']['tools']['edit'])
+            self.assertTrue(row['configured_scope']['tools']['edit'])
+            self.assertEqual(row['audiences_held'], [ledger.EXTERN])
+            self.assertEqual(view.extern_holders(), ['a'])
+            self.assertEqual(view.audience_records(), [dict(grants[0], available=True),
+                                                      dict(grants[1], available=False)])
+            self.assertEqual(view.tree_header([])['audiences'], view.audience_records())
+        self.assertEqual(args['settings']['audiences'], grants)
+
     def test_missing_counts_is_compatibility_not_zero(self):
         org,args=fixture();args['work_counts']=None
         with self.assertRaises(CompatibilityRequired):ForegroundContext(**args)

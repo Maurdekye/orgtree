@@ -7,6 +7,28 @@ from typing import Any
 from .scope_chain import ScopeError
 
 
+def read_paths(raw, grants):
+    """Selected audience identities/parents from the caller's one read snapshot.
+
+    Foreground funding omits archived nodes, so it cannot decide an anchored
+    grant's availability. Read metadata for only the grants' upward closure;
+    no historical bodies or audience section is opened by this helper.
+    """
+    from .orgdb import agents   # noqa: PLC0415
+    from .ledger import USER, EXTERN   # noqa: PLC0415
+    roots = {name for grant in grants for name in (
+        grant['grantee'], grant['grantor'],
+        grant.get('delegated_by') or grant['grantor'])
+        if isinstance(name, str) and name not in (USER, EXTERN)}
+    names = agents.ancestors(raw, sorted(roots)) if roots else []
+    rows = (raw.execute('SELECT a.name,p.name,a.parent_misfit,a.extra '
+                        'FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id=a.parent_id '
+                        'WHERE NOT a.tombstone AND a.name=ANY(%s)', (names,)).fetchall()
+            if names else ())
+    return {name: extra.get('parent') if misfit else parent
+            for name, parent, misfit, extra in rows}
+
+
 def available(grant: Mapping[str, Any], exists: Callable[[str], bool],
               parent: Callable[[str], str | None], *, user: str, extern: str) -> bool:
     """The exact sweep predicate, evaluated on use instead of deleting a grant.
