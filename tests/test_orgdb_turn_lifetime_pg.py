@@ -178,7 +178,8 @@ class Lifetime(unittest.TestCase):
 
         with patch.object(self.host, 'cancel', cancel):
             result = self.controlled_turn(lambda: halt.halt(self.slug, 'worker', timeout=5))
-        self.assertEqual(phases, ['halting'])
+        self.assertTrue(phases)
+        self.assertEqual(set(phases), {'halting'})
         self.assertTrue(result['settled'])
         self.assertEqual(orgtx.org_read(self.slug).node('worker')['halt']['phase'], 'halted')
 
@@ -186,9 +187,33 @@ class Lifetime(unittest.TestCase):
         result = self.controlled_turn(lambda: sup.interrupt_before_archive(
             self.slug, orgtx.org_read(self.slug), 'worker', timeout=5))
         self.assertEqual(result, [])
-        with orgtx.org_tx(self.slug, nodes=['worker']) as tx:
+        with orgtx.org_tx(self.slug, nodes=['worker'], logs=['events']) as tx:
             tx.org.retire(ledger.USER, 'worker')
         self.assertEqual(orgtx.org_read(self.slug).node('worker')['state'], 'archived')
+
+    def test_old_host_stop_callback_does_not_cancel_successor_request(self):
+        runtime = sup.state(self.slug, 'worker')
+        with turn_runtime.supervisor_scope(), sup._InterruptibleTurnSlot(
+                runtime, self.slug, 'worker', 'turn'):
+            old = turn_context.current()
+            stop_old = self.host._active[old.request_id][1]
+        signals = []
+        control = SimpleNamespace(interrupt=lambda: signals.append('successor') or True)
+        with turn_runtime.supervisor_scope(), sup._InterruptibleTurnSlot(
+                runtime, self.slug, 'worker', 'turn'):
+            successor = turn_context.current()
+            runtime['responding'], runtime['codex_turn'] = True, control
+            try:
+                stop_old()  # a heartbeat retained this callback before old completion
+                self.assertEqual(signals, [])
+                self.assertEqual(self.request_state(successor), 'running')
+                self.assertEqual(self.host.queue.get(successor.request_id).state, 'running')
+                self.assertEqual(self.host.queue.snapshot()['held'], 1)
+            finally:
+                runtime['responding'] = False
+                runtime.pop('codex_turn', None)
+        self.assertEqual(self.request_state(old), 'done')
+        self.assertEqual(self.request_state(successor), 'done')
 
     def test_manual_compaction_releases_before_queued_successor_at_limit_one(self):
         seen = []

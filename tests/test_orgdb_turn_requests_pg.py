@@ -622,6 +622,29 @@ class Requests(unittest.TestCase):
         return turn_runtime.Host(RUNTIME, self.owner, prefix=PREFIX,
                                  active_orgs=lambda: [self.org])
 
+    def test_heartbeat_snapshot_cannot_cancel_a_later_admitted_run(self):
+        from unittest.mock import patch
+        host = self.host()
+        heartbeat = host.queue.heartbeat
+        admitted, signals = [], []
+
+        def heartbeat_then_admit(owner):
+            snapshot = heartbeat(owner)
+            org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
+            ticket = host.queue.claim(owner, request.request_id)
+            admitted.append(host.begin(org, 'seat', request.request_id, ticket,
+                                       lambda: signals.append(request.request_id)))
+            return snapshot
+
+        with patch.object(host.queue, 'heartbeat', heartbeat_then_admit):
+            host.tick()
+        self.assertEqual(signals, [], 'a newly admitted run was absent from the older snapshot')
+        run = admitted[0]
+        self.assertEqual(self.read(run).state, 'running')
+        self.assertEqual(self.queue.get(run.request_id).state, 'running')
+        host.complete(self.org, run)
+        self.assertEqual(self.queue.snapshot()['held'], 0)
+
     def test_host_prepare_commits_request_job_before_app_then_exact_begin_and_finish(self):
         host = self.host()
         org, request = host.prepare('alpha', 'seat', 'turn', str(uuid4()))
