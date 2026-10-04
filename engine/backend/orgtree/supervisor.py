@@ -17325,9 +17325,10 @@ def _codex_approval_decider(org: Org, nid: str,
                             denials: list[dict[str, Any]]) -> Any:
     """Engine approval uses current authority; an issued sandbox stays fixed.
 
-    Lists are updated only after the deciding transaction commits, so retries
-    cannot record an answer from a rolled-back or stale chain. The provider's
-    request worker declines any raised error; there is no cached fallback.
+    A fresh deciding transaction commits before recording its answer. A joined
+    caller retains the path locks and owns its outer commit. Failed reads and
+    plan retries record no answer. The provider's request worker declines any
+    raised error; there is no cached fallback.
     """
     slug = org.d["slug"]
     def _approve(method: str, params: dict[str, Any]) -> str:

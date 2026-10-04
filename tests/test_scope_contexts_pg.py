@@ -161,7 +161,8 @@ class CurrentScopeContexts(unittest.TestCase):
 
     def test_codex_approval_uses_current_chain_while_issued_sandbox_stays_fixed(self):
         captured = store.load_org(self.slug)
-        issued = deepcopy(captured.capability_scope('leaf'))
+        issued = pgdoor.run(self.slug, pgdoor.TxSpec(share_nodes=('leaf',)),
+                            lambda tx: deepcopy(tx.org.capability_scope('leaf')))
         sandbox = supervisor._codex_sandbox(issued)
         allowed, denied = [], []
         callback = supervisor._codex_approval_decider(captured, 'leaf', allowed, denied)
@@ -185,7 +186,7 @@ class CurrentScopeContexts(unittest.TestCase):
         outcomes = []
         def competing_writer():
             try:
-                with registry.connection(self.slug) as raw:
+                with registry.connection(self.slug) as raw, raw.transaction():
                     raw.execute("SET LOCAL lock_timeout='150ms'")
                     raw.execute("UPDATE orgtree.agents SET credit_grant=credit_grant WHERE name='boss'")
                 outcomes.append('wrote')
@@ -207,7 +208,7 @@ class CurrentScopeContexts(unittest.TestCase):
         callback = supervisor._codex_approval_decider(store.load_org(self.slug), 'leaf', [], [])
         with patch.object(supervisor, '_codex_may_write', side_effect=decide):
             self.assertEqual(callback('item/fileChange/requestApproval', {}), 'accept')
-        with registry.connection(self.slug) as raw:
+        with registry.connection(self.slug) as raw, raw.transaction():
             raw.execute("SET LOCAL lock_timeout='150ms'")
             raw.execute("UPDATE orgtree.agents SET credit_grant=credit_grant WHERE name='boss'")
 
