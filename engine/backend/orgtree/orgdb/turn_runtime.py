@@ -336,7 +336,7 @@ class Host:
 
     def tick(self) -> None:
         """The host alone refreshes its lease and rereads authoritative stopping claims."""
-        tickets = self.queue.heartbeat(self.instance_id)
+        self.queue.heartbeat(self.instance_id)
         for org in self.active_orgs():
             try:
                 self.bridge.step(org)
@@ -350,10 +350,12 @@ class Host:
                 self.abandon(org, request_id, ticket)
             except Exception:
                 LOG.exception('unstarted turn cleanup failed for %s', request_id)
-        states = {ticket.request_id: ticket for ticket in tickets}
-        for request_id, (_, stop) in active.items():
-            ticket = states.get(request_id)
-            if ticket is None or ticket.state == 'stopping':
+        for request_id, (run, stop) in active.items():
+            # Admission may register after the earlier heartbeat snapshot.
+            # Each active request gets an authoritative indexed point read.
+            ticket = self.queue.get(request_id)
+            if ticket is None or (ticket.state, ticket.owner, ticket.epoch, ticket.token) != (
+                    'running', run.owner, run.epoch, run.token):
                 stop()  # signal; never acknowledges an active provider here
         if self.slots is not None:
             self.slots.recover_pending()

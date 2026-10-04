@@ -1172,7 +1172,8 @@ class _InterruptibleTurnSlot:
             else:
                 self._durable = turn_runtime.Admission(
                     host, self._org, self._agent, self._lane, self._cancelled,
-                    self._queued, lambda: interrupt_turn(self._org, self._agent))
+                    self._queued, lambda: interrupt_turn(self._org, self._agent,
+                                                        _request_id=self._durable.request_id))
                 with _state_lock:
                     self._state['turn_request_id'] = self._durable.request_id
                 self._durable.__enter__()
@@ -28393,7 +28394,7 @@ def _admit_message(slug: str, nid: str, text: str,
     return {"accepted": True, "queued": 0}
 
 
-def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
+def interrupt_turn(slug: str, nid: str, *, _request_id: str | None = None) -> dict[str, Any]:
     """Manual ⏸ from the user: stop the node's current response via the CLI's
     control_request interrupt (the ONLY sanctioned interrupt — message delivery
     never interrupts, user ruling). The process stays alive; queued mail
@@ -28411,8 +28412,15 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     the guards here make the whole class structural: a lane that cannot be
     asked to stop is a RESULT saying so, with a reason, never an exception."""
     st = state(slug, nid)
-    request_id = st.get('turn_request_id')
-    _cancel_durable_turn(slug, nid, [st])
+    with _state_lock:
+        request_id = st.get('turn_request_id')
+        if _request_id is not None and request_id != _request_id:
+            return {'interrupted': False, 'reason': 'the turn was already over'}
+    if request_id is not None:
+        from .orgdb import turn_runtime   # noqa: PLC0415
+        host = turn_runtime.current()
+        if host is not None:
+            host.cancel(slug, request_id)  # never reread a successor's UUID
     with _state_lock:
         if request_id is not None and st.get('turn_request_id') != request_id:
             return {'interrupted': False, 'reason': 'the turn was already over'}
@@ -28470,7 +28478,8 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
             asked = bool(turn.interrupt())
         except (OSError, ValueError, RuntimeError) as e:
             with _state_lock:
-                st.pop("interrupted", None)
+                if request_id is None or st.get('turn_request_id') == request_id:
+                    st.pop("interrupted", None)
             return _result(False, f"the {lane} lane could not be asked to stop "
                                   f"({type(e).__name__}: {e}); its process is "
                                   f"gone or its pipe is closed, so turn cleanup "
@@ -28478,7 +28487,8 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
         if asked:
             return _result(True)
         with _state_lock:
-            st.pop("interrupted", None)
+            if request_id is None or st.get('turn_request_id') == request_id:
+                st.pop("interrupted", None)
         return _result(False, "the turn was already over")
     if codex_turn is not None:
         # the codex lane's graceful stop: turn/interrupt on the live session
@@ -28512,7 +28522,8 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
     # BrokenPipeError, so there is nothing narrower worth catching here.
     except (OSError, ValueError, AttributeError) as e:
         with _state_lock:
-            st.pop("interrupted", None)
+            if request_id is None or st.get('turn_request_id') == request_id:
+                st.pop("interrupted", None)
         return _result(False, f"{type(e).__name__}: {e}")
 
 
