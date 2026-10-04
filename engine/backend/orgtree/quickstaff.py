@@ -103,7 +103,7 @@ def staff_args(org: Org, item: dict[str, Any], ctx: dict[str, Any],
     if not top:
         args["target"] = owner["node"]
     if node:
-        scope = node["scope"]
+        scope = org.display_scope(str(owner['node']))
         args.update({k: copy.deepcopy(scope[k]) for k in
                      ("add_dirs", "tools", "org_visibility", "permission_mode") if k in scope})
     if effort is not None:

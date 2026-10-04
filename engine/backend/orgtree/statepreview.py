@@ -36,7 +36,7 @@ def _visible_ids(org: Org, actor: str, include_archived: bool = False) -> list[s
             out.extend(org.descendants(root, live_only=not include_archived))
         return out
     n = org.node(actor)
-    vis = str((n.get("scope") or {}).get("org_visibility") or "team")
+    vis = str(org.display_scope(actor).get("org_visibility") or "team")
     if vis == "self":
         ids = [actor]
     elif vis == "team":
@@ -54,7 +54,7 @@ def _visible_ids(org: Org, actor: str, include_archived: bool = False) -> list[s
 
 def _safe_node(org: Org, nid: str) -> dict[str, Any]:
     n = org.node(nid)
-    scope = n.get("scope") or {}
+    scope = org.display_scope(nid)
     frozen = n.get("frozen")
     pending = n.get("pending_switch")
     status = n.get("last_status")
@@ -149,7 +149,7 @@ def inspect_state(org: Org, actor: str, targets: list[str] | None = None,
     return {
         "actor": actor,
         "visibility": ("full" if actor_kind(actor) in ("user", "system")
-                       else (org.node(actor).get("scope") or {}).get(
+                       else org.display_scope(actor).get(
                            "org_visibility", "team")),
         "nodes": [_safe_node(org, nid) for nid in ids],
     }

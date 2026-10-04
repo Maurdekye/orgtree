@@ -182,11 +182,14 @@ class CurrentScopeFiles(unittest.TestCase):
     def test_actual_foreground_snapshot_projects_current_scope_and_archived_audience_paths(self):
         grants = [dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'),
                   dict(grantee='archived', grantor=ledger.EXTERN, delegated_by='boss')]
-        def prepare(tx):
+        from orgtree import staffdoor
+        with orgtx.org_tx(self.slug, nodes=orgtx.ALL,
+                         sections=('audiences', *lifecycle_tx.SPECS['retire'].sections),
+                         share_sections=staffdoor.HIRE_SETTINGS,
+                         logs=('events', 'notice_log')) as tx:
             tx.org.hire(ledger.USER, 'boss', 'luna', 0, 'archived')
             tx.org.retire(ledger.USER, 'archived')
             tx.org.d['audiences'] = grants
-        pgdoor.run(self.slug, pgdoor.TxSpec(nodes=orgtx.ALL), prepare)
         def read():
             return foreground_store.read_foreground(self.slug, project=lambda raw, graph:
                 foreground_context.build(raw, self.slug, graph))
