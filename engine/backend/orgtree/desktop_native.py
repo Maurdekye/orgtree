@@ -296,6 +296,7 @@ def prepare(source: Path, dest: Path, slug: str, nid: str, node: dict,
             f.write(encoded)
             f.flush()
             os.fsync(f.fileno())
+        forget_display_session(meta["session_id"])
         # Original native bytes are evidence and remain separate from both the
         # mutable clone and the rendered provider-neutral archive.
         with (folder / "source.jsonl").open("xb") as f:
@@ -345,7 +346,8 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
         return None
     if not display and node["session_id"] in native_conflicts(inventory=inventory):
         return None
-    root = Path(_store(writes_orgs=False).DATA_ROOT).resolve()
+    data_root = Path(_store(writes_orgs=False).DATA_ROOT)
+    root = data_root.absolute() if display else data_root.resolve()
     storage_node = native.get("storage_node") or nid
     if not isinstance(storage_node, str) or not re.fullmatch(r"[A-Za-z0-9_@.-]{1,160}", storage_node) or storage_node in {".", ".."}:
         return None
@@ -564,6 +566,8 @@ Rename alone needs no retirement because storage_node stays stable.
     }
     if rewind:
         node["desktop_import"]["native_continuity"]["rewind"] = rewind
+    forget_display_session(str(old.get("session_id") or ""))
+    forget_display_session(str(node.get("session_id") or ""))
     return True
 
 

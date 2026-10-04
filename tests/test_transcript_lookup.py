@@ -46,9 +46,9 @@ class TranscriptLookupTests(unittest.TestCase):
             with patch.object(Path, 'lstat', autospec=True, side_effect=Path.lstat) as inspected:
                 for _ in range(12):
                     self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
-            # root.resolve() performs no lstat on Windows; the recorded file
-            # itself is validated once per read, independently of archive size.
-            self.assertEqual(sum(c.args[0] == self.path for c in inspected.call_args_list), 12)
+            # The recorded file is validated once per read, independently of
+            # archive size. No parent path is re-walked on a warm display read.
+            self.assertEqual(inspected.call_count, 12)
 
     def test_display_move_and_replacement_invalidate_remembered_path(self):
         org = self.bound_org()
