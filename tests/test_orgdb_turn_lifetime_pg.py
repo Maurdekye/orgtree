@@ -93,9 +93,10 @@ class Lifetime(unittest.TestCase):
 
     def test_actual_http_tool_keeps_seat_authority_and_fences_the_original_run(self):
         from fastapi.testclient import TestClient
+        from engine.launch import TokenGate
         from orgtree import agentauth, api
 
-        client = TestClient(api.app)
+        client = TestClient(TokenGate(api.app, 'owned-desktop-token'))
         self.addCleanup(client.close)
         with patch.object(agentauth, '_key', b's' * 32), patch.object(sup, 'notify'):
             seat = agentauth.child_env(self.slug, 'worker')['ORGTREE_AGENT_TOKEN']
@@ -114,7 +115,7 @@ class Lifetime(unittest.TestCase):
                 self.assertEqual(response.json()['recorded'], 'idle')
                 self.assertEqual(post({'X-Orgtree-Agent-Token': seat}, 'missing run').status_code, 403)
                 bad_seat = {**original, 'X-Orgtree-Agent-Token': 'invalid seat'}
-                self.assertEqual(post(bad_seat, 'invalid seat').status_code, 403)
+                self.assertEqual(post(bad_seat, 'invalid seat').status_code, 401)
                 self.host.cancel(self.slug, run.request_id)
                 self.assertEqual(post(original, 'cancelled original').status_code, 409)
                 self.assertEqual(orgtx.org_read(self.slug).node('worker')['last_status']['summary'],
