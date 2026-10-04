@@ -8,7 +8,7 @@ What it proves:
   * completeness: the verifier handles exactly ledger.NODE_KEYED_SECTIONS plus the two
     legacy-only keys and the kept `sandbox`, and ignores exactly the rest of
     ledger.IGNORED_LEGACY_KEYS by default;
-  * its correspondence matches the destination schema (org migrations 0001 and 0002): every
+  * its correspondence matches the destination schema through every org migration: every
     column it names exists with the type of its declared kind, and every column of every
     document table is one it reads, so a new column cannot go unverified;
   * its value rules: exact JSON types, numeric int versus float, timestamps as instants with
@@ -198,9 +198,9 @@ def migrated_schema(texts=None):
                 if deleted:
                     out[table].pop(deleted[1], None)
                 elif changed:
-                    out[table][changed[1]] = _TYPES[changed[2]]
-                elif col and col[2] in _TYPES:
-                    out[table][col[1]] = _TYPES[col[2]]
+                    out[table][changed[1]] = _TYPES.get(changed[2], changed[2])
+                elif col and col[1] not in {'CONSTRAINT', 'PRIMARY', 'FOREIGN', 'UNIQUE', 'CHECK'}:
+                    out[table][col[1]] = _TYPES.get(col[2], col[2])
     return out, references, foundation
 
 
@@ -260,10 +260,12 @@ class MatchesTheSchema(unittest.TestCase):
     def test_later_item_column_and_unexpected_child_table_cannot_be_skipped(self):
         texts = [p.read_text(encoding='utf-8') for p in sorted(MIGRATIONS.glob('*.sql'))]
         added = ('ALTER TABLE orgtree.work_item_events ADD COLUMN retained_payload text;'
+                 'ALTER TABLE orgtree.work_item_events ADD COLUMN future_payload bytea;'
                  'CREATE TABLE orgtree.future_events (id bigint, '
                  'event_id bigint REFERENCES orgtree.work_item_events(id), payload json);')
         missing = unread_columns(migrated_schema(texts + [added]))
         self.assertIn('work_item_events.retained_payload', missing)
+        self.assertIn('work_item_events.future_payload', missing)
         self.assertIn('future_events.payload', missing)
 
     def test_event_table_cannot_be_omitted_even_when_its_rows_are_empty(self):
