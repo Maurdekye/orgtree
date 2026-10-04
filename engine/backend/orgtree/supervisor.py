@@ -1216,15 +1216,31 @@ class _InterruptibleTurnSlot:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         if self._acquired:
             self._acquired = False
-            try:
-                if self._durable is not None:
-                    self._durable.__exit__(exc_type, exc, tb)
-                else:
-                    _turn_slots.release()
-            finally:
-                with _state_lock:
-                    if self._durable is not None and self._state.get('turn_request_id') == self._durable.request_id:
-                        self._state.pop('turn_request_id', None)
+            if self._durable is None:
+                _turn_slots.release()
+                return
+            from .orgdb import turn_runtime   # noqa: PLC0415
+            release = lambda: self._release_durable(exc_type, exc, tb)
+            if not turn_runtime.defer_release(release):
+                release()
+
+    def _release_durable(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        try:
+            self._durable.__exit__(exc_type, exc, tb)
+        finally:
+            with _state_lock:
+                if self._state.get('turn_request_id') == self._durable.request_id:
+                    self._state.pop('turn_request_id', None)
+
+
+def _turn_run_scope(fn: Any) -> Any:
+    """The turn recorder and all its unwind bookkeeping share one run."""
+    @wraps(fn)
+    def scoped(*args: Any, **kwargs: Any) -> Any:
+        from .orgdb import turn_runtime   # noqa: PLC0415
+        with turn_runtime.supervisor_scope():
+            return fn(*args, **kwargs)
+    return scoped
 
 
 # per-(slug, nid) in-memory runtime state — see state() for the key set
@@ -20220,6 +20236,7 @@ def _turn_observed_success(res: dict[str, Any], st: dict[str, Any]) -> bool:
 
 
 @halt.worker
+@_turn_run_scope
 def _run_one_turn(slug: str, nid: str,
                   text: str | dict[str, Any], *,
                   probe_token: str | None = None
@@ -27844,7 +27861,8 @@ def manual_compact(slug: str, nid: str) -> None:
         # `waiting` is the established "blocked on a slot, not running" flag
         # (№12 — the UI draws it hollow).
         st["waiting"] = True
-        with _InterruptibleTurnSlot(st, slug, nid, "compaction"):
+        from .orgdb import turn_runtime   # noqa: PLC0415
+        with turn_runtime.supervisor_scope(), _InterruptibleTurnSlot(st, slug, nid, "compaction"):
             st["waiting"] = False
             _compact_split(slug, nid)
     except (_AdmissionCancelled, halt.Cancelled):

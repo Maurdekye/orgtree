@@ -7,6 +7,7 @@ death from a heartbeat. Old trees are reclaimed only on the host's proof.
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
+from contextvars import ContextVar
 import json
 import logging
 from pathlib import Path
@@ -22,6 +23,7 @@ from .turn_forwarder import Bridge
 
 LOG = logging.getLogger(__name__)
 _host: Host | None = None
+_release_scope: ContextVar[ExitStack | None] = ContextVar('turn_release_scope', default=None)
 
 
 def initial_limit(data_root: str, env: Mapping[str, str]) -> int:
@@ -40,6 +42,37 @@ def initial_limit(data_root: str, env: Mapping[str, str]) -> int:
 
 def current() -> Host | None:
     return _host
+
+
+@contextmanager
+def supervisor_scope() -> Iterator[None]:
+    """Keep a slot's original run bound through its supervisor's finalizers.
+
+    The slot body ends before the supervisor's exception accounting. Its
+    release therefore belongs to this enclosing scope, after those writes
+    and provider cleanup, rather than to the inner provider block.
+    """
+    if current() is None or _release_scope.get() is not None:
+        yield
+        return
+    scope = ExitStack()
+    token = _release_scope.set(scope)
+    try:
+        yield
+    finally:
+        try:
+            scope.close()
+        finally:
+            _release_scope.reset(token)
+
+
+def defer_release(release: Callable[[], None]) -> bool:
+    """Return whether the current supervisor owns this slot's release."""
+    scope = _release_scope.get()
+    if scope is None:
+        return False
+    scope.callback(release)
+    return True
 
 
 class Host:
