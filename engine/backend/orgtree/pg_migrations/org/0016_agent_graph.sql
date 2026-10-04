@@ -244,8 +244,8 @@ BEGIN
       old_degrees[old_parents[i]]:=old_degrees[old_parents[i]]+1;
     END IF;
   END LOOP;
-  SELECT coalesce(array_agg(i),'{}'::integer[]) INTO queue FROM generate_series(1,n) g(i)
-    WHERE removed[i] AND old_degrees[i]=0;
+  SELECT coalesce(array_agg(g.i),'{}'::integer[]) INTO queue FROM generate_series(1,n) g(i)
+    WHERE removed[g.i] AND old_degrees[g.i]=0;
   WHILE cardinality(queue)>0 LOOP
     ready:='{}'::integer[];
     FOREACH i IN ARRAY queue LOOP
@@ -265,7 +265,7 @@ BEGIN
   -- Lookup dense indices once in SQL. There is no array_position or ancestor
   -- query inside these loops, and no repeat traversal for shared path suffixes.
   FOR pos,old_p,new_p,old_count,new_count,inserting IN
-    WITH dense AS (SELECT id,i FROM unnest(ids) WITH ORDINALITY d(id,i)),
+    WITH dense AS (SELECT d.id,d.i FROM unnest(ids) WITH ORDINALITY d(id,i)),
     o AS (SELECT * FROM unnest(old_image)), v AS (SELECT * FROM unnest(new_image))
     SELECT d.i::integer,coalesce(op.i,0)::integer,coalesce(np.i,0)::integer,
       coalesce(o.counted,false),coalesce(v.counted,false),o.id IS NULL
@@ -298,8 +298,8 @@ BEGIN
   FOR i IN 1..n LOOP
     IF present[i] AND parents[i]<>0 THEN degrees[parents[i]]:=degrees[parents[i]]+1; END IF;
   END LOOP;
-  SELECT coalesce(array_agg(i),'{}'::integer[]) INTO queue FROM generate_series(1,n) g(i)
-    WHERE present[i] AND degrees[i]=0;
+  SELECT coalesce(array_agg(g.i),'{}'::integer[]) INTO queue FROM generate_series(1,n) g(i)
+    WHERE present[g.i] AND degrees[g.i]=0;
   WHILE cardinality(queue)>0 LOOP
     -- Child levels are written before their parents' single indexed maximum.
     SELECT array_agg(CASE WHEN NOT visible[g.i] THEN -1
