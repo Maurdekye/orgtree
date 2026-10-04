@@ -1435,6 +1435,8 @@ def _update_agent(c: Any, aid: int, row: dict[str, Any]) -> None:
 
 def node_put(c: Any, name: str, value: Any, names: Names) -> None:
     """Write one node; only a name-only placeholder may become a new live node."""
+    from .. import graph   # noqa: PLC0415
+    graph.guard_node_put(c, name, value)
     if not isinstance(value, dict):
         raise CompatError(f"node {name!r} is not an object")
     if not codec.fits("text", name):
@@ -1486,6 +1488,8 @@ def node_put(c: Any, name: str, value: Any, names: Names) -> None:
 
 def node_delete(c: Any, name: str) -> int:
     """A node removed: its row becomes a tombstone (records of other sections keep it)."""
+    from .. import graph   # noqa: PLC0415
+    graph.guard_node_delete(c, name)
     selected = dict_rows(c, "SELECT id,lineage_born,generation,extra FROM orgtree.agents "
                            "WHERE name=%s AND NOT tombstone FOR UPDATE", (name,))
     if not selected:

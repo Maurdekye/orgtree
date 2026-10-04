@@ -1,10 +1,13 @@
 """Full org schema: eager raw/native aggregates, batch overlap and FK deletion."""
 import import_provenance  # noqa: F401 asserts own-checkout engine imports
 import contextlib
+import json
 import os
 from pathlib import Path
 import random
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import uuid
 
 from orgtree import orgtx
@@ -251,6 +254,232 @@ class GraphStats(unittest.TestCase):
                            'FROM unnest(%s::bigint[],%s::bigint[],%s::boolean[]) v(id,parent,hidden) '
                            'WHERE a.id=v.id', (selected, parents, [rng.randrange(5)==0 for _ in selected]))
             self.check_reference()
+
+    def scalar_plan(self, names, roots=()):
+        tx = orgtx._new_tx('test', nodes=names, structural_roots=roots)
+        plan = graph.plan_locks(self.c, tx)
+        ids = sorted(plan.agent_ids) if plan is not None else [int(i) for i, in self.c.execute(
+            'SELECT id FROM orgtree.agents WHERE name=ANY(%s)', (list(names),)).fetchall()]
+        self.c.execute('SELECT id FROM orgtree.agents WHERE id=ANY(%s) ORDER BY id FOR UPDATE', (ids,))
+        if plan is not None:
+            self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats WHERE agent_id=ANY(%s) '
+                           'ORDER BY agent_id FOR UPDATE', (sorted(plan.stats_ids),))
+        graph.install_plan(self.c, tx, plan)
+
+    def scalar_patch(self, name, **values):
+        agent_id, version = self.c.execute('SELECT id,row_version FROM orgtree.agents WHERE name=%s '
+                                           'AND NOT tombstone', (name,)).fetchone()
+        return graph.ScalarPatch(int(agent_id), name, int(version), values)
+
+    def scalar_payload(self):
+        from orgtree.orgdb.compat import rows as R
+        self.c.execute('UPDATE orgtree.agents SET ord=id WHERE NOT tombstone')
+        value = {'parent': 'root', 'state': 'live', 'grant': 3.0, 'model': 'sol',
+                 'scope': {'tools': {'bash': True, 'mcp': ['*']},
+                           'add_dirs': [{'path': 'E:/kept', 'mode': 'ro'}]},
+                 'charter': 'unchanged long text', 'frozen': {'opaque': [2, 1]},
+                 'unknown': {'nul': 'before\x00after', 'values': [None, True, 4.0]}}
+        R.node_put(self.c, 'a', value, R.Names(self.c))
+        return value
+
+    def scalar_doc(self, names=('a',)):
+        from orgtree import store
+        from orgtree.orgdb.compat import rows as R
+        doc = store.LazyDoc('test')
+        nodes = store.NodesMap()
+        for name, text, _ in R.nodes(self.c, names):
+            dict.__setitem__(nodes, name, json.loads(text))
+            doc._snap_nodes[name] = text
+        dict.__setitem__(doc, 'nodes', nodes)
+        return doc
+
+    def test_scalar_batch_fences_versions_and_keeps_payload_and_children(self):
+        from orgtree import store
+        self.scalar_payload()
+        before = self.c.execute('SELECT extra::text,scope_tools_bash,model FROM orgtree.agents WHERE id=2').fetchone()
+        children = self.c.execute('SELECT xmin::text,ctid::text FROM orgtree.agent_dir_grants WHERE agent_id=2').fetchall()
+        runtime = self.c.execute('SELECT xmin::text,ctid::text FROM orgtree.agent_runtime WHERE agent_id=2').fetchall()
+        self.scalar_plan(['a', 'bearer', 'root'], ['a', 'bearer', 'destination'])
+        requested = [self.scalar_patch('a', parent='destination'),
+                     self.scalar_patch('bearer', parent='destination'), self.scalar_patch('root', grant=8.0)]
+        versions = graph.apply_scalars(self.c, requested)
+        self.assertEqual(set(versions), {1, 2, 8})
+        self.assertEqual(self.c.execute('SELECT parent_id FROM orgtree.agents WHERE id IN (2,8) '
+                                       'ORDER BY id').fetchall(), [(5,), (5,)])
+        self.assertEqual(self.c.execute('SELECT extra::text,scope_tools_bash,model FROM orgtree.agents WHERE id=2').fetchone(), before)
+        self.assertEqual(self.c.execute('SELECT xmin::text,ctid::text FROM orgtree.agent_dir_grants WHERE agent_id=2').fetchall(), children)
+        self.assertEqual(self.c.execute('SELECT xmin::text,ctid::text FROM orgtree.agent_runtime WHERE agent_id=2').fetchall(), runtime)
+        with self.assertRaises(store.StaleWrite):
+            graph.apply_scalars(self.c, requested)
+        self.check_reference()
+
+    def test_scalar_partial_return_rolls_back_the_whole_batch(self):
+        from orgtree import store
+        self.scalar_plan(['a', 'b'], ['a', 'b', 'destination'])
+        self.c.execute("CREATE FUNCTION orgtree.test_suppress_one() RETURNS trigger LANGUAGE plpgsql AS "
+                       "$$ BEGIN IF NEW.id=3 THEN RETURN NULL; END IF; RETURN NEW; END $$")
+        self.c.execute('CREATE TRIGGER test_suppress_one BEFORE UPDATE ON orgtree.agents '
+                       'FOR EACH ROW EXECUTE FUNCTION orgtree.test_suppress_one()')
+        with self.assertRaisesRegex(store.StaleWrite, 'batch rolled back'):
+            graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination'),
+                                        self.scalar_patch('b', parent='destination')])
+        self.assertEqual(self.c.execute('SELECT id,parent_id FROM orgtree.agents WHERE id IN (2,3) '
+                                       'ORDER BY id').fetchall(), [(2, 1), (3, 2)])
+        self.assertEqual(graph._scalar_records(self.c), {})
+        self.check_reference()
+
+    def test_scalar_top_level_null_and_misfit_replacement_keep_unknown_values(self):
+        from orgtree.orgdb import codec
+        from orgtree.orgdb.compat import rows as R
+        self.scalar_payload()
+        extra = self.c.execute('SELECT extra FROM orgtree.agents WHERE id=2').fetchone()[0]
+        extra['grant'] = [False]
+        self.c.execute('UPDATE orgtree.agents SET credit_grant=NULL,extra=%s WHERE id=2',
+                       (codec.to_column('json', extra),))
+        # The JSON contains an escaped NUL; a JSONB cast of the entire extra would fail.
+        self.scalar_plan(['a'], ['a'])
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent=None, grant=4.0)])
+        value = json.loads(R.nodes(self.c, ['a'])[0][1])
+        self.assertIsNone(value['parent'])
+        self.assertEqual(value['grant'], 4.0)
+        self.assertIsInstance(value['grant'], float)
+        self.assertEqual(value['unknown']['nul'], 'before\x00after')
+        self.assertEqual(self.c.execute('SELECT parent_id,parent_null FROM orgtree.agents WHERE id=2').fetchone(), (None, True))
+        self.check_reference()
+
+    def test_scalar_records_follow_savepoint_and_full_rollback_on_reused_connection(self):
+        from orgtree.ledger import LedgerError
+        self.scalar_payload()
+        self.scalar_plan(['a'], ['a', 'destination'])
+        doc = self.scalar_doc()
+        original = dict(doc._snap_nodes)
+        self.c.execute('SAVEPOINT scalar_outer')
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination')])
+        view = graph.save_baselines(SimpleNamespace(raw=self.c), doc, doc, None)
+        self.assertEqual(json.loads(view._snap_nodes['a'])['parent'], 'destination')
+        self.assertEqual(doc._snap_nodes, original)
+        self.c.execute('ROLLBACK TO scalar_outer')
+        self.assertIs(graph.save_baselines(SimpleNamespace(raw=self.c), doc, doc, None), doc)
+        self.assertEqual(graph._scalar_records(self.c), {})
+        self.c.execute('ROLLBACK')
+        self.c.execute('BEGIN')
+        with self.assertRaisesRegex(LedgerError, 'planned org transaction'):
+            graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination')])
+        self.assertEqual(graph._scalar_records(self.c), {})
+        self.check_reference()
+
+    def test_scalar_save_skips_full_node_writer_and_reports_changes(self):
+        from orgtree import store
+        from orgtree.orgdb.compat import conn as C, rows as R
+        from orgtree.stateprobe import SaveChanges
+        self.scalar_payload()
+        self.scalar_plan(['a'], ['a', 'destination'])
+        doc = self.scalar_doc()
+        original = dict(doc._snap_nodes)
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination', grant=5.0)])
+        dict.__getitem__(doc, 'nodes')['a'].update(parent='destination', grant=5.0)
+        wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
+        changes = SaveChanges()
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_SCOPED_SAVE', False), \
+                patch.object(R, 'node_put', wraps=R.node_put) as put:
+            _, nodes, _, _ = store._write_doc(wrapped, doc, doc, changes)
+        self.assertEqual(put.call_count, 0)
+        self.assertEqual(changes.node_updates, ['a'])
+        self.assertEqual(json.loads(nodes['a'])['parent'], 'destination')
+        self.assertEqual(doc._snap_nodes, original)  # _write_doc never adopts a rollback point
+        self.check_reference()
+
+    def test_scalar_mixed_payload_save_uses_post_patch_baseline_and_ordinary_cas(self):
+        from orgtree import store
+        from orgtree.orgdb.compat import conn as C, rows as R
+        from orgtree.stateprobe import SaveChanges
+        self.scalar_payload()
+        self.scalar_plan(['a'], ['a', 'destination'])
+        doc = self.scalar_doc()
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination')])
+        dict.__getitem__(doc, 'nodes')['a'].update(parent='destination', charter='intentional mixed edit')
+        wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_SCOPED_SAVE', False), \
+                patch.object(R, 'node_put', wraps=R.node_put) as put:
+            store._write_doc(wrapped, doc, doc, SaveChanges())
+        self.assertEqual(put.call_count, 1)
+        value = json.loads(R.nodes(self.c, ['a'])[0][1])
+        self.assertEqual(value['parent'], 'destination')
+        self.assertEqual(value['charter'], 'intentional mixed edit')
+        self.assertEqual(value['unknown']['nul'], 'before\x00after')
+        self.check_reference()
+
+    def test_scalar_handoff_does_not_refresh_or_accept_unrelated_stale_payload(self):
+        from orgtree import store
+        from orgtree.orgdb.compat import conn as C
+        from orgtree.stateprobe import SaveChanges
+        self.scalar_payload()
+        self.scalar_plan(['a'], ['a', 'destination'])
+        doc = self.scalar_doc()
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination')])
+        dict.__getitem__(doc, 'nodes')['a'].update(parent='destination', charter='stale edit')
+        self.c.execute("UPDATE orgtree.agent_texts SET charter='other committed payload' WHERE agent_id=2")
+        self.c.execute('UPDATE orgtree.agents SET row_version=row_version+1 WHERE id=2')
+        view = graph.save_baselines(SimpleNamespace(raw=self.c), doc, doc, None)
+        self.assertEqual(json.loads(view._snap_nodes['a'])['charter'], 'unchanged long text')
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_SCOPED_SAVE', False):
+            with self.assertRaises(store.StaleWrite):
+                store._write_doc(C.OrgDbConn(self.c, 'test', 1, DATABASE), doc, doc, SaveChanges())
+        self.check_reference()
+
+    def test_scalar_handoff_is_idempotent_across_legs_and_physical_reference_rename(self):
+        from orgtree import store
+        self.scalar_payload()
+        self.scalar_plan(['a', 'root'], ['a', 'destination'])
+        doc = self.scalar_doc()
+        original = dict(doc._snap_nodes)
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination')])
+        first = graph.save_baselines(SimpleNamespace(raw=self.c), doc, doc, None)
+        self.assertEqual(graph.save_baselines(SimpleNamespace(raw=self.c), doc, first, None)._snap_nodes,
+                         first._snap_nodes)
+        graph.apply_scalars(self.c, [self.scalar_patch('a', parent='root')])
+        second = graph.save_baselines(SimpleNamespace(raw=self.c), doc, first, None)
+        self.assertEqual(json.loads(second._snap_nodes['a'])['parent'], 'root')
+        self.c.execute("UPDATE orgtree.agents SET name='renamed_root',row_version=row_version+1 WHERE id=1")
+        renamed = store.LazyDoc.__new__(store.LazyDoc)
+        renamed.__dict__.update(second.__dict__)
+        renamed._snap_nodes = {'a': json.dumps({**json.loads(second._snap_nodes['a']), 'parent': 'renamed_root'})}
+        final = graph.save_baselines(SimpleNamespace(raw=self.c), doc, renamed, None)
+        self.assertEqual(json.loads(final._snap_nodes['a'])['parent'], 'renamed_root')
+        self.assertEqual(doc._snap_nodes, original)
+        self.check_reference()
+
+    def test_structural_node_adapters_refuse_before_existing_lookup_or_header_write(self):
+        from orgtree import pgdoor
+        from orgtree.orgdb.compat import rows as R
+        self.scalar_payload()
+        self.scalar_plan(['a'])   # no stats tier was declared
+        class Trace:
+            def __init__(self, raw):
+                self.raw, self.calls = raw, []
+            def execute(self, statement, params=()):
+                self.calls.append(statement)
+                return self.raw.execute(statement, params)
+        traced = Trace(self.c)
+        with self.assertRaises(pgdoor.Widen):
+            R.node_put(traced, 'a', {'state': 'live', 'parent': 'destination'}, R.Names(traced))
+        with self.assertRaises(pgdoor.Widen):
+            R.node_delete(traced, 'a')
+        self.assertFalse(any('FOR UPDATE' in call or call.startswith(('UPDATE ', 'INSERT ', 'DELETE '))
+                             for call in traced.calls))
+        self.check_reference()
+
+    def test_nonstructural_native_payload_writer_needs_no_stats_locks(self):
+        from orgtree.orgdb.compat import rows as R
+        value = self.scalar_payload()
+        self.scalar_plan(['a'])
+        before = self.c.execute('SELECT agent_id,xmin::text,ctid::text FROM orgtree.agent_subtree_stats '
+                                'ORDER BY agent_id').fetchall()
+        value['charter'] = 'changed payload'
+        R.node_put(self.c, 'a', value, R.Names(self.c))
+        self.assertEqual(self.c.execute('SELECT agent_id,xmin::text,ctid::text FROM orgtree.agent_subtree_stats '
+                                        'ORDER BY agent_id').fetchall(), before)
+        self.check_reference()
 
 
 if __name__ == '__main__':

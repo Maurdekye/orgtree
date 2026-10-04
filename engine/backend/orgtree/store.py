@@ -5851,6 +5851,10 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     if rename_intent is not None and getattr(conn, 'orgdb', False):
         from .orgdb import renames
         lazy = renames.prepass(conn, d, lazy, rename_intent, changes)
+    if getattr(conn, 'orgdb', False):
+        from .orgdb import graph   # noqa: PLC0415
+        # On the G1-G11 composition this stays immediately AFTER rename prepass.
+        lazy = graph.save_baselines(conn, d, lazy, changes)
     receipt_rows = lazy is not None and lazy._receipt_rows
     if lazy is None and RECEIPT_ROWS and STORE_BACKEND == "postgres" \
             and conn.execute("SELECT 1 FROM receipt_format WHERE singleton").fetchone():
