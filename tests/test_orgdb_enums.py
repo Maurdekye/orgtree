@@ -33,9 +33,9 @@ def native_entries():
                     marker = next(e for e in result if e['table'] == table
                                   and e['column'] == column.removesuffix('_kind') + '_is')
                     result.append(dict(marker, column=column, values=values, kind='tag'))
-    placements = {('work_items', source + '_events_is'): codec.MARKER_VALUES['obj']
+    placements = {('work_items', source + '_events_is'): codec.MARKER_VALUES['list']
                   for source in docket.EVENT_SOURCES}
-    placements.update({('work_items', col + '_is'): codec.MARKER_VALUES['obj']
+    placements.update({('work_items', col + '_is'): ('n', 'v')
                        for col in docket.CURRENT_POINTERS.values()})
     placements.update({
         ('org_accounts', 'marks_is'): codec.MARKER_VALUES['obj'],

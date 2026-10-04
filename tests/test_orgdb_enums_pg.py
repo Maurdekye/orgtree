@@ -83,7 +83,8 @@ class EnumConstraints(unittest.TestCase):
                     # The exact CHECK must fail, not some unrelated FK / trigger.
                     with self.assertRaises(psycopg.errors.CheckViolation) as caught:
                         with c.transaction():
-                            c.execute(statement, ('z' if column.endswith('_is') else 'zz-out-of-set',) + params)
+                            bad = 'z' if all(len(member) == 1 for member in entry['values']) else 'zz-out-of-set'
+                            c.execute(statement, (bad,) + params)
                     suffix = 'check' if entry['kind'] == 'manual' else 'enum'
                     self.assertEqual(f'{table}_{column}_{suffix}', caught.exception.diag.constraint_name)
                     for value in entry['values'] + ((None,) if entry.get('nullable', True) else ()):

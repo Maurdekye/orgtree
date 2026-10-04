@@ -1,4 +1,4 @@
--- AUTHORING DRAFT: VERIFY BEFORE INSTALLING AS AN ORG MIGRATION.
+-- G1-G11 normalized agent and docket records; alpha data is checked in this transaction.
 
 -- All helpers live only in this session. No new runtime codec is installed.
 CREATE FUNCTION pg_temp.sc_get(v json, k text) RETURNS json
