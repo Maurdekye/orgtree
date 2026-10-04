@@ -45,7 +45,7 @@ def _hot(raw, where, params=()):
     children = codec.Children({}, M.AGENTS.layout())
     result = {}
     for row in rows:
-        body = codec.decode(M.HOT, row, children, (row['id'],))
+        body = codec.decode(M.NODE_BODY, row, children, (row['id'],))
         for ref in M.REFS:
             if row[ref + '_id'] is not None:
                 body[ref] = row[ref + '_name']

@@ -50,6 +50,25 @@ class NativeReaders(unittest.TestCase):
         self.assertEqual(graph['rows']['dev']['lineage_count'], 1)
         self.assertEqual(graph['rows']['dev']['consultable_predecessor'], {'id': 'old', 'generation': 1})
 
+    def test_metadata_does_not_decode_recent_membership(self):
+        from unittest.mock import patch
+        from orgtree.orgdb import agents, turns
+        with fixture.storage(False):
+            expected = agents.meta(fixture.store.load_org(self.twin.legacy).nodes['dev'])
+        with patch.object(turns, 'read_recent', side_effect=AssertionError('metadata fetched turns')):
+            got = self.read(lambda s: F.read_snapshot(s, lambda raw, stamp:
+                agents._hot(raw, 'a.name=ANY(%s)', (['dev'],))))
+        self.assertEqual(got['dev'][1], expected)
+        # The complete-body decoder is invalid for metadata after G7. This
+        # reached fault protects the scalar reader without changing its output.
+        with patch.object(agents.M, 'NODE_BODY', agents.M.HOT):
+            with self.assertRaisesRegex(ValueError, 'membership reader must supply'):
+                self.read(lambda s: F.read_snapshot(s, lambda raw, stamp:
+                    agents._hot(raw, 'a.name=ANY(%s)', (['dev'],))))
+        graph = self.read(lambda s: F.read_exact(s, 'dev'))
+        self.assertEqual([row['n'] for row in graph['rows']['dev']['node']['turns']],
+                         list(range(13, 21)))
+
     def test_retired_page(self):
         page = self.read(lambda s: F.read_retired_children(s, 'boss'))
         self.assertEqual(page['matches'], ['retired'])
