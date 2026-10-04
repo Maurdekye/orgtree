@@ -23,6 +23,9 @@ class ChildCandidates(unittest.TestCase):
     def setUpClass(cls):
         cls.twins = fixture.Twins('child-candidates')
         with fixture.storage(True):
+            # Stamp the converted document before introducing raw exceptional headers.
+            with orgtx.org_tx(cls.twins.copy, nodes=['boss']):
+                pass
             row = registry.lookup(cls.twins.copy)
             with conn.connect(fixture.ADMIN, row[1], autocommit=False) as raw:
                 def add(name, parent=None, state='live', extra=None, tombstone=False):
@@ -65,16 +68,24 @@ class ChildCandidates(unittest.TestCase):
             return R.children_ids(raw, parents, live_only)
 
     def reached(self, parents, live_only=False, edit=None):
-        org = orgtx.org_read(self.slug)
-        nodes = dict.__getitem__(org.d, 'nodes')
-        self.assertIsInstance(nodes, store.LazyNodesMap)
-        self.assertFalse(nodes._complete)
-        if edit:
-            edit(nodes)
-        with patch.object(R, 'children_ids', wraps=R.children_ids) as selected:
-            result = store.lazy_children_index(org, parents, live_only)
-        self.assertEqual(selected.call_count, 1, 'the actual compat child reader was not reached')
-        self.assertIsNotNone(result)
+        class DiscardReadEdits(Exception):
+            pass
+        try:
+            with orgtx.org_tx(self.slug, nodes=['boss']) as tx:
+                nodes = dict.__getitem__(tx.org.d, 'nodes')
+                self.assertIsInstance(nodes, store.LazyNodesMap)
+                self.assertFalse(nodes._complete)
+                if edit:
+                    edit(nodes)
+                with patch.object(R, 'children_ids', wraps=R.children_ids) as selected:
+                    result = store.lazy_children_index(tx.org, parents, live_only)
+                self.assertEqual(selected.call_count, 1,
+                                 'the actual compat child reader was not reached')
+                self.assertIsNotNone(result)
+                # These controls exercise unsaved edits; no test edit may reach storage.
+                raise DiscardReadEdits()
+        except DiscardReadEdits:
+            pass
         return result, nodes
 
     def reference(self, parents, live_only=False):
@@ -119,12 +130,11 @@ class ChildCandidates(unittest.TestCase):
         self.assertEqual(got, {'no-such-parent': []})
 
     def test_unrelated_unknown_payload_is_neither_selected_nor_decoded(self):
-        found = self.candidates(['boss'])
-        self.assertNotIn('unknown-only', found)
         got, nodes = self.reached(['boss'])
         self.assertEqual(got, self.reference(['boss']))
         self.assertNotIn('unknown-only', dict.keys(nodes))
         self.assertFalse(nodes._complete)
+        self.assertNotIn('unknown-only', self.candidates(['boss']))
 
     def test_loaded_unsaved_parent_state_insert_and_delete_override_stored_candidates(self):
         def edit(nodes):
