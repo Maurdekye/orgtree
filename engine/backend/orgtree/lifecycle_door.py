@@ -90,9 +90,14 @@ def _spec(op: str, rows: Callable[[Any, Any, dict[str, Any]],
     s = lt.SPECS[op]
 
     def spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
-        upd, share = rows(snap, call, a)
         from .orgdb import native_move   # noqa: PLC0415
         native = native_move.enabled()
+        if snap is None:
+            slug = str(getattr(call, 'org', None) or a['org_slug'])
+            upd, share = (native_move.planned_rows(slug, lambda org: rows(org, call, a))
+                          if native and op == 'move' else rows(pgdoor._snapshot(slug), call, a))
+        else:
+            upd, share = rows(snap, call, a)
         return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
                              sections=tuple(k for k in s.sections
                                             if not (native and op == 'move' and k == 'audiences')),
@@ -419,11 +424,11 @@ def _cheap_compact(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
     return result
 
 
-pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move))
+pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move), needs_snapshot=False)
 pgdoor.declare("orgtree_swap", _spec("swap_seats", _swap_rows),
                _door_body(_swap))
 pgdoor.declare("orgtree_self_subjugate", _spec("move", _subjugate_rows),
-               _door_body(_subjugate))
+               _door_body(_subjugate), needs_snapshot=False)
 pgdoor.declare("orgtree_retire", _spec("retire", _archive_rows),
                _door_body(_archive(lt.retire_body)))
 pgdoor.declare("orgtree_dissolve", _spec("dissolve", _archive_rows),
@@ -454,9 +459,15 @@ def _op_spec(op: str, rows: Callable[[Any, str, Any], "tuple[set[str], set[str]]
     s = lt.SPECS[op]
 
     def spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
-        upd, share = rows(snap, str(body.actor), body)
         from .orgdb import native_move   # noqa: PLC0415
         native = native_move.enabled()
+        if snap is None:
+            slug = str(a['org_slug'])
+            upd, share = (native_move.planned_rows(slug, lambda org: rows(org, str(body.actor), body))
+                          if native and op == 'move'
+                          else rows(pgdoor._snapshot(slug), str(body.actor), body))
+        else:
+            upd, share = rows(snap, str(body.actor), body)
         return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
                              sections=tuple(k for k in s.sections
                                             if not (native and op == 'move' and k == 'audiences')),
@@ -520,7 +531,7 @@ def _move_op(method: str):
 
 for _op_name in ("move", "promote", "demote"):
     pgdoor.declare(_op_name, _op_spec("move", _move_op_rows),
-                   body=_op_body(_move_op(_op_name)))
+                   body=_op_body(_move_op(_op_name)), needs_snapshot=False)
 
 
 # delete: the census-derived plan (sections and per-owner log rows too);

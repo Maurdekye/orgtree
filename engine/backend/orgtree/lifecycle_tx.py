@@ -247,7 +247,8 @@ def _run(op: str, slug: str, rows: Callable[[Any], tuple[set[str], set[str]]],
     from . import pgdoor   # noqa: PLC0415
     native = native_move.enabled()
     sections = tuple(k for k in s.sections if not (native and op == 'move' and k == 'audiences'))
-    upd, share = rows(store.cached_org(slug))
+    upd, share = (native_move.planned_rows(slug, rows) if native and op == 'move'
+                  else rows(store.cached_org(slug)))
     roots: set[str] = set()
     for _ in range(MAX_WIDEN + 1):
         try:

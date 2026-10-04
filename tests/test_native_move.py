@@ -151,12 +151,52 @@ class NarrowMovePlanning(unittest.TestCase):
             return 'ok'
 
         with patch.object(native_move, 'enabled', return_value=True), \
-                patch.object(store, 'cached_org', return_value=None), \
+                patch.object(store, 'cached_org', side_effect=AssertionError('whole snapshot')), \
+                patch.object(native_move, 'planned_rows', side_effect=lambda slug, fn: fn(None)), \
                 patch.object(lifecycle_tx.halt, 'txn', side_effect=begin):
             self.assertEqual(lifecycle_tx._run('move', 'test', lambda _: ({'worker'}, set()), body), 'ok')
         self.assertEqual(rolled_back, [True])
         self.assertEqual(writes, ['once'])
         self.assertEqual(attempts[1]['structural_roots'], {'worker', 'new', 'observer'})
+
+    def test_door_prediction_uses_selected_reader_instead_of_whole_snapshot(self):
+        org = org_fixture()
+        call = SimpleNamespace(org='test', node='actor')
+        body = SimpleNamespace(actor=ledger.USER, node='worker', new_parent='new')
+        with patch.object(native_move, 'enabled', return_value=True), \
+                patch.object(store, 'cached_org', side_effect=AssertionError('whole snapshot')), \
+                patch.object(native_move, 'planned_rows', side_effect=lambda slug, fn: fn(org)) as read:
+            agent = pgdoor._resolve('orgtree_move', 'test', call,
+                                    {'node': 'worker', 'new_parent': 'new'})
+            operator = pgdoor._resolve('move', 'test', body, {'org_slug': 'test'})
+        self.assertEqual(read.call_count, 2)
+        self.assertEqual(set(agent.nodes), set(operator.nodes))
+        self.assertIn('actor', agent.share_nodes)
+        self.assertNotIn('ordinary', agent.structural_roots)
+
+    def test_planning_reader_selects_names_once_and_forbids_enumeration(self):
+        import json
+        from orgtree.orgdb.compat import rows as R
+        org = org_fixture()
+        requested = []
+
+        def selected(raw, wanted, **kw):
+            self.assertIsNotNone(wanted)
+            self.assertEqual(len(wanted), 1)
+            requested.extend(wanted)
+            return [(name, json.dumps(org.node(name)), 1) for name in wanted]
+
+        with patch.object(R, 'nodes', side_effect=selected):
+            reader = native_move._PlanningNodes(Mock())
+            plan = ledger.Org.__new__(ledger.Org)
+            plan.d = {'nodes': reader}
+            update, share = native_move.rows(plan, ledger.USER, [('worker', 'new')])
+            with self.assertRaisesRegex(ledger.LedgerError, 'enumerate'):
+                list(iter(reader))
+        self.assertEqual(set(requested), {'worker', 'worker@0', 'old', 'new'})
+        self.assertEqual(len(requested), len(set(requested)))
+        self.assertEqual(update, set(requested))
+        self.assertFalse(share)
 
 
 class NativeLedgerBody(unittest.TestCase):

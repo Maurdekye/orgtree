@@ -6,9 +6,10 @@ native path coverage, aggregate reads and the scalar/savepoint boundaries.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
-from ..ledger import LedgerError, USER, _q
+from ..ledger import LedgerError, Org, USER, _q
 from . import graph
 
 
@@ -26,6 +27,56 @@ def connection(org: Any) -> Any | None:
     if conn is None or not getattr(conn, 'orgdb', False):
         raise LedgerError('native move requires its current planned org transaction')
     return conn.raw
+
+
+class _PlanningNodes(Mapping[str, Any]):
+    """One selected-name read per node in this prediction's read snapshot."""
+    def __init__(self, raw: Any):
+        from .compat import rows as R   # noqa: PLC0415
+        self.raw, self.names, self.values = raw, R.Names(raw), {}
+
+    def __getitem__(self, name: str) -> Any:
+        if name not in self.values:
+            import json   # noqa: PLC0415
+            from .compat import rows as R   # noqa: PLC0415
+            found = R.nodes(self.raw, [name], names=self.names)
+            if not found:
+                raise KeyError(name)
+            self.values[name] = json.loads(found[0][1])
+        return self.values[name]
+
+    def __iter__(self) -> Iterator[str]:
+        raise LedgerError('native move planning must select names, never enumerate the org')
+
+    def __len__(self) -> int:
+        raise LedgerError('native move planning must not count the whole org')
+
+
+def planned_rows(slug: str, derive: Callable[[Any], Any]) -> Any:
+    """Pre-lock prediction reads only selected paths, not cached_org's N rows.
+
+    The result contains row names only. No reader or connection escapes its
+    consistent snapshot; the body re-derives these names under actual locks.
+    """
+    from .. import store   # noqa: PLC0415
+    slug = store._safe_slug(slug)
+
+    def run(raw: Any) -> Any:
+        org = Org.__new__(Org)
+        org.d = {'slug': slug, 'nodes': _PlanningNodes(raw)}
+        return derive(org)
+
+    pinned = (getattr(store._orgtx_local, 'pinned', None) or {}).get(slug)
+    if pinned is not None:
+        if not getattr(pinned, 'orgdb', False):
+            raise LedgerError('native move prediction requires its actual org database')
+        return run(pinned.raw)
+    with store._POOL.acquire(slug) as conn:
+        if not getattr(conn, 'orgdb', False):
+            raise LedgerError('native move prediction requires its actual org database')
+        with conn.raw.transaction():
+            conn.raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            return run(conn.raw)
 
 
 def rows(org: Any, actor: str, moves: list[tuple[str, str | None]]
