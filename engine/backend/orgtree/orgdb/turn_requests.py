@@ -268,7 +268,8 @@ def acknowledge_stop(c: Any, request_id: str, instance_id: int, epoch: int) -> R
 def reclaim_owner(c: Any, instance_id: int, *, limit: int = 16) -> list[Request]:
     """Host verified this process AND its provider tree dead before calling.
 
-    Invalidate operations in org transactions first, then reclaim app tickets.
+    A durable app fence precedes these org transactions. Verified-dead app
+    tickets may release capacity while that fence retains org recovery.
     Repeated bounded batches allow startup to retire an arbitrarily large
     dead backlog without a single unbounded write/returned body.
     """

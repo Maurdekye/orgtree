@@ -116,12 +116,17 @@ class Host:
             with self._connect_org(org) as c:
                 yield c
 
-    def org(self, slug: str) -> jobs.Org:
+    def org(self, slug: str, *, owner: int | None = None) -> jobs.Org:
+        # Restoring an old org snapshot cannot revive a verified-dead app
+        # identity, even after this org's recovery fence has been cleared.
+        owner_gate = (' AND EXISTS (SELECT 1 FROM orgtree.engine_instances e '
+                      'WHERE e.id=%s AND e.dead_at IS NULL)') if owner is not None else ''
+        params = (slug, owner) if owner is not None else (slug,)
         with self.app_connection() as c:
             row = c.execute("SELECT org_id, slug, database, org_uuid::text FROM orgtree.orgs o "
                             "WHERE slug=%s AND state='active' AND op_kind IS NULL AND NOT EXISTS "
-                            '(SELECT 1 FROM orgtree.turn_recovery f WHERE f.org_id=o.org_id)',
-                            (slug,)).fetchone()
+                            '(SELECT 1 FROM orgtree.turn_recovery f WHERE f.org_id=o.org_id)' +
+                            owner_gate, params).fetchone()
         if row is None:
             raise requests.StaleRun('org is not open for turn admission or is fenced for recovery')
         return jobs.Org(*row)
@@ -154,7 +159,7 @@ class Host:
         lock around result publication only, never around a provider wait
         or an HTTP tool which may cancel its own request.
         """
-        org = self.org(run.org)
+        org = self.org(run.org, owner=run.owner)
         if org.org_id != run.org_id:
             raise requests.StaleRun('turn origin was replaced')
         with self.org_connection(org) as c, c.transaction():
