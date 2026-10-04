@@ -119,19 +119,36 @@ def difference(record, previous, *, item_id, allocate):
 
 
 def encode_current(record, keys, events, out, *, previous_relations=(), allocate_relation=None,
-                   previous_children=None, resolve_current=None):
+                   previous_children=None, resolve_current=None, previous_item=None):
     core = {k:v for k,v in docket_relations.core(record).items() if k not in D.CURRENT_POINTERS and
             (k not in D.EVENT_SOURCES or not isinstance(v,list))}
     codec.encode(D.WORK_ITEM,core,D.row_keys(core,id=keys['id'],list_key=keys['list_key'],
                  ord=keys['ord'],archive_seq=keys.get('archive_seq'),original=record,events=events),
                  out,link=D.WORK_ITEMS.link)
+    item = out['work_items'][-1]
+    old = codec.decode(codec.Spec('work_items', tuple(D.WORK_ITEM.field(k) for k in ('owner','reviewer'))),
+                       previous_item, None) if previous_item is not None else {}
+    for role in ('owner', 'reviewer'):
+        column = role+'_agent_id'
+        item[column] = resolve_current(record.get(role, codec.MISSING), old.get(role, codec.MISSING),
+                                      previous_item.get(column) if previous_item else None) if resolve_current else None
+    holders = record.get('holders')
+    if isinstance(holders, list) and all(isinstance(h, dict) for h in holders):
+        old_holders = {r['pos']: r for r in (previous_children or {}).get('work_item_holders', ())}
+        for row in out.get('work_item_holders', ()):
+            if row['item_id'] != keys['id']:
+                continue
+            old_row = old_holders.get(row['pos'])
+            prior = codec.decode(D.WORK_ITEM.field('holders').spec, old_row, None) if old_row else codec.MISSING
+            row['agent_id'] = resolve_current(holders[row['pos']], prior,
+                                              old_row.get('agent_id') if old_row else None) if resolve_current else None
     docket_relations.encode(record, keys['id'], out, previous=previous_relations,
                             allocate=allocate_relation)
     docket_relations.encode_lists(record, keys['id'], out, previous=previous_children,
                                   allocate=allocate_relation, resolve=resolve_current)
 
 
-def encode_item(record: Mapping[str,Any], keys: Mapping[str,Any], out: codec.Rows) -> None:
+def encode_item(record: Mapping[str,Any], keys: Mapping[str,Any], out: codec.Rows, *, resolve_current=None) -> None:
     """Conversion in deterministic source rank/position order, no invented dates."""
     keys = dict(keys)
     start = len(out.get('work_item_events',[]))
@@ -142,7 +159,7 @@ def encode_item(record: Mapping[str,Any], keys: Mapping[str,Any], out: codec.Row
             for entry in value:
                 events.append(encode_event(source,entry,id=start+len(events)+1,
                                            item_id=keys['id'],seq=len(events)+1))
-    encode_current(record,keys,events,out)
+    encode_current(record,keys,events,out,resolve_current=resolve_current)
     out.setdefault('work_item_events',[]).extend(events)
 
 

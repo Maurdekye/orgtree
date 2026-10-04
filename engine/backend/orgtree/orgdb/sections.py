@@ -102,17 +102,39 @@ class Context:
         self.ids: dict[str, int] = {}
         self.names: dict[int, str] = {}
         self.tombstones: list[str] = []
+        self.current_tombstones: dict[int, dict[str, Any]] = {}
+        self._current_stamps: dict[tuple[str, str, int], int] = {}
+        self._node_records: dict[int, Mapping[str, Any]] = {}
         self.row_order: dict[str, dict[str, list[int]]] = {}
         self._next = 1
 
-    def add_node(self, name: str) -> int:
+    def add_node(self, name: str, record: Mapping[str, Any] | None = None) -> int:
         if name in self.ids:
             raise ShapeError(f"node {name!r} twice")
         i = self._next
         self._next += 1
         self.ids[name] = i
         self.names[i] = name
+        self._node_records[i] = dict(record or {})
         return i
+
+    def current(self, value: Any, previous: Any = codec.MISSING,
+                previous_id: int | None = None) -> int | None:
+        from .current_refs import Resolver
+        def find(name):
+            aid = self.ids.get(name)
+            record = self._node_records.get(aid)
+            return None if record is None else dict(record, id=aid, name=name, tombstone=False)
+        def tombstone(ref):
+            aid = self._current_stamps.get(ref.stamp)
+            if aid is None:
+                aid = self._next
+                self._next += 1
+                self.names[aid] = ref.name
+                self._current_stamps[ref.stamp] = aid
+                self.current_tombstones[aid] = ref.tombstone_record()
+            return aid
+        return Resolver(find, tombstone)(value, previous, previous_id)
 
     def agent(self, name: str) -> int:
         """The id of the row carrying ``name``, minting a tombstone for a name no node has."""

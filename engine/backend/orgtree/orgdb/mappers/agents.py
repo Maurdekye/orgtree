@@ -247,9 +247,14 @@ TOOL_LISTS_DDL = (
 # Frozen 0002 definitions: runtime estimates change only in the later schema
 # migration, including for an org that has already run the alpha build.
 LEGACY_HOT, LEGACY_AGENTS = HOT, AGENTS
-HOT = Spec('agents', tuple(F(f.key, 'sum') if f.key in ('turn_est_cost', 'turn_est_toks') else f
-                           for f in LEGACY_HOT.fields))
+HOT = Spec('agents', tuple(F(f.key, 'sum') if f.key in ('turn_est_cost', 'turn_est_toks') else
+                          replace(f, values=f.values + ('deleted',)) if f.key == 'state' else f
+                          for f in LEGACY_HOT.fields))
 AGENTS = replace(LEGACY_AGENTS, spec=HOT)
+AGENTS = replace(AGENTS, indexes=AGENTS.indexes + (
+    "CREATE INDEX agents_current_tombstone ON orgtree.agents(name,lineage_born,generation,id) "
+    "WHERE tombstone AND state='deleted'",
+))
 
 _HOT_KEYS = frozenset(f.key for f in HOT.fields)
 _TEXT_KEYS = frozenset(f.key for f in TEXTS.fields)
@@ -275,7 +280,7 @@ class Nodes(Section):
         for name in nodes:                    # every node's id first: references go both ways
             if not codec.fits("text", name):
                 raise ShapeError("nodes: a node id no text column can hold")
-            ctx.add_node(name)
+            ctx.add_node(name, nodes[name] if isinstance(nodes[name], dict) else None)
         lists: dict[str, int] = {}
 
         def list_id(sha: str, tools: list[str], out: Rows) -> int:
@@ -294,12 +299,10 @@ class Nodes(Section):
 
     def finish(self, ctx: Context, out: Rows) -> None:
         """Tombstone rows for the names other sections minted (after every section ran)."""
-        for name in ctx.tombstones:
-            codec.encode(HOT, {}, {"id": ctx.ids[name]}, out, link=AGENTS.link)
-            out["agents"][-1].update({"name": name, "ord": None, "tombstone": True,
-                                      "parent_id": None, "predecessor_id": None,
-                                      "successor_id": None, "tool_list_id": None,
-                                      **{c: False for c in FLAGS.values()}})
+        records = [(ctx.ids[name], name, {}) for name in ctx.tombstones]
+        records += [(aid, ctx.names[aid], record) for aid, record in ctx.current_tombstones.items()]
+        for aid, name, record in records:
+            encode_tombstone(name, aid, record, out)
 
     def decode(self, rows, ctx, present, doc) -> None:
         agents = rows.get("agents", [])
@@ -320,6 +323,13 @@ class Nodes(Section):
             nodes[r["name"]] = decode_node(r, ch_hot, ch_rt, texts[r["id"]], runtime[r["id"]],
                                            tool_lists, ctx.name)
         doc["nodes"] = nodes
+
+
+def encode_tombstone(name: str, aid: int, record: Mapping[str, Any], out: Rows) -> None:
+    codec.encode(HOT, dict(record), {'id': aid}, out, link=AGENTS.link)
+    out['agents'][-1].update(name=name, ord=None, tombstone=True,
+                           parent_id=None, predecessor_id=None, successor_id=None,
+                           tool_list_id=None, **{c: False for c in FLAGS.values()})
 
 
 def encode_node(name: str, aid: int, ord_: int, rec: dict[str, Any], ctx: Context, out: Rows,

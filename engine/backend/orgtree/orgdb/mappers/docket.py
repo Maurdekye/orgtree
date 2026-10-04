@@ -246,7 +246,9 @@ EVENTS = table(EVENT,child_key='event_id',placement=(
 ))
 _HOLDERS = Spec('work_item_holders', tuple(
     F('by', 'principal') if f.key == 'by' else f
-    for f in LEGACY_WORK_ITEM.field('holders').spec.fields))
+    for f in LEGACY_WORK_ITEM.field('holders').spec.fields) + (F('deleted', 'bool', nullable=True),))
+def current_holder(key):
+    return F(key, 'obj', spec=Spec('', holder(key).spec.fields + (F('deleted', 'bool', nullable=True),)))
 ATTENTION = Spec('', (
     F('reason', 'text', nullable=True), F('at', 'ts', nullable=True),
     F('by', 'principal'), F('set_rev', 'int', nullable=True),
@@ -264,6 +266,7 @@ ALPHA_WORK_ITEM = Spec('work_items', tuple(f for f in LEGACY_WORK_ITEM.fields
 _ARTIFACT = Spec('work_item_artifacts', tuple(
     f for f in LEGACY_WORK_ITEM.field('artifacts').spec.fields if f.key != 'grants'))
 _CURRENT_FIELDS = {
+    'owner': current_holder('owner'), 'reviewer': current_holder('reviewer'),
     'holders': F('holders', 'list', spec=_HOLDERS),
     'manual_attention': F('manual_attention', 'obj', col='attention', spec=ATTENTION),
     'accepted': F('accepted', 'obj', spec=ACCEPTED),
@@ -272,13 +275,20 @@ _CURRENT_FIELDS = {
 }
 WORK_ITEM = Spec('work_items',tuple(
     _CURRENT_FIELDS.get(f.key, f) for f in ALPHA_WORK_ITEM.fields if f.key != 'review_seats'))
-_placement = (('archive_seq','bigint'), ('review_seats_is', 'char(1)'))+tuple(
+_placement = (('archive_seq','bigint'), ('review_seats_is', 'char(1)'),
+              ('owner_agent_id', 'bigint'), ('reviewer_agent_id', 'bigint'))+tuple(
     (source+'_events_is','char(1)') for source in EVENT_SOURCES)
 _placement += tuple((column,typ) for column in CURRENT_POINTERS.values()
                     for column,typ in ((column,'bigint'),(column+'_is','char(1)')))
 WORK_ITEMS = docket_relations.DocketTable(
     WORK_ITEM, LEGACY_WORK_ITEMS.keys+_placement, LEGACY_WORK_ITEMS.link,
-    LEGACY_WORK_ITEMS.record_columns, LEGACY_WORK_ITEMS.indexes)
+    LEGACY_WORK_ITEMS.record_columns + (
+        'owner_agent_id bigint REFERENCES orgtree.agents(id) NOT DEFERRABLE',
+        'reviewer_agent_id bigint REFERENCES orgtree.agents(id) NOT DEFERRABLE',
+    ), LEGACY_WORK_ITEMS.indexes + (
+        'CREATE INDEX work_items_owner_agent ON orgtree.work_items(owner_agent_id,id)',
+        'CREATE INDEX work_items_reviewer_agent ON orgtree.work_items(reviewer_agent_id,id)',
+    ))
 
 
 class Docket(Section):
@@ -299,7 +309,7 @@ class Docket(Section):
                     raise ShapeError(f"{key}[{i}]: expected an object")
                 n += 1
                 from ..docket_events import encode_item
-                encode_item(rec,row_keys(rec,id=n,list_key=list_key,ord=i),out)
+                encode_item(rec,row_keys(rec,id=n,list_key=list_key,ord=i),out,resolve_current=ctx.current)
 
     def decode(self, rows, ctx, present, doc) -> None:
         ch = self._children(rows, WORK_ITEMS)

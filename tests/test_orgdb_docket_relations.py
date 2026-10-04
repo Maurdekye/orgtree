@@ -264,7 +264,8 @@ class SeatsAndGrants(unittest.TestCase):
         out = {}
         docket_events.encode_current(record, D.row_keys(record, id=1, list_key='active', ord=0), [], out,
                                      previous_children=old, resolve_current=resolve)
-        self.assertEqual(calls, [('r', 'r', 11), ({'node': 'h'}, {'node': 'h'}, 12),
+        self.assertEqual(calls, [(codec.MISSING, codec.MISSING, None)]*2 +
+                                [('r', 'r', 11), ({'node': 'h'}, {'node': 'h'}, 12),
                                  ({'node': 'c'}, {'node': 'c'}, 13), ('reader', 'reader', 14)])
         self.assertEqual(out[R.GRANT.table][0]['agent_id'], 14)
 

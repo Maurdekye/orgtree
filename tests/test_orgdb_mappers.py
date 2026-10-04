@@ -128,7 +128,9 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(back['sandbox'], doc['sandbox'])
         self.assertEqual(report['extra_keys'], ['hand_edited_default'])
         self.assertEqual(len(rows['tool_lists']), 1)                 # one shared list
-        agents = {r['name']: r for r in rows['agents']}
+        # A stale current role may name an identity-specific tombstone beside
+        # a live namesake. Structural references still use the ordinary node.
+        agents = {r['name']: r for r in reversed(rows['agents'])}
         self.assertEqual(agents['x']['parent_id'], agents['boss']['id'])
         self.assertEqual(agents['x@0']['parent_id'], agents['gone-boss']['id'])
         self.assertTrue(agents['gone-boss']['tombstone'])

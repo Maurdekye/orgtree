@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 import json
 from typing import Any
 
-from . import codec
+from . import codec, current_refs
 from .codec import Field as F, Spec
 from .sections import Table, table
 
@@ -97,6 +97,7 @@ def item_layout(base: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, An
     result = {name: dict(entry) for name, entry in base.items()}
     artifact = result[ARTIFACT_TABLE]
     artifact['keys'] += (('id', 'bigint'), ('grants_is', 'char(1)'))
+    result['work_item_holders']['keys'] += (('agent_id', 'bigint'),)
     for child in TABLES:
         name = child.spec.table
         if name in result:
@@ -121,6 +122,9 @@ class DocketTable(Table):
     def ddl(self, schema='orgtree'):
         artifact = codec.quote(schema)+'.'+codec.quote(ARTIFACT_TABLE)
         additions = [
+            'ALTER TABLE orgtree.work_item_holders ADD COLUMN agent_id bigint '
+            'REFERENCES orgtree.agents(id) NOT DEFERRABLE',
+            'CREATE INDEX work_item_holders_agent ON orgtree.work_item_holders(agent_id,item_id,pos)',
             f'ALTER TABLE {artifact} ADD COLUMN id bigint GENERATED ALWAYS AS IDENTITY',
             f"ALTER TABLE {artifact} ADD COLUMN grants_is char(1) CHECK (grants_is IN ('n','l','x'))",
             f'ALTER TABLE {artifact} ADD CONSTRAINT work_item_artifact_id UNIQUE(id)',
@@ -179,8 +183,9 @@ def encode_lists(record, item_id, out, *, previous=None, allocate=None, resolve=
             keys = dict(id=rid, item_id=item_id, seq=pos)
             for role in ('reviewer', 'holder', 'recheck_owner'):
                 column = role+'_agent_id'
-                keys[column] = resolve(seat.get(role, codec.MISSING),
-                                       old_value.get(role, codec.MISSING),
+                current = current_refs.seat_reviewer(seat) if role == 'reviewer' else seat.get(role, codec.MISSING)
+                prior = current_refs.seat_reviewer(old_value) if role == 'reviewer' else old_value.get(role, codec.MISSING)
+                keys[column] = resolve(current, prior,
                                        old.get(column) if old else None) if resolve else None
             codec.encode(SEAT, seat, keys, out, link=SEAT_TABLE.link)
 

@@ -53,7 +53,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .. import codec, docket_events, mappers
+from .. import codec, current_refs, docket_events, mappers
 from . import mailboxes as M
 from ..codec import Rows, ShapeError
 from ..mappers import agents as A
@@ -354,6 +354,43 @@ class Names:
             self.load((aid,))
         return self.by_id[aid]
 
+    def current_record(self, name: str) -> Mapping[str, Any] | None:
+        rows = dict_rows(self.c, 'SELECT id,name,tombstone,lineage_born,generation,extra '
+                                'FROM orgtree.agents WHERE name=%s AND NOT tombstone', (name,))
+        return agent_identity(rows[0]) if rows else None
+
+    def current_tombstone(self, ref: current_refs.Reference) -> int:
+        def find():
+            return self.c.execute("SELECT id FROM orgtree.agents WHERE name=%s AND tombstone "
+                                  "AND state='deleted' AND lineage_born=%s AND generation=%s "
+                                  "ORDER BY id LIMIT 1", ref.stamp).fetchone()
+        row = find()
+        if row is not None:
+            return int(row[0])
+        self.lock(ref.name)
+        row = find()
+        if row is not None:
+            return int(row[0])
+        aid = new_ids(self.c, 'agents', 1)[0]
+        out: Rows = {}
+        A.encode_tombstone(ref.name, aid, ref.tombstone_record(), out)
+        insert(self.c, 'agents', out['agents'])
+        self.by_id[aid] = ref.name
+        return aid
+
+    def current(self, value: Any, previous: Any = codec.MISSING,
+                previous_id: int | None = None) -> int | None:
+        return current_refs.Resolver(self.current_record, self.current_tombstone)(value, previous, previous_id)
+
+
+def agent_identity(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Decode the selected identity header, including exceptional original values."""
+    spec = codec.Spec('agents', tuple(A.HOT.field(k) for k in ('seat_id', 'generation')))
+    extra = codec.from_column('json', row['extra']) if row.get('extra') is not None else {}
+    selected = dict(row, extra=codec.to_column('json', {k: extra[k] for k in ('seat_id', 'generation') if k in extra}))
+    return dict(codec.decode(spec, selected, None), id=row['id'], name=row.get('name'),
+                tombstone=row.get('tombstone', False))
+
 
 class DbContext(Context):
     """A mapper Context whose names are the org database's agent rows."""
@@ -369,6 +406,10 @@ class DbContext(Context):
 
     def name(self, agent_id: int) -> str:
         return self._names.name(agent_id)
+
+    def current(self, value: Any, previous: Any = codec.MISSING,
+                previous_id: int | None = None) -> int | None:
+        return self._names.current(value, previous, previous_id)
 
 
 @dataclass
@@ -957,12 +998,14 @@ def _docket_write(c: Any, record: Mapping[str, Any], keys: Mapping[str, Any],
     out: Rows = {}
     from .. import docket_relations as R
     previous_children = {table: dict_rows(c, f'SELECT * FROM orgtree.{table} WHERE item_id=%s', (rid,))
-                         for table in (R.DELIVERY.table, R.SEAT.table, R.ARTIFACT_TABLE, R.GRANT.table)
+                         for table in (R.DELIVERY.table, R.SEAT.table, R.ARTIFACT_TABLE, R.GRANT.table,
+                                       'work_item_holders')
                          } if previous is not None else {}
     docket_events.encode_current(record, keys, events, out,
                                  previous_relations=previous_children.get(R.DELIVERY.table, ()),
                                  previous_children=previous_children,
-                                 allocate_relation=lambda table: new_ids(c, table, 1)[0])
+                                 allocate_relation=lambda table: new_ids(c, table, 1)[0],
+                                 previous_item=previous, resolve_current=Names(c).current)
     if previous is None:
         insert(c,'work_items',out['work_items'],override=True)
     else:
@@ -1301,13 +1344,14 @@ def _update_agent(c: Any, aid: int, row: dict[str, Any]) -> None:
 
 
 def node_put(c: Any, name: str, value: Any, names: Names) -> None:
-    """Write one node (insert, update, or revive a tombstone of that name)."""
+    """Write one node; only a name-only placeholder may become a new live node."""
     if not isinstance(value, dict):
         raise CompatError(f"node {name!r} is not an object")
     if not codec.fits("text", name):
         raise ShapeError(f"a node id no text column can hold: {name!r}")
     def current() -> Any:
         return c.execute("SELECT id, tombstone, ord FROM orgtree.agents WHERE name = %s "
+                         "AND (NOT tombstone OR state IS DISTINCT FROM 'deleted') "
                          "ORDER BY tombstone, id LIMIT 1 FOR UPDATE", (name,)).fetchone()
     row = current()
     if row is None or row[1]:
@@ -1348,17 +1392,18 @@ def node_put(c: Any, name: str, value: Any, names: Names) -> None:
 
 def node_delete(c: Any, name: str) -> int:
     """A node removed: its row becomes a tombstone (records of other sections keep it)."""
-    row = c.execute("SELECT id FROM orgtree.agents WHERE name = %s AND NOT tombstone FOR UPDATE",
-                    (name,)).fetchone()
-    if row is None:
+    selected = dict_rows(c, "SELECT id,lineage_born,generation,extra FROM orgtree.agents "
+                           "WHERE name=%s AND NOT tombstone FOR UPDATE", (name,))
+    if not selected:
         return 0
-    aid = int(row[0])
+    row = selected[0]
+    aid = int(row['id'])
+    identity = agent_identity(row)
+    record = {k: identity[k] for k in ('seat_id', 'generation') if k in identity}
+    record['state'] = 'deleted'
     out: Rows = {}
-    codec.encode(A.HOT, {}, {"id": aid}, out, link=A.AGENTS.link)
+    A.encode_tombstone(name, aid, record, out)
     arow = out["agents"][0]
-    arow.update({"name": name, "ord": None, "tombstone": True, "parent_id": None,
-                 "predecessor_id": None, "successor_id": None, "tool_list_id": None,
-                 **{col: False for col in A.FLAGS.values()}})
     _clear_node_rows(c, aid)
     _update_agent(c, aid, arow)
     return 1
