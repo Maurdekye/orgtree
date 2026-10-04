@@ -7,8 +7,9 @@ Implementation approve_stage with deliberate faults precedes the pre-granted v3
 landing. The coordinator alone builds alpha.1 after that landing.
 
 This revision carries O1 item decision4 (the user's audience, warning and running-turn
-choices), decision5 (the design owner's reduced architecture) and decision6 (bounded
-subscription replacements). Proposal1's lineage slots and client-side capability
+choices), decision5 (the design owner's reduced architecture), decision6 (bounded
+subscription replacements) and decision7 (every changed placement root is captured).
+Proposal1's lineage slots and client-side capability
 fold are withdrawn. Decisions40/41 on the umbrella authorize configured scope
 restoration through current ancestors.
 
@@ -54,7 +55,7 @@ copy has multiple reverse-successor candidates.
 | Grants/free | Exact existing scalar grants and seat-cost rules | LCA-path scalar deltas, O(h) |
 | Audiences | Stored grant plus current anchor ancestry predicate | No whole-org sweep; explicit revoke alone deletes |
 | Notices and move log | Existing exact roles/count tail, approved short scope summary | O(B) required output, no S enumeration |
-| Record bodies | Python effective values, read-side expansion of one subtree scope | No S expansion under revision |
+| Record bodies | Python effective values, read-side expansion of scopes for every changed placement root | O(L) scope markers, no S expansion under revision |
 
 ### 2.1 Small, exact subtree aggregates
 
@@ -239,24 +240,37 @@ Alpha.1 retains today's committed changed notification plus normal refetch. The
 new effective reader runs while building a read snapshot, OUTSIDE the move, so
 this task does not wait for private B4a's landing. Measure read cost separately.
 
-Design5/6 amend the step6 addendum: move/configured-scope/relevant-state changes
-record ONE `subtree:<agent id>` scope, under the revision row, without naming S
-ids at flush. B4a owns that capture/reader extension. Bodies remain EFFECTIVE
-values computed by Python effective_scope; no TypeScript capability fold.
+Design5/6, amended by decision7 for review finding f1, amend the step6 addendum:
+every row whose parent_id changes records `subtree:<that agent id>`, and every
+configured-scope change records the same scope. A move therefore captures the
+root X AND each changed canonical predecessor B: O(L) markers, without naming S
+descendant ids at flush. A relevant state change that changes descendants'
+effective values also records its affected root. Duplicate root markers in one
+revision can coalesce. This applies to every structural writer, not just move.
+B4a owns that capture/reader extension. Bodies remain EFFECTIVE values computed
+by Python effective_scope; no TypeScript capability fold.
+
+Why X alone is insufficient: after X and its predecessor B move from P to Q,
+a retained child C still has parent B. Its current chain is C->B->Q, not C->X->Q.
+Different P/Q scope changes C's body; a subscription pinned to C must drop P and
+gain Q. `subtree:B` covers both changes, while parent-pile Rule M alone does not.
+The same rule covers multiple predecessor branches and unchanged child rows.
 
 Host runner and HTTP catch-up expand subtree scopes in their own consistent read
-snapshot. Recompute held records whose current chain contains X. For affected
-active subscriptions (pinned records and ancestors), send a typed SET REPLACEMENT
+snapshot. Recompute held records whose current chain contains ANY captured root.
+For affected active subscriptions (pinned records and ancestors), send a typed SET REPLACEMENT
 with the full current membership at R, including entrant and leaver ancestors.
 The active subscription already travels with catch-up; at most128 pinned agents
 plus bounded ancestor paths. A replacement above the declared bound is record_reset.
 Shared live membership is unchanged; old/new retired piles affected by O(L) bearers
 still use flush-time Rule M. No mutation-dependent resolver walks S under revision.
 
-Controls: a move during catch-up, two moves in one cursor window, ancestor scope
-edit followed by moving out, pinned archived/non-archived descendants, ancestor
-entrants/leavers, reconnect/delayed baseline/replaced UUID-incarnation, replacement
-crossing reconnect, and legacy tree parity at each step. Scope reads, subscription
+Controls: pinned AND unpinned retained children of moved bearers, multiple
+predecessors, and effective-body plus pinned-ancestor parity for C->B->Q; a move
+during catch-up, two moves in one cursor window, combined move/scope edits and an
+ancestor scope edit followed by moving out; pinned archived/non-archived descendants,
+ancestor entrants/leavers, reconnect/delayed baseline/replaced UUID-incarnation,
+replacement crossing reconnect, and legacy tree parity at each step. Scope reads, subscription
 replacement and bodies share one snapshot/identity. Cache stamps never authorize
 engine actions. Coordinate final concrete interfaces with deltas-sol before either
 branch makes an incompatible capture/response shape.
@@ -291,7 +305,8 @@ After drag-opus and review-sol approve THIS design:
    wrong height/count/child predicate, unintended name-only stats work, upstream
    trigger/revision lock, omitted bearers, configured/stale scope authorization,
    incorrect rw-ro/wildcard fold, bad credit release/top cap, paused audience allowed
-   or deleted, scope-loss enumeration, missing subtree or subscription replacement.
+   or deleted, scope-loss enumeration, root-only capture that omits a changed bearer,
+   missing subtree or subscription replacement.
    Each mutant fails its intended ACTUAL method. Existing running/new dispatch
    controls prove the accepted sandbox boundary rather than claiming instant revoke.
 6. Separate review-sol IMPLEMENTATION approve_stage; current-v3 replay and affected
