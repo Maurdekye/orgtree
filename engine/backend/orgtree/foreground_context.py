@@ -26,7 +26,7 @@ SETTINGS = tuple('''slug name workspace dirs max_top_grant default_top_grant com
  killswitch
  fable_limit_policy fable_filter_policy fable_filter_model cascade_hire cascade_alloc
  auto_resume auto_resume_compact auto_resume_last auto_cheap_compact
- account_fallback_default net_hubs net_state org_inbox_multi_holder
+ account_fallback_default net_hubs net_state net_identity net_spool org_inbox_multi_holder
  external_inbox_multi_holder _migrations _actors_typed whole_grants_v1
  headless max_children max_depth created version'''.split())
 CURRENT_LISTS = ('audiences', 'audience_requests', 'user_inbox', 'watchdogs', 'watchdog_tombs')
