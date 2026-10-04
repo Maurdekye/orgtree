@@ -521,11 +521,14 @@ BEGIN
 END
 $backfill$;
 """)
-        for column in oldcols.keys() - newcols.keys():
+        for column in sorted(oldcols.keys() - newcols.keys()):
             self.body.append(f'ALTER TABLE orgtree.{ident(table)} DROP COLUMN {ident(column)};')
         for column in renamed.values():
             self.body.append(f'ALTER TABLE orgtree.{ident(table)} DROP COLUMN {ident(column)};')
-        for column, _, values in (*codec.enumerated(newspec, prefix), *codec.markers(newspec, prefix)):
+        constraints = [(col, vals) for col, _, vals in
+                       (*codec.enumerated(newspec, prefix), *codec.markers(newspec, prefix))]
+        constraints.extend(codec.tagged(newspec, prefix))
+        for column, values in constraints:
             if column not in oldcols:
                 self.body.append(f'ALTER TABLE orgtree.{ident(table)} ADD CONSTRAINT '
                     f'{ident(table+"_"+column+"_enum")} CHECK({ident(column)} IN ('+
@@ -551,7 +554,8 @@ BEGIN
  END LOOP;
 END $resume_flush$;
 """
-        return '\n'.join(self.compiler.statements + self.body + [flush_tail]) + '\n'
+        text = '\n'.join(self.compiler.statements + self.body + [flush_tail])
+        return '\n'.join(line.rstrip() for line in text.splitlines()).rstrip() + '\n'
 
 
 def python_value_helpers():
@@ -725,7 +729,10 @@ def docket_backfill(migration):
     ]
     for table in R.TABLES:
         out.extend(s.rstrip(';')+';' for s in table.ddl())
-        for col,_,values in (*codec.markers(table.spec),*codec.enumerated(table.spec)):
+        constraints = [(col, vals) for col, _, vals in
+                       (*codec.markers(table.spec), *codec.enumerated(table.spec))]
+        constraints.extend(codec.tagged(table.spec))
+        for col,values in constraints:
             out.append(f'ALTER TABLE orgtree.{table.spec.table} ADD CONSTRAINT {ident(table.spec.table+"_"+col+"_enum")} '
                        f'CHECK({ident(col)} IN ('+','.join(map(literal,values))+'));')
     migration.compiler.statements.append(r'''

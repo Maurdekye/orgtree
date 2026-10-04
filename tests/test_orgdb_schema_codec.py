@@ -3,7 +3,9 @@
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import json
+import importlib.util
 import math
+from pathlib import Path
 import unittest
 
 from orgtree.orgdb import codec
@@ -20,6 +22,18 @@ def round_trip(spec, record):
     codec.encode(spec, record, {'id': 17}, rows, link={'id': 'record_id'})
     layout = codec.layout(spec, (('id', 'bigint'),), {'id': 'record_id'})
     return codec.decode(spec, rows[spec.table][0], codec.Children(rows, layout), (17,)), rows
+
+
+class InstalledMigration(unittest.TestCase):
+    def test_installed_sql_matches_the_generator_after_its_one_header_line(self):
+        root = Path(__file__).resolve().parents[1]
+        loader = importlib.util.spec_from_file_location('installed_schema_sql', root / 'tools/schema_conformance_sql.py')
+        sql = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(sql)
+        migrations = list((root / 'engine/backend/orgtree/pg_migrations/org').glob('*_schema_conformance.sql'))
+        self.assertEqual(len(migrations), 1)
+        installed = migrations[0].read_text(encoding='utf-8').split('\n', 1)[1]
+        self.assertEqual(installed, sql.generate().render())
 
 
 class SchemaCodec(unittest.TestCase):

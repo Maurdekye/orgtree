@@ -7,7 +7,8 @@ What it proves:
   * completeness: the sections own exactly the engine's registered keys (NODE_KEYED_SECTIONS
     plus the two legacy-only keys) minus IGNORED_LEGACY_KEYS, but for the kept `sandbox`, and
     no key twice;
-  * the org migration 0002_document.sql is exactly the schema the mappers generate;
+  * frozen org migration 0002_document.sql matches the original mapper layout,
+    and the runtime mapper layout matches the schema after all later migrations;
   * a synthetic document exercising every section kind round-trips exactly as canonical JSON,
     with its top-level key order: settings (present, absent, null), nodes with parent,
     predecessor and successor names (one naming no node: a tombstone), shared tool lists,
@@ -114,6 +115,23 @@ class Completeness(unittest.TestCase):
         body = '\n'.join(l for l in text.splitlines() if not l.startswith('--')).strip()
         want = '\n\n'.join(s.rstrip(';') + ';' for s in mappers.ddl())
         self.assertEqual(body, want, 'regenerate 0002_document.sql from mappers.ddl()')
+
+    def test_current_mapper_columns_equal_their_final_migrated_types(self):
+        from test_orgdb_verify_static import schema, _TYPES
+        have = schema()
+        wrong = []
+        for section in mappers.sections():
+            for root in section.tables:
+                for table, entry in root.layout().items():
+                    columns = entry['keys'] + entry['columns']
+                    if entry['extra']:
+                        columns += (('extra', 'json'),)
+                    for column, kind in columns:
+                        expected = _TYPES.get(kind, kind)
+                        actual = have.get(table, {}).get(column)
+                        if actual != expected:
+                            wrong.append((table, column, expected, actual))
+        self.assertEqual(wrong, [])
 
 
 class RoundTrip(unittest.TestCase):

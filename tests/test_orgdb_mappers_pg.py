@@ -60,7 +60,13 @@ class ThroughAnOrgDatabase(unittest.TestCase):
         with conn.connect(RUNTIME, build.database, autocommit=False) as c:
             counts = rowio.write(c, rows)
             c.commit()
-        self.assertEqual(counts['agents'], 5)                      # 3 nodes + 2 tombstones
+        self.assertEqual(counts['agents'], 6)  # 3 nodes, 2 name owners, 1 stale identity
+        with conn.connect(RUNTIME, build.database) as c:
+            stamped = c.execute("SELECT id FROM orgtree.agents WHERE name='x' AND tombstone "
+                                "AND state='deleted' AND lineage_born='b' AND generation=0").fetchone()
+            self.assertIsNotNone(stamped)
+            self.assertEqual(c.execute("SELECT owner_agent_id FROM orgtree.work_items "
+                                       "WHERE slug='a-thing'").fetchone()[0], stamped[0])
         with conn.connect(RUNTIME, build.database) as c:
             back = sections.decode_document(rowio.read(c), mappers.sections(), sections.Context())
         want = {k: v for k, v in doc.items() if k not in mappers.ignored_keys()}

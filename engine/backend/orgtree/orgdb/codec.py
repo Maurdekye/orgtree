@@ -354,6 +354,24 @@ def markers(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
                 yield from markers(f.spec, sub + '_', path + (f.key,))
 
 
+def tagged(spec: Spec, prefix: str = "") -> Iterator[tuple[str, tuple[str, ...]]]:
+    """Closed sets for generated tags, separate from authored enum misfits.
+
+    A principal's kind describes its recorded name, and a sum's kind describes
+    its typed tuple. Neither is a legacy scalar enum value to move into extra.
+    """
+    for f in spec.fields:
+        col = prefix + f.col
+        if f.kind == 'principal':
+            yield col + '_kind', ('agent', 'user', 'engine', 'outside')
+        elif f.kind == 'sum':
+            yield col + '_kind', ('i', 'f')
+        elif f.kind in ('obj', 'turn_usage'):
+            assert f.spec is not None
+            sub = col.removesuffix('_key') if f.kind == 'turn_usage' else col
+            yield from tagged(f.spec, sub + '_')
+
+
 def _linked(keys: Mapping[str, Any], link: Mapping[str, str] | None) -> dict[str, Any]:
     """A record's key values under the names its children use. Without
     ``link`` the children carry every key column under its own name. With it

@@ -172,9 +172,9 @@ def migrated_schema(texts=None):
         text = re.sub(r'\$(\w*)\$.*?\$\1\$', '', text, flags=re.S)
         text = re.sub(r'--[^\n]*', '', text)
         for statement in sql_parts(text, ';'):
-            create = re.fullmatch(r'CREATE TABLE orgtree\.(\w+)\s*\((.*)\)', statement, re.S)
-            alter = re.fullmatch(r'ALTER TABLE orgtree\.(\w+)\s+(.*)', statement, re.S)
-            drop = re.fullmatch(r'DROP TABLE orgtree\.(\w+)', statement)
+            create = re.fullmatch(r'CREATE TABLE(?: IF NOT EXISTS)? orgtree\."?(\w+)"?\s*\((.*)\)', statement, re.S)
+            alter = re.fullmatch(r'ALTER TABLE orgtree\."?(\w+)"?\s+(.*)', statement, re.S)
+            drop = re.fullmatch(r'DROP TABLE(?: IF EXISTS)? orgtree\."?(\w+)"?(?: CASCADE)?', statement)
             if drop:
                 out.pop(drop[1], None)
                 references.pop(drop[1], None)
@@ -190,12 +190,15 @@ def migrated_schema(texts=None):
                 clauses = sql_parts(body)
             else:
                 continue
-            references.setdefault(table, set()).update(re.findall(r'REFERENCES orgtree\.(\w+)', body))
+            references.setdefault(table, set()).update(re.findall(r'REFERENCES orgtree\."?(\w+)"?', body))
             for clause in clauses:
-                deleted = re.match(r'DROP COLUMN "?(\w+)"?', clause)
+                renamed = re.match(r'RENAME COLUMN "?(\w+)"? TO "?(\w+)"?', clause)
+                deleted = re.match(r'DROP COLUMN (?:IF EXISTS )?"?(\w+)"?', clause)
                 changed = re.match(r'ALTER COLUMN "?(\w+)"? TYPE (double precision|char\(1\)|\w+)', clause)
-                col = re.match(r'(?:ADD COLUMN )?"?(\w+)"?\s+(double precision|char\(1\)|\w+)', clause)
-                if deleted:
+                col = re.match(r'(?:ADD COLUMN (?:IF NOT EXISTS )?)?"?(\w+)"?\s+(double precision|char\(1\)|\w+)', clause)
+                if renamed:
+                    out[table][renamed[2]] = out[table].pop(renamed[1])
+                elif deleted:
                     out[table].pop(deleted[1], None)
                 elif changed:
                     out[table][changed[1]] = _TYPES.get(changed[2], changed[2])
@@ -268,6 +271,32 @@ class MatchesTheSchema(unittest.TestCase):
         self.assertIn('work_item_events.future_payload', missing)
         self.assertIn('future_events.payload', missing)
 
+    def test_quoted_later_tables_and_renamed_columns_cannot_hide_retained_values(self):
+        texts = [p.read_text(encoding='utf-8') for p in sorted(MIGRATIONS.glob('*.sql'))]
+        added = ('ALTER TABLE orgtree."work_item_events" ADD COLUMN IF NOT EXISTS "future_old" json;'
+                 'ALTER TABLE orgtree."work_item_events" RENAME COLUMN "future_old" TO "future_new";'
+                 'ALTER TABLE orgtree."work_item_events" ALTER COLUMN "future_new" TYPE text;'
+                 'CREATE TABLE IF NOT EXISTS orgtree."future_history" ("id" bigint, '
+                 '"event_id" bigint REFERENCES orgtree."work_item_events"(id), "payload" json);')
+        parsed = migrated_schema(texts + [added])
+        self.assertEqual(parsed[0]['work_item_events']['future_new'], 'text')
+        self.assertNotIn('future_old', parsed[0]['work_item_events'])
+        self.assertEqual(parsed[1]['future_history'], {'work_item_events'})
+        missing = unread_columns(parsed)
+        self.assertIn('work_item_events.future_new', missing)
+        self.assertIn('future_history.payload', missing)
+
+    def test_quoted_removals_and_function_bodies_do_not_leave_phantom_columns(self):
+        parsed = migrated_schema([
+            'CREATE TABLE orgtree."fixture" ("id" bigint, "old" json);'
+            'ALTER TABLE orgtree."fixture" ADD COLUMN IF NOT EXISTS "kept" char(1);'
+            'ALTER TABLE orgtree."fixture" DROP COLUMN IF EXISTS "old";'
+            'CREATE TABLE orgtree."gone" (id bigint);'
+            'DROP TABLE IF EXISTS orgtree."gone" CASCADE;'
+            'CREATE FUNCTION ignored() RETURNS void AS $body$ '
+            'ALTER TABLE orgtree."fixture" ADD COLUMN runtime_only json; $body$ LANGUAGE sql;'])
+        self.assertEqual(parsed[0], {'fixture': {'id': 'bigint', 'kept': 'character'}})
+
     def test_event_table_cannot_be_omitted_even_when_its_rows_are_empty(self):
         mine = dict(self.mine)
         del mine['work_item_events']
@@ -289,7 +318,7 @@ class ValueRules(unittest.TestCase):
             text = re.sub(r'\$(\w*)\$.*?\$\1\$', '', path.read_text(encoding='utf-8'), flags=re.S)
             text = re.sub(r'--[^\n]*', '', text)
             for statement in sql_parts(text, ';'):
-                match = re.match(r'(?:CREATE|ALTER) TABLE orgtree\.(\w+)\s*', statement)
+                match = re.match(r'(?:CREATE|ALTER) TABLE(?: IF NOT EXISTS)? orgtree\."?(\w+)"?\s*', statement)
                 if not match:
                     continue
                 for column, members in re.findall(
@@ -303,7 +332,10 @@ class ValueRules(unittest.TestCase):
         expected = {key: value for key, value in checks.items()
                     if key[0] not in outside and key[0] in ov.correspondence()}
         actual = {key: set(value) for key, value in ov.enum_columns(include_markers=True).items()}
-        self.assertEqual(expected, actual)
+        differences = [(key, sorted(expected.get(key, ())), sorted(actual.get(key, ())))
+                       for key in sorted(set(expected) | set(actual))
+                       if expected.get(key) != actual.get(key)]
+        self.assertEqual(differences, [])
         self.assertTrue(expected)
         marker_columns = {(table, col) for table, columns in ov.correspondence().items()
                           for col, role in columns.items() if role == ov.CODE}

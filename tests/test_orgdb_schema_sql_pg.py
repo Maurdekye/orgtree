@@ -168,7 +168,9 @@ class BackfillCodec(unittest.TestCase):
         from orgtree.orgdb.convert import rowio
         self.raw.execute('DROP SCHEMA orgtree CASCADE; CREATE SCHEMA orgtree')
         for path in sorted((ROOT/'engine/backend/orgtree/pg_migrations/org').glob('*.sql')):
-            self.raw.execute(path.read_text(encoding='utf-8'))
+            # Build the alpha schema before this piece's new migration.
+            if path.name <= '0015_turn_requests.sql':
+                self.raw.execute(path.read_text(encoding='utf-8'))
         node={'state':'live','seat_id':'current','generation':9}
         stale={'node':'worker','born':'old','generation':1}
         current={'node':'worker','born':'current','generation':100}

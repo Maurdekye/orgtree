@@ -352,7 +352,7 @@ SECT = "UPDATE orgtree.org_sections SET ord = {} WHERE key = '{}'"
 SWAP_SECTIONS = [SECT.format(-1, 'version'), SECT.format(0, 'slug'), SECT.format(1, 'version')]
 UNSWAP_SECTIONS = [SECT.format(-1, 'slug'), SECT.format(0, 'version'), SECT.format(1, 'slug')]
 ORD = "UPDATE orgtree.agents SET ord = {} WHERE name = '{}' AND NOT tombstone"
-NAME = "UPDATE orgtree.agents SET name = '{}' WHERE name = '{}'"
+NAME = "UPDATE orgtree.agents SET name = '{}' WHERE name = '{}' AND NOT tombstone"
 SWAP_NAMES = [NAME.format('tmp-swap', 'boss'), NAME.format('boss', 'gen2'),
               NAME.format('gen2', 'tmp-swap')]
 
@@ -360,23 +360,23 @@ SWAP_NAMES = [NAME.format('tmp-swap', 'boss'), NAME.format('boss', 'gen2'),
 #: Each keeps every row count; after the undo the whole database must equal the clean one.
 CORRUPTIONS = {
     'text field in agents': ('agents', [
-        "UPDATE orgtree.agents SET title = title || ' (changed)' WHERE name = 'boss'"], [
-        "UPDATE orgtree.agents SET title = 't' WHERE name = 'boss'"]),
+        "UPDATE orgtree.agents SET title = title || ' (changed)' WHERE name = 'boss' AND NOT tombstone"], [
+        "UPDATE orgtree.agents SET title = 't' WHERE name = 'boss' AND NOT tombstone"]),
     'timestamp moved by 1 ms': ('agents', [
         "UPDATE orgtree.agents SET created = created + interval '1 millisecond' "
-        "WHERE name = 'x'"], [
+        "WHERE name = 'x' AND NOT tombstone"], [
         "UPDATE orgtree.agents SET created = created - interval '1 millisecond' "
-        "WHERE name = 'x'"]),
+        "WHERE name = 'x' AND NOT tombstone"]),
     'boolean flipped': ('agents', [
-        "UPDATE orgtree.agents SET scope_tools_bash = NOT scope_tools_bash WHERE name = 'boss'"],
-        ["UPDATE orgtree.agents SET scope_tools_bash = NOT scope_tools_bash WHERE name = 'boss'"]),
+        "UPDATE orgtree.agents SET scope_tools_bash = NOT scope_tools_bash WHERE name = 'boss' AND NOT tombstone"],
+        ["UPDATE orgtree.agents SET scope_tools_bash = NOT scope_tools_bash WHERE name = 'boss' AND NOT tombstone"]),
     '_null flag cleared': ('agent_texts', [
         "UPDATE orgtree.agent_texts SET charter_null = NULL WHERE agent_id = " + A.format('boss')],
         ["UPDATE orgtree.agent_texts SET charter_null = true WHERE agent_id = "
          + A.format('boss')]),
     'parent_id pointed at another agent': ('agents', [
-        "UPDATE orgtree.agents SET parent_id = " + A.format('x@0') + " WHERE name = 'x'"], [
-        "UPDATE orgtree.agents SET parent_id = " + A.format('boss') + " WHERE name = 'x'"]),
+        "UPDATE orgtree.agents SET parent_id = " + A.format('x@0') + " WHERE name = 'x' AND NOT tombstone"], [
+        "UPDATE orgtree.agents SET parent_id = " + A.format('boss') + " WHERE name = 'x' AND NOT tombstone"]),
     'mail body changed': ('mail', [
         "UPDATE orgtree.mail SET body = 'changed' WHERE public_id = 'm1'"], [
         "UPDATE orgtree.mail SET body = 'hi' WHERE public_id = 'm1'"]),
@@ -388,15 +388,15 @@ CORRUPTIONS = {
     'list order swapped': ('work_item_next', SWAP_NEXT, SWAP_NEXT),
     'value moved into extra': ('agents', [
         "UPDATE orgtree.agents SET extra = (coalesce(extra::jsonb, '{}'::jsonb) "
-        "|| jsonb_build_object('title', title))::json, title = NULL WHERE name = 'boss'"], [
+        "|| jsonb_build_object('title', title))::json, title = NULL WHERE name = 'boss' AND NOT tombstone"], [
         "UPDATE orgtree.agents SET title = extra::jsonb ->> 'title', extra = NULL "
-        "WHERE name = 'boss'"]),
+        "WHERE name = 'boss' AND NOT tombstone"]),
     'docket slug changed': ('work_items', [
         "UPDATE orgtree.work_items SET slug = 'a-thing-renamed' WHERE slug = 'a-thing'"], [
         "UPDATE orgtree.work_items SET slug = 'a-thing' WHERE slug = 'a-thing-renamed'"]),
     'numeric int became float': ('agents', [
-        "UPDATE orgtree.agents SET credit_grant = 5.0 WHERE name = 'boss'"], [
-        "UPDATE orgtree.agents SET credit_grant = 5 WHERE name = 'boss'"]),
+        "UPDATE orgtree.agents SET credit_grant = 5.0 WHERE name = 'boss' AND NOT tombstone"], [
+        "UPDATE orgtree.agents SET credit_grant = 5 WHERE name = 'boss' AND NOT tombstone"]),
     'per-agent row moved to another agent': ('mail', [
         "UPDATE orgtree.mail SET agent_id = " + A.format('x') + " WHERE public_id = 'm1'"], [
         "UPDATE orgtree.mail SET agent_id = " + A.format('boss') + " WHERE public_id = 'm1'"]),
@@ -439,12 +439,12 @@ CORRUPTIONS = {
         "UPDATE orgtree.work_items SET list_key = 'archive', ord = 0 WHERE slug = 'old-thing'"]),
     'value inside extra changed': ('agents', [
         "UPDATE orgtree.agents SET extra = replace(extra::text, '\"title\": \"nul', "
-        "'\"title\": \"nil')::json WHERE name = 'odd'"], [
+        "'\"title\": \"nil')::json WHERE name = 'odd' AND NOT tombstone"], [
         "UPDATE orgtree.agents SET extra = replace(extra::text, '\"title\": \"nil', "
-        "'\"title\": \"nul')::json WHERE name = 'odd'"]),
+        "'\"title\": \"nul')::json WHERE name = 'odd' AND NOT tombstone"]),
     'presence flag flipped': ('agents', [
-        "UPDATE orgtree.agents SET is_halted = NOT is_halted WHERE name = 'x'"], [
-        "UPDATE orgtree.agents SET is_halted = NOT is_halted WHERE name = 'x'"]),
+        "UPDATE orgtree.agents SET is_halted = NOT is_halted WHERE name = 'x' AND NOT tombstone"], [
+        "UPDATE orgtree.agents SET is_halted = NOT is_halted WHERE name = 'x' AND NOT tombstone"]),
 }
 
 
@@ -469,7 +469,8 @@ def counts_only(source_doc, dest_conninfo, *, ignored_keys=ov.IGNORED_DEFAULT):
         if live != len(source_doc.get('nodes') or {}):
             out.append({'table': 'agents', 'problem': 'row count'})
         for table, n in want.items():
-            got = c.execute(f'SELECT count(*) FROM orgtree."{table}"').fetchone()[0]
+            where = ' WHERE idx IS NOT NULL' if table == 'agent_turns' else ''
+            got = c.execute(f'SELECT count(*) FROM orgtree."{table}"' + where).fetchone()[0]
             if got != n:
                 out.append({'table': table, 'problem': 'row count', 'source': n, 'dest': got})
     return out
@@ -497,8 +498,7 @@ def fingerprint(dbname: str) -> dict:
     with conn.connect(ADMIN, dbname) as c:
         stamps = [r[0] for r in c.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_schema = 'orgtree' "
-            "AND table_name = 'org_revision' AND (column_name = 'rev' OR column_name LIKE %s)",
-            ('%\\_rev',))]
+            "AND table_name = 'org_revision' AND (column_name = 'rev' OR right(column_name,4)='_rev')")]
         out = {}
         for t in _tables(c):
             row, args = ('(to_jsonb(x) - %s::text[])::text', (stamps, stamps)) \
@@ -558,7 +558,7 @@ class AgainstARealConversion(unittest.TestCase):
             # Enum misfits can already occupy extra; retain its exact stored JSON text.
             with conn.connect(ADMIN, self.final) as c:
                 original_extra = c.execute("SELECT extra::text FROM orgtree.agents "
-                                           "WHERE name='boss'").fetchone()[0]
+                                           "WHERE name='boss' AND NOT tombstone").fetchone()[0]
         self._run(corrupt)
         try:
             yield self.dest
@@ -566,10 +566,13 @@ class AgainstARealConversion(unittest.TestCase):
             self._run(undo)
             if name == 'value moved into extra':
                 with conn.connect(ADMIN, self.final) as c:
-                    c.execute("UPDATE orgtree.agents SET extra=%s::json WHERE name='boss'",
+                    c.execute("UPDATE orgtree.agents SET extra=%s::json WHERE name='boss' AND NOT tombstone",
                               (original_extra,))
-            if fingerprint(self.final) != self.clean:
-                raise RestoreFailed(f'{name}: the undo did not restore the clean database')
+            after = fingerprint(self.final)
+            if after != self.clean:
+                changed = [table for table in set(after) | set(self.clean)
+                           if after.get(table) != self.clean.get(table)]
+                raise RestoreFailed(f'{name}: undo changed retained tables {sorted(changed)}')
 
     # -- the clean conversion
     def test_the_clean_conversion_verifies(self) -> None:
