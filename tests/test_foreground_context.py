@@ -106,7 +106,8 @@ class ContextTests(unittest.TestCase):
         args['settings']['audiences'] = grants
         args['settings']['org_inbox_multi_holder'] = True
         args['audience_parents'] = {'parent': None, 'a': 'parent', 'b': None}
-        with patch.object(native_move, 'enabled', return_value=True):
+        with patch.object(native_move, 'enabled', return_value=True), \
+                patch('orgtree.orgdb.enabled', return_value=True):
             view = ForegroundContext(**args)
             row = view.tree_node('a')
             self.assertFalse(row['scope']['tools']['edit'])

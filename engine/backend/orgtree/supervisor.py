@@ -2327,7 +2327,7 @@ def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     if registry is None:
         return None
     n = org.node(nid)
-    tools = n["scope"].get("tools", {})
+    tools = org.capability_scope(nid).get("tools", {})
     granted_names = expand_mcp(tools.get("mcp") or [], sorted(registry))
     chosen = {name: registry[name] for name in granted_names
               if name in registry}
@@ -8845,7 +8845,7 @@ def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
     pointer is load-bearing, not decoration — it lives in `org_state_block`
     now, with its note."""
     n = org.node(nid)
-    sc = n["scope"]
+    sc = org.capability_scope(nid)
 
     # Every visibility level is told who its superior is, `self` included (user
     # ruling 2026-10-01, item self-visibility-agents-are-told-their-superior-i).

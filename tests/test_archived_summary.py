@@ -146,6 +146,11 @@ class ArchivedSummaryTests(unittest.TestCase):
                              f'{marker} is a SUMMARY marker and has no business '
                              f'on a live seat, which carries the real fields')
         for f in api._ARCHIVED_RUNTIME_FIELDS + api._ARCHIVED_DETAIL_FIELDS:
+            if f == 'configured_scope':
+                # Native tree bodies separate configured editor choices from
+                # effective capabilities; this fixture uses legacy storage.
+                self.assertNotIn(f, live)
+                continue
             if f == 'last_approvals':
                 # conditionally present by design: `Org.tree()` omits it
                 # entirely when the lane cannot report approvals, because a

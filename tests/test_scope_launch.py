@@ -46,6 +46,7 @@ class ScopeLaunch(unittest.TestCase):
         self.configured = deepcopy(self.org.node('leaf'))
         self.enterContext(patch.object(native_move, 'enabled', return_value=True))
         self.enterContext(patch.object(sup, 'scratch_dir', return_value=str(self.cwd)))
+        self.real_identity_prompt = sup.identity_prompt
         self.enterContext(patch.object(sup, 'identity_prompt', return_value='issued identity'))
         self.enterContext(patch.object(sup, 'registered_mcp_servers', return_value={
             'alpha': {'command': 'fixture-alpha'}, 'beta': {'command': 'fixture-beta'}}))
@@ -94,6 +95,34 @@ class ScopeLaunch(unittest.TestCase):
         self.assertEqual(set(sup.granted_mcp_servers(self.org, 'leaf')), {'alpha'})
         self.org.node('boss')['scope']['tools']['mcp'] = ['*']
         self.assertEqual(set(sup.granted_mcp_servers(self.org, 'leaf')), {'alpha', 'beta'})
+        self.assertEqual(self.org.node('leaf'), self.configured)
+
+    def test_actual_identity_prompt_reports_current_mode_tools_and_folders(self):
+        before = self.real_identity_prompt(self.org, 'leaf')
+        self.narrow()
+        current = self.real_identity_prompt(self.org, 'leaf')
+        self.assertIn('Writing either is fine too', before)
+        self.assertNotIn('Writing either is fine too', current)
+        self.assertIn('Read-only: ' + str(self.project), current)
+        self.assertIn('Disabled for you:', current)
+        self.assertIn('subagents', current)
+        self.org.node('boss')['scope']['add_dirs'] = []
+        unheld = self.real_identity_prompt(self.org, 'leaf')
+        self.assertIn('Folders you may work in: only your own scratch folder', unheld)
+        self.assertEqual(self.org.node('leaf'), self.configured)
+
+    def test_actual_mcp_fingerprint_follows_current_ancestor_ceiling(self):
+        registry = {'alpha': {'command': 'fixture-alpha'},
+                    'beta': {'command': 'fixture-beta'}}
+        with patch.object(sup, '_mcp_registry_observed', return_value=registry):
+            before = sup._mcp_infrastructure_fingerprint(self.org, 'leaf')
+            self.narrow()
+            current = sup._mcp_infrastructure_fingerprint(self.org, 'leaf')
+            self.assertNotEqual(current, before)
+            registry['beta']['command'] = 'changed-denied-server'
+            self.assertEqual(sup._mcp_infrastructure_fingerprint(self.org, 'leaf'), current)
+            self.org.node('boss')['scope']['tools']['mcp'] = ['*']
+            self.assertNotEqual(sup._mcp_infrastructure_fingerprint(self.org, 'leaf'), current)
         self.assertEqual(self.org.node('leaf'), self.configured)
 
     def test_claude_command_uses_effective_mode_tools_mcp_and_readonly_folder(self):

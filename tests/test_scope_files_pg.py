@@ -180,13 +180,13 @@ class CurrentScopeFiles(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).d['audiences'], [grant])
 
     def test_actual_foreground_snapshot_projects_current_scope_and_archived_audience_paths(self):
-        org = store.load_org(self.slug)
-        org.hire(ledger.USER, 'boss', 'luna', 0, 'archived')
-        org.retire(ledger.USER, 'archived')
         grants = [dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'),
                   dict(grantee='archived', grantor=ledger.EXTERN, delegated_by='boss')]
-        org.d['audiences'] = grants
-        store.save_org(org)
+        def prepare(tx):
+            tx.org.hire(ledger.USER, 'boss', 'luna', 0, 'archived')
+            tx.org.retire(ledger.USER, 'archived')
+            tx.org.d['audiences'] = grants
+        pgdoor.run(self.slug, pgdoor.TxSpec(nodes=orgtx.ALL), prepare)
         def read():
             return foreground_store.read_foreground(self.slug, project=lambda raw, graph:
                 foreground_context.build(raw, self.slug, graph))
@@ -220,6 +220,33 @@ class CurrentScopeFiles(unittest.TestCase):
         self.assertEqual(denied[0]['bytes'], 0)
         self.move('boss')
         self.assertEqual(api._work_receipt_logs(self.captured, 'leaf', args)[0]['text'], before[0]['text'])
+
+    def test_org_folder_downgrade_changes_only_configured_root_ceilings(self):
+        self.enterContext(patch.object(api, 'hub_changed'))
+        self.enterContext(patch.object(api.net, 'kick'))
+        org = store.load_org(self.slug)
+        org.d['dirs'] = [{'path': str(self.project), 'mode': 'rw'}]
+        store.save_org(org)
+        def descendants():
+            with registry.connection(self.slug) as raw, raw.transaction():
+                return raw.execute("SELECT name,row_version,extra FROM orgtree.agents "
+                                   "WHERE name=ANY(%s) ORDER BY name",
+                                   (['parent', 'leaf'],)).fetchall()
+        before = descendants()
+        result = api.org_settings(self.slug, api.Settings(
+            org_dirs=[{'path': str(self.project), 'mode': 'ro'}]))
+        self.assertEqual(descendants(), before)
+        snapshot = orgtx.org_read(self.slug)
+        self.assertEqual(snapshot.tree_node('leaf', descend=False, lineage=False)['scope']['add_dirs'],
+                         [{'path': str(self.project), 'mode': 'ro'}])
+        self.assertEqual(snapshot.node('leaf')['scope'], self.configured)
+        self.assertEqual(len([w for w in result['warnings'] if 'downgraded' in w]), 1)
+        # The org holding's upgrade still does not grant anything by itself.
+        api.org_settings(self.slug, api.Settings(
+            org_dirs=[{'path': str(self.project), 'mode': 'rw'}]))
+        self.assertEqual(orgtx.org_read(self.slug).tree_node('leaf', descend=False,
+                         lineage=False)['scope']['add_dirs'][0]['mode'], 'ro')
+        self.assertEqual(descendants(), before)
 
     def test_archived_summary_omits_both_full_scopes_but_uses_effective_readonly_marker(self):
         self.move('other')

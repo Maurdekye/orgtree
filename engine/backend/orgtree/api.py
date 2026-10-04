@@ -3174,11 +3174,23 @@ def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
                     warnings.append(f"revoked {gone} from {nid}")
         for p, mode in newmap.items():
             if mode == "ro" and old.get(p) == "rw":
-                for nid, n in org.nodes.items():
+                from .orgdb import native_move
+                native_scope = native_move.enabled()
+                targets = (org.children(None, live_only=False)
+                           if native_scope else org.nodes)
+                changed = 0
+                for nid in targets:
+                    n = org.node(nid)
                     for d in n["scope"]["add_dirs"]:
                         if d["path"] == p and d["mode"] == "rw":
                             d["mode"] = "ro"
-                            warnings.append(f"downgraded {p} to read-only for {nid}")
+                            changed += 1
+                            if not native_scope:
+                                warnings.append(f"downgraded {p} to read-only for {nid}")
+                if native_scope and changed:
+                    warnings.append(f"downgraded {p} to read-only on {changed} "
+                                    "top-level grants; descendant permissions "
+                                    "follow their current parent chain")
         ws_dir: list[DirGrant] = [{"path": ws, "mode": "rw"}] if ws else []
         org.d["dirs"] = ws_dir + new
     if body.max_top_grant is not None and body.max_top_grant > 0:
