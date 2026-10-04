@@ -6,7 +6,7 @@ from unittest.mock import patch
 import uuid
 
 import test_orgdb_compat_pg as fixture
-from orgtree import identity_context, ledger, lifecycle_tx, orgtx, policy_reads, store, supervisor
+from orgtree import identity_context, ledger, lifecycle_tx, orgtx, pgdoor, policy_reads, store, supervisor
 from orgtree.orgdb import agents, reader_rows, registry
 
 setUpModule = fixture.setUpModule
@@ -61,7 +61,7 @@ class CurrentScopeContexts(unittest.TestCase):
         self.assertTrue(self.read()._has_audience('leaf', ledger.EXTERN))
         lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'other')
         self.assertFalse(self.read()._has_audience('leaf', ledger.EXTERN))
-        with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+        with orgtx.org_tx(self.slug, nodes=['leaf'], share_nodes=['boss']) as tx:
             self.assertFalse(tx.org._has_audience('leaf', ledger.EXTERN))
         self.assertEqual(store.load_org(self.slug).d['audiences'], [grant])
         lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'boss')
@@ -76,12 +76,26 @@ class CurrentScopeContexts(unittest.TestCase):
         with orgtx.org_tx(self.slug, nodes=['boss']) as tx:
             self.assertTrue(tx.org._has_audience('boss', ledger.EXTERN))
         lifecycle_tx.move(self.slug, ledger.USER, 'boss', 'other')
-        with orgtx.org_tx(self.slug, nodes=['boss'], sections=['audiences']) as tx:
+        with orgtx.org_tx(self.slug, nodes=['boss'], sections=['audiences', 'notices'],
+                          logs=['events', 'notice_log']) as tx:
             self.assertTrue(tx.org._has_audience('boss', ledger.EXTERN))
             tx.org.audience_revoke(ledger.USER, 'boss', ledger.EXTERN)
         lifecycle_tx.move(self.slug, ledger.USER, 'boss', None)
         with orgtx.org_tx(self.slug, nodes=['boss']) as tx:
             self.assertFalse(tx.org._has_audience('boss', ledger.EXTERN))
+
+    def test_omitted_anchor_widens_and_retries_before_current_authority_is_used(self):
+        self.grants(dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'))
+        lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'other')
+        attempts, decisions = [], []
+        def action(tx):
+            attempts.append(1)
+            decision = tx.org._has_audience('leaf', ledger.EXTERN)
+            decisions.append(decision)
+            return decision
+        self.assertFalse(pgdoor.run(self.slug, pgdoor.TxSpec(nodes=('leaf',)), action))
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(decisions, [False])
 
     def test_identity_selection_uses_selected_ids_not_whole_audience_sections(self):
         self.grants(dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'))
