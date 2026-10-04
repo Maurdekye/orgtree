@@ -182,6 +182,7 @@ class ScopeLaunch(unittest.TestCase):
                     raise ReachedTurn()
 
                 with patch.object(sup, '_codex_require_manifest_account_current'), \
+                        patch('orgtree.orgdb.enabled', return_value=False), \
                         patch.object(sup, 'codex_bound_home', return_value=('', '')), \
                         patch.object(sup.agentauth, 'child_env', return_value={}), \
                         patch.object(warmpool, 'warm_decision', return_value=(False, 'fixture')), \

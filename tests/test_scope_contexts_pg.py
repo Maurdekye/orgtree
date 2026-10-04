@@ -187,7 +187,7 @@ class CurrentScopeContexts(unittest.TestCase):
             try:
                 with registry.connection(self.slug) as raw:
                     raw.execute("SET LOCAL lock_timeout='150ms'")
-                    raw.execute("UPDATE orgtree.agents SET grant=grant WHERE name='boss'")
+                    raw.execute("UPDATE orgtree.agents SET credit_grant=credit_grant WHERE name='boss'")
                 outcomes.append('wrote')
             except psycopg.errors.LockNotAvailable:
                 outcomes.append('blocked')
@@ -209,7 +209,7 @@ class CurrentScopeContexts(unittest.TestCase):
             self.assertEqual(callback('item/fileChange/requestApproval', {}), 'accept')
         with registry.connection(self.slug) as raw:
             raw.execute("SET LOCAL lock_timeout='150ms'")
-            raw.execute("UPDATE orgtree.agents SET grant=grant WHERE name='boss'")
+            raw.execute("UPDATE orgtree.agents SET credit_grant=credit_grant WHERE name='boss'")
 
 
 if __name__ == '__main__':
