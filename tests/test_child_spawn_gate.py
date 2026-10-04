@@ -62,6 +62,7 @@ ALLOWED = {
     'test_child_python.py': (2, HELPER),
     'test_claude_pipe_lifecycle.py': (3, NOIMPORT),
     'test_engine_http.py': (2, SELF),
+    'test_engine_launch.py': (2, SELF),  # guarded priority probe and a stdlib-only worker
     'test_engine_work_deploy_ready.py': (1, SELF),
     'test_fence_default.py': (1, SELF),
     'test_freeze_classification.py': (1, NOIMPORT),

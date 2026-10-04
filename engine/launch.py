@@ -373,9 +373,35 @@ def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     return TokenGate(api.app, token), token, data, port, stopping
 
 
+def _set_engine_priority() -> None:
+    """Every Windows launch raises only this engine, before it starts work.
+
+    The task also requests High, but desktop fallback and relaunch enter here
+    without the task. Windows normally creates children of a High process at
+    Normal priority; PostgreSQL and provider workers keep their own defaults.
+    """
+    if os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetCurrentProcess.argtypes = []
+    kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.SetPriorityClass.restype = wintypes.BOOL
+    kernel.GetPriorityClass.argtypes = [wintypes.HANDLE]
+    kernel.GetPriorityClass.restype = wintypes.DWORD
+    process = kernel.GetCurrentProcess()
+    if not kernel.SetPriorityClass(process, 0x80):  # HIGH_PRIORITY_CLASS
+        raise ctypes.WinError(ctypes.get_last_error())
+    if kernel.GetPriorityClass(process) != 0x80:
+        raise RuntimeError("engine did not reach High priority")
+
+
 def main() -> None:
     global _HUB_RUNTIME
     data = validate_data_root(_required_path("ORGTREE_DATA"))
+    _set_engine_priority()
     # the engine's own log (diagnostics/engine.log): every stdout/stderr line,
     # time-stamped; stdout still reaches the launcher unchanged
     from engine.enginelog import install as _engine_log

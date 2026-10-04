@@ -53,6 +53,8 @@ Assert ($doc.Task.Actions.Exec.Command -ceq $paths.Python) 'Command path changed
 Assert ($doc.Task.Actions.Exec.Arguments -ceq ('"'+$paths.Host+'"')) 'Argument escaping changed'
 Assert ($xml.Contains('&amp;') -and $xml.Contains([string][char]0x05d0)) 'Unicode/XML serialization control missing'
 Assert ($doc.Task.Settings.ExecutionTimeLimit -eq 'PT0S') 'Runtime limit'
+$priorityNode=$doc.SelectSingleNode('//*[local-name()="Settings"]/*[local-name()="Priority"]')
+Assert ($null -ne $priorityNode -and $priorityNode.InnerText -eq '1') 'Boot engine task must explicitly request High priority'
 Assert ($doc.Task.Settings.RestartOnFailure.Count -eq '3') 'Restart policy'
 Assert ($doc.Task.Settings.DisallowStartIfOnBatteries -eq 'false' -and $doc.Task.Settings.StopIfGoingOnBatteries -eq 'false') 'Battery policy'
 Assert ($doc.Task.Settings.MultipleInstancesPolicy -eq 'IgnoreNew') 'Multiple instances'
@@ -186,6 +188,14 @@ Assert ($script:events -contains 'register:20') 'Owned update must preserve the 
 # recovery script is needed or should be reused.
 Assert ($script:task.Enabled) 'Completing Register must restore boot-start after an earlier disabled state'
 Assert ($script:events -contains 'run') 'Registered task not started'
+foreach ($legacyXml in @($xml.Replace('<Priority>1</Priority>',''),$xml.Replace('<Priority>1</Priority>','<Priority>7</Priority>'))) {
+    $script:task=New-FakeTask $legacyXml
+    $script:events.Clear()
+    Invoke-BootLifecycle Register $dir
+    $updatedXml=Read-BootXml $script:task.Xml
+    Assert ($updatedXml.Task.Settings.Priority -eq '1') 'Upgrade retained the legacy task priority'
+    Assert ($script:events -contains 'register:20' -and $script:events -contains 'run') 'Legacy task was not updated and launched'
+}
 $script:events.Clear()
 Invoke-BootLifecycle Remove $dir
 Assert ($null -eq $script:record -and $null -eq $script:task) 'Uninstall did not remove own task/record'

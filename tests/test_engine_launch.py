@@ -2,14 +2,17 @@ import errno
 import os
 import json
 import socket
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import hub_isolation
 
-from engine import launch
+import engine.launch as launch  # pure module; the child enforces isolation before boot
 from engine.launch import _FRESH_PORT_RANGE, _port, data_root_id, validate_data_root
 
 
@@ -39,6 +42,78 @@ class EngineLaunchTests(unittest.TestCase):
             with patch.dict(os.environ, {"ORGTREE_V1_ROOT": root}):
                 with self.assertRaises(RuntimeError):
                     validate_data_root(Path(root) / "missing")
+
+    @unittest.skipUnless(os.name == "nt", "Windows process priority")
+    def test_launch_raises_actual_priority_before_starting_workers(self):
+        # Exercise main in a private child initially at BelowNormal, as an old
+        # task starts it. Stop at the database boundary: no engine or PG starts.
+        # GetPriorityClass reads the real process, not a mocked Windows API.
+        repo = Path(__file__).resolve().parent.parent
+        code = r'''
+import sys, os, ctypes, subprocess
+from pathlib import Path
+repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / "tools"))
+from assert_repo_import import assert_repo_import
+assert_repo_import(repo)
+sys.path.insert(0, str(repo / "tests"))
+import hub_isolation
+os.environ["ORGTREE_DATA"] = sys.argv[2]
+hub_isolation.enforce_isolated_root(Path(sys.argv[2]))
+from engine import launch
+from unittest.mock import patch
+from ctypes import wintypes
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.GetCurrentProcess.restype = wintypes.HANDLE
+k.GetPriorityClass.argtypes = [wintypes.HANDLE]
+k.GetPriorityClass.restype = wintypes.DWORD
+k.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+handle = k.GetCurrentProcess()
+assert k.SetPriorityClass(handle, 0x4000)
+assert k.GetPriorityClass(handle) == 0x4000
+class Finished(Exception): pass
+def database(*args):
+    assert k.GetPriorityClass(handle) == 0x80, "engine did not run at High"
+    # A default worker from High starts at Normal, keeping PG unchanged.
+    worker = subprocess.check_output([sys.executable, "-I", "-c",
+        "import ctypes; from ctypes import wintypes; k=ctypes.WinDLL('kernel32'); "
+        "k.GetCurrentProcess.restype=wintypes.HANDLE; "
+        "k.GetPriorityClass.argtypes=[wintypes.HANDLE]; "
+        "print(k.GetPriorityClass(k.GetCurrentProcess()))"],
+        creationflags=subprocess.CREATE_NO_WINDOW, text=True)
+    assert int(worker.strip()) == 0x20, "worker inherited High"
+    print("measured engine=High worker=Normal", flush=True)
+    raise Finished()
+os.environ["ORGTREE_DATA"] = sys.argv[2]
+with patch("engine.enginelog.install"), patch("engine.startup_progress.StartupProgress"), \
+     patch("engine.process_lifetime.arm_process_lifetime", return_value=0), \
+     patch.object(launch, "_own_database", database):
+    try: launch.main()
+    except Finished: pass
+'''
+        with tempfile.TemporaryDirectory() as root:
+            hub_isolation.isolate_data_root(root)
+            env = dict(os.environ)
+            hub_isolation.scrub_inherited_hub(env)
+            result = subprocess.run([sys.executable, "-I", "-c", code, str(repo), root],
+                                    capture_output=True, text=True, timeout=30,
+                                    creationflags=subprocess.CREATE_NO_WINDOW, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("measured engine=High worker=Normal", result.stdout)
+
+    def test_priority_failure_stops_before_database_or_provider_start(self):
+        with tempfile.TemporaryDirectory() as root, \
+                patch.dict(os.environ, {"ORGTREE_DATA": root}), \
+                patch.object(launch, "_set_engine_priority", side_effect=OSError("priority refused")), \
+                patch("engine.enginelog.install"), \
+                patch("engine.startup_progress.StartupProgress"), \
+                patch("engine.process_lifetime.arm_process_lifetime", return_value=0), \
+                patch.object(launch, "_own_database") as database, \
+                patch.object(launch, "load_app") as app:
+            with self.assertRaisesRegex(OSError, "priority refused"):
+                launch.main()
+            database.assert_not_called()
+            app.assert_not_called()
 
     def test_existing_v1_overlap_is_refused_with_safe_sibling_control(self):
         with tempfile.TemporaryDirectory() as root:
