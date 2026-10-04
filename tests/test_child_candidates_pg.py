@@ -28,9 +28,11 @@ class ChildCandidates(unittest.TestCase):
                 def add(name, parent=None, state='live', extra=None, tombstone=False):
                     from psycopg.types.json import Json
                     return raw.execute(
-                        'INSERT INTO orgtree.agents(name,ord,parent_id,state,extra,tombstone) '
-                        'VALUES(%s,%s,%s,%s,%s,%s) RETURNING id',
-                        (name, next(order), parent, state, Json(extra) if extra is not None else None,
+                        'INSERT INTO orgtree.agents(name,ord,parent_id,parent_null,state,extra,tombstone) '
+                        'VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                        (name, next(order), parent,
+                         True if parent is None and not (extra and 'parent' in extra) else None,
+                         state, Json(extra) if extra is not None else None,
                          tombstone)).fetchone()[0]
                 order = iter(range(100, 200))
                 boss = raw.execute("SELECT id FROM orgtree.agents WHERE name='boss'").fetchone()[0]
@@ -45,10 +47,10 @@ class ChildCandidates(unittest.TestCase):
                 add('archived-child', boss, state='archived', extra={'unknown': 1})
                 add('null-state-child', boss, state=None)
                 add('exceptional-state-child', boss, state=None, extra={'state': 'odd'})
-                add('parent-correction', destination, extra={'parent': 'boss'})
+                add('parent-correction', extra={'parent': 'boss'})
                 add('parent-overlap', boss, extra={'parent': 'boss'})
-                add('numeric-parent', destination, extra={'parent': 7})
-                add('null-parent-correction', destination, extra={'parent': None})
+                add('numeric-parent', extra={'parent': 7})
+                add('null-parent-correction', extra={'parent': None})
                 add('unknown-only', destination, extra={'unknown': {'kept': [1, None]}})
                 raw.commit()
 
@@ -142,3 +144,7 @@ class ChildCandidates(unittest.TestCase):
                                    'second-name-bearer-child', 'null-state-child',
                                    'exceptional-state-child', 'parent-correction', 'parent-overlap']},
                          'read-only edits unexpectedly reached storage')
+
+
+if __name__ == '__main__':
+    unittest.main()
