@@ -48,8 +48,7 @@ def leftovers(dest):
 
 class DerivedColumns(unittest.TestCase):
     def test_each_declared_docket_projection_is_not_compared_as_data(self):
-        for column in ('docket_policy_extra', 'docket_list_extra', 'docket_scope_meta',
-                       'docket_manual', 'docket_order', 'docket_deadline',
+        for column in ('docket_manual', 'docket_order', 'docket_deadline',
                        'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
                        'docket_anchor_key'):
             with self.subTest(column=column):
@@ -59,6 +58,15 @@ class DerivedColumns(unittest.TestCase):
                 self.assertEqual(leftovers(dest).problems, [])
                 self.assertNotIn(column, dest.rows('work_items')[0])
                 self.assertNotIn('"' + column + '"', connection.selects[0])
+
+    def test_stored_docket_copies_are_read_for_explicit_source_comparison(self):
+        for column in ('docket_policy_extra', 'docket_list_extra', 'docket_scope_meta'):
+            with self.subTest(column=column):
+                connection = DestinationConnection({'id': 'bigint', column: 'json'},
+                                                   {'id': 1, column: '{"title":false}'})
+                dest = ov.Dest(connection)
+                self.assertEqual(dest.rows('work_items')[0][column], '{"title":false}')
+                self.assertIn('"' + column + '"::text', connection.selects[0])
 
     def test_unmapped_data_value_is_read_and_rejected_with_same_row_count(self):
         # A matching prefix is not enough to classify an unknown value as derived.

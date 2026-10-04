@@ -51,6 +51,15 @@ THE DESTINATION FORMAT, as this verifier reads it
   no node is a tombstone row (``tombstone``, no data). Per-agent rows' ``agent_id`` is the agent
   whose name keyed the source dict. ``tool_list_id`` names a ``tool_lists`` row whose items are
   the node's ``last_turn_mcp_tools``. Docket links (parent, superseded_by, dependencies) are slugs.
+* Current item owners/reviewers/holders, review seats and artifact recipients resolve separately
+  by birth stamp, otherwise directional generation. A replaced/deleted identity has a stamped
+  tombstone. Historical actors stay authored values and acquire no current-agent link.
+* Recent turns and turn_log share one payload only for exact ordered matches. Recent positions
+  may have gaps; log-only and recent-only rows remain distinct memberships. Both ordered text
+  child lists of a turn, and the fixed model-usage fields, are compared independently.
+* Integer estimates and compensated float estimates retain their type and each component.
+  Docket policy/list/scope projections are deliberate copies, explicitly derived from the
+  legacy source and compared; changing a source column and its copy together does not pass.
 * The presence flags (``is_frozen``, ``is_halted``, ``is_inflight``, ``is_remote_controlled``,
   ``has_pending_switch``) answer what the engine asks of the payload: ``bool(node.get(x))``.
 
@@ -85,10 +94,10 @@ IGNORED_DEFAULT = ('kiosk', 'spend_frozen', 'sandbox_vols_base', 'disk', 'storag
 #: 7.2): the former-sandbox credential catch-up reads it after the upgrade.
 KEPT_LEGACY = ('sandbox',)
 
-TEXT, INT, FLOAT, NUM, BOOL, TS, JSON = 'text', 'int', 'float', 'num', 'bool', 'ts', 'json'
+TEXT, INT, FLOAT, NUM, BOOL, TS, JSON, CHAR = 'text', 'int', 'float', 'num', 'bool', 'ts', 'json', 'char'
 SQL_TYPES = {TEXT: {'text'}, INT: {'bigint', 'integer'}, FLOAT: {'double precision'},
              NUM: {'numeric'}, BOOL: {'boolean'}, TS: {'timestamp with time zone'},
-             JSON: {'json', 'jsonb'}}
+             JSON: {'json', 'jsonb'}, CHAR: {'character'}}
 
 # Independently read from the engine's validation/writer contracts, as recorded in
 # docs/state-system/org-enum-inventory.md. Never import the converter's declarations.
@@ -124,8 +133,31 @@ class Col:
 
 class Obj:
     """A nested object flattened into ``<prefix>_*`` columns plus the code ``<prefix>_is``."""
-    def __init__(self, src: str, fields: list, table: str | None = None):
-        self.src, self.fields, self.table = src, fields, table
+    def __init__(self, src: str, fields: list, table: str | None = None,
+                 *, col: str | None = None):
+        self.src, self.fields, self.table, self.col = src, fields, table, col or src
+
+
+class Principal:
+    """A recorded actor: absent, null, bare name, object or an exceptional value.
+
+    Aliases name existing event query headers, without importing a codec.
+    """
+    def __init__(self, src: str, *, aliases: dict | None = None):
+        self.src, self.table, self.aliases = src, None, aliases or {}
+
+
+class SumState:
+    """An integer sum or a float sum with its separate compensation term."""
+    def __init__(self, src: str):
+        self.src, self.table = src, None
+
+
+class TurnUsage(Obj):
+    """The fixed usage object, including the supported older bare keys list."""
+    def __init__(self):
+        super().__init__('model_usage_key', [Col('asked', TEXT), Col('matched', BOOL),
+            Lst('keys', 'agent_turn_model_usage_keys', ('turn_id',), TEXT)], col='model_usage')
 
 
 class Lst:
@@ -133,9 +165,10 @@ class Lst:
     ``pos``), with the code ``<src>_is`` in the parent row. ``elem`` is a scalar kind (column
     ``value``) or a Rec."""
     def __init__(self, src: str, table: str, fk: tuple, elem: Any, pos: str = 'pos',
-                 table_of_code: str | None = None):
+                 table_of_code: str | None = None, *, gaps: bool = False):
         self.src, self.ctable, self.fk, self.elem, self.pos = src, table, fk, elem, pos
         self.table = table_of_code
+        self.gaps = gaps
 
 
 class Rec:
@@ -192,7 +225,8 @@ def _jsons(*names: str, table: str | None = None) -> list:
 TURN = [Col('n', INT), Col('at', TS), Col('cost', FLOAT), Col('ms', INT), Col('toks', INT),
         Col('denials', INT), Col('approvals', INT), Col('ran_as', TEXT), Col('killed', BOOL),
         Col('estimated', BOOL), Col('cost_complete', BOOL), Col('cost_source', TEXT),
-        *_jsons('cost_unknown_fields', 'route', 'reported', 'model_usage_key')]
+        Lst('cost_unknown_fields', 'agent_turn_cost_unknown_fields', ('turn_id',), TEXT),
+        *_jsons('route', 'reported'), TurnUsage()]
 PROMPT = _texts('tool', 'arg', 'cwd')
 CARRIER = [Col('_halt_id', TEXT, col='halt_id'), Col('text', TEXT), Col('view', TEXT),
            Col('ping', BOOL), Col('ping_reason', TEXT), Col('from', TEXT, col='from_node'),
@@ -212,7 +246,7 @@ NODE = [
     Col('seat_id', TEXT, col='lineage_born'), Col('generation', INT),
     Link('parent'), Link('predecessor'), Link('successor'),
     Col('ui_order', NUM), *_stamps('created', 'archived_at', 'rescinded_at'),
-    Col('state', TEXT, values=('live', 'archived', 'unrecoverable')),
+    Col('state', TEXT, values=('live', 'archived', 'unrecoverable', 'deleted')),
     *_texts('title', 'model'), Col('grant', NUM, col='credit_grant'),
     *_texts('lineage'),
     Col('bearer_state', TEXT, values=('knowledge', 'preserving', 'lost')),
@@ -235,7 +269,7 @@ NODE = [
     Col('cost_usd', NUM), Col('cost_usd_unknown', BOOL), Col('context_window', INT),
     Col('occupancy', INT), Col('occupancy_est', BOOL),
     *_ints('cli_compactions', 'cli_boundary_offset', 'turn_seq'),
-    *_jsons('turn_est_cost', 'turn_est_toks'),
+    SumState('turn_est_cost'), SumState('turn_est_toks'),
     _status('last_status'), _status('prev_status'),
     Col('limit_locked', BOOL),
     *_ints('config_seq', 'hard_fail_run', 'limit_run', 'net_fail_run'), Col('net_fail_since', TS),
@@ -246,7 +280,7 @@ NODE = [
     Lst('last_denials', 'agent_tool_denials', ('agent_id',), Rec(PROMPT, key=('agent_id', 'pos'))),
     Lst('last_approvals', 'agent_tool_approvals', ('agent_id',),
         Rec(PROMPT, key=('agent_id', 'pos'))),
-    Lst('turns', 'agent_recent_turns', ('agent_id',), Rec(TURN, key=('agent_id', 'pos'))),
+    Lst('turns', 'agent_turns', ('agent_id',), Rec(TURN), pos='recent_pos', gaps=True),
     Lst('halt_queue', 'agent_carriers', ('agent_id',), Rec(CARRIER, key=('agent_id', 'pos'))),
     # the one-to-one cold tables
     Col('charter', TEXT, table='agent_texts'), Col('team_charter', TEXT, table='agent_texts'),
@@ -279,7 +313,8 @@ SEAT_REQUEST = [Col('seq', INT), *_texts('reviewer', 'requested_by', 'owner', 't
                 Col('state', TEXT, values=('pending', 'granted', 'withdrawn', 'declined')),
                 *_texts('note', 'decided_by'), Col('decided_at', TS),
                 Col('decision_note', TEXT)]
-HISTORY = [Col('at', TS), Col('by', JSON), Col('op', TEXT), Col('kind', TEXT),
+HISTORY = [Col('at', TS), Principal('by', aliases={'node': 'by_node',
+           'generation': 'by_generation', 'born': 'by_born'}), Col('op', TEXT), Col('kind', TEXT),
            *_jsons('from', 'to', 'done', 'next', 'changes', 'now'),
            *_texts('why', 'note', 'reason'),
            Col('status', TEXT, values=WORK_STATUS),
@@ -298,10 +333,11 @@ HISTORY = [Col('at', TS), Col('by', JSON), Col('op', TEXT), Col('kind', TEXT),
                    'verified'),
            *_stamps('accepted_at', 'first_at', 'last_at', 'raised_at'),
            *_jsons('kinds', 'indexes', 'touched', 'requests', 'done_was', 'next_was',
-                   'next_actor', 'raised_by', 'review_packet_was', 'accepted_was',
-                   'superseded_by_was', 'dropped_reason_was', 'candidate_verdict_was')]
+                   'review_packet_was', 'accepted_was', 'superseded_by_was',
+                   'dropped_reason_was', 'candidate_verdict_was'),
+           Principal('next_actor'), Principal('raised_by')]
 HOLDER = [Col('node', TEXT), Col('generation', INT), Col('born', TEXT), Col('from', TS),
-          Col('by', JSON), Col('derived', BOOL)]
+          Principal('by'), Col('derived', BOOL), Col('deleted', BOOL)]
 SCOPE_ENTRY = [Col('seq', INT), Col('at', TS), _by(), Col('kind', TEXT, values=('objective', 'acceptance', 'decision')),
                                                       *_texts('before', 'after'),
                                                       Col('mode', TEXT, values=('append', 'replace')),
@@ -309,7 +345,9 @@ SCOPE_ENTRY = [Col('seq', INT), Col('at', TS), _by(), Col('kind', TEXT, values=(
 ARTIFACT = [Col('id', TEXT, col='public_id'), Col('seq', INT), Col('at', TS), _by(),
             Col('name', TEXT), Col('bytes', INT), *_texts('sha256', 'path'),
                                                   Col('scope', TEXT, values=('item', 'named')),
-            Col('grants', JSON), Col('note', TEXT)]
+            Lst('grants', 'work_item_artifact_grants', ('artifact_id',), Rec([
+                Col('to', TEXT, col='recipient_name'), Col('at', TS), Principal('by'),
+                Col('revoked_at', TS), Col('note', TEXT)])), Col('note', TEXT)]
 DECISION = [Col('at', TS), _by(), Col('disposition', TEXT, values=DISPOSITION), Col('note', TEXT)]
 FINDING = [Col('id', TEXT, col='public_id'), Col('seq', INT), Col('at', TS), _by(),
            Col('title', TEXT), Col('disposition', TEXT, values=DISPOSITION),
@@ -317,6 +355,21 @@ FINDING = [Col('id', TEXT, col='public_id'), Col('seq', INT), Col('at', TS), _by
                Rec(DECISION, key=('item_id', 'pos', 'pos_2')), pos='pos_2'),
            *_texts('detail', 'severity', 'evidence_ref')]
 DISMISSAL = [Col('at', TS), Col('by', TEXT), Col('set_rev', INT), Col('reason', TEXT)]
+REVIEW_SEAT = [Col('reviewer', TEXT, col='reviewer_name'), Principal('holder'),
+              Principal('recheck_owner'), Principal('granted_by'), Col('at', TS),
+              Col('state', TEXT, values=('granted', 'spent', 'revoked')), Col('note', TEXT),
+              Col('answered_request', INT), Col('spent_at', TS), Col('spent_via', TEXT),
+              Col('revoked_at', TS), Principal('revoked_by'), Col('revoked_reason', TEXT)]
+DELIVERY_CLAIM = [Col('claimed_at', TS), Principal('claimed_by'),
+                 *_texts('ref', 'note'), Col('verified', BOOL),
+                 *_texts('method', 'detail', 'resolved_oid', 'target', 'ref_as_of'),
+                 *_stamps('fetched_at', 'observed_at')]
+
+
+class Delivery(Obj):
+    """Known stages have child claim rows; unknown keys remain at the old path."""
+    def __init__(self):
+        super().__init__('delivery', [])
 
 
 def _item_list(src: str, table: str, elem: Any) -> Lst:
@@ -330,21 +383,27 @@ ITEM = [
                                         *_texts('title', 'objective'),
                                         Col('status', TEXT, values=WORK_STATUS),
                                         *_texts('blocked_reason', 'waiting_reason', 'dropped_reason'),
-    _holder('owner'), _holder('reviewer'), _by('created_by'), _by('last_updater'),
+    Obj('owner', _holder('owner').fields + [Col('deleted', BOOL)]),
+    Obj('reviewer', _holder('reviewer').fields + [Col('deleted', BOOL)]),
+    _by('created_by'), _by('last_updater'),
     _item_list('participants', 'work_item_participants', TEXT),
     *_stamps('at', 'updated_at', 'docket_at', 'status_at', 'archived_at'),
     _item_list('done_so_far', 'work_item_done', TEXT),
     _item_list('working_on_next', 'work_item_next', TEXT),
-    Col('manual_attention', JSON), Col('manual_attention_rev', INT),
+    Obj('manual_attention', [Col('reason', TEXT), Col('at', TS), Principal('by'),
+                            Col('set_rev', INT)], col='attention'),
+    Col('manual_attention_rev', INT),
     _item_list('acceptance', 'work_item_acceptance', ACCEPTANCE),
     _item_list('dependencies', 'work_item_dependencies', TEXT),
-    *_jsons('delivery', 'accepted', 'review_seats'),
+    Delivery(), Obj('accepted', [Col('at', TS), Principal('by'), *_texts('note', 'via'),
+        Obj('evidence_gap', [*_ints('unclassified', 'total'), Col('summary', TEXT)])]),
+    Lst('review_seats', 'work_item_review_seats', ('item_id',), Rec(REVIEW_SEAT), pos='seq'),
     _item_list('review_seat_requests', 'work_item_review_seat_requests', SEAT_REQUEST),
     Col('superseded_by', TEXT), Col('parent', TEXT),
     _item_list('holders', 'work_item_holders', HOLDER),
     Col('notification_attention_epoch', INT), Col('notification_attention_active', BOOL),
     *_ints('scope_seq', 'scope_guard', 'scope_logged'),
-    _item_list('artifacts', 'work_item_artifacts', ARTIFACT), Col('artifact_seq', INT),
+    _item_list('artifacts', 'work_item_artifacts', Rec(ARTIFACT)), Col('artifact_seq', INT),
     _item_list('findings', 'work_item_findings', FINDING), Col('finding_seq', INT),
     *_jsons('post_completion'),
 ]
@@ -432,7 +491,7 @@ LIFECYCLE = [*_texts('operation_id', 'kind', 'state'), Col('at', TS), Col('count
              *_texts('message_id', 'recipient', 'sender', 'delivery', 'waited', 'boundary_for'),
              Col('observed', BOOL), *_texts('task_id', 'owner', 'settlement', 'summary', 'item'),
              *_ints('issued_revision', 'current_revision'), Col('issued_candidate', TEXT),
-             Col('current_candidate', JSON),
+             Col('current_candidate', TEXT),
              *_texts('node', 'cleanup', 'door', 'reason', 'status')]
 NOTICE_LOG = [Col('node', TEXT), Col('at', TS), Col('text', TEXT), Col('ev', JSON)]
 ORG_INBOX = [Col('id', TEXT, col='public_id'), Col('dir', TEXT, values=('in', 'out')),
@@ -623,8 +682,7 @@ DERIVED = {
     'events': {'win_at'},
     'steer_records': {'win_at'},
     'agent_turn_errors': {'win_at'},
-    'work_items': {'docket_policy_extra', 'docket_list_extra',
-                   'docket_manual', 'docket_order', 'docket_deadline',
+    'work_items': {'docket_manual', 'docket_order', 'docket_deadline',
                    'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
                    'docket_anchor_key',
                    # 0014: generated read headers of already verified slug/status/extra.
@@ -635,6 +693,13 @@ DERIVED = {
 
 #: roles in correspondence(): a value kind above, or one of these
 CODE, KEY, OPT = 'code', 'key', 'opt'      # an <x>_is code; a structural column; may be absent
+
+
+def _principal_fields(field: Principal, prefix: str) -> list[Col]:
+    parts = (('node', TEXT, 'name'), ('generation', INT, 'generation'),
+             ('born', TEXT, 'born'), ('deleted', BOOL, 'deleted'))
+    return [Col(src, kind, col=field.aliases.get(src, prefix + '_' + suffix))
+            for src, kind, suffix in parts]
 
 
 def _walk(fields: list, owner: str, out: dict) -> None:
@@ -651,8 +716,24 @@ def _walk(fields: list, owner: str, out: dict) -> None:
                 put(t, c + '_null', OPT)
                 if f.kind == TS:
                     put(t, c + '_text', OPT)
-            elif isinstance(f, Obj):
+            elif isinstance(f, Principal):
                 p = _cn(prefix, f.src)
+                put(t, p + '_is', CODE)
+                put(t, p + '_kind', TEXT)
+                for part in _principal_fields(f, p):
+                    put(t, part.col, part.kind)
+                    put(t, part.col + '_null', OPT)
+            elif isinstance(f, SumState):
+                p = _cn(prefix, f.src)
+                put(t, p + '_is', CODE)
+                put(t, p + '_kind', CHAR)
+                for suffix, role in (('integer', NUM), ('float', FLOAT), ('compensation', FLOAT)):
+                    put(t, p + '_' + suffix, role)
+            elif isinstance(f, TurnUsage):
+                put(t, _cn(prefix, f.src) + '_is', CODE)
+                walk(f.fields, t, _cn(prefix, f.col))
+            elif isinstance(f, Obj):
+                p = _cn(prefix, f.col)
                 put(t, p + '_is', CODE)
                 walk(f.fields, t, p)
             elif isinstance(f, Lst):
@@ -687,7 +768,18 @@ def correspondence() -> dict[str, dict[str, str]]:
     out['tool_list_items'].update({'list_id': KEY, 'pos': KEY, 'tool': TEXT})
     _walk(ITEM, 'work_items', out)
     out['work_items'].update({'id': KEY, 'list_key': KEY, 'ord': KEY, 'anchor_name': OPT,
-                              'row_version': OPT, 'archive_seq': INT, 'docket_scope_meta': JSON})
+                              'row_version': OPT, 'archive_seq': INT, 'docket_scope_meta': JSON,
+                              'docket_policy_extra': JSON, 'docket_list_extra': JSON,
+                              'owner_agent_id': KEY, 'reviewer_agent_id': KEY})
+    out['work_item_artifacts']['id'] = KEY
+    out['work_item_holders']['agent_id'] = KEY
+    out['work_item_review_seats'].update({'id': KEY, 'row_version': OPT,
+        'reviewer_agent_id': KEY, 'holder_agent_id': KEY, 'recheck_owner_agent_id': KEY})
+    out['work_item_artifact_grants'].update({'id': KEY, 'item_id': KEY, 'row_version': OPT,
+                                           'agent_id': KEY})
+    _walk(DELIVERY_CLAIM, 'work_item_delivery', out)
+    out['work_item_delivery'].update({'id': KEY, 'item_id': KEY, 'stage': TEXT,
+                                     'claim_is': CODE, 'row_version': OPT})
     out['work_items'].update({s + '_events_is': CODE for s in ITEM_EVENT_SOURCES})
     for _source, column, _kind in ITEM_CURRENT.values():
         out['work_items'].update({column: INT, column + '_is': CODE, column + '_kind': TEXT})
@@ -735,10 +827,22 @@ def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tupl
             if isinstance(field, Col):
                 if field.values:
                     put(owner, _cn(prefix, field.col), field.values)
-            elif isinstance(field, Obj):
+            elif isinstance(field, Principal):
                 name = _cn(prefix, field.src)
                 if include_markers:
-                    put(owner, name + '_is', MARKER_VALUES['obj'])
+                    put(owner, name + '_is', ('n', 's', 'o', 'x'))
+                put(owner, name + '_kind', ('agent', 'user', 'engine', 'outside'))
+            elif isinstance(field, SumState):
+                name = _cn(prefix, field.src)
+                if include_markers:
+                    put(owner, name + '_is', MARKER_VALUES['list'])
+                put(owner, name + '_kind', ('i', 'f'))
+            elif isinstance(field, Obj):
+                name = _cn(prefix, field.col)
+                if include_markers:
+                    put(owner, _cn(prefix, field.src if isinstance(field, TurnUsage) else field.col) + '_is',
+                        ('n', 'o', 'l', 'x') if isinstance(field, TurnUsage)
+                        else MARKER_VALUES['obj'])
                 walk(field.fields, owner, name)
             elif isinstance(field, Lst):
                 if include_markers:
@@ -749,6 +853,10 @@ def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tupl
     walk(NODE, 'agents')
     walk(ITEM, 'work_items')
     walk(ITEM_EVENT_FIELDS, 'work_item_events')
+    walk(DELIVERY_CLAIM, 'work_item_delivery')
+    put('work_item_delivery', 'stage', STAGE)
+    if include_markers:
+        put('work_item_delivery', 'claim_is', MARKER_VALUES['obj'])
     put('org_sections', 'state', ('n', 'v'))
     put('org_section_owners', 'state', ('n', 'l', 'o'))
     put('work_items', 'list_key', ('active', 'archive'))
@@ -853,6 +961,15 @@ def parse_instant(text: str) -> tuple[str, _dt.datetime | None, bool]:
     fit = 'yes' if _STRICT.match(text) else 'maybe'
     m = _EXTENDED.match(text) or _BASIC.match(text)
     if not m:
+        # ISO week dates and alternate separators accepted by the source writer.
+        # The original text still has to survive; this is independent stdlib
+        # parsing of the legacy value, not destination or mapper code.
+        try:
+            stamp = _dt.datetime.fromisoformat(text.replace('Z', '+00:00'))
+            if stamp.tzinfo is not None and stamp.utcoffset() is not None:
+                return 'maybe', stamp.astimezone(_UTC), False
+        except (ValueError, OverflowError):
+            pass
         return 'no', None, False
     y, mo, d, h, mi, s, frac, off = m.groups()
     finer = bool(frac) and len(frac) > 6
@@ -1009,8 +1126,9 @@ class Checker:
 
     # -- one record: its fields, then its unknown keys against its extra
     def record(self, sec: str, ent: str, fields: list, src: dict, rows: dict,
-               extra: dict, prefix: str, table: str, pkey: tuple | None) -> None:
-        if not prefix:
+               extra: dict, prefix: str, table: str, pkey: tuple | None,
+               *, count: bool = True) -> None:
+        if not prefix and count:
             self.stats['records ' + table] += 1
         known = set()
         for f in fields:
@@ -1022,6 +1140,14 @@ class Checker:
             where = f'{ent}.{f.src}' if ent else f.src
             if isinstance(f, Col):
                 self.col(sec, where, f, has, val, x_has, xv, rows, prefix, table)
+            elif isinstance(f, Principal):
+                self.principal(sec, where, f, has, val, x_has, xv, rows, prefix, table, pkey)
+            elif isinstance(f, SumState):
+                self.sum_state(sec, where, f, has, val, x_has, xv, rows, prefix, table)
+            elif isinstance(f, TurnUsage):
+                self.turn_usage(sec, where, f, has, val, x_has, xv, rows, prefix, table, pkey)
+            elif isinstance(f, Delivery):
+                self.delivery(sec, where, f, has, val, x_has, xv, rows, prefix, table, pkey)
             elif isinstance(f, Obj):
                 self.obj(sec, where, f, has, val, x_has, xv, rows, prefix, table, pkey)
             elif isinstance(f, Lst):
@@ -1047,6 +1173,133 @@ class Checker:
         for k in list(extra):
             self.bad(sec, table, f'{ent}.{k}' if ent else k, k,
                      'extra holds a field the source record does not have', dest=extra.pop(k))
+    def current_links(self, sec, ent, table, row, src):
+        """Implemented by the full verifier; scalar-only checks need no graph."""
+
+    def principal(self, sec, where, field, has, value, x_has, xv,
+                  rows, prefix, table, pkey):
+        p = _cn(prefix, field.src)
+        row = rows.get(table) or {}
+        parts = _principal_fields(field, p)
+        fitting_string = has and _text_ok(value)
+        marker = (None if not has else 'n' if value is None else 's' if fitting_string
+                  else 'o' if isinstance(value, dict) else 'x')
+        self.code(sec, table, where, p + '_is', row, marker)
+        # Other event sources share the actor query headers with history.by.
+        # Their headers are checked separately against those source bodies.
+        if field.aliases and row.get('source') not in (None, 'history'):
+            row = dict(row)
+            for column in field.aliases.values():
+                row[column] = row[column + '_null'] = None
+            rows = dict(rows, **{table: row})
+        name = value if fitting_string else value.get('node') if isinstance(value, dict) else None
+        want_kind = (None if not _text_ok(name) else 'user' if name == 'user' else
+                     'engine' if name == 'orgtree' else 'outside'
+                     if name.startswith(('@org:', '@net:')) else 'agent')
+        if row.get(p + '_kind') != want_kind:
+            self.bad(sec, table, where, p + '_kind', 'recorded principal kind differs',
+                     want_kind, row.get(p + '_kind'))
+        if marker == 'o':
+            sub = xv if x_has and isinstance(xv, dict) else {}
+            if x_has and not isinstance(xv, dict):
+                self.bad(sec, table, where, p, 'principal object extra has the wrong shape', value, xv)
+            self.record(sec, where, parts, value, rows, sub, '', table, pkey, count=False)
+        elif marker == 's':
+            self.record(sec, where, parts, {'node': value}, rows, {}, '', table, pkey, count=False)
+            if x_has:
+                self.bad(sec, table, where, p, 'bare principal is also in extra', value, xv)
+        else:
+            self.record(sec, where, parts, {}, rows, {}, '', table, pkey, count=False)
+            if marker == 'x':
+                if not x_has or not jeq(value, xv):
+                    self.bad(sec, table, where, p, 'exceptional principal differs in extra', value,
+                             xv if x_has else '<absent>')
+            elif x_has:
+                self.bad(sec, table, where, p, 'inactive principal conflicts with extra', dest=xv)
+
+    def sum_state(self, sec, where, field, has, value, x_has, xv, rows, prefix, table):
+        p = _cn(prefix, field.src)
+        row = rows.get(table) or {}
+        integer = (isinstance(value, list) and len(value) == 2 and value[0] == 'i'
+                   and type(value[1]) is int)
+        floating = (isinstance(value, list) and len(value) == 3 and value[0] == 'f'
+                    and all(type(v) is float and math.isfinite(v) for v in value[1:]))
+        marker = None if not has else 'n' if value is None else 'l' if integer or floating else 'x'
+        self.code(sec, table, where, p + '_is', row, marker)
+        expected = {'kind': 'i' if integer else 'f' if floating else None,
+                    'integer': value[1] if integer else None,
+                    'float': value[1] if floating else None,
+                    'compensation': value[2] if floating else None}
+        for suffix, want in expected.items():
+            column = p + '_' + suffix
+            got = row.get(column)
+            kind = NUM if suffix == 'integer' else FLOAT if suffix in ('float', 'compensation') else None
+            self._coltype(sec, table, column, kind or CHAR)
+            equal = (self.matches(kind, want, got, None, False) == '' if want is not None and kind
+                     else jeq(want, got))
+            if not equal:
+                self.bad(sec, table, where, column, 'sum state value or type differs', want, got)
+        if marker == 'x':
+            if not x_has or not jeq(value, xv):
+                self.bad(sec, table, where, p, 'exceptional sum state differs in extra', value,
+                         xv if x_has else '<absent>')
+        elif x_has:
+            self.bad(sec, table, where, p, 'sum state is also in extra', value, xv)
+        elif marker == 'l':
+            self.stats['typed sum states ' + table] += 1
+
+    def turn_usage(self, sec, where, field, has, value, x_has, xv,
+                  rows, prefix, table, pkey):
+        bare = has and isinstance(value, list) and all(_text_ok(v) for v in value)
+        marker = (None if not has else 'n' if value is None else 'l' if bare
+                  else 'o' if isinstance(value, dict) else 'x')
+        self.code(sec, table, where, _cn(prefix, field.src) + '_is', rows.get(table), marker)
+        sub = xv if marker == 'o' and x_has and isinstance(xv, dict) else {}
+        if marker == 'o' and x_has and not isinstance(xv, dict):
+            self.bad(sec, table, where, field.src, 'usage object extra has the wrong shape', dest=xv)
+        source = {'keys': value} if bare else value if marker == 'o' else {}
+        self.record(sec, where, field.fields, source, rows, sub, _cn(prefix, field.col), table, pkey)
+        if marker == 'x':
+            if not x_has or not jeq(value, xv):
+                self.bad(sec, table, where, field.src, 'exceptional usage object differs in extra', value, xv)
+        elif marker != 'o' and x_has:
+            self.bad(sec, table, where, field.src, 'usage value is also in extra', value, xv)
+
+    def delivery(self, sec, where, field, has, value, x_has, xv,
+                 rows, prefix, table, pkey):
+        item_id = pkey[0] if pkey else None
+        children = self.d.group('work_item_delivery', ('item_id',), 'stage').get((item_id,), [])
+        stages = {r.get('stage'): r for r in children}
+        if len(stages) != len(children):
+            self.bad(sec, 'work_item_delivery', where, 'stage', 'duplicate stage rows')
+        core = {k: v for k, v in value.items() if k not in STAGE} if isinstance(value, dict) else value
+        self.obj(sec, where, field, has, core, x_has, xv, rows, prefix, table, pkey)
+        for stage in STAGE:
+            present = isinstance(value, dict) and stage in value
+            claim = value.get(stage) if present else None
+            row = stages.pop(stage, None)
+            if not present:
+                if row is not None:
+                    self.bad(sec, 'work_item_delivery', where, stage, 'stage not in source')
+                    self.d.take('work_item_delivery', row)
+                continue
+            if row is None:
+                self.bad(sec, 'work_item_delivery', where, stage, 'source stage has no claim row')
+                continue
+            self.d.take('work_item_delivery', row)
+            marker = 'n' if claim is None else 'o' if isinstance(claim, dict) else 'x'
+            self.code(sec, 'work_item_delivery', where, 'claim_is', row, marker)
+            extra = self.extra_of(sec, 'work_item_delivery', where, row)
+            if marker == 'x':
+                original = extra.pop('claim', _NA)
+                if original is _NA or not jeq(claim, original):
+                    self.bad(sec, 'work_item_delivery', where, stage, 'misfit claim differs', claim, original)
+            self.record(sec, where + '.' + stage, DELIVERY_CLAIM,
+                        claim if marker == 'o' else {}, {'work_item_delivery': row}, extra,
+                        '', 'work_item_delivery', (row.get('id'),))
+        for stage, row in stages.items():
+            self.d.take('work_item_delivery', row)
+            self.bad(sec, 'work_item_delivery', where, 'stage', 'unknown stage row', dest=stage)
 
     def col(self, sec: str, where: str, f: Col, has: bool, val: Any, x_has: bool, xv: Any,
             rows: dict, prefix: str, table: str) -> None:
@@ -1171,7 +1424,7 @@ class Checker:
     def obj(self, sec: str, where: str, f: Obj, has: bool, val: Any, x_has: bool, xv: Any,
             rows: dict, prefix: str, table: str, pkey: tuple | None) -> None:
         t = f.table or table
-        p = _cn(prefix, f.src)
+        p = _cn(prefix, f.col)
         row = rows.get(t)
         if has and isinstance(val, dict):
             self.code(sec, t, where, p + '_is', row, 'o')
@@ -1199,6 +1452,8 @@ class Checker:
         row = rows.get(t)
         code_col = _cn(prefix, f.src) + '_is'
         children = self.d.group(f.ctable, f.fk, f.pos).get(pkey, []) if pkey is not None else []
+        if f.gaps:
+            children = [r for r in children if r.get(f.pos) is not None]
         # a list goes to its child table when every element fits there: a record list needs
         # objects, a scalar list values its column can hold exactly; else the whole list is
         # in extra (code 'x')
@@ -1231,8 +1486,10 @@ class Checker:
 
     def children(self, sec: str, where: str, f: Lst, val: list, rows: list[dict]) -> None:
         positions = [r.get(f.pos) for r in rows]
-        if positions != list(range(len(rows))):
-            self.bad(sec, f.ctable, where, f.pos, 'child positions are not 0..n-1',
+        if ((not f.gaps and positions != list(range(len(rows)))) or
+                (f.gaps and (any(type(p) is not int or p < 0 for p in positions)
+                             or len(set(positions)) != len(positions)))):
+            self.bad(sec, f.ctable, where, f.pos, 'child positions have an invalid order or duplicate',
                      dest=positions[:20])
         if len(rows) != len(val):
             self.bad(sec, f.ctable, where, f.src, 'child row count differs', len(val), len(rows))
@@ -1243,6 +1500,7 @@ class Checker:
                 ex = self.extra_of(sec, f.ctable, w, r)
                 self.record(sec, w, f.elem.fields, e, {f.ctable: r}, ex, '', f.ctable,
                             tuple(r.get(k) for k in f.elem.key))
+                self.current_links(sec, w, f.ctable, r, e)
             else:
                 self.col(sec, w, Col('value', f.elem), True, e, False, None, {f.ctable: r}, '',
                          f.ctable)
@@ -1332,6 +1590,8 @@ class Verifier(Checker):
         self.agent_by_id: dict[Any, dict] = {}
         self.live_by_name: dict[str, dict] = {}
         self.tomb_by_name: dict[str, dict] = {}
+        self.identity_tombs: dict[tuple, list[dict]] = defaultdict(list)
+        self.required_identity_tombs: set[tuple] = set()
         self.tool_list_ids: set = set()
         self.used_tool_lists: set = set()
         self.section_state: dict[str, str] = {}
@@ -1365,6 +1625,8 @@ class Verifier(Checker):
                 self.names_rows(key, how[1], has, val)
         self.settings(settings)
         self.org_extra()
+        self.turn_membership()
+        self.tombstones()
         self.leftovers()
 
     # -- top-level order and null state
@@ -1394,6 +1656,10 @@ class Verifier(Checker):
         rows = self.d.rows('agents')
         for r in rows:
             self.agent_by_id[r.get('id')] = r
+            if r.get('tombstone') and r.get('state') == 'deleted':
+                stamp = (r.get('name'), r.get('lineage_born'), r.get('generation'))
+                self.identity_tombs[stamp].append(r)
+                continue
             target = self.tomb_by_name if r.get('tombstone') else self.live_by_name
             if r.get('name') in target:
                 self.bad(sec, 'agents', str(r.get('name')), 'name', 'two agent rows of one name '
@@ -1445,7 +1711,9 @@ class Verifier(Checker):
                              f'bool({payload})', want, row.get(flag))
                 elif want:
                     self.stats['presence flags set'] += 1
-        # tombstones: exactly the names referenced that no node carries
+    def tombstones(self) -> None:
+        """Generic owners and current-identity tombstones serve different references."""
+        sec = 'nodes'
         want_tombs = set()
         for node in self.nodes.values():
             if isinstance(node, dict):
@@ -1468,6 +1736,94 @@ class Verifier(Checker):
             if data or any(r.get(f) for f in PRESENCE):
                 self.bad(sec, 'agents', str(name), ','.join(data) or 'flags',
                          'tombstone row carries data')
+        for stamp in self.required_identity_tombs - set(self.identity_tombs):
+            self.bad(sec, 'agents', str(stamp), 'tombstone',
+                     'current identity has no stamped tombstone')
+        for stamp, rows in self.identity_tombs.items():
+            if stamp not in self.required_identity_tombs:
+                self.bad(sec, 'agents', str(stamp), 'tombstone',
+                         'identity tombstone no current source role needs')
+            if len(rows) != 1:
+                self.bad(sec, 'agents', str(stamp), 'tombstone',
+                         'duplicate tombstones for one current identity')
+            name, born, generation = stamp
+            for row in rows:
+                self.d.take('agents', row)
+                self.record(sec, str(stamp), NODE,
+                            {'state': 'deleted', 'seat_id': born, 'generation': generation},
+                            {'agents': row}, self.extra_of(sec, 'agents', str(stamp), row),
+                            '', 'agents', (row.get('id'),))
+                if row.get('ord') is not None or any(row.get(f) for f in PRESENCE):
+                    self.bad(sec, 'agents', str(stamp), 'ord/flags',
+                             'identity tombstone carries live placement or presence')
+
+    @staticmethod
+    def current_reference(value):
+        """Derive a supported current role from authored values, never joined names."""
+        if isinstance(value, str):
+            value = {'node': value}
+        if not isinstance(value, dict):
+            return None
+        name = value.get('node')
+        if (not _text_ok(name) or not name or name in ('user', 'orgtree')
+                or name.startswith(('@org:', '@net:'))):
+            return None
+        born, generation, deleted = (value.get(k) for k in ('born', 'generation', 'deleted'))
+        if (born is not None and fit_of(TEXT, born) != 'yes'
+                or generation is not None and fit_of(INT, generation) != 'yes'
+                or deleted is not None and fit_of(BOOL, deleted) != 'yes'):
+            return None
+        return name, born or '', generation or 0, deleted or False
+
+    def current_links(self, sec, ent, table, row, src):
+        roles = {}
+        if table == 'work_items':
+            roles = {k + '_agent_id': src.get(k) for k in ('owner', 'reviewer')}
+        elif table == 'work_item_holders':
+            roles = {'agent_id': src}
+        elif table == 'work_item_artifact_grants':
+            roles = {'agent_id': src.get('to')}
+            artifacts = [a for a in self.d.rows('work_item_artifacts')
+                         if a.get('id') == row.get('artifact_id')]
+            if len(artifacts) != 1 or row.get('item_id') != artifacts[0].get('item_id'):
+                self.bad(sec, table, ent, 'item_id', 'grant belongs to another item or artifact')
+        elif table == 'work_item_review_seats':
+            reviewer = src.get('reviewer')
+            holder = src.get('holder')
+            if isinstance(holder, dict) and reviewer == holder.get('node'):
+                reviewer = holder
+            roles = {'reviewer_agent_id': reviewer, 'holder_agent_id': holder,
+                     'recheck_owner_agent_id': src.get('recheck_owner')}
+        for column, source in roles.items():
+            ref = self.current_reference(source)
+            target_id = row.get(column)
+            if ref is None:
+                if target_id is not None:
+                    self.bad(sec, table, ent, column, 'unsupported role has an agent link', source, target_id)
+                continue
+            name, born, generation, deleted = ref
+            node = self.nodes.get(name)
+            continuing = False
+            if not deleted and isinstance(node, dict):
+                try:
+                    continuing = (born == str(node.get('seat_id') or '') if born else
+                                  int(node.get('generation') or 0) >= generation)
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            if continuing:
+                target = self.live_by_name.get(name)
+                wanted = target.get('id') if target else None
+            else:
+                stamp = name, born, generation
+                self.required_identity_tombs.add(stamp)
+                candidates = self.identity_tombs.get(stamp, [])
+                wanted = candidates[0].get('id') if len(candidates) == 1 else None
+            if wanted is None or type(target_id) is not int or target_id != wanted:
+                self.bad(sec, table, ent, column, 'current role continuity link differs',
+                         {'name': name, 'born': born, 'generation': generation,
+                          'deleted': deleted, 'id': wanted}, target_id)
+            else:
+                self.stats['current links verified'] += 1
 
     # -- lists of records with ord (and work_items by list_key)
     def list_rows(self, sec: str, table: str, fields: list, has: bool, val: Any,
@@ -1490,10 +1846,104 @@ class Verifier(Checker):
                 self.item_events(sec, ent, src, row, i, list_key)
                 src = {k: v for k, v in src.items() if k not in ITEM_CURRENT and
                        (k not in ITEM_EVENT_SOURCES or not isinstance(v, list))}
+                self.docket_projections(sec, ent, src, row)
             self.record(sec, ent, fields, src, {table: row}, self.extra_of(sec, table, ent, row),
                         '', table, (row.get('id'),))
+            self.current_links(sec, ent, table, row, src)
         for row in rows[len(items):]:
             self.d.take(table, row)
+
+    def source_extra(self, fields, src, table, prefix=''):
+        """Derive exceptional fields from the legacy source and declared SQL types.
+
+        This does not use the destination's extra, mapper code or converter code.
+        Column metadata only tells whether a nullable/text companion exists.
+        """
+        out = {k: v for k, v in src.items() if k not in {f.src for f in fields}}
+        for field in fields:
+            if field.src not in src:
+                continue
+            value = src[field.src]
+            t = field.table or table
+            columns = self.d.columns.get(t, {})
+            if isinstance(field, Col):
+                column = _cn(prefix, field.col)
+                fits = (fit_of(field.kind, value) != 'no' if field.kind in (JSON, TS)
+                        else fit_of(field.kind, value) == 'yes')
+                if field.values and value not in field.values:
+                    fits = False
+                if (field.kind == TS and column + '_text' not in columns
+                        and (not isinstance(value, str) or not _CANON.match(value))):
+                    fits = False
+                if value is None:
+                    fits = column + '_null' in columns
+                if not fits:
+                    out[field.src] = value
+            elif isinstance(field, Principal):
+                if isinstance(value, dict):
+                    sub = self.source_extra(_principal_fields(field, _cn(prefix, field.src)),
+                                            value, t)
+                    if sub:
+                        out[field.src] = sub
+                elif value is not None and not _text_ok(value):
+                    out[field.src] = value
+            elif isinstance(field, SumState):
+                integer = (isinstance(value, list) and len(value) == 2 and value[0] == 'i'
+                           and type(value[1]) is int)
+                floating = (isinstance(value, list) and len(value) == 3 and value[0] == 'f'
+                            and all(type(v) is float and math.isfinite(v) for v in value[1:]))
+                if value is not None and not (integer or floating):
+                    out[field.src] = value
+            elif isinstance(field, Delivery):
+                if isinstance(value, dict):
+                    sub = {k: v for k, v in value.items() if k not in STAGE}
+                    if sub:
+                        out[field.src] = sub
+                elif value is not None:
+                    out[field.src] = value
+            elif isinstance(field, TurnUsage) and isinstance(value, list) and all(_text_ok(v) for v in value):
+                continue
+            elif isinstance(field, Obj):
+                if isinstance(value, dict):
+                    sub = self.source_extra(field.fields, value, t, _cn(prefix, field.col))
+                    if sub:
+                        out[field.src] = sub
+                elif value is not None:
+                    out[field.src] = value
+            elif isinstance(field, Lst):
+                supported = (isinstance(value, list) and all(isinstance(v, dict)
+                    if isinstance(field.elem, Rec) else fit_of(field.elem, v) == 'yes' for v in value))
+                if value is not None and not supported:
+                    out[field.src] = value
+            elif isinstance(field, (Link, ToolList)):
+                supported = (_text_ok(value) if isinstance(field, Link) else
+                             isinstance(value, list) and all(_text_ok(v) for v in value))
+                if value is not None and not supported:
+                    out[field.src] = value
+        return out
+
+    def docket_projections(self, sec, ent, src, row):
+        extras = self.source_extra(ITEM, src, 'work_items')
+        policy_keys = set(('slug rev kind title status owner reviewer created_by participants at '
+                           'updated_at docket_at archived_at manual_attention manual_attention_rev '
+                           'parent superseded_by').split())
+        list_keys = set(('slug rev kind title objective status blocked_reason waiting_reason dropped_reason '
+                         'owner reviewer created_by last_updater participants at updated_at docket_at status_at '
+                         'archived_at done_so_far working_on_next manual_attention dependencies superseded_by '
+                         'parent post_completion scope_seq scope_guard scope_logged scope_rolled scope_frozen '
+                         'legacy_status').split())
+        for column, keys in (('docket_policy_extra', policy_keys), ('docket_list_extra', list_keys)):
+            self._coltype(sec, 'work_items', column, JSON)
+            want = {k: v for k, v in extras.items() if k in keys} or None
+            value = row.get(column)
+            try:
+                got = json.loads(value) if value is not None else None
+            except (ValueError, TypeError):
+                got = _NA
+            if got is _NA or not jeq(want, got):
+                self.bad(sec, 'work_items', ent, column, 'docket projection differs from legacy source', want, got)
+            else:
+                self.stats['docket projections verified'] += 1
 
     def item_events(self, sec: str, ent: str, src: dict, row: dict, position: int,
                     list_key: str | None) -> None:
@@ -1676,6 +2126,10 @@ class Verifier(Checker):
         if [r.get('ord') for r in owners] != list(range(len(owners))):
             self.bad(sec, 'org_section_owners', sec, 'ord', 'owner positions are not 0..n-1')
         by_owner = self.d.group(table, ('agent_id',), 'idx')
+        if table == 'agent_turns':
+            by_owner = {k: [r for r in rows if r.get('idx') is not None]
+                        for k, rows in by_owner.items()}
+            by_owner = {k: rows for k, rows in by_owner.items() if rows}
         seen = set()
         for i, (name, v) in enumerate(entries):
             ent = f'{sec}[{name}]'
@@ -1717,6 +2171,39 @@ class Verifier(Checker):
                 name = self.agent_by_id.get(aid, {}).get('name')
                 self.bad(sec, table, f'{sec}[{name}]', 'agent_id', f'{len(rows)} rows for an '
                          'agent the section does not key')
+
+    def turn_membership(self) -> None:
+        """Independently match ordered exact occurrences, without a mapper or digest."""
+        logs = self.doc.get('turn_log') if 'turn_log' not in self.ignored else None
+        logs = logs if isinstance(logs, dict) else {}
+        groups = self.d.group('agent_turns', ('agent_id',), 'recent_pos')
+        for name, node in self.nodes.items():
+            if not isinstance(node, dict):
+                continue
+            recent = node.get('turns')
+            if not isinstance(recent, list) or not all(isinstance(v, dict) for v in recent):
+                recent = []
+            logged = logs.get(name)
+            logged = logged if isinstance(logged, list) else []
+            expected = [None] * len(recent)
+            ceiling = len(logged)
+            for pos in range(len(recent) - 1, -1, -1):
+                for index in range(ceiling - 1, -1, -1):
+                    if jeq(recent[pos], logged[index]):
+                        expected[pos] = index
+                        ceiling = index
+                        break
+            aid = self.live_by_name.get(name, {}).get('id')
+            rows = groups.get((aid,), [])
+            selected = [r for r in rows if r.get('recent_pos') is not None]
+            if [r.get('idx') for r in selected] != expected:
+                self.bad('nodes', 'agent_turns', name, 'idx/recent_pos',
+                         'shared turn membership differs', expected, [r.get('idx') for r in selected])
+            wanted_count = len(logged) + sum(index is None for index in expected)
+            if len(rows) != wanted_count:
+                self.bad('nodes', 'agent_turns', name, '*', 'unified turn payload count differs',
+                         wanted_count, len(rows))
+            self.stats['turn membership occurrences verified'] += len(recent)
 
     # -- org_settings and org_extra
     def settings(self, settings: dict) -> None:
