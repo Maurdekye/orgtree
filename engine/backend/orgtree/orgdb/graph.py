@@ -83,7 +83,7 @@ def plan_locks(raw: Any, tx: Any) -> LockPlan | None:
 
 
 def stats_lock_clause(plan: LockPlan | None) -> str:
-    if plan is None:
+    if plan is None or not plan.stats_ids:
         return ""
     condition = "true" if plan.whole else (
         "agent_id IN (" + ",".join(str(i) for i in sorted(plan.stats_ids)) + ")"
