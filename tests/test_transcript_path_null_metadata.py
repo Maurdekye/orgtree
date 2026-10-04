@@ -1,5 +1,4 @@
 """Transcript lookup tolerates absent and explicitly null import metadata."""
-import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace

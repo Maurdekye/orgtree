@@ -32282,7 +32282,7 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
         return None
     from . import desktop_native
     if desktop_native.provider_for(n) in {'claude', 'openrouter'}:
-        native = n.get('desktop_import', {}).get('native_continuity', {})
+        native = (n.get('desktop_import') or {}).get('native_continuity') or {}
         if native.get('status') == 'ready':
             # A bound imported conversation is resolved from its own node.
             # Ordinary conversations never search the entire imported fleet.
