@@ -36,8 +36,10 @@ class Run:
         if not self.org or not self.agent or not isinstance(self.org, str) or not isinstance(self.agent, str):
             raise ValueError('run needs an org and agent name')
         for name in ('org_id', 'agent_id', 'epoch', 'owner'):
-            if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
-                raise ValueError('run ' + name + ' must be a positive integer')
+            if type(getattr(self, name)) is not int or not 0 < getattr(self, name) < 2 ** 63:
+                raise ValueError('run ' + name + ' must fit a positive database bigint')
+        if type(self.request_id) is not str or type(self.token) is not str:
+            raise ValueError('run identities must be canonical UUIDs')
         if str(UUID(self.request_id)) != self.request_id or str(UUID(self.token)) != self.token:
             raise ValueError('run identities must be canonical UUIDs')
 
