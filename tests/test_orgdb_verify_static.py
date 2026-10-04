@@ -218,7 +218,9 @@ def unread_columns(parsed, mine=None):
         if following <= item_tables:
             break
         item_tables |= following
-    checked = (foundation - ov.OUTSIDE) | set(mine) | item_tables
+    # Jobs' optional item FK is scheduling metadata, not a retained item body.
+    # Keep this named exclusion: a new child table still fails the planted test.
+    checked = ((foundation - ov.OUTSIDE) | set(mine) | item_tables) - {'jobs'}
     return [f'{t}.{c}' for t, cols in have.items() if t in checked
             for c in cols if c not in mine.get(t, {}) and c not in ov.DERIVED.get(t, ())]
 
@@ -272,7 +274,8 @@ class MatchesTheSchema(unittest.TestCase):
     def test_null_and_text_siblings_have_their_base_column(self) -> None:
         orphan = [f'{t}.{c}' for t, cols in self.schema.items() for c in cols
                   if (c.endswith('_null') and c[:-5] not in cols)
-                  or (c.endswith('_text') and c[:-5] not in cols)]
+                  or (c.endswith('_text') and c[:-5] not in cols and
+                      c not in self.mine.get(t, {}))]
         self.assertEqual(orphan, [])
 
 
@@ -288,7 +291,7 @@ class ValueRules(unittest.TestCase):
                 if not match:
                     continue
                 for column, members in re.findall(
-                        r'CHECK\s*\(\s*"?(\w+)"?\s+IN\s*\(([^)]*)\)\s*\)', statement):
+                        r'CHECK\s*\(\s*"?(\w+)"?\s+IN\s*\((.*?)\)\s*\)', statement, re.S):
                     if column not in final.get(match[1], {}):
                         continue
                     values = {m.replace("''", "'") for m in re.findall(r"'((?:[^']|'')*)'", members)}

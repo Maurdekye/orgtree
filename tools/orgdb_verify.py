@@ -623,10 +623,13 @@ DERIVED = {
     'events': {'win_at'},
     'steer_records': {'win_at'},
     'agent_turn_errors': {'win_at'},
-    'work_items': {'docket_policy_extra', 'docket_list_extra', 'docket_scope_meta',
+    'work_items': {'docket_policy_extra', 'docket_list_extra',
                    'docket_manual', 'docket_order', 'docket_deadline',
                    'docket_owner_key', 'docket_creator_key', 'docket_reviewer_key',
-                   'docket_anchor_key'},
+                   'docket_anchor_key',
+                   # 0014: generated read headers of already verified slug/status/extra.
+                   'archive_identity_slug', 'archive_legacy_identity',
+                   'work_identity_slug_value', 'archive_status_key'},
 }
 
 
@@ -684,7 +687,7 @@ def correspondence() -> dict[str, dict[str, str]]:
     out['tool_list_items'].update({'list_id': KEY, 'pos': KEY, 'tool': TEXT})
     _walk(ITEM, 'work_items', out)
     out['work_items'].update({'id': KEY, 'list_key': KEY, 'ord': KEY, 'anchor_name': OPT,
-                              'row_version': OPT, 'archive_seq': INT})
+                              'row_version': OPT, 'archive_seq': INT, 'docket_scope_meta': JSON})
     out['work_items'].update({s + '_events_is': CODE for s in ITEM_EVENT_SOURCES})
     for _source, column, _kind in ITEM_CURRENT.values():
         out['work_items'].update({column: INT, column + '_is': CODE, column + '_kind': TEXT})
@@ -746,6 +749,9 @@ def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tupl
     walk(NODE, 'agents')
     walk(ITEM, 'work_items')
     walk(ITEM_EVENT_FIELDS, 'work_item_events')
+    put('org_sections', 'state', ('n', 'v'))
+    put('org_section_owners', 'state', ('n', 'v'))
+    put('work_items', 'list_key', ('active', 'archive'))
     put('work_item_events', 'source', ITEM_EVENT_SOURCES)
     put('work_item_events', 'kind', ('history', 'evidence', 'scope', 'decision',
                                    'verdict', 'review_packet', 'dismissal', 'quick_staff_receipt'))
@@ -1055,6 +1061,8 @@ class Checker:
         dnull = bool(row) and row.get(c + '_null') is True
         dtext = row.get(c + '_text') if (row and has_text) else None
         typed = dv is not None or dnull or dtext is not None
+        if has_null and row and row.get(c + '_null') is False:
+            self.bad(sec, t, where, c + '_null', 'false null flag instead of SQL NULL or true')
         if not has:
             if typed:
                 self.bad(sec, t, where, c, 'destination holds a value the source does not have',
@@ -1506,6 +1514,17 @@ class Verifier(Checker):
         for column, want in (('id', item_id), ('archive_seq', item_id if list_key == 'archive' else None)):
             if row.get(column) != want:
                 self.bad(sec, 'work_items', ent, column, 'conversion identity differs', want, row.get(column))
+        archive = src.get('scope_archive')
+        archive = archive if isinstance(archive, list) else []
+        def endpoint(value):
+            return {k: value.get(k) if isinstance(value, dict) else None for k in ('seq', 'at')}
+        scope_meta = {'archive_count': len(archive),
+                      'first': endpoint(archive[0] if archive else None),
+                      'last': endpoint(archive[-1] if archive else None),
+                      'inline_count': len(src['scope']) if isinstance(src.get('scope'), list) else None}
+        if self.matches(JSON, scope_meta, row.get('docket_scope_meta'), None, False):
+            self.bad(sec, 'work_items', ent, 'docket_scope_meta', 'scope metadata differs',
+                     scope_meta, row.get('docket_scope_meta'))
         events = self.d.group('work_item_events', ('item_id',), 'seq').get((row.get('id'),), [])
         expected = []
         for source in ITEM_EVENT_SOURCES:

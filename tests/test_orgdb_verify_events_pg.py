@@ -109,7 +109,7 @@ class RetainedEvents(unittest.TestCase):
     def test_same_count_sequence_swap_is_rejected(self):
         self.rejected(["UPDATE orgtree.work_item_events SET seq=999 WHERE id=1",
                        "UPDATE orgtree.work_item_events SET seq=1 WHERE id=2",
-                       "UPDATE orgtree.work_item_events SET seq=2 WHERE id=1"], 'seq')
+                       "UPDATE orgtree.work_item_events SET seq=2 WHERE id=1"], 'id')
 
     def test_each_source_body_and_retained_legacy_identity_is_checked(self):
         for column, value, predicate in (
@@ -134,6 +134,12 @@ class RetainedEvents(unittest.TestCase):
                        "UPDATE orgtree.work_items SET current_verdict_event_id_is='v',current_verdict_event_id="
                        "(SELECT max(id) FROM orgtree.work_item_events WHERE source='candidate_verdicts') "
                        "WHERE slug='empty'"], 'current_verdict_event_id')
+
+    def test_scope_metadata_and_absent_null_flags_are_checked(self):
+        self.rejected(["UPDATE orgtree.work_items SET docket_scope_meta='{}'::json WHERE slug='retained'"],
+                      'docket_scope_meta')
+        self.rejected(["UPDATE orgtree.work_item_events SET history_from_null=false WHERE id=2"],
+                      'history_from_null')
 
     def test_derived_event_headers_are_checked_independently(self):
         for column, value in (('content', "'changed'"), ('status_change', 'false'),

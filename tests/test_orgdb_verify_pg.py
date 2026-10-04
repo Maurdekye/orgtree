@@ -382,9 +382,9 @@ CORRUPTIONS = {
         "UPDATE orgtree.mail SET body = 'hi' WHERE public_id = 'm1'"]),
     'docket history entry changed': ('work_item_events', [
         "UPDATE orgtree.work_item_events SET history_op = 'changed' WHERE source='history' AND item_id = "
-        + ITEM_ID.format('a-thing') + " AND pos = 1"], [
+        + ITEM_ID.format('a-thing') + " AND seq = 2"], [
         "UPDATE orgtree.work_item_events SET history_op = 'edit' WHERE source='history' AND item_id = "
-        + ITEM_ID.format('a-thing') + " AND pos = 1"]),
+        + ITEM_ID.format('a-thing') + " AND seq = 2"]),
     'list order swapped': ('work_item_next', SWAP_NEXT, SWAP_NEXT),
     'value moved into extra': ('agents', [
         "UPDATE orgtree.agents SET extra = (coalesce(extra::jsonb, '{}'::jsonb) "
