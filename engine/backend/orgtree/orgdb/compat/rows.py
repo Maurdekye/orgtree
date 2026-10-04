@@ -1843,7 +1843,10 @@ def meta_get(c: Any, key: str) -> tuple[str, str] | None:
         row = section_row(c, sect)
         if row is None or row[1] != "v":
             return None
-        return (row[2], dumps(owners(c, sect)))
+        text = dumps(owners(c, sect))
+        # Owner names are joined agent fields. A rename can change them while
+        # the section marker stays unchanged; the reuse token must change too.
+        return (row[2] + ':' + text, text)
     row = c.execute("SELECT xmin::text || ':' || ctid::text, val FROM orgtree.compat_meta "
                     "WHERE key = %s", (key,)).fetchone()
     return None if row is None else (str(row[0]), str(row[1]))

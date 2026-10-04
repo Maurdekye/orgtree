@@ -5886,6 +5886,107 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     touched = (lazy._touched
                if _SCOPED_SAVE and lazy is not None and snap_doc is not None
                else None)
+    known_doc = set(snap_doc) if snap_doc is not None else db_doc_keys
+
+    def write_nodes() -> None:
+        nonlocal new_nodes
+        # -- nodes (rows) ----------------------------------------------------
+        has_nodes_key = dict.__contains__(d, "nodes")
+        nodes_v = dict.get(d, "nodes")
+        if has_nodes_key and not isinstance(nodes_v, dict):
+            # `"nodes": null` (or anything else that is not a dict) — storable
+            # only as a blob; the rows are emptied so nothing lingers
+            conn.execute("DELETE FROM nodes")
+            s = _dumps(nodes_v)
+            new_doc["nodes"] = s
+            if snap_doc is None or snap_doc.get("nodes") != s:
+                conn.execute(_UPSERT_DOC, ("nodes", s))
+        else:
+            if "nodes" in known_doc:
+                conn.execute("DELETE FROM doc WHERE key=?", ("nodes",))
+            nodes: dict[str, Any] = cast("dict[str, Any]", nodes_v) if has_nodes_key else {}
+            db_ids: set[str] | None = None
+            if isinstance(nodes, LazyNodesMap) and not nodes._complete \
+                    and (snap_nodes is None or "nodes" in known_doc):
+                # ⚠ the id diff below deletes every STORED id the map lacks, and
+                # an undecoded row is not in the map: decode them all first
+                nodes.materialize("save without node baselines")
+            if snap_nodes is None or "nodes" in known_doc:
+                db_ids = {cast(str, i) for (i,) in conn.execute("SELECT id FROM nodes")}
+            known_ids = db_ids if db_ids is not None else set(cast("dict[str, str]", snap_nodes))
+            # N1000 #3: on PostgreSQL read only when a node row is actually
+            # inserted (SQLite keeps its read: the P02 contact census pins it)
+            next_ord: int | None = None
+            if STORE_BACKEND != "postgres":
+                row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
+                next_ord = cast(int, row[0]) + 1 if row is not None else 0
+            # per-node scoping, same rule as the doc keys: a node row never
+            # exposed mutably keeps its stored baseline. Disabled whenever the
+            # baselines themselves are in doubt (plain dict, nodes-was-blob).
+            node_touched: set[str] | None = None
+            if touched is not None and isinstance(nodes, NodesMap) \
+                    and not nodes._touched_all and db_ids is None \
+                    and snap_nodes is not None:
+                node_touched = nodes._changed()
+            # compare-and-set rewrites, sent together after the walk (`_cas_nodes`)
+            cas_rows: list[tuple[str, str, str]] = []
+            # vanished nodes go first: a renamed node's new row carries what the row it replaces
+            # holds (its mailbox identity), and the org database checks its unique indexes at each
+            # statement (A7b, G2-A3). The next ord is read before any delete, so every store numbers
+            # the new rows exactly as before.
+            gone = known_ids - dict.keys(nodes)
+            if gone and next_ord is None and not dict.keys(nodes) <= known_ids:
+                row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
+                next_ord = cast(int, row[0]) + 1 if row is not None else 0
+            for nid in gone:
+                if _ROW_CAS and snap_nodes is not None and db_ids is None \
+                        and nid in snap_nodes:
+                    _cas(conn, "DELETE FROM nodes WHERE id=? AND val=?",
+                         (nid, snap_nodes[nid]), f"node {nid!r}")
+                else:
+                    conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
+                if changes is not None:
+                    changes.node_deletes.append(nid)
+            # ⚠ dict.items, NOT nodes.items(): the differ itself must not trip
+            # the read barrier it consumes
+            for nid, nv in dict.items(nodes):
+                if node_touched is not None and nid not in node_touched:
+                    sn = cast("dict[str, str]", snap_nodes).get(nid)
+                    if sn is not None:
+                        new_nodes[nid] = sn
+                        continue
+                s = _dumps(nv)
+                new_nodes[nid] = s
+                if changes is not None:
+                    changes.dumped_bytes += len(s)
+                if nid in known_ids:
+                    if snap_nodes is None or db_ids is not None or snap_nodes.get(nid) != s:
+                        if _ROW_CAS and snap_nodes is not None and db_ids is None \
+                                and nid in snap_nodes:
+                            cas_rows.append((nid, s, snap_nodes[nid]))
+                        else:
+                            conn.execute("UPDATE nodes SET val=? WHERE id=?", (s, nid))
+                        if changes is not None:
+                            changes.node_updates.append(nid)
+                else:
+                    if next_ord is None:
+                        row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
+                        next_ord = cast(int, row[0]) + 1 if row is not None else 0
+                    conn.execute("INSERT INTO nodes(id, ord, val) VALUES(?,?,?)",
+                                 (nid, next_ord, s))
+                    next_ord += 1
+                    if changes is not None:
+                        changes.node_inserts.append(nid)
+            if cas_rows:
+                _cas_nodes(conn, cas_rows)
+            if not has_nodes_key:
+                new_nodes = {}
+
+    # Immediate current-role FKs must see the final agent identity, including
+    # a hire or generation change in this same save. Legacy keeps its order.
+    if getattr(conn, 'orgdb', False):
+        write_nodes()
+
     for k, v in items:
         if k in ROWED or k in LAZY_SECTIONS:
             continue
@@ -5972,97 +6073,8 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         if changes is not None:
             changes.doc_deletes.append(k)
 
-    # -- nodes (rows) ----------------------------------------------------
-    has_nodes_key = dict.__contains__(d, "nodes")
-    nodes_v = dict.get(d, "nodes")
-    if has_nodes_key and not isinstance(nodes_v, dict):
-        # `"nodes": null` (or anything else that is not a dict) — storable
-        # only as a blob; the rows are emptied so nothing lingers
-        conn.execute("DELETE FROM nodes")
-        s = _dumps(nodes_v)
-        new_doc["nodes"] = s
-        if snap_doc is None or snap_doc.get("nodes") != s:
-            conn.execute(_UPSERT_DOC, ("nodes", s))
-    else:
-        if "nodes" in known_doc:
-            conn.execute("DELETE FROM doc WHERE key=?", ("nodes",))
-        nodes: dict[str, Any] = cast("dict[str, Any]", nodes_v) if has_nodes_key else {}
-        db_ids: set[str] | None = None
-        if isinstance(nodes, LazyNodesMap) and not nodes._complete \
-                and (snap_nodes is None or "nodes" in known_doc):
-            # ⚠ the id diff below deletes every STORED id the map lacks, and
-            # an undecoded row is not in the map: decode them all first
-            nodes.materialize("save without node baselines")
-        if snap_nodes is None or "nodes" in known_doc:
-            db_ids = {cast(str, i) for (i,) in conn.execute("SELECT id FROM nodes")}
-        known_ids = db_ids if db_ids is not None else set(cast("dict[str, str]", snap_nodes))
-        # N1000 #3: on PostgreSQL read only when a node row is actually
-        # inserted (SQLite keeps its read: the P02 contact census pins it)
-        next_ord: int | None = None
-        if STORE_BACKEND != "postgres":
-            row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
-            next_ord = cast(int, row[0]) + 1 if row is not None else 0
-        # per-node scoping, same rule as the doc keys: a node row never
-        # exposed mutably keeps its stored baseline. Disabled whenever the
-        # baselines themselves are in doubt (plain dict, nodes-was-blob).
-        node_touched: set[str] | None = None
-        if touched is not None and isinstance(nodes, NodesMap) \
-                and not nodes._touched_all and db_ids is None \
-                and snap_nodes is not None:
-            node_touched = nodes._changed()
-        # compare-and-set rewrites, sent together after the walk (`_cas_nodes`)
-        cas_rows: list[tuple[str, str, str]] = []
-        # vanished nodes go first: a renamed node's new row carries what the row it replaces
-        # holds (its mailbox identity), and the org database checks its unique indexes at each
-        # statement (A7b, G2-A3). The next ord is read before any delete, so every store numbers
-        # the new rows exactly as before.
-        gone = known_ids - dict.keys(nodes)
-        if gone and next_ord is None and not dict.keys(nodes) <= known_ids:
-            row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
-            next_ord = cast(int, row[0]) + 1 if row is not None else 0
-        for nid in gone:
-            if _ROW_CAS and snap_nodes is not None and db_ids is None \
-                    and nid in snap_nodes:
-                _cas(conn, "DELETE FROM nodes WHERE id=? AND val=?",
-                     (nid, snap_nodes[nid]), f"node {nid!r}")
-            else:
-                conn.execute("DELETE FROM nodes WHERE id=?", (nid,))
-            if changes is not None:
-                changes.node_deletes.append(nid)
-        # ⚠ dict.items, NOT nodes.items(): the differ itself must not trip
-        # the read barrier it consumes
-        for nid, nv in dict.items(nodes):
-            if node_touched is not None and nid not in node_touched:
-                sn = cast("dict[str, str]", snap_nodes).get(nid)
-                if sn is not None:
-                    new_nodes[nid] = sn
-                    continue
-            s = _dumps(nv)
-            new_nodes[nid] = s
-            if changes is not None:
-                changes.dumped_bytes += len(s)
-            if nid in known_ids:
-                if snap_nodes is None or db_ids is not None or snap_nodes.get(nid) != s:
-                    if _ROW_CAS and snap_nodes is not None and db_ids is None \
-                            and nid in snap_nodes:
-                        cas_rows.append((nid, s, snap_nodes[nid]))
-                    else:
-                        conn.execute("UPDATE nodes SET val=? WHERE id=?", (s, nid))
-                    if changes is not None:
-                        changes.node_updates.append(nid)
-            else:
-                if next_ord is None:
-                    row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
-                    next_ord = cast(int, row[0]) + 1 if row is not None else 0
-                conn.execute("INSERT INTO nodes(id, ord, val) VALUES(?,?,?)",
-                             (nid, next_ord, s))
-                next_ord += 1
-                if changes is not None:
-                    changes.node_inserts.append(nid)
-        if cas_rows:
-            _cas_nodes(conn, cas_rows)
-        if not has_nodes_key:
-            new_nodes = {}
+    if not getattr(conn, 'orgdb', False):
+        write_nodes()
 
     # -- lazy sections ---------------------------------------------------
     if lazy is not None:
