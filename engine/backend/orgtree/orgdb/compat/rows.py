@@ -1398,18 +1398,24 @@ def children_ids(c: Any, parents: Sequence[str], live_only: bool = False) -> lis
     live = " AND a.state IS DISTINCT FROM 'archived'" if live_only else ""
     # A name may denote live and tombstoned physical parents. Resolve all of them;
     # the empty name also denotes NULL. Only parent misfits need decoded correction,
-    # not every row with an unrelated unknown payload field. UNION deduplicates ids
-    # across those branches without losing ordered physical namesakes.
+    # not every row with an unrelated unknown payload field. Ordered rare seeks
+    # keep that branch on its partial index even before fresh statistics arrive.
+    # All branches share one statement snapshot; UNION deduplicates physical rows.
     return [str(n) for (n,) in c.execute(
-        "WITH requested AS MATERIALIZED (SELECT id FROM orgtree.agents WHERE name=ANY(%s)), "
-        "candidates AS MATERIALIZED ("
-        "SELECT a.id FROM orgtree.agents a WHERE NOT a.tombstone "
-        "AND a.parent_id IN (SELECT id FROM requested)" + live + " UNION "
-        "SELECT a.id FROM orgtree.agents a WHERE NOT a.tombstone "
+        "WITH RECURSIVE rare(id,name,ord) AS ("
+        "(SELECT a.id,a.name,a.ord FROM orgtree.agents a "
+        "WHERE NOT a.tombstone AND a.parent_misfit" + live + " ORDER BY a.id LIMIT 1) "
+        "UNION ALL SELECT next.id,next.name,next.ord FROM rare previous "
+        "CROSS JOIN LATERAL (SELECT a.id,a.name,a.ord FROM orgtree.agents a "
+        "WHERE NOT a.tombstone AND a.parent_misfit AND a.id>previous.id" + live
+        + " ORDER BY a.id LIMIT 1) next), candidates AS ("
+        "SELECT a.id,a.name,a.ord FROM orgtree.agents a WHERE NOT a.tombstone "
+        "AND a.parent_id=ANY(ARRAY(SELECT id FROM orgtree.agents WHERE name=ANY(%s)))"
+        + live + " UNION "
+        "SELECT a.id,a.name,a.ord FROM orgtree.agents a WHERE NOT a.tombstone "
         "AND a.parent_id IS NULL AND %s" + live + " UNION "
-        "SELECT a.id FROM orgtree.agents a WHERE NOT a.tombstone AND a.parent_misfit" + live
-        + ") SELECT a.name FROM candidates k JOIN orgtree.agents a ON a.id=k.id "
-        "ORDER BY a.ord,a.id", (list(parents), '' in parents)).fetchall()]
+        "SELECT id,name,ord FROM rare) SELECT name FROM candidates "
+        "ORDER BY ord,id", (list(parents), '' in parents)).fetchall()]
 
 
 def _tool_list(c: Any) -> Callable[[str, list[str], Rows], int]:

@@ -156,6 +156,25 @@ class ChildCandidates(unittest.TestCase):
                                    'exceptional-state-child', 'parent-correction', 'parent-overlap']},
                          'read-only edits unexpectedly reached storage')
 
+    def test_rare_walk_exhausts_candidates_and_keeps_null_ord_last(self):
+        row = registry.lookup(self.slug)
+        with conn.connect(fixture.ADMIN, row[1], autocommit=True) as raw:
+            try:
+                raw.execute("INSERT INTO orgtree.agents(name,ord,ui_order,lineage_born,state,extra) "
+                    "SELECT 'rare-walk-'||lpad(i::text,4,'0'), "
+                    "CASE WHEN i=525 THEN NULL ELSE 500+i END, 500+i, "
+                    "'rare-seat-'||i, 'live', '{\"parent\":\"rare-target\"}'::json "
+                    "FROM generate_series(1,525) i")
+                names = [f'rare-walk-{i:04d}' for i in range(1, 526)]
+                self.assertEqual(self.candidates(['rare-target']),
+                    ['parent-correction', 'parent-overlap', 'numeric-parent',
+                     'null-parent-correction'] + names)
+                got, nodes = self.reached(['rare-target'], live_only=True)
+                self.assertEqual(got, {'rare-target': names})
+                self.assertFalse(nodes._complete)
+            finally:
+                raw.execute("DELETE FROM orgtree.agents WHERE name LIKE 'rare-walk-%'")
+
 
 if __name__ == '__main__':
     unittest.main()
