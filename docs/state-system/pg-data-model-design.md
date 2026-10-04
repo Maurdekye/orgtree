@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.6)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.7)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -8,6 +8,18 @@ reviews the implementation again before the local alpha build. The companion
 [`pg-columns-audit.md`](pg-columns-audit.md) measures today's costs on a copy of the live data.
 
 **What changed:**
+
+- **Rev 7.7: the reviewed schema for the agents and docket conformance piece (2026-10-04).** No
+  product decision changes. The piece is `3-2-0-b-agents-and-docket-schema-conformance-g1`
+  (umbrella decision 33; the schema review is decision 5 on that item). Where its reviewed schema
+  refines Appendix A:
+  - A.2: one `agent_turns` table holds the turn log and the node's own recent list, with explicit
+    membership. A recent entry that matches no log row exactly is a list-only row, so old or
+    truncated lists round-trip exactly. The two turn estimates are tagged sum states.
+  - A.3: an artifact grant is one row per grant occurrence, so grant, revoke and re-grant keep
+    their history; `accepted_evidence_gap` is typed.
+  - A.7 gains items 7–9: the docket's three bounded reader projections, with how each stays
+    consistent and what checks it.
 
 - **Rev 7.6: the durable turn request is the first lock tier (2026-10-03, B5).**
   Tools and result transactions hold the signed run's request row `FOR SHARE` on the native
@@ -2153,7 +2165,7 @@ Setting lists, one row each:
 | accounts | `account`; `account_primary`; `codex_account`; `codex_thread`; `antigravity_account`; `antigravity_conversation`. These name accounts in the app database by their stable id: a soft reference, since it crosses databases. |
 | mail | `mailbox_id UNIQUE`; `mail_seq` |
 | scope (flattened) | `permission_mode`; `org_visibility`; `effort`; `account_fallback`; `model_version`; `prefer_reserve`; `tool_bash`, `tool_web`, `tool_edit`, `tool_subagents`; `cheap_compact_enabled`, `cheap_compact_occ` |
-| usage | `cost_usd`; `cost_usd_unknown`; `context_window`; `occupancy`; `occupancy_est`; `cli_compactions`; `cli_boundary_offset`; `turn_seq`; the two estimate tuples as columns |
+| usage | `cost_usd`; `cost_usd_unknown`; `context_window`; `occupancy`; `occupancy_est`; `cli_compactions`; `cli_boundary_offset`; `turn_seq`; the two estimate tuples as columns (rev 7.7: each is a tagged sum state: kind `i` or `f`, an integer `numeric`, a float, and its compensation term) |
 | status | `last_status_status`, `_summary`, `_at`; `prev_status_*` |
 | runtime markers | `limit_locked`; `config_seq`; `hard_fail_run`; `limit_run`; `net_fail_run`; `net_fail_since`; `untrusted_limit_run`; `docket_reminder_at`; `working_activity_at`; `cache_keepalive_at` |
 | tool inventory | `last_turn_mcp_tool_count`; `last_turn_mcp_fingerprint`; `tool_list_id` → `tool_lists` |
@@ -2192,7 +2204,7 @@ Setting lists, one row each:
 | `tool_lists(id, sha256 UNIQUE)`, `tool_list_items(list_id, pos, tool)` | a value shared by many agents | measured: 40 distinct lists over 1,045 agents, so 71,000 stored names become about 2,700 rows |
 | `agent_carriers(agent_id, pos, halt_id, text, view, ping, ping_reason, from_*, at, delivery_id, claim json)`, `carrier_mail(carrier_id, mail_id)`, `carrier_tokens(carrier_id, tok)` | owned list + links | `halt_queue`, `native_held_carriers` |
 | `agent_mail_drain(agent_id, mail_id)` | many-to-many | the waking mail ids |
-| `agent_turns(agent_id, n, at, cost, ms, toks, denials, approvals, ran_as, killed, estimated, cost_complete, cost_source, route json, reported json, …)` | owned log | PK (agent_id, n); index (agent_id, n DESC). One table for **both** the agent's `turns` list and the `turn_log`. Measured: for 1,106 of 1,187 agents, the stored list is exactly the log's last 8 rows; the other 81 predate the log. The tree reads `LIMIT 8` from the index; `node_tree_val` goes away. |
+| `agent_turns(agent_id, n, at, cost, ms, toks, denials, approvals, ran_as, killed, estimated, cost_complete, cost_source, route json, reported json, …)` | owned log | PK (agent_id, n); index (agent_id, n DESC). One table for **both** the agent's `turns` list and the `turn_log`. Measured: for 1,106 of 1,187 agents, the stored list is exactly the log's last 8 rows; the other 81 predate the log. The tree reads `LIMIT 8` from the index; `node_tree_val` goes away. Rev 7.7: membership is explicit. `idx` places a row in the log, and `recent_pos` (an ordering key with gaps allowed) places it in the node's recent list. A recent entry that matches no log row exactly is a list-only row (`idx` NULL), and the tree reads recent members through a partial index. `cost_unknown_fields` and the model-usage keys are child rows. |
 | `agent_turn_errors(agent_id, seq, at, text, ran_as)` | owned log | today's `turn_error_log` |
 | `agent_external_handles`, `agent_oracle_exchanges` | owned lists | retired and rare fields, kept exactly |
 
@@ -2224,7 +2236,7 @@ archive log rows, `work_index`, `work_list_summary` and all of `work_read_*`.
 | times | `created`; `updated_at`; `docket_at`; `archived_at` (NULL = active) |
 | links | `parent_item_id` → work_items; `superseded_by_id` → work_items |
 | attention | `attention_reason`, `attention_at`, `attention_by_*`, `attention_set_rev`; `manual_attention_rev`; `notification_attention_active`, `notification_attention_epoch` |
-| completion | `accepted_at`, `accepted_by_*`, `accepted_note`, `accepted_via`, `accepted_evidence_gap`; `post_completion json` |
+| completion | `accepted_at`, `accepted_by_*`, `accepted_note`, `accepted_via`, `accepted_evidence_gap` (rev 7.7: typed `unclassified`, `total`, `summary`); `post_completion json` |
 | sequences | `scope_seq`, `scope_guard`, `scope_rolled`, `scope_logged`, `artifact_seq`, `finding_seq` |
 | bookkeeping | `extra`; `row_version` |
 
@@ -2254,7 +2266,7 @@ The description (`objective`) lives in `work_item_texts(item_id PK, objective)`.
 | `work_item_progress(item_id, list CHECK (done, next), pos, text)` | owned list |
 | `work_item_events(item_id, seq, at, by_*, kind CHECK (history, evidence, decision, scope, verdict, review_packet, dismissal, …), …)` | the item's **append-only history as rows** (decision 7 point 2): one sequence of typed events, with kind-specific columns and a content column for free text. **The current verdict and the current review packet are explicit pointers (rev 4, finding f5)**, not the newest event: `current_verdict_event_id` and `current_review_packet_event_id`, NULL when none is current. Today reopen clears the verdict, and `changes` / `approve_stage` clear the packet, while the history keeps every event (ledger.py:16424–16437, 19601–19607, 19678–19684). The pointers do the same. Conversion: a non-null legacy value points at its event (measured: all 420 non-null verdicts and all 52 non-null packets equal the last entry); a value matching no event makes the org unavailable, naming the record; null stays NULL. Tests: approve_stage then the packet is cleared; reopen then the approval is cleared; changes then the packet is cleared; archive and reopen; and the API output for each, before and after conversion. |
 | `work_item_review_seats(item_id, seq, reviewer_id, holder_id, …)`, `work_item_review_seat_requests(item_id, seq, …)` | owned lists with state |
-| `work_item_artifacts(item_id, artifact_id, …)` + `work_item_artifact_grants(item_id, artifact_id, agent_id)` | owned list + many-to-many |
+| `work_item_artifacts(item_id, artifact_id, …)` + `work_item_artifact_grants(item_id, artifact_id, agent_id)` | owned list + many-to-many. Rev 7.7: one grant row per grant occurrence, with `at`, `by`, `revoked_at`, `note` and the recorded name, so grant, revoke and re-grant keep their history and the newest row decides. |
 | `work_item_findings(item_id, finding_id, …)` + `work_item_finding_decisions(…)` | owned list + its list |
 | `work_item_delivery(item_id, stage, …)` | owned, at most 5 stages |
 | `work_item_quick_staff_receipts(item_id, receipt_id, …)` | owned list |
@@ -2496,6 +2508,15 @@ predicate stays as the test oracle.
 6. **`docket_counters`.** The desktop's archived and backlog totals, which its header would
    otherwise compute by reading the archive (rev 5, f13). They are updated in the same transaction
    as the archive or backlog change they count, and a test compares them with a full count.
+7. **`work_items.docket_policy_extra`** (rev 7.7). A STORED GENERATED projection of the same row's
+   `extra`, holding only the keys the policy reader needs (org migration 0007). The policy read then
+   returns an item's exceptional values without transferring large cold misfits. Being generated
+   from its own row, it cannot disagree with it.
+8. **`work_items.docket_list_extra`** (rev 7.7). The same for the list reader's keys (0007).
+9. **`work_items.docket_scope_meta`** (rev 7.7). The scope history's count and first and last
+   endpoints. Since 0010 it is written in the same transaction as the scope event rows, so the
+   docket list never reads the scope history. A test compares it with the event rows on every write
+   path, and the independent verifier checks items 7–9 explicitly.
 
 Nothing else is stored twice. (Rev 5–7 also kept two counters for agents' archived totals,
 `docket_subtree_counts` and `docket_anchor_counts`; decision 21 removed those totals, and the
