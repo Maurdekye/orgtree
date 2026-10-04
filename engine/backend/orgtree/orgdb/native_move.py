@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
-from ..ledger import LedgerError, Org, USER, _q
+from ..ledger import LedgerError, Org, USER, _q, actor_kind
 from . import graph
 
 
@@ -102,7 +102,7 @@ def rows(org: Any, actor: str, moves: list[tuple[str, str | None]]
             start = parents[start] if start in parents else org.node(start)['parent']
         return path
 
-    if actor in org.nodes:
+    if actor_kind(actor) not in ('user', 'system') and actor in org.nodes:
         share.update(chain(actor))
     for root, target in moves:
         target = None if target in (None, USER) else target
