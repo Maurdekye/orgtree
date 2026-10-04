@@ -113,6 +113,10 @@ class BackfillCodec(unittest.TestCase):
         lifecycle={'current_candidate':['unusual','\0'],'kind':'runtime-edit'}
         rows={}
         codec.encode(A.LEGACY_HOT,node,dict(id=1,name='worker',ord=0,tombstone=False),rows,link=A.LEGACY_AGENTS.link)
+        legacy_deleted = {'state': 'deleted', 'seat_id': 'old-seat', 'generation': 1}
+        codec.encode(A.LEGACY_HOT,legacy_deleted,dict(id=2,name='legacy',ord=1,tombstone=False),
+                     rows,link=A.LEGACY_AGENTS.link)
+        self.assertIsNone(rows['agents'][1]['state'])
         for pos,value in enumerate(log):
             codec.encode(N.AGENT_TURNS,value,dict(id=17+pos*13,agent_id=1,idx=pos),rows,
                          link=N._turns().migration_tables[0].link)
@@ -133,6 +137,7 @@ class BackfillCodec(unittest.TestCase):
         with self.raw.cursor(row_factory=dict_row) as cursor:
             stored=cursor.execute('SELECT * FROM orgtree.agent_turns ORDER BY id').fetchall()
             agent=cursor.execute('SELECT * FROM orgtree.agents WHERE id=1').fetchone()
+            legacy=cursor.execute('SELECT * FROM orgtree.agents WHERE id=2').fetchone()
             life=cursor.execute('SELECT * FROM orgtree.lifecycle_events WHERE id=29').fetchone()
             kids={table:cursor.execute(f'SELECT * FROM orgtree.{table}').fetchall()
                   for table in ('agent_turn_cost_unknown_fields','agent_turn_model_usage_keys')}
@@ -145,6 +150,8 @@ class BackfillCodec(unittest.TestCase):
         after=codec.decode(A.NODE_BODY,agent,codec.Children({},A.AGENTS.layout()))
         after['turns']=turns.read_recent(self.raw,[1])[1]
         self.assertEqual(exact(after),exact(node))
+        self.assertIsNone(legacy['state'], 'a typed tombstone state must not promote an authored misfit')
+        self.assertEqual(exact(codec.decode(A.NODE_BODY,legacy,None)),exact(legacy_deleted))
         self.assertEqual(exact(codec.decode(N.LIFECYCLE,life,None)),exact(lifecycle))
         self.assertEqual(len(stored),5)
         list_only=[r for r in stored if r['idx'] is None]

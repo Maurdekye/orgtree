@@ -40,6 +40,11 @@ def misfits(org: str, rows: codec.Rows, secs: Iterable[Section]) -> list[dict[st
     found = []
     for entry in columns(secs):
         for row in rows.get(entry['table'], []):
+            values = entry['values']
+            if entry['table'] == 'agents' and entry['column'] == 'state' and not row.get('tombstone'):
+                # Internal deleted tombstones share the physical column; an
+                # authored node with that value retains its legacy misfit.
+                values = tuple(value for value in values if value != 'deleted')
             extra = row.get('extra')
             value = getattr(extra, 'obj', extra)
             for key in entry['path']:
@@ -48,7 +53,7 @@ def misfits(org: str, rows: codec.Rows, secs: Iterable[Section]) -> list[dict[st
                     break
                 value = value[key]
             if value is not None and (not codec.fits('text', value)
-                                      or value not in entry['values']):
+                                      or value not in values):
                 found.append(dict(org=org, table=entry['table'],
                                   record={key: row[key] for key in entry['keys']},
                                   field='.'.join(entry['path']), column=entry['column']))

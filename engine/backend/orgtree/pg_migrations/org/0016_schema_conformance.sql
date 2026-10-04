@@ -1,4 +1,4 @@
--- G1-G11 normalized agent and docket records; alpha data is checked in this transaction.
+-- AUTHORING DRAFT: VERIFY BEFORE INSTALLING AS AN ORG MIGRATION.
 
 -- All helpers live only in this session. No new runtime codec is installed.
 CREATE FUNCTION pg_temp.sc_get(v json, k text) RETURNS json
@@ -247,7 +247,7 @@ DECLARE r json:='{}'; e json; children json:='{}'; x json; sub json; vals json;
  shape text; n text; entry record;
 BEGIN
  IF json_typeof(v) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'migration record is not an object'; END IF;
- e:=pg_temp.sc_drop(v,ARRAY['turn_est_cost','turn_est_toks','state']::text[]);
+ e:=pg_temp.sc_drop(v,ARRAY['turn_est_cost','turn_est_toks']::text[]);
  x:=pg_temp.sc_get(v,'turn_est_cost');
 IF x IS NOT NULL THEN
  IF json_typeof(x)='null' THEN e:=pg_temp.sc_put(e,'turn_est_cost',x);
@@ -260,12 +260,6 @@ IF x IS NOT NULL THEN
  ELSIF pg_temp.sc_fits('json',x) THEN r:=pg_temp.sc_put(r,'turn_est_toks',x);
 
  ELSE e:=pg_temp.sc_put(e,'turn_est_toks',x); END IF; END IF;
-x:=pg_temp.sc_get(v,'state');
-IF x IS NOT NULL THEN
- IF json_typeof(x)='null' THEN e:=pg_temp.sc_put(e,'state',x);
- ELSIF pg_temp.sc_fits('text',x) AND pg_temp.sc_text(x)=ANY(ARRAY['live','archived','unrecoverable']) THEN r:=pg_temp.sc_put(r,'state',x);
-
- ELSE e:=pg_temp.sc_put(e,'state',x); END IF; END IF;
  RETURN json_build_object('row',r,'extra',CASE WHEN e::text='{}' THEN NULL ELSE e END,'children',children);
 END
 $fn$;
@@ -281,10 +275,6 @@ x:=pg_temp.sc_nonnull(pg_temp.sc_get(r,'turn_est_toks'));
 IF x IS NOT NULL AND json_typeof(x)<>'null' THEN
  v:=pg_temp.sc_put(v,'turn_est_toks',x);
 END IF;
-x:=pg_temp.sc_nonnull(pg_temp.sc_get(r,'state'));
-IF x IS NOT NULL AND json_typeof(x)<>'null' THEN
- v:=pg_temp.sc_put(v,'state',x);
-END IF;
  RETURN pg_temp.sc_overlay(v,e);
 END
 $fn$;
@@ -296,7 +286,7 @@ DECLARE r json:='{}'; e json; children json:='{}'; x json; sub json; vals json;
  shape text; n text; entry record;
 BEGIN
  IF json_typeof(v) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'migration record is not an object'; END IF;
- e:=pg_temp.sc_drop(v,ARRAY['turn_est_cost','turn_est_toks','state']::text[]);
+ e:=pg_temp.sc_drop(v,ARRAY['turn_est_cost','turn_est_toks']::text[]);
  x:=pg_temp.sc_get(v,'turn_est_cost');
 IF x IS NOT NULL THEN
  IF json_typeof(x)='null' THEN r:=pg_temp.sc_put(r,'turn_est_cost_is','"n"'::json);
@@ -321,12 +311,6 @@ IF x IS NOT NULL THEN
    r:=pg_temp.sc_put(r,'turn_est_toks_is','"l"'::json);r:=pg_temp.sc_put(r,'turn_est_toks_kind','"f"'::json);r:=pg_temp.sc_put(r,'turn_est_toks_float',orgtree.docket_field(x,'1'));r:=pg_temp.sc_put(r,'turn_est_toks_compensation',orgtree.docket_field(x,'2'));
   ELSE r:=pg_temp.sc_put(r,'turn_est_toks_is','"x"'::json); e:=pg_temp.sc_put(e,'turn_est_toks',x); END IF;
  ELSE r:=pg_temp.sc_put(r,'turn_est_toks_is','"x"'::json); e:=pg_temp.sc_put(e,'turn_est_toks',x); END IF; END IF;
-x:=pg_temp.sc_get(v,'state');
-IF x IS NOT NULL THEN
- IF json_typeof(x)='null' THEN e:=pg_temp.sc_put(e,'state',x);
- ELSIF pg_temp.sc_fits('text',x) AND pg_temp.sc_text(x)=ANY(ARRAY['live','archived','unrecoverable','deleted']) THEN r:=pg_temp.sc_put(r,'state',x);
-
- ELSE e:=pg_temp.sc_put(e,'state',x); END IF; END IF;
  RETURN json_build_object('row',r,'extra',CASE WHEN e::text='{}' THEN NULL ELSE e END,'children',children);
 END
 $fn$;
@@ -344,10 +328,6 @@ IF shape='n' THEN v:=pg_temp.sc_put(v,'turn_est_toks','null');
 ELSIF shape='l' THEN IF pg_temp.sc_text(pg_temp.sc_nonnull(pg_temp.sc_get(r,'turn_est_toks_kind')))='i' THEN
  v:=pg_temp.sc_put(v,'turn_est_toks',json_build_array('i',pg_temp.sc_nonnull(pg_temp.sc_get(r,'turn_est_toks_integer'))));
  ELSE v:=pg_temp.sc_put(v,'turn_est_toks',json_build_array('f',pg_temp.sc_float(pg_temp.sc_nonnull(pg_temp.sc_get(r,'turn_est_toks_float'))::text::double precision),pg_temp.sc_float(pg_temp.sc_nonnull(pg_temp.sc_get(r,'turn_est_toks_compensation'))::text::double precision))); END IF; END IF;
-x:=pg_temp.sc_nonnull(pg_temp.sc_get(r,'state'));
-IF x IS NOT NULL AND json_typeof(x)<>'null' THEN
- v:=pg_temp.sc_put(v,'state',x);
-END IF;
  RETURN pg_temp.sc_overlay(v,e);
 END
 $fn$;
@@ -3242,7 +3222,6 @@ BEGIN
  "turn_est_toks_integer"=pg_temp.sc_nonnull(orgtree.docket_field(pack,'row','turn_est_toks_integer'))::text::numeric,
  "turn_est_toks_float"=pg_temp.sc_nonnull(orgtree.docket_field(pack,'row','turn_est_toks_float'))::text::double precision,
  "turn_est_toks_compensation"=pg_temp.sc_nonnull(orgtree.docket_field(pack,'row','turn_est_toks_compensation'))::text::double precision,
- "state"=pg_temp.sc_text(pg_temp.sc_nonnull(orgtree.docket_field(pack,'row','state')))::text,
  extra=pg_temp.sc_nonnull(pg_temp.sc_get(pack,'extra')) WHERE t."id"=old."id";
 
   SELECT to_json(t) INTO changed FROM orgtree."agents" t WHERE t."id"=old."id";

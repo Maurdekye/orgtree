@@ -250,10 +250,14 @@ TOOL_LISTS_DDL = (
 LEGACY_HOT, LEGACY_AGENTS = HOT, AGENTS
 HOT = Spec('agents', tuple(F(f.key, 'sum') if f.key in ('turn_est_cost', 'turn_est_toks') else
                           F('turns', 'membership') if f.key == 'turns' else
-                          replace(f, values=f.values + ('deleted',)) if f.key == 'state' else f
+                          f
                           for f in LEGACY_HOT.fields))
 NODE_BODY = Spec('agents', tuple(f for f in HOT.fields if f.key != 'turns'))
-AGENTS = replace(LEGACY_AGENTS, spec=HOT)
+# The physical row also holds internal stamped tombstones. Authored nodes keep
+# the original three-state enum: a legacy 'deleted' value stays exact in extra.
+TOMBSTONE_HOT = Spec('agents', tuple(replace(f, values=f.values + ('deleted',))
+                                   if f.key == 'state' else f for f in HOT.fields))
+AGENTS = replace(LEGACY_AGENTS, spec=TOMBSTONE_HOT)
 AGENTS = replace(AGENTS, indexes=AGENTS.indexes + (
     "CREATE INDEX agents_current_tombstone ON orgtree.agents(name,lineage_born,generation,id) "
     "WHERE tombstone AND state='deleted'",
@@ -331,7 +335,7 @@ class Nodes(Section):
 
 
 def encode_tombstone(name: str, aid: int, record: Mapping[str, Any], out: Rows) -> None:
-    codec.encode(HOT, dict(record), {'id': aid}, out, link=AGENTS.link)
+    codec.encode(TOMBSTONE_HOT, dict(record), {'id': aid}, out, link=AGENTS.link)
     out['agents'][-1].update(name=name, ord=None, tombstone=True,
                            parent_id=None, predecessor_id=None, successor_id=None,
                            tool_list_id=None, **{c: False for c in FLAGS.values()})

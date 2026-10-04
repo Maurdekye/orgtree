@@ -246,7 +246,7 @@ NODE = [
     Col('seat_id', TEXT, col='lineage_born'), Col('generation', INT),
     Link('parent'), Link('predecessor'), Link('successor'),
     Col('ui_order', NUM), *_stamps('created', 'archived_at', 'rescinded_at'),
-    Col('state', TEXT, values=('live', 'archived', 'unrecoverable', 'deleted')),
+    Col('state', TEXT, values=('live', 'archived', 'unrecoverable')),
     *_texts('title', 'model'), Col('grant', NUM, col='credit_grant'),
     *_texts('lineage'),
     Col('bearer_state', TEXT, values=('knowledge', 'preserving', 'lost')),
@@ -851,6 +851,9 @@ def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tupl
                     walk(field.elem.fields, field.ctable)
 
     walk(NODE, 'agents')
+    # Internal stamped tombstones use the same physical column, but authored
+    # nodes still have the original three-state enum in record verification.
+    out['agents', 'state'] = ('live', 'archived', 'unrecoverable', 'deleted')
     walk(ITEM, 'work_items')
     walk(ITEM_EVENT_FIELDS, 'work_item_events')
     walk(DELIVERY_CLAIM, 'work_item_delivery')
@@ -1749,7 +1752,9 @@ class Verifier(Checker):
             name, born, generation = stamp
             for row in rows:
                 self.d.take('agents', row)
-                self.record(sec, str(stamp), NODE,
+                tomb_fields = [Col('state', TEXT, values=('deleted',)) if isinstance(f, Col)
+                               and f.src == 'state' else f for f in NODE]
+                self.record(sec, str(stamp), tomb_fields,
                             {'state': 'deleted', 'seat_id': born, 'generation': generation},
                             {'agents': row}, self.extra_of(sec, 'agents', str(stamp), row),
                             '', 'agents', (row.get('id'),))

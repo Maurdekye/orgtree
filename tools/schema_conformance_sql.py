@@ -665,8 +665,8 @@ END $fn$;
 def current_reference_sql(migration):
     from orgtree.orgdb.mappers import agents as A
     identity=migration.compiler.function(subset(A.HOT,('seat_id','generation')))
-    tomb=migration.compiler.function(subset(A.HOT,('state','seat_id','generation')))
-    columns=codec.columns(subset(A.HOT,('state','seat_id','generation')))
+    tomb=migration.compiler.function(subset(A.TOMBSTONE_HOT,('state','seat_id','generation')))
+    columns=codec.columns(subset(A.TOMBSTONE_HOT,('state','seat_id','generation')))
     migration.compiler.statements.append(python_value_helpers())
     migration.compiler.statements.append(f'''
 CREATE FUNCTION pg_temp.sc_current(v json) RETURNS bigint LANGUAGE plpgsql AS $fn$
@@ -868,8 +868,8 @@ def generate(*, foundation=False):
     # Enabling the typed deleted state is required before stamped tombstones.
     out += ["ALTER TABLE orgtree.agents DROP CONSTRAINT agents_state_enum;",
             "ALTER TABLE orgtree.agents ADD CONSTRAINT agents_state_enum CHECK(state IN ('live','archived','unrecoverable','deleted'));" ]
-    migration.migrate_record('agents', subset(A.LEGACY_HOT, ('turn_est_cost','turn_est_toks','state')),
-                             subset(A.HOT, ('turn_est_cost','turn_est_toks','state')))
+    migration.migrate_record('agents', subset(A.LEGACY_HOT, ('turn_est_cost','turn_est_toks')),
+                             subset(A.HOT, ('turn_est_cost','turn_est_toks')))
     migration.migrate_record('lifecycle_events', subset(N.LEGACY_LIFECYCLE, ('current_candidate',)),
                              subset(N.LIFECYCLE, ('current_candidate',)))
 

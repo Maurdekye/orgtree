@@ -14,7 +14,7 @@ import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree.orgdb import codec, conn, enums, lifecycle, sections
+from orgtree.orgdb import codec, conn, enums, lifecycle, mappers, sections
 from orgtree.orgdb.convert import rowio
 from test_orgdb_enums import entries, entry_row, fixture, native_entries
 
@@ -138,6 +138,35 @@ class EnumConstraints(unittest.TestCase):
         # A legacy out-of-set state retains legacy's non-live meaning.
         with conn.connect(RUNTIME, self.build.database) as c:
             self.assertEqual(0, c.execute("SELECT count(*) FROM orgtree.agents WHERE state='live'").fetchone()[0])
+
+    def test_authored_deleted_misfit_and_internal_deleted_tombstone_are_distinct(self):
+        doc = {'slug': 'acme', 'nodes': {'boss': {'state': 'deleted', 'seat_id': 'current'}},
+               'work_items': [{'slug': 'one', 'owner': {'node': 'boss', 'born': 'former'}}]}
+        secs = mappers.sections()
+        rows, _, _ = sections.encode_document(doc, secs)
+        with conn.connect(RUNTIME, self.build.database, autocommit=False) as c:
+            rowio.write(c, rows)
+            c.commit()
+            back_rows = rowio.read(c)
+            authored = next(row for row in back_rows['agents'] if not row['tombstone'])
+            internal = next(row for row in back_rows['agents'] if row['tombstone'])
+            self.assertIsNone(authored['state'])
+            self.assertEqual(internal['state'], 'deleted')
+            self.assertEqual([dict(org='acme', table='agents', record={'id': authored['id']},
+                                   field='state', column='state')], enums.misfits('acme', back_rows, secs))
+            self.assertEqual(doc, sections.decode_document(back_rows, secs, sections.Context()))
+            checker = verifier.Verifier(verifier.Dest(c), doc, ())
+            checker.run()
+            self.assertEqual(checker.problems, [])
+            with self.assertRaises(RollbackProbe), c.transaction():
+                self.assertEqual(c.execute("UPDATE orgtree.agents SET state='deleted', extra=NULL WHERE id=%s",
+                                           (authored['id'],)).rowcount, 1)
+                checker = verifier.Verifier(verifier.Dest(c), doc, ())
+                checker.run()
+                self.assertTrue(any(p['table'] == 'agents' and p['field'] == 'state'
+                                    for p in checker.problems))
+                raise RollbackProbe()
+            self.assertEqual(back_rows, rowio.read(c))
 
     def test_independent_verifier_accepts_exact_misfits_and_refuses_misplaced_valid_members(self):
         from psycopg import sql

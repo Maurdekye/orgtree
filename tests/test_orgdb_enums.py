@@ -24,11 +24,6 @@ def entries(include_markers=False):
 def native_entries():
     """Authored enum sets plus native-only tags and explicit container markers."""
     result = [dict(entry) for entry in entries(True)]
-    for entry in result:
-        if (entry['table'], entry['column']) == ('agents', 'state'):
-            # Deleted is an internal tombstone state. A legacy node's deleted
-            # value still stays a reported authored misfit, tested separately.
-            entry['values'] += ('deleted',)
     for section in mappers.sections() + [OrgAccounts()]:
         for root in section.tables:
             for table, layout in root.layout().items():
@@ -304,6 +299,14 @@ class EnumMigration(unittest.TestCase):
                     codec.encode(entry['spec'], source, {k: 1 for k in entry['keys']}, rows)
                     row = rows[entry['table']][0]
                     self.assertIn(row[entry['column']], entry['values'])
+                    if entry['spec'].field(entry['path'][0]).kind == 'membership' and value == []:
+                        with self.assertRaisesRegex(ValueError, 'membership reader must supply'):
+                            codec.decode(entry['spec'], row, codec.Children({}, {}), (1,))
+                        doc = {'nodes': {'boss': source}}
+                        secs = mappers.sections()
+                        owned, _, _ = sections.encode_document(doc, secs)
+                        self.assertEqual(doc, sections.decode_document(owned, secs, sections.Context()))
+                        continue
                     back = codec.decode(entry['spec'], row, codec.Children({}, {}), (1,))
                     self.assertEqual(source, back)
         self.assertEqual(('n', 'o', 'x'), codec.MARKER_VALUES['obj'])
@@ -311,11 +314,21 @@ class EnumMigration(unittest.TestCase):
 
     def test_legacy_deleted_state_is_a_reported_misfit(self):
         entry = next(e for e in entries() if (e['table'], e['column']) == ('agents', 'state'))
-        self.assertEqual(('live', 'archived', 'unrecoverable'), entry['values'])
-        source, row, back, rows = encoded(entry, 'deleted')
+        self.assertEqual(('live', 'archived', 'unrecoverable', 'deleted'), entry['values'])
+        self.assertEqual(('live', 'archived', 'unrecoverable'), agents.HOT.field('state').values)
+        source = {'nodes': {'boss': {'state': 'deleted'}}}
+        secs = mappers.sections()
+        rows, _, _ = sections.encode_document(source, secs)
+        row = rows['agents'][0]
+        back = sections.decode_document(rows, secs, sections.Context())
         self.assertIsNone(row['state'])
         self.assertEqual(source, back)
-        self.assertEqual('state', enums.misfits('acme', rows, mappers.sections())[0]['field'])
+        self.assertEqual([dict(org='acme', table='agents', record={'id': 1},
+                               field='state', column='state')], enums.misfits('acme', rows, secs))
+        internal = {}
+        agents.encode_tombstone('former', 2, {'state': 'deleted'}, internal)
+        self.assertEqual('deleted', internal['agents'][0]['state'])
+        self.assertEqual([], enums.misfits('acme', internal, secs))
 
 
 class EnumReports(unittest.TestCase):

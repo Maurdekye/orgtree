@@ -136,6 +136,20 @@ def check(doc, dest=None):
 
 
 class SchemaVerifier(unittest.TestCase):
+    def test_deleted_authored_state_stays_a_misfit_beside_internal_tombstones(self):
+        doc = {'nodes': {'worker': {'state': 'deleted', 'seat_id': 'current', 'generation': 2}},
+               'work_items': [{'owner': {'node': 'worker', 'born': 'former', 'generation': 1}}]}
+        dest = fixture(doc)
+        self.assertEqual(check(doc, dest).problems, [])
+        authored = next(row for row in dest._rows['agents'] if not row['tombstone'])
+        internal = next(row for row in dest._rows['agents'] if row['tombstone'])
+        self.assertIsNone(authored['state'])
+        self.assertEqual(internal['state'], 'deleted')
+        authored['state'] = 'deleted'
+        authored['extra'] = None
+        self.assertTrue(any(p['table'] == 'agents' and p['field'] == 'state'
+                            for p in check(doc, dest).problems))
+
     def assert_clean(self, doc):
         verifier = check(doc)
         self.assertEqual(verifier.problems, [], verifier.problems[:8])
