@@ -198,8 +198,9 @@ class Lifetime(unittest.TestCase):
             self.assertIsNotNone(run)
             self.runs.append(run)
             self.assertEqual(self.host.queue.snapshot()['held'], 1)
+            runtime = sup.state(slug, nid)
             with sup._state_lock:
-                sup.state(slug, nid)['queue'].append('successor')
+                runtime['queue'].append('successor')
 
         def successor(slug, nid, carrier):
             old = self.runs[0]
