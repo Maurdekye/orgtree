@@ -91,6 +91,46 @@ class Lifetime(unittest.TestCase):
         self.assertEqual(self.host.queue.get(run.request_id).state, 'cancelled')
         self.assertEqual(self.host.queue.snapshot()['held'], 0)
 
+    def test_actual_http_tool_keeps_seat_authority_and_fences_the_original_run(self):
+        from fastapi.testclient import TestClient
+        from orgtree import agentauth, api
+
+        client = TestClient(api.app)
+        self.addCleanup(client.close)
+        with patch.object(agentauth, '_key', b's' * 32), patch.object(sup, 'notify'):
+            seat = agentauth.child_env(self.slug, 'worker')['ORGTREE_AGENT_TOKEN']
+
+            def post(headers, summary):
+                return client.post('/api/agent', headers=headers, json={
+                    'org': self.slug, 'node': 'worker', 'tool': 'orgtree_status',
+                    'args': {'status': 'idle', 'summary': summary}})
+
+            with sup._InterruptibleTurnSlot(self.slug, 'worker', 'http tool'):
+                run = turn_context.current()
+                original = {'X-Orgtree-Agent-Token': seat,
+                            turn_context.HEADER: self.host.credential(run)}
+                response = post(original, 'authorized original')
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()['recorded'], 'idle')
+                self.assertEqual(post({'X-Orgtree-Agent-Token': seat}, 'missing run').status_code, 403)
+                bad_seat = {**original, 'X-Orgtree-Agent-Token': 'invalid seat'}
+                self.assertEqual(post(bad_seat, 'invalid seat').status_code, 403)
+                self.host.cancel(self.slug, run.request_id)
+                self.assertEqual(post(original, 'cancelled original').status_code, 409)
+                self.assertEqual(orgtx.org_read(self.slug).node('worker')['last_status']['summary'],
+                                 'authorized original')
+
+            with sup._InterruptibleTurnSlot(self.slug, 'worker', 'http successor'):
+                successor = turn_context.current()
+                self.assertNotEqual(successor.request_id, run.request_id)
+                self.assertEqual(post(original, 'old transport').status_code, 409)
+                headers = {'X-Orgtree-Agent-Token': seat,
+                           turn_context.HEADER: self.host.credential(successor)}
+                response = post(headers, 'authorized successor')
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(orgtx.org_read(self.slug).node('worker')['last_status']['summary'],
+                                 'authorized successor')
+
     def request_state(self, run):
         with self.host.org_connection(self.host.org(self.slug)) as c:
             return turn_requests.get(c, run.request_id).state
