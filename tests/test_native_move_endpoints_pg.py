@@ -82,13 +82,13 @@ class NativeMoveEndpoints(unittest.TestCase):
         self.assertEqual(after['boss'][1], self.before['boss'][1])
         self.assertEqual(after['b'][1], self.before['b'][1] + self.before['a'][1] + 0.1)
 
-    def test_operator_batch_failure_rolls_back_earlier_scalar_leg_and_receipt(self):
+    def test_agent_batch_failure_rolls_back_earlier_scalar_leg_and_receipt(self):
         from fastapi import HTTPException
         with self.bounded_path() as (persist, _):
             with self.assertRaises((ledger.LedgerError, HTTPException)):
-                api.org_op(self.slug, api.Op(op='move', actor=ledger.USER,
-                           moves=[{'node': 'a', 'new_parent': 'b'},
-                                  {'node': 'a', 'new_parent': 'a'}]), REQUEST)
+                api.agent_call(api.AgentCall(org=self.slug, node='boss', tool='orgtree_move',
+                               args={'moves': [{'node': 'a', 'new_parent': 'b'},
+                                               {'node': 'a', 'new_parent': 'a'}]}), REQUEST)
         self.assertEqual(persist.call_count, 1)
         self.assertEqual(self.values(), self.before)
 
