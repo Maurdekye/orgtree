@@ -269,3 +269,7 @@ class DocketAgentLocks(unittest.TestCase):
                 record['title'] = 'whole archive'
                 R._docket_section_put(raw, 'work_items_archive', [record], None)
         self.assertEqual(reached, ['direct item', 'archive append', 'archive replace', 'whole archive'])
+
+
+if __name__ == '__main__':
+    unittest.main()
