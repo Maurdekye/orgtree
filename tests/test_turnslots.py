@@ -396,6 +396,16 @@ class SupervisorWiring(unittest.TestCase):
         slots.release()                               # the second "other"
         self.assertEqual(slots.snapshot()["held"], 0)
 
+    def test_a_delayed_legacy_banner_reads_the_limit_after_a_setting_change(self):
+        self.sup._turn_slots = turnslots.FairSlots(2)
+        slot = self.sup._InterruptibleTurnSlot(self.st, "slots-wiring")
+        with self.sup._state_lock:
+            self.st["admission_wait_token"] = slot._token
+        old_info = {"since": time.time(), "limit": 2, "waiting": 1}
+        self.sup.set_turn_limit(1)
+        slot._queued(old_info)
+        self.assertEqual(self.st["queued_for_slot"]["limit"], 1)
+
     def test_setting_bounds_and_round_trip(self):
         a = self.appsettings
         self.assertIsNone(a.max_concurrent_turns())
