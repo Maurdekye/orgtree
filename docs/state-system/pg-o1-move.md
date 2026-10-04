@@ -1,338 +1,301 @@
 # Parent-only native moves for 3.2.0-alpha.1
 
-Proposal 1, 2026-10-04. Design review required from drag-opus and review-sol before
-implementation. Base: v3 `4afac9a2bd38702d0c806c9b8b8769da4ede2679`.
-This is the real native move path, not a benchmark-only shortcut. Legacy storage
-keeps its existing path. Umbrella decisions 40/41 authorize the filesystem model
-and restoration of configured scopes when the current chain allows them again.
-The alpha.1 landing is pre-granted after implementation approve_stage; no build or
-restart is part of this item.
+Proposal 2, 2026-10-04. Base: v3 `4afac9a2bd38702d0c806c9b8b8769da4ede2679`.
+Design approval from drag-opus AND review-sol precedes implementation. This is the
+real native move path in alpha.1; legacy storage retains its existing behavior.
+Implementation approve_stage with deliberate faults precedes the pre-granted v3
+landing. The coordinator alone builds alpha.1 after that landing.
 
-## 1. Target and evidence
+This revision carries O1 item decision4 (the user's audience, warning and running-turn
+choices), decision5 (the design owner's reduced architecture) and decision6 (bounded
+subscription replacements). Proposal1's lineage slots and client-side capability
+fold are withdrawn. Decisions40/41 on the umbrella authorize configured scope
+restoration through current ancestors.
 
-Moving a subtree must not enumerate, lock, update or capture every descendant.
-Change the moved agent's parent and the small old/new ancestor paths. The target
-is independent of descendant count S, with O(h) path work and indexed aggregate
-lookups. It is not independent of path depth h, notification recipients B, or
-records the client actually displays. Index probes also have logarithmic index
-cost. Do not call a COMMIT O(1) while hiding an O(S) deferred trigger inside it.
+## 1. Bound and measured motivation
 
-The prerequisite speed audit is commit `0799f5f` on queue-sol-speed, audit artifacts
-r4/r5. MEASURED: the actual A8 native move of coordinator-opus under
-coordinator-astra-2, on an owned disposable live copy, has N=1208, S=1144 and
-62 predecessor bearers. Of 787.024 ms exclusive profiled time, bearer rewrites use
-321.737 ms; the root rewrite uses 6.318 ms; subtree-walking stages use 145.215 ms.
-No ordinary descendant body is rewritten in that case. Nevertheless the current
-plan locks all 1208 agents. The native adapter's apparent batch update loops over
-64 changed agents and rebuilds their child rows. The design must remove both the
-subtree walk and the bearer rewrite; optimizing the root UPDATE alone misses them.
+The target is independence from descendant count S. Normal aligned lineage costs
+O(h + L), plus index costs and O(B) required notice recipients: h is ancestor depth,
+L is the moved agent's OWN predecessor chain, B is the old/new peer output. There
+is no descendant walk, lock, rewrite or deferred capture expansion at move time.
+A move is not independent of h, L or required output. Separate total COMMIT and
+revision-row hold time from the later read/projection work.
 
-## 2. Stored and derived state
+MEASURED prerequisite: speed-audit commit0799f5f, immutable audit r4/r5, actual A8
+move of coordinator-opus under coordinator-astra-2 on an owned live copy. N=1208,
+S=1144, L=62. Of 787.024 ms exclusive profiled time, bearer body rewrites consume
+321.737 ms, the root body rewrite 6.318 ms and subtree-walking stages 145.215 ms.
+No ordinary descendant body changed in that case, but all1208 agents were locked.
+The 62 full child-table reconstructions are replaced with one scalar batch. These
+are old-path measurements, not evidence that the new implementation is fast yet.
 
-PG remains authoritative, one database per org, typed columns and FK links on
-the many side. No closure table, nested descendant list or persisted depth/path.
-Configured scope stays in the existing scope columns and owned folder/tool rows.
-Move does not change it. Effective scope and ancestors are projections.
+If historical bearers have different current parents, keep those parents until the
+actual move, as today. Lock and maintain the union U of their old paths plus the
+new path; its worst bound is O(L*h). This is still independent of S. Do not claim
+O(h+L) for that exceptional shape without measuring its distinct paths. No second
+placement authority or migration normalization is introduced.
 
-| State | Representation and cost | Writes on a move |
+## 2. State representation and read costs
+
+`agents.parent_id` remains the ONLY placement authority, with its existing FK.
+Names, born/generation, predecessor/successor, archive state, sort keys and stranded
+bearer children keep their existing meanings. Follow `Org.lineage_stack`'s canonical
+PREDECESSOR chain (`ledger.py:1833`), not every reverse-successor row: the measured
+copy has multiple reverse-successor candidates.
+
+| State | Stored or derived | Move work |
 | --- | --- | --- |
-| Root placement | Existing root `agents.parent_id` FK; row_version raised by the scalar patch | One root header |
-| Ordinary descendant placement/depth | Existing direct parent edges; one upward CTE O(h) per selected read, or a memo within that snapshot | None |
-| Bearer placement | Stable lineage slot and current holder, described below; bearer parent is derived from the holder's parent | None on bearer agents |
-| Effective folders/tools/visibility/mode | Fold configured scopes on the current ancestor path; O(h times scope payload), fixed child-table batches | None |
-| Root subtree height/count | Maintained own-branch aggregates, including archived nodes as today's depth/count methods do | Unchanged for the moved root; O(h) ancestors change |
-| Whole lineage forest totals | Maintained slot aggregate over root plus canonical predecessor branches | O(h) affected parent branches; no scan over L bearers |
-| Child height maximum | Indexed per-child-slot branch height, not an embedded multiset | Root branch changes parent; O(h) updated maxima |
-| Grants/free | Existing credit_grant; exact seat+grant delta on LCA paths | O(h), batched scalar headers |
-| Parent/global/retired counters | Existing foreground counters plus exact slot-summary deltas | O(h) or two direct-parent deltas, global total unchanged |
-| Audiences | Anchor ancestry checked at use; permanent revocation question in section 7 | Depends on ruling; no whole-org sweep |
-| Notices and move log | Exact existing roles and one typed move event; subtree tail reads aggregate | O(B) output, batched; no S walk |
-| Records/display scopes | Root/ancestor changes plus a compressed derived-view invalidation | No S per-agent capture at COMMIT; section 6 needs B4 agreement |
+| Moved root parent | Existing parent_id and row_version | One scalar header |
+| Own lineage bearer parents | Existing parent_id, unchanged payload/child rows | One version-fenced UPDATE FROM batch over L rows |
+| Ordinary descendant parents | Existing direct edges | None |
+| Ancestors/depth | One current upward CTE or a consistent-snapshot memo, O(h) per selected read | Root/destination/authority paths only |
+| Effective capability scope | Python intersection of configured scopes on the current chain, O(h times scope payload) | No descendant scope writes |
+| Own subtree height/count | Typed `agent_subtree_stats`, eagerly maintained | Affected ancestor paths only |
+| Grants/free | Exact existing scalar grants and seat-cost rules | LCA-path scalar deltas, O(h) |
+| Audiences | Stored grant plus current anchor ancestry predicate | No whole-org sweep; explicit revoke alone deletes |
+| Notices and move log | Existing exact roles/count tail, approved short scope summary | O(B) required output, no S enumeration |
+| Record bodies | Python effective values, read-side expansion of one subtree scope | No S expansion under revision |
 
-### 2.1 Lineage is placement indirection, not copied parents
+### 2.1 Small, exact subtree aggregates
 
-Today's move rewrites each member of `Org.lineage_stack` (`ledger.py:1833`, :7226),
-including archived bearers with stranded children. Leaving their parent columns
-authoritative would split their placement and can create cycles. Introduce a
-stable `agent_lineage_slots(id, holder_agent_id FK)` and an FK `agents.lineage_slot_id`.
-Every ordinary agent has a one-member slot. Only the canonical predecessor chain
-shares its holder's slot. A compaction/reseed switches the slot holder, not every
-older bearer's placement. The slot persists across generations.
+Add `agent_subtree_stats(agent_id PK FK->agents, parent_agent_id, descendants,
+height, org_children_count)`. Only a column with a named existing reader belongs:
+- `descendants`: the move notice tail (`ledger.py:7233`), counting all ordinary
+  descendant rows the current `descendants(..., live_only=False)` returns;
+- `height`: the existing root-only depth-cap check (`ledger.py:7144`), leaf=0,
+  archived nodes counted as today;
+- `org_children_count`: the existing child-cap check (`ledger.py:7156`), using
+  EXACTLY `org_children` (`ledger.py:1805`): exclude an ARCHIVED node with a truthy
+  successor, not every successor and not every non-live node.
 
-`agent_tree_edges` is the typed logical-parent projection: the holder uses its
-stored parent_id; other members use the holder's parent_id. Ordinary children
-retain their own direct parent IDs, including children attached to a bearer.
-Stored bearer parent_id is historical compatibility data, not a second authority.
-Legacy-shaped exports/read models project the logical parent. Names, born/generation,
-predecessor/successor links, archived state, children and sort keys retain their
-existing meanings. Do not merge every row with the same successor_id: the measured
-copy has more than one such predecessor candidate; the canonical predecessor walk
-is the contract. Backfill checks chains for overlap/cycles instead of guessing.
+The cached parent deliberately duplicates agents.parent_id. Add it to main design
+A.7 and the independent verifier; equality must be checked. Index
+`(parent_agent_id, height DESC, agent_id)` gives one tallest-child probe. No closure
+table, persisted depth, embedded child multiset or lineage-slot tables.
 
-Backfill must also prove that this projection preserves each member's existing
-parent before the first new move. A mismatched historical bearer parent cannot be
-silently normalized just to make the cache easier to maintain. This parity check
-is still unmeasured; if it finds exceptions, retain the evidence and get a ruling
-on their treatment before approving the design. Do not mark an otherwise usable
-org unavailable simply to avoid defining that case.
+One migration backfill builds the stats bottom-up from existing parents. Validate
+against a recursive reference in the same transaction. A backfill mismatch is a
+bug: raise and roll back, with normal Q12 per-org unavailability. It does not
+normalize historical topology. A reconcile tool reports aggregate/reference and
+cached-parent discrepancies. Missing/corrupt stats never authorize a depth/count
+check through a silent S-scan fallback called constant-time.
 
-The upward cycle test rejects a destination whose ancestor chain reaches ANY
-member of the moved slot. This covers a child stranded below an old bearer without
-enumerating that bearer's descendants. Raw-parent indexes cannot answer logical
-bearer placement: native children, counts, authorization, archive piles, exports,
-and record bodies must use this projection. Measure the actual join plans.
+### 2.2 Eager, non-bypassable maintenance
 
-### 2.2 Exact height/count maintenance
+AFTER STATEMENT triggers on agents INSERT, UPDATE and DELETE use transition tables.
+PostgreSQL does not allow UPDATE OF with transition relations: use AFTER UPDATE
+and filter OLD/NEW structural/count-relevant columns inside the function. Name-only,
+permission/tool/folder-only, grant-only and other irrelevant UPDATEs return without
+locking or modifying stats. Test those cases, including G1's in-place rename.
 
-Use typed maintained tables, with FK keys:
+The trigger, including its named helpers, may lock/write ONLY path stats rows,
+never agents/items/mailboxes/revision. It is the design5 exception to A6's general
+statement-trigger rule; the static allowlist names this function and table exactly.
+No general permission for other triggers to acquire upstream rows is introduced.
 
-- `agent_subtree_stats(agent_id, descendants, height, live_children, ...)`: own
-  logical branch; leaf height=0. The root's existing notice tail and depth cap use
-  its own descendants/height, rather than silently substituting a different count.
-  `live_children` uses today's `org_children` predicate, which excludes lineage
-  bearers; archived nodes still count for the existing subtree height/count.
-- `agent_slot_stats(slot_id, members, forest_nodes, forest_height, retired_members, ...)`:
-  combined placement branches, including bearer-owned children. This transfers one
-  summarized forest between parents without L updates.
-- `agent_child_branches(parent_agent_id, child_slot_id, nodes, height, ...)`:
-  one branch per child placement slot. Index `(parent_agent_id, height DESC, child_slot_id)`.
-  Removing the tallest branch uses an indexed maximum, not a sibling scan.
+For a scalar move, transfer the root's cached branch size along old/new paths;
+common-path deltas cancel. Each changed parent gets direct-child count deltas and
+an indexed height maximum. Propagate height only until unchanged. Process the
+whole transition set together, coalescing shared paths rather than one Python or
+SQL transaction per bearer. Preserve OLD structural images and cached sizes before
+changes; multi-row/nested changes must derive the final bottom-up affected graph,
+not double-count a moved branch twice. Affected descendants are never expanded.
 
-These are maintained caches of the logical graph, not another topology authority.
-One-time backfill is O(N); move touches O(h) stats. Height changes propagate upward
-until unchanged. Counts propagate to the LCA; common-path deltas cancel. If a parent
-is itself a bearer, recompute its own branch and its slot summary before continuing
-upward. Slot maxima use a membership/height index; maintain sums by deltas. No MAX
-over all descendants or SELECT SUM over all slot members at move time.
+Every writer is covered, including raw SQL: hire, archive/rescind/rehire, physical
+delete or tombstone, compaction/reseed, rename with structural effects, swaps,
+self-subjugation and multi-leg moves. A later statement sees the earlier statement's
+completed stats; no deferred maintenance or SET CONSTRAINTS IMMEDIATE. Tests cover
+multi-row overlapping branches, leaf/subtree deletion and tombstone transitions,
+including FK cascades and availability of OLD sizes. A raw writer that omits the
+native pre-lock plan may deadlock and retry; it must not corrupt stats.
 
-Every structural writer must maintain them: hire, parent changes, archive/rescind,
-rehire, delete, compaction/reseed/lineage-holder replacement, swap, self-subjugate
-and composite moves. State transitions update only state-dependent counts. The
-shared native persistence hook must see old and final structural headers; it cannot
-be an optional call only on the new move endpoint. A pure scope/title/cost edit does
-not rebuild these stats. Reconcile/backfill verifies against a recursive reference.
-Corrupt/missing aggregates refuse structural authorization; do not scan S silently
-and label the fallback constant-time.
+Normal native writers pre-lock every required stats path row. Trigger path reads
+are refreshed after any wait; stale pre-wait paths cannot guide propagation. A
+native plan miss rolls the whole transaction back and widens the plan, never takes
+a new earlier-tier row after the structural write. This invariant is traced, not
+inferred only from a SQL source scan.
 
-**Review boundary:** aggregate maintenance must also work across several structural
-steps in one transaction. Later checks see the transaction's own earlier deltas.
-Do not force deferred checks IMMEDIATE to obtain fresh aggregates. Prefer explicit
-eager maintenance during the normal write phase with prelocked aggregate/path rows;
-the commit guard validates the final graph/caches, rather than repairing them while
-holding the revision row. New structural raw-SQL writers must enter this protocol.
-The design owner must settle its database bypass guard before approval (section 8).
+## 3. Move transaction and native seams
 
-## 3. Move transaction
+1. Narrow planning snapshot selects root, its canonical L bearers, old/new parent
+   paths, actor paths, caps and cached height/counts. No all-node prefetch, histories,
+   whole audiences section or subtree enumeration in either planning or re-derive.
+2. Pre-lock the bound request first, then agents by physical id, then stats by id,
+   then existing item/mailbox/other tiers, revision LAST. Root/bearers and all grant
+   legs are UPDATE; decided-on ancestor scope/authority paths are SHARE. Acquire
+   ALL body locks before the first structural statement, not halfway through it.
+3. Re-read parent/lineage/path coverage, grants and effective authority under those
+   locks. If the planned identities or coverage changed, rollback and widen/retry
+   through pgdoor. Child admission and caps serialize on the same parent/stats rows.
+4. Keep Python's USER/SYSTEM/allow_self/downward rules. Refuse a non-live destination,
+   bearer-only move, live predecessor, cycle, cap or inconsistent credit release.
+   The cycle check walks UP from destination and rejects meeting root OR ANY of its
+   moving bearers. The depth refusal remains exactly
+   `depth(new_parent) + 1 + height(root) >= max_depth`; it does not newly inspect a
+   stranded bearer branch. The child count uses the exact cached predicate above.
+5. Compute credit deltas through the LCA with existing numeric quantization and
+   top-grant cap. Root's cost is seat+grant only when LIVE, otherwise zero. Old
+   release cannot become negative. All free balances and global credits keep their
+   pre-move values, including cross-root and composite legs.
+6. One/few scalar UPDATE FROM statements write root/bearer parents and grant deltas,
+   fenced by physical id and row_version. Require every expected row returned;
+   any mismatch rolls back. Preserve configured payload, runtime, text and child
+   rows byte-for-byte. Do not call full node_put or its child-table delete/reinsert.
+   Eager stats triggers finish before the next structural leg.
+7. Keep exact old/new manager and peer/self notices, archived-cost warning, one
+   move log and cached subtree-count tail. Replace scope/audience loss enumeration
+   with the approved short scope summary. `_quiet` still suppresses per-leg notices
+   and log; no-op behavior is unchanged unless an existing check refuses it.
+8. Revision/counters/capture settle once at COMMIT. No org_topology lock. Retain a
+   final-state cycle assertion AFTER revision over the union of changed roots'
+   current ancestor paths. Coalesce shared suffixes, O(U+L) indexed reads rather
+   than L repeated query loops; no new row locks or mutation. It is defense for raw/bulk writers, not a
+   substitute for the body checks. Rollback publishes nothing; reused connections
+   have no transaction-local capture or trigger residue.
 
-1. Narrow typed planning snapshot: find root, slot identity, old parent, destination,
-   their parent paths, actor path, caps, root height and slot totals. Do not load all
-   nodes, their histories, or whole audience/scopes sections.
-2. Build a physical-id-sorted row lock plan. A bound request is first; agents next;
-   items/mailboxes retain existing tiers; aggregate rows follow; revision is last.
-   Root, old/new credit paths and destination get UPDATE; decided-on ancestors get
-   SHARE. Aggregate keys are sorted. No descendant locks, no provider/app wait inside
-   the org transaction. Parent FK references and slot-holder rows are included.
-3. Re-read paths/versions under these locks. If parents/slot/path coverage changed,
-   roll back and re-plan through pgdoor's existing widening/retry contract. Never
-   discover a lower-id lock and acquire it after a higher tier. Concurrent child
-   creation holds the same parent row/aggregate rows, so child caps cannot race.
-4. Run the existing Python authority distinctions (USER/SYSTEM, allow_self,
-   downward-only). Reject non-live destination, bearer-only move, live predecessor,
-   cycle, depth and child cap, inconsistent credit release and top grant cap.
-   Depth remains `new_parent.depth + 1 + root.height >= max_depth` refusal. Keeping
-   this exact root-branch rule must be distinguished from fixing old bearer-branch
-   depth anomalies; the latter is not an implicit permission to change behavior.
-5. Derive credit deltas through the LCA. Use exact numeric quantization; all affected
-   free balances and global credits retain their pre-move values. Persist scalar
-   parent/grant patches with CAS/version checks in one/few UPDATE FROM statements.
-   Do not call full node_put or delete/reinsert text, runtime or scope children.
-6. Move one slot branch between parents and propagate count/height changes through
-   prelocked paths. No descendant or bearer rows change. Notices use current exact
-   sibling roles/counts; audience handling follows section 7. A no-op retains today's
-   operation behavior rather than inventing a special acknowledgement.
-7. Write one move log and derived-view invalidation, bump revision once, maintain
-   foreground flag counters once per transaction, then COMMIT. Rollback loses all
-   patches, cache publication, notices and invalidations. No SET CONSTRAINTS IMMEDIATE.
-8. Publish cache/host notifications after commit. Re-read/use functions derive the
-   new chain. No providers are launched by a move.
+The new owned native graph/scope module supplies the common planner/check/scalar
+seams. Operator, agent, promote/demote and every internal native `Org._move` leg use
+it. Both pre-lock derivation and locked re-derive must use the same narrow protocol.
+Native persistence must mark these scalar patches handled so the compatibility save
+cannot repeat a full node rewrite or overwrite them. The legacy move remains its
+existing implementation. Actual endpoint tests prove dispatch and prohibit a
+benchmark-only or fallback full-body path.
 
-The same native path must serve operator and agent move/promote/demote and internal
-`Org._move` legs of composite verbs. The pure legacy ledger remains the behavioral
-reference except for the explicit scope change. Sparse header persistence is a
-narrow P1 slice; coordinate compat/mapper overlaps with jobs-sol and drag-opus.
+Design5 withdraws the never-implemented main-design2.2 deferred org_topology guard.
+The landing updates2.2,2.4 and A.7 plus the static/traced lock-order checks. Sorted
+shared path locks and authoritative re-derive serialize crossing native moves;
+final no-lock cycle assertions at revision see earlier committed revisions. Two
+barrier-controlled sessions must measure this, including direct raw writers.
 
 ## 4. Configured versus effective scope
 
-Stored scope is the agent's configured request. Effective capabilities are its own
-intersection with every current ancestor's effective capabilities. Use existing
-folder-tree coverage/rw-ro rules, boolean tools, MCP `*` set semantics, and ordered
-visibility/permission levels. Top-level USER authority is unbounded as today;
-org policy/default handling stays explicit. Effort/model/account/charter and other
-non-capability settings are not mechanically intersected.
+Stored scope is configured. Effective scope intersects it with EVERY current
+ancestor using the existing folder coverage/rw-ro rules, booleans, MCP wildcard
+semantics and ordered visibility/permission levels. USER at the root is unbounded.
+Effort/model/account/charter are preferences, not mechanically intersected grants.
 
-Expose `effective_scope(snapshot, agent_id)` and a read-only effective-agent view.
-Writers use explicit configured scope; a projection cannot be saved as a document.
-Scope edits update the chosen agent's configured rows and invalidate effective
-views; they do not destructively clamp descendants. Hire validates against the
-granter/parent's EFFECTIVE holdings. Rehire uses existing configured values and the
-current chain. Moves back, parent scope expansions and wildcard restoration can
-make configured capabilities effective again: this is the accepted paradigm.
+Expose `effective_scope(snapshot, agent_id)` and a READ-ONLY effective-agent view.
+Mutation/seat-copy/storage codecs read explicit configured values. Scope edits
+update the selected configured rows only and invalidate derived reads. Hire/rehire,
+actor/granter/parent limits use EFFECTIVE scopes. Missing ancestors refuse rather
+than act unlimited. Moves back, scope expansion and wildcard restoration can make
+previous configured capabilities effective again: the user authorized that change.
 
-Authorization never trusts a process cache because it once had the right scope.
-Each action gets a current authoritative chain in the actual org transaction and
-holds the relevant ancestor scope/path SHARE locks while authorizing and writing.
-The pre-lock cached chain can plan, but must be re-derived under locks. Read-only
-views memoize only within a single consistent snapshot, keyed by UUID/incarnation/
-revision/agent; a host cache hit is not write authorization. A topology or scope
-revision makes earlier memo entries ineligible without visiting descendants.
+Authoritative engine actions resolve the current chain on their actual org
+connection, under chain/path SHARE locks held through the authorized write. Cached
+chains can plan, but must be re-derived under locks. Display/read memos are confined
+to one consistent UUID/incarnation/revision snapshot. A process cache hit is never
+write permission; no invalidation walk over descendants is necessary.
 
-Provider/MCP launch and warm transport selection receive the effective-agent view,
-never configured capability rows. Existing B5 request/epoch fencing still applies.
-An already running provider holds a previously issued sandbox configuration; the
-new function cannot pretend to rotate its OS/filesystem permissions in RAM.
-Section 7 asks for an explicit in-flight enforcement boundary. Engine tool actions,
-file delivery, watchdog commands and approval callbacks must recheck current scope.
+Provider/MCP/warm/new dispatch configuration gets the effective-agent view. A RUNNING
+turn finishes with its already-issued filesystem sandbox (user decision4); engine
+tool/file/watchdog/approval actions still check the current chain. No descendant
+cancellation or claim that a cache stamp revoked an issued sandbox. Existing B5
+run identity/epoch fencing stays. Changes to actual tool definitions or prompt
+prefix make previous provider-cache compatibility ineligible; an OS warm process
+is not proof of a provider cache hit. Retain session/account/model lineage where
+it remains compatible rather than switching it gratuitously.
 
-### 4.1 Reader migration inventory
+### 4.1 Consumer migration inventory
 
-This is a capability inventory, not every unrelated field named `scope` in docket
-artifacts or transcript records. Implementation adds an AST/static inventory test
-so unclassified direct capability reads fail review; the exhaustive matches are
-retained as an implementation evidence file with reader/writer/non-capability labels.
+Add a static/AST inventory that classifies each direct capability read as effective,
+configured writer/codec, or unrelated; unclassified reads fail review. Retain the
+complete match list in implementation evidence. These base groups must be covered:
 
-| Consumers on the base | Required change |
+| Base consumers | Required behavior |
 | --- | --- |
-| `ledger.py:1923`, :7292, :7310, :7408; hire :4590, rehire :5483, set_scope :7695; asks :8182/:8203, watchdog :8731 | Parent/granter/actor limits use effective scopes. Mutation/seat-copy helpers explicitly use configured scopes. Native sweep stops touching descendants. |
-| `ledger.py:2100`, tree_node :11563, tree :11747; `foreground_view.py` / `foreground_context.py` reuse these methods | UI/chart/visibility uses effective scope; projection exposes configured scope separately only where needed to edit it. |
-| `api.py:2251`, :3178, :10160, :10440, :13857, :14950 | Editor/file access, orgtree actor ceilings, hire-above inheritance and operator defaults use current effective capabilities. |
-| `supervisor.py:2330`, :4627, :7060/:7088/:7137, :7955, :8846, :12304/:12880, :16912/:17009, :17695/:17814/:18487/:27506 | Launch/MCP/Claude/Codex/Antigravity folders, tools, permissions, sandbox and approval checks use the effective-agent view. Non-capability preference reads remain configured. |
-| `supervisor.py:34114/:34142`, `ledger.py:8731` | Command/stream watchdog and folder authorization recheck effective holdings at each dispatch/use. |
-| `warmpool.py:955`, `antigravity_session.py:91`, subproxy's granted transport scope | Warm eligibility and transport configuration use effective scopes; old transport scope is never relabeled as newly authorized. |
-| `policy_reads.py:48`, `scope_diagnostics.py` | Narrow policy snapshots include the ancestor capability chain; diagnostics report configured and effective values distinctly and deny from effective values. |
-| `identity_context.py`, `handoff.py`, chat/scratch/upload context callers | Identity/transfer read paths pass the effective-agent view rather than letting an incomplete selected-node snapshot treat missing ancestors as unlimited. |
-| `store.py`, `orgdb/mappers/agents.py`, `orgdb/compat/rows.py` | Codec/export/storage keeps configured values; logical parent projection is explicit. Never persist read-time clamping. |
+| ledger.py:1923,:7292,:7310,:7408; hire:4590, rehire:5483, set_scope:7695; asks:8182/:8203, watchdog:8731 | Current effective actor/parent/granter authority; native sweep does not visit descendants; writes retain configured values |
+| ledger.py:2100, tree_node:11563, tree:11747; foreground_view/context | Effective displayed capability/visibility; configured values separately where needed to edit |
+| api.py:2251,:3178,:10160,:10440,:13857,:14950 | Editor/file access, actor ceilings and inherited grant defaults use the authoritative effective view |
+| supervisor.py:2330,:4627,:7060/:7088/:7137,:7955,:8846,:12304/:12880,:16912/:17009,:17695/:17814/:18487/:27506 | Launch/MCP/provider sandbox/approval receives effective scope; non-capability preferences remain configured |
+| supervisor.py:34114/:34142, ledger.py:8731 | Watchdog command/folder permission checked at each dispatch/use |
+| warmpool.py:955, antigravity_session.py:91, subproxy scope transport | Effective new transport configuration and warm eligibility; never relabel an issued old sandbox |
+| policy_reads.py:48, scope_diagnostics.py | Include current ancestor capability chain; distinguish configured/effective diagnostics and deny from effective scope |
+| identity_context.py, handoff.py, chat/scratch/upload callers | Pass complete effective view, not a selected-node snapshot missing its ancestors |
+| store.py, orgdb/mappers/agents.py, orgdb/compat/rows.py | Preserve configured payload; no logical-parent projection or persistence of clamping |
 
-## 5. Migration and real-data behavior
+## 5. Accepted audience, warning and migration behavior
 
-Use the next free org migration at landing, not a privately reserved number.
-Backfill slots, logical graph stats and child-branch indexes once, in an owned
-conversion/migration transaction. Check topology/lineage and aggregate counts
-before publishing the org as active. Preserve all stored unknown/misfit fields,
-normalized list order, birth identities, histories and existing CHECK/FK inventory.
+Audiences PAUSE instead of being swept away. Keep the stored grant and test current
+anchor ancestry on every use; it works again if the chain is restored. Explicit
+revoke remains permanent. Preserve delegated anchors, EXTERN and USER exceptions
+exactly (`ledger.py:8039`). Lists/capability summaries distinguish availability
+without treating a paused grant as usable. No move-time whole-org audience load.
 
-Existing stored, already-clamped scopes become the INITIAL configured scopes.
-Old deleted grants cannot be reconstructed safely from missing information; do not
-invent wider grants or scrape history to restore them. Future narrowing/restoration
-uses the new rule. State this limitation in release behavior, and get the coordinator's
-attention to it (section 7); it does not invent or recover a missing grant. New
-intersection includes permission mode: the old D-101
-exception for a user mode above an ancestor cannot be silently retained as a bypass
-of the newly stated all-ancestor intersection; flag that interaction explicitly.
+Move warnings give a short summary that scopes follow the new chain. Detailed
+per-descendant losses are on-demand diagnostics, outside the move transaction.
+Peer/manager notice roles, the count tail and move log remain exact.
 
-## 6. Record feed: keep move COMMIT independent of S
+Existing already-clamped scope rows are the INITIAL configured values. Deleted
+historical grants are not guessed or reconstructed. Restoration applies to future
+narrowing; disclose this limitation. All-ancestor mode intersection supersedes the
+old D-101 above-parent exception, as the user already authorized. Unknown/misfit
+fields, identities, list order, histories and CHECK/FK inventory are preserved.
+The migration takes the next free org number AT LANDING; no private reservation.
 
-B4a is still private. Alpha.1 can use today's committed `changed` notification and
-normal refetch path: effective scope is computed while building a read snapshot,
-outside the move transaction. This task must not wait for the B4a landing. Agree
-the future capture contract with its owner before either implementation makes
-the protocols incompatible; the O(S) refetch/projection cost is read-side work and
-must be measured separately from the move itself.
+## 6. Record feed: Python bodies, read-side subtree scopes
 
-The approved step-6 addendum74bc2c7 currently resolves scope-derived membership/body
-changes at the revision flush. A resolver that lists S changed agent IDs there
-would defeat this task, even if no descendant agent row is written.
+Alpha.1 retains today's committed changed notification plus normal refetch. The
+new effective reader runs while building a read snapshot, OUTSIDE the move, so
+this task does not wait for private B4a's landing. Measure read cost separately.
 
-Proposed extension: one typed topology/scope invalidation names the moved stable
-slot/root, old/new parents and revision; root/ancestor scalar records are captured
-normally. Record bodies carry configured capability facts needed for the projection.
-The client derives effective capabilities and logical placement for its HELD nodes
-from parent/slot facts, and re-projects them after the invalidation. This costs
-O(visible affected records) in the client, not inside the move's transaction.
-Membership/window refresh work is bounded by subscriptions/output and performed
-in the feed's one-snapshot read phase, with the existing latest-revision/reset rules.
-No stale cached record can authorize an engine action.
+Design5/6 amend the step6 addendum: move/configured-scope/relevant-state changes
+record ONE `subtree:<agent id>` scope, under the revision row, without naming S
+ids at flush. B4a owns that capture/reader extension. Bodies remain EFFECTIVE
+values computed by Python effective_scope; no TypeScript capability fold.
 
-This is a protocol amendment requiring drag-opus/B4a agreement, not permission to
-break the existing no-refetch/parity contract. Selected archived records must have
-enough ancestor/slot facts; unseen entrants/leavers cannot be ignored. Reconnect,
-delayed baselines, replaced UUID/incarnation, moves during capture and missing
-ancestors require actual controls. If compressed invalidation cannot satisfy that
-contract, state the conflict before claiming flat-S move timings.
+Host runner and HTTP catch-up expand subtree scopes in their own consistent read
+snapshot. Recompute held records whose current chain contains X. For affected
+active subscriptions (pinned records and ancestors), send a typed SET REPLACEMENT
+with the full current membership at R, including entrant and leaver ancestors.
+The active subscription already travels with catch-up; at most128 pinned agents
+plus bounded ancestor paths. A replacement above the declared bound is record_reset.
+Shared live membership is unchanged; old/new retired piles affected by O(L) bearers
+still use flush-time Rule M. No mutation-dependent resolver walks S under revision.
 
-## 7. Product decisions still needed
+Controls: a move during catch-up, two moves in one cursor window, ancestor scope
+edit followed by moving out, pinned archived/non-archived descendants, ancestor
+entrants/leavers, reconnect/delayed baseline/replaced UUID-incarnation, replacement
+crossing reconnect, and legacy tree parity at each step. Scope reads, subscription
+replacement and bodies share one snapshot/identity. Cache stamps never authorize
+engine actions. Coordinate final concrete interfaces with deltas-sol before either
+branch makes an incompatible capture/response shape.
 
-Only scope restoration is pre-approved. Choices 1, 2 and 4 below need a ruling;
-they are proposals, not implementation defaults. Point 3 is a migration disclosure,
-not another request to approve the scope rule. coordinator-opus asks the user.
+## 7. Ownership, verification and implementation sequence
 
-1. **Audiences:** current move permanently deletes non-ancestral grants. A current-chain
-   predicate would suppress them while invalid and revive them if moved back. Recommend
-   that filesystem behavior for agent/delegated grants, retaining USER exemptions and
-   explicit revoke as permanent. If permanence must remain, design a durable historical
-   revocation barrier first; a lazy filter alone is incorrect.
-2. **Move warnings:** today the response can enumerate every lost descendant folder/tool.
-   Exact enumeration is O(S) and conflicts with no descendant walk. Recommend a stable
-   summary that effective scope follows the new chain; detailed scope diagnostics remain
-   on demand. Exact peer/manager notices, count tail and move log stay unchanged.
-3. **Existing scopes:** recommend current stored values as the initial configured scope,
-   with no retroactive resurrection. Future intersection/restoration is accepted; this
-   limitation must be visible to the coordinator/user. The all-ancestor permission
-   intersection is already authorized, so D-101's old above-parent exception cannot
-   override it; disclose that interaction without asking again for the new scope rule.
-4. **In-flight provider permissions:** recommend current-scope checks for every engine
-   action and effective scopes on new provider dispatches, plus explicit treatment of
-   a provider already holding an older filesystem sandbox. If immediate provider
-   revocation is required, a durable move/scope barrier and self-fencing dispatch loop
-   must be specified; enumerating/killing descendants during the move is incompatible
-   with the requested bound. Do not claim the old sandbox was revoked by a cache stamp.
+jobs-sol's agreed boundary: O1 owns the new graph/scope module and narrow scalar
+CAS updater; G1-G11 owns payload codecs, current-reference/rename logic, its store
+rename prepass, compat rows lookup/write/rename, sql node CAS handlers and migration.
+Agree exact small common hook call sites before editing shared hunks. conn's commit/
+revision seam is B4a's. Whichever lands second verifies combined rename/structural/
+revision behavior. Stats maintenance ignores a name-only rename. No jobs.py or
+start_turn protocol edit is required.
 
-No credit, depth cap, displayed counts, retained identity/history, or notification
-role change is proposed. Lineage placement and record invalidation change their
-representation and must preserve their observable results. Any unavoidable deviation
-found in the controls returns here for an explicit user ruling.
+After drag-opus and review-sol approve THIS design:
+1. Implement typed stats/backfill/trigger plus reference verifier; pure scope fold
+   and classified consumer views; narrow native planner/scalar CAS and persistence.
+2. Base/tip touched lifecycle/move/scope/native reader modules, compare failing NAMES;
+   real 2026-10-02 copy rehearsal, including62 bearers and stranded-child witnesses.
+3. Under P03 on owned fsync-off cluster, compare ACTUAL old/new move endpoints at
+   S=1,100,1000,10000,100000 with fixed h,L,B. Build fixtures outside the timing.
+   Report SQL calls/commands/affected rows and lock keys, exact credits/counts,
+   configured/effective restoration and rollback, total COMMIT and revision hold.
+   Effective reads at depths1/5/20 include cold and same-snapshot timings.
+   Explicit baseline timeouts remain timeouts, not estimated samples; no setup or
+   import failures/skips count as executed tests. Measure L/U sensitivity separately.
+4. Two-session barriers: crossing moves in both orders; hire/hire plus move sharing
+   ancestor stats; child cap races; scope shrink versus engine action; raw writer
+   versus native move; multi-leg and overlapping batch changes; rename; trigger
+   deletes/tombstones; rollback and reused connection. Measure ancestor hot-row waits.
+5. Deliberate faults: missing lock/re-derive/CAS, disabled or late stats maintenance,
+   wrong height/count/child predicate, unintended name-only stats work, upstream
+   trigger/revision lock, omitted bearers, configured/stale scope authorization,
+   incorrect rw-ro/wildcard fold, bad credit release/top cap, paused audience allowed
+   or deleted, scope-loss enumeration, missing subtree or subscription replacement.
+   Each mutant fails its intended ACTUAL method. Existing running/new dispatch
+   controls prove the accepted sandbox boundary rather than claiming instant revoke.
+6. Separate review-sol IMPLEMENTATION approve_stage; current-v3 replay and affected
+   gates, source audits/required vector anchors, landing reservation, FF push and
+   fresh matching ls-remote, then docket claim. Alpha.1 build belongs to coordinator.
 
-## 8. Design-owner boundaries before approval
-
-- Approve the stable-slot logical-parent projection and maintained aggregate tables;
-  require migration parent parity or settle measured exceptions before approval;
-  define raw-writer enforcement. Main design section2.2 describes a deferred topology
-  guard taking org_topology; section2.4/A6 forbids deferred upstream locks. On this base
-  the table exists but no org migration function uses it. Resolve this conflict, rather
-  than adding a late topology lock under the revision lock. Candidate: a final-state
-  recursive cycle check AFTER taking revision, with no new agent locks, while all
-  normal structural writers lock and maintain paths during their body. Aggregate
-  correctness still needs enforceable raw-writer entry, not a caller-set trusted flag.
-- Settle scalar-persistence/aggregate hooks with jobs-sol's G1-G11 compat/mapper work.
-- Agree compressed derived invalidation and minimum ancestor facts with deltas-sol;
-  measure commit hold time separately from feed/projection work.
-- Rule on the old root-only depth cap versus stranded bearer branches without silently
-  making the cap stricter; proposal preserves the existing root rule.
-
-## 9. Implementation and measurements after design approval
-
-1. Typed graph/slot/aggregate schema and verified backfill; pure effective-scope fold
-   and narrow native readers. Contract/inventory tests first.
-2. Common structural maintenance and sparse parent/grant CAS; root/path-only native
-   plan/body on the actual operator/agent/composite seams. No full node_put fallback
-   under a constant-time claim. Integrate all capability consumers and record protocol.
-3. Base/tip touched lifecycle/move/scope/native reader modules, compare failing NAMES;
-   real 2026-10-02 live-copy rehearsal including 62 bearers/stranded-child witnesses.
-4. Under P03/private fsync-off: today's actual move and new actual move at S=1,100,
-   1000,10000,100000, fixed h and B. Build synthetic trees separately from timing.
-   Report successful endpoints, SQL calls/rows/changed IDs, height/count equality,
-   exact credit balances, scope restoration, lock sets, revision hold time and total
-   COMMIT. Timed methods must execute, not skip; setup/import errors are not samples.
-   Baseline is time-bounded; an explicit timeout stays a timeout, never an estimated
-   timing. Effective-scope cold and same-snapshot reads at depths1/5/20 are measured.
-5. Fault review: remove ancestor coverage/re-derive, corrupt height/count, skip an
-   aggregate writer, remove version CAS, omit bearer placement, use configured scope
-   for authorization, accept a stale cache, invert folder rw/ro or wildcard logic,
-   skip credit release/cap, remove audience gate, omit capture or apply stale frame.
-   Each mutant must fail an intended actual method. Two-session crossing moves,
-   competing hires/caps, scope shrink versus a tool call, multi-leg transactions,
-   explicit constraint flush, rollback/reused connection and replacement are barriers.
-6. review-sol implementation approve_stage, current-v3 replay and affected gates,
-   source audits/required vector anchors, reservation/fast-forward push/fresh ls-remote
-   and docket claim. Alpha.1 is built by the coordinator only after this real path lands.
-
-No prototype code or new measurement is claimed by this design document.
+No prototype implementation or new-path performance is claimed by this document.
