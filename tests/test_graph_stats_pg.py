@@ -235,3 +235,7 @@ class GraphStats(unittest.TestCase):
                            'FROM unnest(%s::bigint[],%s::bigint[],%s::boolean[]) v(id,parent,hidden) '
                            'WHERE a.id=v.id', (selected, parents, [rng.randrange(5)==0 for _ in selected]))
             self.check_reference()
+
+
+if __name__ == '__main__':
+    unittest.main()
