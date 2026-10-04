@@ -103,6 +103,9 @@ class Queue:
         try:
             with self.connect() as c, c.transaction():
                 self._gate(c)
+                if c.execute('SELECT 1 FROM orgtree.turn_recovery WHERE org_id=%s LIMIT 1',
+                             (request.org_id,)).fetchone() is not None:
+                    raise LostClaim('org is fenced for dead-owner recovery')
                 if c.execute("SELECT id FROM orgtree.engine_instances WHERE id = %s AND dead_at IS NULL "
                              "AND heartbeat_at > clock_timestamp() - interval '30 seconds' FOR SHARE",
                              (instance_id,)).fetchone() is None:
@@ -164,6 +167,7 @@ class Queue:
                 "SELECT t.request_id FROM orgtree.turn_tickets t "
                 "JOIN orgtree.turn_queue_orgs r ON r.org_id = t.org_id "
                 "WHERE t.state = 'waiting' AND NOT EXISTS ("
+                "SELECT 1 FROM orgtree.turn_recovery f WHERE f.org_id=t.org_id) AND NOT EXISTS ("
                 "SELECT 1 FROM orgtree.turn_tickets earlier WHERE earlier.org_id = t.org_id "
                 "AND earlier.state = 'waiting' AND earlier.id < t.id) "
                 "ORDER BY CASE WHEN r.position > COALESCE((SELECT position "

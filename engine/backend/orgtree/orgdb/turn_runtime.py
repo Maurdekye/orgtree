@@ -101,6 +101,7 @@ class Host:
         self._unstarted: dict[str, tuple[jobs.Org, Any]] = {}
         self._condition = threading.Condition()
         self._version = 0
+        self._recovery_after = (0, 0)
 
     @contextmanager
     def app_connection(self) -> Iterator[Any]:
@@ -117,10 +118,12 @@ class Host:
 
     def org(self, slug: str) -> jobs.Org:
         with self.app_connection() as c:
-            row = c.execute("SELECT org_id, slug, database, org_uuid::text FROM orgtree.orgs "
-                            "WHERE slug=%s AND state='active' AND op_kind IS NULL", (slug,)).fetchone()
+            row = c.execute("SELECT org_id, slug, database, org_uuid::text FROM orgtree.orgs o "
+                            "WHERE slug=%s AND state='active' AND op_kind IS NULL AND NOT EXISTS "
+                            '(SELECT 1 FROM orgtree.turn_recovery f WHERE f.org_id=o.org_id)',
+                            (slug,)).fetchone()
         if row is None:
-            raise RuntimeError('org is not open for turn admission')
+            raise requests.StaleRun('org is not open for turn admission or is fenced for recovery')
         return jobs.Org(*row)
 
     def resolve(self, slug: str, agent: str) -> tuple[int, int]:
@@ -197,22 +200,57 @@ class Host:
         """Caller has killed the pid/start-time-verified tree, not just timed it out."""
         if instance == self.instance_id:
             raise ValueError('host cannot reclaim itself')
-        # Include unavailable/closing orgs whose database still exists. Their
-        # runtime identity must match too. A failure prevents app-slot reuse.
+        # The app fence and verified-dead capacity release commit together.
+        # Opening an org is never itself a reason to free a claim. Lifecycle
+        # operations have no runs and belong to the lifecycle's takeover.
+        with self.app_connection() as c, c.transaction():
+            turnqueue.Queue._gate(c)
+            if c.execute('SELECT id FROM orgtree.engine_instances WHERE id=%s AND dead_at IS NULL',
+                         (instance,)).fetchone() is not None:
+                c.execute('INSERT INTO orgtree.turn_recovery(org_id,instance_id) '
+                          "SELECT org_id,%s FROM orgtree.orgs WHERE state IN ('active','unavailable') "
+                          'AND op_kind IS NULL ON CONFLICT DO NOTHING', (instance,))
+            counts = turnqueue.reclaim_instance(c, instance)
+        self.recover_orgs()
+        return counts
+
+    def recover_orgs(self) -> None:
+        """One bounded page of durable fences; a failing org never hides the next page."""
+        query = ('SELECT f.org_id,f.instance_id,o.slug,o.database,o.org_uuid::text '
+                 'FROM orgtree.turn_recovery f JOIN orgtree.orgs o USING(org_id) '
+                 "WHERE o.state='active' AND o.op_kind IS NULL AND "
+                 '(f.org_id,f.instance_id) > (%s,%s) '
+                 'ORDER BY f.org_id,f.instance_id LIMIT 16')
         with self.app_connection() as c:
-            rows = c.execute('SELECT org_id, slug, database, org_uuid::text FROM orgtree.orgs '
-                             "WHERE database IS NOT NULL AND state <> 'trashed' ORDER BY org_id").fetchall()
-        for row in rows:
-            org = jobs.Org(*row)
-            while True:
-                with self.org_connection(org) as c, c.transaction():
-                    if c.execute("SELECT to_regclass('orgtree.turn_requests')").fetchone()[0] is None:
-                        break  # a pre-B5 org cannot hold a B5 request
-                    lost = requests.reclaim_owner(c, instance, limit=16)
-                if not lost:
-                    break
-        with self.app_connection() as c:
-            return turnqueue.reclaim_instance(c, instance)
+            rows = c.execute(query, self._recovery_after).fetchall()
+            if not rows and self._recovery_after != (0, 0):
+                self._recovery_after = (0, 0)
+                rows = c.execute(query, self._recovery_after).fetchall()
+        for org_id, instance, slug, database, org_uuid in rows:
+            self._recovery_after = (org_id, instance)
+            org = jobs.Org(org_id, slug, database, org_uuid)
+            try:
+                self._reconcile_org(org, instance)
+            except Exception:
+                LOG.exception('dead-owner turn recovery retained for %s', slug)
+                continue
+            # Every org transaction has committed and its connection closed.
+            # A changed/closing registry identity retains the fence too.
+            with self.app_connection() as c, c.transaction():
+                c.execute('DELETE FROM orgtree.turn_recovery f WHERE f.org_id=%s '
+                          'AND f.instance_id=%s AND EXISTS (SELECT 1 FROM orgtree.orgs o '
+                          "WHERE o.org_id=f.org_id AND o.state='active' AND o.op_kind IS NULL "
+                          'AND o.org_uuid=%s)', (org_id, instance, org_uuid))
+
+    def _reconcile_org(self, org: jobs.Org, instance: int) -> None:
+        """Invalidate a dead owner's current requests, committing bounded batches."""
+        while True:
+            with self.org_connection(org) as c, c.transaction():
+                if c.execute("SELECT to_regclass('orgtree.turn_requests')").fetchone()[0] is None:
+                    return  # a pre-B5 org cannot hold a B5 request
+                lost = requests.reclaim_owner(c, instance, limit=16)
+            if not lost:
+                return
 
     def prepare(self, slug: str, agent: str, reason: str, request_id: str,
                 cancelled: Callable[[], bool] = lambda: False) -> tuple[jobs.Org, requests.Request]:
@@ -254,6 +292,8 @@ class Host:
 
     def begin(self, org: jobs.Org, agent: str, request_id: str, ticket: Any,
               stop: Callable[[], None]) -> context.Run:
+        if self.org(org.slug) != org:
+            raise requests.StaleRun('turn origin was replaced before admission')
         with self.org_connection(org) as c, c.transaction():
             request = requests.lock(c, request_id)
             if request is None or request.state != 'queued':
@@ -337,9 +377,16 @@ class Host:
     def tick(self) -> None:
         """The host alone refreshes its lease and rereads authoritative stopping claims."""
         self.queue.heartbeat(self.instance_id)
+        self.recover_orgs()
         for org in self.active_orgs():
             try:
+                # A successful lifecycle Retry does not lift a turn fence.
+                # Admission, tools and this bridge all use its durable gate.
+                if self.org(org.slug) != org:
+                    continue
                 self.bridge.step(org)
+            except requests.StaleRun:
+                continue
             except Exception:
                 LOG.exception('turn bridge failed for %s', org.slug)
         with self._active_lock:

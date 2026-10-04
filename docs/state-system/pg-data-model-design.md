@@ -16,6 +16,9 @@ reviews the implementation again before the local alpha build. The companion
   request lock before the unchanged jobs framework locks its job. Host forwarding commits
   pending-to-queued and job completion together, then inserts the app ticket separately;
   committed queued intent repairs that gap even if the job is already done.
+  Verified-dead recovery fences each affected org durably in the app database,
+  so a failed org never refuses the whole host or holds machine capacity for days.
+  Retry and restart preserve the fence until the org's old requests commit lost.
 
 - **Rev 7.5: a trigger locks only its own statement's rows (2026-10-03, after review A6 f8 and
   f9).** No product decision changes. Rev 7.4's statement-end Sent key still deadlocked twice: a
@@ -430,9 +433,17 @@ its lease expired. Rev 4 gives every turn a durable identity, numbered claims an
    3. Every engine process starts its provider processes inside its own Windows job object with
       kill-on-close, as `process_lifetime.py` already does for the whole engine tree. So the
       worker's providers die with it.
-   4. Only then does the host mark the worker's instance dead and its running tickets `lost`,
-      raising `claim_epoch`. The org-side requests become `lost`, and the org's existing
-      restart rules decide whether a new request is made, with a new id.
+   4. Only then does the host install a durable app-database recovery fence for each affected
+      active or unavailable org, mark the instance dead and its tickets `lost`, and raise
+      `claim_epoch`, in one app transaction. The fence refuses admission and every old run
+      identity across restart, Retry and restore. Its verified-dead tickets no longer hold
+      machine-wide slots, even when the org cannot be opened for days. In separate, bounded
+      org transactions its old requests become `lost` with raised epochs. Lift that org's
+      fence only after those commits; a failure leaves the fence and is retried by the host
+      heartbeat when the org is openable. Only active orgs are opened; an unfinished lifecycle
+      operation belongs to lifecycle takeover (§2.13 rule 2), rather than turn recovery.
+      Other orgs start and admit normally. The org's existing restart rules alone decide
+      whether to create a new request, with a new id.
    5. If the host itself dies, the existing guardian kills the whole tree before it releases the
       data-root lock. A new host can start only after that.
 
@@ -1106,7 +1117,11 @@ What happens then:
   a **Retry** action. The full report (org, step, kind, record, field, both values) is in
   `<data>/conversion/<time>-<pid>/`, and the org list links to it. Nothing else opens the org.
 - **Its traces elsewhere.**
-  - Its turn tickets are cancelled.
+  - Its turn tickets are cancelled. After verified death of their provider tree, they may be
+    `lost` instead: their app recovery fence is durable, no longer holds machine capacity,
+    and refuses all admission and old run identities until the org requests commit `lost`
+    with raised epochs. Retry becoming `active` cannot lift this fence; the host heartbeat
+    reconciles the now-openable org and lifts it only after the org commit (§2.4 step 6).
   - Mail sent to it from another org waits in the sender's outbox as a `deliver_external` job that
     backs off (1 minute, doubling, at most 1 hour) until the org is `active`.
   - `/api/accounts` and `/api/orgs` list it as unavailable instead of counting its agents.
