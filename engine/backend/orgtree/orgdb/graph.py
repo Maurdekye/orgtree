@@ -55,11 +55,14 @@ def verify_stats(raw: Any) -> list[tuple[int, str]]:
 def _paths(raw: Any, names: list[str]) -> list[tuple[int, str, int | None]]:
     # UNION coalesces common suffixes and terminates even on a malformed cycle.
     # The body's cycle/permission rules and final assertion remain separate.
+    # Keep each upward edge a primary-key lookup. Pulling this lateral query up
+    # can make the recursive join hash-scan every agent for a tiny path.
     return raw.execute(
         "WITH RECURSIVE path(id,name,parent_id) AS ("
         "SELECT id,name,parent_id FROM orgtree.agents WHERE name=ANY(%s) "
-        "UNION SELECT a.id,a.name,a.parent_id FROM orgtree.agents a "
-        "JOIN path p ON a.id=p.parent_id) SELECT id,name,parent_id FROM path ORDER BY id",
+        "UNION SELECT a.id,a.name,a.parent_id FROM path p CROSS JOIN LATERAL "
+        "(SELECT id,name,parent_id FROM orgtree.agents WHERE id=p.parent_id OFFSET 0) a) "
+        "SELECT id,name,parent_id FROM path ORDER BY id",
         (names,)).fetchall()
 
 
