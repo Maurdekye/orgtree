@@ -295,6 +295,7 @@ class Requests(unittest.TestCase):
         def read():
             for line in p.stdout:
                 output.put(line)
+            output.put(None)
 
         reader = threading.Thread(target=read, daemon=True)
         reader.start()
@@ -311,7 +312,11 @@ class Requests(unittest.TestCase):
 
         self.addCleanup(cleanup)
         try:
-            ready = json.loads(output.get(timeout=10))
+            line = output.get(timeout=10)
+            if line is None:
+                p.wait(timeout=10)
+                self.fail('fault worker exited before boundary: ' + p.stderr.read())
+            ready = json.loads(line)
         except messages.Empty:
             p.kill()
             p.wait(timeout=10)
@@ -378,7 +383,13 @@ class Requests(unittest.TestCase):
         for process in (first, second):
             process.stdin.write('claim\n')
             process.stdin.flush()
-        results = [json.loads(output.get(timeout=10)) for output in (a, b)]
+        results = []
+        for process, output in ((first, a), (second, b)):
+            line = output.get(timeout=10)
+            if line is None:
+                process.wait(timeout=10)
+                self.fail('competing worker exited before result: ' + process.stderr.read())
+            results.append(json.loads(line))
         for process in (first, second):
             process.wait(timeout=10)
             self.assertEqual(process.returncode, 0, process.stderr.read())

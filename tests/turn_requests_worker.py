@@ -43,7 +43,7 @@ elif command == 'claim' and boundary == 'compete':
         print(json.dumps({'admitted': False}), flush=True)
     else:
         host = turn_runtime.Host(base, owner, prefix=prefix)
-        org = jobs.Org(org_id, slug, database, '')
+        org = host.org(slug)
         run = host.begin(org, agent, rid, ticket, lambda: None)
         print(json.dumps({'admitted': True, 'run': asdict(run), 'pid': os.getpid()}), flush=True)
 elif command != 'exit':
