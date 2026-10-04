@@ -89,7 +89,8 @@ test('only an APPLICABLE body refreshes the stamp', () => {
   const app = src('App.tsx')
   // the same test that decides whether to paint a body decides whether it
   // certifies one — one rule, not two that can drift
-  assert.match(app, /if \(t && wantSlug\.current === want\) \{[\s\S]{0,600}?setTreeRead\(\{ at: Date\.now\(\), error: null \}\)/,
+  // The current guarded success block spans 753 characters with CRLF (739 with LF).
+  assert.match(app, /if \(t && wantSlug\.current === want\) \{[\s\S]{0,753}?setTreeRead\(\{ at: Date\.now\(\), error: null \}\)/,
     'a null body or one for an organization we have left does not stamp')
 })
 
@@ -106,10 +107,10 @@ test('the shared banner is NOT the source, and an org-list success cannot clear 
   // in for this: an org-list SUCCESS would clear a failed tree, and here the
   // FIRST failure already matters.
   assert.match(app, /const \[treeRead, setTreeRead\]/, 'the tree keeps its own record')
-  // setTreeRead must appear ONLY inside the tree fetch, never in the org-list
-  // path — count the call sites and name them
+  // The tree fetch and record feed own the stamp, never the org-list path.
+  // Count the call sites and name them.
   const writes = [...app.matchAll(/setTreeRead\(/g)].length
-  assert.equal(writes, 3, 'exactly three: the reset on org change, the success, the failure')
+  assert.equal(writes, 5, 'exactly five: the reset on org change, tree fetch success and failure, record feed publish and error')
   assert.doesNotMatch(app, /onOk: \(\) => setTreeRead|onError: \(\) => setTreeRead/,
     'the organization-list poller never touches it')
 })
