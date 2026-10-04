@@ -519,7 +519,7 @@ class GraphStats(unittest.TestCase):
                            'max_depth': 20, 'max_children': 10, 'max_top_grant': 1000}.items():
             dict.__setitem__(doc, key, value)
         # The controlled document has no intended org settings edits.
-        doc._snap_doc = store._dumps({k: v for k, v in dict.items(doc) if k != 'nodes'})
+        doc._snap_doc = {k: store._dumps(v) for k, v in dict.items(doc) if k != 'nodes'}
         org = ledger.Org.__new__(ledger.Org)
         org.d = doc
         wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
@@ -579,7 +579,7 @@ class GraphStats(unittest.TestCase):
         from orgtree import ledger
         org, _ = self.native_move_org()
         result = org.move_batch(ledger.USER, [('a', 'destination'), ('a', 'root')])
-        self.assertEqual(len(result['results']), 2)
+        self.assertEqual(result['moved'], 2)
         self.assertEqual(self.c.execute('SELECT id,parent_id,credit_grant FROM orgtree.agents '
                                        'WHERE id IN (1,2,5,8) ORDER BY id').fetchall(),
                          [(1, None, 100), (2, 1, 3), (5, None, 10), (8, 1, 0)])
