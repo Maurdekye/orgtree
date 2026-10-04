@@ -5,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import uuid
@@ -210,6 +211,57 @@ class CurrentScopeFiles(unittest.TestCase):
                          [dict(grant, available=True) for grant in grants])
         self.move('boss')
         self.assertEqual(read().tree_node('leaf')['scope'], self.configured)
+
+    def test_actual_agent_superior_hire_accepts_current_limits_and_keeps_saved_seat(self):
+        self.move('other')
+        self.enterContext(patch.object(pgdoor, 'enabled', return_value=True))
+        self.enterContext(patch.object(api, 'provider_hire_gate'))
+        self.enterContext(patch.object(api, 'new_hire_harness', return_value=None))
+        self.enterContext(patch.object(api, 'hub_changed'))
+        request = SimpleNamespace(state=SimpleNamespace(), headers={})
+        configured = deepcopy(store.load_org(self.slug).node('parent')['scope'])
+        result = api.agent_call(api.AgentCall(org=self.slug, node='other', tool='orgtree_hire',
+                                args=dict(tier='luna', name='lead', grant=0,
+                                          target='parent', hire_type='superior')), request)
+        self.assertEqual(result['inserted_above'], 'parent')
+        snapshot = orgtx.org_read(self.slug)
+        self.assertEqual(snapshot.node('lead')['scope'], configured)
+        self.assertEqual(snapshot.node('parent')['parent'], 'lead')
+        self.assertFalse(snapshot.tree_node('lead', descend=False, lineage=False)['scope']['tools']['edit'])
+        self.assertEqual(snapshot.node('leaf')['scope'], self.configured)
+
+    def test_actual_operator_superior_hire_uses_current_limits(self):
+        self.move('other')
+        self.enterContext(patch.object(pgdoor, 'enabled', return_value=True))
+        self.enterContext(patch.object(api, 'provider_hire_gate'))
+        self.enterContext(patch.object(api, 'new_hire_harness', return_value=None))
+        self.enterContext(patch.object(api, 'hub_changed'))
+        request = SimpleNamespace(state=SimpleNamespace(), headers={})
+        configured = deepcopy(store.load_org(self.slug).node('parent')['scope'])
+        result = api.org_op(self.slug, api.Op(op='hire', actor='other', tier='luna',
+                            name='lead', grant=0, parent='other', above='parent'), request)
+        self.assertEqual(result['inserted_above'], 'parent')
+        snapshot = orgtx.org_read(self.slug)
+        self.assertEqual(snapshot.node('lead')['scope'], configured)
+        self.assertFalse(snapshot.tree_node('lead', descend=False, lineage=False)['scope']['tools']['edit'])
+
+    def test_actual_folder_revocation_has_no_descendant_plan_or_write(self):
+        self.enterContext(patch.object(pgdoor, 'enabled', return_value=True))
+        self.enterContext(patch.object(api, 'hub_changed'))
+        request = SimpleNamespace(state=SimpleNamespace(), headers={})
+        def leaf_header():
+            with registry.connection(self.slug) as raw, raw.transaction():
+                return raw.execute("SELECT row_to_json(a) FROM orgtree.agents a WHERE name='leaf'").fetchone()[0]
+        before = leaf_header()
+        with patch.object(ledger.Org, 'descendants',
+                          side_effect=AssertionError('native folder revocation walked descendants')):
+            result = api.org_op(self.slug, api.Op(op='revoke_dir', actor=ledger.USER,
+                                node='parent', dir=str(self.project)), request)
+        self.assertEqual(result['removed_from'], ['parent'])
+        self.assertEqual(leaf_header(), before)
+        snapshot = orgtx.org_read(self.slug)
+        self.assertEqual(snapshot.node('leaf')['scope'], self.configured)
+        self.assertEqual(snapshot.tree_node('leaf', descend=False, lineage=False)['scope']['add_dirs'], [])
 
     def test_receipt_checkout_and_log_bytes_use_the_current_grant(self):
         args = {'checkout': str(self.project), 'logs': [str(self.source)]}

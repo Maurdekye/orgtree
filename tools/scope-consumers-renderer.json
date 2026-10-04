@@ -1,0 +1,193 @@
+{
+  "entries": [
+    {
+      "path": "apps/desktop/renderer/src/archived.ts",
+      "expression": "n.scope",
+      "line": 111,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/archived.ts",
+      "expression": "n.scope",
+      "line": 111,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/asks.tsx",
+      "expression": "dd.scope",
+      "line": 196,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/asks.tsx",
+      "expression": "at(i).scope",
+      "line": 233,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/asks.tsx",
+      "expression": "d.scope",
+      "line": 414,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/asks.tsx",
+      "expression": "d.scope",
+      "line": 416,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/desk.tsx",
+      "expression": "node.scope",
+      "line": 3064,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/desk.tsx",
+      "expression": "node.scope",
+      "line": 4021,
+      "classification": "configured",
+      "reason": "Explicit effort preference, retained unchanged in effective transport/display scope; no capability permission decision."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/docket.tsx",
+      "expression": "selection?.scope",
+      "line": 1717,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/docket.tsx",
+      "expression": "a.scope",
+      "line": 2557,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/docket.tsx",
+      "expression": "a.scope",
+      "line": 2565,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/effort.tsx",
+      "expression": "node.scope",
+      "line": 159,
+      "classification": "configured",
+      "reason": "Explicit effort preference, retained unchanged in effective transport/display scope; no capability permission decision."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "parent.scope",
+      "line": 580,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "parent?.scope",
+      "line": 581,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "parent?.scope",
+      "line": 584,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "n?.scope",
+      "line": 842,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "n.scope",
+      "line": 845,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "n.scope",
+      "line": 853,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "n.scope",
+      "line": 855,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "n.scope",
+      "line": 863,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "n.scope",
+      "line": 867,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "node.configured_scope",
+      "line": 936,
+      "classification": "configured",
+      "reason": "Configuration editor chooses configured_scope, with scope only as legacy fallback; never persists a current clamp."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "node.scope",
+      "line": 936,
+      "classification": "configured",
+      "reason": "Configuration editor chooses configured_scope, with scope only as legacy fallback; never persists a current clamp."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "parentNode?.scope",
+      "line": 1109,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/modals.tsx",
+      "expression": "parentNode.scope",
+      "line": 1111,
+      "classification": "effective",
+      "reason": "Displayed current capability: read-only marker, currently held MCP, hire default/ancestor ceiling or requested gain preview; server rechecks authority at commit."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/openasks.ts",
+      "expression": "revs.scope",
+      "line": 127,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    },
+    {
+      "path": "apps/desktop/renderer/src/canvas/useworkitems.ts",
+      "expression": "old.scope",
+      "line": 73,
+      "classification": "unrelated",
+      "reason": "Question decisions/revision token, docket selection namespace or artifact sharing scope, not agent capabilities."
+    }
+  ]
+}

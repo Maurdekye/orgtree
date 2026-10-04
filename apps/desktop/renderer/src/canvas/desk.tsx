@@ -3056,9 +3056,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const mcpReadinessState = node.mcp_readiness_state
   const mcpReadinessReason = node.mcp_readiness_reason
   // A card is a claim about something assumed to exist. `scope.tools.mcp` is
-  // the CONFIGURED grant — a static scope fact, known the instant the node
-  // exists, unlike the runtime `mcp_tool_count` snapshot it can lag behind.
-  // Empty means no MCP server was ever granted, so there is nothing for the
+  // the currently effective grant — a scope fact from this tree snapshot,
+  // unlike the runtime `mcp_tool_count` snapshot it can lag behind.
+  // Empty means no MCP server is currently held, so there is nothing for the
   // badge to claim; this is not the "not yet known" case (that stays a
   // runtime concern for McpToolCountMark's own '—'/'~N' fallback below).
   const mcpConfigured = (node.scope?.tools.mcp?.length ?? 0) > 0

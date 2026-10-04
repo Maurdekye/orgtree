@@ -1,0 +1,1346 @@
+{
+  "description": "Exact expressions and occurrences. Changed/new scope origins require a new reviewed classification.",
+  "entries": [
+    {
+      "path": "engine/backend/orgtree/antigravity_session.py",
+      "owner": "specification",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 91,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_summarise_archived",
+      "kind": "scope-field",
+      "expression": "node.get('scope')",
+      "line": 2251,
+      "classification": "effective",
+      "reason": "Input is the effective tree/display body; archived cards retain only the current read-only marker."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_org_settings_apply",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 3184,
+      "classification": "configured",
+      "reason": "Selected top-level folder ceilings are authored; native descendants are not rewritten."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_agent_work_artifact",
+      "kind": "scope-field",
+      "expression": "a.get('scope')",
+      "line": 7668,
+      "classification": "unrelated",
+      "reason": "Docket artifact sharing scope (item/named), not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_agent_work_artifact",
+      "kind": "scope-field",
+      "expression": "rec.get('scope')",
+      "line": 7696,
+      "classification": "unrelated",
+      "reason": "Docket artifact sharing scope (item/named), not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_work_checkout",
+      "kind": "locked-action-binding",
+      "expression": "scope_actions.run(org, nid, lambda current: _node_reachable_file(current, nid, raw, verb='measure', allow_dir=True))",
+      "line": 8277,
+      "classification": "effective",
+      "reason": "scope_actions.run resolves current ancestor authority and holds its SHARE path locks through this action."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_work_receipt_logs",
+      "kind": "locked-action-binding",
+      "expression": "scope_actions.run(org, nid, read_log)",
+      "line": 8302,
+      "classification": "effective",
+      "reason": "scope_actions.run resolves current ancestor authority and holds its SHARE path locks through this action."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "batch_resolve._resolve",
+      "kind": "scope-attribute",
+      "expression": "body.scope",
+      "line": 8996,
+      "classification": "unrelated",
+      "reason": "User question-batch scope decisions, not agent capability grants."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "batch_resolve._resolve",
+      "kind": "scope-field",
+      "expression": "comps.get('scope')",
+      "line": 9005,
+      "classification": "unrelated",
+      "reason": "User question-batch scope decisions, not agent capability grants."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_agent_capability_payload",
+      "kind": "locked-action-binding",
+      "expression": "scope_actions.run(org, actor, lambda current: _agent_capability_body(current, actor))",
+      "line": 10162,
+      "classification": "effective",
+      "reason": "scope_actions.run resolves current ancestor authority and holds its SHARE path locks through this action."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_agent_capability_body",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(actor)",
+      "line": 10168,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_hire_seat",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(_dest)",
+      "line": 10463,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_node_reachable_file",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 13881,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_outbox_snapshot",
+      "kind": "locked-action-binding",
+      "expression": "scope_actions.run(org, nid, lambda current: _outbox_snapshot_body(current, nid, raw, max_bytes=max_bytes, always_copy=always_copy, html_bundle=html_bundle))",
+      "line": 13906,
+      "classification": "effective",
+      "reason": "scope_actions.run resolves current ancestor authority and holds its SHARE path locks through this action."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_report_artifact_refs",
+      "kind": "scope-field",
+      "expression": "rec.get('scope')",
+      "line": 14032,
+      "classification": "unrelated",
+      "reason": "Docket artifact sharing scope (item/named), not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_agent_send_file",
+      "kind": "locked-action-binding",
+      "expression": "scope_actions.run(org, nid, lambda current: _agent_send_file_body(current, nid, a, max_bytes=max_bytes))",
+      "line": 14126,
+      "classification": "effective",
+      "reason": "scope_actions.run resolves current ancestor authority and holds its SHARE path locks through this action."
+    },
+    {
+      "path": "engine/backend/orgtree/api.py",
+      "owner": "_op_hire",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(body.above)",
+      "line": 14993,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/chat_window.py",
+      "owner": "read_page",
+      "kind": "scope-field",
+      "expression": "cursor.get('scope')",
+      "line": 273,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session cursor namespace, not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/chat_window.py",
+      "owner": "read_page",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 298,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/chat_window.py",
+      "owner": "read_page",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 309,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/desktop_import.py",
+      "owner": "_validate_document",
+      "kind": "scope-field",
+      "expression": "node.get('scope')",
+      "line": 284,
+      "classification": "configured",
+      "reason": "Validate and preserve authored import scope; effective values are derived after placement."
+    },
+    {
+      "path": "engine/backend/orgtree/desktop_import.py",
+      "owner": "_validate_document",
+      "kind": "scope-field",
+      "expression": "node['scope']",
+      "line": 291,
+      "classification": "configured",
+      "reason": "Validate and preserve authored import scope; effective values are derived after placement."
+    },
+    {
+      "path": "engine/backend/orgtree/desktop_import.py",
+      "owner": "_prepare_document",
+      "kind": "scope-field",
+      "expression": "node['scope']",
+      "line": 421,
+      "classification": "configured",
+      "reason": "Validate and preserve authored import scope; effective values are derived after placement."
+    },
+    {
+      "path": "engine/backend/orgtree/desktop_import.py",
+      "owner": "_prepare_document",
+      "kind": "scope-field",
+      "expression": "node['scope']",
+      "line": 421,
+      "classification": "configured",
+      "reason": "Validate and preserve authored import scope; effective values are derived after placement."
+    },
+    {
+      "path": "engine/backend/orgtree/foreground_context.py",
+      "owner": "ForegroundContext",
+      "kind": "effective-method-binding",
+      "expression": "'capability_scope'",
+      "line": 86,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/foreground_context.py",
+      "owner": "ForegroundContext",
+      "kind": "effective-method-binding",
+      "expression": "'display_scope'",
+      "line": 86,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/foreground_context.py",
+      "owner": "ForegroundContext",
+      "kind": "effective-method-binding",
+      "expression": "'effective_agent'",
+      "line": 86,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/handoff.py",
+      "owner": "seat_snapshot",
+      "kind": "scope-field",
+      "expression": "node.get('scope')",
+      "line": 480,
+      "classification": "effective",
+      "reason": "Copies the detached effective view supplied by the current locked handoff capture; never authorizes an action."
+    },
+    {
+      "path": "engine/backend/orgtree/identity_context.py",
+      "owner": "IdentityContext",
+      "kind": "effective-method-binding",
+      "expression": "'capability_scope'",
+      "line": 22,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/identity_context.py",
+      "owner": "IdentityContext",
+      "kind": "effective-method-binding",
+      "expression": "'effective_agent'",
+      "line": 22,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._normalize_display_models",
+      "kind": "scope-field",
+      "expression": "_node.get('scope')",
+      "line": 1617,
+      "classification": "configured",
+      "reason": "Configured provider/model/effort/account preference; capability ceilings do not intersect these fields."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.capability_scope",
+      "kind": "scope-field",
+      "expression": "self.node(nid)['scope']",
+      "line": 1931,
+      "classification": "configured",
+      "reason": "Legacy return branch uses configured scope; native branch separately folds current ancestors."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.capability_scope",
+      "kind": "effective-binding",
+      "expression": "effective_scope(self.node, nid)",
+      "line": 1936,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.display_scope",
+      "kind": "scope-field",
+      "expression": "self.node(nid)['scope']",
+      "line": 1947,
+      "classification": "configured",
+      "reason": "Legacy return branch uses configured scope; native branch separately folds current ancestors."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.display_scope",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 1950,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.display_scope",
+      "kind": "effective-binding",
+      "expression": "effective_scope(self.node, nid)",
+      "line": 1952,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.effective_agent",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 1960,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.effective_dirs",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 1966,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.heal_plan_stamps",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 2139,
+      "classification": "configured",
+      "reason": "One-time authored permission-mode migration, not a current action decision."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.hire",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(parent)",
+      "line": 4718,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.hire",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(parent)",
+      "line": 4724,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._archive_session_in_place",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5228,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._archive_session_in_place",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5231,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 5609,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5610,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5616,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5618,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "self.node(parent)['scope']",
+      "line": 5620,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5621,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5622,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5626,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5628,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5632,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "self.node(parent)['scope']",
+      "line": 5633,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.rehire",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 5636,
+      "classification": "configured",
+      "reason": "Native compares configured/effective values without changing saved scope; destructive parent clamp exists only in legacy branch."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._promotion_seat_policy",
+      "kind": "scope-field",
+      "expression": "n_a['scope']",
+      "line": 6625,
+      "classification": "configured",
+      "reason": "Explicit seat-policy copy/swap retains configured values; effective permissions follow the resulting chain."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._promotion_seat_policy",
+      "kind": "scope-field",
+      "expression": "n_t['scope']",
+      "line": 6625,
+      "classification": "configured",
+      "reason": "Explicit seat-policy copy/swap retains configured values; effective permissions follow the resulting chain."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.swap_seats",
+      "kind": "scope-field",
+      "expression": "n_a['scope']",
+      "line": 6813,
+      "classification": "configured",
+      "reason": "Explicit seat-policy copy/swap retains configured values; effective permissions follow the resulting chain."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.swap_seats",
+      "kind": "scope-field",
+      "expression": "n_b['scope']",
+      "line": 6813,
+      "classification": "configured",
+      "reason": "Explicit seat-policy copy/swap retains configured values; effective permissions follow the resulting chain."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.insert_parent",
+      "kind": "scope-field",
+      "expression": "n_new['scope']",
+      "line": 7178,
+      "classification": "configured",
+      "reason": "Explicit seat-policy copy/swap retains configured values; effective permissions follow the resulting chain."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.insert_parent",
+      "kind": "scope-field",
+      "expression": "n_t['scope']",
+      "line": 7178,
+      "classification": "configured",
+      "reason": "Explicit seat-policy copy/swap retains configured values; effective permissions follow the resulting chain."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.revoke_dir",
+      "kind": "scope-field",
+      "expression": "self.nodes[k]['scope']",
+      "line": 7460,
+      "classification": "configured",
+      "reason": "Selected configured grant writer. Native revoke/set_scope do not clamp descendant rows."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.revoke_dir",
+      "kind": "scope-field",
+      "expression": "self.nodes[k]['scope']",
+      "line": 7462,
+      "classification": "configured",
+      "reason": "Selected configured grant writer. Native revoke/set_scope do not clamp descendant rows."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._clamp_vis",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(parent)",
+      "line": 7474,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._actor_cap",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(actor)",
+      "line": 7495,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._raise_along",
+      "kind": "scope-field",
+      "expression": "self.nodes[k]['scope']",
+      "line": 7522,
+      "classification": "configured",
+      "reason": "Selected configured grant writer. Native revoke/set_scope do not clamp descendant rows."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._clamp_pm",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(parent)",
+      "line": 7585,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._sweep_dirs.clamp",
+      "kind": "scope-field",
+      "expression": "self.nodes[k]['scope']",
+      "line": 7666,
+      "classification": "configured",
+      "reason": "Legacy destructive clamp only; native branch returns before enumeration."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._sweep_dirs",
+      "kind": "scope-field",
+      "expression": "self.node(parent)['scope']",
+      "line": 7704,
+      "classification": "configured",
+      "reason": "Legacy destructive clamp only; native branch returns before enumeration."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._sweep_dirs",
+      "kind": "scope-field",
+      "expression": "self.node(parent)['scope']",
+      "line": 7706,
+      "classification": "configured",
+      "reason": "Legacy destructive clamp only; native branch returns before enumeration."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._sweep_dirs",
+      "kind": "scope-field",
+      "expression": "self.node(parent)['scope']",
+      "line": 7708,
+      "classification": "configured",
+      "reason": "Legacy destructive clamp only; native branch returns before enumeration."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._sweep_dirs",
+      "kind": "scope-field",
+      "expression": "self.node(nid)['scope']",
+      "line": 7711,
+      "classification": "configured",
+      "reason": "Legacy destructive clamp only; native branch returns before enumeration."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.effective_effort",
+      "kind": "scope-field",
+      "expression": "self.node(nid)['scope']",
+      "line": 7744,
+      "classification": "configured",
+      "reason": "Configured provider/model/effort/account preference; capability ceilings do not intersect these fields."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.prefer_reserve_for",
+      "kind": "scope-field",
+      "expression": "self.node(nid)['scope']",
+      "line": 7759,
+      "classification": "configured",
+      "reason": "Configured provider/model/effort/account preference; capability ceilings do not intersect these fields."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.model_for",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 7772,
+      "classification": "configured",
+      "reason": "Configured provider/model/effort/account preference; capability ceilings do not intersect these fields."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.account_fallback_for",
+      "kind": "scope-field",
+      "expression": "self.node(nid).get('scope')",
+      "line": 7805,
+      "classification": "configured",
+      "reason": "Configured provider/model/effort/account preference; capability ceilings do not intersect these fields."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.set_scope",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 7877,
+      "classification": "configured",
+      "reason": "Selected configured grant writer. Native revoke/set_scope do not clamp descendant rows."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.set_scope",
+      "kind": "scope-field",
+      "expression": "self.nodes[k]['scope']",
+      "line": 8048,
+      "classification": "configured",
+      "reason": "Selected configured grant writer. Native revoke/set_scope do not clamp descendant rows."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._holds_scope_item",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 8368,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._scope_item_state",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 8389,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.resolve_batch",
+      "kind": "scope-field",
+      "expression": "self.node(nid)['scope']",
+      "line": 8656,
+      "classification": "configured",
+      "reason": "Copies configured values to build the selected scope-request update; holds/effective-state checks use current scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.watchdog_create",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(owner)",
+      "line": 8917,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.node_ask",
+      "kind": "scope-field",
+      "expression": "revs['scope']",
+      "line": 10846,
+      "classification": "unrelated",
+      "reason": "Question batch scope revision token, not a capability grant."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._execute_auto_autopsy",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 11069,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._execute_auto_autopsy",
+      "kind": "effective-binding",
+      "expression": "self.capability_scope(nid)",
+      "line": 11090,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._compact_split_apply",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11307,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._compact_split_apply",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11313,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.record_cli_compaction",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11411,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.record_cli_compaction",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11413,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.reseed",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11672,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.reseed",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11674,
+      "classification": "configured",
+      "reason": "Historical bearer/successor preserves configured payload; actual new transport separately receives current effective scope."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.tree_node",
+      "kind": "effective-binding",
+      "expression": "self.display_scope(nid)",
+      "line": 11774,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.tree_node",
+      "kind": "scope-field",
+      "expression": "n['scope']",
+      "line": 11777,
+      "classification": "configured",
+      "reason": "Separate configured_scope editor field; displayed scope comes from display_scope in the same captured read."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._work_scope_live_n",
+      "kind": "scope-field",
+      "expression": "it.get('scope')",
+      "line": 14884,
+      "classification": "unrelated",
+      "reason": "Docket scope history or artifact-sharing scope, unrelated to capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._work_scope_spill",
+      "kind": "scope-field",
+      "expression": "it.get('scope')",
+      "line": 14903,
+      "classification": "unrelated",
+      "reason": "Docket scope history or artifact-sharing scope, unrelated to capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._work_scope_spill",
+      "kind": "scope-field",
+      "expression": "it['scope']",
+      "line": 14921,
+      "classification": "unrelated",
+      "reason": "Docket scope history or artifact-sharing scope, unrelated to capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._work_scope_all",
+      "kind": "scope-field",
+      "expression": "it.get('scope')",
+      "line": 14935,
+      "classification": "unrelated",
+      "reason": "Docket scope history or artifact-sharing scope, unrelated to capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org._work_artifacts_view",
+      "kind": "scope-field",
+      "expression": "rec.get('scope')",
+      "line": 17967,
+      "classification": "unrelated",
+      "reason": "Docket scope history or artifact-sharing scope, unrelated to capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/ledger.py",
+      "owner": "Org.work_artifact_for_read",
+      "kind": "scope-field",
+      "expression": "rec.get('scope')",
+      "line": 18163,
+      "classification": "unrelated",
+      "reason": "Docket scope history or artifact-sharing scope, unrelated to capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/lifecycle_door.py",
+      "owner": "revoke_dir_rows",
+      "kind": "scope-field",
+      "expression": "org.nodes[k]['scope']",
+      "line": 641,
+      "classification": "configured",
+      "reason": "Legacy descendant write plan only; native plans the selected configured row and authority path."
+    },
+    {
+      "path": "engine/backend/orgtree/limits.py",
+      "owner": "_normalize",
+      "kind": "scope-field",
+      "expression": "lim.get('scope')",
+      "line": 321,
+      "classification": "unrelated",
+      "reason": "Provider usage-window label, not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/orgdb/mappers/docket.py",
+      "owner": "row_keys",
+      "kind": "scope-field",
+      "expression": "record.get('scope')",
+      "line": 152,
+      "classification": "unrelated",
+      "reason": "Docket event-source history mapping, not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/orgdb/mappers/docket.py",
+      "owner": "<module>",
+      "kind": "scope-field",
+      "expression": "SOURCE_SPECS['scope']",
+      "line": 214,
+      "classification": "unrelated",
+      "reason": "Docket event-source history mapping, not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/policy_context.py",
+      "owner": "PolicyContext",
+      "kind": "effective-method-binding",
+      "expression": "'capability_scope'",
+      "line": 50,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/policy_context.py",
+      "owner": "PolicyContext",
+      "kind": "effective-method-binding",
+      "expression": "'effective_agent'",
+      "line": 50,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/policy_reads.py",
+      "owner": "_read.body",
+      "kind": "scope-field",
+      "expression": "node.get('scope')",
+      "line": 51,
+      "classification": "configured",
+      "reason": "Reads configured chain nodes in one repeatable-read snapshot; PolicyContext folds the complete chain for use."
+    },
+    {
+      "path": "engine/backend/orgtree/quickstaff.py",
+      "owner": "staff_args",
+      "kind": "effective-binding",
+      "expression": "org.display_scope(str(owner['node']))",
+      "line": 106,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/scope_actions.py",
+      "owner": "run.decided",
+      "kind": "effective-binding",
+      "expression": "current.capability_scope(nid)",
+      "line": 24,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/scope_chain.py",
+      "owner": "_read",
+      "kind": "scope-field",
+      "expression": "node.get('scope')",
+      "line": 36,
+      "classification": "configured",
+      "reason": "Configured inputs to the fresh ancestor intersection; source payload is never mutated."
+    },
+    {
+      "path": "engine/backend/orgtree/scope_chain.py",
+      "owner": "_intersect",
+      "kind": "scope-field",
+      "expression": "node['scope']",
+      "line": 52,
+      "classification": "configured",
+      "reason": "Configured inputs to the fresh ancestor intersection; source payload is never mutated."
+    },
+    {
+      "path": "engine/backend/orgtree/scope_chain.py",
+      "owner": "EffectiveAgent.transport",
+      "kind": "scope-field",
+      "expression": "result['scope']",
+      "line": 140,
+      "classification": "effective",
+      "reason": "Detached effective transport payload; not accepted as a storage document."
+    },
+    {
+      "path": "engine/backend/orgtree/scope_chain.py",
+      "owner": "ScopeSnapshot.agent",
+      "kind": "scope-call",
+      "expression": "self.scope(agent_id)",
+      "line": 176,
+      "classification": "effective",
+      "reason": "Display-only ancestor memo bound to one consistent snapshot; cannot authorize writes."
+    },
+    {
+      "path": "engine/backend/orgtree/statepreview.py",
+      "owner": "_visible_ids",
+      "kind": "effective-binding",
+      "expression": "org.display_scope(actor)",
+      "line": 39,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/statepreview.py",
+      "owner": "_safe_node",
+      "kind": "effective-binding",
+      "expression": "org.display_scope(nid)",
+      "line": 57,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/statepreview.py",
+      "owner": "inspect_state",
+      "kind": "effective-binding",
+      "expression": "org.display_scope(actor)",
+      "line": 152,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/store.py",
+      "owner": "_bind_work_refs",
+      "kind": "scope-field",
+      "expression": "value.get('scope')",
+      "line": 2575,
+      "classification": "unrelated",
+      "reason": "Docket scope-history records, not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/store.py",
+      "owner": "_LazyWorkItem.scope_needs_heal",
+      "kind": "scope-field",
+      "expression": "self.get('scope')",
+      "line": 2639,
+      "classification": "unrelated",
+      "reason": "Docket scope-history records, not agent capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/subproxy.py",
+      "owner": "_access_token_at",
+      "kind": "scope-field",
+      "expression": "payload['scope']",
+      "line": 341,
+      "classification": "unrelated",
+      "reason": "OAuth token scope string, not Orgtree capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_mcp_infrastructure_fingerprint",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 2330,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_assemble_chat_rows",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 3214,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_assemble_chat_rows",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 3271,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_publish_handoff_record",
+      "kind": "effective-binding",
+      "expression": "current.capability_scope(nid)",
+      "line": 4628,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_publish_handoff_record",
+      "kind": "locked-action-binding",
+      "expression": "scope_actions.run(org, nid, lambda current: current.capability_scope(nid))",
+      "line": 4628,
+      "classification": "effective",
+      "reason": "scope_actions.run resolves current ancestor authority and holds its SHARE path locks through this action."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "granted_mcp_servers",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 7063,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_claudemd_block",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 7139,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_org_state_parts",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 7957,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "identity_prompt",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 8848,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_build_cmd",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 12306,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_cache_semantic_inputs",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 12882,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_auto_cheap_cfg",
+      "kind": "scope-field",
+      "expression": "org.node(nid)['scope']",
+      "line": 13382,
+      "classification": "configured",
+      "reason": "Configured compaction policy preference; not a filesystem/tool grant."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_codex_process_spec",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 16882,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_codex_startup_manifest",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 17015,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_codex_approval_decider._approve.allowed_from",
+      "kind": "effective-binding",
+      "expression": "current.capability_scope(nid)",
+      "line": 17366,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_codex_leg_attempt._assistant_payload",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid, session_id=str(jstate.get('sid') or n.get('session_id') or ''))",
+      "line": 17952,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_codex_leg_attempt._assistant_item",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid, session_id=str(params.get('threadId') or jstate.get('sid') or n.get('session_id') or ''))",
+      "line": 18014,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_codex_leg_attempt",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 18048,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_antigravity_leg._assistant_payload",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid, session_id=str(jstate.get('sid') or n.get('session_id') or ''))",
+      "line": 19543,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_antigravity_leg",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 19598,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_compact_split_codex_body",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(nid)",
+      "line": 27545,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_wd_owner_lost",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(owner)",
+      "line": 34153,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "wd_file_roots",
+      "kind": "effective-binding",
+      "expression": "org.capability_scope(owner)",
+      "line": 34181,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/supervisor.py",
+      "owner": "_read_chat_source",
+      "kind": "scope-call",
+      "expression": "assistant_messages.scope(org, nid)",
+      "line": 36981,
+      "classification": "unrelated",
+      "reason": "Transcript journal/session namespace; not capability scope."
+    },
+    {
+      "path": "engine/backend/orgtree/transcript_records.py",
+      "owner": "reuse_database",
+      "kind": "scope-attribute",
+      "expression": "_conn_state.scope",
+      "line": 116,
+      "classification": "unrelated",
+      "reason": "Transcript session/database namespace, not capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/transcript_records.py",
+      "owner": "reuse_database",
+      "kind": "scope-attribute",
+      "expression": "_conn_state.scope",
+      "line": 120,
+      "classification": "unrelated",
+      "reason": "Transcript session/database namespace, not capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/transcript_records.py",
+      "owner": "_drain_spool",
+      "kind": "scope-field",
+      "expression": "head.get('scope')",
+      "line": 875,
+      "classification": "unrelated",
+      "reason": "Transcript session/database namespace, not capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/transcript_records.py",
+      "owner": "_drain_spool",
+      "kind": "scope-field",
+      "expression": "head.get('scope')",
+      "line": 882,
+      "classification": "unrelated",
+      "reason": "Transcript session/database namespace, not capability inheritance."
+    },
+    {
+      "path": "engine/backend/orgtree/warmpool.py",
+      "owner": "native_startup_context_digest",
+      "kind": "effective-method-binding",
+      "expression": "'capability_scope'",
+      "line": 953,
+      "classification": "effective",
+      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+    },
+    {
+      "path": "engine/backend/orgtree/warmpool.py",
+      "owner": "native_startup_context_digest",
+      "kind": "scope-field",
+      "expression": "node.get('scope')",
+      "line": 961,
+      "classification": "configured",
+      "reason": "Minimal fake/legacy fallback; real Org digest selects capability_scope first."
+    },
+    {
+      "path": "engine/backend/orgtree/worktx.py",
+      "owner": "due",
+      "kind": "scope-field",
+      "expression": "it.get('scope')",
+      "line": 273,
+      "classification": "unrelated",
+      "reason": "Docket scope spill-count/history planning, not agent capability scope."
+    }
+  ]
+}
