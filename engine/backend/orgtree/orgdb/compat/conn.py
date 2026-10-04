@@ -199,6 +199,8 @@ class OrgDbConn:
                 return
             rev = int(self.raw.execute("UPDATE orgtree.org_revision SET rev = rev + 1 "
                                        "RETURNING rev").fetchone()[0])
+            from .. import graph    # noqa: PLC0415
+            graph.assert_final_cycles(self.raw)
             from ... import pgfeed   # noqa: PLC0415
             pgfeed.begin_local(self.slug, rev)
             pending = getattr(self.raw, "_ot_pending", None)
