@@ -27,6 +27,13 @@ NODE: str = os.environ.get("ORGTREE_NODE", "")
 PORT: str = os.environ.get("ORGTREE_PORT", "7360")
 BASE: str = os.environ.get("ORGTREE_BASE") or f"http://127.0.0.1:{PORT}"
 
+_EFFORT_LIVE_HELP: str = (
+    " Claude Code only (Opus, Sonnet, Fable): an in-flight call finishes at "
+    "the old level; the next call in that turn uses the new level. Codex and "
+    "other harnesses use it next turn. effort_delivery: sent = delivered, "
+    "not confirmed applied (if ignored, still applies next turn); unchanged "
+    "= same effective level, nothing sent; next_turn = deferred, with a reason.")
+
 # ⚠ THE SHELL A WATCHDOG'S TARGET ACTUALLY GETS (2026-08-22).
 #
 # `supervisor._wd_popen` spawns command/stream dogs with `shell=True` and the
@@ -1290,7 +1297,7 @@ TOOLS: list[dict[str, Any]] = [
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
                            "description": "thinking effort for the hire — a "
                                           "cost/quality dial ('' = the CLI "
-                                          "default)"},
+                                          "default)" + _EFFORT_LIVE_HELP},
                 "account": ACCOUNT_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
@@ -1399,7 +1406,7 @@ TOOLS: list[dict[str, Any]] = [
                 "effort": {"type": "string",
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
                            "description": "thinking effort for this report "
-                                          "('' clears to the CLI default)"},
+                                          "('' clears to the CLI default)" + _EFFORT_LIVE_HELP},
                 "account": ACCOUNT_REBIND_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
@@ -1501,7 +1508,7 @@ TOOLS: list[dict[str, Any]] = [
                                     "OWN")},
                 "effort": {"type": "string",
                            "enum": ["low", "medium", "high", "xhigh", "max", ""],
-                           "description": "thinking effort ('' = CLI default)"},
+                           "description": "thinking effort ('' = CLI default)" + _EFFORT_LIVE_HELP},
                 "account": ACCOUNT_RESTORE_SCHEMA,
                 "account_fallback": {"type": "boolean",
                     "description": "override this agent's org default for automatic account switching after a usage limit. Default off; verified same-lane subscription capacity only; keeps the replacement account."},
@@ -1630,7 +1637,7 @@ TOOLS: list[dict[str, Any]] = [
                 "permission_mode": {"type": "string",
                                     "description": "the seat's permission mode "
                                                    "(capped at your own)"},
-                "effort": {"type": "string", "description": "reasoning effort"},
+                "effort": {"type": "string", "description": "reasoning effort" + _EFFORT_LIVE_HELP},
                 "team_charter": {"type": "string",
                                  "description": "standing instruction for the "
                                                 "agent's own team"},

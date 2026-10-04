@@ -37,6 +37,7 @@ import { peekStaffingOptions } from './staffingoptions'
 import { accountProvider, accountValue, primaryAccount } from '../accountidentity'
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
+import { EFFORT_CHANGE_HELP } from './effort'
 
 export interface ConfirmModalProps {
   title: ReactNode
@@ -738,7 +739,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
         <div className="field-label">thinking effort</div>
-        <select value={effort} onChange={(e) => setEffort(e.target.value)}>
+        <select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
           <option value="">{`inherit — org default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
           <option value="low">low</option>
           <option value="medium">medium</option>
@@ -1405,7 +1406,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
 
         <div className="field-label">thinking effort (user-approved: a deep
           setting, never a hire-row control)</div>
-        <select value={effort} onChange={(e) => setEffort(e.target.value)}>
+        <select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
           <option value="">{`inherit — org default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
           <option value="low">low</option>
           <option value="medium">medium</option>

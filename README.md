@@ -79,6 +79,7 @@ See the [release notes](https://github.com/Maurdekye/orgtree/releases) for the f
 
 - **Build a team across providers.** Run agents through Claude Code, Codex and Antigravity, or choose models through OpenRouter. Give each agent a role, a model and its own working instructions.
 - **Follow the work as it happens.** Read live conversations and tool activity, send follow-up messages while an agent is working, and return to retained history later.
+- **Change thinking effort while an agent works.** Claude Code agents on Opus, Sonnet and Fable can switch during a turn: the call already in flight finishes at the old level, and the next model call uses the new one. Codex and other harnesses apply changes from the next turn.
 - **Keep tasks on a shared docket.** Track ownership, status, progress and supporting evidence. Attach images and files to tickets so the work stays connected to its context.
 - **Let agents coordinate.** Agents can delegate, exchange mail, request decisions and deliver files or presentations. You can step in wherever needed.
 - **Control access and capacity.** Set folder permissions, tools and delegation budgets. Inspect account usage and choose which account an agent uses.
@@ -86,6 +87,14 @@ See the [release notes](https://github.com/Maurdekye/orgtree/releases) for the f
 - **Keep a team available between visits.** Closing the main window can leave the engine running in the system tray. Retiring an agent preserves its history so it can be brought back later.
 
 A typical workflow: give a coordinator a project, have a specialist investigate one part, ask another agent to review the result, and keep the decisions and deliverables on the project's tickets.
+
+When you change an agent's effort, the app reports delivery. Agent tools return the same information in `effort_delivery`:
+
+| Result | Meaning |
+| --- | --- |
+| `sent` | Delivered to the running Claude Code turn. This does not confirm that the CLI applied it; if the CLI ignores the request, the new level still applies from the next turn. |
+| `unchanged` | The effective level is the same, so nothing was sent. |
+| `next_turn` | The change applies from the next turn, with a reason for deferring delivery. |
 
 ## Install
 

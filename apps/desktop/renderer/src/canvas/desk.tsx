@@ -8,7 +8,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { EFFORT_LEVELS, effortChangeToast } from './effort'
+import { EFFORT_CHANGE_HELP, EFFORT_LEVELS, effortChangeToast } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -4850,7 +4850,7 @@ function EffortButton({ value, effective, onSet }:
       <button type="button"
         className={'cc-eff' + ((pending ?? value) ? ' set' : shown ? ' inherited' : '')
           + (pending !== null ? ' saving' : '')}
-        title={`thinking effort — ${shown || 'unset'} (${why})`}
+        title={`thinking effort — ${shown || 'unset'} (${why}). ${EFFORT_CHANGE_HELP}`}
         onClick={() => setOpen((o) => !o)}>
         {shown || 'effort'}
       </button>
@@ -4887,7 +4887,7 @@ function EffortSwitch({ value, level, why, onSet }:
   return (
     <span className="effort-switch"
       title={`thinking effort — ${level || 'unset'} (${why})`
-        + '; click a dot to set, click the active dot to clear back to inherit'}>
+        + `; click a dot to set, click the active dot to clear back to inherit. ${EFFORT_CHANGE_HELP}`}>
       <span className="eff-label">Effort{level
         ? ` (${level}${value ? '' : ` — ${why}`})` : ''}</span>
       <span className="eff-track">

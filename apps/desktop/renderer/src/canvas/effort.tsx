@@ -198,6 +198,13 @@ export function EffortLevelBadge({ node }: {
   )
 }
 
+/** Help for controls that change an individual agent's effort. */
+export const EFFORT_CHANGE_HELP =
+  'Claude Code only (Opus, Sonnet, Fable): an in-flight call finishes at the old level; '
+  + 'the next call in that turn uses the new level. Codex and other harnesses use it next turn. '
+  + 'effort_delivery: sent = delivered, not confirmed applied (if ignored, still applies next turn); '
+  + 'unchanged = same effective level, nothing sent; next_turn = deferred, with a reason.'
+
 /** What changing an agent's effort did, as the one-line toast the composer's
  *  effort control shows (item support-changing-a-claude-agent-s-effort-level-m).
  *
@@ -205,8 +212,8 @@ export function EffortLevelBadge({ node }: {
  *  level was written to the agent's RUNNING Claude process, `next_turn` means
  *  it applies when its next turn starts, `unchanged` means the save left the
  *  level where it was and nothing was sent. ⚠ "SENT", NEVER "APPLIED": the CLI
- *  acknowledges the request, which proves it was accepted, not that the turn
- *  used it — the Agent SDK documents the change as taking effect next turn.
+ *  can acknowledge even an ignored request, so delivery does not prove use.
+ *  A CLI that ignores it still gets the new level when the next turn starts.
  *  A reply without the field (an older engine) keeps the plain wording. */
 export function effortChangeToast(
   nodeId: string, requested: string, result: OpResult | undefined,
