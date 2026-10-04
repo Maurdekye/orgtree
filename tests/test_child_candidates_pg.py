@@ -30,10 +30,11 @@ class ChildCandidates(unittest.TestCase):
             with conn.connect(fixture.ADMIN, row[1], autocommit=False) as raw:
                 def add(name, parent=None, state='live', extra=None, tombstone=False):
                     from psycopg.types.json import Json
+                    position = next(order)
                     return raw.execute(
-                        'INSERT INTO orgtree.agents(name,ord,parent_id,parent_null,state,extra,tombstone) '
-                        'VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING id',
-                        (name, next(order), parent,
+                        'INSERT INTO orgtree.agents(name,ord,ui_order,seat_id,parent_id,parent_null,state,extra,tombstone) '
+                        'VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                        (name, position, position, f'child-candidates-{position}', parent,
                          True if parent is None and not (extra and 'parent' in extra) else None,
                          state, Json(extra) if extra is not None else None,
                          tombstone)).fetchone()[0]
