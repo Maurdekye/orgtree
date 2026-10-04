@@ -134,8 +134,83 @@ class ScopeLaunch(unittest.TestCase):
         self.assertEqual(issued, original)
         self.assertTrue(issued['cache_tools']['grant']['bash'])
         self.assertFalse(current['cache_tools']['grant']['bash'])
+        self.assertEqual(issued['cache_argv']['sandbox'], 'danger-full-access')
+        self.assertEqual(current['cache_argv']['sandbox'], 'read-only')
+        self.assertEqual(sup._codex_sandbox(issued['issued_scope']), 'danger-full-access')
+        self.assertEqual(sup._codex_sandbox(current['issued_scope']), 'read-only')
         self.assertEqual((current['account'], current['lane']), ('same', 'same'))
         self.assertNotEqual(issued['cache_argv'], current['cache_argv'])
+
+    def test_codex_manifest_keeps_scope_resolved_with_supplied_launch_spec(self):
+        issued_spec = self.codex_spec()
+        original = deepcopy(issued_spec['issued_scope'])
+        self.narrow()
+        with patch.object(warmpool, 'codex_startup_context_digest', return_value='fixture-files'):
+            manifest = sup._codex_startup_manifest(self.org, 'leaf', provider_spec=issued_spec,
+                                                   account_override='same', lane_override='same')
+        self.assertEqual(manifest['issued_scope'], original)
+
+        self.assertEqual(manifest['cache_tools']['grant'], original['tools'])
+        self.assertEqual(manifest['cache_argv']['sandbox'], 'danger-full-access')
+        issued_spec['issued_scope']['tools']['edit'] = False
+        self.assertEqual(manifest['issued_scope'], original)
+
+    def test_actual_codex_leg_passes_issued_sandbox_and_current_approval_callback(self):
+        class ReachedTurn(Exception):
+            pass
+        boss_scope = deepcopy(self.org.node('boss')['scope'])
+        captured = []
+        for restrictive in (False, True):
+            with self.subTest(issued_restrictive=restrictive):
+                self.org.node('boss')['scope'] = deepcopy(boss_scope)
+                if restrictive:
+                    self.narrow()
+                with patch.object(warmpool, 'codex_startup_context_digest', return_value='fixture-files'):
+                    manifest = sup._codex_startup_manifest(self.org, 'leaf', provider_spec=self.codex_spec(),
+                                                           account_override='same', lane_override='same')
+                original = deepcopy(manifest)
+                if restrictive:
+                    self.org.node('boss')['scope'] = deepcopy(boss_scope)
+                else:
+                    self.narrow()
+
+                def launch(*args, **kwargs):
+                    captured.append(kwargs['sandbox'])
+                    self.assertEqual(kwargs['sandbox'], 'read-only' if restrictive else 'danger-full-access')
+                    self.assertEqual(kwargs['approval_decide']('item/fileChange/requestApproval', {}),
+                                     'accept' if restrictive else 'decline')
+                    raise ReachedTurn()
+
+                with patch.object(sup, '_codex_require_manifest_account_current'), \
+                        patch.object(sup, 'codex_bound_home', return_value=('', '')), \
+                        patch.object(sup.agentauth, 'child_env', return_value={}), \
+                        patch.object(warmpool, 'warm_decision', return_value=(False, 'fixture')), \
+                        patch.object(warmpool, 'eligible', return_value=(False, 'fixture')), \
+                        patch.object(sup, '_record_codex_native_home'), \
+                        patch.object(codexrun, 'CodexTurn', side_effect=launch):
+                    with self.assertRaises(ReachedTurn):
+                        sup._codex_leg_attempt(self.org.d['slug'], 'leaf', self.org, {}, 'fixture turn', [],
+                            route={'model': 'fixture-model', 'pool': 'plan', 'route': 'direct'},
+                            startup_manifest=manifest)
+                self.assertEqual(manifest, original)
+        self.assertEqual(captured, ['danger-full-access', 'read-only'])
+
+    def test_actual_compaction_fork_uses_current_effective_sandbox(self):
+        self.narrow()
+        node = self.org.node('leaf')
+        node['codex_thread'] = 'fixture-thread'
+        with patch.object(providers, 'codex_status', return_value={
+                'installed': True, 'connected': True, 'path': 'fixture-codex'}), \
+                patch.object(providers, 'codex_argv', return_value=['fixture-codex']), \
+                patch('orgtree.desktop_native.native_session_path', return_value=None), \
+                patch.object(sup.halt, 'check'), \
+                patch.object(sup.agentauth, 'child_env', return_value={}), \
+                patch.object(codexrun, 'compact_fork', side_effect=RuntimeError('stopped at fork seam')) as fork:
+            sup._compact_split_codex_body(self.org.d['slug'], 'leaf', self.org, node,
+                                          'fixture-thread', 'fixture-model')
+        fork.assert_called_once()
+        self.assertEqual(fork.call_args.kwargs['sandbox'], 'read-only')
+        self.assertTrue(node['scope']['tools']['edit'])
 
     def test_antigravity_new_rights_use_effective_scope_with_session_lineage_retained(self):
         self.org.node('leaf').update(model='flash', antigravity_conversation=self.configured['session_id'])

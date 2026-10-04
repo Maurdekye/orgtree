@@ -1,6 +1,7 @@
 """Reached native audience/identity/policy controls on disposable org databases."""
 import import_provenance  # noqa: F401 asserts imports resolve inside this checkout
 from copy import deepcopy
+import threading
 import unittest
 from unittest.mock import patch
 import uuid
@@ -27,6 +28,7 @@ class CurrentScopeContexts(unittest.TestCase):
         for name in ('boss', 'other', 'parent', 'leaf'):
             org.node(name)['scope']['tools']['bash'] = True
         org.node('other')['scope']['tools']['bash'] = False
+        org.node('other')['scope']['tools']['edit'] = False
         org.d['watchdogs'] = [dict(id='dog', owner='leaf', kind='command', state='armed',
                                   name='dog', target='echo fixture', interval_s=15)]
         store.save_org(org)
@@ -156,6 +158,58 @@ class CurrentScopeContexts(unittest.TestCase):
         self.assertFalse(after._has_audience('leaf', ledger.EXTERN))
         self.assertTrue(before.capability_scope('leaf')['tools']['bash'])
         self.assertTrue(before._has_audience('leaf', ledger.EXTERN))
+
+    def test_codex_approval_uses_current_chain_while_issued_sandbox_stays_fixed(self):
+        captured = store.load_org(self.slug)
+        issued = deepcopy(captured.capability_scope('leaf'))
+        sandbox = supervisor._codex_sandbox(issued)
+        allowed, denied = [], []
+        callback = supervisor._codex_approval_decider(captured, 'leaf', allowed, denied)
+        command = 'item/commandExecution/requestApproval'
+        file_change = 'item/fileChange/requestApproval'
+        with patch.object(identity_context, 'load', side_effect=AssertionError('cached authority')), \
+                patch.object(store, 'cached_org', side_effect=AssertionError('whole cached authority')):
+            self.assertEqual(callback(command, {'command': ['fixture', 'read']}), 'accept')
+            lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'other')
+            self.assertEqual(callback(command, {'command': ['fixture', 'write']}), 'decline')
+            self.assertEqual(callback(file_change, {'grantRoot': 'fixture'}), 'decline')
+            lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'boss')
+            self.assertEqual(callback(file_change, {'grantRoot': 'fixture'}), 'accept')
+        self.assertEqual(supervisor._codex_sandbox(issued), sandbox)
+        self.assertEqual(captured.node('parent')['parent'], 'boss')
+        self.assertEqual([r['tool_name'] for r in allowed], ['commandExecution', 'fileChange'])
+        self.assertEqual([r['tool_name'] for r in denied], ['commandExecution', 'fileChange'])
+
+    def test_codex_approval_holds_ancestor_share_lock_through_the_decision(self):
+        import psycopg
+        outcomes = []
+        def competing_writer():
+            try:
+                with registry.connection(self.slug) as raw:
+                    raw.execute("SET LOCAL lock_timeout='150ms'")
+                    raw.execute("UPDATE orgtree.agents SET grant=grant WHERE name='boss'")
+                outcomes.append('wrote')
+            except psycopg.errors.LockNotAvailable:
+                outcomes.append('blocked')
+            except Exception as exc:
+                outcomes.append(type(exc).__name__ + ': ' + str(exc))
+
+        original = supervisor._codex_may_write
+        def decide(scope):
+            self.assertIsNotNone(pgdoor.current(self.slug))
+            writer = threading.Thread(target=competing_writer)
+            writer.start()
+            writer.join(4)
+            self.assertFalse(writer.is_alive(), 'competing writer did not reach its lock timeout')
+            self.assertEqual(outcomes, ['blocked'])
+            return original(scope)
+
+        callback = supervisor._codex_approval_decider(store.load_org(self.slug), 'leaf', [], [])
+        with patch.object(supervisor, '_codex_may_write', side_effect=decide):
+            self.assertEqual(callback('item/fileChange/requestApproval', {}), 'accept')
+        with registry.connection(self.slug) as raw:
+            raw.execute("SET LOCAL lock_timeout='150ms'")
+            raw.execute("UPDATE orgtree.agents SET grant=grant WHERE name='boss'")
 
 
 if __name__ == '__main__':

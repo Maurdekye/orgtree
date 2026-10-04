@@ -16938,6 +16938,8 @@ def _codex_process_spec(org: Org, nid: str, *,
         # explicit parameter after the strip removed its inherited copy.
         "codex_home": _bound_home or os.path.expanduser("~/.codex"),
         "cache_codex_home": _bound_home,
+        # Detached authority used for this launch, including its turn sandbox.
+        "issued_scope": json.loads(json.dumps(scope)),
     }
 
 
@@ -17010,7 +17012,8 @@ def _codex_startup_manifest(
                else str(resolved_account))
     lane = (str(lane_override) if lane_override is not None
             else str(resolved_lane))
-    scope = org.capability_scope(nid)
+    scope = json.loads(json.dumps(spec_raw.get("issued_scope")
+                                  or org.capability_scope(nid)))
     # Freeze the exact payload CodexTurn puts on thread/start AND
     # thread/resume. `_orgtree_tool_catalogue()` is the source catalogue, not
     # itself the wire shape: app-server requires the explicit function type.
@@ -17034,6 +17037,7 @@ def _codex_startup_manifest(
     }
     return {
         "version": 1,
+        "issued_scope": scope,
         "identity": spec["identity"],
         "startup_digest": warmpool.codex_startup_context_digest(
             org, nid, cwd=spec["cwd"], codex_home=spec["codex_home"]),
@@ -17048,6 +17052,7 @@ def _codex_startup_manifest(
             "head": list(spec["argv_head"]),
             "mcp": list(spec["config_overrides"]),   # every -c override; see above
             "exe": spec["exe"],
+            "sandbox": _codex_sandbox(scope),
         },
         "cache_env": {
             "provider": "openai",
@@ -17313,6 +17318,84 @@ def _codex_approval_input(is_file: bool, params: Mapping[str, Any]
     if isinstance(cmd, list):
         cmd = " ".join(str(c) for c in cast("list[Any]", cmd))
     return {"command": str(cmd or ""), "cwd": str(params.get("cwd") or "")}
+
+
+def _codex_approval_decider(org: Org, nid: str,
+                            approvals: list[dict[str, Any]],
+                            denials: list[dict[str, Any]]) -> Any:
+    """Engine approval uses current authority; an issued sandbox stays fixed.
+
+    Lists are updated only after the deciding transaction commits, so retries
+    cannot record an answer from a rolled-back or stale chain. The provider's
+    request worker declines any raised error; there is no cached fallback.
+    """
+    slug = org.d["slug"]
+    def _approve(method: str, params: dict[str, Any]) -> str:
+        # approval callbacks are the ⚙-rights seam (design A.2): the same
+        # capability switches the claude lane enforces with
+        # --disallowed-tools decide here, and every decline is recorded so
+        # `_after_turn` books it like a CLI-reported denial
+        is_file = "fileChange" in method
+        # ⚠ BOTH BRANCHES ASK `_codex_may_write`, NOT `tools_sc["edit"]`.
+        # The file branch read the edit switch alone, so a `plan` node — the
+        # read-only planning seat, the MOST restrictive mode in PM_LEVELS —
+        # had its file changes approved like any other. The OS sandbox and
+        # this callback are two gates on one permission; when they disagree
+        # the loose one is decoration, so both answer from the same predicate
+        # and cannot drift apart.
+        #
+        # ⚠ AND SO DOES THE COMMAND BRANCH, since 2026-09-05 (user ruling
+        # "read-only means read-only"). It used to be `bash` alone, which left
+        # a read-only seat a way out: a `commandExecution` approval is codex
+        # asking to re-run a sandbox-BLOCKED command OUTSIDE the sandbox, so
+        # accepting one on a `read-only` node hands back exactly the write the
+        # sandbox just refused. Measured, control pair, sandbox=read-only both
+        # times: accepted -> the file was written; declined -> it was not.
+        # `bash` still gates it too — a node without a terminal approves no
+        # command — but it is no longer the only thing that does.
+        #
+        # FAIL-CLOSED ON PURPOSE. The request params carry no field that
+        # reliably separates an unsandboxed retry from an ordinary approval:
+        # `reason` is model-written prose and `availableDecisions` /
+        # `proposedExecpolicyAmendment` were present on every request observed,
+        # all of which WERE retries. Rather than key enforcement off optional
+        # metadata that may be absent, unknown or newly-shaped in a later
+        # codex, a read-only seat declines the whole callback. What that costs
+        # is real and is written down in `_codex_may_write`.
+        def allowed_from(current: Org) -> bool:
+            scope = current.capability_scope(nid)
+            may_write = _codex_may_write(scope)
+            return bool(may_write if is_file else (
+                scope.get("tools", {}).get("bash", True) and may_write))
+
+        from .orgdb import enabled   # noqa: PLC0415
+        if enabled():
+            from . import pgdoor   # noqa: PLC0415
+            # The original run fence is first in this transaction. Scope paths
+            # are re-derived under SHARE locks on its actual org connection;
+            # a changed path rolls back and widens before any answer is used.
+            active = pgdoor.current(slug)
+            allowed = (allowed_from(active.org) if active is not None else
+                       pgdoor.run(slug, pgdoor.TxSpec(share_nodes=(nid,)),
+                                  lambda tx: allowed_from(tx.org)))
+        else:
+            allowed = allowed_from(org)
+        # the method's own item segment (`item/<kind>/requestApproval`) so a
+        # third kind the app-server may add (the schema already carries a
+        # `permissions` request) is booked under its real name, not lumped
+        # into commandExecution
+        parts = method.split("/")
+        kind = parts[1] if len(parts) >= 3 and parts[1] else (
+            "fileChange" if is_file else "commandExecution")
+        row = {"tool_name": kind,
+               "tool_input": _codex_approval_input(is_file, params)}
+        if allowed:
+            approvals.append(row)
+            return "accept"
+        denials.append(row)
+        return "decline"
+
+    return _approve
 
 
 def _codex_sandbox(sc: Mapping[str, Any]) -> str:
@@ -17696,7 +17779,6 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     # Read AFTER the account-currency gate above, so a launch whose login
     # evidence has already moved raises instead of being attributed.
     st["ran_as"] = identity_in_spec(process_spec)
-    tools_sc = n["scope"].get("tools", {})
     cwd = str(process_spec["cwd"])
     # Identity through Codex's two distinct doors. Managed AGENTS.md is a
     # process-start project instruction; developerInstructions is sent on
@@ -17783,54 +17865,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
     #: anything ran: the callback answers before execution.
     approvals: list[dict[str, Any]] = []
 
-    def _approve(method: str, params: dict[str, Any]) -> str:
-        # approval callbacks are the ⚙-rights seam (design A.2): the same
-        # capability switches the claude lane enforces with
-        # --disallowed-tools decide here, and every decline is recorded so
-        # `_after_turn` books it like a CLI-reported denial
-        is_file = "fileChange" in method
-        # ⚠ BOTH BRANCHES ASK `_codex_may_write`, NOT `tools_sc["edit"]`.
-        # The file branch read the edit switch alone, so a `plan` node — the
-        # read-only planning seat, the MOST restrictive mode in PM_LEVELS —
-        # had its file changes approved like any other. The OS sandbox and
-        # this callback are two gates on one permission; when they disagree
-        # the loose one is decoration, so both answer from the same predicate
-        # and cannot drift apart.
-        #
-        # ⚠ AND SO DOES THE COMMAND BRANCH, since 2026-09-05 (user ruling
-        # "read-only means read-only"). It used to be `bash` alone, which left
-        # a read-only seat a way out: a `commandExecution` approval is codex
-        # asking to re-run a sandbox-BLOCKED command OUTSIDE the sandbox, so
-        # accepting one on a `read-only` node hands back exactly the write the
-        # sandbox just refused. Measured, control pair, sandbox=read-only both
-        # times: accepted -> the file was written; declined -> it was not.
-        # `bash` still gates it too — a node without a terminal approves no
-        # command — but it is no longer the only thing that does.
-        #
-        # FAIL-CLOSED ON PURPOSE. The request params carry no field that
-        # reliably separates an unsandboxed retry from an ordinary approval:
-        # `reason` is model-written prose and `availableDecisions` /
-        # `proposedExecpolicyAmendment` were present on every request observed,
-        # all of which WERE retries. Rather than key enforcement off optional
-        # metadata that may be absent, unknown or newly-shaped in a later
-        # codex, a read-only seat declines the whole callback. What that costs
-        # is real and is written down in `_codex_may_write`.
-        may_write = _codex_may_write(n["scope"])
-        # the method's own item segment (`item/<kind>/requestApproval`) so a
-        # third kind the app-server may add (the schema already carries a
-        # `permissions` request) is booked under its real name, not lumped
-        # into commandExecution
-        parts = method.split("/")
-        kind = parts[1] if len(parts) >= 3 and parts[1] else (
-            "fileChange" if is_file else "commandExecution")
-        row = {"tool_name": kind,
-               "tool_input": _codex_approval_input(is_file, params)}
-        if (may_write if is_file
-                else (tools_sc.get("bash", True) and may_write)):
-            approvals.append(row)
-            return "accept"
-        denials.append(row)
-        return "decline"
+    _approve = _codex_approval_decider(org, nid, approvals, denials)
 
     jlock = threading.Lock()
     jstate: dict[str, Any] = {
@@ -18488,7 +18523,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         resume_path=native_resume_path,
         codex_home=str(process_spec["codex_home"]),
         # a security boundary — read `_codex_sandbox` before touching this
-        sandbox=_codex_sandbox(n["scope"]),
+        sandbox=_codex_sandbox(startup_manifest["issued_scope"]),
         dynamic_tools=dyn, developer_instructions=ident,
         config_overrides=mcp_overrides,
         on_event=_turn_callback(_on_event, publication=True),
@@ -27522,7 +27557,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             # that computed its own would let one agent run at two different
             # OS privilege levels depending on whether it happened to be
             # compacting — a split nobody would find for weeks.
-            sandbox=_codex_sandbox(n["scope"]),
+            sandbox=_codex_sandbox(org.capability_scope(nid)),
             developer_instructions=identity_prompt(org, nid),
             on_client=compact_client_started,
         env_extra=_turn_transport_env({**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
