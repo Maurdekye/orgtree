@@ -10,6 +10,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from orgtree.orgdb import codec, enums, mappers, sections
 from orgtree.orgdb.convert.accounts import ACCOUNT, ORG_ACCOUNT, ORG_MARK, ORG_AUDIT, OrgAccounts
 from orgtree.orgdb.mappers import agents, docket
+from orgtree.orgdb import docket_relations
 from orgtree import ledger, opreceipts, registry, workevidence, workitems
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,41 @@ MIGRATIONS = ROOT / 'engine/backend/orgtree/pg_migrations/org'
 
 def entries(include_markers=False):
     return list(enums.columns(mappers.sections() + [OrgAccounts()], include_markers=include_markers))
+
+
+def native_entries():
+    """Authored enum sets plus native-only tags and explicit container markers."""
+    result = [dict(entry) for entry in entries(True)]
+    for entry in result:
+        if (entry['table'], entry['column']) == ('agents', 'state'):
+            # Deleted is an internal tombstone state. A legacy node's deleted
+            # value still stays a reported authored misfit, tested separately.
+            entry['values'] += ('deleted',)
+    for section in mappers.sections() + [OrgAccounts()]:
+        for root in section.tables:
+            for table, layout in root.layout().items():
+                if layout['spec'] is None:
+                    continue
+                for column, values in codec.tagged(layout['spec']):
+                    marker = next(e for e in result if e['table'] == table
+                                  and e['column'] == column.removesuffix('_kind') + '_is')
+                    result.append(dict(marker, column=column, values=values, kind='tag'))
+    placements = {('work_items', source + '_events_is'): codec.MARKER_VALUES['obj']
+                  for source in docket.EVENT_SOURCES}
+    placements.update({('work_items', col + '_is'): codec.MARKER_VALUES['obj']
+                       for col in docket.CURRENT_POINTERS.values()})
+    placements.update({
+        ('org_accounts', 'marks_is'): codec.MARKER_VALUES['obj'],
+        ('org_accounts', 'spend_is'): codec.MARKER_VALUES['obj'],
+        ('work_items', 'review_seats_is'): codec.MARKER_VALUES['list'],
+        ('work_item_artifacts', 'grants_is'): codec.MARKER_VALUES['list'],
+        ('work_item_delivery', 'claim_is'): codec.MARKER_VALUES['obj'],
+        ('work_item_delivery', 'stage'): docket_relations.STAGES,
+    })
+    result.extend(dict(table=table, column=column, values=values, kind='manual',
+                       nullable=(table != 'work_item_delivery'))
+                  for (table, column), values in placements.items())
+    return result
 
 
 def entry_row(rows, entry):
@@ -53,8 +89,10 @@ def sample(spec, bad=False):
     for field in spec.fields:
         if field.values:
             out[field.key] = 'zz-out-of-set' if bad else field.values[0]
-        elif field.kind == 'obj':
+        elif field.kind in ('obj', 'turn_usage'):
             out[field.key] = sample(field.spec, bad)
+        elif field.kind == 'principal':
+            out[field.key] = {'node': 'boss'}
         elif field.kind == 'list' and field.spec:
             out[field.key] = [sample(field.spec, bad)]
     return out
@@ -78,6 +116,10 @@ def fixture(bad=False):
             item = dict(sample(docket.WORK_ITEM, bad), slug='one')
             item.update({source: [sample(spec, bad)]
                          for source, spec in docket.SOURCE_SPECS.items()})
+            item['review_seats'] = [sample(docket_relations.SEAT, bad)]
+            item['delivery'] = {'committed': sample(docket_relations.DELIVERY, bad)}
+            for artifact in item['artifacts']:
+                artifact['grants'] = [sample(docket_relations.GRANT, bad)]
             doc['work_items'] = [item]
         elif isinstance(section, sections.RecordList):
             doc[section.key] = [sample(section.t.spec, bad)]
@@ -162,7 +204,7 @@ class EnumCodec(unittest.TestCase):
         doc, secs, _ = fixture()
         rows, _, _ = sections.encode_document(doc, secs)
         events = [entry for entry in entries(True) if entry['table'] == 'work_item_events']
-        self.assertEqual(30, len(events))
+        self.assertEqual(33, len(events))
         for entry in events:
             with self.subTest(column=entry['column']):
                 witness = entry_row(rows, entry)
@@ -177,12 +219,26 @@ class EnumMigration(unittest.TestCase):
     def test_migration_covers_exactly_the_mapper_sets(self):
         from test_orgdb_verify_static import schema
         final = schema()
-        pattern = (r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT "?(\w+)"?\s+'
-                   r'CHECK\s*\("(\w+)" IN \(([^;]+)\)\);')
+        pattern = (r'ALTER TABLE orgtree\."?(\w+)"? ADD CONSTRAINT "?(\w+)"?\s+'
+                   r'CHECK\s*\("?(\w+)"? IN \(([^;]+)\)\);')
+        dropped = r'ALTER TABLE orgtree\."?(\w+)"? DROP (COLUMN|CONSTRAINT) "?(\w+)"?;'
+        dropped_table = r'DROP TABLE orgtree\."?(\w+)"?;'
+        tokens = re.compile(f'(?:{pattern})|(?:{dropped})|(?:{dropped_table})')
         actual = {}
         for migration in sorted(MIGRATIONS.glob('*.sql')):
             text = migration.read_text(encoding='utf-8')
-            for table, name, col, values in re.findall(pattern, text):
+            for match in tokens.finditer(text):
+                table, name, col, values, drop_table, drop_kind, drop_name, gone_table = match.groups()
+                if gone_table:
+                    actual = {key: val for key, val in actual.items() if key[0] != gone_table}
+                    continue
+                if drop_table:
+                    if drop_kind == 'COLUMN':
+                        actual.pop((drop_table, drop_name), None)
+                    else:
+                        actual = {key: val for key, val in actual.items()
+                                  if f'{key[0]}_{key[1]}_enum' != drop_name}
+                    continue
                 self.assertEqual(f'{table}_{col}_enum', name)
                 self.assertLessEqual(len(name), 63)
                 # Later migrations drop the old child tables and parent markers.
@@ -191,7 +247,8 @@ class EnumMigration(unittest.TestCase):
                 vals = tuple(v.replace("''", "'") for v in re.findall(r"'((?:''|[^'])*)'", values))
                 self.assertNotIn((table, col), actual)
                 actual[table, col] = vals
-        expected = {(e['table'], e['column']): e['values'] for e in entries(True)}
+        expected = {(e['table'], e['column']): e['values']
+                    for e in native_entries() if e['kind'] != 'manual'}
         self.assertEqual(expected, actual)
         text = (MIGRATIONS / '0009_enum_checks.sql').read_text(encoding='utf-8')
         stripped = re.sub(r'--[^\n]*', '', text)

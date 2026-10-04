@@ -16,7 +16,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 
 from orgtree.orgdb import codec, conn, enums, lifecycle, sections
 from orgtree.orgdb.convert import rowio
-from test_orgdb_enums import entries, entry_row, fixture
+from test_orgdb_enums import entries, entry_row, fixture, native_entries
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
@@ -61,10 +61,14 @@ class EnumConstraints(unittest.TestCase):
                                     "JOIN pg_namespace ns ON ns.oid=rel.relnamespace "
                                     "WHERE ns.nspname='orgtree' AND con.contype='c'").fetchall())
             event_checks = [entry for entry in entries(True) if entry['table'] == 'work_item_events']
-            self.assertEqual(30, len(event_checks))
+            self.assertEqual(33, len(event_checks))
             for entry in event_checks:
                 self.assertIn((entry['table'], f"{entry['table']}_{entry['column']}_enum"), catalog)
-            for entry in entries(True):
+            native = native_entries()
+            self.assertEqual({(e['table'], e['table'] + '_' + e['column'] + '_enum')
+                              for e in native if e['kind'] != 'manual'},
+                             {(table, name) for table, name in catalog if name.endswith('_enum')})
+            for entry in native:
                 table, column = entry['table'], entry['column']
                 with self.subTest(table=table, column=column):
                     witness = entry_row(rows, entry)
@@ -79,9 +83,10 @@ class EnumConstraints(unittest.TestCase):
                     # The exact CHECK must fail, not some unrelated FK / trigger.
                     with self.assertRaises(psycopg.errors.CheckViolation) as caught:
                         with c.transaction():
-                            c.execute(statement, ('z' if entry['kind'] == 'marker' else 'zz-out-of-set',) + params)
-                    self.assertEqual(f'{table}_{column}_enum', caught.exception.diag.constraint_name)
-                    for value in entry['values'] + (None,):
+                            c.execute(statement, ('z' if column.endswith('_is') else 'zz-out-of-set',) + params)
+                    suffix = 'check' if entry['kind'] == 'manual' else 'enum'
+                    self.assertEqual(f'{table}_{column}_{suffix}', caught.exception.diag.constraint_name)
+                    for value in entry['values'] + ((None,) if entry.get('nullable', True) else ()):
                         with self.assertRaises(RollbackProbe):
                             with c.transaction():
                                 changed = c.execute(statement, (value,) + params).rowcount
@@ -96,6 +101,9 @@ class EnumConstraints(unittest.TestCase):
             from orgtree.orgdb.mappers import docket
             placements = {('work_items', source + '_events_is') for source in docket.EVENT_SOURCES}
             placements.update(('work_items', col + '_is') for col in docket.CURRENT_POINTERS.values())
+            placements.update({('work_items', 'review_seats_is'),
+                               ('work_item_artifacts', 'grants_is'),
+                               ('work_item_delivery', 'claim_is')})
             self.assertEqual(known | placements | {('org_accounts', 'marks_is'), ('org_accounts', 'spend_is')},
                              set(marker_cols))
             for col in ('marks_is', 'spend_is'):
