@@ -14,7 +14,34 @@ BIG_TABLE_ROWS = 256
 
 
 def is_read_statement(statement):
-    return bool(re.match(r'\s*(SELECT|WITH)\b', statement, re.I))
+    """Classify the command after SQL trivia without altering captured SQL.
+
+    PostgreSQL accepts repeated line/block comments, including nested blocks.
+    Stop at the first real token rather than looking for SELECT inside a comment.
+    """
+    offset = 0
+    while offset < len(statement):
+        if statement[offset].isspace():
+            offset += 1
+        elif statement.startswith('--', offset):
+            end = re.search(r'[\r\n]', statement[offset + 2:])
+            if end is None:
+                return False
+            offset += 2 + end.end()
+        elif statement.startswith('/*', offset):
+            depth, offset = 1, offset + 2
+            while offset < len(statement) and depth:
+                if statement.startswith('/*', offset):
+                    depth, offset = depth + 1, offset + 2
+                elif statement.startswith('*/', offset):
+                    depth, offset = depth - 1, offset + 2
+                else:
+                    offset += 1
+            if depth:
+                return False
+        else:
+            break
+    return bool(re.match(r'(SELECT|WITH)\b', statement[offset:], re.I))
 
 
 def large_relations(rows, pages):
