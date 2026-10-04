@@ -355,6 +355,7 @@ CREATE FUNCTION orgtree.graph_maintain_stats() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE old_image orgtree.graph_image[]:='{}'; new_image orgtree.graph_image[]:='{}';
   old_names jsonb:='{}'; new_names jsonb:='{}';
+  reference_old orgtree.graph_image[]; reference_new orgtree.graph_image[];
 BEGIN
   IF TG_OP='INSERT' THEN
     SELECT coalesce(array_agg(ROW(id,parent_id,NOT tombstone,orgtree.graph_child_counted(v))::orgtree.graph_image),'{}')
@@ -367,7 +368,10 @@ BEGIN
     SELECT coalesce(jsonb_object_agg(o.id::text,o.name),'{}'),coalesce(jsonb_object_agg(v.id::text,v.name),'{}')
       INTO old_names,new_names FROM old_rows o JOIN new_rows v USING(id)
       WHERE o.name IS DISTINCT FROM v.name AND (o.name='' OR v.name='');
-    WITH images AS (
+    -- Fence the transition rows before evaluating their decoded predicate.
+    -- An inlined UNION used to push that predicate onto every agents row,
+    -- even when no empty-name rename existed: ordinary moves scanned N.
+    WITH images AS MATERIALIZED (
       SELECT ROW(o.id,o.parent_id,NOT o.tombstone,orgtree.graph_child_counted(o,old_names))::orgtree.graph_image AS o,
              ROW(v.id,v.parent_id,NOT v.tombstone,orgtree.graph_child_counted(v,new_names))::orgtree.graph_image AS v
         FROM old_rows o JOIN new_rows v USING(id)
@@ -377,13 +381,25 @@ BEGIN
           (v.parent_id,v.tombstone,v.state,v.successor_id,v.successor_misfit,
                CASE WHEN v.successor_misfit THEN v.extra::text END)
           OR o.successor_id IN (SELECT key::bigint FROM jsonb_each(old_names))
-      UNION ALL
-      SELECT ROW(a.id,a.parent_id,NOT a.tombstone,orgtree.graph_child_counted(a,old_names))::orgtree.graph_image,
-             ROW(a.id,a.parent_id,NOT a.tombstone,orgtree.graph_child_counted(a,new_names))::orgtree.graph_image
-        FROM orgtree.agents a WHERE a.successor_id IN (SELECT key::bigint FROM jsonb_each(old_names))
-          AND NOT EXISTS(SELECT 1 FROM new_rows v WHERE v.id=a.id)
     ) SELECT coalesce(array_agg(o),'{}'),coalesce(array_agg(v),'{}')
       INTO old_image,new_image FROM images WHERE o IS DISTINCT FROM v;
+    -- Only an empty-name truthiness boundary can change an unwritten
+    -- referrer's child admission. The normal scalar path never opens agents
+    -- for that unrelated branch. Its selected images also fence evaluation.
+    IF old_names<>'{}'::jsonb THEN
+      WITH referrers AS MATERIALIZED (
+        SELECT a.* FROM orgtree.agents a
+        WHERE a.successor_id IN (SELECT key::bigint FROM jsonb_each(old_names))
+          AND NOT EXISTS(SELECT 1 FROM new_rows v WHERE v.id=a.id)
+      ), images AS MATERIALIZED (
+      SELECT ROW(a.id,a.parent_id,NOT a.tombstone,orgtree.graph_child_counted(a::orgtree.agents,old_names))::orgtree.graph_image AS o,
+             ROW(a.id,a.parent_id,NOT a.tombstone,orgtree.graph_child_counted(a::orgtree.agents,new_names))::orgtree.graph_image AS v
+        FROM referrers a
+      ) SELECT coalesce(array_agg(o),'{}'),coalesce(array_agg(v),'{}')
+        INTO reference_old,reference_new FROM images WHERE o IS DISTINCT FROM v;
+      old_image:=old_image||reference_old;
+      new_image:=new_image||reference_new;
+    END IF;
   END IF;
   PERFORM orgtree.graph_apply(old_image,new_image);
   RETURN NULL;

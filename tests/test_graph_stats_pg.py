@@ -196,6 +196,27 @@ class GraphStats(unittest.TestCase):
                                         'ORDER BY agent_id').fetchall(), before)
         self.check_reference()
 
+    def test_ordinary_move_and_payload_update_never_decode_an_unrelated_agent(self):
+        # A planted failure on an untouched branch makes an accidental org
+        # scan observable, without a wall-clock threshold or a source mirror.
+        definition = self.c.execute("SELECT pg_get_functiondef("
+            "'orgtree.graph_child_counted(orgtree.agents,jsonb)'::regprocedure)").fetchone()[0]
+        witness = definition.replace('BEGIN', "BEGIN\n  IF a.id=7 THEN RAISE EXCEPTION "
+            "'unrelated child predicate was evaluated'; END IF;", 1)
+        self.assertNotEqual(witness, definition)
+        self.c.execute(witness)
+        self.c.execute('SAVEPOINT witness_control')
+        import psycopg
+        with self.assertRaisesRegex(psycopg.errors.RaiseException, 'unrelated child predicate'):
+            self.c.execute('SELECT orgtree.graph_child_counted(a) '
+                           'FROM orgtree.agents a WHERE id=7')
+        self.c.execute('ROLLBACK TO witness_control')
+        self.c.execute('UPDATE orgtree.agents SET parent_id=5 WHERE id=2')
+        self.assertEqual(self.stats(5)[1:], (3, 3, 1))
+        self.c.execute("UPDATE orgtree.agents SET name='ordinary-rename',credit_grant=99 WHERE id=2")
+        self.c.execute(definition)
+        self.check_reference()
+
     def test_raw_insert_nested_branches_and_subsequent_child_delete(self):
         self.c.execute("INSERT INTO orgtree.agents(id,name,parent_id,state) VALUES"
                        "(21,'newroot',5,'live'),(22,'newchild',21,'archived'),(23,'newleaf',22,'live')")
