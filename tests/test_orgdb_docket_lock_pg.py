@@ -38,11 +38,12 @@ def errors(error):
 
 @f.f.needs_pg
 class DocketAgentLocks(unittest.TestCase):
-    def overlap(self, *, changed_roles=False):
+    def overlap(self, *, changed_roles=False, settings=False):
         twins = f.f.Twins('docket-agent-' + self._testMethodName, before=f.prepare_legacy)
         ready, release = threading.Event(), threading.Event()
         outcomes, pids, blocked_queries = {}, {}, []
         real_write, real_checkout = R._docket_write, registry.checkout
+        real_lock = docket_locks.lock
         agent = 'owner' if changed_roles else 'worker'
 
         def checkout(*args, **kwargs):
@@ -53,11 +54,19 @@ class DocketAgentLocks(unittest.TestCase):
             return raw
 
         def docket_write(c, record, keys, previous):
-            if threading.current_thread().name == 'docket-writer' and record.get('title') == 'B title':
+            if not settings and threading.current_thread().name == 'docket-writer' and record.get('title') == 'B title':
                 ready.set()
                 if not release.wait(12):
                     raise RuntimeError('docket scheduling barrier expired')
             return real_write(c, record, keys, previous)
+
+        def role_lock(*args, **kwargs):
+            result = real_lock(*args, **kwargs)
+            if settings and threading.current_thread().name == 'docket-writer':
+                ready.set()
+                if not release.wait(12):
+                    raise RuntimeError('settings scheduling barrier expired')
+            return result
 
         def observe(name, fn):
             try:
@@ -70,6 +79,8 @@ class DocketAgentLocks(unittest.TestCase):
             original = store.load_org(twins.copy)
             record = f.item(original, 'owned-item')
             record['title'] = 'B title'
+            if settings:
+                original.d['max_children'] = 7
             if changed_roles:
                 # Reach every immediate current-role FK, with newly authored
                 # identities rather than only the unchanged holder rewrite.
@@ -82,13 +93,17 @@ class DocketAgentLocks(unittest.TestCase):
                 record['artifacts'][0]['grants'][0]['to'] = agent
 
             def agent_save():
-                with orgtx.org_tx(twins.copy, nodes=[agent], sections=['work_items'],
+                with orgtx.org_tx(twins.copy, nodes=[agent], sections=['work_items'] +
+                                  (['max_children'] if settings else []),
                                   lock_timeout=10, retries=0) as tx:
                     tx.d['nodes'][agent]['title'] = 'A agent'
                     next(row for row in tx.d['work_items']
                          if row['slug'] == 'owned-item')['title'] = 'A title'
+                    if settings:
+                        tx.d['max_children'] = 8
 
-            with patch.object(R, '_docket_write', docket_write), patch.object(registry, 'checkout', checkout):
+            with patch.object(R, '_docket_write', docket_write), patch.object(registry, 'checkout', checkout), \
+                    patch.object(docket_locks, 'lock', role_lock):
                 docket = threading.Thread(name='docket-writer', target=observe,
                                           args=('docket', lambda: store.save_org(original)))
                 agent_thread = threading.Thread(name='agent-writer', target=observe,
@@ -123,6 +138,8 @@ class DocketAgentLocks(unittest.TestCase):
             reloaded = store.load_org(twins.copy)
             self.assertEqual(f.item(reloaded, 'owned-item')['title'], 'A title')
             self.assertEqual(reloaded.nodes[agent]['title'], 'A agent')
+            if settings:
+                self.assertEqual(reloaded.d['max_children'], 8)
             if changed_roles:
                 saved = f.item(reloaded, 'owned-item')
                 for role in ('owner', 'reviewer'):
@@ -136,6 +153,9 @@ class DocketAgentLocks(unittest.TestCase):
 
     def test_changed_seven_current_roles_and_native_agent_docket_transaction_do_not_deadlock(self):
         self.overlap(changed_roles=True)
+
+    def test_mixed_settings_and_docket_save_keeps_settings_fence_before_agent_tier(self):
+        self.overlap(settings=True)
 
     def test_new_role_outside_item_plan_refuses_every_write_then_widened_retry_commits(self):
         twins = f.f.Twins('docket-role-widen', before=f.prepare_legacy)

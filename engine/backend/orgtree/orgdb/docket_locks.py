@@ -224,6 +224,22 @@ def save(c: Any, d: Any, lazy: Any, rename_intent: Any) -> None:
                 records.append(record)
     if lazy is not None:
         records.extend(lazy._pending.get('work_items_archive', ()))
+    # Settings writers take their common fence before every agent row. A
+    # normal save can change settings and roles together; pulling role locks
+    # forward must not put them before that existing first tier.
+    if records and plan(c.raw) is None:
+        from .compat import rows as R
+        m = R.model()
+        snap = lazy._snap_doc if lazy is not None else {}
+        for key, section in m.owner.items():
+            if section is not m.settings:
+                continue
+            changed = (store._dumps(dict.get(d, key)) != snap.get(key)
+                       if dict.__contains__(d, key) else key in snap and
+                       not any(key in rows for rows in lazy._deferred_doc.values()))
+            if changed:
+                R.lock_doc_key(c.raw, R.SETTINGS_FENCE)
+                break
     if not records:
         if plan(c.raw) is None:
             # Header reorders/deletes take item locks but write no role FK.
