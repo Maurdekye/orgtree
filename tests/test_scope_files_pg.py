@@ -158,9 +158,29 @@ class CurrentScopeFiles(unittest.TestCase):
         self.assertEqual(api._agent_capability_payload(self.captured, 'leaf')['scope'],
                          {'org_visibility': 'full', 'permission_mode': 'bypassPermissions'})
 
+    def test_display_audiences_follow_the_captured_chain_without_authorizing_actions(self):
+        org = store.load_org(self.slug)
+        grant = dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss')
+        org.d['audiences'] = [grant]
+        store.save_org(org)
+        before = orgtx.org_read(self.slug)
+        self.move('other')
+        narrow = orgtx.org_read(self.slug)
+        self.assertEqual(narrow.audience_records(), [dict(grant, available=False)])
+        value = narrow.tree_node('leaf', descend=False, lineage=False)
+        self.assertEqual(value['audiences_held'], [])
+        self.assertEqual(value['audiences_paused'], [ledger.EXTERN])
+        self.assertEqual(before.audience_records(), [dict(grant, available=True)])
+        with self.assertRaisesRegex(ledger.LedgerError, 'current planned org transaction'):
+            before._has_audience('leaf', ledger.EXTERN)
+        self.move('boss')
+        self.assertEqual(orgtx.org_read(self.slug).audience_records(),
+                         [dict(grant, available=True)])
+        self.assertEqual(store.load_org(self.slug).d['audiences'], [grant])
+
     def test_receipt_checkout_and_log_bytes_use_the_current_grant(self):
         args = {'checkout': str(self.project), 'logs': [str(self.source)]}
-        self.assertEqual(api._work_checkout(self.captured, 'leaf', args), str(self.project))
+        self.assertTrue(Path(api._work_checkout(self.captured, 'leaf', args)).samefile(self.project))
         before = api._work_receipt_logs(self.captured, 'leaf', args)
         self.assertEqual(before[0]['text'], self.source.read_text(encoding='utf-8'))
         self.move('other')

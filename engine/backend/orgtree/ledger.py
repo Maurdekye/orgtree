@@ -1923,8 +1923,7 @@ class Org:
     def capability_scope(self, nid: str) -> dict[str, Any]:
         """Effective native capabilities; configured scope remains on node().
 
-        Display documents must already be one consistent read snapshot. A native
-        write document uses its actual connection and the held current paths.
+        A native action uses its actual connection and the held current paths.
         No process memo or projected value can authorize a later transaction.
         """
         from .orgdb import native_move   # noqa: PLC0415
@@ -1933,6 +1932,22 @@ class Org:
         raw = native_move.connection(self)
         if raw is not None:
             native_move.graph.check_scope_paths(raw, {nid})
+        from .scope_chain import effective_scope   # noqa: PLC0415
+        return effective_scope(self.node, nid)
+
+    def display_scope(self, nid: str) -> dict[str, Any]:
+        """Fold a captured display snapshot, never grant action authority.
+
+        org_read/load_org_snapshot eagerly capture all nodes in one snapshot.
+        A lazy runtime document can fetch different ancestors after that read,
+        so it must not supply this display projection outside its transaction.
+        """
+        from .orgdb import native_move   # noqa: PLC0415
+        if not native_move.enabled():
+            return self.node(nid)["scope"]
+        from . import store   # noqa: PLC0415
+        if isinstance(self.nodes, store.LazyNodesMap):
+            return self.capability_scope(nid)
         from .scope_chain import effective_scope   # noqa: PLC0415
         return effective_scope(self.node, nid)
 
@@ -3986,8 +4001,17 @@ class Org:
         from .orgdb import native_move   # noqa: PLC0415
         if not native_move.enabled():
             return self.d['audiences']
-        return [dict(grant, available=self._audience_available(grant))
+        return [dict(grant, available=self._display_audience_available(grant))
                 for grant in self.d['audiences']]
+
+    def _display_audience_available(self, grant: Mapping[str, Any]) -> bool:
+        """Snapshot display only; _has_audience keeps the action lock check."""
+        from . import store   # noqa: PLC0415
+        if isinstance(self.nodes, store.LazyNodesMap):
+            return self._audience_available(grant)
+        from .audience_scope import available   # noqa: PLC0415
+        return available(grant, self.nodes.__contains__,
+                         lambda name: self.node(name)['parent'], user=USER, extern=EXTERN)
 
     def audience_summary(self, nid: str) -> dict[str, list[str]]:
         """Active and paused display channels; legacy keeps its old shape."""
@@ -3997,7 +4021,7 @@ class Org:
             return {'audiences_held': [a['grantor'] for a in grants]}
         active, paused = [], []
         for grant in grants:
-            (active if self._audience_available(grant) else paused).append(grant['grantor'])
+            (active if self._display_audience_available(grant) else paused).append(grant['grantor'])
         return {'audiences_held': active, 'audiences_paused': paused}
 
     def _record_audience(self, entry: AudienceGrant) -> None:
@@ -11750,7 +11774,7 @@ class Org:
             "grant": n["grant"],
             "free": None if n["state"] != "live" else self.free(nid, index=children_index),
             "session_id": n["session_id"],
-            "scope": self.capability_scope(nid),
+            "scope": self.display_scope(nid),
             # Editing preserves configured grants, including currently paused
             # capabilities that can return under a wider ancestor chain.
             **({"configured_scope": n["scope"]}
