@@ -241,11 +241,14 @@ class RuntimeHeaders(unittest.TestCase):
     def test_deleted_node_keeps_its_stamp_and_clears_its_owned_rows(self):
         row = dict(id=9, lineage_born='original', generation=7, extra=None)
         with patch.object(C, 'dict_rows', return_value=[row]) as read, \
-                patch.object(C, '_clear_node_rows') as clear, patch.object(C, '_update_agent') as update:
+                patch.object(C, '_clear_node_rows') as clear, \
+                patch.object(C._turns(), 'clear_recent') as clear_recent, \
+                patch.object(C, '_update_agent') as update:
             connection = object()
             self.assertEqual(C.node_delete(connection, 'old'), 1)
         self.assertIn('FOR UPDATE', read.call_args.args[1])
         clear.assert_called_once_with(connection, 9)
+        clear_recent.assert_called_once_with(connection, 9)
         result = update.call_args.args[2]
         self.assertEqual((result['id'], result['state'], result['lineage_born'], result['generation']),
                          (9, 'deleted', 'original', 7))
