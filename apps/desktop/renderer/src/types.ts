@@ -375,6 +375,8 @@ export interface TreeNode {
   free: number | null
   session_id?: string
   scope: NodeScope
+  /** Stored choices for editing; scope above shows current effective rights. */
+  configured_scope?: NodeScope
   ui_order: number
   cost_usd: number
   cost_usd_unknown?: boolean

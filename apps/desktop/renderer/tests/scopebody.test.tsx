@@ -74,8 +74,7 @@ function scopeBodies() {
   return sent
 }
 
-async function mount(): Promise<HTMLElement> {
-  const n = node()
+async function mount(n: CanvasNode = node()): Promise<HTMLElement> {
   const view = await mountView(
     <NodeConfig node={n} map={new Map([[n.id, n]])} tree={tree()} slug="org"
       op={() => Promise.resolve({} as OpResult)}
@@ -109,6 +108,26 @@ async function save(el: HTMLElement) {
   await act(async () => { b.click() })
   await flush()
 }
+
+test('settings retain configured rights while the current chain narrows the display', async (t: TestContext) => {
+  useFakeClock(); installFetch(new FakeServer())
+  t.after(async () => { realClock() })
+  const sent = scopeBodies()
+  const n = node()
+  n.configured_scope = structuredClone(n.scope!)
+  n.scope = { ...n.scope!, permission_mode: 'plan', org_visibility: 'self', add_dirs: [],
+    tools: { bash: false, web: false, edit: false, subagents: false, mcp: [] } }
+  const el = await mount(n)
+  assert.equal(selectWith(el, 'bypassPermissions').value, 'acceptEdits')
+  assert.equal(selectWith(el, 'full').value, 'team')
+  assert.equal([...el.querySelectorAll<HTMLInputElement>('label.checkline input')]
+    .filter((box) => box.checked).length, 4)
+  await choose(selectWith(el, 'xhigh'), 'high')
+  await save(el)
+  assert.equal(sent.length, 1, 'the configured panel must reach the actual scope POST')
+  assert.equal(sent[0]!.effort, 'high')
+  for (const k of CAPS) assert.equal(k in sent[0]!, false, `${k} was rewritten without an edit`)
+})
 
 test('§1 an effort-only save sends no capability field', async (t: TestContext) => {
   useFakeClock(); installFetch(new FakeServer())

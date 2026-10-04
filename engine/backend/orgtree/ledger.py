@@ -11730,6 +11730,7 @@ class Org:
     def tree_node(self, nid: str, *, children_index: dict | None = None,
                   descend: bool = True, lineage: bool = True) -> dict[str, Any]:
         """The shared display projection; bounded readers select its children separately."""
+        from .orgdb import native_move   # noqa: PLC0415
         if children_index is None:
             children_index = self.children_index()
         n = self.nodes[nid]
@@ -11749,7 +11750,11 @@ class Org:
             "grant": n["grant"],
             "free": None if n["state"] != "live" else self.free(nid, index=children_index),
             "session_id": n["session_id"],
-            "scope": n["scope"],
+            "scope": self.capability_scope(nid),
+            # Editing preserves configured grants, including currently paused
+            # capabilities that can return under a wider ancestor chain.
+            **({"configured_scope": n["scope"]}
+               if native_move.enabled() else {}),
             # what a turn would ACTUALLY launch with — scope.effort is
             # only half the answer (the org default supplies the rest)
             "effort_effective": self.effective_effort(nid),

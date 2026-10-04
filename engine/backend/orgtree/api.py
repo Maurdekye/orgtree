@@ -2196,7 +2196,7 @@ _ARCHIVED_RUNTIME_FIELDS: tuple[str, ...] = tuple(_ARCHIVED_RUNTIME_DEFAULTS)
 # `lineage` (22,347); those stay off, and the SUMMARY-TIME decisions that read
 # them are answered by the markers below instead.
 _ARCHIVED_DETAIL_FIELDS: tuple[str, ...] = (
-    "charter", "team_charter", "scope", "lineage",
+    "charter", "team_charter", "scope", "configured_scope", "lineage",
     "last_denials", "last_approvals",
 )
 
@@ -8261,8 +8261,9 @@ def _work_checkout(org: Org, nid: str, a: dict[str, Any]) -> str:
             "names the tree it measured — the commit, whether it was dirty, and "
             "whether a rebase was half-applied — and none of that can be "
             "guessed on your behalf. Pass the path of your own worktree")
-    src, _s, _r, _k = _node_reachable_file(org, nid, raw, verb="measure",
-                                          allow_dir=True)
+    from . import scope_actions
+    src, _s, _r, _k = scope_actions.run(org, nid, lambda current:
+        _node_reachable_file(current, nid, raw, verb="measure", allow_dir=True))
     return src
 
 
@@ -8276,14 +8277,17 @@ def _work_receipt_logs(org: Org, nid: str, a: dict[str, Any]
     because a receipt that silently lost its evidence reads as a receipt with
     none.
     """
+    from . import scope_actions
     out: list[dict[str, Any]] = []
     for raw in (_work_list_arg(a, "logs") or [])[:8]:
         p = _no_nul(str(raw)).strip()
         if not p:
             continue
         try:
-            src, _s, _r, _k = _node_reachable_file(org, nid, p, verb="read")
-            log = workevidence.read_log(src)
+            def read_log(current: Org) -> dict[str, Any]:
+                src, _s, _r, _k = _node_reachable_file(current, nid, p, verb="read")
+                return workevidence.read_log(src)
+            log = scope_actions.run(org, nid, read_log)
             out.append({**log, "path": p})
         except (LedgerError, OSError) as e:
             out.append({"text": "", "encoding": "", "had_bom": False,
@@ -10142,7 +10146,14 @@ _AGENT_PREVIEW_OPS = frozenset({
 
 def _agent_capability_payload(org: Org, actor: str) -> dict[str, Any]:
     """Describe the authenticated MCP dispatch surface, not ledger internals."""
+    from . import scope_actions
+    return scope_actions.run(org, actor,
+                             lambda current: _agent_capability_body(current, actor))
+
+
+def _agent_capability_body(org: Org, actor: str) -> dict[str, Any]:
     from . import mcptool
+    scope = org.capability_scope(actor)
 
     names = [str(t["name"]) for t in mcptool.available_tools()
              if str(t.get("name") or "").startswith("orgtree_")]
@@ -10157,9 +10168,9 @@ def _agent_capability_payload(org: Org, actor: str) -> dict[str, Any]:
         "agent_only": ["orgtree_swap", "orgtree_self_subjugate",
                         "orgtree_move"],
         "scope": {
-            "org_visibility": (org.node(actor).get("scope") or {}).get(
+            "org_visibility": scope.get(
                 "org_visibility", "team"),
-            "permission_mode": (org.node(actor).get("scope") or {}).get(
+            "permission_mode": scope.get(
                 "permission_mode", "acceptEdits"),
         },
     }
@@ -11990,10 +12001,11 @@ maildoor.declare_message(_message_door_before, _message_door_body)
 
 def _present_door_before(call: Any, a: dict[str, Any]) -> dict[str, Any]:
     """`orgtree_present`'s pre-transaction step (pgdoor BEFORE, run once, no
-    lock held): present-by-path's argument checks, the ledger gate on a
+    document lock held): present-by-path's argument checks, the ledger gate on a
     lock-free snapshot (a refused present leaves no outbox residue, as the
     legacy branch promised), then the COPY into outbox/ — file IO that must
-    never re-run with the transaction. A markdown present has no before
+    never re-run with the presentation transaction. Native capability paths
+    stay SHARE-locked through the bounded copy. A markdown present has no before
     work. ⚠ Runs before receipt admission: a replayed keyed call re-copies
     the file (residue without a card, the class `_message_door_before`
     documents), and nothing else."""
@@ -13854,7 +13866,7 @@ def _node_reachable_file(org: Org, nid: str, raw: str, *, verb: str = "send",
     roots = [scratch]
     if org.d.get("workspace"):
         roots.append(os.path.realpath(org.d["workspace"]))  # type: ignore[arg-type]  # guard above proves non-None
-    for d in org.node(nid)["scope"]["add_dirs"]:
+    for d in org.capability_scope(nid)["add_dirs"]:
         roots.append(os.path.realpath(d["path"]))
     # rstrip: a drive-root grant realpaths to "C:\" and the naive
     # `r + os.sep` doubled the separator, refusing everything under it;
@@ -13877,6 +13889,17 @@ def _outbox_snapshot(org: Org, nid: str, raw: str, *,
                      max_bytes: int | None = _SENDFILE_MAX,
                      always_copy: bool = False,
                      html_bundle: bool = False) -> tuple[str, int]:
+    """Copy while the native current-scope path remains held."""
+    from . import scope_actions
+    return scope_actions.run(org, nid, lambda current: _outbox_snapshot_body(
+        current, nid, raw, max_bytes=max_bytes, always_copy=always_copy,
+        html_bundle=html_bundle))
+
+
+def _outbox_snapshot_body(org: Org, nid: str, raw: str, *,
+                          max_bytes: int | None = _SENDFILE_MAX,
+                          always_copy: bool = False,
+                          html_bundle: bool = False) -> tuple[str, int]:
     """Copy a node-reachable file into the node's outbox/ — the
     orgtree_send_file rule, shared with present-by-path so both verbs have ONE
     containment boundary (`_node_reachable_file`). Returns (outbox-relative
@@ -14086,6 +14109,14 @@ def _agent_submit_report(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any
 
 def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *,
                      max_bytes: int | None = _SENDFILE_MAX) -> dict[str, Any]:
+    """Deliver bytes under current native scope, including delivery-id replays."""
+    from . import scope_actions
+    return scope_actions.run(org, nid, lambda current: _agent_send_file_body(
+        current, nid, a, max_bytes=max_bytes))
+
+
+def _agent_send_file_body(org: Org, nid: str, a: dict[str, Any], *,
+                          max_bytes: int | None = _SENDFILE_MAX) -> dict[str, Any]:
     """orgtree_send_file: snapshot the file into outbox/ (see
     _outbox_snapshot) and describe the card the chat will render."""
     raw = _no_nul(str(a.get("path") or "")).strip()

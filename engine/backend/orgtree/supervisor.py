@@ -4624,10 +4624,13 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
         moot = [a for a in org.d.get("asks", [])
                 if a.get("node") == nid and a.get("status") == "moot"]
         sd = scratch_dir(org.d["slug"], nid)
-        grants = [sd] + [str(d.get("path")) for d in n["scope"].get("add_dirs", [])
+        from . import scope_actions   # noqa: PLC0415
+        scope = scope_actions.run(org, nid, lambda current: current.capability_scope(nid))
+        seat = {**n, "scope": scope}
+        grants = [sd] + [str(d.get("path")) for d in scope.get("add_dirs", [])
                          if isinstance(d, dict) and d.get("path")]
         art = handoff.capture(
-            nid=nid, node=n, lines=lines, views_all=views_all, mailbox=box,
+            nid=nid, node=seat, lines=lines, views_all=views_all, mailbox=box,
             mooted_ask=moot[-1] if moot else None, grants=grants,
             boundary={"reason": reason or "session_replaced",
                       "from": {"tier": old_tier, "provider": providers.provider_of(old_tier)},
@@ -4640,7 +4643,7 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
                                     "of that turn's own render",
                       "old_session": old_sid, "bearer": f"{nid}@{gen}"},
             scratch=sd, provenance=_handoff_provenance(org, nid), at=now_iso())
-        bad = handoff.verify(art, lines, views_all=views_all, seat=n, mailbox=box)
+        bad = handoff.verify(art, lines, views_all=views_all, seat=seat, mailbox=box)
         if bad:
             print(f"[orgtree] {org.d['slug']}/{nid}: handoff record g{gen} NOT written — "
                   f"{len(bad)} verify problem(s): {bad[0][:160]}")

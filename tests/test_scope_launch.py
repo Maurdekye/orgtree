@@ -14,7 +14,7 @@ _data = tempfile.TemporaryDirectory(prefix='orgtree-scope-launch-')
 _prior_data = os.environ.get('ORGTREE_DATA')
 os.environ['ORGTREE_DATA'] = _data.name
 
-from orgtree import antigravity_session, codexrun, ledger, providers, supervisor as sup, warmpool  # noqa: E402
+from orgtree import antigravity_session, codexrun, handoff, ledger, providers, scope_actions, supervisor as sup, warmpool  # noqa: E402
 from orgtree.orgdb import native_move  # noqa: E402
 
 
@@ -63,6 +63,27 @@ class ScopeLaunch(unittest.TestCase):
                               subagents=False, mcp=['alpha'])
         scope['add_dirs'][0]['mode'] = 'ro'
         scope['permission_mode'] = 'plan'
+
+    def test_actual_handoff_boundary_uses_one_effective_seat_for_capture_and_verify(self):
+        self.narrow()
+        self.org.node('boss')['scope']['add_dirs'] = []
+        journal = self.root / 'journal.jsonl'
+        journal.write_text('', encoding='utf-8')
+        with patch.object(scope_actions, 'run', side_effect=lambda org, nid, action: action(org)), \
+                patch.object(sup, '_load_prompt_views', return_value={}), \
+                patch.object(sup, '_handoff_provenance', return_value={}), \
+                patch.object(handoff, 'capture', return_value={'fixture': True}) as capture, \
+                patch.object(handoff, 'verify', return_value=[]) as verify, \
+                patch.object(handoff, 'write_generation', return_value='fixture-handoff'):
+            result = sup._publish_handoff_record(self.org, 'leaf', str(journal),
+                                                 'fixture-session', gen=0, strict=True)
+        self.assertEqual(result, 'fixture-handoff')
+        seat = capture.call_args.kwargs['node']
+        self.assertFalse(seat['scope']['tools']['edit'])
+        self.assertEqual(seat['scope']['add_dirs'], [])
+        self.assertEqual(capture.call_args.kwargs['grants'], [str(self.cwd)])
+        self.assertIs(verify.call_args.kwargs['seat'], seat)
+        self.assertEqual(self.org.node('leaf'), self.configured)
 
     def command(self):
         return sup._build_cmd(self.org, 'leaf', write_ident=False, session_probe=False)

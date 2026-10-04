@@ -933,7 +933,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     useState<'delete' | 'dissolve' | 'retire' | 'rescind' | 'crossprovider' | null>(null)
   // every card that opens a config panel carries a scope (real nodes and
   // bearer stubs both) — only the eye root and drafts lack one
-  const scope = node.scope!
+  const scope = node.configured_scope ?? node.scope!
   // P3 — these seven were each a useState SEEDED FROM `node`/`scope`, i.e. a
   // snapshot taken once at mount that never looked at the prop again. That is
   // what produced a config panel showing an empty charter: the panel had
