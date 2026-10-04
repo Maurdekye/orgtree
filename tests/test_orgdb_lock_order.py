@@ -305,6 +305,10 @@ def violations(texts: dict[str, str]) -> list[str]:
             stats_only = (fn == 'orgtree.graph_maintain_stats' and table == 'agents'
                           and f in STATS_LOCK_HELPERS
                           and {t for _, t in touches(body)} <= {'agent_subtree_stats'})
+            if fn == 'orgtree.graph_maintain_stats' and table == 'agents':
+                for target in sorted({t for _, t in touches(body)} - {'agent_subtree_stats'}):
+                    out.append(f'{name}: eager {fn}{via} touches orgtree.{target}: '
+                               'the named graph exception permits only ancestor-path stats')
             if _ROW_LOCK.search(_code(body)) and not stats_only:
                 out.append(f'{name}: statement-time trigger {fn}{via} on orgtree.{table} takes a row lock: '
                            'a trigger locks no row its statement did not write (review A6 f8)')
