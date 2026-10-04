@@ -1155,8 +1155,8 @@ class _InterruptibleTurnSlot:
                 # while waiting for PostgreSQL. A set_turn_limit
                 # racing this either ran its refresh after us (and rewrites
                 # it) or changed the limit before this read
-                self._state["queued_for_slot"] = {**info,
-                                                  "limit": _turn_limit_value}
+                limit = _turn_limit_value if self._durable is not None else info["limit"]
+                self._state["queued_for_slot"] = {**info, "limit": limit}
 
     def __enter__(self) -> None:
         with _state_lock:
