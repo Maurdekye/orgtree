@@ -33,6 +33,7 @@ JSON_LOOKUP = re.compile(r"->|#>>?|json(?:b)?_extract_path|::\s*json(?:b)?\b", r
 # Only predicates and ordering, never Output: exact body decoding may use JSON.
 HOT_CLAUSES = ('Filter', 'Index Cond', 'Recheck Cond', 'Join Filter', 'Hash Cond',
                'Merge Cond', 'Sort Key', 'Presorted Key', 'Order By')
+FIXTURE_MAINTENANCE = {}
 
 
 def nodes(plan):
@@ -220,9 +221,33 @@ def publish(doc):
         raw.commit()
     lc.mark_filled(build)
     lc.publish(build)
-    with fixture.dbconn.connect(fixture.ADMIN, registry.lookup(doc['slug'])[1]) as raw:
+    maintenance = []
+    with fixture.dbconn.connect(fixture.ADMIN, registry.lookup(doc['slug'])[1],
+                                autocommit=True) as raw:
         # Statistics belong to the owner/admin, never the runtime reader.
         raw.execute('ANALYZE')
+        # Measure retained committed history after ordinary heap maintenance,
+        # rather than the bulk loader's dead tuples and unset visibility map.
+        # Do not force indexes or require every page to be all-visible: actual
+        # reader plans still decide whether the unchanged size rule is met.
+        for table in ('org_inbox', 'work_items'):
+            before = raw.execute("SELECT pg_relation_size(c.oid) "
+                "/ current_setting('block_size')::int, c.relallvisible "
+                "FROM pg_class c WHERE c.oid=%s::regclass",
+                ('orgtree.' + table,)).fetchone()
+            commits = raw.execute('SELECT pg_xact_status(xmin::text::xid8), count(*) '
+                'FROM orgtree.' + table + ' GROUP BY xmin').fetchall()
+            if any(status != 'committed' for status, count in commits):
+                raise AssertionError(f'{table}: fixture rows are not committed: {commits}')
+            raw.execute('VACUUM (FREEZE, ANALYZE, DISABLE_PAGE_SKIPPING) orgtree.' + table)
+            after = raw.execute("SELECT pg_relation_size(c.oid) "
+                "/ current_setting('block_size')::int, c.relallvisible "
+                "FROM pg_class c WHERE c.oid=%s::regclass",
+                ('orgtree.' + table,)).fetchone()
+            maintenance.append(dict(table=table, committed_rows=sum(n for _, n in commits),
+                transaction_status=commits, heap_pages=[before[0], after[0]],
+                all_visible_pages=[before[1], after[1]]))
+    FIXTURE_MAINTENANCE[doc['slug']] = maintenance
     return {table: len(values) for table, values in rows.items()}
 
 
@@ -369,7 +394,8 @@ class HotReaders(unittest.TestCase):
                         except Exception as exc:
                             cls.results[multiplier][name] = dict(error=f'{type(exc).__name__}: {exc}')
         if destination := os.environ.get('ORGTREE_HOT_PATH_REPORT'):
-            Path(destination).write_text(json.dumps(cls.results, indent=2, default=str), encoding='utf-8')
+            report = dict(cls.results, fixture_maintenance=FIXTURE_MAINTENANCE)
+            Path(destination).write_text(json.dumps(report, indent=2, default=str), encoding='utf-8')
 
     def _records(self, name):
         records = [self.results[multiplier][name] for multiplier in (1, 10)]
