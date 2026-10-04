@@ -365,12 +365,19 @@ class CommentedReads(unittest.TestCase):
     """Real public-reader controls, independent of the full scale setup."""
     @classmethod
     def setUpClass(cls):
+        cls.records = []
         with fixture.storage(False):
             template = store.create_org('hot-comments-template').d
         cls.slug = 'hot-comments'
         with fixture.storage(True):
             cls.sizes = publish(scaled_document(template, cls.slug,
                 history_fixture.load_census(), hours=history_fixture.BASELINE_HOURS))
+
+    @classmethod
+    def tearDownClass(cls):
+        if destination := os.environ.get('ORGTREE_CAPTURE_REPORT'):
+            Path(destination).write_text(json.dumps(cls.records, indent=2, default=str),
+                                         encoding='utf-8')
 
     def assert_comment_capture(self, prefix, path, command):
         from orgtree.orgdb import reader_rows
@@ -405,6 +412,8 @@ class CommentedReads(unittest.TestCase):
             for node in nodes(plan) for clause in HOT_CLAUSES),
             'independent executed plan must expose the hot JSON fault')
         captured = [query for query in result['queries'] if query['sql'] == statement]
+        self.records.append(dict(prefix=prefix, path=path, command=command,
+            executed=changed, independent_plan=plan, captured=result))
         self.assertEqual(len(captured), 1,
             'comment-prefixed read executed but was omitted from the complete call')
         self.assertEqual(captured[0]['params'], params, 'original bindings must be retained')
