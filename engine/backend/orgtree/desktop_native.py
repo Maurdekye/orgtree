@@ -347,7 +347,7 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
     if not display and node["session_id"] in native_conflicts(inventory=inventory):
         return None
     data_root = Path(_store(writes_orgs=False).DATA_ROOT)
-    root = data_root.absolute() if display else data_root.resolve()
+    root = _display_data_root(str(data_root)) if display else data_root.resolve()
     storage_node = native.get("storage_node") or nid
     if not isinstance(storage_node, str) or not re.fullmatch(r"[A-Za-z0-9_@.-]{1,160}", storage_node) or storage_node in {".", ".."}:
         return None
@@ -379,6 +379,19 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
 # Display answers never authorize resume: launch, adoption and repair retain
 # the fresh inventory above. This cache belongs only to filesystem readers.
 _DISPLAY_PATHS: dict[tuple[str, str], tuple[str, tuple[int, int, int, int]]] = {}
+_DISPLAY_ROOTS: dict[str, Path] = {}
+
+
+def _display_data_root(root: str) -> Path:
+    # Resolve aliases (including Windows short names) once per data root,
+    # while keeping warm readers to one stat of the session file itself.
+    found = _DISPLAY_ROOTS.get(root)
+    if found is None:
+        found = Path(root).resolve()
+        if len(_DISPLAY_ROOTS) >= 8:
+            _DISPLAY_ROOTS.clear()
+        _DISPLAY_ROOTS[root] = found
+    return found
 
 
 def forget_display_session(sid: str) -> None:
