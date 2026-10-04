@@ -242,6 +242,21 @@ class Recovery(unittest.TestCase):
                                             (self.owner,)).fetchone()[0])
             self.assertEqual(self.read(old).state, 'running')
 
+    def test_restored_running_request_cannot_revive_a_verified_dead_owner(self):
+        old = self.old_running()
+        with self.host() as host:
+            self.assertEqual(self.fences(), [])
+            self.assertEqual(self.read(old).state, 'lost')
+            # Restore the exact old running claim fields, as an older org
+            # database snapshot can. The app's dead identity is authoritative.
+            with conn.connect(ADMIN, self.orgs['alpha'].database) as c:
+                c.execute("UPDATE orgtree.turn_requests SET state='running',claim_epoch=%s,"
+                          'stopped_at=NULL,ended_at=NULL,end_reason=NULL WHERE request_id=%s',
+                          (old.epoch, old.request_id))
+            self.assertEqual(self.read(old).state, 'running')
+            with self.assertRaises(requests.StaleRun):
+                host.authorize(old)
+
 
 if __name__ == '__main__':
     unittest.main()

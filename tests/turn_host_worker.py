@@ -18,6 +18,7 @@ prefix, root, request_id = sys.argv[1:]
 root = Path(root).resolve(strict=True)
 guardian = arm_process_lifetime(root, os.getppid())
 
+from orgtree import turnqueue, turnslots
 from orgtree.orgdb import conn, names, turn_runtime
 
 base = os.environ['ORGTREE_TEST_PG_RUNTIME_URL']
@@ -27,9 +28,13 @@ with conn.connect(base, names.app(prefix)) as c:
 host = turn_runtime.Host(base, owner, prefix=prefix)
 host.start(limit=1)
 org, request = host.prepare('alpha', 'seat', 'turn', request_id)
-ticket = host.queue.claim(owner, request_id)
-if ticket is None:
-    raise RuntimeError('owned worker did not obtain its request')
+# Queue.claim deliberately returns None while the admission gate is busy.
+# Use the same blocking adapter as a real supervisor, rather than assuming
+# a one-shot probe cannot race this worker's own heartbeat/forwarder.
+app = turnqueue.Request(request_id, org.org_id, request.agent_id, 'seat', 'turn')
+with turnslots.bind_request(app):
+    host.slots.acquire('alpha')
+ticket = host.slots.current_claim
 run = host.begin(org, 'seat', request_id, ticket, lambda: None)
 leaf = root / 'provider-leaf.json'
 provider_code = ('import json,subprocess,sys,time;from pathlib import Path;'
