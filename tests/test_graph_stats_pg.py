@@ -182,7 +182,9 @@ class GraphStats(unittest.TestCase):
             self.c.execute('UPDATE orgtree.agents SET successor_id=NULL,extra=%s WHERE id=8',
                            (codec.to_column('json', extra),))
             self.assertEqual(self.stats(1)[3], 3 if bool(value) else 4, repr(value))
-            self.assertEqual(self.c.execute('SELECT extra FROM orgtree.agents WHERE id=8').fetchone()[0], extra)
+            actual = self.c.execute('SELECT extra FROM orgtree.agents WHERE id=8').fetchone()[0]
+            # JSON reads valid surrogate pairs as one Unicode scalar.
+            self.assertEqual(json.dumps(actual, sort_keys=True), json.dumps(extra, sort_keys=True))
             self.check_reference()
 
     def test_name_payload_permission_and_grant_changes_do_not_touch_stats(self):
