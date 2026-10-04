@@ -34,6 +34,17 @@ def kind(name: str) -> str:
     return 'agent'
 
 
+def columns(prefix: str, aliases: Mapping[str, str] | None = None
+            ) -> tuple[tuple[str, str], ...]:
+    """Physical columns; aliases reuse a table's existing recorded actor headers."""
+    cols = _columns(prefix, aliases)
+    out = [(prefix + '_is', 'char(1)'), (prefix + '_kind', 'text')]
+    for field, typ in _FIELDS.items():
+        out.extend(((cols[field], codec.SQL_TYPES[typ]),
+                    (cols[field] + '_null', 'boolean')))
+    return tuple(out)
+
+
 def encode(key: str, value: Any = codec.MISSING, *, prefix: str | None = None,
            aliases: Mapping[str, str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     """Columns plus record-local extra for a missing/null/string/object principal."""

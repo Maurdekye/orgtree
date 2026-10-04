@@ -14,6 +14,13 @@ from typing import Any, Mapping
 from . import codec
 
 
+def columns(key: str) -> tuple[tuple[str, str], ...]:
+    """The complete physical fragment for one sum state."""
+    return ((key + '_is', 'char(1)'), (key + '_kind', 'char(1)'),
+            (key + '_integer', 'numeric'), (key + '_float', 'double precision'),
+            (key + '_compensation', 'double precision'))
+
+
 def encode(key: str, value: Any = codec.MISSING) -> tuple[dict[str, Any], dict[str, Any]]:
     """Typed columns and an extra fragment for one original sum-state key."""
     row: dict[str, Any] = {key + suffix: None for suffix in

@@ -18,6 +18,8 @@ What it proves, over every org migration and the engine's Python:
   * no other function writes or locks a table;
   * no function forces deferred checks (SET CONSTRAINTS ... IMMEDIATE): that runs the commit-time
     triggers early, so the revision row would be taken before the statements that follow;
+  * every foreign key to agents is immediate: a commit-time KEY SHARE check would wait for
+    an agent after the revision row, reversing a writer's agent-before-revision order;
   * the engine's Python writes or locks the revision row only in OrgDbConn.on_save_commit, never
     writes the tables locked under it, and never forces deferred checks.
 The controls show the check rejects the round-2 settling that deadlocked in review f7 (a
@@ -136,11 +138,124 @@ def links(texts: dict[str, str]) -> dict[str, set[str]]:
     return out
 
 
+def _ddl_without_comments(text: str) -> str:
+    """Ignore nested SQL comments without treating quoted text as comments."""
+    out, i, quote = [], 0, ''
+    while i < len(text):
+        c = text[i]
+        if quote:
+            out.append(c)
+            i += 1
+            if c == quote:
+                if i < len(text) and text[i] == quote:
+                    out.append(text[i])
+                    i += 1
+                else:
+                    quote = ''
+        elif c in "'\"":
+            quote = c
+            out.append(c)
+            i += 1
+        elif text.startswith('--', i):
+            end = text.find('\n', i + 2)
+            i = len(text) if end < 0 else end
+            out.append(' ')
+        elif text.startswith('/*', i):
+            depth = 1
+            i += 2
+            while i < len(text) and depth:
+                if text.startswith('/*', i):
+                    depth += 1
+                    i += 2
+                elif text.startswith('*/', i):
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            out.append(' ')
+        else:
+            out.append(c)
+            i += 1
+    return ''.join(out)
+
+
+def _ddl_parts(body: str) -> list[str]:
+    """Top-level comma-separated table columns or ALTER actions, with SQL quotes."""
+    parts, start, depth, quote, i = [], 0, 0, '', 0
+    while i < len(body):
+        c = body[i]
+        if quote:
+            if c == quote:
+                if i + 1 < len(body) and body[i + 1] == quote:
+                    i += 1
+                else:
+                    quote = ''
+        elif c in "'\"":
+            quote = c
+        elif c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            parts.append(body[start:i])
+            start = i + 1
+        i += 1
+    return parts + [body[start:]]
+
+
+def agent_fk_violations(texts: dict[str, str]) -> list[str]:
+    """C1: reject creation or later alteration of a deferrable agent foreign key.
+
+    INITIALLY IMMEDIATE is insufficient: SET CONSTRAINTS ALL DEFERRED can move
+    that check to commit. Other deferred constraints (including docket slug
+    uniqueness) keep their existing behavior. Track explicit and PostgreSQL's
+    ordinary generated names so a later ALTER CONSTRAINT cannot evade the check.
+    """
+    known, out = set(), []
+    for name in sorted(texts):
+        text = _ddl_without_comments(texts[name])
+        statements = sorted([(m.start(), False, m) for m in _TABLE.finditer(text)]
+                            + [(m.start(), True, m) for m in _ALTER.finditer(text)])
+        for _, alter, m in statements:
+            table = m.group(1).lower()
+            for part in _ddl_parts(m.group(2)):
+                part = _code(part)  # words inside CHECK string literals are not FK clauses
+                ref = _REFERENCES.search(part)
+                con = re.search(r'\bCONSTRAINT\s+(\w+)', part, re.I)
+                agent_fk = ref is not None and ref.group(1).lower() == 'agents'
+                if agent_fk:
+                    if con:
+                        constraint = con.group(1).lower()
+                    else:
+                        fk = re.search(r'\bFOREIGN\s+KEY\s*\(([^)]+)\)', part, re.I)
+                        cols = (fk.group(1) if fk else re.sub(
+                            r'^\s*ADD\s+(?:COLUMN\s+)?', '', part, flags=re.I).strip().split()[0])
+                        constraint = table + '_' + '_'.join(
+                            c.strip().strip('"').lower() for c in cols.split(',')) + '_fkey'
+                    known.add((table, constraint))
+                elif alter and con and (table, con.group(1).lower()) in known:
+                    agent_fk = re.search(r'\bALTER\s+CONSTRAINT\b', part, re.I) is not None
+                    constraint = con.group(1).lower()
+                    if re.search(r'\bDROP\s+CONSTRAINT\b', part, re.I):
+                        known.discard((table, constraint))
+                    rename = re.search(r'\bRENAME\s+CONSTRAINT\s+\w+\s+TO\s+(\w+)', part, re.I)
+                    if rename:
+                        known.discard((table, constraint))
+                        known.add((table, rename.group(1).lower()))
+                # Keep NOT DEFERRABLE distinct from DEFERRABLE, including a
+                # comment between the two words. The latter is always unsafe.
+                clause = re.sub(r'\bNOT\s+DEFERRABLE\b', '', part, flags=re.I)
+                if agent_fk and re.search(r'\bDEFERRABLE\b', clause, re.I):
+                    out.append(f'{name}: orgtree.{table}.{constraint} references agents and is '
+                               'DEFERRABLE: agent foreign keys must be immediate (C1; decision 26)')
+    return out
+
+
 def violations(texts: dict[str, str]) -> list[str]:
     """Every breach of the lock order in these migration texts (file name -> text)."""
     defs: dict[str, tuple[str, bool, str]] = {}
     fired: list[tuple[str, str, bool, str]] = []
-    out: list[str] = []
+    out: list[str] = agent_fk_violations(texts)
     for name in sorted(texts):
         for fn, (trigger, body) in functions(texts[name]).items():
             defs[fn.lower()] = (name, trigger, body)       # a later definition replaces it
@@ -491,6 +606,95 @@ DO $d$ BEGIN
 END $d$;
 """}
         self.assertTrue(any('format() argument' in v for v in violations(texts)), violations(texts))
+
+
+class AgentForeignKeys(unittest.TestCase):
+    def test_every_agent_foreign_key_is_immediate(self) -> None:
+        self.assertEqual(agent_fk_violations(_migrations()), [])
+
+    def test_control_inline_and_table_foreign_keys_cannot_defer(self) -> None:
+        for definition in (
+                'holder_id bigint REFERENCES orgtree.agents(id) DEFERRABLE INITIALLY DEFERRED',
+                'holder_id bigint REFERENCES orgtree.agents(id) DEFERRABLE INITIALLY IMMEDIATE',
+                'holder_id bigint, CONSTRAINT holder FOREIGN KEY (holder_id) '
+                'REFERENCES orgtree.agents(id) DEFERRABLE',
+                'holder_id bigint, reviewer_id bigint, FOREIGN KEY (holder_id, reviewer_id) '
+                'REFERENCES orgtree.agents(id, id) DEFERRABLE'):
+            with self.subTest(definition=definition):
+                got = violations({'0099_x.sql': f'CREATE TABLE orgtree.seats ({definition});'})
+                self.assertEqual(len(got), 1, got)
+                self.assertIn('agent foreign keys must be immediate', got[0])
+
+    def test_control_added_foreign_keys_cannot_defer(self) -> None:
+        for action in (
+                'ADD COLUMN holder_id bigint REFERENCES orgtree.agents(id) DEFERRABLE',
+                'ADD CONSTRAINT holder FOREIGN KEY (holder_id) REFERENCES orgtree.agents(id) '
+                'DEFERRABLE INITIALLY IMMEDIATE'):
+            with self.subTest(action=action):
+                got = agent_fk_violations({'0099_x.sql': f'ALTER TABLE orgtree.seats {action};'})
+                self.assertEqual(len(got), 1, got)
+
+    def test_control_later_alter_cannot_make_an_existing_key_deferrable(self) -> None:
+        for definition, constraint in (
+                ('holder_id bigint REFERENCES orgtree.agents(id)', 'seats_holder_id_fkey'),
+                ('holder_id bigint, CONSTRAINT holder FOREIGN KEY (holder_id) '
+                 'REFERENCES orgtree.agents(id)', 'holder')):
+            with self.subTest(constraint=constraint):
+                got = agent_fk_violations({
+                    '0001.sql': f'CREATE TABLE orgtree.seats ({definition});',
+                    '0002.sql': f'ALTER TABLE orgtree.seats ALTER CONSTRAINT {constraint} '
+                                'DEFERRABLE INITIALLY IMMEDIATE;'})
+                self.assertEqual(len(got), 1, got)
+                self.assertIn('0002.sql', got[0])
+
+    def test_control_renaming_a_constraint_does_not_hide_its_agent_reference(self) -> None:
+        got = agent_fk_violations({'0001.sql': '''
+CREATE TABLE orgtree.seats (holder_id bigint REFERENCES orgtree.agents(id));
+ALTER TABLE orgtree.seats RENAME CONSTRAINT seats_holder_id_fkey TO renamed;
+ALTER TABLE orgtree.seats ALTER CONSTRAINT renamed DEFERRABLE;
+'''})
+        self.assertEqual(len(got), 1, got)
+        self.assertIn('.renamed', got[0])
+
+    def test_immediate_agent_keys_and_other_deferred_constraints_are_distinct(self) -> None:
+        got = agent_fk_violations({'0001.sql': '''
+CREATE TABLE orgtree.seats (
+  holder_id bigint REFERENCES orgtree.agents(id) NOT DEFERRABLE,
+  reviewer_id bigint REFERENCES orgtree.agents(id),
+  slug text CHECK (slug <> 'DEFERRABLE, -- /* text */'),
+  UNIQUE (slug) DEFERRABLE INITIALLY DEFERRED,
+  item_id bigint REFERENCES orgtree.work_items(id) DEFERRABLE
+);
+ALTER TABLE orgtree.seats ALTER CONSTRAINT seats_holder_id_fkey NOT DEFERRABLE;
+ALTER TABLE orgtree.seats ADD CONSTRAINT items FOREIGN KEY (item_id)
+  REFERENCES orgtree.work_items(id) DEFERRABLE;
+'''})
+        self.assertEqual(got, [])
+
+    def test_comments_cannot_add_or_hide_a_deferral_clause(self) -> None:
+        texts = {'0001.sql': '''
+-- REFERENCES orgtree.agents(id) DEFERRABLE
+CREATE TABLE orgtree.seats (
+  holder_id bigint REFERENCES /* nested /* misleading DEFERRABLE */ comment */ orgtree.agents(id)
+    NOT /* DEFERRABLE */ DEFERRABLE,
+  reviewer_id bigint REFERENCES orgtree.agents(id) -- immediate by default
+);
+''' }
+        self.assertEqual(agent_fk_violations(texts), [])
+        texts['0002.sql'] = '''ALTER TABLE orgtree.seats
+ALTER CONSTRAINT seats_holder_id_fkey /* NOT DEFERRABLE */ DEFERRABLE;'''
+        got = agent_fk_violations(texts)
+        self.assertEqual(len(got), 1, got)
+        self.assertIn('0002.sql', got[0])
+
+    def test_dropping_a_key_stops_tracking_that_constraint_name(self) -> None:
+        self.assertEqual(agent_fk_violations({'0001.sql': '''
+CREATE TABLE orgtree.seats (holder_id bigint REFERENCES orgtree.agents(id));
+ALTER TABLE orgtree.seats DROP CONSTRAINT seats_holder_id_fkey;
+ALTER TABLE orgtree.seats ADD CONSTRAINT seats_holder_id_fkey
+  FOREIGN KEY (item_id) REFERENCES orgtree.work_items(id) DEFERRABLE;
+ALTER TABLE orgtree.seats ALTER CONSTRAINT seats_holder_id_fkey DEFERRABLE;
+'''}), [])
 
 
 class Python(unittest.TestCase):

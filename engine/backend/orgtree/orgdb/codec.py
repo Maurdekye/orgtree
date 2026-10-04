@@ -57,6 +57,11 @@ Field kinds:
                            records names its child table in its element spec;
                            a list of scalars names it in ``table`` and stores
                            ``value`` (plus ``value_text`` for timestamps)
+  sum    typed tag, integer or float/compensation columns; the ledger's exact
+         running-sum list, with a null/missing/misfit marker
+  principal  typed recorded name/generation/born/deleted columns and kind;
+         an exact string or object, with aliases for existing actor headers.
+         Resolving a current-holder foreign key is the mapper/writer's job.
 
 A scalar's present ``null`` is stored in a ``<col>_null`` boolean when the
 field is ``nullable`` (fields stored both ways on real data), else in extra.
@@ -77,10 +82,12 @@ from typing import Any, Iterable, Iterator, Mapping
 MISSING: Any = object()
 
 SCALARS = ("text", "int", "float", "num", "bool", "ts", "json")
-KINDS = SCALARS + ("obj", "list")
+KINDS = SCALARS + ("obj", "list", "sum", "principal")
 SHAPE_NULL, SHAPE_OBJECT, SHAPE_LIST, SHAPE_EXTRA = 'n', 'o', 'l', 'x'
 MARKER_VALUES = {'obj': (SHAPE_NULL, SHAPE_OBJECT, SHAPE_EXTRA),
-                 'list': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA)}
+                 'list': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA),
+                 'sum': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA),
+                 'principal': (SHAPE_NULL, SHAPE_OBJECT, 's', SHAPE_EXTRA)}
 SQL_TYPES = {"text": "text", "int": "bigint", "float": "double precision", "num": "numeric",
              "bool": "boolean", "ts": "timestamptz", "json": "json"}
 _INT_MIN, _INT_MAX = -(2 ** 63), 2 ** 63 - 1
@@ -114,6 +121,7 @@ class Field:
     item: str = ""                  # list of scalars: the element kind
     table: str = ""                 # list of scalars: the child table
     values: tuple[str, ...] = ()    # text enum; unsupported values stay in extra
+    principal_aliases: tuple[tuple[str, str], ...] = ()  # absolute physical column names
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
@@ -136,6 +144,14 @@ class Field:
                             or any(not isinstance(v, str) or "\x00" in v for v in self.values)
                             or len(set(self.values)) != len(self.values))):
             raise ValueError(f"{self.key}: values must be a tuple of distinct text enum members")
+        if (not isinstance(self.principal_aliases, tuple)
+                or (self.principal_aliases and self.kind != 'principal')
+                or any(not isinstance(pair, tuple) or len(pair) != 2
+                       or pair[0] not in ('node', 'generation', 'born', 'deleted')
+                       or not isinstance(pair[1], str) or not pair[1]
+                       for pair in self.principal_aliases)
+                or len({pair[0] for pair in self.principal_aliases}) != len(self.principal_aliases)):
+            raise ValueError(f'{self.key}: invalid principal column aliases')
 
     @property
     def child_table(self) -> str:
@@ -266,7 +282,13 @@ def columns(spec: Spec, prefix: str = "") -> tuple[tuple[str, str], ...]:
     out: list[tuple[str, str]] = []
     for f in spec.fields:
         c = prefix + f.col
-        if f.kind in SCALARS:
+        if f.kind == 'sum':
+            from . import estimate_columns
+            out.extend(estimate_columns.columns(c))
+        elif f.kind == 'principal':
+            from . import principal_columns
+            out.extend(principal_columns.columns(c, dict(f.principal_aliases)))
+        elif f.kind in SCALARS:
             out.append((c, SQL_TYPES[f.kind]))
             if f.kind == "ts":
                 out.append((c + "_text", "text"))
@@ -444,7 +466,20 @@ def _fill(spec: Spec, record: dict[str, Any], row: dict[str, Any], extra: dict[s
     for f in spec.fields:
         c = prefix + f.col
         v = record.get(f.key, MISSING)
-        if f.kind in SCALARS:
+        if f.kind in ('sum', 'principal'):
+            # The adapters use physical names. Extra remains at this record's
+            # original JSON path, including when a parent object is flattened.
+            if f.kind == 'sum':
+                from . import estimate_columns
+                typed, remaining = estimate_columns.encode(c, v)
+            else:
+                from . import principal_columns
+                typed, remaining = principal_columns.encode(
+                    c, v, aliases=dict(f.principal_aliases))
+            row.update(typed)
+            if c in remaining:
+                extra[f.key] = remaining[c]
+        elif f.kind in SCALARS:
             row[c] = None
             if f.kind == "ts":
                 row[c + "_text"] = None
@@ -563,6 +598,20 @@ def _read(spec: Spec, row: Mapping[str, Any], children: Children | None,
     out: dict[str, Any] = {}
     for f in spec.fields:
         c = prefix + f.col
+        if f.kind in ('sum', 'principal'):
+            # Exceptional shapes come from extra during the same merge used by
+            # every other field. Typed objects merge their individual misfits.
+            if row.get(c + '_is') == SHAPE_EXTRA:
+                continue
+            if f.kind == 'sum':
+                from . import estimate_columns
+                value = estimate_columns.decode(c, row, {})
+            else:
+                from . import principal_columns
+                value = principal_columns.decode(c, row, {}, aliases=dict(f.principal_aliases))
+            if value is not MISSING:
+                out[f.key] = value
+            continue
         if f.kind in SCALARS:
             v = row.get(c)
             if v is not None:
@@ -598,7 +647,7 @@ def _merge(spec: Spec | None, out: dict[str, Any], extra: Mapping[str, Any]) -> 
     present, recursively; everything else replaces."""
     for k, v in extra.items():
         f = spec.field(k) if spec is not None else None
-        if (f is not None and f.kind == "obj" and isinstance(out.get(k), dict)
+        if (f is not None and f.kind in ("obj", "principal") and isinstance(out.get(k), dict)
                 and isinstance(v, dict)):
             _merge(f.spec, out[k], v)
         else:
