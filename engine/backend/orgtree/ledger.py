@@ -11071,10 +11071,11 @@ class Org:
         if autopsy_id in self.nodes and self.nodes[autopsy_id]["state"] == "live":
             autopsy_node = autopsy_id
         else:
-            hdirs = [dict(d) for d in n["scope"]["add_dirs"]]
-            htools = {**n["scope"]["tools"],
-                      "mcp": list(n["scope"]["tools"].get("mcp") or [])}
-            hvis = n["scope"].get("org_visibility", "full")
+            autopsy_scope = self.capability_scope(nid)
+            hdirs = [dict(d) for d in autopsy_scope["add_dirs"]]
+            htools = {**autopsy_scope["tools"],
+                      "mcp": list(autopsy_scope["tools"].get("mcp") or [])}
+            hvis = autopsy_scope.get("org_visibility", "full")
             charter = (
                 f"Autopsy agent for {base}. Read the failed agent's transcript, "
                 f"diagnose why the content filter tripped, and brief the replacement fable."
@@ -11091,10 +11092,11 @@ class Org:
             next_idx += 1
         rep_id = f"{base}-{next_idx}"
 
-        rdirs = [dict(d) for d in n["scope"]["add_dirs"]]
-        rtools = {**n["scope"]["tools"],
-                  "mcp": list(n["scope"]["tools"].get("mcp") or [])}
-        rvis = n["scope"].get("org_visibility", "full")
+        replacement_scope = self.capability_scope(nid)
+        rdirs = [dict(d) for d in replacement_scope["add_dirs"]]
+        rtools = {**replacement_scope["tools"],
+                  "mcp": list(replacement_scope["tools"].get("mcp") or [])}
+        rvis = replacement_scope.get("org_visibility", "full")
         self.hire(USER, autopsy_node, "fable", 0, rep_id,
                   add_dirs=rdirs, tools=rtools, org_visibility=rvis,
                   charter=n.get("charter", ""))

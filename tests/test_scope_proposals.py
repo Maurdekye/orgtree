@@ -55,6 +55,17 @@ class ScopeProposals(unittest.TestCase):
         self.assertEqual(quickstaff.staff_args(self.org, item, ctx, 'haiku'), before)
         self.assertEqual(self.org.node('leaf')['scope'], self.configured)
 
+    def test_actual_autopsy_and_replacement_inherit_effective_tools(self):
+        self.org.d['tiers']['fable'] = 1  # small fixture budget, same funding rules
+        self.org.node('parent')['parent'] = 'other'
+        result = self.org._execute_auto_autopsy('leaf', 'fixture filter', 'haiku')
+        for key in ('autopsy_id', 'rep_id'):
+            node = self.org.node(result[key])
+            self.assertFalse(node['scope']['tools']['edit'])
+            self.assertEqual(node['scope']['tools']['mcp'], [])
+            self.assertEqual(node['scope']['org_visibility'], 'self')
+        self.assertEqual(self.org.node('leaf')['scope'], self.configured)
+
 
 if __name__ == '__main__':
     unittest.main()
