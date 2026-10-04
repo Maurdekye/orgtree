@@ -981,6 +981,23 @@ class Requests(unittest.TestCase):
                 with host.app_connection() as c:
                     self.assertEqual(c.execute('SELECT count(*) FROM orgtree.engine_instances').fetchone()[0], 1)
                 self.assertIn('migrations', report)
+                # This uses the real start boundary without the fixture's
+                # isolated per-process publication or a preceding stop.
+                other = lifecycle.Lifecycle(ADMIN, runtime_role=conn.role_of(RUNTIME),
+                                            prefix=PREFIX)
+                with conn.connect(ADMIN, names.app(PREFIX)) as c:
+                    other.instance_id = c.execute(
+                        "INSERT INTO orgtree.engine_instances(host,pid) VALUES(%s,%s) RETURNING id",
+                        ('owned-second-start', os.getpid())).fetchone()[0]
+                try:
+                    with self.assertRaisesRegex(RuntimeError, 'already bound to another instance'):
+                        startup.start(runtime=RUNTIME, data_root=root, lc=other,
+                                      env={'ORGTREE_MAX_TURNS': '4'})
+                    self.assertIs(turn_runtime.current(), host)
+                finally:
+                    with conn.connect(ADMIN, names.app(PREFIX)) as c:
+                        c.execute('DELETE FROM orgtree.engine_instances WHERE id=%s',
+                                  (other.instance_id,))
             finally:
                 startup.stop()
             self.assertFalse(host._thread.is_alive())

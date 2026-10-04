@@ -128,10 +128,19 @@ def child_env() -> dict:
 
 
 def run_start(*, build: str, legacy: str = LEGACY, phases: list | None = None) -> dict:
-    """One engine start, as the packaged bracket runs it."""
-    return startup.start(admin=ADMIN, runtime=_with_db(RUNTIME, legacy), data_root=str(DATA),
-                         env=child_env(), build=build,
-                         progress=(phases.append if phases is not None else None))
+    """One simulated engine process, stopped before its successor or database drop."""
+    from orgtree import turnslots
+    from orgtree.orgdb import turn_runtime
+    with mock.patch.object(turn_runtime, '_host', None), mock.patch.multiple(
+            turnslots, _database_queue=None, _database_instance=None,
+            _database_resolver=None, _host_slots=None, _host_limit=None,
+            _activation_callbacks=[]):
+        try:
+            return startup.start(admin=ADMIN, runtime=_with_db(RUNTIME, legacy), data_root=str(DATA),
+                                 env=child_env(), build=build,
+                                 progress=(phases.append if phases is not None else None))
+        finally:
+            startup.stop()
 
 
 def host(build: str = 'old') -> lifecycle.Lifecycle:
