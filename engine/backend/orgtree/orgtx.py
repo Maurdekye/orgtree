@@ -269,6 +269,9 @@ class OrgTx:
     log_label: str = ""
     log_marks: dict[str, float] = field(default_factory=lambda: {})
     log_org_id: int | None = None
+    #: Native structural writers declare roots before any body row lock.
+    #: Their current paths add ancestor agent/share and stats/update locks.
+    structural_roots: frozenset[str] = frozenset()
 
     @property
     def d(self) -> dict[str, Any]:
@@ -1340,7 +1343,8 @@ def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
             share_nodes: Iterable[str] | None = None,
             share_sections: Iterable[SectionName] | None = None,
             op_key: str | None = None, fingerprint: str | None = None,
-            whole: bool = False) -> OrgTx:
+            whole: bool = False,
+            structural_roots: Iterable[str] | None = None) -> OrgTx:
     """Validate one org's names and build its (not yet begun) OrgTx."""
     if whole:
         if nodes is not None or sections or logs or share_nodes or share_sections:
@@ -1349,7 +1353,8 @@ def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
         if fingerprint is not None and op_key is None:
             raise ValueError("fingerprint without op_key")
         return OrgTx(slug=slug, org=cast(Org, None), op_key=op_key,
-                     fingerprint=fingerprint, all_nodes=True, whole=True)
+                     fingerprint=fingerprint, all_nodes=True, whole=True,
+                     structural_roots=_names(structural_roots, "structural_roots"))
     all_nodes = nodes is ALL
     lock_nodes = frozenset() if all_nodes else _names(nodes, "nodes")
     lock_sections, lock_parents = _section_names(sections, "sections")
@@ -1370,7 +1375,8 @@ def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
     return OrgTx(slug=slug, org=cast(Org, None), lock_nodes=lock_nodes,
                  lock_sections=lock_sections, share_nodes=sh_nodes,
                  share_sections=sh_sections, logs=log_names,
-                 op_key=op_key, fingerprint=fingerprint, all_nodes=all_nodes)
+                 op_key=op_key, fingerprint=fingerprint, all_nodes=all_nodes,
+                 structural_roots=_names(structural_roots, "structural_roots"))
 
 
 @contextlib.contextmanager
@@ -1499,11 +1505,12 @@ def org_tx(slug: str, *, nodes: Iterable[str] | Any = None,
            share_sections: Iterable[SectionName] | None = None,
            op_key: str | None = None, fingerprint: str | None = None,
            lock_timeout: float | None = None,
-           retries: int = DEFAULT_RETRIES, whole: bool = False) -> Iterator[OrgTx]:
+           retries: int = DEFAULT_RETRIES, whole: bool = False,
+           structural_roots: Iterable[str] | None = None) -> Iterator[OrgTx]:
     """One row transaction on one org. See the module docstring."""
     def make() -> list[OrgTx]:
         return [_new_tx(slug, nodes, sections, logs, share_nodes, share_sections,
-                        op_key, fingerprint, whole)]
+                        op_key, fingerprint, whole, structural_roots)]
     with _run(make, lock_timeout, retries) as txs:
         yield txs[0]
 

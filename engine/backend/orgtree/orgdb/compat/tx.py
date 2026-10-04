@@ -34,6 +34,7 @@ from typing import Any, Iterator
 from ... import orgtx, profiling, store, txlog
 from ...stateprobe import SaveChanges
 from .. import registry as _reg
+from .. import graph
 from . import conn as C
 from . import rows as R
 
@@ -46,9 +47,10 @@ def _writes_settings(tx: orgtx.OrgTx) -> bool:
 
 def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
                mail_owners: list[str] | None = None, all_nodes: bool = False,
-               whole: bool = False, archive: bool = False) -> str | None:
+               whole: bool = False, archive: bool = False,
+               graph_plan: graph.LockPlan | None = None) -> str | None:
     """``orgtx._lock_block`` for an org database: one DO block, entries in plan order."""
-    if not entries and not mail_owners and not all_nodes and not archive:
+    if not entries and not mail_owners and not all_nodes and not archive and graph_plan is None:
         return None
     from psycopg import sql   # noqa: PLC0415
     from .. import docket_locks
@@ -113,12 +115,12 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
         lines.insert(0, "PERFORM pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
                         f"hashtext({lit(R.SETTINGS_FENCE)}));")
     # Plan advisories precede rows; identity-name fences follow their agent tier.
-    # Agents by physical id, then items,
+    # Agents by physical id, then stats, items,
     # mailboxes, other rows. A mailbox is locked even for an append-only plan
     # that deliberately never locks or reads retained archive rows.
     for owner in mail_owners:
         agents[owner] = True
-    if agents or role_ids or all_nodes:
+    if agents or role_ids or all_nodes or graph_plan is not None:
         wanted = ','.join(lit(n) for n in agents)
         exclusive = ','.join(lit(n) for n, write in agents.items() if write)
         condition = (f"r.name IN ({exclusive}) AND "
@@ -133,6 +135,8 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
             where += ' OR id IN (' + ','.join(str(a) for a in sorted(role_ids)) + ')'
         if all_nodes:
             where += ' OR NOT tombstone'
+        if graph_plan is not None and graph_plan.agent_ids:
+            where += ' OR id IN (' + ','.join(str(a) for a in sorted(graph_plan.agent_ids)) + ')'
         if retained:
             condition += f" OR r.name IN ({retained})"
         lines.append(f"FOR r IN SELECT id,name,tombstone,state FROM orgtree.agents WHERE {where} ORDER BY id LOOP "
@@ -145,6 +149,8 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
     lines.append(f"PERFORM set_config({lit(docket_locks.SETTING)}, "
                  f"json_build_object('ids',held_ids,'names',{lit(json.dumps(sorted(role_names)))}::json,"
                  "'source','org_tx')::text,true);")
+    if graph_plan is not None:
+        lines.append(graph.stats_lock_clause(graph_plan))
     lines.extend(items)
     if mail_owners:
         wanted = ','.join(lit(n) for n in mail_owners)
@@ -286,12 +292,15 @@ class OrgDbBackend:
                         raw.execute("SELECT pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
                                     "hashtext(%s))", (R.SETTINGS_FENCE,))
                     ids: list[str] = []
+                    graph_plan = graph.plan_locks(raw, tx)
                     if tx.all_nodes:
                         if not tx.whole:
                             raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
                                         (conn.org_id, f"node:{orgtx._ALL_NODES_KEY}"))   # pyright: ignore[reportPrivateUsage]
+                        condition = "true" if graph_plan is not None else "NOT tombstone"
                         ids = [str(r[0]) for r in raw.execute(
-                            "SELECT name FROM orgtree.agents WHERE NOT tombstone ORDER BY id").fetchall()]
+                            "SELECT name FROM orgtree.agents WHERE " + condition +
+                            " ORDER BY id").fetchall()]
                         tx.lock_nodes = frozenset(ids)
                         if tx.whole:
                             orgtx._whole_rows(tx, *_whole(raw))         # pyright: ignore[reportPrivateUsage]
@@ -300,9 +309,11 @@ class OrgDbBackend:
                         if not (e[0] == "org" or (tx.all_nodes and e[0] == "node"))],
                         mail_owners=sorted(tx.lock_nodes) if "mail_log" in tx.logs else [],
                         all_nodes=tx.all_nodes, whole=tx.whole,
-                        archive="work_items_archive" in tx.logs)
+                        archive="work_items_archive" in tx.logs,
+                        graph_plan=graph_plan)
                     if block is not None:
                         raw.execute(block)
+                    graph.install_plan(raw, tx, graph_plan)
             except Exception as e:
                 if current is None:
                     raise orgtx._pg_error(e) from e                     # pyright: ignore[reportPrivateUsage]

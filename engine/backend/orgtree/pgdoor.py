@@ -228,13 +228,17 @@ class TxSpec:
     share_nodes: tuple[str, ...] = ()
     share_sections: tuple[str, ...] = ()
     logs: "tuple[LogName, ...]" = ()
+    # Native graph maintenance is planned explicitly; unrelated node writes
+    # must not serialize on ancestor stats rows.
+    structural_roots: tuple[str, ...] = ()
 
     def widened(self, w: "Widen") -> "TxSpec":
         o = w.spec
         return TxSpec(self.nodes + o.nodes, self.sections + o.sections,
                       self.share_nodes + o.share_nodes,
                       self.share_sections + o.share_sections,
-                      self.logs + o.logs)
+                      self.logs + o.logs,
+                      self.structural_roots + o.structural_roots)
 
     def covers(self, o: "TxSpec") -> "TxSpec":
         """The part of `o` this spec does NOT hold (empty when it covers it).
@@ -250,11 +254,12 @@ class TxSpec:
                   and not _holds(self.share_sections, s)),
             tuple(x for x in o.logs
                   if x not in self.logs
-                  and (x if isinstance(x, str) else x[0]) not in logs))
+                  and (x if isinstance(x, str) else x[0]) not in logs),
+            tuple(n for n in o.structural_roots if n not in self.structural_roots))
 
     def empty(self) -> bool:
         return not (self.nodes or self.sections or self.share_nodes
-                    or self.share_sections or self.logs)
+                    or self.share_sections or self.logs or self.structural_roots)
 
 
 SpecFn = Callable[[Any, Any, "dict[str, Any]"], TxSpec]
@@ -453,7 +458,8 @@ def join(slug: str, **rows: "Iterable[LogName]") -> "Iterator[Any]":
     if not need.empty():
         raise Widen(nodes=need.nodes, sections=need.sections,
                     share_nodes=need.share_nodes,
-                    share_sections=need.share_sections, logs=need.logs)
+                    share_sections=need.share_sections, logs=need.logs,
+                    structural_roots=need.structural_roots)
     yield cur[1]
 
 
@@ -475,7 +481,9 @@ def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any]
                            sections=list(spec.sections),
                            share_nodes=list(spec.share_nodes),
                            share_sections=list(spec.share_sections),
-                           logs=list(spec.logs)) as h:
+                           logs=list(spec.logs),
+                           **({"structural_roots": list(spec.structural_roots)}
+                              if spec.structural_roots else {})) as h:
                 token = _CURRENT.set((slug, h, spec))
                 try:
                     out = step(h, spec)
@@ -620,7 +628,8 @@ def _norm(spec: TxSpec) -> TxSpec:
                   tuple(sorted(set(spec.share_nodes) - set(ns))),
                   tuple(sorted({_row(s) for s in spec.share_sections} - set(ss),
                                key=_logkey)),
-                  tuple(sorted(set(spec.logs), key=_logkey)))
+                  tuple(sorted(set(spec.logs), key=_logkey)),
+                  tuple(sorted(set(spec.structural_roots))))
 
 
 def agent_spec(body: Any, a: dict[str, Any], spec: TxSpec) -> TxSpec:
@@ -640,7 +649,8 @@ def agent_spec(body: Any, a: dict[str, Any], spec: TxSpec) -> TxSpec:
         if opreceipts.SECTION not in logs:
             logs += (opreceipts.SECTION,)
     return _norm(TxSpec(ns, secs, spec.share_nodes,
-                        spec.share_sections + (KILLSWITCH,), logs))
+                        spec.share_sections + (KILLSWITCH,), logs,
+                        spec.structural_roots))
 
 
 def agent_tx(body: Any, a: dict[str, Any],
