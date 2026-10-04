@@ -1,5 +1,5 @@
 """Full org schema: eager raw/native aggregates, batch overlap and FK deletion."""
-import import_provenance  # noqa: F401 asserts own-checkout engine imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import contextlib
 import json
 import os
