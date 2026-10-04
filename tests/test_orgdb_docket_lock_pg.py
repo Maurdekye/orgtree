@@ -9,12 +9,14 @@ import import_provenance  # noqa: F401  asserts this checkout before engine impo
 
 import threading
 import time
+import copy
+import json
 import unittest
 from unittest.mock import patch
 
 import test_orgdb_schema_rename_pg as f
-from orgtree import orgtx, store
-from orgtree.orgdb import registry
+from orgtree import ledger, orgtx, store
+from orgtree.orgdb import docket_locks, registry
 from orgtree.orgdb.compat import rows as R
 
 
@@ -134,3 +136,136 @@ class DocketAgentLocks(unittest.TestCase):
 
     def test_changed_seven_current_roles_and_native_agent_docket_transaction_do_not_deadlock(self):
         self.overlap(changed_roles=True)
+
+    def test_new_role_outside_item_plan_refuses_every_write_then_widened_retry_commits(self):
+        twins = f.f.Twins('docket-role-widen', before=f.prepare_legacy)
+        with f.f.storage(True):
+            before = f.rows(twins.copy)
+            for declared, succeeds in ((['worker'], False), (['worker', 'taken'], True)):
+                caught = None
+                try:
+                    with orgtx.org_tx(twins.copy, nodes=declared,
+                                      sections=['work_items\x1fowned-item']) as tx:
+                        tx.d['nodes']['worker']['title'] = 'widened write'
+                        record = f.item(tx.org, 'owned-item')
+                        record['owner'] = tx.org._work_holder('taken')
+                        record['title'] = 'widened item'
+                except orgtx.UnlockedWrite as error:
+                    caught = error
+                if not succeeds:
+                    self.assertIsNotNone(caught)
+                    self.assertIn(('node', 'taken'), caught.rows)
+                    self.assertEqual(f.rows(twins.copy), before)
+                else:
+                    self.assertIsNone(caught)
+            loaded = store.load_org(twins.copy)
+            self.assertEqual(loaded.nodes['worker']['title'], 'widened write')
+            self.assertEqual(f.item(loaded, 'owned-item')['owner']['node'], 'taken')
+
+    def test_foreign_key_share_locks_do_not_authorize_agent_mutation(self):
+        twins = f.f.Twins('docket-role-authority', before=f.prepare_legacy)
+        with f.f.storage(True):
+            before = f.rows(twins.copy)
+            with self.assertRaises(orgtx.UnlockedWrite):
+                with orgtx.org_tx(twins.copy, sections=['work_items\x1fowned-item']) as tx:
+                    # worker is physically locked for the existing owner FK,
+                    # but the transaction never declared an agent write.
+                    tx.d['nodes']['worker']['title'] = 'unauthorized'
+                    f.item(tx.org, 'owned-item')['title'] = 'also rolled back'
+            self.assertEqual(f.rows(twins.copy), before)
+
+    def test_plan_rolls_back_at_savepoint_and_transaction_and_does_not_survive_reuse(self):
+        twins = f.f.Twins('docket-role-rollback', before=f.prepare_legacy)
+        with registry.connection(twins.copy) as raw:
+            worker, owner = (f.ids(twins.copy)[n] for n in ('worker', 'owner'))
+            self.assertIsNone(docket_locks.plan(raw))
+            with raw.transaction():
+                docket_locks.lock(raw, [worker], ['worker'])
+                first = docket_locks.plan(raw)
+                with self.assertRaisesRegex(RuntimeError, 'rollback inner'):
+                    with raw.transaction():
+                        docket_locks.lock(raw, [owner], ['owner'])
+                        self.assertEqual(docket_locks.plan(raw)['ids'], [owner])
+                        raise RuntimeError('rollback inner')
+                self.assertEqual(docket_locks.plan(raw), first)
+            self.assertIsNone(docket_locks.plan(raw))
+            with self.assertRaisesRegex(RuntimeError, 'rollback outer'):
+                with raw.transaction():
+                    docket_locks.lock(raw, [owner], ['owner'])
+                    raise RuntimeError('rollback outer')
+            with raw.transaction():
+                self.assertIsNone(docket_locks.plan(raw))
+
+    def test_same_save_hire_and_deleted_role_tombstone_are_written_before_references(self):
+        twins = f.f.Twins('docket-new-identity', before=f.prepare_legacy)
+        with f.f.storage(True):
+            org = store.load_org(twins.copy)
+            org.hire(ledger.USER, 'boss', 'haiku', 0, 'new-role')
+            record = f.item(org, 'owned-item')
+            record['owner'] = org._work_holder('new-role')
+            record['reviewer'] = dict(node='missing-role', born='missing-birth', generation=7, deleted=True)
+            store.save_org(org)
+            with registry.connection(twins.copy) as raw:
+                row = raw.execute("SELECT a.name,a.tombstone,b.name,b.tombstone,b.lineage_born,b.generation "
+                                  "FROM orgtree.work_items w JOIN orgtree.agents a ON a.id=w.owner_agent_id "
+                                  "JOIN orgtree.agents b ON b.id=w.reviewer_agent_id "
+                                  "WHERE w.slug='owned-item'").fetchone()
+                self.assertEqual(tuple(row), ('new-role', False, 'missing-role', True, 'missing-birth', 7))
+            self.assertEqual(f.item(store.load_org(twins.copy), 'owned-item')['reviewer'], record['reviewer'])
+
+    def test_whole_org_plan_includes_retained_current_roles_and_all_live_nodes(self):
+        twins = f.f.Twins('docket-whole-roles', before=f.prepare_legacy)
+        with f.f.storage(True):
+            org = store.load_org(twins.copy)
+            f.item(org, 'owned-item')['reviewer'] = dict(node='gone', deleted=True, born='old')
+            store.save_org(org)
+            with orgtx.org_tx(twins.copy, whole=True) as tx:
+                raw = store._orgtx_local.pinned[twins.copy].raw
+                # The pinned save connection holds both live and tombstone FK
+                # targets before the item rows; authorization remains name based.
+                held = docket_locks.plan(raw)
+                linked = docket_locks.linked(raw, 'true', ())
+                self.assertTrue(linked <= set(held['ids']))
+                f.item(tx.org, 'owned-item')['title'] = 'whole role write'
+            self.assertEqual(f.item(store.load_org(twins.copy), 'owned-item')['title'], 'whole role write')
+
+    def test_compat_item_archive_append_replace_and_whole_list_use_early_plan(self):
+        twins = f.f.Twins('docket-compat-entry', before=f.prepare_legacy)
+        with f.f.storage(True):
+            record = copy.deepcopy(f.item(store.load_org(twins.copy), 'owned-item'))
+        real_write = R._docket_write
+        reached = []
+
+        def checked(raw, record, keys, previous):
+            held = docket_locks.plan(raw)
+            self.assertIsNotNone(held)
+            prior = docket_locks.linked(raw, 'w.slug=%s', (record['slug'],))
+            self.assertTrue(prior <= set(held['ids']))
+            reached.append(record['title'])
+            return real_write(raw, record, keys, previous)
+
+        with registry.connection(twins.copy) as raw, patch.object(R, '_docket_write', checked):
+            with raw.transaction():
+                record['title'] = 'direct item'
+                tx = R.Tx()
+                R.item_put(raw, tx, record['slug'], record)
+                R.docket_finish(raw, tx)
+            with raw.transaction():
+                tx = R.Tx()
+                R.docket_prepare_doc(raw, 'work_items\x1f' + record['slug'])
+                R.doc_delete(raw, 'work_items\x1f' + record['slug'], R.Names(raw), tx=tx)
+                record['title'] = 'archive append'
+                seq = R.log_insert(raw, R.model().logs['work_items_archive'], None,
+                                   json.dumps(record), R.Names(raw), tx=tx)
+                R.docket_finish(raw, tx)
+            with raw.transaction():
+                tx = R.Tx()
+                record['title'] = 'archive replace'
+                self.assertEqual(R.log_replace(raw, R.model().logs['work_items_archive'],
+                                               R.by_seq('log_d', seq)[1], json.dumps(record),
+                                               expected=None, tx=tx), 1)
+                R.docket_finish(raw, tx)
+            with raw.transaction():
+                record['title'] = 'whole archive'
+                R._docket_section_put(raw, 'work_items_archive', [record], None)
+        self.assertEqual(reached, ['direct item', 'archive append', 'archive replace', 'whole archive'])

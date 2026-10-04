@@ -588,7 +588,7 @@ class LockBlock(unittest.TestCase):
         self.assertIn('ORDER BY id LOOP', block)
         self.assertIn("r.name IN ('boss','ops')", block)
         self.assertIn('FOR UPDATE; ELSE PERFORM id FROM orgtree.agents', block)
-        self.assertIn('FOR SHARE; END IF; END LOOP;', block)
+        self.assertIn('FOR SHARE; END IF; held_ids := array_append(held_ids,r.id); END LOOP;', block)
         rows = re.findall(r"PERFORM 1 FROM orgtree\.(\w+)[^;]*?(FOR UPDATE|FOR SHARE)", locks[1])
         self.assertEqual(rows, [('org_sections', 'FOR UPDATE'),
                                 ('org_sections', 'FOR UPDATE')])

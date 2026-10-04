@@ -45,11 +45,14 @@ def _writes_settings(tx: orgtx.OrgTx) -> bool:
 
 
 def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
-               mail_owners: list[str] | None = None) -> str | None:
+               mail_owners: list[str] | None = None, all_nodes: bool = False,
+               whole: bool = False) -> str | None:
     """``orgtx._lock_block`` for an org database: one DO block, entries in plan order."""
-    if not entries and not mail_owners:
+    if not entries and not mail_owners and not all_nodes:
         return None
     from psycopg import sql   # noqa: PLC0415
+    from .. import docket_locks
+    role_ids, role_names = docket_locks.transaction_scope(raw, entries, all_nodes=all_nodes, whole=whole)
     m = R.model()
     lines: list[str] = []
     items: list[str] = []
@@ -108,21 +111,37 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
         # include settings rows it only reads, which a writer holding the fence may need
         lines.insert(0, "PERFORM pg_advisory_xact_lock(hashtext('orgdb-doc-key'), "
                         f"hashtext({lit(R.SETTINGS_FENCE)}));")
-    # Every advisory precedes every row. Agents by physical id, then items,
+    # Plan advisories precede rows; identity-name fences follow their agent tier.
+    # Agents by physical id, then items,
     # mailboxes, other rows. A mailbox is locked even for an append-only plan
     # that deliberately never locks or reads retained archive rows.
     for owner in mail_owners:
         agents[owner] = True
-    if agents:
+    if agents or role_ids or all_nodes:
         wanted = ','.join(lit(n) for n in agents)
         exclusive = ','.join(lit(n) for n, write in agents.items() if write)
-        condition = f"r.name IN ({exclusive})" if exclusive else "false"
+        condition = f"r.name IN ({exclusive}) AND NOT r.tombstone" if exclusive else "false"
+        if all_nodes:
+            condition = f"NOT r.tombstone OR ({condition})"
         retained = ','.join(lit(n) for n in mail_owners)
         live = f"(NOT tombstone OR name IN ({retained}))" if retained else "NOT tombstone"
-        lines.append(f"FOR r IN SELECT id,name FROM orgtree.agents WHERE name IN ({wanted}) "
-                     f"AND {live} ORDER BY id LOOP "
+        where = f"(name IN ({wanted}) AND {live})" if wanted else 'false'
+        if role_ids:
+            where += ' OR id IN (' + ','.join(str(a) for a in sorted(role_ids)) + ')'
+        if all_nodes:
+            where += ' OR NOT tombstone'
+        if retained:
+            condition += f" OR r.name IN ({retained})"
+        lines.append(f"FOR r IN SELECT id,name,tombstone FROM orgtree.agents WHERE {where} ORDER BY id LOOP "
                      f"IF {condition} THEN PERFORM id FROM orgtree.agents WHERE id=r.id FOR UPDATE; "
-                     "ELSE PERFORM id FROM orgtree.agents WHERE id=r.id FOR SHARE; END IF; END LOOP;")
+                     "ELSE PERFORM id FROM orgtree.agents WHERE id=r.id FOR SHARE; END IF; "
+                     "held_ids := array_append(held_ids,r.id); END LOOP;")
+    for name in sorted(role_names):
+        lines.append("PERFORM pg_advisory_xact_lock(hashtext('orgdb-agent-name'), " +
+                     f"hashtext({lit(name)}));")
+    lines.append(f"PERFORM set_config({lit(docket_locks.SETTING)}, "
+                 f"json_build_object('ids',held_ids,'names',{lit(json.dumps(sorted(role_names)))}::json,"
+                 "'source','org_tx')::text,true);")
     lines.extend(items)
     if mail_owners:
         wanted = ','.join(lit(n) for n in mail_owners)
@@ -130,7 +149,7 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
                      "INSERT INTO orgtree.mailboxes(agent_id) VALUES(r.id) ON CONFLICT DO NOTHING; "
                      "PERFORM 1 FROM orgtree.mailboxes WHERE agent_id=r.id FOR UPDATE; END LOOP;")
     lines.extend(others)
-    body = "DECLARE r record; BEGIN\n" + "\n".join(lines) + "\nEND"
+    body = "DECLARE r record; held_ids bigint[] := '{}'; BEGIN\n" + "\n".join(lines) + "\nEND"
     while True:
         tag = "$orgtx_" + secrets.token_hex(6) + "$"
         if tag not in body:
@@ -269,15 +288,15 @@ class OrgDbBackend:
                             raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
                                         (conn.org_id, f"node:{orgtx._ALL_NODES_KEY}"))   # pyright: ignore[reportPrivateUsage]
                         ids = [str(r[0]) for r in raw.execute(
-                            "SELECT name FROM orgtree.agents WHERE NOT tombstone ORDER BY id "
-                            "FOR UPDATE").fetchall()]
+                            "SELECT name FROM orgtree.agents WHERE NOT tombstone ORDER BY id").fetchall()]
                         tx.lock_nodes = frozenset(ids)
                         if tx.whole:
                             orgtx._whole_rows(tx, *_whole(raw))         # pyright: ignore[reportPrivateUsage]
                     block = _lock_rows(raw, conn.org_id, [
                         e for e in orgtx._lock_plan(tx, ids)            # pyright: ignore[reportPrivateUsage]
                         if not (e[0] == "org" or (tx.all_nodes and e[0] == "node"))],
-                        mail_owners=sorted(tx.lock_nodes) if "mail_log" in tx.logs else [])
+                        mail_owners=sorted(tx.lock_nodes) if "mail_log" in tx.logs else [],
+                        all_nodes=tx.all_nodes, whole=tx.whole)
                     if block is not None:
                         raw.execute(block)
             except Exception as e:

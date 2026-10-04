@@ -391,6 +391,7 @@ def _doc_cas(conn: Any, p: Sequence[Any]) -> Result:
     c = conn.raw
     names = _names(conn)
     with conn.atomic(write=True):
+        R.docket_prepare_doc(c, key, text)
         R.fence(c, key, creating=False)
         got = R.doc_get(c, key, names=names, lock=True)
         if got is None or not R.same(got[1], expected):
@@ -405,6 +406,7 @@ def _doc_insert_absent(conn: Any, p: Sequence[Any]) -> Result:
     c = conn.raw
     names = _names(conn)
     with conn.atomic(write=True):
+        R.docket_prepare_doc(c, key, text)
         kind, sect, rest = R.kind_of(key)
         if kind == "owner":
             aid = names.id(rest, mint=True)
@@ -430,6 +432,7 @@ def _doc_insert_absent(conn: Any, p: Sequence[Any]) -> Result:
 def _doc_upsert(conn: Any, p: Sequence[Any]) -> Result:
     key, text = p
     with conn.atomic(write=True):
+        R.docket_prepare_doc(conn.raw, key, text)
         # the same fence as the insert above (review f21): an upsert of a key another
         # transaction is inserting or upserting waits for it, then replaces its value whole,
         # as the legacy upsert waited on the row and then updated it
@@ -443,6 +446,7 @@ def _doc_cas_delete(conn: Any, p: Sequence[Any]) -> Result:
     key, expected = p
     names = _names(conn)
     with conn.atomic(write=True):
+        R.docket_prepare_doc(conn.raw, key)
         R.fence(conn.raw, key, creating=False)
         got = R.doc_get(conn.raw, key, names=names, lock=True)
         if got is None or not R.same(got[1], expected):
@@ -453,6 +457,7 @@ def _doc_cas_delete(conn: Any, p: Sequence[Any]) -> Result:
 @stmt("DELETE FROM doc WHERE key=?")
 def _doc_delete(conn: Any, p: Sequence[Any]) -> Result:
     with conn.atomic(write=True):
+        R.docket_prepare_doc(conn.raw, p[0])
         R.fence(conn.raw, p[0], creating=False)
         return _w(R.doc_delete(conn.raw,p[0],_names(conn),tx=conn.tx if R.kind_of(p[0])[0]=='item' else None))
 

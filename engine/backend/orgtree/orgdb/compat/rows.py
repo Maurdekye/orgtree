@@ -785,6 +785,7 @@ def doc_put(c: Any, tx: Tx, key: str, text: str, names: Names) -> None:
     finds it locked waits there holding nothing else, as the legacy writer waited on the one
     doc row (writing the records first could hold them while waiting, and deadlock)."""
     m = model()
+    docket_prepare_doc(c, key, text)
     kind, sect, rest = kind_of(key)
     value = json.loads(text)
     if kind == "owner":
@@ -958,6 +959,21 @@ def owner_put(c: Any, sect: str, owner: str, value: Any, names: Names) -> None:
 
 # ----------------------------------------------------------------- the docket
 
+def docket_prepare_doc(c: Any, key: str, text: str | None = None) -> None:
+    """Agent tier before an item CAS, fence or whole archive section write."""
+    from .. import docket_locks
+    kind, _, slug = kind_of(key)
+    if kind == 'item':
+        docket_locks.prepare(c, [json.loads(text)] if text is not None else (), slugs=(slug,))
+    elif key == 'work_items_archive':
+        value = json.loads(text) if text is not None else None
+        docket_locks.prepare(c, value if isinstance(value, list) else (), list_key='archive')
+    elif key == 'work_items' and docket_locks.plan(c) is None:
+        # A standalone header can lock item rows before later item statements.
+        # Managed saves already installed their complete set of changed roles.
+        docket_locks.prepare(c, list_key='active')
+
+
 def _docket_section_put(c: Any, key: str, value: Any, tx: Tx | None) -> None:
     """A whole docket list still uses stable parent/event writers.
 
@@ -971,6 +987,8 @@ def _docket_section_put(c: Any, key: str, value: Any, tx: Tx | None) -> None:
     slugs = [model().workrows.slug_of(record) for record in records]
     if len(slugs)!=len(set(slugs)):
         raise ShapeError(f"{key}: duplicate work-item slug")
+    from .. import docket_locks
+    docket_locks.prepare(c, records, list_key='archive' if key=='work_items_archive' else 'active')
     own_tx = tx is None
     tx = tx or Tx()
     if key=='work_items_archive':
@@ -1014,6 +1032,9 @@ def items(c: Any, slugs: Iterable[str] | None = None, *,
 
 
 def item(c: Any, slug: str, *, lock: bool = False) -> tuple[tuple[str, str, str], str] | None:
+    if lock:
+        from .. import docket_locks
+        docket_locks.prepare(c, slugs=(slug,))
     rows, ch = fetch(c, D.WORK_ITEMS, "list_key = 'active' AND slug = %s", (slug,), lock=lock)
     if not rows or rows[0]['id'] in docket_pending(c)['deleted']:
         return None
@@ -1038,6 +1059,7 @@ def _update_row(c: Any, table: str, row: Mapping[str, Any]) -> None:
 
 def _docket_write(c: Any, record: Mapping[str, Any], keys: Mapping[str, Any],
                   previous: Mapping[str, Any] | None) -> None:
+    from .. import docket_locks
     rid = keys['id']
     old = _item_events(c,[rid]).get(rid,[]) if previous is not None else []
     events, removed, rewritten = docket_events.difference(
@@ -1055,7 +1077,7 @@ def _docket_write(c: Any, record: Mapping[str, Any], keys: Mapping[str, Any],
                                  previous_relations=previous_children.get(R.DELIVERY.table, ()),
                                  previous_children=previous_children,
                                  allocate_relation=lambda table: new_ids(c, table, 1)[0],
-                                 previous_item=previous, resolve_current=Names(c).current)
+                                 previous_item=previous, resolve_current=docket_locks.resolver(c))
     if previous is None:
         insert(c,'work_items',out['work_items'],override=True)
     else:
@@ -1080,6 +1102,8 @@ def item_put(c: Any, tx: Tx, slug: str, value: Any) -> None:
     m = model()
     if m.workrows.slug_of(value) != slug:
         raise CompatError(f"work item row {slug!r} holds another slug")
+    from .. import docket_locks
+    docket_locks.prepare(c, (value,), slugs=(slug,))
     rows, ch = fetch(c,D.WORK_ITEMS,'slug=%s',(slug,),lock=True)
     row = rows[0] if rows else None
     state = docket_pending(c)
@@ -1629,6 +1653,8 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names,
         raise ShapeError(f"{ls.name}: a log entry that is not an object")
     if ls.kind=='archive':
         assert tx is not None
+        from .. import docket_locks
+        docket_locks.prepare(c, (rec,))
         rows,_ = fetch(c,D.WORK_ITEMS,'slug=%s',(rec.get('slug'),),lock=True)
         row = rows[0] if rows else None
         state = docket_pending(c)
@@ -1676,6 +1702,9 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names,
 def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | None,
                 tx: Tx | None = None) -> int:
     """Rewrite the row ``rid`` (compare-and-set when ``expected`` is given); 0 or 1."""
+    if ls.kind == 'archive':
+        from .. import docket_locks
+        docket_locks.prepare(c, (json.loads(text),), archive_ids=(rid,))
     if ls.name == 'turn_log':
         _turns().lock_log_ids(c, [rid])
     if ls.name == "mail_log":

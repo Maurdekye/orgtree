@@ -5845,6 +5845,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     real COMMIT (receiptcommit); a caller that passes None cannot write one."""
     from .readonly_projection import reject_projection
     reject_projection(d)
+    if getattr(conn, 'orgdb', False):
+        from .orgdb import docket_locks
+        docket_locks.save(conn, d, lazy, rename_intent)
     if rename_intent is not None and getattr(conn, 'orgdb', False):
         from .orgdb import renames
         lazy = renames.prepass(conn, d, lazy, rename_intent, changes)
