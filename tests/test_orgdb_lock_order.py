@@ -744,5 +744,39 @@ class Python(unittest.TestCase):
         self.assertIn('orgdb/x.py: force forces deferred checks', got[0])
 
 
+def rename_lock_violations(source: str) -> list[str]:
+    """The explicit name handoff locks agents, then names, then updates names."""
+    tree = ast.parse(source)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+              and node.name == 'prepass')
+    statements, name_locks = [], []
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == 'lock' and isinstance(node.func.value, ast.Name) \
+                    and node.func.value.id == 'names':
+                name_locks.append(node.lineno)
+            if node.func.attr == 'execute' and node.args and isinstance(node.args[0], ast.Constant):
+                statements.append((node.lineno, node.args[0].value))
+    rows = [line for line, sql in statements if 'FOR UPDATE' in sql and 'orgtree.agents' in sql]
+    updates = [line for line, sql in statements if sql.startswith('UPDATE orgtree.agents SET name=')]
+    if not rows or not updates or not name_locks \
+            or not min(rows) < min(name_locks) < min(updates):
+        return ['native rename must lock agents before target names before its name UPDATE']
+    if any('orgtree.org_revision' in sql for _, sql in statements):
+        return ['native rename must stay before the revision tier']
+    return []
+
+
+class NativeRenameOrder(unittest.TestCase):
+    def test_the_explicit_prepass_locks_before_renaming(self):
+        source = (REPO / 'engine/backend/orgtree/orgdb/renames.py').read_text(encoding='utf-8')
+        self.assertEqual(rename_lock_violations(source), [])
+
+    def test_control_missing_row_or_name_lock_is_rejected(self):
+        source = (REPO / 'engine/backend/orgtree/orgdb/renames.py').read_text(encoding='utf-8')
+        self.assertTrue(rename_lock_violations(source.replace('FOR UPDATE', '')))
+        self.assertTrue(rename_lock_violations(source.replace('names.lock(target)', 'pass')))
+
+
 if __name__ == '__main__':
     unittest.main()

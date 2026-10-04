@@ -418,6 +418,9 @@ class Tx:
     #: docket header positions of items not inserted yet: {slug: ord}
     item_ord: dict[str, int] = field(default_factory=dict)
     docket_touched: bool = False
+    # Explicit save handoff: validated once before in-place agent-name updates.
+    rename_checked: dict[str, str] = field(default_factory=dict)
+    rename_nodes: set[str] = field(default_factory=set)
 
 
 def docket_pending(c: Any) -> dict[str, Any]:
@@ -1114,25 +1117,31 @@ def nodes(c: Any, wanted: Iterable[str] | None = None, *, names: Names | None = 
     """(name, text, xmin) of the nodes (all, or ``wanted``), in ``ord`` order.
 
     A node's text is cached by its ``agents`` row version (``xmin:ctid``), within the
-    database's incarnation: every write of a node here rewrites that row (``node_put``,
-    ``node_delete``), and a name another node refers to never changes, so an unchanged row
-    version means an unchanged text. Only the nodes whose row changed are decoded."""
+    database's incarnation. Structural references decode joined names, so the cache token
+    includes those names too: an in-place rename changes their text without changing the
+    referencing row. Only changed texts are decoded."""
     names = names or Names(c)
-    where, params = "NOT tombstone", []
+    where, params = "NOT a.tombstone", []
     if wanted is not None:
-        where += " AND name = ANY(%s)"
+        where += " AND a.name = ANY(%s)"
         params.append(list(wanted))
-    heads = c.execute(f"SELECT id, name, xmin::text, ctid::text FROM orgtree.agents WHERE {where} "
-                      f"ORDER BY ord, id{' FOR UPDATE' if lock else ''}", params).fetchall()
+    heads = c.execute("SELECT a.id, a.name, a.xmin::text, a.ctid::text, p.name, b.name, s.name "
+                      "FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id=a.parent_id "
+                      "LEFT JOIN orgtree.agents b ON b.id=a.predecessor_id "
+                      "LEFT JOIN orgtree.agents s ON s.id=a.successor_id "
+                      f"WHERE {where} ORDER BY a.ord, a.id"
+                      f"{' FOR UPDATE OF a' if lock else ''}", params).fetchall()
     if not heads:
         return []
     slot = _node_slot(c)
     held = _NODE_TEXTS.get(slot, {})
     texts_by_id: dict[int, str] = {}
     misses = []
-    for aid, _, xmin, ctid in heads:
+    versions = {}
+    for aid, _, xmin, ctid, parent, predecessor, successor in heads:
+        versions[int(aid)] = dumps([xmin, ctid, parent, predecessor, successor])
         hit = held.get(int(aid))
-        if hit is not None and hit[0] == f"{xmin}:{ctid}":
+        if hit is not None and hit[0] == versions[int(aid)]:
             texts_by_id[int(aid)] = hit[1]
         else:
             misses.append(int(aid))
@@ -1153,9 +1162,12 @@ def nodes(c: Any, wanted: Iterable[str] | None = None, *, names: Names | None = 
                                 runtime.get(int(r["id"]), {}), tool_lists, names.name)
             text = dumps(rec)
             texts_by_id[int(r["id"])] = text
-            fresh[int(r["id"])] = (f"{r['_xmin']}:{r['_ctid']}", text)
+            version = dumps([r['_xmin'], r['_ctid'],
+                             *(names.name(r[f'{ref}_id']) if r[f'{ref}_id'] is not None else None
+                               for ref in A.REFS)])
+            fresh[int(r["id"])] = (version, text)
         _keep_nodes(slot, fresh)
-    return [(str(name), texts_by_id[int(aid)], str(xmin)) for aid, name, xmin, _ in heads]
+    return [(str(name), texts_by_id[int(aid)], str(xmin)) for aid, name, xmin, *_ in heads]
 
 
 #: decoded node texts by row version: {(server, database, incarnation): {agent id: (version,

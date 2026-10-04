@@ -518,16 +518,34 @@ def _nodes_max_ord(conn: Any, p: Sequence[Any]) -> Result:
 def _node_update(conn: Any, p: Sequence[Any]) -> Result:
     text, name = p
     with conn.atomic(write=True):
+        checked = conn.tx.rename_checked.pop(name, None)
+        if checked is not None:
+            _node_write(conn, name, text, checked)
+            return _w(1)
         if not R.nodes(conn.raw, [name], lock=True):
             return _w(0)
         R.node_put(conn.raw, name, json.loads(text), _names(conn))
         return _w(1)
 
 
+def _node_write(conn: Any, name: str, text: str, checked: str | None) -> None:
+    if checked is not None and name in conn.tx.rename_nodes:
+        from .. import renames
+        if renames.write_title_only(conn.raw, name, text, checked):
+            return
+    R.node_put(conn.raw, name, json.loads(text), _names(conn))
+
+
 @stmt("UPDATE nodes SET val=? WHERE id=? AND val=?")
 def _node_cas(conn: Any, p: Sequence[Any]) -> Result:
     text, name, expected = p
     with conn.atomic(write=True):
+        checked = conn.tx.rename_checked.pop(name, None)
+        if checked is not None:
+            if not R.same(checked, expected):
+                return _w(0)
+            _node_write(conn, name, text, checked)
+            return _w(1)
         got = R.nodes(conn.raw, [name], lock=True)
         if not got or not R.same(got[0][1], expected):
             return _w(0)
@@ -541,11 +559,13 @@ def _nodes_cas_batch(conn: Any, p: Sequence[Any]) -> Result:
     ids, vals, olds = p
     done = []
     with conn.atomic(write=True):
-        names = _names(conn)
-        current = {n: t for n, t, _ in R.nodes(conn.raw, list(ids), lock=True)}
+        wanted = [name for name in ids if name not in conn.tx.rename_checked]
+        current = {n: t for n, t, _ in R.nodes(conn.raw, wanted, lock=True)} if wanted else {}
         for name, text, old in zip(ids, vals, olds):
-            if name in current and R.same(current[name], old):
-                R.node_put(conn.raw, name, json.loads(text), names)
+            checked = conn.tx.rename_checked.pop(name, None)
+            actual = checked if checked is not None else current.get(name)
+            if actual is not None and R.same(actual, old):
+                _node_write(conn, name, text, checked)
                 done.append((name,))
     return Result(done, len(done), write=True)
 
@@ -572,6 +592,7 @@ def _node_insert(conn: Any, p: Sequence[Any]) -> Result:
 @stmt("DELETE FROM nodes WHERE id=?")
 def _node_delete(conn: Any, p: Sequence[Any]) -> Result:
     with conn.atomic(write=True):
+        conn.tx.rename_checked.pop(p[0], None)
         return _w(R.node_delete(conn.raw, p[0]))
 
 
@@ -579,6 +600,11 @@ def _node_delete(conn: Any, p: Sequence[Any]) -> Result:
 def _node_cas_delete(conn: Any, p: Sequence[Any]) -> Result:
     name, expected = p
     with conn.atomic(write=True):
+        checked = conn.tx.rename_checked.pop(name, None)
+        if checked is not None:
+            if not R.same(checked, expected):
+                return _w(0)
+            return _w(R.node_delete(conn.raw, name))
         got = R.nodes(conn.raw, [name], lock=True)
         if not got or not R.same(got[0][1], expected):
             return _w(0)

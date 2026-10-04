@@ -9152,6 +9152,8 @@ class Org:
         for tgt in renamed.values():
             if tgt in self.nodes:
                 raise LedgerError(f"the name {tgt!r} is already taken")
+        from .orgdb import renames as native_renames
+        native_intent = native_renames.register(self, renamed)
         # ---- mutate (nothing below may raise) ----
         # a freed target may still hold a deleted seat's rows: set them aside
         # first (F1) — never overwritten, never read as this seat's
@@ -9184,7 +9186,10 @@ class Org:
             if isinstance(box, MutableMapping):
                 for old_k, new_k in renamed.items():
                     if old_k in box:
-                        box[new_k] = box.pop(old_k)
+                        if native_intent is not None:
+                            native_renames.move_owner(box, old_k, new_k)
+                        else:
+                            box[new_k] = box.pop(old_k)
         # a transition receipt also names its node, and the settle/compact
         # readers require that name to equal the key it is filed under
         transitions = self.d.get("mail_transitions") or {}

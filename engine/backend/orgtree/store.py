@@ -5818,7 +5818,8 @@ def _write_receipts(conn: sqlite3.Connection, lazy: LazyDoc | None, v: Any,
 
 def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None,
                changes: SaveChanges | None = None,
-               receipts: list[tuple[Any, Any]] | None = None
+               receipts: list[tuple[Any, Any]] | None = None,
+               rename_intent: Any = None
                ) -> tuple[dict[str, str], dict[str, str], dict[str, Any], list[str]]:
     """The body of a save transaction (§4.5), for both shapes of `Org.d`:
 
@@ -5844,6 +5845,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     real COMMIT (receiptcommit); a caller that passes None cannot write one."""
     from .readonly_projection import reject_projection
     reject_projection(d)
+    if rename_intent is not None and getattr(conn, 'orgdb', False):
+        from .orgdb import renames
+        lazy = renames.prepass(conn, d, lazy, rename_intent, changes)
     receipt_rows = lazy is not None and lazy._receipt_rows
     if lazy is None and RECEIPT_ROWS and STORE_BACKEND == "postgres" \
             and conn.execute("SELECT 1 FROM receipt_format WHERE singleton").fetchone():
@@ -6065,7 +6069,7 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         for sect in LAZY_SECTIONS:
             if dict.__contains__(d, sect):
                 before = conn.total_changes
-                new_logs[sect] = _write_lazy(conn, sect, dict.__getitem__(d, sect),
+                new_logs[sect] = _write_lazy(conn, sect, dict.__getitem__(lazy, sect),
                                              lazy._snap_logs.get(sect), snap_doc, new_doc)
                 if changes is not None and conn.total_changes != before:
                     changes.log_sections.add(sect)
@@ -6228,8 +6232,13 @@ def _save_sqlite(org: Org) -> None:
     with _POOL.acquire(slug, create=True) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            new_doc, new_nodes, new_logs, order = _write_doc(conn, d, lazy, changes,
-                                                             receipts)
+            try:
+                new_doc, new_nodes, new_logs, order = _write_doc(conn, d, lazy, changes,
+                    receipts, getattr(org, '_native_rename_intent', None))
+            finally:
+                if getattr(conn, 'orgdb', False):
+                    from .orgdb import renames
+                    renames.finish(conn)
             # PG-0: an `orgtx` transaction checks what it wrote against the
             # rows it locked; raising here rolls the whole save back.
             _txg = getattr(_orgtx_local, "guard", None)
@@ -6279,6 +6288,8 @@ def _save_sqlite(org: Org) -> None:
         except BaseException:
             with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
+            from .orgdb import renames
+            renames.clear(org)
             if receipts:
                 from . import receiptcommit
                 receiptcommit.discard([conn])
@@ -6362,6 +6373,8 @@ def _save_sqlite(org: Org) -> None:
         # so standing exposures are settled (a NEW exposure after this save
         # re-records itself and is what the write_org release judges)
         lazy._lazy_exposed = set()
+        from .orgdb import renames
+        renames.clear(org)            # all new baselines have now been adopted
         if _SCOPED_VERIFY:
             # AFTER the adopt, so memory is compared against what this save
             # just made authoritative — before it, every legitimately-saved
@@ -6379,6 +6392,9 @@ def _save_sqlite(org: Org) -> None:
                             lst = lst._log
                         if isinstance(lst, AppendLog):
                             lst.full_rewrite = False
+    else:
+        from .orgdb import renames
+        renames.clear(org)            # a plain document has no baselines to adopt
 
 
 # ------------------------------------------------------------ migration
