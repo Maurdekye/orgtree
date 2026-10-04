@@ -31,8 +31,9 @@ or a parent, names when no node does. They are never nodes.
 Stage-1 differences from Appendix A.2, all exact and revisited by the native agents module
 (design §6.3 step 2): the recent ``turns`` list keeps its own table (Appendix A.2 would read it
 from the turn log, but 81 live agents' lists predate the log); denials and approvals are two
-tables instead of one with a kind column; scope columns keep a ``scope_`` prefix; the turn
-estimate tuples are JSON. Migration 0009 adds the current enum CHECKs; an
+tables instead of one with a kind column; scope columns keep a ``scope_`` prefix. The frozen
+0002 estimate tuples are JSON; the current mapper stores their integer or compensated float
+state in typed columns without recomputing it. Migration 0009 adds enum CHECKs; an
 unsupported legacy member stays exact in extra, with a NULL typed column.
 """
 
@@ -40,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from typing import Any, Callable, Mapping
 
 from .. import codec
@@ -242,6 +244,13 @@ TOOL_LISTS_DDL = (
     "CREATE INDEX tool_list_items_tool ON orgtree.tool_list_items (tool)",
 )
 
+# Frozen 0002 definitions: runtime estimates change only in the later schema
+# migration, including for an org that has already run the alpha build.
+LEGACY_HOT, LEGACY_AGENTS = HOT, AGENTS
+HOT = Spec('agents', tuple(F(f.key, 'sum') if f.key in ('turn_est_cost', 'turn_est_toks') else f
+                           for f in LEGACY_HOT.fields))
+AGENTS = replace(LEGACY_AGENTS, spec=HOT)
+
 _HOT_KEYS = frozenset(f.key for f in HOT.fields)
 _TEXT_KEYS = frozenset(f.key for f in TEXTS.fields)
 _RUNTIME_KEYS = frozenset(f.key for f in RUNTIME.fields)
@@ -254,6 +263,7 @@ def _list_sha(tools: list[str]) -> str:
 class Nodes(Section):
     keys = ("nodes",)
     tables = (AGENTS, TEXTS_T, RUNTIME_T)
+    migration_tables = (LEGACY_AGENTS, TEXTS_T, RUNTIME_T)
     before_ddl = TOOL_LISTS_DDL
 
     def encode(self, doc: Mapping[str, Any], ctx: Context, out: Rows) -> None:

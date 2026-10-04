@@ -52,7 +52,7 @@ def ddl() -> list[str]:
     out: list[str] = list(agents.TOOL_LISTS_DDL)
     secs = sections()
     nodes = next(s for s in secs if isinstance(s, agents.Nodes))
-    for t in nodes.tables:
+    for t in getattr(nodes, 'migration_tables', nodes.tables):
         out.extend(t.ddl())
     out.extend(_s.FRAMEWORK_DDL)
     for s in secs:

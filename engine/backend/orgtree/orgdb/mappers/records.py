@@ -114,6 +114,10 @@ LIFECYCLE = Spec("lifecycle_events", (
     F("current_candidate", "json", nullable=True), F("node", "text"), F("cleanup", "text"), F("door", "text"),
     F("reason", "text"), F("status", "text"),
 ))
+LEGACY_LIFECYCLE = LIFECYCLE
+LIFECYCLE = Spec('lifecycle_events', tuple(
+    F('current_candidate', 'text', nullable=True) if f.key == 'current_candidate' else f
+    for f in LEGACY_LIFECYCLE.fields))
 
 NOTICE_LOG = Spec("notice_log", (
     F("node", "text"), F("at", "ts"), F("text", "text"), F("ev", "json"),
@@ -275,6 +279,13 @@ ORPHAN_KEYS = Spec("orphan_keys", (
 ))
 
 
+def _lifecycle() -> RecordList:
+    section = RecordList('lifecycle', LIFECYCLE, indexes=(
+        'CREATE INDEX lifecycle_events_operation_state ON orgtree.lifecycle_events(operation_id,state)',))
+    section.migration_tables = (RecordList('lifecycle', LEGACY_LIFECYCLE).t,)
+    return section
+
+
 def sections() -> list[Section]:
     """In dependency order: every by-agent table refers to agents, which come first."""
     return [
@@ -289,7 +300,7 @@ def sections() -> list[Section]:
         RecordList("reservations", RESERVATIONS),
         RecordList("documents", DOCUMENTS),
         RecordList("events", EVENTS),
-        RecordList("lifecycle", LIFECYCLE),
+        _lifecycle(),
         RecordList("notice_log", NOTICE_LOG),
         RecordList("org_inbox", ORG_INBOX),
         RecordList("user_inbox", USER_INBOX),

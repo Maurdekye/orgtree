@@ -10,7 +10,10 @@ evidence, history, holders, scope, artifacts, findings (with their decisions) an
 requests. Payloads with no fixed shape (an evidence receipt, a history entry's changes, review
 packets and verdicts, delivery claims) are JSON (Q1).
 
-Recorded roles remain exact, including values that do not fit text columns.
+Recorded roles remain exact, including values that do not fit text columns. The current
+mapper flattens attention and acceptance, including their historical principals and evidence
+gap; exceptional values stay at their original paths in extra. History actor fields and
+holders' authors also use typed historical principals, with no live-agent resolution.
 Migration 0007 adds indexed keys computed from the original record; every
 encoder uses ``row_keys`` below. The agent-id assignment predicate (``owner_agent_id``
 ...), the counters and the access functions come with the native docket module (design §6.3
@@ -212,6 +215,12 @@ SOURCE_SPECS = {source:Spec('',LEGACY_WORK_ITEM.field(source).spec.fields)
                 for source in ('history','evidence','scope','dismissals')}
 SOURCE_SPECS.update(candidate_verdicts=VERDICT,review_packets=PACKET,
                     scope_archive=SOURCE_SPECS['scope'])
+ALPHA_SOURCE_SPECS = dict(SOURCE_SPECS)
+_HISTORY_ACTOR_COLUMNS = (('node', 'by_node'), ('generation', 'by_generation'), ('born', 'by_born'))
+SOURCE_SPECS['history'] = Spec('', tuple(
+    F(f.key, 'principal', principal_aliases=_HISTORY_ACTOR_COLUMNS if f.key == 'by' else ())
+    if f.key in ('by', 'raised_by', 'next_actor') else f
+    for f in ALPHA_SOURCE_SPECS['history'].fields))
 EVENT = Spec('work_item_events', tuple(
     F(source,'obj',spec=SOURCE_SPECS[source]) if source in SOURCE_SPECS else F(source,'json')
     for source in EVENT_SOURCES))
@@ -222,8 +231,9 @@ EVENTS = table(EVENT,child_key='event_id',placement=(
      ','.join("'"+source+"'" for source in EVENT_SOURCES)+'))'),
     ('kind','text',"kind text NOT NULL CHECK(kind IN ('history','evidence','scope','decision',"
      "'verdict','review_packet','dismissal','quick_staff_receipt'))"),
-    ('at','timestamptz','at timestamptz'), ('by_node','text','by_node text'),
-    ('by_generation','bigint','by_generation bigint'), ('by_born','text','by_born text'),
+    # The recorded history principal owns by_node/generation/born. Other event
+    # sources write their same existing header after the codec's object fill.
+    ('at','timestamptz','at timestamptz'),
     ('content','text','content text'), ('status_change','boolean','status_change boolean NOT NULL'),
     ('original_at','json','original_at json'), ('original_scope_seq','json','original_scope_seq json'),
 ),indexes=(
@@ -232,8 +242,30 @@ EVENTS = table(EVENT,child_key='event_id',placement=(
     'CREATE INDEX work_item_events_status ON orgtree.work_item_events(item_id,seq DESC) '
     "WHERE source='history' AND status_change",
 ))
-WORK_ITEM = Spec('work_items',tuple(f for f in LEGACY_WORK_ITEM.fields
-                                   if f.key not in (*EVENT_SOURCES,*CURRENT_POINTERS)))
+_HOLDERS = Spec('work_item_holders', tuple(
+    F('by', 'principal') if f.key == 'by' else f
+    for f in LEGACY_WORK_ITEM.field('holders').spec.fields))
+ATTENTION = Spec('', (
+    F('reason', 'text', nullable=True), F('at', 'ts', nullable=True),
+    F('by', 'principal'), F('set_rev', 'int', nullable=True),
+))
+ACCEPTED = Spec('', (
+    F('at', 'ts', nullable=True), F('by', 'principal'), F('note', 'text', nullable=True),
+    F('via', 'text', nullable=True),
+    F('evidence_gap', 'obj', spec=Spec('', (
+        F('unclassified', 'int', nullable=True), F('total', 'int', nullable=True),
+        F('summary', 'text', nullable=True),
+    ))),
+))
+ALPHA_WORK_ITEM = Spec('work_items', tuple(f for f in LEGACY_WORK_ITEM.fields
+                                         if f.key not in (*EVENT_SOURCES, *CURRENT_POINTERS)))
+_CURRENT_FIELDS = {
+    'holders': F('holders', 'list', spec=_HOLDERS),
+    'manual_attention': F('manual_attention', 'obj', col='attention', spec=ATTENTION),
+    'accepted': F('accepted', 'obj', spec=ACCEPTED),
+}
+WORK_ITEM = Spec('work_items',tuple(
+    _CURRENT_FIELDS.get(f.key, f) for f in ALPHA_WORK_ITEM.fields))
 _placement = (('archive_seq','bigint'),)+tuple((source+'_events_is','char(1)') for source in EVENT_SOURCES)
 _placement += tuple((column,typ) for column in CURRENT_POINTERS.values()
                     for column,typ in ((column,'bigint'),(column+'_is','char(1)')))

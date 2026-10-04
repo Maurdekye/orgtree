@@ -50,7 +50,11 @@ def encode_event(source, value, *, id, item_id, seq):
     out = {}
     codec.encode(D.EVENT,{source:value},dict(id=id,item_id=item_id,seq=seq,source=source,
                                            **event_header(source,value)),out,link=D.EVENTS.link)
-    return out['work_item_events'][0]
+    row = out['work_item_events'][0]
+    # history.by uses the canonical actor header columns. Filling an inactive
+    # history object clears them, so restore other sources' headers afterwards.
+    row.update(event_header(source, value))
+    return row
 
 
 def event_value(row):

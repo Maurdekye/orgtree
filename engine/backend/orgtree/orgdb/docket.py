@@ -23,6 +23,9 @@ _POLICY_KEYS = frozenset(('slug', 'rev', 'kind', 'title', 'status', 'owner', 're
 _POLICY = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields if f.key in _POLICY_KEYS))
 _LIST = codec.Spec('work_items', tuple(f for f in WORK_ITEM.fields if f.key in FIELDS or
     f.key in ('scope_seq','scope_guard','scope_logged')))
+_MANUAL = codec.Spec('work_items', (WORK_ITEM.field('slug'), WORK_ITEM.field('manual_attention')))
+_MANUAL_COLUMNS = ','.join('i.'+codec.quote(c) for c,_ in codec.columns(_MANUAL))
+_MANUAL_COLUMNS += ',i.docket_policy_extra AS extra'
 
 
 def name_key(value):
@@ -428,8 +431,11 @@ def counts_raw(raw, org_id, *, viewer, now_ts):
 def attention_raises_raw(raw, org_id, *, viewer):
     q = Snapshot(raw,org_id,viewer=viewer,now_ts=time.time())
     prefix, join, access = q._prefix()
-    return [[s,int((flag or {}).get('set_rev') or 0)] for s,flag in raw.execute(prefix+
-        f' SELECT i.slug,i.manual_attention FROM orgtree.work_items i{join} WHERE i.docket_manual AND {access} ORDER BY i.slug',q._args())]
+    rows = _dicts(raw, prefix+f' SELECT {_MANUAL_COLUMNS} FROM orgtree.work_items i{join}'
+                  f' WHERE i.docket_manual AND {access} ORDER BY i.slug', q._args())
+    records = (codec.decode(_MANUAL, row, None) for row in rows)
+    return [[record['slug'], int((record.get('manual_attention') or {}).get('set_rev') or 0)]
+            for record in records]
 
 
 def read_work_items_rows(slug, wanted):
