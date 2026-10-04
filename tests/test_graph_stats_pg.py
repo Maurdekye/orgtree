@@ -35,6 +35,7 @@ def setUpModule():
         c.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(DATABASE)))
     try:
         with psycopg.connect(conn.with_db(ADMIN, DATABASE), autocommit=True) as c:
+            c.execute('CREATE SCHEMA orgtree')
             for migration in migrate.files(migrate.ORG_DIR):
                 with c.transaction():
                     if migration.name == '0016_agent_graph.sql':
