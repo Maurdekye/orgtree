@@ -4,6 +4,9 @@ import import_provenance  # noqa: F401 asserts imports resolve inside this check
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +16,26 @@ spec.loader.exec_module(inventory)
 
 
 class ScopeInventory(unittest.TestCase):
+    def test_isolated_cli_reaches_guard_and_reports_the_complete_inventory(self):
+        with tempfile.TemporaryDirectory(prefix='scope-inventory-cli-') as folder:
+            report = Path(folder) / 'inventory.json'
+            result = subprocess.run(
+                [sys.executable, '-I', str(ROOT / 'tools/scope-consumer-inventory.py'),
+                 '--json-output', str(report)], cwd=ROOT, capture_output=True,
+                text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            value = json.loads(report.read_text(encoding='utf-8'))
+        provenance = value['import_provenance']
+        self.assertEqual(Path(provenance['repo']).resolve(), ROOT)
+        self.assertIsNone(provenance['commit_problem'])
+        self.assertRegex(provenance['commit'], r'^[0-9a-f]{40}$')
+        self.assertEqual(provenance['import_provenance'], {
+            'engine': str(ROOT / 'engine/__init__.py'),
+            'orgtree': str(ROOT / 'engine/backend/orgtree/__init__.py')})
+        self.assertEqual(value['issues'], [])
+        self.assertEqual(len(value['matches']), len(value['classifications']))
+        self.assertGreater(len(value['matches']), 100)
+
     def test_every_actual_scope_origin_and_effective_binding_is_classified(self):
         entries = json.loads((ROOT / 'tools/scope-consumers-python.json').read_text())['entries']
         matches = inventory.scan(ROOT)

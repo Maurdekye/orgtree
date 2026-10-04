@@ -72,6 +72,7 @@ class ScopeProposals(unittest.TestCase):
         with patch.object(api, 'provider_hire_gate'):
             result = api._hire_seat(self.org, 'scope-proposals', 'other',
                                    dict(tier='haiku', name='lead', grant=0,
+                                        charter='Supervise the fixture seat with its current capabilities.',
                                         target='parent', hire_type='superior'), [])
         self.assertEqual(result['inserted_above'], 'parent')
         self.assertEqual(self.org.node('parent')['parent'], 'lead')
@@ -85,6 +86,7 @@ class ScopeProposals(unittest.TestCase):
         with patch.object(api, 'provider_hire_gate'):
             result = api._op_hire(self.org, api.Op(op='hire', actor='other',
                                   tier='haiku', name='lead', grant=0,
+                                  charter='Supervise the fixture seat with its current capabilities.',
                                   parent='other', above='parent'), None)
         self.assertEqual(result['inserted_above'], 'parent')
         self.assertEqual(self.org.node('parent')['parent'], 'lead')

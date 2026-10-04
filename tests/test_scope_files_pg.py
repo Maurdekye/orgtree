@@ -222,6 +222,7 @@ class CurrentScopeFiles(unittest.TestCase):
         configured = deepcopy(store.load_org(self.slug).node('parent')['scope'])
         result = api.agent_call(api.AgentCall(org=self.slug, node='other', tool='orgtree_hire',
                                 args=dict(tier='luna', name='lead', grant=0,
+                                          charter='Supervise the fixture seat with its current capabilities.',
                                           target='parent', hire_type='superior')), request)
         self.assertEqual(result['inserted_above'], 'parent')
         snapshot = orgtx.org_read(self.slug)
@@ -239,6 +240,7 @@ class CurrentScopeFiles(unittest.TestCase):
         request = SimpleNamespace(state=SimpleNamespace(), headers={})
         configured = deepcopy(store.load_org(self.slug).node('parent')['scope'])
         result = api.org_op(self.slug, api.Op(op='hire', actor='other', tier='luna',
+                            charter='Supervise the fixture seat with its current capabilities.',
                             name='lead', grant=0, parent='other', above='parent'), request)
         self.assertEqual(result['inserted_above'], 'parent')
         snapshot = orgtx.org_read(self.slug)

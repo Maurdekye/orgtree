@@ -86,8 +86,10 @@ def validate(matches: list[dict], entries: list[dict]) -> list[str]:
 
 def main() -> int:
     import argparse
-    from assert_repo_import import assert_repo_import
+    import sys
     root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / 'tools'))
+    from assert_repo_import import assert_repo_import
     provenance = assert_repo_import(root)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--json-output', type=Path)
