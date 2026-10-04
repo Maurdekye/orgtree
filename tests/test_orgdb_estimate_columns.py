@@ -1,6 +1,6 @@
 """G6 exact values and faults before integration into the new org migration."""
 
-import import_provenance  # noqa: F401  asserts this checkout, not the installed app
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from decimal import Decimal
 import math

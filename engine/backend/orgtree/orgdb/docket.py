@@ -98,7 +98,7 @@ def _decode(raw, main, spec):
         return []
     ids = [r['id'] for r in main]
     layout = WORK_ITEMS.layout()
-    wanted = codec.layout(spec, WORK_ITEMS.keys, WORK_ITEMS.link)
+    wanted = layout if spec is WORK_ITEM else codec.layout(spec, WORK_ITEMS.keys, WORK_ITEMS.link)
     children = {table: _dicts(raw, f'SELECT * FROM orgtree.{table} WHERE item_id=ANY(%s)', (ids,))
                 for table in wanted if table != 'work_items'}
     ch = codec.Children(children, layout)

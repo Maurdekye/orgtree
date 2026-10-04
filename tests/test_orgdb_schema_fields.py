@@ -1,6 +1,6 @@
 """Runtime record mappings preserve legacy estimates, actors and attention."""
 
-import import_provenance  # noqa: F401  asserts this checkout, not the installed app
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import copy
 import json

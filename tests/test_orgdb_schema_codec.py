@@ -1,6 +1,6 @@
 """Typed schema adapters keep record paths, placement and unusual legacy values."""
 
-import import_provenance  # noqa: F401  asserts this checkout, not the installed app
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import json
 import math

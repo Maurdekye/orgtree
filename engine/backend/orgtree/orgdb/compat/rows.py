@@ -263,13 +263,28 @@ def store_encoded(c: Any, t: Table, out: Rows, *, ids: Sequence[int] | None = No
         if place is not None:
             place(r, nid)
     insert(c, main, mrows, override=True)
+    id_maps = {main: remap}
     for name in lay(t):
         if name == main:
             continue
         rs = out.get(name, [])
         for r in rs:
             r[new] = remap[r[new]]
-        insert(c, name, rs)
+        entry = lay(t)[name]
+        for parent_column, reference_column in zip(entry['parent_cols'], entry['ref_cols']):
+            if parent_column != new and reference_column == 'id':
+                parent_map = id_maps.get(entry['parent_table'])
+                if parent_map is not None:
+                    for r in rs:
+                        r[parent_column] = parent_map[r[parent_column]]
+        # Normalized item children have their own surrogate identity. Whole
+        # section replacement allocates it in the database's global sequence.
+        if rs and 'id' in rs[0]:
+            child_map = id_maps[name] = {}
+            for r, child_id in zip(rs, new_ids(c, name, len(rs))):
+                child_map[r['id']] = child_id
+                r['id'] = child_id
+        insert(c, name, rs, override=bool(rs and 'id' in rs[0]))
     return final
 
 
@@ -940,7 +955,14 @@ def _docket_write(c: Any, record: Mapping[str, Any], keys: Mapping[str, Any],
     if protected.intersection(removed):
         raise ShapeError(f"work item {record.get('slug')!r}: removed a current event")
     out: Rows = {}
-    docket_events.encode_current(record,keys,events,out)
+    from .. import docket_relations as R
+    previous_children = {table: dict_rows(c, f'SELECT * FROM orgtree.{table} WHERE item_id=%s', (rid,))
+                         for table in (R.DELIVERY.table, R.SEAT.table, R.ARTIFACT_TABLE, R.GRANT.table)
+                         } if previous is not None else {}
+    docket_events.encode_current(record, keys, events, out,
+                                 previous_relations=previous_children.get(R.DELIVERY.table, ()),
+                                 previous_children=previous_children,
+                                 allocate_relation=lambda table: new_ids(c, table, 1)[0])
     if previous is None:
         insert(c,'work_items',out['work_items'],override=True)
     else:
@@ -950,7 +972,8 @@ def _docket_write(c: Any, record: Mapping[str, Any], keys: Mapping[str, Any],
                 c.execute(f"DELETE FROM orgtree.{table_} WHERE item_id=%s", (rid,))
     for table_ in lay(D.WORK_ITEMS):
         if table_!='work_items':
-            insert(c,table_,out.get(table_,[]))
+            child_rows = out.get(table_, [])
+            insert(c, table_, child_rows, override=bool(child_rows and 'id' in child_rows[0]))
     old_ids = {row['id'] for row in old}
     for row in events:
         if row['id'] in rewritten:

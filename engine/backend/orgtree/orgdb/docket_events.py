@@ -9,7 +9,7 @@ import json
 from difflib import SequenceMatcher
 from typing import Any, Mapping
 
-from . import codec
+from . import codec, docket_relations
 from .mappers import docket as D
 
 
@@ -118,12 +118,17 @@ def difference(record, previous, *, item_id, allocate):
     return sorted(events,key=lambda e:e['seq']),removed,rewritten
 
 
-def encode_current(record, keys, events, out):
-    core = {k:v for k,v in record.items() if k not in D.CURRENT_POINTERS and
+def encode_current(record, keys, events, out, *, previous_relations=(), allocate_relation=None,
+                   previous_children=None, resolve_current=None):
+    core = {k:v for k,v in docket_relations.core(record).items() if k not in D.CURRENT_POINTERS and
             (k not in D.EVENT_SOURCES or not isinstance(v,list))}
     codec.encode(D.WORK_ITEM,core,D.row_keys(core,id=keys['id'],list_key=keys['list_key'],
                  ord=keys['ord'],archive_seq=keys.get('archive_seq'),original=record,events=events),
                  out,link=D.WORK_ITEMS.link)
+    docket_relations.encode(record, keys['id'], out, previous=previous_relations,
+                            allocate=allocate_relation)
+    docket_relations.encode_lists(record, keys['id'], out, previous=previous_children,
+                                  allocate=allocate_relation, resolve=resolve_current)
 
 
 def encode_item(record: Mapping[str,Any], keys: Mapping[str,Any], out: codec.Rows) -> None:
@@ -143,6 +148,8 @@ def encode_item(record: Mapping[str,Any], keys: Mapping[str,Any], out: codec.Row
 
 def decode_item(row, children, events):
     record = codec.decode(D.WORK_ITEM,row,children,(row['id'],))
+    docket_relations.decode(record, row, children)
+    docket_relations.decode_lists(record, row, children)
     by_id = {e['id']:e for e in events}
     for source in D.EVENT_SOURCES:
         state = row.get(source+'_events_is')

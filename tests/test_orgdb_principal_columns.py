@@ -1,6 +1,6 @@
 """Recorded principals keep their exact shape and never gain live metadata."""
 
-import import_provenance  # noqa: F401  asserts this checkout, not the installed app
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import unittest
 

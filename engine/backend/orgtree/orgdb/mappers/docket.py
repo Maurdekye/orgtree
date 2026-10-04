@@ -8,7 +8,8 @@ The item's lists are child tables, as decision 7 asks for work events: participa
 progress lists, dependencies, dismissals, acceptance (with each condition's check history),
 evidence, history, holders, scope, artifacts, findings (with their decisions) and review-seat
 requests. Payloads with no fixed shape (an evidence receipt, a history entry's changes, review
-packets and verdicts, delivery claims) are JSON (Q1).
+packets and verdicts) are JSON (Q1). Delivery claims, review seats and artifact
+grant occurrences have typed relation rows.
 
 Recorded roles remain exact, including values that do not fit text columns. The current
 mapper flattens attention and acceptance, including their historical principals and evidence
@@ -25,6 +26,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .. import codec
+from .. import docket_relations
 from .. import enum_values as V
 from ..codec import Field as F, Rows, ShapeError, Spec
 from ..sections import Context, Section, Table, table
@@ -259,18 +261,24 @@ ACCEPTED = Spec('', (
 ))
 ALPHA_WORK_ITEM = Spec('work_items', tuple(f for f in LEGACY_WORK_ITEM.fields
                                          if f.key not in (*EVENT_SOURCES, *CURRENT_POINTERS)))
+_ARTIFACT = Spec('work_item_artifacts', tuple(
+    f for f in LEGACY_WORK_ITEM.field('artifacts').spec.fields if f.key != 'grants'))
 _CURRENT_FIELDS = {
     'holders': F('holders', 'list', spec=_HOLDERS),
     'manual_attention': F('manual_attention', 'obj', col='attention', spec=ATTENTION),
     'accepted': F('accepted', 'obj', spec=ACCEPTED),
+    'delivery': F('delivery', 'obj', spec=Spec('', ())),
+    'artifacts': F('artifacts', 'list', spec=_ARTIFACT),
 }
 WORK_ITEM = Spec('work_items',tuple(
-    _CURRENT_FIELDS.get(f.key, f) for f in ALPHA_WORK_ITEM.fields))
-_placement = (('archive_seq','bigint'),)+tuple((source+'_events_is','char(1)') for source in EVENT_SOURCES)
+    _CURRENT_FIELDS.get(f.key, f) for f in ALPHA_WORK_ITEM.fields if f.key != 'review_seats'))
+_placement = (('archive_seq','bigint'), ('review_seats_is', 'char(1)'))+tuple(
+    (source+'_events_is','char(1)') for source in EVENT_SOURCES)
 _placement += tuple((column,typ) for column in CURRENT_POINTERS.values()
                     for column,typ in ((column,'bigint'),(column+'_is','char(1)')))
-WORK_ITEMS = Table(WORK_ITEM,LEGACY_WORK_ITEMS.keys+_placement,LEGACY_WORK_ITEMS.link,
-                   LEGACY_WORK_ITEMS.record_columns,LEGACY_WORK_ITEMS.indexes)
+WORK_ITEMS = docket_relations.DocketTable(
+    WORK_ITEM, LEGACY_WORK_ITEMS.keys+_placement, LEGACY_WORK_ITEMS.link,
+    LEGACY_WORK_ITEMS.record_columns, LEGACY_WORK_ITEMS.indexes)
 
 
 class Docket(Section):
