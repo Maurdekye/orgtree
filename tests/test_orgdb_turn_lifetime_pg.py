@@ -1,5 +1,5 @@
 """Real supervisor exception cleanup through durable admission and native writes."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from contextlib import ExitStack
 import os
@@ -142,15 +142,19 @@ class Lifetime(unittest.TestCase):
         ready, stopped = threading.Event(), threading.Event()
         outcome, signals = [], []
         alive = [True]
+        signal_lock = threading.Lock()
 
         def signal():
-            if alive[0]:
-                run = self.runs[0]
-                signals.append((self.request_state(run),
-                                self.host.queue.get(run.request_id).state,
-                                self.host.queue.snapshot()['held']))
-                alive[0] = False
-                stopped.set()
+            # The explicit interrupt and heartbeat may contact the same
+            # provider concurrently. Its simulated stop must be atomic too.
+            with signal_lock:
+                if alive[0]:
+                    run = self.runs[0]
+                    signals.append((self.request_state(run),
+                                    self.host.queue.get(run.request_id).state,
+                                    self.host.queue.snapshot()['held']))
+                    alive[0] = False
+                    stopped.set()
             return True
 
         control = SimpleNamespace(interrupt=signal, client=SimpleNamespace(

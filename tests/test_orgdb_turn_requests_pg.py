@@ -2,7 +2,7 @@
 
 Needs an owned disposable PostgreSQL cluster and the P03 heavy lock.
 """
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from dataclasses import replace
 import os

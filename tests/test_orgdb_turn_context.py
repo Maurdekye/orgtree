@@ -1,5 +1,5 @@
 """Per-run credentials preserve identity and never substitute the current run."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from dataclasses import replace
 import json

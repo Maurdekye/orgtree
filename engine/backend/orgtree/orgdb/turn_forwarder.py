@@ -106,9 +106,9 @@ class Bridge:
             ticket = self.queue.get(app.request_id)
             return ticket is not None and ticket.state == 'done'
         if request.state == 'lost':
-            # Host invalidated the org half first. It reclaims the verified
-            # dead app owner before revisiting these markers; never cancel a
-            # potentially active provider merely because a heartbeat is old.
+            # A durable app fence protects verified-dead capacity release
+            # until the org invalidation commits. Confirm the terminal app
+            # half; a stale heartbeat alone never authorizes cancellation.
             ticket = self.queue.get(app.request_id)
             return ticket is None or ticket.state in ('lost', 'cancelled', 'done')
         return False

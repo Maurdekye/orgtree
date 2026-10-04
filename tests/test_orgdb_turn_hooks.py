@@ -1,5 +1,5 @@
 """Exercise the actual narrow HTTP/MCP functions without starting a server."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import ast
 from contextlib import contextmanager

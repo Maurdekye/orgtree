@@ -12,6 +12,7 @@ import os
 import subprocess
 import time
 from dataclasses import asdict
+import child_python
 from engine.process_lifetime import arm_process_lifetime
 
 prefix, root, request_id = sys.argv[1:]
@@ -37,10 +38,12 @@ with turnslots.bind_request(app):
 ticket = host.slots.current_claim
 run = host.begin(org, 'seat', request_id, ticket, lambda: None)
 leaf = root / 'provider-leaf.json'
+grandchild_argv = child_python.argv('-c', 'import time;time.sleep(90)', flags=('-I',))
 provider_code = ('import json,subprocess,sys,time;from pathlib import Path;'
-                 'p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(90)"]);'
+                 'p=subprocess.Popen(json.loads(sys.argv[2]));'
                  'Path(sys.argv[1]).write_text(json.dumps(p.pid));time.sleep(90)')
-provider = subprocess.Popen([sys.executable, '-I', '-c', provider_code, str(leaf)],
+provider = subprocess.Popen(child_python.argv('-c', provider_code, str(leaf),
+                                             json.dumps(grandchild_argv), flags=('-I',)),
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             creationflags=subprocess.CREATE_NO_WINDOW)
 deadline = time.monotonic() + 10
