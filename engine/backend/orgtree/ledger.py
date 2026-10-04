@@ -1920,11 +1920,35 @@ class Org:
     def depth(self, nid: str) -> int:
         return len(self.ancestors(nid)) - 1  # USER at depth -1's child = 0
 
+    def capability_scope(self, nid: str) -> dict[str, Any]:
+        """Effective native capabilities; configured scope remains on node().
+
+        Display documents must already be one consistent read snapshot. A native
+        write document uses its actual connection and the held current paths.
+        No process memo or projected value can authorize a later transaction.
+        """
+        from .orgdb import native_move   # noqa: PLC0415
+        if not native_move.enabled():
+            return self.node(nid)["scope"]
+        raw = native_move.connection(self)
+        if raw is not None:
+            native_move.graph.check_scope_paths(raw, {nid})
+        from .scope_chain import effective_scope   # noqa: PLC0415
+        return effective_scope(self.node, nid)
+
+    def effective_agent(self, nid: str) -> Mapping[str, Any]:
+        """Read-only new-dispatch input, never a storage body."""
+        from .orgdb import native_move   # noqa: PLC0415
+        if not native_move.enabled():
+            return self.node(nid)
+        from .scope_chain import EffectiveAgent   # noqa: PLC0415
+        return EffectiveAgent(self.node(nid), self.capability_scope(nid))
+
     def effective_dirs(self, nid: str | None) -> dict[str, str] | None:
         """Capability map {path: mode} of a prospective parent. None = everything (user)."""
         if nid is None or nid == USER:
             return None
-        return {d["path"]: d["mode"] for d in self.node(nid)["scope"]["add_dirs"]}
+        return {d["path"]: d["mode"] for d in self.capability_scope(nid)["add_dirs"]}
 
     @staticmethod
     def _clamp_tools(requested: Mapping[str, Any] | None,
@@ -7339,7 +7363,7 @@ class Org:
         strict=True raises instead of clamping (agent-explicit grants)."""
         if parent is None or requested not in VIS_LEVELS:
             return requested, False
-        pv = self.node(parent)["scope"].get("org_visibility", "full")
+        pv = self.capability_scope(parent).get("org_visibility", "full")
         if pv in VIS_LEVELS and VIS_LEVELS.index(requested) > VIS_LEVELS.index(pv):
             if strict:
                 raise LedgerError(
@@ -7360,7 +7384,7 @@ class Org:
         """
         if actor_kind(actor) in ("user", "system"):
             return None, None, VIS_LEVELS[-1], PM_LEVELS[-1]
-        sc = self.node(actor)["scope"]
+        sc = self.capability_scope(actor)
         return (self.effective_dirs(actor), sc["tools"],
                 sc.get("org_visibility", "full"),
                 sc.get("permission_mode", "acceptEdits"))
@@ -7450,7 +7474,7 @@ class Org:
         field to agents, which is why the two ship together."""
         if parent is None or requested not in PM_LEVELS:
             return requested, False        # top level answers to the user
-        pp = self.node(parent)["scope"].get("permission_mode", "acceptEdits")
+        pp = self.capability_scope(parent).get("permission_mode", "acceptEdits")
         if pp in PM_LEVELS and PM_LEVELS.index(requested) > PM_LEVELS.index(pp):
             if strict:
                 raise LedgerError(
@@ -8224,7 +8248,7 @@ class Org:
                         if it["mode"] == "bypassPermissions" else ""))
 
     def _holds_scope_item(self, nid: str, it: dict[str, Any]) -> bool:
-        sc = self.node(nid)["scope"]
+        sc = self.capability_scope(nid)
         k = it["kind"]
         if k == "dir":
             held = {d["path"]: d["mode"] for d in sc["add_dirs"]}
@@ -8245,7 +8269,7 @@ class Org:
         land as `ro`. Comparing this before and after the
         apply is what tells a real-but-short grant apart from nothing at
         all, which `_holds_scope_item` (asked-for or not) cannot."""
-        sc = self.node(nid)["scope"]
+        sc = self.capability_scope(nid)
         k = it["kind"]
         if k == "dir":
             m = next((d["mode"] for d in sc["add_dirs"]
@@ -8773,7 +8797,7 @@ class Org:
             raise LedgerError("target is required — the path, command, or "
                               "pid:N / port:N to watch")
         if kind in ("command", "stream") \
-                and not self.node(owner)["scope"]["tools"].get("bash"):
+                and not self.capability_scope(owner)["tools"].get("bash"):
             raise LedgerError(
                 "a command/stream watchdog runs with YOUR hands — it needs "
                 "the bash you do not hold; ask for it (orgtree_request_scope) "

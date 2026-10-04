@@ -65,9 +65,42 @@ def native(raw, *, nodes=('worker',), roots=('worker', 'destination')):
 class GraphPlanning(unittest.TestCase):
     def test_unrelated_plan_reads_no_paths_or_stats(self):
         raw = Raw()
-        self.assertIsNone(graph.plan_locks(raw, orgtx._new_tx('test', nodes=['worker'])))
+        self.assertIsNone(graph.plan_locks(raw, orgtx._new_tx('test', sections=['workspace'])))
         self.assertEqual(raw.calls, [])
         self.assertEqual(graph.stats_lock_clause(None), '')
+
+    def test_scope_plan_holds_all_ancestors_without_stats(self):
+        raw = Raw()
+        tx = orgtx._new_tx('test', nodes=['worker'])
+        plan = graph.plan_locks(raw, tx)
+        self.assertEqual(plan.agent_ids, {1, 2, 3})
+        self.assertEqual(plan.stats_ids, set())
+        self.assertEqual(tx.share_nodes, {'boss', 'hidden'})
+        self.assertEqual(graph.stats_lock_clause(plan), '')
+        graph.install_plan(raw, tx, plan)
+        graph.check_scope_paths(raw, {'worker'})
+        self.assertFalse(any('agent_subtree_stats' in sql for sql, _ in raw.calls))
+
+    def test_scope_path_changed_while_waiting_retries_before_body(self):
+        raw = Raw()
+        tx = orgtx._new_tx('test', nodes=['worker'])
+        plan = graph.plan_locks(raw, tx)
+        raw.rows[3] = ('worker', 4)
+        with self.assertRaises(orgtx.SerializationFailure):
+            graph.install_plan(raw, tx, plan)
+        self.assertIsNone(raw.marker)
+
+    def test_scope_body_miss_requires_rollback_without_late_lock_or_stats(self):
+        raw = Raw()
+        tx = orgtx._new_tx('test', nodes=['worker'])
+        plan = graph.plan_locks(raw, tx)
+        graph.install_plan(raw, tx, plan)
+        raw.calls.clear()
+        with self.assertRaises(pgdoor.Widen) as got:
+            graph.check_scope_paths(raw, {'destination'})
+        self.assertEqual(got.exception.spec.share_nodes, ('destination',))
+        self.assertFalse(any('FOR UPDATE' in sql or 'FOR SHARE' in sql or
+                             'agent_subtree_stats' in sql for sql, _ in raw.calls))
 
     def test_paths_add_shared_ancestors_including_hidden_rows(self):
         raw = Raw()

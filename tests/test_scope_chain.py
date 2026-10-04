@@ -6,12 +6,15 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 _old_data = os.environ.get("ORGTREE_DATA")
 _data = tempfile.TemporaryDirectory(prefix="orgtree-scope-chain-")
 os.environ["ORGTREE_DATA"] = _data.name
 
 from orgtree import scope_chain as sc  # noqa: E402
+from orgtree import ledger   # noqa: E402
+from orgtree.orgdb import native_move   # noqa: E402
 
 
 def tearDownModule():
@@ -36,6 +39,47 @@ class CurrentScope(unittest.TestCase):
     def setUp(self):
         self.root = Path(_data.name)
         self.project = self.root / "project"
+
+    def test_ledger_actor_parent_and_scope_request_checks_use_effective_grants(self):
+        org = ledger.Org.__new__(ledger.Org)
+        org.d = {'nodes': {'top': node(dirs=[(self.root, 'ro')], bash=False,
+                                     visibility='self', mode='plan'),
+                          'child': node('top', dirs=[(self.project, 'rw')])}}
+        configured = deepcopy(org.node('child')['scope'])
+        with patch.object(native_move, 'enabled', return_value=True):
+            dirs, tools, vis, mode = org._actor_cap('child')
+            self.assertEqual(dirs, {str(self.project): 'ro'})
+            self.assertFalse(tools['bash'])
+            self.assertEqual((vis, mode), ('self', 'plan'))
+            self.assertEqual(org._clamp_vis('full', 'child', False), ('self', True))
+            self.assertEqual(org._clamp_pm('bypassPermissions', 'child', False), ('plan', True))
+            self.assertFalse(org._holds_scope_item('child', {'kind': 'tool', 'tool': 'bash'}))
+            self.assertEqual(org._scope_item_state('child', {'kind': 'permission_mode'}),
+                             'permission mode plan')
+            view = org.effective_agent('child')
+            self.assertFalse(view['scope']['tools']['bash'])
+            with self.assertRaises(TypeError):
+                view['scope']['tools']['bash'] = True
+        self.assertEqual(org.node('child')['scope'], configured)
+
+    def test_ledger_scope_always_checks_the_actual_transaction_path_before_read(self):
+        org = ledger.Org.__new__(ledger.Org)
+        org.d = {'nodes': {'child': node()}}
+        raw = object()
+        with patch.object(native_move, 'enabled', return_value=True), \
+                patch.object(native_move, 'connection', return_value=raw), \
+                patch.object(native_move.graph, 'check_scope_paths',
+                             side_effect=sc.ScopeError('unheld current path')) as guard:
+            with self.assertRaisesRegex(sc.ScopeError, 'unheld'):
+                org.capability_scope('child')
+        guard.assert_called_once_with(raw, {'child'})
+
+    def test_legacy_capability_checks_keep_existing_configured_mode(self):
+        org = ledger.Org.__new__(ledger.Org)
+        org.d = {'nodes': {'top': node(bash=False), 'child': node('top')}}
+        with patch.object(native_move, 'enabled', return_value=False):
+            self.assertTrue(org._actor_cap('child')[1]['bash'])
+            self.assertIs(org.effective_agent('child'), org.node('child'))
 
     def test_all_ancestors_intersect_each_capability_without_changing_preferences(self):
         nodes = {

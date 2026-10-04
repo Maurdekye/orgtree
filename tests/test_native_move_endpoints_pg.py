@@ -5,6 +5,7 @@ migration and teardown use the existing disposable compatibility fixture.
 """
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import contextlib
+import copy
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -13,6 +14,7 @@ import uuid
 import test_orgdb_compat_pg as fixture
 from orgtree import api, ledger, orgtx, pgdoor, store, supervisor
 from orgtree.orgdb import graph, native_move
+from orgtree.orgdb import conn as native_conn, registry
 from orgtree.orgdb.compat import rows as R
 
 REQUEST = SimpleNamespace(state=SimpleNamespace(), headers={})
@@ -99,6 +101,77 @@ class NativeMoveEndpoints(unittest.TestCase):
         self.assertEqual(persist.call_count, 1)
         self.assertEqual(put.call_count, 0)
         self.assertEqual(self.values()['a'][0], 'b')
+
+    def configure_capabilities(self):
+        org = store.load_org(self.slug)
+        for name in ('boss', 'a', 'b', 'leaf'):
+            org.node(name)['scope']['tools']['bash'] = True
+        org.node('b')['scope']['tools']['bash'] = False
+        store.save_org(org)
+
+    def test_locked_scope_uses_current_chain_and_move_back_restores_configured_grants(self):
+        self.configure_capabilities()
+        configured = copy.deepcopy(store.load_org(self.slug).node('leaf')['scope'])
+        with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+            self.assertTrue(tx.org.capability_scope('leaf')['tools']['bash'])
+            raw = native_move.connection(tx.org)
+            self.assertEqual(graph.current_plan(raw)['stats'], [])
+        with self.bounded_path():
+            api.org_op(self.slug, api.Op(op='move', actor=ledger.USER,
+                                        node='a', new_parent='b'), REQUEST)
+        with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+            self.assertFalse(tx.org.capability_scope('leaf')['tools']['bash'])
+            self.assertFalse(tx.org._holds_scope_item('leaf', {'kind': 'tool', 'tool': 'bash'}))
+            self.assertEqual(tx.org.node('leaf')['scope'], configured)
+        with self.bounded_path():
+            api.org_op(self.slug, api.Op(op='move', actor=ledger.USER,
+                                        node='a', new_parent='boss'), REQUEST)
+        with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+            self.assertTrue(tx.org.capability_scope('leaf')['tools']['bash'])
+            self.assertEqual(tx.org.node('leaf')['scope'], configured)
+
+    def test_scope_prelock_path_replacement_retries_before_authorizing_action(self):
+        import psycopg
+        self.configure_capabilities()
+        row = registry.lookup(self.slug)
+        attempts = []
+        original = graph.plan_locks
+
+        def replace_after_prediction(raw, tx):
+            plan = original(raw, tx)
+            attempts.append(plan)
+            if len(attempts) == 1:
+                with psycopg.connect(native_conn.with_db(fixture.ADMIN, row[1]),
+                                     autocommit=True) as other:
+                    with other.transaction():
+                        other.execute("UPDATE orgtree.agents SET parent_id=(SELECT id FROM "
+                                      "orgtree.agents WHERE name='b') WHERE name='a'")
+            return plan
+
+        bodies = []
+        with patch.object(graph, 'plan_locks', side_effect=replace_after_prediction):
+            with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+                bodies.append(tx.org.capability_scope('leaf')['tools']['bash'])
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(bodies, [False])
+        self.assertTrue(all(not plan.stats_ids for plan in attempts))
+
+    def test_scope_action_holds_ancestor_share_until_write_finishes(self):
+        import psycopg
+        self.configure_capabilities()
+        row = registry.lookup(self.slug)
+        with orgtx.org_tx(self.slug, nodes=['leaf']) as tx:
+            self.assertTrue(tx.org.capability_scope('leaf')['tools']['bash'])
+            with psycopg.connect(native_conn.with_db(fixture.ADMIN, row[1]),
+                                 autocommit=True) as other:
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    with other.transaction():
+                        other.execute("SET LOCAL lock_timeout='100ms'")
+                        other.execute("UPDATE orgtree.agents SET row_version=row_version+1 "
+                                      "WHERE name='boss'")
+            tx.org.node('leaf')['charter'] = 'authorized while its chain remains held'
+        self.assertEqual(store.load_org(self.slug).node('leaf')['charter'],
+                         'authorized while its chain remains held')
 
 
 if __name__ == '__main__':

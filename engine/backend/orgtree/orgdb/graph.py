@@ -19,6 +19,7 @@ class LockPlan:
     agent_ids: frozenset[int]
     stats_ids: frozenset[int]
     whole: bool = False
+    scope_roots: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -63,19 +64,22 @@ def _paths(raw: Any, names: list[str]) -> list[tuple[int, str, int | None]]:
 
 
 def plan_locks(raw: Any, tx: Any) -> LockPlan | None:
-    """Unheld planning read; append agent paths before the sorted lock block."""
-    if not tx.structural_roots:
+    """Plan current authority paths; only structural paths need stats locks."""
+    roots = tx.lock_nodes | tx.share_nodes | tx.structural_roots
+    if not roots and not tx.all_nodes:
         return None
     if tx.all_nodes:
         rows = raw.execute("SELECT id,name,parent_id FROM orgtree.agents ORDER BY id").fetchall()
     else:
-        rows = _paths(raw, sorted(tx.structural_roots))
+        rows = _paths(raw, sorted(roots))
     names = frozenset(str(r[1]) for r in rows)
     ids = frozenset(int(r[0]) for r in rows)
     # Roots may be new agents; their names still need the normal advisory/body
     # declaration, while only existing rows can be locked in this tier.
     tx.share_nodes |= names - tx.lock_nodes
-    return LockPlan(names, ids, ids, tx.all_nodes)
+    stats = (ids if tx.all_nodes else frozenset(int(r[0]) for r in
+             _paths(raw, sorted(tx.structural_roots)))) if tx.structural_roots else frozenset()
+    return LockPlan(names, ids, stats, tx.all_nodes, frozenset(roots))
 
 
 def stats_lock_clause(plan: LockPlan | None) -> str:
@@ -91,15 +95,26 @@ def stats_lock_clause(plan: LockPlan | None) -> str:
 def install_plan(raw: Any, tx: Any, plan: LockPlan | None) -> None:
     """After the whole lock block, validate coverage before yielding the body."""
     if plan is not None:
-        current = _paths(raw, sorted(tx.structural_roots)) if not plan.whole else raw.execute(
+        current = _paths(raw, sorted(plan.scope_roots)) if not plan.whole else raw.execute(
             "SELECT id,name,parent_id FROM orgtree.agents ORDER BY id").fetchall()
         missing = {str(r[1]) for r in current if int(r[0]) not in plan.agent_ids}
         if missing:
+            if not tx.structural_roots:
+                from ..orgtx import SerializationFailure   # noqa: PLC0415
+                # Before the body: rebuild the plan on retry, never lock late.
+                raise SerializationFailure('scope chain changed while acquiring its locks')
             from ..pgdoor import Widen   # noqa: PLC0415
             raise Widen(share_nodes=missing, structural_roots=missing)
+        current_stats = (_paths(raw, sorted(tx.structural_roots))
+                         if tx.structural_roots and not plan.whole else current
+                         if tx.structural_roots else [])
+        missing_stats = {str(r[1]) for r in current_stats if int(r[0]) not in plan.stats_ids}
+        if missing_stats:
+            from ..pgdoor import Widen   # noqa: PLC0415
+            raise Widen(share_nodes=missing_stats, structural_roots=missing_stats)
         found = {int(r[0]) for r in raw.execute(
             "SELECT agent_id FROM orgtree.agent_subtree_stats WHERE agent_id=ANY(%s)",
-            (sorted(plan.stats_ids),)).fetchall()}
+            (sorted(plan.stats_ids),)).fetchall()} if plan.stats_ids else set()
         if found != plan.stats_ids:
             raise LedgerError("native graph aggregate rows are missing; reconciliation is required")
     # PostgreSQL owns the marker, not an attribute on a pooled connection.
@@ -115,6 +130,18 @@ def current_plan(raw: Any) -> dict[str, Any] | None:
     value = raw.execute(
         "SELECT nullif(current_setting('orgtree.graph_plan',true),'')").fetchone()[0]
     return json.loads(value) if value is not None else None
+
+
+def check_scope_paths(raw: Any, roots: set[str]) -> None:
+    """An authoritative scope read uses held agents, never a cached permission."""
+    plan = current_plan(raw)
+    if plan is None:
+        raise LedgerError('scope authority requires its current planned org transaction')
+    rows = _paths(raw, sorted(roots - {USER}))
+    missing = {str(r[1]) for r in rows if int(r[0]) not in plan['agents']}
+    if missing:
+        from ..pgdoor import Widen   # noqa: PLC0415
+        raise Widen(share_nodes=missing)
 
 
 def check_paths(raw: Any, roots: set[str], *, updates: set[str] | None = None) -> None:
@@ -196,7 +223,7 @@ def apply_scalars(raw: Any, patches: list[ScalarPatch]) -> dict[int, int]:
         if 'grant' in p.values and not codec.fits('num', p.values['grant']):
             raise LedgerError('native scalar grant must be an exact finite number')
     plan = current_plan(raw)
-    if plan is None:
+    if plan is None or not plan.stats_ids:
         raise LedgerError('native scalar patches require a planned org transaction')
     updates = {p.name for p in patches}
     missing = updates - set(plan['updates']) if not plan['whole'] else set()
