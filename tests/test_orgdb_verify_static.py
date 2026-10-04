@@ -199,7 +199,7 @@ def migrated_schema(texts=None):
                     out[table].pop(deleted[1], None)
                 elif changed:
                     out[table][changed[1]] = _TYPES.get(changed[2], changed[2])
-                elif col and col[1] not in {'CONSTRAINT', 'PRIMARY', 'FOREIGN', 'UNIQUE', 'CHECK'}:
+                elif col and col[1] not in {'ADD', 'ALTER', 'DROP', 'CONSTRAINT', 'PRIMARY', 'FOREIGN', 'UNIQUE', 'CHECK'}:
                     out[table][col[1]] = _TYPES.get(col[2], col[2])
     return out, references, foundation
 
