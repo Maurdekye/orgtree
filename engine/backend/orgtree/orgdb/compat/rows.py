@@ -1396,10 +1396,20 @@ def children_ids(c: Any, parents: Sequence[str], live_only: bool = False) -> lis
     node's state (``scalar_field``), so retained extra never makes an archived row a
     candidate. A row whose state is kept in extra (column NULL) still counts."""
     live = " AND a.state IS DISTINCT FROM 'archived'" if live_only else ""
+    # A name may denote live and tombstoned physical parents. Resolve all of them;
+    # the empty name also denotes NULL. Only parent misfits need decoded correction,
+    # not every row with an unrelated unknown payload field. UNION deduplicates ids
+    # across those branches without losing ordered physical namesakes.
     return [str(n) for (n,) in c.execute(
-        "SELECT a.name FROM orgtree.agents a LEFT JOIN orgtree.agents p ON p.id = a.parent_id "
-        "WHERE NOT a.tombstone AND (coalesce(p.name, '') = ANY(%s) OR a.extra IS NOT NULL)"
-        + live + " ORDER BY a.ord, a.id", (list(parents),)).fetchall()]
+        "WITH requested AS MATERIALIZED (SELECT id FROM orgtree.agents WHERE name=ANY(%s)), "
+        "candidates AS MATERIALIZED ("
+        "SELECT a.id FROM orgtree.agents a WHERE NOT a.tombstone "
+        "AND a.parent_id IN (SELECT id FROM requested)" + live + " UNION "
+        "SELECT a.id FROM orgtree.agents a WHERE NOT a.tombstone "
+        "AND a.parent_id IS NULL AND %s" + live + " UNION "
+        "SELECT a.id FROM orgtree.agents a WHERE NOT a.tombstone AND a.parent_misfit" + live
+        + ") SELECT a.name FROM candidates k JOIN orgtree.agents a ON a.id=k.id "
+        "ORDER BY a.ord,a.id", (list(parents), '' in parents)).fetchall()]
 
 
 def _tool_list(c: Any) -> Callable[[str, list[str], Rows], int]:
