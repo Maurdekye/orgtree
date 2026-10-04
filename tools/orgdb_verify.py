@@ -750,7 +750,7 @@ def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tupl
     walk(ITEM, 'work_items')
     walk(ITEM_EVENT_FIELDS, 'work_item_events')
     put('org_sections', 'state', ('n', 'v'))
-    put('org_section_owners', 'state', ('n', 'v'))
+    put('org_section_owners', 'state', ('n', 'l', 'o'))
     put('work_items', 'list_key', ('active', 'archive'))
     put('work_item_events', 'source', ITEM_EVENT_SOURCES)
     put('work_item_events', 'kind', ('history', 'evidence', 'scope', 'decision',
