@@ -1615,12 +1615,14 @@ def _orgdb_org_row_read(reg: dict[str, Any]) -> dict[str, Any]:
     switch off (`org_summary.admin_rows`): the org database's kept totals in one snapshot
     (node count, live count, the decimal cost total of coordinator decision 4), so a poll does
     not grow with the org's agents. An org whose cost needs the legacy conversion takes the
-    complete reader, as it does with the switch off (A7b decision 2)."""
+    complete reader, as it does with the switch off (A7b decision 2). So does a process whose
+    own store is not PostgreSQL (tests that switch only the org storage): it has no native
+    foreground snapshot (`foreground_store._native`)."""
     from . import foreground_store, org_summary
     from .foreground_context import CompatibilityRequired
     from .orgdb import registry as org_registry
     slug = reg['slug']
-    if reg['state'] != 'active':
+    if reg['state'] != 'active' or not foreground_store._native():
         return _orgdb_org_row_complete(reg)
     try:
         summary, totals = org_summary._read(slug)

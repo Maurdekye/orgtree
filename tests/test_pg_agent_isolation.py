@@ -44,8 +44,10 @@ except ImportError:
     HAVE_PSYCOPG = False
 
 #: Decision 35's list, written out here so a name dropped from the module's
-#: tuple fails this test rather than silently leaking.
-REQUIRED = ("ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_PG_URL", "ORGTREE_PG_BOOTSTRAP", "PGHOST", "PGPORT",
+#: tuple fails this test rather than silently leaking. 3.2.0 added the storage
+#: switch, the org-database prefix and the admin connection (A7b, G3-A2).
+REQUIRED = ("ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_PG_URL", "ORGTREE_PG_BOOTSTRAP",
+            "ORGTREE_STORAGE", "ORGTREE_ORGDB_PREFIX", "ORGTREE_PG_ADMIN_CONNINFO", "PGHOST", "PGPORT",
             "PGDATABASE", "PGUSER", "PGPASSWORD", "PGPASSFILE", "PGSERVICE")
 LIVE_CONNINFO = ("host=127.0.0.1 port=59999 dbname=orgtree user=orgtree_runtime "
                  "passfile='C:\\\\LIVE\\\\pg\\\\cluster\\\\secrets\\\\pgpass.conf' require_auth=scram-sha-256")
