@@ -106,6 +106,7 @@ class Context:
         self._current_stamps: dict[tuple[str, str, int], int] = {}
         self._node_records: dict[int, Mapping[str, Any]] = {}
         self.row_order: dict[str, dict[str, list[int]]] = {}
+        self.recent_turns: dict[int, list[dict[str, Any]]] = {}
         self._next = 1
 
     def add_node(self, name: str, record: Mapping[str, Any] | None = None) -> int:

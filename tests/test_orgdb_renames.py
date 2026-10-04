@@ -323,12 +323,12 @@ class NativeRename(unittest.TestCase):
                'predecessor_id': None, 'successor_id': None, '_xmin': '1', '_ctid': '(0,6)'}
         names = SimpleNamespace(load=lambda ids: list(ids), name=lambda aid: state['parent'])
 
-        def decode(*args):
+        def decode(*args, **kwargs):
             return {'title': 'Child', 'parent': state['parent']}
 
         with patch.object(R, '_NODE_TEXTS', {}), patch.object(R, '_node_slot', return_value=slot),\
                 patch.object(R, 'dict_rows', return_value=[row]), patch.object(R, '_node_children',
-                return_value=(None, None, {}, {})), patch.object(A, 'decode_node', side_effect=decode) as read:
+                return_value=(None, None, {}, {}, {})), patch.object(A, 'decode_node', side_effect=decode) as read:
             first = R.nodes(heads, ['child'], names=names)[0][1]
             self.assertEqual(R.nodes(heads, ['child'], names=names)[0][1], first)
             self.assertEqual(read.call_count, 1)

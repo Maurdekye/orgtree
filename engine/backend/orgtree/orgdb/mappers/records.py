@@ -222,6 +222,11 @@ AGENT_TURNS = Spec("agent_turns", (
     F("reported", "json"), F("model_usage_key", "json"),
 ))
 
+
+def _turns():
+    from ..turns import Log
+    return Log(AGENT_TURNS)
+
 AGENT_TURN_ERRORS = Spec("agent_turn_errors", (F("at", "ts"), F("text", "text"),
                                                F("ran_as", "text")))
 
@@ -315,7 +320,7 @@ def sections() -> list[Section]:
         ByAgentLists("delivering", DELIVERY_BATCHES),
         ByAgentLists("mail_log", MAIL_LOG),
         ByAgentLists("steered_log", STEER_RECORDS),
-        ByAgentLists("turn_log", AGENT_TURNS),
+        _turns(),
         ByAgentLists("turn_error_log", AGENT_TURN_ERRORS),
         ByAgentLists("work_scope_log", WORK_SCOPE_LOG),
         ByAgentMaps("mail_transitions", MAIL_TRANSITIONS),

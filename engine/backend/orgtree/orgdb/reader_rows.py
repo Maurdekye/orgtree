@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from . import codec, mappers, sections
+from . import codec, mappers, sections, turns
 from .mappers import agents
 
 
@@ -41,15 +41,8 @@ def read_agents(raw: Any, names: Iterable[str], *, recent_turns_limit: int | Non
         for table in layout:
             if table == main:
                 continue
-            if table == 'agent_recent_turns' and recent_turns_limit is not None:
-                target[table] = _rows(raw,
-                    'SELECT turn.* FROM unnest(%s::bigint[]) selected(agent_id) '
-                    'CROSS JOIN LATERAL (SELECT * FROM orgtree.agent_recent_turns '
-                    'WHERE agent_id = selected.agent_id ORDER BY pos DESC LIMIT %s) turn',
-                    (ids, recent_turns_limit))
-            else:
-                target[table] = _rows(raw, f'SELECT * FROM orgtree.{table} '
-                                     'WHERE agent_id = ANY(%s)', (ids,))
+            target[table] = _rows(raw, f'SELECT * FROM orgtree.{table} '
+                                 'WHERE agent_id = ANY(%s)', (ids,))
     texts = {row['agent_id']: row for row in _rows(raw,
         'SELECT * FROM orgtree.agent_texts WHERE agent_id = ANY(%s)', (ids,))}
     payloads = {row['agent_id']: row for row in _rows(raw,
@@ -64,8 +57,10 @@ def read_agents(raw: Any, names: Iterable[str], *, recent_turns_limit: int | Non
                                       'WHERE list_id = ANY(%s)', (list(lists),)).fetchall():
         tools.setdefault(lid, []).append((pos, tool))
     ch_hot, ch_rt = codec.Children(hot, hot_layout), codec.Children(runtime, rt_layout)
+    recent = turns.read_recent(raw, ids, limit=recent_turns_limit)
     return {row['name']: agents.decode_node(row, ch_hot, ch_rt, texts[row['id']],
-                                          payloads[row['id']], tools, name_by_id.__getitem__)
+                                          payloads[row['id']], tools, name_by_id.__getitem__,
+                                          recent=recent.get(row['id'], []))
             for row in rows}
 
 
@@ -111,7 +106,8 @@ def read_sections(raw: Any, keys: Iterable[str], *, owners: Iterable[str] | None
             main = table.spec.table
             if by_agent:
                 rows[main] = _rows(raw, f'SELECT * FROM orgtree.{main} '
-                                   'WHERE agent_id = ANY(%s)', (ids,))
+                                   'WHERE agent_id = ANY(%s)' +
+                                   (' AND idx IS NOT NULL' if main == 'agent_turns' else ''), (ids,))
             else:
                 rows[main] = _rows(raw, f'SELECT * FROM orgtree.{main}')
             parent_key = table.keys[0][0]

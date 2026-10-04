@@ -28,12 +28,12 @@ Derived columns, recomputed from the record and never read back as data:
 Tombstone rows (``tombstone`` true) carry only a name: they are what a by-agent section's key,
 or a parent, names when no node does. They are never nodes.
 
-Stage-1 differences from Appendix A.2, all exact and revisited by the native agents module
-(design §6.3 step 2): the recent ``turns`` list keeps its own table (Appendix A.2 would read it
-from the turn log, but 81 live agents' lists predate the log); denials and approvals are two
-tables instead of one with a kind column; scope columns keep a ``scope_`` prefix. The frozen
-0002 estimate tuples are JSON; the current mapper stores their integer or compensated float
-state in typed columns without recomputing it. Migration 0009 adds enum CHECKs; an
+The frozen 0002 layout keeps a separate recent-turn table and JSON estimate tuples.
+The current mapper uses explicit recent membership in ``agent_turns`` (Appendix A.2
+rev 7.7): pre-log turns are list-only payloads, and matching log/recent occurrences
+share one row. Estimates keep their integer or compensated float state in typed
+columns without recomputation. Denials and approvals still use separate tables,
+and scope columns keep a ``scope_`` prefix. Migration 0009 adds enum CHECKs; an
 unsupported legacy member stays exact in extra, with a NULL typed column.
 """
 
@@ -46,6 +46,7 @@ from typing import Any, Callable, Mapping
 
 from .. import codec
 from .. import enum_values as V
+from .. import turns
 from ..codec import Field, Rows, ShapeError, Spec
 from ..sections import Context, Section, Table
 
@@ -248,8 +249,10 @@ TOOL_LISTS_DDL = (
 # migration, including for an org that has already run the alpha build.
 LEGACY_HOT, LEGACY_AGENTS = HOT, AGENTS
 HOT = Spec('agents', tuple(F(f.key, 'sum') if f.key in ('turn_est_cost', 'turn_est_toks') else
+                          F('turns', 'membership') if f.key == 'turns' else
                           replace(f, values=f.values + ('deleted',)) if f.key == 'state' else f
                           for f in LEGACY_HOT.fields))
+NODE_BODY = Spec('agents', tuple(f for f in HOT.fields if f.key != 'turns'))
 AGENTS = replace(LEGACY_AGENTS, spec=HOT)
 AGENTS = replace(AGENTS, indexes=AGENTS.indexes + (
     "CREATE INDEX agents_current_tombstone ON orgtree.agents(name,lineage_born,generation,id) "
@@ -299,6 +302,7 @@ class Nodes(Section):
 
     def finish(self, ctx: Context, out: Rows) -> None:
         """Tombstone rows for the names other sections minted (after every section ran)."""
+        turns.merge_recent(ctx.recent_turns, out)
         records = [(ctx.ids[name], name, {}) for name in ctx.tombstones]
         records += [(aid, ctx.names[aid], record) for aid, record in ctx.current_tombstones.items()]
         for aid, name, record in records:
@@ -318,10 +322,11 @@ class Nodes(Section):
         ch_rt = self._children(rows, RUNTIME_T)
         texts = {r["agent_id"]: r for r in rows.get("agent_texts", [])}
         runtime = {r["agent_id"]: r for r in rows.get("agent_runtime", [])}
+        recent = turns.recent_values(rows)
         nodes: dict[str, Any] = {}
         for r in sorted((r for r in agents if not r["tombstone"]), key=lambda r: r["ord"]):
             nodes[r["name"]] = decode_node(r, ch_hot, ch_rt, texts[r["id"]], runtime[r["id"]],
-                                           tool_lists, ctx.name)
+                                           tool_lists, ctx.name, recent=recent.get(r['id'], []))
         doc["nodes"] = nodes
 
 
@@ -355,6 +360,8 @@ def encode_node(name: str, aid: int, ord_: int, rec: dict[str, Any], ctx: Contex
     for key, col in FLAGS.items():
         derived[col] = bool(rec.get(key))
     codec.encode(HOT, hot, {"id": aid}, out, link=AGENTS.link)
+    if out['agents'][-1]['turns_is'] == codec.SHAPE_LIST:
+        ctx.recent_turns[aid] = rec['turns']
     row = out["agents"][-1]
     row.update({"name": name, "ord": ord_, "tombstone": False, **derived})
     codec.encode(TEXTS, {k: rec[k] for k in _TEXT_KEYS if k in rec}, {"agent_id": aid}, out,
@@ -366,11 +373,17 @@ def encode_node(name: str, aid: int, ord_: int, rec: dict[str, Any], ctx: Contex
 def decode_node(r: Mapping[str, Any], ch_hot: codec.Children, ch_rt: codec.Children,
                 text_row: Mapping[str, Any], runtime_row: Mapping[str, Any],
                 tool_lists: Mapping[int, list[tuple[int, str]]],
-                name_of: Callable[[int], str]) -> dict[str, Any]:
+                name_of: Callable[[int], str], *, recent: list[dict] | None = None) -> dict[str, Any]:
     """The node ``encode_node`` was given, from its rows: ``r`` its ``agents`` row, the
     children of the agents and runtime tables, its ``agent_texts`` and ``agent_runtime``
     rows, ``tool_lists`` {list id: [(pos, tool)]} and ``name_of`` for the references."""
-    rec = codec.decode(HOT, r, ch_hot, (r["id"],))
+    rec = codec.decode(NODE_BODY, r, ch_hot, (r["id"],))
+    if r.get('turns_is') == codec.SHAPE_LIST:
+        if recent is None:
+            raise ValueError('turns: the membership reader must supply the records')
+        rec['turns'] = recent
+    elif r.get('turns_is') == codec.SHAPE_NULL:
+        rec['turns'] = None
     for ref in REFS:
         if r[f"{ref}_id"] is not None:
             rec[ref] = name_of(r[f"{ref}_id"])

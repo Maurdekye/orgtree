@@ -62,6 +62,11 @@ Field kinds:
   principal  typed recorded name/generation/born/deleted columns and kind;
          an exact string or object, with aliases for existing actor headers.
          Resolving a current-holder foreign key is the mapper/writer's job.
+  turn_usage  the turn model-usage object, flattened as model_usage columns;
+         a supported older bare list uses the same keys child table. Other
+         shapes stay exact in extra, with distinct object/list/null markers.
+  membership  a record-list shape marker without owned payload children;
+         the owning mapper must supply its shared-table membership records.
 
 A scalar's present ``null`` is stored in a ``<col>_null`` boolean when the
 field is ``nullable`` (fields stored both ways on real data), else in extra.
@@ -82,12 +87,14 @@ from typing import Any, Iterable, Iterator, Mapping
 MISSING: Any = object()
 
 SCALARS = ("text", "int", "float", "num", "bool", "ts", "json")
-KINDS = SCALARS + ("obj", "list", "sum", "principal")
+KINDS = SCALARS + ("obj", "list", "sum", "principal", "turn_usage", "membership")
 SHAPE_NULL, SHAPE_OBJECT, SHAPE_LIST, SHAPE_EXTRA = 'n', 'o', 'l', 'x'
 MARKER_VALUES = {'obj': (SHAPE_NULL, SHAPE_OBJECT, SHAPE_EXTRA),
                  'list': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA),
                  'sum': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA),
-                 'principal': (SHAPE_NULL, SHAPE_OBJECT, 's', SHAPE_EXTRA)}
+                 'principal': (SHAPE_NULL, SHAPE_OBJECT, 's', SHAPE_EXTRA),
+                 'turn_usage': (SHAPE_NULL, SHAPE_OBJECT, SHAPE_LIST, SHAPE_EXTRA),
+                 'membership': (SHAPE_NULL, SHAPE_LIST, SHAPE_EXTRA)}
 SQL_TYPES = {"text": "text", "int": "bigint", "float": "double precision", "num": "numeric",
              "bool": "boolean", "ts": "timestamptz", "json": "json"}
 _INT_MIN, _INT_MAX = -(2 ** 63), 2 ** 63 - 1
@@ -128,7 +135,7 @@ class Field:
             raise ValueError(f"{self.key}: unknown kind {self.kind!r}")
         if not self.col:
             object.__setattr__(self, "col", self.key)
-        if self.kind == "obj" and (self.spec is None or self.spec.table):
+        if self.kind in ("obj", "turn_usage") and (self.spec is None or self.spec.table):
             raise ValueError(f"{self.key}: an obj field needs a table-less spec")
         if self.kind == "list":
             if self.spec is not None:
@@ -285,6 +292,10 @@ def columns(spec: Spec, prefix: str = "") -> tuple[tuple[str, str], ...]:
         if f.kind == 'sum':
             from . import estimate_columns
             out.extend(estimate_columns.columns(c))
+        elif f.kind == 'turn_usage':
+            assert f.spec is not None
+            out.append((c + '_is', 'char(1)'))
+            out.extend(columns(f.spec, c.removesuffix('_key') + '_'))
         elif f.kind == 'principal':
             from . import principal_columns
             out.extend(principal_columns.columns(c, dict(f.principal_aliases)))
@@ -311,7 +322,7 @@ def _lists(spec: Spec) -> Iterator[Field]:
     for f in spec.fields:
         if f.kind == "list":
             yield f
-        elif f.kind == "obj":
+        elif f.kind in ("obj", "turn_usage"):
             assert f.spec is not None
             yield from _lists(f.spec)
 
@@ -325,9 +336,10 @@ def enumerated(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
     for f in spec.fields:
         if f.values:
             yield prefix + f.col, path + (f.key,), f.values
-        elif f.kind == "obj":
+        elif f.kind in ("obj", "turn_usage"):
             assert f.spec is not None
-            yield from enumerated(f.spec, prefix + f.col + "_", path + (f.key,))
+            sub = (prefix + f.col).removesuffix('_key') if f.kind == 'turn_usage' else prefix + f.col
+            yield from enumerated(f.spec, sub + "_", path + (f.key,))
 
 
 def markers(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
@@ -336,9 +348,10 @@ def markers(spec: Spec, prefix: str = "", path: tuple[str, ...] = ()
     for f in spec.fields:
         if f.kind in MARKER_VALUES:
             yield prefix + f.col + '_is', path + (f.key,), MARKER_VALUES[f.kind]
-            if f.kind == 'obj':
+            if f.kind in ('obj', 'turn_usage'):
                 assert f.spec is not None
-                yield from markers(f.spec, prefix + f.col + '_', path + (f.key,))
+                sub = (prefix + f.col).removesuffix('_key') if f.kind == 'turn_usage' else prefix + f.col
+                yield from markers(f.spec, sub + '_', path + (f.key,))
 
 
 def _linked(keys: Mapping[str, Any], link: Mapping[str, str] | None) -> dict[str, Any]:
@@ -498,9 +511,22 @@ def _fill(spec: Spec, record: dict[str, Any], row: dict[str, Any], extra: dict[s
                     row[c + "_text"] = ts_text(v)
             else:
                 extra[f.key] = v
-        elif f.kind == "obj":
+        elif f.kind == 'membership':
+            # Membership payloads live in their shared table. The owning mapper
+            # supplies them; the node row holds only the original container shape.
+            if v is MISSING:
+                row[c + '_is'] = None
+            elif v is None:
+                row[c + '_is'] = SHAPE_NULL
+            elif isinstance(v, list) and all(isinstance(x, dict) for x in v):
+                row[c + '_is'] = SHAPE_LIST
+            else:
+                row[c + '_is'] = SHAPE_EXTRA
+                extra[f.key] = v
+        elif f.kind in ("obj", "turn_usage"):
             assert f.spec is not None
-            for sc, _ in columns(f.spec, c + "_"):
+            sub_prefix = (c.removesuffix('_key') if f.kind == 'turn_usage' else c) + '_'
+            for sc, _ in columns(f.spec, sub_prefix):
                 row[sc] = None
             if v is MISSING:
                 row[c + "_is"] = None
@@ -509,9 +535,12 @@ def _fill(spec: Spec, record: dict[str, Any], row: dict[str, Any], extra: dict[s
             elif isinstance(v, dict):
                 row[c + "_is"] = SHAPE_OBJECT
                 sub: dict[str, Any] = {}
-                _fill(f.spec, v, row, sub, c + "_", keys, out, depth)
+                _fill(f.spec, v, row, sub, sub_prefix, keys, out, depth)
                 if sub:
                     extra[f.key] = sub
+            elif f.kind == 'turn_usage' and isinstance(v, list) and all(fits('text', x) for x in v):
+                row[c + '_is'] = SHAPE_LIST
+                _fill(f.spec, {'keys': v}, row, {}, sub_prefix, keys, out, depth)
             else:
                 row[c + "_is"] = SHAPE_EXTRA
                 extra[f.key] = v
@@ -620,13 +649,22 @@ def _read(spec: Spec, row: Mapping[str, Any], children: Children | None,
                 out[f.key] = None
             continue
         state = row.get(c + "_is")
+        if f.kind == 'membership' and state == SHAPE_LIST:
+            raise ValueError(f'{f.key}: the membership reader must supply the records')
         if state == SHAPE_NULL:
             out[f.key] = None
         elif state == SHAPE_OBJECT:
             assert f.spec is not None
-            out[f.key] = _read(f.spec, row, children, parent, c + "_", depth)
+            sub_prefix = (c.removesuffix('_key') if f.kind == 'turn_usage' else c) + '_'
+            out[f.key] = _read(f.spec, row, children, parent, sub_prefix, depth)
         elif state == SHAPE_LIST:
-            out[f.key] = _read_list(f, children, parent, depth)
+            if f.kind == 'turn_usage':
+                assert f.spec is not None
+                keys_field = f.spec.field('keys')
+                assert keys_field is not None
+                out[f.key] = _read_list(keys_field, children, parent, depth)
+            else:
+                out[f.key] = _read_list(f, children, parent, depth)
     return out
 
 
@@ -647,7 +685,7 @@ def _merge(spec: Spec | None, out: dict[str, Any], extra: Mapping[str, Any]) -> 
     present, recursively; everything else replaces."""
     for k, v in extra.items():
         f = spec.field(k) if spec is not None else None
-        if (f is not None and f.kind in ("obj", "principal") and isinstance(out.get(k), dict)
+        if (f is not None and f.kind in ("obj", "principal", "turn_usage") and isinstance(out.get(k), dict)
                 and isinstance(v, dict)):
             _merge(f.spec, out[k], v)
         else:

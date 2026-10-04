@@ -91,6 +91,11 @@ class CompatError(RuntimeError):
     """A legacy write this view cannot represent (never a silent partial write)."""
 
 
+def _turns():
+    from .. import turns
+    return turns
+
+
 # ----------------------------------------------------------------- the model
 
 @dataclass(frozen=True)
@@ -559,6 +564,12 @@ def section_clear(c: Any, sec: Section, key: str, *, tx: Tx | None = None) -> No
     if isinstance(sec,D.Docket):
         _docket_section_put(c,key,[],tx)
         return
+    if key == 'turn_log':
+        ids = [r[0] for r in c.execute('SELECT id FROM orgtree.agent_turns '
+                                       'WHERE idx IS NOT NULL').fetchall()]
+        _turns().remove_log(c, ids)
+        c.execute('DELETE FROM orgtree.org_section_owners WHERE section=%s', (key,))
+        return
     for t in sec.tables:
         c.execute(f"DELETE FROM orgtree.{t.spec.table}")      # children cascade
     if isinstance(sec, (ByAgentLists, ByAgentRecords, ByAgentMaps)):
@@ -570,6 +581,9 @@ def section_put(c: Any, sec: Section, key: str, value: Any, names: Names,
     """Replace a whole-section key's records with ``value``'s."""
     if isinstance(sec,D.Docket):
         _docket_section_put(c,key,value,tx)
+        return
+    if key == 'turn_log':
+        _turn_section_put(c, value, names)
         return
     section_clear(c, sec, key)
     if value is None:
@@ -583,6 +597,26 @@ def section_put(c: Any, sec: Section, key: str, value: Any, names: Names,
             for name in lay(t):
                 insert(c, name, out.get(name, []))
     insert(c, "org_section_owners", out.get("org_section_owners", []))
+
+
+def _turn_section_put(c: Any, value: Any, names: Names) -> None:
+    """Whole-log replacement changes only log membership, including null owners."""
+    if value is not None and (not isinstance(value, dict) or any(records is not None and
+            (not isinstance(records, list) or not all(isinstance(r, dict) for r in records))
+            for records in value.values())):
+        raise ShapeError('turn_log: expected an object of record lists or nulls')
+    ls = model().logs['turn_log']
+    aids = [names.id(owner, mint=True) for owner in value or {}]
+    aids += [row[0] for row in c.execute('SELECT DISTINCT agent_id FROM orgtree.agent_turns '
+                                        'WHERE idx IS NOT NULL').fetchall()]
+    _turns().lock_agents(c, aids)
+    section_clear(c, ls.section, ls.name)
+    for position, (owner, records) in enumerate((value or {}).items()):
+        aid = names.id(owner, mint=True)
+        c.execute('INSERT INTO orgtree.org_section_owners(section,agent_id,ord,state) '
+                  'VALUES (%s,%s,%s,%s)', ('turn_log', aid, position, 'n' if records is None else 'l'))
+        for record in records or []:
+            log_insert(c, ls, owner, dumps(record), names)
 
 
 # ----------------------------------------------------------------- settings
@@ -872,7 +906,9 @@ def owner_rows(c: Any, sect: str, owners: Iterable[str] | None = None, *,
         return {}
     ids = [int(a) for a, _ in heads]
     names.load(ids)
-    rows, ch = fetch(c, t, "agent_id = ANY(%s)", (ids,), order="agent_id, idx")
+    rows, ch = fetch(c, t, "agent_id = ANY(%s)" +
+                    (' AND idx IS NOT NULL' if sect == 'turn_log' else ''),
+                    (ids,), order="agent_id, idx")
     by: dict[int, list[Any]] = {i: [] for i in ids}
     for r in rows:
         by[int(r["agent_id"])].append(codec.decode(t.spec, r, ch, (r["id"],)))
@@ -889,6 +925,17 @@ def owner_put(c: Any, sect: str, owner: str, value: Any, names: Names) -> None:
         raise CompatError(f"{sect}[{owner!r}] as an owner row must be a list")
     t = _owner_table(sect)
     aid = names.id(owner, mint=True)
+    if sect == 'turn_log':
+        _turns().lock_agents(c, [aid])
+        c.execute("INSERT INTO orgtree.org_section_owners (section,agent_id,ord,state) "
+                  "SELECT %s,%s,coalesce(max(ord),-1)+1,'l' FROM orgtree.org_section_owners "
+                  "WHERE section=%s ON CONFLICT(section,agent_id) DO UPDATE SET state='l'",
+                  (sect, aid, sect))
+        ls = model().logs[sect]
+        log_scope_delete(c, ls, aid)
+        for record in value:
+            log_insert(c, ls, owner, dumps(record), names)
+        return
     out: Rows = {}
     for i, rec in enumerate(value):
         if not isinstance(rec, dict):
@@ -1094,7 +1141,8 @@ def header_put(c: Any, tx: Tx, text: str) -> None:
 
 def _node_children(c: Any, ids: list[int]) -> tuple[codec.Children, codec.Children,
                                                    dict[int, dict[str, Any]],
-                                                   dict[int, dict[str, Any]]]:
+                                                   dict[int, dict[str, Any]],
+                                                   dict[int, list[dict[str, Any]]]]:
     hot_lay = lay(A.AGENTS)
     rt_lay = lay(A.RUNTIME_T)
     hot: dict[str, list[dict[str, Any]]] = {}
@@ -1109,7 +1157,8 @@ def _node_children(c: Any, ids: list[int]) -> tuple[codec.Children, codec.Childr
         c, "SELECT * FROM orgtree.agent_texts WHERE agent_id = ANY(%s)", (ids,))}
     runtime = {int(r["agent_id"]): r for r in dict_rows(
         c, "SELECT * FROM orgtree.agent_runtime WHERE agent_id = ANY(%s)", (ids,))}
-    return codec.Children(hot, hot_lay), codec.Children(rt, rt_lay), texts, runtime
+    return (codec.Children(hot, hot_lay), codec.Children(rt, rt_lay), texts, runtime,
+            _turns().read_recent(c, ids))
 
 
 def nodes(c: Any, wanted: Iterable[str] | None = None, *, names: Names | None = None,
@@ -1148,7 +1197,7 @@ def nodes(c: Any, wanted: Iterable[str] | None = None, *, names: Names | None = 
     if misses:
         rows = dict_rows(c, "SELECT *, xmin::text AS _xmin, ctid::text AS _ctid "
                             "FROM orgtree.agents WHERE id = ANY(%s)", (misses,))
-        ch_hot, ch_rt, texts, runtime = _node_children(c, misses)
+        ch_hot, ch_rt, texts, runtime, recent = _node_children(c, misses)
         lists = sorted({int(r["tool_list_id"]) for r in rows if r["tool_list_id"] is not None})
         tool_lists: dict[int, list[tuple[int, str]]] = {}
         if lists:
@@ -1159,7 +1208,8 @@ def nodes(c: Any, wanted: Iterable[str] | None = None, *, names: Names | None = 
         fresh: dict[int, tuple[str, str]] = {}
         for r in rows:
             rec = A.decode_node(r, ch_hot, ch_rt, texts.get(int(r["id"]), {}),
-                                runtime.get(int(r["id"]), {}), tool_lists, names.name)
+                                runtime.get(int(r["id"]), {}), tool_lists, names.name,
+                                recent=recent.get(int(r['id']), []))
             text = dumps(rec)
             texts_by_id[int(r["id"])] = text
             version = dumps([r['_xmin'], r['_ctid'],
@@ -1384,13 +1434,15 @@ def node_put(c: Any, name: str, value: Any, names: Names) -> None:
         names.by_name[name] = aid
         names.by_id[aid] = name
         out: Rows = {}
-        A.encode_node(name, aid, ord_, value, DbContext(names), out, _tool_list(c))
+        context = DbContext(names)
+        A.encode_node(name, aid, ord_, value, context, out, _tool_list(c))
         arow = out["agents"][0]
         if row is None:
             insert(c, "agents", [arow])
         else:
             _clear_node_rows(c, aid)
             _update_agent(c, aid, arow)
+        _turns().reconcile_recent(c, aid, context.recent_turns.get(aid, []))
         for name_ in lay(A.AGENTS):
             if name_ != "agents":
                 insert(c, name_, out.get(name_, []))
@@ -1417,6 +1469,7 @@ def node_delete(c: Any, name: str) -> int:
     A.encode_tombstone(name, aid, record, out)
     arow = out["agents"][0]
     _clear_node_rows(c, aid)
+    _turns().clear_recent(c, aid)
     _update_agent(c, aid, arow)
     return 1
 
@@ -1435,7 +1488,8 @@ def by_seq(log: str, seq: int) -> tuple[LogSect, int]:
 
 
 def _scope(ls: LogSect, extra: str = "") -> str:
-    base = "list_key = 'archive'" if ls.kind == "archive" else "true"
+    base = ("list_key = 'archive'" if ls.kind == "archive" else
+            'idx IS NOT NULL' if ls.name == 'turn_log' else "true")
     return base + extra
 
 
@@ -1553,6 +1607,7 @@ def log_owner_tail(c: Any, ls: LogSect, aid: int, limit: int, names: Names
         return []
     pick = [int(r[0]) for r in c.execute(
         f"SELECT id FROM orgtree.{ls.table.spec.table} WHERE agent_id = %s "
+        + ('AND idx IS NOT NULL ' if ls.name == 'turn_log' else '') +
         "ORDER BY win_at DESC, id DESC LIMIT %s", (aid, limit)).fetchall()]
     if not pick:
         return []
@@ -1605,6 +1660,10 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names,
             keys["key"] = key
     if ls.name == "mail_log":
         M.lock(c, keys["agent_id"])
+    if ls.name == 'turn_log':
+        _turns().attach_log(c, keys['agent_id'], rid, keys['idx'], rec)
+        ensure_section(c, ls.name, touch=False)
+        return seq_of(ls, rid)
     out: Rows = {}
     codec.encode(ls.table.spec, rec, keys, out, link=ls.table.link)
     store_encoded(c, ls.table, out, ids=[rid])
@@ -1617,6 +1676,8 @@ def log_insert(c: Any, ls: LogSect, owner: str | None, text: str, names: Names,
 def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | None,
                 tx: Tx | None = None) -> int:
     """Rewrite the row ``rid`` (compare-and-set when ``expected`` is given); 0 or 1."""
+    if ls.name == 'turn_log':
+        _turns().lock_log_ids(c, [rid])
     if ls.name == "mail_log":
         owners = [int(r[0]) for r in c.execute(
             "SELECT agent_id FROM orgtree.mail_log WHERE id=%s", (rid,)).fetchall()]
@@ -1636,6 +1697,11 @@ def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | Non
             return 0
         keys = D.row_keys(entry,id=r['id'],list_key='archive',ord=r['ord'],archive_seq=r['archive_seq'])
         _docket_write(c,entry,keys,r)
+        return 1
+    if ls.name == 'turn_log':
+        if not isinstance(entry, dict):
+            raise ShapeError('turn_log: a log entry that is not an object')
+        _turns().rewrite_log(c, r, entry_of(ls, r, ch), entry)
         return 1
     rec, key = entry, r.get("key")
     if ls.kind == "agent_map":
@@ -1661,6 +1727,8 @@ def log_replace(c: Any, ls: LogSect, rid: int, text: str, *, expected: str | Non
 def log_delete(c: Any, ls: LogSect, rids: Sequence[int], *, expected: str | None = None,
                tx: Tx | None = None) -> int:
     """Delete rows by id (compare-and-set for one row when ``expected`` is given)."""
+    if ls.name == 'turn_log':
+        _turns().lock_log_ids(c, list(rids))
     if ls.name == "mail_log":
         owners = [int(r[0]) for r in c.execute(
             "SELECT DISTINCT agent_id FROM orgtree.mail_log WHERE id=ANY(%s)", (list(rids),)).fetchall()]
@@ -1691,6 +1759,8 @@ def log_delete(c: Any, ls: LogSect, rids: Sequence[int], *, expected: str | None
         rows, ch = fetch(c, ls.table, _scope(ls, " AND id = %s"), (rids[0],), lock=True)
         if not rows or not same(dumps(entry_of(ls, rows[0], ch)), expected):
             return 0
+    if ls.name == 'turn_log':
+        return _turns().remove_log(c, list(rids))
     n = int(c.execute(f"DELETE FROM orgtree.{ls.table.spec.table} WHERE {_scope(ls)} "
                       "AND id = ANY(%s)", (list(rids),)).rowcount)
     if n and ls.name == "mail_log":
@@ -1709,6 +1779,10 @@ def log_scope_delete(c: Any, ls: LogSect, owner_id: int | None = None,
     if owner_id is not None:
         where += " AND agent_id = %s"
         params.append(owner_id)
+    if ls.name == 'turn_log':
+        ids = [r[0] for r in c.execute(f'SELECT id FROM orgtree.agent_turns WHERE {where}',
+                                       params).fetchall()]
+        return _turns().remove_log(c, ids)
     if ls.name == "mail_log":
         owners = [owner_id] if owner_id is not None else [int(r[0]) for r in c.execute(
             "SELECT DISTINCT agent_id FROM orgtree.mail_log").fetchall()]
@@ -1737,7 +1811,8 @@ def log_owners_by_first(c: Any, ls: LogSect) -> list[str]:
     """The owners of a dict log's rows, by each one's first row (store._owners_of)."""
     return [str(n) for (n,) in c.execute(
         f"SELECT a.name FROM orgtree.{ls.table.spec.table} t JOIN orgtree.agents a "
-        "ON a.id = t.agent_id GROUP BY a.id, a.name ORDER BY min(t.id)").fetchall()]
+        "ON a.id = t.agent_id " + ('WHERE t.idx IS NOT NULL ' if ls.name == 'turn_log' else '') +
+        "GROUP BY a.id, a.name ORDER BY min(t.id)").fetchall()]
 
 
 # ----------------------------------------------------------------- meta
