@@ -32,7 +32,7 @@ class ChildCandidates(unittest.TestCase):
                     from psycopg.types.json import Json
                     position = next(order)
                     return raw.execute(
-                        'INSERT INTO orgtree.agents(name,ord,ui_order,seat_id,parent_id,parent_null,state,extra,tombstone) '
+                        'INSERT INTO orgtree.agents(name,ord,ui_order,lineage_born,parent_id,parent_null,state,extra,tombstone) '
                         'VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
                         (name, position, position, f'child-candidates-{position}', parent,
                          True if parent is None and not (extra and 'parent' in extra) else None,
