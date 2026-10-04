@@ -21,6 +21,36 @@ class LockPlan:
     whole: bool = False
 
 
+@dataclass(frozen=True)
+class SubtreeStats:
+    agent_id: int
+    parent_id: int | None
+    descendants: int
+    height: int
+    org_children_count: int
+    row_version: int
+
+
+def subtree_stats(raw: Any, name: str) -> SubtreeStats:
+    """One indexed header/cache read, never a descendant-scan fallback."""
+    row = raw.execute(
+        "SELECT a.id,a.parent_id,s.parent_agent_id,s.descendants,s.height,"
+        "s.org_children_count,a.row_version FROM orgtree.agents a "
+        "LEFT JOIN orgtree.agent_subtree_stats s ON s.agent_id=a.id "
+        "WHERE a.name=%s AND NOT a.tombstone", (name,)).fetchone()
+    if row is None:
+        raise LedgerError(f"no such agent: {name!r}")
+    if row[3] is None or row[1] != row[2] or min(row[3:6]) < 0:
+        raise LedgerError("native graph aggregate is missing or corrupt; reconciliation is required")
+    return SubtreeStats(int(row[0]), row[1], int(row[3]), int(row[4]), int(row[5]), int(row[6]))
+
+
+def verify_stats(raw: Any) -> list[tuple[int, str]]:
+    """Explicit slow, read-only reference check for reconciliation diagnostics."""
+    return [(int(agent_id), str(issue)) for agent_id, issue in raw.execute(
+        "SELECT agent_id,issue FROM orgtree.graph_verify_stats() ORDER BY agent_id").fetchall()]
+
+
 def _paths(raw: Any, names: list[str]) -> list[tuple[int, str, int | None]]:
     # UNION coalesces common suffixes and terminates even on a malformed cycle.
     # The body's cycle/permission rules and final assertion remain separate.

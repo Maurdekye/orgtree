@@ -82,6 +82,21 @@ class GraphStats(unittest.TestCase):
         self.assertEqual(self.stats(6), (1, 1, -1, 1))
         self.assertEqual(self.stats(2), (1, 2, 2, 1))
 
+    def test_typed_selected_reader_refuses_missing_or_wrong_parent_cache(self):
+        from orgtree.ledger import LedgerError
+        stats = graph.subtree_stats(self.c, 'a')
+        self.assertEqual((stats.agent_id, stats.parent_id, stats.descendants, stats.height,
+                          stats.org_children_count), (2, 1, 2, 2, 1))
+        self.c.execute('UPDATE orgtree.agent_subtree_stats SET parent_agent_id=5 WHERE agent_id=2')
+        with self.assertRaisesRegex(LedgerError, 'reconciliation'):
+            graph.subtree_stats(self.c, 'a')
+        self.assertIn((2, 'parent copy'), graph.verify_stats(self.c))
+        self.c.execute('DELETE FROM orgtree.agent_subtree_stats WHERE agent_id=2')
+        with self.assertRaisesRegex(LedgerError, 'reconciliation'):
+            graph.subtree_stats(self.c, 'a')
+        with self.assertRaisesRegex(LedgerError, 'no such agent'):
+            graph.subtree_stats(self.c, 'missing')
+
     def test_subtree_move_changes_paths_without_touching_ordinary_descendants(self):
         before = self.c.execute('SELECT a.id,a.xmin::text,s.xmin::text FROM orgtree.agents a '
                                 'JOIN orgtree.agent_subtree_stats s ON s.agent_id=a.id '
