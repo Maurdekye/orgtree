@@ -69,6 +69,13 @@ existing meanings. Do not merge every row with the same successor_id: the measur
 copy has more than one such predecessor candidate; the canonical predecessor walk
 is the contract. Backfill checks chains for overlap/cycles instead of guessing.
 
+Backfill must also prove that this projection preserves each member's existing
+parent before the first new move. A mismatched historical bearer parent cannot be
+silently normalized just to make the cache easier to maintain. This parity check
+is still unmeasured; if it finds exceptions, retain the evidence and get a ruling
+on their treatment before approving the design. Do not mark an otherwise usable
+org unavailable simply to avoid defining that case.
+
 The upward cycle test rejects a destination whose ancestor chain reaches ANY
 member of the moved slot. This covers a child stranded below an old bearer without
 enumerating that bearer's descendants. Raw-parent indexes cannot answer logical
@@ -82,6 +89,8 @@ Use typed maintained tables, with FK keys:
 - `agent_subtree_stats(agent_id, descendants, height, live_children, ...)`: own
   logical branch; leaf height=0. The root's existing notice tail and depth cap use
   its own descendants/height, rather than silently substituting a different count.
+  `live_children` uses today's `org_children` predicate, which excludes lineage
+  bearers; archived nodes still count for the existing subtree height/count.
 - `agent_slot_stats(slot_id, members, forest_nodes, forest_height, retired_members, ...)`:
   combined placement branches, including bearer-owned children. This transfers one
   summarized forest between parents without L updates.
@@ -221,7 +230,13 @@ of the newly stated all-ancestor intersection; flag that interaction explicitly.
 
 ## 6. Record feed: keep move COMMIT independent of S
 
-B4a is still private; coordinate before implementing an incompatible capture shape.
+B4a is still private. Alpha.1 can use today's committed `changed` notification and
+normal refetch path: effective scope is computed while building a read snapshot,
+outside the move transaction. This task must not wait for the B4a landing. Agree
+the future capture contract with its owner before either implementation makes
+the protocols incompatible; the O(S) refetch/projection cost is read-side work and
+must be measured separately from the move itself.
+
 The approved step-6 addendum74bc2c7 currently resolves scope-derived membership/body
 changes at the revision flush. A resolver that lists S changed agent IDs there
 would defeat this task, even if no descendant agent row is written.
@@ -259,7 +274,9 @@ not implementation defaults; coordinator-opus asks the user.
    on demand. Exact peer/manager notices, count tail and move log stay unchanged.
 3. **Existing scopes:** recommend current stored values as the initial configured scope,
    with no retroactive resurrection. Future intersection/restoration is accepted; this
-   limitation and the D-101 interaction must be visible to the coordinator/user.
+   limitation must be visible to the coordinator/user. The all-ancestor permission
+   intersection is already authorized, so D-101's old above-parent exception cannot
+   override it; disclose that interaction without asking again for the new scope rule.
 4. **In-flight provider permissions:** recommend current-scope checks for every engine
    action and effective scopes on new provider dispatches, plus explicit treatment of
    a provider already holding an older filesystem sandbox. If immediate provider
@@ -275,6 +292,7 @@ found in the controls returns here for an explicit user ruling.
 ## 8. Design-owner boundaries before approval
 
 - Approve the stable-slot logical-parent projection and maintained aggregate tables;
+  require migration parent parity or settle measured exceptions before approval;
   define raw-writer enforcement. Main design section2.2 describes a deferred topology
   guard taking org_topology; section2.4/A6 forbids deferred upstream locks. On this base
   the table exists but no org migration function uses it. Resolve this conflict, rather
