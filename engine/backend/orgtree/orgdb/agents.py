@@ -395,9 +395,10 @@ def identity(raw, slug, nid):
     settings = R.read_sections(raw,SETTINGS)
     if settings.get('slug')!=slug:
         raise CompatibilityRequired('organization identity changed')
-    settings['audiences'] = [dict(grantee=nid,grantor=grantor) for grantor, in raw.execute(
-        "SELECT DISTINCT grantor FROM orgtree.audience_grants WHERE grantee=%s AND grantor=ANY(%s)",
-        (nid,[USER,EXTERN])).fetchall()]
+    audience_ids = [rid for rid, in raw.execute(
+        "SELECT id FROM orgtree.audience_grants WHERE grantee=%s AND grantor=ANY(%s) "
+        "ORDER BY ord,id", (nid,[USER,EXTERN])).fetchall()]
+    settings['audiences'] = R.read_records(raw, 'audiences', audience_ids)
     selected = _hot(raw,'a.name=%s',(nid,))
     predecessor = selected.get(nid,(0,{}))[1].get('predecessor')
     names = ancestors(raw,[nid]+([predecessor] if predecessor else []))

@@ -76,6 +76,44 @@ class AudienceAvailability(unittest.TestCase):
         self.assertFalse(self.org._has_audience('child', ledger.EXTERN))
         self.assertEqual(self.org.extern_holders(), [])
 
+    def test_extern_self_anchor_survives_chain_change_but_other_kinds_remain_strict(self):
+        record = self.grant(ledger.EXTERN, delegated_by='child')
+        self.assertTrue(self.org._has_audience('child', ledger.EXTERN))
+        self.org.node('parent')['parent'] = 'other'
+        self.assertTrue(self.org._has_audience('child', ledger.EXTERN))
+        self.org.node('child')['parent'] = 'other'
+        self.assertTrue(self.org._has_audience('child', ledger.EXTERN))
+        record['grantor'] = 'wide'
+        self.assertFalse(self.org._has_audience('child', 'wide'))
+
+    def test_actual_legacy_self_grant_survives_moves_and_explicit_revoke_is_permanent(self):
+        with patch.object(native_move, 'enabled', return_value=False):
+            self.org.audience_grant('wide', 'wide', ledger.EXTERN)
+            self.org.move(ledger.USER, 'child', 'other')
+            self.assertTrue(self.org._has_audience('wide', ledger.EXTERN))
+            self.org.move(ledger.USER, 'wide', 'other')
+            self.assertTrue(self.org._has_audience('wide', ledger.EXTERN))
+            self.org.audience_revoke(ledger.USER, 'wide', ledger.EXTERN)
+            self.org.move(ledger.USER, 'wide', None)
+            self.assertFalse(self.org._has_audience('wide', ledger.EXTERN))
+
+    def test_explicit_extern_renewal_replaces_paused_anchor_without_new_occurrence(self):
+        record = self.grant(ledger.EXTERN, delegated_by='other')
+        self.assertFalse(self.org._has_audience('child', ledger.EXTERN))
+        self.org.audience_grant('wide', 'child', ledger.EXTERN)
+        self.assertEqual(len(self.org.d['audiences']), 1)
+        self.assertIs(self.org.d['audiences'][0], record)
+        self.assertEqual(record['delegated_by'], 'wide')
+        self.assertEqual(record['unknown'], {'keep': [1, 2]})
+        self.assertTrue(self.org._has_audience('child', ledger.EXTERN))
+
+    def test_missing_stored_row_never_authorizes_from_cached_parent(self):
+        self.grant()
+        with patch.object(native_move, 'connection', return_value=object()), \
+                patch.object(native_move.graph, 'check_scope_paths',
+                             return_value={'wide': None}):
+            self.assertFalse(self.org._has_audience('child', 'wide'))
+
     def test_extern_holders_filter_paused_before_single_holder_selection(self):
         self.grant(ledger.EXTERN, delegated_by='wide')
         self.org.d['audiences'].append(dict(grantee='other', grantor=ledger.EXTERN,

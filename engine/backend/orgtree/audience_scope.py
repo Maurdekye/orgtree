@@ -41,4 +41,4 @@ def available(grant: Mapping[str, Any], exists: Callable[[str], bool],
         seen.add(current)
         ancestors.add(current)
         current = parent(current)
-    return anchor in ancestors
+    return anchor in ancestors or (grantor == extern and anchor == grantee)

@@ -17,6 +17,8 @@ class _View:
     _shared_snapshot = True
     node = Org.node
     _watchdog = Org._watchdog
+    capability_scope = Org.capability_scope
+    effective_agent = Org.effective_agent
 
     def __init__(self, doc):
         self.d = doc
@@ -32,7 +34,7 @@ def _read(slug, watchdogs):
 
     def body(conn):
         if getattr(conn, 'orgdb', False):
-            from .orgdb import reader_rows
+            from .orgdb import agents, reader_rows
             conn.raw.execute('SET TRANSACTION READ ONLY')
             doc = reader_rows.read_sections(conn.raw, ('watchdogs', 'workspace') if watchdogs else ())
             # Preserve the legacy dog->>'owner' selection without changing the
@@ -43,7 +45,8 @@ def _read(slug, watchdogs):
                 owners = [owner for (owner,) in conn.raw.execute(
                     "SELECT DISTINCT coalesce(owner, extra->>'owner') "
                     "FROM orgtree.watchdogs").fetchall() if owner is not None]
-            doc.update(slug=slug, nodes=reader_rows.read_agents(conn.raw, owners))
+            names = agents.ancestors(conn.raw, owners)
+            doc.update(slug=slug, nodes=reader_rows.read_agents(conn.raw, names))
             for node in doc['nodes'].values():
                 scope = node.get('scope')
                 if not isinstance(node.get('state'), str) or not isinstance(scope, dict):

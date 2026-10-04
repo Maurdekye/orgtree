@@ -3494,7 +3494,7 @@ class Org:
                             self._notify_ev([old_grantee], self._aud_changed(sender, old_grantee, "rescinded", target=EXTERN))
                             self._log("audience_revoke", sender, {"grantee": old_grantee, "grantor": EXTERN}, [])
                         self.d["audiences"] = [a for a in self.d["audiences"] if a["grantor"] != EXTERN]
-                    self.d["audiences"].append({
+                    self._record_audience({
                         "grantee": sender, "grantor": EXTERN,
                         "granted_at": now(),
                         "reason": "auto-granted on first outbound "
@@ -3701,7 +3701,7 @@ class Org:
             if grant_reply_audience and self.is_ancestor(sender, to) \
                     and target["parent"] != sender \
                     and not self._has_audience(to, sender):
-                self.d["audiences"].append({
+                self._record_audience({
                     "grantee": to, "grantor": sender, "granted_at": now(),
                     "reason": f"{sender} messaged directly"})
                 warnings.append(f"audience granted: {to} may now reply to {sender} directly")
@@ -3966,6 +3966,11 @@ class Org:
             # existing parent chain still needs coverage before any authority.
             new = {name for name in roots if name not in parents}
             if new:
+                from . import store   # noqa: PLC0415
+                if (not isinstance(self.d, store.LazyDoc)
+                        or any(name in self.d._snap_nodes
+                               or not dict.__contains__(self.nodes, name) for name in new)):
+                    return False      # a missing stored row is never a new grant
                 links = {name: self.node(name)['parent'] for name in new}
                 parents.update(native_move.graph.check_scope_paths(
                     raw, {p for p in links.values() if p is not None}))
@@ -3973,7 +3978,8 @@ class Org:
             parent = parents.__getitem__
         else:
             parent = lambda name: self.node(name)['parent']
-        return available(grant, self.nodes.__contains__, parent, user=USER, extern=EXTERN)
+        exists = parents.__contains__ if raw is not None else self.nodes.__contains__
+        return available(grant, exists, parent, user=USER, extern=EXTERN)
 
     def audience_records(self) -> list[dict[str, Any]]:
         """Display availability without editing the configured grant bodies."""
@@ -4058,7 +4064,7 @@ class Org:
                       if self.nodes[c]["state"] == "live"), None)
         if not first:
             return None
-        self.d["audiences"].append({
+        self._record_audience({
             "grantee": first, "grantor": EXTERN, "granted_at": now(),
             "reason": "auto-granted: outside mail arrived with no org-inbox "
                       "audience holder"})
@@ -4281,6 +4287,16 @@ class Org:
         external = [a for a in self.d.get("audiences", [])
                      if a.get("grantor") == EXTERN]
         existing = next((a for a in external if a.get("grantee") == frm), None)
+        from .orgdb import native_move   # noqa: PLC0415
+        if (native_move.enabled() and existing is not None
+                and not self._audience_available(existing)):
+            # Explicit renewal preserves the occurrence and unknown payload.
+            existing.update(granted_at=now(), reason=("granted by the user" if actor == USER
+                            else f"delegated by {actor}"))
+            if actor == USER:
+                existing.pop('delegated_by', None)
+            else:
+                existing['delegated_by'] = actor
 
         if self.multi_holder_enabled:
             # Grants are idempotent. A repeated drag or hire/rehire request
@@ -6799,7 +6815,7 @@ class Org:
             entry: AudienceGrant = {
                 "grantee": a, "grantor": b, "granted_at": now(),
                 "reason": f'retained across the seat swap with "{b}"'}
-            self.d["audiences"].append(entry)
+            self._record_audience(entry)
             retained = True
         for who_, gains in raised.items():
             warnings.append(f'"{who_}" took the other seat\'s scope, which '
@@ -8199,7 +8215,8 @@ class Org:
                 if a["grantee"] in self.nodes and (
                         "delegated_by" not in a
                         or (anchor in self.nodes
-                            and self.is_ancestor(anchor, a["grantee"]))):
+                            and (anchor == a["grantee"]
+                                 or self.is_ancestor(anchor, a["grantee"])))):
                     kept.append(a)
                 else:
                     revoked.append((a["grantee"], a["grantor"]))

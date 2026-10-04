@@ -34131,7 +34131,7 @@ def _wd_owner_lost(org: Org, w: dict[str, Any]) -> str | None:
         current = orgtx.org_read(str(org.d['slug']))
         if not _wd_activity_allowed(current, w):
             return 'its activity target is no longer itself or a descendant'
-    if kind in ("command", "stream") and not n["scope"]["tools"].get("bash"):
+    if kind in ("command", "stream") and not org.capability_scope(owner)["tools"].get("bash"):
         return "its owner no longer holds bash — the hands it runs with"
     if kind in ("command", "stream") and str(w.get("shell") or "") == "bash" \
             and wd_bash_exe() is None:
@@ -34159,7 +34159,7 @@ def wd_file_roots(org: Org, owner: str) -> list[str]:
     if org.d.get("workspace"):
         roots.append(os.path.realpath(cast(str, org.d["workspace"])))
     try:
-        for dd in org.node(owner)["scope"]["add_dirs"]:
+        for dd in org.capability_scope(owner)["add_dirs"]:
             roots.append(os.path.realpath(dd["path"]))
     except LedgerError:
         pass
