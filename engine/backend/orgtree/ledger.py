@@ -6220,7 +6220,11 @@ class Org:
 
     def demote(self, actor: str, nid: str, new_parent: str) -> dict[str, Any]:
         """Re-parent downward/lateral under another of the actor's descendants (§4.5)."""
-        if new_parent == nid or new_parent in self.descendants(nid, live_only=False):
+        from .orgdb import native_move   # noqa: PLC0415
+        native = native_move.connection(self) is not None
+        inside = (self.is_ancestor(nid, new_parent) if native
+                  else new_parent in self.descendants(nid, live_only=False))
+        if new_parent == nid or inside:
             raise LedgerError("cannot demote a node into its own subtree — cycle (§4.5)")
         return self._move("demote", actor, nid, new_parent)
 
@@ -6330,7 +6334,11 @@ class Org:
             raise LedgerError("a promotion needs a second party — name one "
                               "of the seat's live subordinates as the target")
         self.node(target)
-        if target not in self.descendants(nid):
+        from .orgdb import native_move   # noqa: PLC0415
+        native_raw = native_move.connection(self)
+        target_inside = (self.is_ancestor(nid, target) and self.node(target)['state'] != 'archived'
+                         if native_raw is not None else target in self.descendants(nid))
+        if not target_inside:
             raise LedgerError(
                 f'"{target}" is not a live descendant of "{nid}" — '
                 f"promotion reaches only into that seat's own subtree; for "
@@ -6380,7 +6388,8 @@ class Org:
                 f"live agent may not hang under an archived one")
 
         before = {nid: p_a, target: n_t["parent"]}
-        kept_by_target = self.descendants(target, live_only=False)
+        kept_count = (native_move.graph.subtree_stats(native_raw, target).descendants
+                      if native_raw is not None else len(self.descendants(target, live_only=False)))
         warnings: list[str] = []
 
         # ------------------------------------------------------------ mutate
@@ -6389,6 +6398,7 @@ class Org:
         # refused promotion holding a silently re-scoped pair — a partial
         # mutation of precisely the sort this verb promises cannot happen.
         snap = _rollback_copy(self.d)
+        savepoint = native_move.composite_begin(self)
         try:
             # Seat-scoped capacity is settled BEFORE the moves, so that the
             # containment sweeps inside `_move` see the intended end state
@@ -6400,11 +6410,15 @@ class Org:
                                    _authorized=True, _quiet=True)["warnings"]
             warnings += self._move("demote", actor, nid, target,
                                    _authorized=True, _quiet=True)["warnings"]
-        except LedgerError as e:
+        except BaseException as e:
+            native_move.composite_end(savepoint, failed=True)
             self.d = snap      # `nodes` is a property over d — rebound too
+            if not isinstance(e, LedgerError):
+                raise
             raise LedgerError(
                 f'promotion refused: {e} — nothing was applied; "{nid}" and '
                 f'"{target}" are exactly where they were')
+        native_move.composite_end(savepoint)
 
         # ------------------------------------------------------------ notify
         kids_a = [k for k in self.children(nid) if k != target]
@@ -6415,7 +6429,7 @@ class Org:
             return _mint("lifecycle.subtree_promoted", actor_of(actor),
                          self.node_ref(node), promoted=target, demoted=nid,
                          role=role, by=actor, reports_to_after=p_a,
-                         subtree=len(kept_by_target))
+                         subtree=kept_count)
         self._notify_ev([p for p in [p_a] if p != actor], _pr("new_parent", target))
         self._notify_ev([p for p in peers if p != actor and p != nid],
                         _pr("peer", target))
@@ -6431,14 +6445,16 @@ class Org:
                   {"promoted": target, "demoted": nid,
                    "promoted_from": p_t_old, "promoted_to": p_a,
                    "demoted_to": target,
-                   "subtree": len(kept_by_target)}, warnings)
+                   "subtree": kept_count}, warnings)
         return {
             "promoted": target, "demoted": nid,
             "parent": p_a or "top level",
             "before": {k: (v or "top level") for k, v in before.items()},
             "after": {target: p_a or "top level", nid: target},
-            "subtree_kept": len(kept_by_target),
-            "retained_by_caller": len(self.descendants(nid, live_only=False)),
+            "subtree_kept": kept_count,
+            "retained_by_caller": (native_move.graph.subtree_stats(native_raw, nid).descendants
+                                   if native_raw is not None
+                                   else len(self.descendants(nid, live_only=False))),
             "warnings": warnings,
         }
 
@@ -6783,16 +6799,24 @@ class Org:
         if len(mv) > 20:
             raise LedgerError(f"at most 20 moves per batch (got {len(mv)})")
         snap = _rollback_copy(self.d)
+        from .orgdb import native_move   # noqa: PLC0415
+        savepoint = native_move.composite_begin(self)
         results: list[dict[str, Any]] = []
         for i, (n, p) in enumerate(mv):
             try:
                 results.append(self.move(actor, n, p))
             except LedgerError as e:
+                native_move.composite_end(savepoint, failed=True)
                 self.d = snap    # `nodes` is a property over d — rebound too
                 raise LedgerError(
                     f"batch refused at step {i + 1}/{len(mv)} "
                     f"({n} → {p or 'the top level'}): {e} — nothing was "
                     f"applied; the tree is as it was")
+            except BaseException:
+                native_move.composite_end(savepoint, failed=True)
+                self.d = snap
+                raise
+        native_move.composite_end(savepoint)
         warnings = [w for r in results for w in r.get("warnings", [])]
         self._log("move_batch", actor,
                   {"moves": [{"node": n, "to": p} for n, p in mv]}, warnings)
@@ -7110,10 +7134,13 @@ class Org:
             self._require_authority(actor, nid)
         n = self.node(nid)
         p_old = n["parent"]
+        from .orgdb import native_move   # noqa: PLC0415
         if new_parent is not None:
             self._require_live(new_parent)
             if not _authorized:
                 self._require_authority(actor, new_parent, allow_self=True)
+        native = native_move.begin(self, actor, nid, new_parent)
+        if new_parent is not None:
             # ⚠ The guard must cover EVERY node this move reparents, and that is
             # not just `nid`'s subtree: the loop near the end of this method
             # reparents the whole LINEAGE STACK to `new_parent` too (§8.5, the
@@ -7127,8 +7154,11 @@ class Org:
             # lineage_stack() stop it hanging; they do not stop it existing,
             # and a cyclic org is corrupt whether or not the walk terminates.
             moved = {nid, *self.lineage_stack(nid)}
-            forbidden = moved | self.descendant_set(moved, live_only=False)
-            if new_parent in forbidden:
+            if native is not None:
+                cyclic = bool(moved.intersection([new_parent, *self.ancestors(new_parent)]))
+            else:
+                cyclic = new_parent in (moved | self.descendant_set(moved, live_only=False))
+            if cyclic:
                 raise LedgerError("target is inside the moved subtree — cycle (§4.5)")
         if p_old is not None and not _authorized:
             self._require_authority(actor, p_old, allow_self=True)
@@ -7143,19 +7173,24 @@ class Org:
         # ends up deepest, not `nid` itself.
         if new_parent is not None:
             cap_d = self.d.get("max_depth", MAX_DEPTH)
-            sub = self.descendants(nid, live_only=False)
-            rel = max((self.depth(k) for k in sub), default=self.depth(nid)) \
-                - self.depth(nid)
+            if native is not None:
+                rel = native.stats.height
+            else:
+                sub = self.descendants(nid, live_only=False)
+                rel = max((self.depth(k) for k in sub), default=self.depth(nid)) \
+                    - self.depth(nid)
             if self.depth(new_parent) + 1 + rel >= cap_d:
                 raise LedgerError(
                     f"max org depth {cap_d} reached — moving {nid} under "
                     f"{new_parent} would seat its deepest report at "
                     f"{self.depth(new_parent) + 1 + rel}")
             cap_c = self.d.get("max_children", MAX_CHILDREN)
-            if new_parent != p_old \
-                    and len(self.org_children(new_parent)) >= cap_c:
-                raise LedgerError(
-                    f"{new_parent} already has {cap_c} reports (cap)")
+            if new_parent != p_old:
+                children_count = (native_move.graph.subtree_stats(native.raw, new_parent).org_children_count
+                                  if native is not None else len(self.org_children(new_parent)))
+                if children_count >= cap_c:
+                    raise LedgerError(
+                        f"{new_parent} already has {cap_c} reports (cap)")
 
         # §8.5: a bearer occupies its SUCCESSOR's slot and is not an org node of
         # its own, so it may not be re-parented on its own — doing so split the
@@ -7216,21 +7251,31 @@ class Org:
                         f"{self.nodes[hop]['grant']:g}, less than the {c:g} this "
                         f"move must release through it — the chain's accounting "
                         f"is inconsistent (§4.5)")
+        # The scalar statement is fenced and its eager stats complete before
+        # either the loaded node view or the next composite leg sees the move.
+        prior_peers = self._peers_of(p_old, nid)
+        if native is not None:
+            native_move.persist(native, self, new_parent, self._chain_up(p_old, lca), down, c)
+        if c:
             for hop in self._chain_up(p_old, lca):     # release: grants shrink
                 self.nodes[hop]["grant"] = _q(self.nodes[hop]["grant"] - c)
             for hop in down:                           # acquire: grants swell
                 self.nodes[hop]["grant"] = _q(self.nodes[hop]["grant"] + c)
 
-        prior_peers = self._peers_of(p_old, nid)
         n["parent"] = new_parent
         for k in self.lineage_stack(nid):     # §8.5: the stack occupies the same slot
             self.nodes[k]["parent"] = new_parent
-        swept = self._sweep_audiences()
-        warnings += [f"audience revoked (no longer ancestral): {g}→{t}" for g, t in swept]
-        dropped = self._sweep_dirs(nid)
-        if dropped:
-            warnings.append(f"dirs not held by the new chain were dropped (№30): {dropped}")
-        subtree = len(self.descendants(nid, live_only=False))
+        if native is not None:
+            warnings.append('Scopes and audiences follow the new reporting chain; '
+                            'configured grants are kept and can become available again on moving back.')
+            subtree = native.stats.descendants
+        else:
+            swept = self._sweep_audiences()
+            warnings += [f"audience revoked (no longer ancestral): {g}→{t}" for g, t in swept]
+            dropped = self._sweep_dirs(nid)
+            if dropped:
+                warnings.append(f"dirs not held by the new chain were dropped (№30): {dropped}")
+            subtree = len(self.descendants(nid, live_only=False))
         tail = f" Its suborganization ({subtree} node(s)) moved with it." if subtree else ""
 
         def _mv(role: str) -> dict[str, Any]:

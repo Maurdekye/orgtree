@@ -91,11 +91,16 @@ def _spec(op: str, rows: Callable[[Any, Any, dict[str, Any]],
 
     def spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
         upd, share = rows(snap, call, a)
+        from .orgdb import native_move   # noqa: PLC0415
+        native = native_move.enabled()
         return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
-                             sections=tuple(s.sections),
+                             sections=tuple(k for k in s.sections
+                                            if not (native and op == 'move' and k == 'audiences')),
                              share_nodes=tuple(sorted(share - upd)),
                              share_sections=tuple(s.share_sections),
-                             logs=tuple(s.logs))
+                             logs=tuple(s.logs),
+                             structural_roots=tuple(sorted(upd | share))
+                             if native and op != 'reorder' else ())
     return spec
 
 
@@ -450,11 +455,16 @@ def _op_spec(op: str, rows: Callable[[Any, str, Any], "tuple[set[str], set[str]]
 
     def spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
         upd, share = rows(snap, str(body.actor), body)
+        from .orgdb import native_move   # noqa: PLC0415
+        native = native_move.enabled()
         return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
-                             sections=tuple(s.sections),
+                             sections=tuple(k for k in s.sections
+                                            if not (native and op == 'move' and k == 'audiences')),
                              share_nodes=tuple(sorted(share - upd)),
                              share_sections=tuple(s.share_sections),
-                             logs=tuple(s.logs))
+                             logs=tuple(s.logs),
+                             structural_roots=tuple(sorted(upd | share))
+                             if native and op != 'reorder' else ())
     return spec
 
 

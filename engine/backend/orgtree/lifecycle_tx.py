@@ -192,6 +192,9 @@ def _move_rows(org, actor: str, nid: str, new_parent: str | None
     """(FOR UPDATE, FOR SHARE) node rows `Org.move(actor, nid, new_parent)`
     reads for its decision or writes, computed on `org`. Conservative: a row
     it names that the move ends up not touching costs a lock, never a bug."""
+    from .orgdb import native_move   # noqa: PLC0415
+    if native_move.enabled():
+        return native_move.rows(org, actor, [(nid, new_parent)])
     n = org.nodes.get(nid)
     if n is None:
         return {nid}, set()
@@ -240,16 +243,29 @@ def _run(op: str, slug: str, rows: Callable[[Any], tuple[set[str], set[str]]],
     """Standalone runner (no door): spec from a snapshot, one halt.txn, and
     re-run on `Widen` with the missing rows merged in."""
     s = SPECS[op]
+    from .orgdb import native_move   # noqa: PLC0415
+    from . import pgdoor   # noqa: PLC0415
+    native = native_move.enabled()
+    sections = tuple(k for k in s.sections if not (native and op == 'move' and k == 'audiences'))
     upd, share = rows(store.cached_org(slug))
+    roots: set[str] = set()
     for _ in range(MAX_WIDEN + 1):
         try:
             with halt.txn(slug, nodes=upd, share_nodes=share - upd,
-                          sections=s.sections, share_sections=s.share_sections,
-                          logs=s.logs) as tx:
+                          sections=sections, share_sections=s.share_sections,
+                          logs=s.logs,
+                          structural_roots=roots | upd | share if native and op != 'reorder' else ()) as tx:
                 return body(tx.org, tx.lock_nodes, tx.share_nodes)
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
+        except pgdoor.Widen as w:
+            # The graph guard never takes a missing earlier-tier lock in the
+            # body. The enclosing halt transaction has already rolled back;
+            # declare that coverage for the next whole-body attempt instead.
+            upd.update(w.spec.nodes)
+            share.update(w.spec.share_nodes)
+            roots.update(w.spec.structural_roots)
     raise WidenExhausted(f"{op}: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
 
@@ -708,6 +724,9 @@ def dissolve_all(slug: str, actor: str) -> dict[str, int]:
 
 def _move_batch_rows(org, actor: str, moves: list[tuple[str, str | None]]
                      ) -> tuple[set[str], set[str]]:
+    from .orgdb import native_move   # noqa: PLC0415
+    if native_move.enabled():
+        return native_move.rows(org, actor, moves)
     # the replay copy is never saved: `dry_run_copy` (see `_promote_rows`)
     sim = type(org)(store.dry_run_copy(org.d))
     upd: set[str] = set()
@@ -760,6 +779,11 @@ def move_batch(slug: str, actor: str, moves: list[tuple[str, str | None]]
 
 def _promote_rows(org, actor: str, nid: str, target: str
                   ) -> tuple[set[str], set[str]]:
+    from .orgdb import native_move   # noqa: PLC0415
+    if native_move.enabled():
+        n = org.nodes.get(nid)
+        return (native_move.rows(org, actor, [(target, n['parent']), (nid, target)])
+                if n is not None else ({nid, target}, set()))
     n, t = org.nodes.get(nid), org.nodes.get(target)
     if n is None or t is None:
         return {nid, target} & set(org.nodes) or {nid}, set()

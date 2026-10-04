@@ -130,7 +130,7 @@ def _covers(tx: orgtx.OrgTx, nodes: frozenset[str], sections: frozenset[str],
 @contextmanager
 def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
         share_nodes: Iterable[str] = (), share_sections: Iterable[str] = (),
-        logs: Iterable[Any] = ()) -> Iterator[orgtx.OrgTx]:
+        logs: Iterable[Any] = (), structural_roots: Iterable[str] = ()) -> Iterator[orgtx.OrgTx]:
     """One halt transaction: the fence, then `org_tx` on exactly these rows.
 
     JOINS an enclosing halt transaction on the same org instead of nesting,
@@ -145,6 +145,7 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
     # every join that names a per-owner mail row.
     want = (frozenset(nodes), frozenset(sections), frozenset(share_nodes),
             frozenset(share_sections), frozenset(logs))
+    structural_roots = frozenset(structural_roots)
     lock_rows, lock_parents = orgtx._section_names(  # pyright: ignore[reportPrivateUsage]
         want[1], "sections")
     share_rows, share_parents = orgtx._section_names(  # pyright: ignore[reportPrivateUsage]
@@ -154,6 +155,8 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
     outer = _current.get()
     if outer is not None and outer.tx.slug == slug:
         missing = _covers(outer.tx, *cover)
+        missing += [f'graph root {name!r}' for name in
+                    structural_roots - getattr(outer.tx, 'structural_roots', frozenset())]
         if missing:
             raise orgtx.OrgTxError(
                 "halt: the enclosing transaction does not lock "
@@ -167,6 +170,8 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
         # ours to see, so `_after` work runs when THIS block ends and
         # `_on_abort` work when it raises — the closest this caller can get.
         missing = _covers(foreign, *cover)
+        missing += [f'graph root {name!r}' for name in
+                    structural_roots - getattr(foreign, 'structural_roots', frozenset())]
         if missing:
             raise orgtx.OrgTxError(
                 "halt: the enclosing transaction does not lock "
@@ -189,7 +194,9 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
     try:
         with _fence(), orgtx.org_tx(slug, nodes=want[0], sections=want[1],
                                     share_nodes=want[2], share_sections=want[3],
-                                    logs=want[4]) as tx:
+                                    logs=want[4],
+                                    **({'structural_roots': structural_roots}
+                                       if structural_roots else {})) as tx:
             ctx = _Ctx(tx)
             token = _current.set(ctx)
             try:
