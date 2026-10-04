@@ -106,7 +106,8 @@ class Lifetime(unittest.TestCase):
                     'org': self.slug, 'node': 'worker', 'tool': 'orgtree_status',
                     'args': {'status': 'idle', 'summary': summary}})
 
-            with sup._InterruptibleTurnSlot(self.slug, 'worker', 'http tool'):
+            runtime = sup.state(self.slug, 'worker')
+            with sup._InterruptibleTurnSlot(runtime, self.slug, 'worker', 'http tool'):
                 run = turn_context.current()
                 original = {'X-Orgtree-Agent-Token': seat,
                             turn_context.HEADER: self.host.credential(run)}
@@ -121,7 +122,7 @@ class Lifetime(unittest.TestCase):
                 self.assertEqual(orgtx.org_read(self.slug).node('worker')['last_status']['summary'],
                                  'authorized original')
 
-            with sup._InterruptibleTurnSlot(self.slug, 'worker', 'http successor'):
+            with sup._InterruptibleTurnSlot(runtime, self.slug, 'worker', 'http successor'):
                 successor = turn_context.current()
                 self.assertNotEqual(successor.request_id, run.request_id)
                 self.assertEqual(post(original, 'old transport').status_code, 409)
