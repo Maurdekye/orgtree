@@ -49,6 +49,9 @@ UNDER_REVISION = {'foreground_parent_counts': '0006_agents_readers.sql',
                   'docket_counters': '0012_docket_counts.sql'}
 #: (module, function) of the engine's Python allowed to write or lock the revision row
 PYTHON_REVISION_WRITERS = {('orgdb/compat/conn.py', 'on_save_commit')}
+# Design O1 decision5: this named eager helper may lock only ancestor-path
+# aggregates, between the agent and item tiers. The exception is not general.
+STATS_LOCK_HELPERS = {'orgtree.graph_apply'}
 
 _FUNC = re.compile(r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(orgtree\.\w+)\s*\(', re.I)
 _BODY = re.compile(r'\bAS\s+(\$\w*\$)', re.I)
@@ -299,7 +302,10 @@ def violations(texts: dict[str, str]) -> list[str]:
             judged.add(f)
             name, _, body = defs[f]
             via = '' if f == fn else f' (through {f})'
-            if _ROW_LOCK.search(_code(body)):
+            stats_only = (fn == 'orgtree.graph_maintain_stats' and table == 'agents'
+                          and f in STATS_LOCK_HELPERS
+                          and {t for _, t in touches(body)} <= {'agent_subtree_stats'})
+            if _ROW_LOCK.search(_code(body)) and not stats_only:
                 out.append(f'{name}: statement-time trigger {fn}{via} on orgtree.{table} takes a row lock: '
                            'a trigger locks no row its statement did not write (review A6 f8)')
             for t in sorted({t for _, t in touches(body)}):
@@ -530,6 +536,23 @@ class Migrations(unittest.TestCase):
                                    ('orgtree.docket_questions', 'asks', ('docket_question_links',))})
         self.assertIn('event_refs', links(texts)['events'])
         self.assertIn('docket_question_links', links(texts)['asks'])
+
+    def test_eager_graph_exception_is_named_and_refuses_upstream_locks(self) -> None:
+        texts = _migrations()
+        graph_file = '0016_agent_graph.sql'
+        helpers = functions(texts[graph_file])
+        self.assertEqual({t for _, t in touches(helpers['orgtree.graph_apply'][1])},
+                         {'agent_subtree_stats'})
+        self.assertIn('ORDER BY agent_id FOR UPDATE', helpers['orgtree.graph_apply'][1])
+        for table in ('agents', 'work_items', 'mailboxes', 'org_revision'):
+            with self.subTest(table=table):
+                faulty = dict(texts)
+                faulty[graph_file] = faulty[graph_file].replace(
+                    "paths:=orgtree.graph_path_ids(old_image||new_image);",
+                    f'PERFORM 1 FROM orgtree.{table} FOR UPDATE; '
+                    'paths:=orgtree.graph_path_ids(old_image||new_image);', 1)
+                self.assertTrue(any('graph_apply' in v and table in v
+                                    for v in violations(faulty)), violations(faulty))
 
     def test_control_the_round_2_settling_is_rejected(self) -> None:
         texts = _migrations()

@@ -35,7 +35,9 @@ def setUpModule():
                       'CREATE TABLE orgtree.agent_subtree_stats(agent_id bigint PRIMARY KEY)')
             migration = Path(__file__).resolve().parents[1] / (
                 'engine/backend/orgtree/pg_migrations/org/0016_agent_graph.sql')
-            c.execute(migration.read_text(encoding='utf-8'))
+            # Kernel-only fixture. The full-schema aggregate suite separately
+            # tests eager stats, whose intermediate graph must itself be acyclic.
+            c.execute(migration.read_text(encoding='utf-8').split('-- Eager aggregate section')[0])
     except BaseException:
         tearDownModule()
         raise
