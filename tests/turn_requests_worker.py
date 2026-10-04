@@ -11,6 +11,8 @@ import json
 import os
 from orgtree import turnqueue
 from orgtree.orgdb import conn, jobs, names, turn_requests as requests
+from orgtree.orgdb import turn_runtime
+from dataclasses import asdict
 
 prefix, database, org_id, slug, owner, rid, boundary = sys.argv[1:]
 owner, org_id = int(owner), int(org_id)
@@ -35,5 +37,14 @@ command = sys.stdin.readline().strip()
 if command == 'insert':
     ticket = queue.enqueue(app, owner)
     print(json.dumps({'state': ticket.state}), flush=True)
+elif command == 'claim' and boundary == 'compete':
+    ticket = queue.claim(owner, rid)
+    if ticket is None:
+        print(json.dumps({'admitted': False}), flush=True)
+    else:
+        host = turn_runtime.Host(base, owner, prefix=prefix)
+        org = jobs.Org(org_id, slug, database, '')
+        run = host.begin(org, agent, rid, ticket, lambda: None)
+        print(json.dumps({'admitted': True, 'run': asdict(run), 'pid': os.getpid()}), flush=True)
 elif command != 'exit':
     raise RuntimeError('fault worker stopped before the next boundary')

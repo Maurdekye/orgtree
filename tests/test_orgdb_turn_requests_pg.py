@@ -371,6 +371,29 @@ class Requests(unittest.TestCase):
         self.assertEqual(self.queue.snapshot()['held'], 0)
         self.assert_one_attempt(request)
 
+    def test_two_actual_processes_compete_for_one_request_with_one_admission(self):
+        request = self.queued()
+        first, a = self.worker(request, 'compete')
+        second, b = self.worker(request, 'compete')
+        for process in (first, second):
+            process.stdin.write('claim\n')
+            process.stdin.flush()
+        results = [json.loads(output.get(timeout=10)) for output in (a, b)]
+        for process in (first, second):
+            process.wait(timeout=10)
+            self.assertEqual(process.returncode, 0, process.stderr.read())
+        accepted = [result for result in results if result['admitted']]
+        self.assertEqual(len(accepted), 1, results)
+        self.assertIn(accepted[0]['pid'], (first.pid, second.pid))
+        run = turn_context.Run(**accepted[0]['run'])
+        self.assertEqual(run.request_id, request.request_id)
+        self.assertEqual(self.read(request).state, 'running')
+        self.assertEqual(self.queue.snapshot()['held'], 1)
+        self.assert_one_attempt(request)
+        self.host().complete(self.org, run)  # both processes have exited
+        self.assertEqual(self.read(request).state, 'done')
+        self.assertEqual(self.queue.snapshot()['held'], 0)
+
     def test_start_step_waits_on_request_before_locking_its_job(self):
         import psycopg
         request = self.create()
