@@ -223,7 +223,7 @@ def apply_scalars(raw: Any, patches: list[ScalarPatch]) -> dict[int, int]:
         if 'grant' in p.values and not codec.fits('num', p.values['grant']):
             raise LedgerError('native scalar grant must be an exact finite number')
     plan = current_plan(raw)
-    if plan is None or not plan.stats_ids:
+    if plan is None:
         raise LedgerError('native scalar patches require a planned org transaction')
     updates = {p.name for p in patches}
     missing = updates - set(plan['updates']) if not plan['whole'] else set()
