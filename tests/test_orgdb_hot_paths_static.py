@@ -13,6 +13,10 @@ MIN_SCAN_PAGES = 16
 BIG_TABLE_ROWS = 256
 
 
+def is_read_statement(statement):
+    return bool(re.match(r'\s*(SELECT|WITH)\b', statement, re.I))
+
+
 def large_relations(rows, pages):
     """Require indexes once retained tables exceed the small-relation floor."""
     return {table for table, count in rows.items()
@@ -56,6 +60,18 @@ def hot_sql_violations(statement):
 
 
 class CapturedSql(unittest.TestCase):
+    def test_leading_comments_do_not_hide_read_commands(self):
+        prefixes = ('', '-- SELECT in annotation\n', '/* WITH in annotation */ ',
+                    ' /* outer /* nested */ still outer */ -- next\r\n\t')
+        for prefix in prefixes:
+            for command in ('SELECT id FROM agents', 'with a as (SELECT 1) SELECT * FROM a'):
+                with self.subTest(prefix=prefix, command=command):
+                    self.assertTrue(is_read_statement(prefix + command))
+            for command in ('UPDATE agents SET title=%s', 'SELECTED', ''):
+                with self.subTest(prefix=prefix, command=command):
+                    self.assertFalse(is_read_statement(prefix + command))
+        self.assertFalse(is_read_statement('/* unterminated SELECT'))
+
     def test_small_page_count_allows_seq_scan_without_relaxing_json_guard(self):
         rows = dict(small=500, big=500, few=4)
         pages = dict(small=15, big=16, few=200)

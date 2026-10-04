@@ -18,7 +18,8 @@ from unittest.mock import Mock, patch
 
 import test_orgdb_compat_pg as fixture
 import orgdb_history_fixture as history_fixture
-from test_orgdb_hot_paths_static import hot_sql_violations, large_relations, MIN_SCAN_PAGES, BIG_TABLE_ROWS
+from test_orgdb_hot_paths_static import (hot_sql_violations, is_read_statement,
+                                        large_relations, MIN_SCAN_PAGES, BIG_TABLE_ROWS)
 from orgtree import (desktop_notifications as notices, foreground_store as foreground,
                      identity_context, policy_candidates, policy_context, policy_reads,
                      settingstx, store, tree_ui, turn_inputs, workdetail, worklist, work_ui)
@@ -104,7 +105,7 @@ class RecordingConnection:
         sql = statement if isinstance(statement, str) else statement.as_string(self._raw)
         # The app registry uses a different connection; capture all org SELECTs,
         # including nested/recursive queries and the common snapshot prefix.
-        if re.match(r'\s*(SELECT|WITH)\b', sql, re.I):
+        if is_read_statement(sql):
             self._queries.append((sql, copy.deepcopy(params)))
 
     def execute(self, statement, params=None, **kwargs):
@@ -346,7 +347,8 @@ def measure(slug, reader, sizes, *, plan_options=()):
             for statement, params in queries:
                 plan = raw.execute('EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) '
                                    + statement, params).fetchone()[0][0]['Plan']
-                records.append(dict(sql=statement, plan=plan, rows=examined(plan),
+                records.append(dict(sql=statement, params=copy.deepcopy(params),
+                    plan=plan, rows=examined(plan),
                     violations=violations(plan, large, statement),
                     sequential_scans=[dict(table=node['Relation Name'],
                         pages=pages[node['Relation Name']],
@@ -356,6 +358,58 @@ def measure(slug, reader, sizes, *, plan_options=()):
     return dict(statements=len(queries), rows=sum(record['rows'] for record in records),
                 queries=records, relation_pages=pages, min_scan_pages=MIN_SCAN_PAGES,
                 big_table_rows=BIG_TABLE_ROWS)
+
+
+@fixture.needs_pg
+class CommentedReads(unittest.TestCase):
+    """Real public-reader controls, independent of the full scale setup."""
+    @classmethod
+    def setUpClass(cls):
+        with fixture.storage(False):
+            template = store.create_org('hot-comments-template').d
+        cls.slug = 'hot-comments'
+        with fixture.storage(True):
+            cls.sizes = publish(scaled_document(template, cls.slug,
+                history_fixture.load_census(), hours=history_fixture.BASELINE_HOURS))
+
+    def assert_comment_capture(self, prefix, path, command):
+        from orgtree.orgdb import reader_rows
+        original, changed = reader_rows._rows, []
+
+        def fault(raw, statement, params=()):
+            if statement.startswith('SELECT * FROM orgtree.agents WHERE NOT tombstone'):
+                statement = statement.replace(' ORDER BY',
+                    " AND coalesce(extra->>'capture-field','') <> 'never' ORDER BY")
+                if command == 'with':
+                    statement = 'WITH selected AS (' + statement + ') SELECT * FROM selected'
+                statement = prefix + statement
+                changed.append((statement, copy.deepcopy(params)))
+                if path == 'connection':
+                    with raw.execute(statement, params) as cursor:
+                        columns = [column.name for column in cursor.description]
+                        return [row if isinstance(row, dict) else dict(zip(columns, row))
+                                for row in cursor.fetchall()]
+            return original(raw, statement, params)
+
+        with fixture.storage(True), patch.object(reader_rows, '_rows', fault):
+            result = measure(self.slug, policy_candidates.read, self.sizes)
+        self.assertEqual(len(changed), 2, 'fault must reach warmup and measured public calls')
+        statement, params = changed[-1]
+        self.assertTrue(hot_sql_violations(statement), 'authored fault must contain hot JSON')
+        with registry.connection(self.slug) as raw:
+            with raw.transaction():
+                raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+                plan = raw.execute('EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) '
+                                   + statement, params).fetchone()[0][0]['Plan']
+        self.assertTrue(any(JSON_LOOKUP.search(str(node.get(clause, '')))
+            for node in nodes(plan) for clause in HOT_CLAUSES),
+            'independent executed plan must expose the hot JSON fault')
+        captured = [query for query in result['queries'] if query['sql'] == statement]
+        self.assertEqual(len(captured), 1,
+            'comment-prefixed read executed but was omitted from the complete call')
+        self.assertEqual(captured[0]['params'], params, 'original bindings must be retained')
+        self.assertTrue(any('JSON lookup' in fault for fault in captured[0]['violations']),
+                        'captured reader guard must catch the actual hot JSON predicate')
 
 
 @fixture.needs_pg
@@ -555,6 +609,20 @@ def _growth_test(name):
     def test(self):
         self.assert_growth(name)
     return test
+
+
+def _comment_test(prefix, path, command):
+    def test(self):
+        self.assert_comment_capture(prefix, path, command)
+    return test
+
+
+for _form, _prefix in (('line', '-- reader annotation\n'),
+                        ('block', '/* reader annotation */ ')):
+    for _path in ('connection', 'cursor'):
+        for _command in ('select', 'with'):
+            setattr(CommentedReads, f'test_{_form}_{_path}_{_command}',
+                    _comment_test(_prefix, _path, _command))
 
 
 for _name in readers():
