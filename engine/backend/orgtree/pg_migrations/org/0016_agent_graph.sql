@@ -146,7 +146,9 @@ BEGIN
   IF a.tombstone THEN RETURN false; END IF;
   IF a.state IS DISTINCT FROM 'archived' OR a.state_misfit THEN RETURN true; END IF;
   IF a.successor_misfit THEN
-    succeeded:=orgtree.graph_json_truthy(a.extra->'successor');
+    -- The existing read expression masks text-unrepresentable escapes only
+    -- for this inspection. Nonempty stays nonempty; stored JSON is untouched.
+    succeeded:=orgtree.graph_json_truthy(orgtree.json_field(a.extra,'successor'));
   ELSIF names ? a.successor_id::text THEN
     succeeded:=(names->>a.successor_id::text)<>'';
   ELSE

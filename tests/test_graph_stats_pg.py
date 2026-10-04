@@ -173,6 +173,18 @@ class GraphStats(unittest.TestCase):
         self.assertEqual(self.stats(1)[3], 3)
         self.check_reference()
 
+    def test_successor_truthiness_with_nul_surrogates_and_unrelated_misfits(self):
+        from orgtree.orgdb import codec
+        values = [None, False, 0, 0.0, -0.0, '', [], {}, '\x00', '\ud800',
+                  [0], {'v': '\x00'}, True, 4, r'\u0000', '\ud83d\ude00']
+        for value in values:
+            extra = {'successor': value, 'unknown': {'nul': '\x00', 'surrogate': '\ud800'}}
+            self.c.execute('UPDATE orgtree.agents SET successor_id=NULL,extra=%s WHERE id=8',
+                           (codec.to_column('json', extra),))
+            self.assertEqual(self.stats(1)[3], 3 if bool(value) else 4, repr(value))
+            self.assertEqual(self.c.execute('SELECT extra FROM orgtree.agents WHERE id=8').fetchone()[0], extra)
+            self.check_reference()
+
     def test_name_payload_permission_and_grant_changes_do_not_touch_stats(self):
         before = self.c.execute('SELECT agent_id,xmin::text FROM orgtree.agent_subtree_stats '
                                 'ORDER BY agent_id').fetchall()
@@ -380,7 +392,8 @@ class GraphStats(unittest.TestCase):
         dict.__getitem__(doc, 'nodes')['a'].update(parent='destination', grant=5.0)
         wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
         changes = SaveChanges()
-        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_SCOPED_SAVE', False), \
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_ROW_CAS', True), \
+                patch.object(store, '_SCOPED_SAVE', False), \
                 patch.object(R, 'node_put', wraps=R.node_put) as put:
             _, nodes, _, _ = store._write_doc(wrapped, doc, doc, changes)
         self.assertEqual(put.call_count, 0)
@@ -399,7 +412,8 @@ class GraphStats(unittest.TestCase):
         graph.apply_scalars(self.c, [self.scalar_patch('a', parent='destination')])
         dict.__getitem__(doc, 'nodes')['a'].update(parent='destination', charter='intentional mixed edit')
         wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
-        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_SCOPED_SAVE', False), \
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_ROW_CAS', True), \
+                patch.object(store, '_SCOPED_SAVE', False), \
                 patch.object(R, 'node_put', wraps=R.node_put) as put:
             store._write_doc(wrapped, doc, doc, SaveChanges())
         self.assertEqual(put.call_count, 1)
@@ -422,7 +436,8 @@ class GraphStats(unittest.TestCase):
         self.c.execute('UPDATE orgtree.agents SET row_version=row_version+1 WHERE id=2')
         view = graph.save_baselines(SimpleNamespace(raw=self.c), doc, doc, None)
         self.assertEqual(json.loads(view._snap_nodes['a'])['charter'], 'unchanged long text')
-        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_SCOPED_SAVE', False):
+        with patch.object(store, 'STORE_BACKEND', 'postgres'), patch.object(store, '_ROW_CAS', True), \
+                patch.object(store, '_SCOPED_SAVE', False):
             with self.assertRaises(store.StaleWrite):
                 store._write_doc(C.OrgDbConn(self.c, 'test', 1, DATABASE), doc, doc, SaveChanges())
         self.check_reference()
