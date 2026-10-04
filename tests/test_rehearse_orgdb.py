@@ -179,6 +179,46 @@ class RehearsalControls(unittest.TestCase):
             self.assertFalse(Path(str(source) + '-wal').exists())
             self.assertFalse(Path(str(source) + '-shm').exists())
 
+    def test_reader_receipt_rejects_missing_false_zero_and_wrong_checkout(self):
+        source = {'nodes': {'agent': {}}, 'work_items': [{'slug': 'active'}],
+                  'work_items_archive': [{'slug': 'archived'}]}
+        good = {'engine_load_equal': True, 'api_equal': True, 'sections_compared': 3,
+                'agents_compared': 1, 'docket_lists_compared': 1, 'docket_details_compared': 2,
+                'import_provenance': r.PROVENANCE.as_dict()}
+        r.check_load_result(good, source)
+        for key in good:
+            with self.subTest(missing=key), self.assertRaises(RuntimeError):
+                r.check_load_result({k: v for k, v in good.items() if k != key}, source)
+        for change in ({'engine_load_equal': False}, {'api_equal': False},
+                       {'agents_compared': 0}, {'docket_details_compared': 0},
+                       {'sections_compared': True}, {'import_provenance': {'repo': 'installed'}}):
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                r.check_load_result(dict(good, **change), source)
+
+    def test_ordinary_and_retry_coverage_rejects_the_old_selected_org_only_control(self):
+        orgs = [(1, 'chosen'), (2, 'other')]
+        good = {'engine_load_equal': True, 'api_equal': True}
+        r.check_load_coverage(orgs, {'chosen': good, 'other': good})
+        with self.assertRaises(RuntimeError):
+            r.check_load_coverage([], {})
+        for omitted in ({}, {'chosen': good}, {'chosen': good, 'other': {}},
+                        {'chosen': good, 'other': good, 'unrelated': good}):
+            with self.subTest(rows=omitted), self.assertRaises(RuntimeError):
+                r.check_load_coverage(orgs, omitted)
+
+    def test_successful_child_that_never_ran_the_load_control_is_rejected(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(r, 'worker_argv', return_value=['python', 'rehearse-orgdb.py']), \
+                patch.object(r, 'child_env', return_value={}), \
+                patch.object(r, 'with_db', return_value='private'), \
+                patch.object(r, 'run_worker', return_value=0) as child:
+            with self.assertRaisesRegex(RuntimeError, 'load did not complete'):
+                r.compare_engine_one(SimpleNamespace(prefix='private'), Path(folder),
+                    {'legacy_org_id': 1, 'slug': 'chosen'}, Path(folder) / 'source.json',
+                    {'nodes': {}}, 'admin', 'runtime', 'legacy')
+            self.assertIn('--load-output', child.call_args.args[0])
+
     def _terminal_report(self, failure=None):
         """Run real main/execute_report/run_pair; replace external DB/process I/O."""
         import argparse
@@ -198,7 +238,7 @@ class RehearsalControls(unittest.TestCase):
             def worker(argv, env, log, timeout):
                 result = {'initial_registry': {'org': {'state': 'active', 'counts': {'nodes': [1, 1]}}},
                           'final_registry': {'org': {'state': 'active', 'counts': {'nodes': [1, 1]}}},
-                          'verified': {'org': {}}}
+                          'verified': {'org': {'engine_load_equal': True, 'api_equal': True}}}
                 target = Path(argv[argv.index('--worker-output') + 1])
                 target.write_text(json.dumps(result), encoding='utf-8')
                 return 0

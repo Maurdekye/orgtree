@@ -523,7 +523,97 @@ def load_compare(a):
     source = json.loads(Path(a.load_source).read_text(encoding='utf-8'))
     expected = {k: v for k, v in source.items() if k not in verifier.IGNORED_DEFAULT}
     require(digest(expected) == digest(actual), 'converted engine load differs from captured legacy load')
+    readers = compare_readers(a.load_slug, source)
+    result = {'engine_load_equal': True, 'api_equal': True,
+              'sections_compared': len(expected), **readers,
+              'import_provenance': PROVENANCE.as_dict()}
+    Path(a.load_output).write_text(json.dumps(result, indent=2), encoding='utf-8')
     return 0
+
+
+def compare_readers(slug, source):
+    """Actual native agent and public docket reads against the captured legacy load.
+
+    Freeze the view clock. The source is already the legacy loader's healed
+    document; the plain ledger remains the oracle for public docket output.
+    Compare every body/detail, but export only reached comparison counts.
+    """
+    import copy
+    from orgtree import foreground_store, ledger, workdetail, worklist
+    from orgtree.orgdb import agents
+    nodes = source.get('nodes', {})
+    names = list(nodes)
+    compared = 0
+    for start in range(0, len(names), 64):
+        selected = names[start:start + 64]
+        rows = foreground_store.read_snapshot(slug, lambda raw, stamp: agents.rows(raw, selected))
+        require(set(rows) == set(selected), 'native agent reader omitted a captured agent')
+        for name in selected:
+            expected = dict(nodes[name])
+            if isinstance(expected.get('turns'), list):
+                expected['turns'] = expected['turns'][-8:]
+            require(digest(rows[name]['node']) == digest(expected),
+                    'native agent output differs from captured legacy load')
+            compared += 1
+    oracle = ledger.Org(copy.deepcopy(source))
+    expected = oracle.work_list(ledger.USER, include_archived=True,
+                                include_backlogged=True, now_ts=0)
+    actual = worklist.agent_list(slug, ledger.USER, include_archived=True,
+                                 include_backlogged=True, now_ts=0)
+    # The wire's `now` is generated separately by each call, even when the
+    # classification clock is pinned. Every other output field must match.
+    expected.pop('now', None)
+    if actual is not None:
+        actual.pop('now', None)
+    require(actual is not None and digest(actual) == digest(expected),
+            'native docket list differs from captured legacy output')
+    items = [item for key in ('work_items', 'work_items_archive') for item in source.get(key, [])]
+    for item in items:
+        actual = workdetail.get(slug, ledger.USER, item['slug'], now_ts=0)
+        require(actual is not None and digest(actual) == digest(oracle.work_get(
+            ledger.USER, item['slug'], now_ts=0)),
+            'native docket detail differs from captured legacy output')
+    return {'agents_compared': compared, 'docket_lists_compared': 1,
+            'docket_details_compared': len(items)}
+
+
+def check_load_result(result, source):
+    """A child exit code alone does not prove that any comparison ran."""
+    wanted = {'sections_compared': len(source), 'agents_compared': len(source.get('nodes', {})),
+              'docket_lists_compared': 1, 'docket_details_compared': sum(
+                  len(source.get(key, [])) for key in ('work_items', 'work_items_archive'))}
+    require(result.get('engine_load_equal') is True and result.get('api_equal') is True,
+            'converted reader comparisons did not complete')
+    require(all(type(result.get(key)) is int and result[key] == value
+                for key, value in wanted.items()), 'converted reader comparison counts differ')
+    provenance = result.get('import_provenance', {})
+    own = PROVENANCE.as_dict()
+    require(provenance.get('repo') == own['repo'] and provenance.get('commit') == own['commit'],
+            'converted reader child imported a different checkout')
+
+
+def compare_engine_one(a, root, row, source_path, source, admin, runtime, database):
+    output = root / ('load-' + str(row['legacy_org_id']) + '.json')
+    require(not output.exists(), 'converted reader output unexpectedly exists')
+    load_env = child_env(root, a.prefix, admin, runtime)
+    load_env.update(ORGTREE_STORE='postgres', ORGTREE_STORAGE='orgdb',
+                    ORGTREE_PG_CONNINFO=with_db(runtime, database))
+    with output.with_suffix('.log').open('w', encoding='utf-8') as log:
+        code = run_worker([*worker_argv(a), '--load-worker', '--load-slug', row['slug'],
+                           '--load-source', str(source_path), '--load-output', str(output)],
+                          load_env, log, 180)
+    require(code == 0 and output.is_file(), 'converted engine/API load did not complete')
+    result = json.loads(output.read_text(encoding='utf-8'))
+    verifier = module('rehearsal_load_fields', REPO / 'tools/orgdb_verify.py')
+    check_load_result(result, {k: v for k, v in source.items() if k not in verifier.IGNORED_DEFAULT})
+    return result
+
+
+def check_load_coverage(orgs, verified):
+    require(bool(orgs) and set(verified) == {slug for _, slug in orgs},
+            'converted reader checks omitted a captured org')
+    require(all(row.get('engine_load_equal') is True and row.get('api_equal') is True
+                for row in verified.values()), 'converted reader checks omitted an active org')
 
 
 def corrupt(verifier, source, base, database):
@@ -670,15 +760,8 @@ def worker(a):
                                                      database, row['legacy_org_id'])
             if row['slug'] == chosen[1] and undo and undo.source_path is not None:
                 out['verified'][row['slug']]['planted_source_value_preserved'] = True
-            if row['slug'] == chosen[1] and a.fault in ('bad-enum-agent', 'bad-type-agent'):
-                load_env = child_env(root, a.prefix, admin, runtime)
-                load_env.update(ORGTREE_STORE='postgres', ORGTREE_STORAGE='orgdb',
-                                ORGTREE_PG_CONNINFO=with_db(runtime, database))
-                with (root / 'load.log').open('w', encoding='utf-8') as log:
-                    code = run_worker([*worker_argv(a), '--load-worker', '--load-slug', row['slug'],
-                                       '--load-source', str(source_path)], load_env, log, 180)
-                require(code == 0, 'converted engine load did not equal legacy load')
-                out['verified'][row['slug']]['engine_load_equal'] = True
+            out['verified'][row['slug']].update(compare_engine_one(
+                a, root, row, source_path, source, admin, runtime, database))
             # Reports count values kept in extra. Export field counts, never their values.
             require(row['slug'] in kept_reports, 'converted org has no report')
             kept = kept_reports[row['slug']]['kept_in_extra']
@@ -705,6 +788,7 @@ def worker(a):
                 control = corrupt_events(verifier, source, runtime, row['database'])
                 if control is not None:
                     out['event_corruption'] = control
+        check_load_coverage(orgs, out['verified'])
     out['final_registry'] = summary(runtime, rows)
     require(files_before == file_manifest(data), 'Retry or verification changed immutable files')
     expected_final = original if undo and FAULTS[a.fault] == 'unavailable' else before
@@ -783,6 +867,7 @@ def arguments():
     p.add_argument('--load-worker', action='store_true', help=argparse.SUPPRESS)
     p.add_argument('--load-slug', help=argparse.SUPPRESS)
     p.add_argument('--load-source', help=argparse.SUPPRESS)
+    p.add_argument('--load-output', help=argparse.SUPPRESS)
     return p.parse_args()
 
 
@@ -863,6 +948,7 @@ def run_pair(a, report, root, admin, runtime, deadline):
         finally:
             report['cleanup'].append({'databases_dropped': drop_owned(admin, prefix), 'remaining': 0})
     plain, captured = report['runs']
+    check_load_coverage([(None, slug) for slug in captured['final_registry']], captured['verified'])
     require(comparable(plain['initial_registry']) == comparable(captured['initial_registry']),
             'source instrumentation changed initial registry states/counts')
     require(comparable(plain['final_registry']) == comparable(captured['final_registry']),
