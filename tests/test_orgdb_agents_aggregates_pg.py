@@ -312,7 +312,7 @@ class MaintainedAggregates(unittest.TestCase):
                     raw.execute("UPDATE orgtree.agents SET model='unicode-control' WHERE name='dev'")
                     self.assertEqual(reader_rows.read_agents(raw,['dev'])['dev']['title'],literal)
                     for table in ('asks','credit_requests','scope_requests'):
-                        status = 'pending' if table == 'credit_requests' else 'open'
+                        status = 'open' if table == 'asks' else 'pending'
                         rid=raw.execute(f'INSERT INTO orgtree.{table}(ord,node,status,extra) '
                             "VALUES(41000,'dev',%s,%s) RETURNING id",(status,Json({'odd':literal,'at':None}))).fetchone()[0]
                         raw.execute(f'UPDATE orgtree.{table} SET ord=41001 WHERE id=%s',(rid,))
@@ -374,7 +374,7 @@ class MaintainedAggregates(unittest.TestCase):
             raw.execute('BEGIN')
             try:
                 for table in ('asks','credit_requests','scope_requests'):
-                    status = 'pending' if table == 'credit_requests' else 'open'
+                    status = 'open' if table == 'asks' else 'pending'
                     rid=raw.execute(f'INSERT INTO orgtree.{table}(ord,node,status,extra) '
                         "VALUES(40000,'dev',%s,%s) RETURNING id",(status,Json({'unrelated':'kept'}))).fetchone()[0]
                     flags='node_misfit,status_misfit,at_misfit,resolved_at_misfit'
