@@ -346,8 +346,8 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
         return None
     if not display and node["session_id"] in native_conflicts(inventory=inventory):
         return None
-    data_root = Path(_store(writes_orgs=False).DATA_ROOT)
-    root = _display_data_root(str(data_root)) if display else data_root.resolve()
+    root = (_display_data_root() if display
+            else Path(_store(writes_orgs=False).DATA_ROOT).resolve())
     storage_node = native.get("storage_node") or nid
     if not isinstance(storage_node, str) or not re.fullmatch(r"[A-Za-z0-9_@.-]{1,160}", storage_node) or storage_node in {".", ".."}:
         return None
@@ -379,18 +379,21 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
 # Display answers never authorize resume: launch, adoption and repair retain
 # the fresh inventory above. This cache belongs only to filesystem readers.
 _DISPLAY_PATHS: dict[tuple[str, str], tuple[str, tuple[int, int, int, int]]] = {}
-_DISPLAY_ROOTS: dict[str, Path] = {}
+_DISPLAY_ROOTS: dict[tuple[str, str], Path] = {}
 
 
-def _display_data_root(root: str) -> Path:
+def _display_data_root() -> Path:
+    from . import store
+    from .desktop_import import _store
     # Resolve aliases (including Windows short names) once per data root,
     # while keeping warm readers to one stat of the session file itself.
-    found = _DISPLAY_ROOTS.get(root)
+    key = (str(store.DATA_ROOT), os.environ.get("ORGTREE_DATA", ""))
+    found = _DISPLAY_ROOTS.get(key)
     if found is None:
-        found = Path(root).resolve()
+        found = Path(_store(writes_orgs=False).DATA_ROOT).resolve()
         if len(_DISPLAY_ROOTS) >= 8:
             _DISPLAY_ROOTS.clear()
-        _DISPLAY_ROOTS[root] = found
+        _DISPLAY_ROOTS[key] = found
     return found
 
 

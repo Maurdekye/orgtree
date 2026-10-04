@@ -43,7 +43,8 @@ class TranscriptLookupTests(unittest.TestCase):
             (folder / (str(uuid.uuid4()) + '.jsonl')).write_text('{"type":"user"}\n')
         with patch.object(native, '_native_inventory', side_effect=AssertionError('display walked fleet')):
             self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
-            with patch.object(Path, 'lstat', autospec=True, side_effect=Path.lstat) as inspected:
+            with patch.object(Path, 'lstat', autospec=True, side_effect=Path.lstat) as inspected, \
+                    patch.object(Path, 'resolve', side_effect=AssertionError('warm display resolved parents')):
                 for _ in range(12):
                     self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
             # The recorded file is validated once per read, independently of
