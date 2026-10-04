@@ -224,7 +224,8 @@ Existing stored, already-clamped scopes become the INITIAL configured scopes.
 Old deleted grants cannot be reconstructed safely from missing information; do not
 invent wider grants or scrape history to restore them. Future narrowing/restoration
 uses the new rule. State this limitation in release behavior, and get the coordinator's
-confirmation (section 7). New intersection includes permission mode: the old D-101
+attention to it (section 7); it does not invent or recover a missing grant. New
+intersection includes permission mode: the old D-101
 exception for a user mode above an ancestor cannot be silently retained as a bypass
 of the newly stated all-ancestor intersection; flag that interaction explicitly.
 
@@ -260,8 +261,9 @@ contract, state the conflict before claiming flat-S move timings.
 
 ## 7. Product decisions still needed
 
-Only scope restoration is pre-approved. Recommended choices below are proposals,
-not implementation defaults; coordinator-opus asks the user.
+Only scope restoration is pre-approved. Choices 1, 2 and 4 below need a ruling;
+they are proposals, not implementation defaults. Point 3 is a migration disclosure,
+not another request to approve the scope rule. coordinator-opus asks the user.
 
 1. **Audiences:** current move permanently deletes non-ancestral grants. A current-chain
    predicate would suppress them while invalid and revive them if moved back. Recommend
