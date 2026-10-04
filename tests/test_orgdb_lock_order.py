@@ -487,7 +487,32 @@ class Migrations(unittest.TestCase):
         for text in _migrations().values():
             found |= deferred_triggers(text)[0]
         self.assertEqual(found, {'orgtree.foreground_flush', 'orgtree.events_count_flush',
-                                 'orgtree.docket_archive_flush'})
+                                 'orgtree.docket_archive_flush', 'orgtree.graph_final_flush'})
+
+    def test_final_cycle_assertion_follows_revision_and_adds_no_row_lock(self) -> None:
+        migration = functions((MIGRATIONS / '0016_agent_graph.sql').read_text(encoding='utf-8'))
+        guard = migration['orgtree.graph_final_flush'][1]
+        kernel = migration['orgtree.graph_assert_final_cycles'][1]
+        self.assertLess(guard.index('FROM orgtree.org_revision'),
+                        guard.index('orgtree.graph_assert_final_cycles()'))
+        self.assertEqual(touches(kernel), [])
+        self.assertIsNone(_ROW_LOCK.search(_code(kernel)))
+        source = ast.parse((ORGTREE / 'orgdb/compat/conn.py').read_text(encoding='utf-8'))
+        callback = next(n for n in ast.walk(source) if isinstance(n, ast.FunctionDef)
+                        and n.name == 'on_save_commit')
+        calls = [n for n in ast.walk(callback) if isinstance(n, ast.Call)]
+        revision = next(n for n in calls if isinstance(n.func, ast.Attribute)
+                        and n.func.attr == 'execute' and n.args
+                        and any('UPDATE orgtree.org_revision' in c.value for c in ast.walk(n.args[0])
+                                if isinstance(c, ast.Constant) and isinstance(c.value, str)))
+        assertion = next(n for n in calls if isinstance(n.func, ast.Attribute)
+                         and n.func.attr == 'assert_final_cycles')
+        notify = next(n for n in calls if isinstance(n.func, ast.Attribute)
+                      and n.func.attr == 'execute' and n.args
+                      and any('pg_notify' in c.value for c in ast.walk(n.args[0])
+                              if isinstance(c, ast.Constant) and isinstance(c.value, str)))
+        self.assertLess(revision.lineno, assertion.lineno)
+        self.assertLess(assertion.lineno, notify.lineno)
 
     def test_the_check_sees_every_writing_trigger_and_its_link_table(self) -> None:
         # the statement-time triggers of today that write: each writes the link rows of its own
