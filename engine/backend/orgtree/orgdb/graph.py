@@ -234,12 +234,12 @@ def apply_scalars(raw: Any, patches: list[ScalarPatch]) -> dict[int, int]:
         result = raw.execute(
             'WITH patch AS (SELECT * FROM unnest(%s::bigint[],%s::text[],%s::bigint[],'
             '%s::boolean[],%s::bigint[],%s::boolean[],%s::numeric[],%s::boolean[],%s::json[]) '
-            'AS p(id,name,version,set_parent,parent_id,set_grant,grant,set_extra,extra)) '
+            'AS p(id,name,version,set_parent,parent_id,set_grant,new_grant,set_extra,extra)) '
             'UPDATE orgtree.agents a SET parent_id=CASE WHEN p.set_parent THEN p.parent_id ELSE a.parent_id END,'
             'parent=CASE WHEN p.set_parent THEN NULL ELSE a.parent END,'
             'parent_null=CASE WHEN p.set_parent THEN CASE WHEN p.parent_id IS NULL THEN true END '
             'ELSE a.parent_null END,'
-            'credit_grant=CASE WHEN p.set_grant THEN p.grant ELSE a.credit_grant END,'
+            'credit_grant=CASE WHEN p.set_grant THEN p.new_grant ELSE a.credit_grant END,'
             'extra=CASE WHEN p.set_extra THEN p.extra ELSE a.extra END,row_version=a.row_version+1 '
             'FROM patch p WHERE a.id=p.id AND a.name=p.name AND a.row_version=p.version AND NOT a.tombstone '
             'RETURNING a.id,a.row_version',

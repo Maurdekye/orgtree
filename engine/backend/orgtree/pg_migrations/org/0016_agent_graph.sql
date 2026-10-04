@@ -356,9 +356,11 @@ BEGIN
       SELECT ROW(o.id,o.parent_id,NOT o.tombstone,orgtree.graph_child_counted(o,old_names))::orgtree.graph_image AS o,
              ROW(v.id,v.parent_id,NOT v.tombstone,orgtree.graph_child_counted(v,new_names))::orgtree.graph_image AS v
         FROM old_rows o JOIN new_rows v USING(id)
-        WHERE (o.parent_id,o.tombstone,o.state,o.successor_id,o.successor_misfit,(o.extra->'successor')::text)
+        WHERE (o.parent_id,o.tombstone,o.state,o.successor_id,o.successor_misfit,
+               CASE WHEN o.successor_misfit THEN o.extra::text END)
           IS DISTINCT FROM
-          (v.parent_id,v.tombstone,v.state,v.successor_id,v.successor_misfit,(v.extra->'successor')::text)
+          (v.parent_id,v.tombstone,v.state,v.successor_id,v.successor_misfit,
+               CASE WHEN v.successor_misfit THEN v.extra::text END)
           OR o.successor_id IN (SELECT key::bigint FROM jsonb_each(old_names))
       UNION ALL
       SELECT ROW(a.id,a.parent_id,NOT a.tombstone,orgtree.graph_child_counted(a,old_names))::orgtree.graph_image,
