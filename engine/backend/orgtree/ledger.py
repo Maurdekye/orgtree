@@ -3946,7 +3946,68 @@ class Org:
 
     def _has_audience(self, grantee: str, grantor: str) -> bool:
         return any(a["grantee"] == grantee and a["grantor"] == grantor
+                   and self._audience_available(a)
                    for a in self.d["audiences"])
+
+    def _audience_available(self, grant: Mapping[str, Any]) -> bool:
+        """Current authority only; a paused grant remains configured."""
+        from .orgdb import native_move   # noqa: PLC0415
+        if not native_move.enabled() or grant['grantor'] == USER:
+            return True
+        from .audience_scope import available   # noqa: PLC0415
+        roots = {grant['grantee'], grant['grantor'],
+                 grant.get('delegated_by') or grant['grantor']}
+        roots = {name for name in roots if name in self.nodes}
+        raw = native_move.connection(self)
+        if raw is not None:
+            # Fresh physical parents after the lock check, never a cached path.
+            parents = native_move.graph.check_scope_paths(raw, roots)
+            # A newly configured agent can precede the save's node phase. Its
+            # existing parent chain still needs coverage before any authority.
+            new = {name for name in roots if name not in parents}
+            if new:
+                links = {name: self.node(name)['parent'] for name in new}
+                parents.update(native_move.graph.check_scope_paths(
+                    raw, {p for p in links.values() if p is not None}))
+                parents.update(links)
+            parent = parents.__getitem__
+        else:
+            parent = lambda name: self.node(name)['parent']
+        return available(grant, self.nodes.__contains__, parent, user=USER, extern=EXTERN)
+
+    def audience_records(self) -> list[dict[str, Any]]:
+        """Display availability without editing the configured grant bodies."""
+        from .orgdb import native_move   # noqa: PLC0415
+        if not native_move.enabled():
+            return self.d['audiences']
+        return [dict(grant, available=self._audience_available(grant))
+                for grant in self.d['audiences']]
+
+    def audience_summary(self, nid: str) -> dict[str, list[str]]:
+        """Active and paused display channels; legacy keeps its old shape."""
+        grants = [a for a in self.d['audiences'] if a['grantee'] == nid]
+        from .orgdb import native_move   # noqa: PLC0415
+        if not native_move.enabled():
+            return {'audiences_held': [a['grantor'] for a in grants]}
+        active, paused = [], []
+        for grant in grants:
+            (active if self._audience_available(grant) else paused).append(grant['grantor'])
+        return {'audiences_held': active, 'audiences_paused': paused}
+
+    def _record_audience(self, entry: AudienceGrant) -> None:
+        """Renew a paused pair in place rather than append a duplicate grant."""
+        from .orgdb import native_move   # noqa: PLC0415
+        if native_move.enabled():
+            existing = next((a for a in self.d['audiences']
+                             if a['grantee'] == entry['grantee']
+                             and a['grantor'] == entry['grantor']), None)
+            if existing is not None:
+                if not self._audience_available(existing):
+                    existing.update(entry)
+                    if 'delegated_by' not in entry:
+                        existing.pop('delegated_by', None)
+                return
+        self.d['audiences'].append(entry)
 
     # ------------------------------------------------ the org inbox (user spec)
     # Outside parties (chatq sessions, other orgs) see ONE recipient: the org.
@@ -3972,6 +4033,7 @@ class Org:
             grantee = a["grantee"]
             if (a["grantor"] == EXTERN and grantee in self.nodes
                     and self.nodes[grantee]["state"] == "live"
+                    and self._audience_available(a)
                     and grantee not in holders):
                 holders.append(grantee)
         if not self.multi_holder_enabled and len(holders) > 1:
@@ -4157,7 +4219,7 @@ class Org:
                                 else f"delegated by {actor}")}
             if target != actor:
                 entry["delegated_by"] = actor
-            self.d["audiences"].append(entry)
+            self._record_audience(entry)
         self.d["audience_requests"] = [
             r for r in self.d["audience_requests"]
             if not (r["from"] == frm and r["target"] == target)]
@@ -8123,6 +8185,9 @@ class Org:
         (e.g. to the delegator's peer) survives exactly as long as the
         authority that opened it still commands the grantee. User audiences
         are never swept (№11)."""
+        from .orgdb import native_move   # noqa: PLC0415
+        if native_move.enabled():
+            return []                 # availability is derived; never load S grants here
         kept: list[AudienceGrant]
         revoked: list[tuple[str, str]]
         kept, revoked = [], []
@@ -11795,8 +11860,7 @@ class Org:
                                         cast(Any, n)["frozen"].get("spend_error"))
                             if x) or None}
                        if n.get("frozen") else None),
-            "audiences_held": [a["grantor"] for a in self.d["audiences"]
-                               if a["grantee"] == nid],
+            **self.audience_summary(nid),
             # @mcp: response handles STORED on this node before @mcp:
             # was retired (2026-09-25). Served as stored data only —
             # nothing honours them any more — and never cleared on load
@@ -11924,7 +11988,7 @@ class Org:
             # UI names an OpenRouter tier by its model, and a node running on
             # a favorite that was since DESELECTED has no other source for it
             "models": self.d.get("models", {}),
-            "audiences": self.d["audiences"],
+            "audiences": self.audience_records(),
             "roots": roots,
             "audit": self.audit(),
             "cost_usd_total": self.cost_total(),

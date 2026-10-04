@@ -132,7 +132,7 @@ def current_plan(raw: Any) -> dict[str, Any] | None:
     return json.loads(value) if value is not None else None
 
 
-def check_scope_paths(raw: Any, roots: set[str]) -> None:
+def check_scope_paths(raw: Any, roots: set[str]) -> dict[str, str | None]:
     """An authoritative scope read uses held agents, never a cached permission."""
     plan = current_plan(raw)
     if plan is None:
@@ -142,6 +142,9 @@ def check_scope_paths(raw: Any, roots: set[str]) -> None:
     if missing:
         from ..pgdoor import Widen   # noqa: PLC0415
         raise Widen(share_nodes=missing)
+    names = {int(row[0]): str(row[1]) for row in rows}
+    return {str(row[1]): names[int(row[2])] if row[2] is not None else None
+            for row in rows}
 
 
 def check_paths(raw: Any, roots: set[str], *, updates: set[str] | None = None) -> None:

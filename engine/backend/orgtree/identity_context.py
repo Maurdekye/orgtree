@@ -18,7 +18,8 @@ class IdentityContext:
     _read_only_projection = True
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
         'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for',
-        'effective_effort', '_has_audience', 'account_fallback_for'))
+        'effective_effort', '_has_audience', '_audience_available',
+        'capability_scope', 'effective_agent', 'account_fallback_for'))
 
     def __init__(self, settings, rows, nid):
         nodes = {key: copy.deepcopy(value) for key, _ordinal, value in rows}
