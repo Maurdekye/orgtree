@@ -394,6 +394,134 @@ class Requests(unittest.TestCase):
         self.assertEqual(self.read(request).state, 'done')
         self.assertEqual(self.queue.snapshot()['held'], 0)
 
+    @unittest.skipUnless(os.name == 'nt', 'real Windows guardian tree control')
+    def test_paused_owner_keeps_claim_until_guardian_tree_death_and_root_recovery(self):
+        import ctypes
+        from ctypes import wintypes as w
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from engine.process_lifetime import RootLock
+
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+        kernel.OpenProcess.restype = w.HANDLE
+        kernel.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+        kernel.WaitForSingleObject.restype = w.DWORD
+        kernel.CloseHandle.argtypes = [w.HANDLE]
+        native = ctypes.WinDLL('ntdll')
+        native.NtSuspendProcess.argtypes = [w.HANDLE]
+        native.NtSuspendProcess.restype = ctypes.c_long
+        native.NtResumeProcess.argtypes = [w.HANDLE]
+        native.NtResumeProcess.restype = ctypes.c_long
+
+        # Two real trees: a running owner, then an owner paused between the
+        # cancellation commit and its provider-stop acknowledgement.
+        for cancel_before_crash in (False, True):
+            with self.subTest(cancel_before_crash=cancel_before_crash), TemporaryDirectory(
+                    prefix='orgtree-turn-owned-guardian-') as root:
+                rid = str(uuid4())
+                p = subprocess.Popen(child_python.argv(
+                    str(Path(__file__).with_name('turn_host_worker.py')), PREFIX, root, rid,
+                    flags=('-I',)), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True, env=os.environ.copy(),
+                    creationflags=subprocess.CREATE_NO_WINDOW)
+                output = messages.Queue()
+                reader = threading.Thread(target=lambda: output.put(p.stdout.readline()))
+                reader.start()
+                handles = []
+                suspended = False
+                try:
+                    try:
+                        line = output.get(timeout=25)
+                    except messages.Empty:
+                        p.kill()
+                        p.wait(timeout=10)
+                        self.fail('guardian worker did not reach boundary: ' + p.stderr.read())
+                    if not line:
+                        p.wait(timeout=10)
+                        self.fail('guardian worker failed: ' + p.stderr.read())
+                    ready = json.loads(line)
+                    self.assertEqual(Path(ready['checkout']).resolve(),
+                                     Path(__file__).resolve().parents[1])
+                    self.assertEqual(ready['engine'], p.pid)
+                    run = turn_context.Run(**ready['run'])
+                    owner = ready['owner']
+                    self.assertEqual(run.owner, owner)
+                    for name in ('guardian', 'provider', 'grandchild'):
+                        handle = kernel.OpenProcess(0x100000 | 0x1000, False, ready[name])
+                        self.assertTrue(handle, 'cannot pin owned ' + name)
+                        handles.append(handle)
+                        self.assertEqual(kernel.WaitForSingleObject(handle, 0), 258,
+                                         'positive control: owned process is alive')
+                    # Pinning the Popen handle prevents a reused PID from being
+                    # paused or killed. Its heartbeat thread is suspended too.
+                    self.assertEqual(native.NtSuspendProcess(int(p._handle)), 0)
+                    suspended = True
+                    with self.queue.connect() as c:
+                        c.execute("UPDATE orgtree.engine_instances SET heartbeat_at="
+                                  "clock_timestamp()-interval '2 minutes' WHERE id=%s", (owner,))
+                        stale = turnqueue.stale_instances(c)
+                        self.assertIn(owner, [row[0] for row in stale])
+                        self.assertEqual(next(row[2] for row in stale if row[0] == owner), p.pid)
+                    host = self.host()
+                    if cancel_before_crash:
+                        host.cancel('alpha', rid)
+                    before_org = self.read(run)
+                    before_app = self.queue.get(rid)
+                    expected = 'stopping' if cancel_before_crash else 'running'
+                    host.tick()  # a new live host heartbeat must not reclaim stale owners
+                    self.assertEqual(self.read(run).state, expected)
+                    self.assertEqual(self.queue.get(rid).state, expected)
+                    self.assertEqual(self.queue.snapshot()['held'], 1)
+                    self.assertIsNone(p.poll())
+                    self.assertTrue(all(kernel.WaitForSingleObject(h, 0) == 258 for h in handles))
+                    with self.assertRaisesRegex(RuntimeError, 'another engine owns'):
+                        RootLock(Path(root))
+
+                    p.kill()
+                    p.wait(timeout=10)
+                    for handle in handles:
+                        self.assertEqual(kernel.WaitForSingleObject(handle, 10000), 0,
+                                         'guardian must stop its entire owned tree')
+                    # This is the real startup boundary: only after process
+                    # handles prove death and the guardian releases the root.
+                    lock = RootLock(Path(root))
+                    try:
+                        with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
+                                            _database_resolver=None, _host_slots=None, _host_limit=None,
+                                            _activation_callbacks=[]):
+                            try:
+                                host.start(limit=1, previous_tree_stopped=True)
+                                self.assertEqual(self.read(run).state, 'lost')
+                                self.assertEqual(self.read(run).epoch, before_org.epoch + 1)
+                                self.assertEqual(self.queue.get(rid).state, 'lost')
+                                self.assertEqual(self.queue.get(rid).epoch, before_app.epoch + 1)
+                                self.assertEqual(self.queue.snapshot()['held'], 0)
+                                with self.queue.connect() as c:
+                                    self.assertIsNotNone(c.execute('SELECT dead_at FROM '
+                                        'orgtree.engine_instances WHERE id=%s', (owner,)).fetchone()[0])
+                                with self.connection() as c, c.transaction():
+                                    with self.assertRaises(requests.StaleRun):
+                                        requests.fence(c, run)
+                            finally:
+                                host.stop()
+                    finally:
+                        lock.close()
+                finally:
+                    if p.poll() is None:
+                        if suspended:
+                            native.NtResumeProcess(int(p._handle))
+                        p.kill()
+                    p.wait(timeout=10)
+                    for handle in handles:
+                        self.assertEqual(kernel.WaitForSingleObject(handle, 10000), 0,
+                                         'owned guardian cleanup did not stop')
+                        kernel.CloseHandle(handle)
+                    reader.join(5)
+                    self.assertFalse(reader.is_alive(), 'owned process reader did not stop')
+                    for pipe in (p.stdin, p.stdout, p.stderr):
+                        pipe.close()
+
     def test_start_step_waits_on_request_before_locking_its_job(self):
         import psycopg
         request = self.create()
