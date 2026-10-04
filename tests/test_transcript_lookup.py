@@ -29,6 +29,68 @@ class TranscriptLookupTests(unittest.TestCase):
         self.path = self.folder / (self.sid + '.jsonl')
         self.path.write_text('{"type":"user"}\n', encoding='utf-8')
 
+    def bound_org(self):
+        return {'slug': self.base.parent.name, 'nodes': {'agent': {
+            'session_id': self.sid, 'desktop_import': {'native_continuity': {
+                'status': 'ready', 'session_id': self.sid,
+                'path': str(self.path.relative_to(Path(_root.name).resolve()))}}}}}
+
+    def test_display_warm_path_uses_one_stat_and_no_fleet_walk(self):
+        org = self.bound_org()
+        for index in range(240):
+            folder = self.base / ('archived-' + str(index))
+            folder.mkdir()
+            (folder / (str(uuid.uuid4()) + '.jsonl')).write_text('{"type":"user"}\n')
+        with patch.object(native, '_native_inventory', side_effect=AssertionError('display walked fleet')):
+            self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
+            with patch.object(Path, 'lstat', autospec=True, side_effect=Path.lstat) as inspected:
+                for _ in range(12):
+                    self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
+            # root.resolve() performs no lstat on Windows; the recorded file
+            # itself is validated once per read, independently of archive size.
+            self.assertEqual(sum(c.args[0] == self.path for c in inspected.call_args_list), 12)
+
+    def test_display_move_and_replacement_invalidate_remembered_path(self):
+        org = self.bound_org()
+        self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
+        moved_folder = self.base / 'moved'; moved_folder.mkdir()
+        moved = moved_folder / self.path.name
+        self.path.rename(moved)
+        with patch.object(native, '_native_inventory', wraps=native._native_inventory) as scanned:
+            self.assertEqual(native.native_session_path(org, 'agent', display=True), str(moved))
+            self.assertEqual(scanned.call_count, 1)
+            self.assertEqual(native.native_session_path(org, 'agent', display=True), str(moved))
+            self.assertEqual(scanned.call_count, 1)
+            moved.write_text('{"type":"assistant","value":"replacement"}\n')
+            self.assertEqual(native.native_session_path(org, 'agent', display=True), str(moved))
+            self.assertEqual(scanned.call_count, 2)
+            native.forget_display_session(self.sid)
+            self.assertEqual(native.native_session_path(org, 'agent', display=True), str(moved))
+            self.assertEqual(scanned.call_count, 3)
+
+    def test_display_cache_does_not_bypass_authoritative_collision_check(self):
+        org = self.bound_org()
+        self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
+        other = self.base / 'new-duplicate'; other.mkdir()
+        (other / self.path.name).write_text('{"type":"user"}\n')
+        self.assertEqual(native.native_session_path(org, 'agent', display=True), str(self.path))
+        self.assertIsNone(native.native_session_path(org, 'agent'))
+
+    def test_cache_semantic_projection_never_resolves_session_files(self):
+        org = store.create_org('semantic-' + uuid.uuid4().hex)
+        org.hire(ledger.USER, None, 'opus', 0, 'agent')
+        org.node('agent')['desktop_import'] = {'native_continuity': {'status': 'ready'}}
+        try:
+            with patch.object(supervisor, '_build_cmd', wraps=supervisor._build_cmd) as built, \
+                    patch.object(supervisor, 'transcript_path', side_effect=AssertionError('forecast resolved transcript')), \
+                    patch.object(native, 'native_session_path', side_effect=AssertionError('forecast validated resume')):
+                tools, argv = supervisor._cache_semantic_inputs(org, 'agent', 'claude')
+            self.assertTrue(tools and argv)
+            self.assertFalse(built.call_args.kwargs['session_probe'])
+            self.assertFalse(built.call_args.kwargs['native_probe'])
+        finally:
+            store._POOL.close_all(org.d['slug'])
+
     def test_lookup_opens_only_requested_header_and_sees_new_collision(self):
         for _ in range(80):
             (self.folder / (str(uuid.uuid4()) + '.jsonl')).write_text('{"type":"session_meta"}\n')

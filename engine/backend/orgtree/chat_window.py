@@ -277,7 +277,7 @@ def read_page(org, nid, want, before):
     stats = {'bytes_read': 0, 'records_parsed': 0}
     node = org.node(nid)
     history = imported_history_path(org, nid)
-    path = history if phase else sup.transcript_path_for_node(org, nid)
+    path = history if phase else sup.transcript_path_for_node(org, nid, display=True)
     if not path:
         with transcript_records.database() as conn:
             retained = conn.execute('SELECT path FROM transcript_sources WHERE source=?',
@@ -424,7 +424,7 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
     from .desktop_import import imported_history_path
     want = max(1, min(int(want), 1_000_000))
     node = org.node(nid)
-    path = sup.transcript_path_for_node(org, nid)
+    path = sup.transcript_path_for_node(org, nid, display=True)
     if not path:
         from . import transcript_records
         with transcript_records.database() as conn:

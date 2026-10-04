@@ -335,14 +335,15 @@ class NativeInventory:
         return dict(found), set(conflicts)
 
 
-def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None = None) -> str | None:
+def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None = None,
+                        display: bool = False) -> str | None:
     from .desktop_import import _plain, _store
     doc = org.d if hasattr(org, "d") else org
     node = doc.get("nodes", {}).get(nid, {})
     native = node.get("desktop_import", {}).get("native_continuity", {})
     if native.get("status") != "ready" or native.get("session_id") != node.get("session_id"):
         return None
-    if node["session_id"] in native_conflicts(inventory=inventory):
+    if not display and node["session_id"] in native_conflicts(inventory=inventory):
         return None
     root = Path(_store(writes_orgs=False).DATA_ROOT).resolve()
     storage_node = native.get("storage_node") or nid
@@ -352,6 +353,8 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
     if Path(native.get("path") or "") != expected:
         return None
     path = root / expected
+    if display:
+        return _display_native_session(node["session_id"], path)
     _plain(path)
     if path.is_file():
         return str(path)
@@ -369,6 +372,53 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
     # `conflicts` rather than picking one, so a moved file is only adopted
     # when exactly one file in the whole tree answers to this id.
     return _relocated_native_session(node["session_id"], inventory=inventory)
+
+
+# Display answers never authorize resume: launch, adoption and repair retain
+# the fresh inventory above. This cache belongs only to filesystem readers.
+_DISPLAY_PATHS: dict[tuple[str, str], tuple[str, tuple[int, int, int, int]]] = {}
+
+
+def forget_display_session(sid: str) -> None:
+    for key in list(_DISPLAY_PATHS):
+        if key[0] == sid:
+            _DISPLAY_PATHS.pop(key, None)
+
+
+def _display_native_session(sid: str, recorded: Path) -> str | None:
+    from .desktop_import import _plain
+    key = (sid, str(recorded))
+    cached = _DISPLAY_PATHS.get(key)
+    path = Path(cached[0]) if cached else recorded
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        info = None
+    identity = ((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+                if info is not None else None)
+    if cached and identity == cached[1]:
+        return str(path)
+    _DISPLAY_PATHS.pop(key, None)
+    # A changed or missing cached file needs fresh resolution. A cold recorded
+    # path is already bound to this node; validate it without a fleet search.
+    if cached or info is None:
+        found, conflicts = _native_inventory()
+        if sid in conflicts:
+            raise NativeHeld("Duplicate native session ID in imported storage")
+        moved = found.get(sid)
+        if not moved:
+            return None
+        path = Path(moved)
+        info = path.lstat()
+        identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    _plain(path)
+    if info is None or not stat.S_ISREG(info.st_mode):
+        return None
+    if len(_DISPLAY_PATHS) >= 4096:
+        _DISPLAY_PATHS.clear()
+    assert identity is not None
+    _DISPLAY_PATHS[key] = (str(path), identity)
+    return str(path)
 
 
 def _relocated_native_session(sid: str, *, inventory: NativeInventory | None = None) -> str | None:
@@ -540,6 +590,7 @@ def follow_session(node: dict, new_sid: str, *, generation: int | None = None) -
         return False        # already adrift; a guess is worse than history
     if native.get("rewind"):
         return False        # a pending rewind names its own session
+    forget_display_session(str(node.get("session_id") or ""))
     node["desktop_import"] = copy.deepcopy(imported)
     node["desktop_import"]["native_continuity"] = {
         **native, "session_id": new_sid,

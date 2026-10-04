@@ -12278,7 +12278,7 @@ def ro_deny_rules(ro_paths: Sequence[str], own_scratch: str) -> list[str]:
 
 
 def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
-               session_probe: bool = True) -> list[str]:
+               session_probe: bool = True, native_probe: bool = True) -> list[str]:
     # write_ident=False renders the SAME argv without touching
     # .orgtree-identity.md — for warmpool's hash recompute, which runs every
     # keeper pass and must not churn the file's mtime (D-201). A real spawn
@@ -12564,7 +12564,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
         # FR-24: the predecessor's scratch (deny rules above make it ro)
         cmd += ["--add-dir", pred_dir]
     native_resume = None
-    if n.get('desktop_import'):
+    if native_probe and n.get('desktop_import'):
         from .desktop_native import native_session_path
         native_resume = native_session_path(org,nid)
     if n.get("bearer_state") == "preserving":
@@ -12894,7 +12894,11 @@ def _cache_semantic_inputs(
         # `claude` AND `openrouter`: the same Claude CLI, the same argv — an
         # OpenRouter tier only re-points its endpoint (audit C1, 2026-09-04:
         # `== "claude"` here sent OpenRouter down the Antigravity leg below)
-        cmd = _build_cmd(org, nid, write_ident=False)
+        # The semantic projection excludes session/resume arguments. Resolving
+        # their files cannot change either digest, and used to walk imports
+        # twice per Claude node on every foreground/cache forecast build.
+        cmd = _build_cmd(org, nid, write_ident=False,
+                         session_probe=False, native_probe=False)
         projection = _cache_cmd_projection(cmd)
         projection["cli_version"] = cli_version()
         tools = {
@@ -32446,7 +32450,7 @@ def _claim_steer_tx(slug: str, nid: str, tool_use_id: str,
     return did, out
 
 
-def transcript_path_for_node(org: Org, nid: str) -> str | None:
+def transcript_path_for_node(org: Org, nid: str, *, display: bool = False) -> str | None:
     """The node's own transcript, by session id (the same lookup ad1d5da's
     warm-pool rule uses). None when the session has never written one."""
     n = org.nodes.get(nid) or {}
@@ -32459,7 +32463,8 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
         if native.get('status') == 'ready':
             # A bound imported conversation is resolved from its own node.
             # Ordinary conversations never search the entire imported fleet.
-            return desktop_native.native_session_path(org, nid)
+            return (desktop_native.native_session_path(org, nid, display=True)
+                    if display else desktop_native.native_session_path(org, nid))
     return transcript_path(sid, _transcript_root(org, nid) or os.path.expanduser('~/.claude'))
 
 
