@@ -1,7 +1,7 @@
 """SQL-only migration codec against independent Python codec values on owned PG.
 
 Needs ORGTREE_TEST_PG_ADMIN_URL on a disposable cluster; run under heavy P03.
-These controls are only the backfill foundation, not full G1-G11 acceptance.
+These controls cover SQL backfills, not native API or full G1-G11 acceptance.
 """
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
@@ -120,7 +120,7 @@ class BackfillCodec(unittest.TestCase):
         order=[name for table in oldtables for name in table.layout()]
         rowio.write(self.raw,rows,order=order)
         self.raw.execute("SELECT setval(pg_get_serial_sequence('orgtree.agent_turns','id'),100,true)")
-        draft=SQL.generate().render().replace('CREATE FUNCTION pg_temp.','CREATE OR REPLACE FUNCTION pg_temp.')
+        draft=SQL.generate(foundation=True).render().replace('CREATE FUNCTION pg_temp.','CREATE OR REPLACE FUNCTION pg_temp.')
         # A late error rolls all DDL/data back in the same migration transaction.
         from psycopg.errors import RaiseException
         with self.assertRaises(RaiseException),self.raw.transaction():
@@ -161,6 +161,145 @@ class BackfillCodec(unittest.TestCase):
                   ['f',-0.0,-0.0], ['i',True], ['f',1,1.0], ['f',1.0,0],
                   ['f',5e-324,1.7976931348623157e308], False, {'raw':'\0\ud800'}]
         self.check(spec, [{}]+[dict(turn_est_cost=v,turn_est_toks=v) for v in values])
+
+    def test_complete_alpha_docket_backfill_preserves_records_ids_and_current_links(self):
+        from psycopg.rows import dict_row
+        from orgtree.orgdb import docket_events
+        from orgtree.orgdb.convert import rowio
+        self.raw.execute('DROP SCHEMA orgtree CASCADE; CREATE SCHEMA orgtree')
+        for path in sorted((ROOT/'engine/backend/orgtree/pg_migrations/org').glob('*.sql')):
+            self.raw.execute(path.read_text(encoding='utf-8'))
+        node={'state':'live','seat_id':'current','generation':9}
+        stale={'node':'worker','born':'old','generation':1}
+        current={'node':'worker','born':'current','generation':100}
+        history={'op':'update','by':{'node':'historical','born':None,'generation':False,'raw':'\0'},
+                 'raised_by':'user','next_actor':['misfit','\ud800'],'note':'runtime edit'}
+        item={'slug':'alpha-edited','status':'open','rev':12,'owner':stale,'reviewer':current,
+              'manual_attention':{'reason':'check','at':'20261004T081513+02','by':'user','set_rev':12,'raw':'\0'},
+              'accepted':{'at':None,'by':{'node':'user','generation':0},'note':False,'via':'accept',
+                          'evidence_gap':{'unclassified':1,'total':3,'summary':'gap','raw':'\ud800'}},
+              'review_seats':[{'reviewer':'worker','holder':stale,'recheck_owner':{'node':'worker','generation':99},
+                               'granted_by':'user','state':'spent','answered_request':None,'raw':'\0'},
+                              {'reviewer':'worker','holder':stale,'state':'revoked'}],
+              'delivery':{'implemented':{'claimed_by':'user','note':'done'},'committed':None,'pushed':False,
+                          'deployed':[0,0.0],'in_build':{},'unknown-stage':{'raw':'\0\ud800'}},
+              'holders':[dict(stale,by={'node':'user','born':None}),dict(current,by='user'),{'node':'user','by':False}],
+              'artifacts':[{'id':'r1','grants':[{'to':'worker','by':'user','revoked_at':'2026-10-04T08:00:00Z'},
+                                            {'to':'worker','by':{'node':'user'},'revoked_at':None},
+                                            {'to':'gone','by':False,'raw':'\0'}]},
+                           {'id':'r1','grants':[False,{'to':'worker'}]}],
+              'history':[history],'unknown':{'keep':'\0\ud800'}}
+        rows={}
+        codec.encode(A.LEGACY_HOT,node,dict(id=1,name='worker',ord=0,tombstone=False),rows,link=A.LEGACY_AGENTS.link)
+        core={k:v for k,v in item.items() if k not in D.EVENT_SOURCES}
+        codec.encode(D.ALPHA_WORK_ITEM,core,D.row_keys(item,id=107,list_key='active',ord=3),rows,link=D.LEGACY_WORK_ITEMS.link)
+        oldevent=codec.Spec('work_item_events',(codec.Field('history','obj',spec=D.ALPHA_SOURCE_SPECS['history']),))
+        codec.encode(oldevent,{'history':history},dict(id=211,item_id=107,seq=1,source='history',kind='history',
+                    at=None,by_node='historical',by_generation=None,by_born=None,content=None,status_change=False),rows)
+        order=['agents',*D.LEGACY_WORK_ITEMS.layout(),'work_item_events']
+        with self.raw.transaction():
+            rowio.write(self.raw,rows,order=order)
+        self.raw.execute("SELECT setval(pg_get_serial_sequence('orgtree.agents','id'),100,true)")
+        draft=SQL.generate().render().replace('CREATE FUNCTION pg_temp.','CREATE OR REPLACE FUNCTION pg_temp.')
+        def flush_modes():
+            return self.raw.execute("SELECT c.relname,t.tgname,t.tgenabled FROM pg_trigger t "
+                "JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace s ON s.oid=c.relnamespace "
+                "WHERE s.nspname='orgtree' AND NOT t.tgisinternal ORDER BY c.relname,t.tgname").fetchall()
+        old_modes=flush_modes()
+        snapshot_tables=('agents','work_items','work_item_artifacts','work_item_holders',
+                         'work_item_events','org_revision','docket_counters')
+        def snapshot():
+            return {table:self.raw.execute(f'SELECT to_json(t)::text FROM orgtree.{table} t '
+                       'ORDER BY to_json(t)::text').fetchall() for table in snapshot_tables}
+        before=snapshot()
+        from psycopg.errors import RaiseException
+        with self.assertRaises(RaiseException),self.raw.transaction():
+            self.raw.execute(draft+"DO $fault$ BEGIN RAISE EXCEPTION 'full migration late fault'; END $fault$;")
+        self.assertEqual(snapshot(),before)
+        self.assertEqual(flush_modes(),old_modes)
+        self.assertIsNone(self.raw.execute("SELECT to_regclass('orgtree.work_item_artifact_grants')").fetchone()[0])
+        from psycopg.errors import CheckViolation
+        faults=(
+            ('dropped grant',
+             'PERFORM pg_temp.sc_grant_relations(original,old.item_id,old.id);',
+             'PERFORM pg_temp.sc_grant_relations(original,old.item_id,old.id); '
+             'DELETE FROM orgtree.work_item_artifact_grants WHERE artifact_id=old.id AND pos=0;',
+             RaiseException,'work_item_artifacts after write'),
+            ('wrong stage','VALUES(item,entry.key,state,',"VALUES(item,'corrupted-stage',state,",
+             CheckViolation,'work_item_delivery'),
+            ('misfit principal',
+             'SELECT to_json(t) INTO changed FROM orgtree."work_item_events" t WHERE',
+             'UPDATE orgtree.work_item_events SET extra=NULL WHERE id=old.id; '
+             'SELECT to_json(t) INTO changed FROM orgtree."work_item_events" t WHERE',
+             RaiseException,'work_item_events after write'),
+        )
+        for label,needle,replacement,error,message in faults:
+            with self.subTest(fault=label):
+                self.assertEqual(draft.count(needle),1,'fault must reach exactly one production backfill')
+                with self.assertRaisesRegex(error,message),self.raw.transaction():
+                    self.raw.execute(draft.replace(needle,replacement))
+                self.assertEqual(snapshot(),before)
+                self.assertEqual(flush_modes(),old_modes)
+        with self.raw.transaction():
+            self.raw.execute(draft)
+        self.assertEqual(flush_modes(),old_modes)
+        with self.raw.cursor(row_factory=dict_row) as cur:
+            stored=cur.execute('SELECT * FROM orgtree.work_items WHERE id=107').fetchone()
+            children={name:cur.execute(f'SELECT * FROM orgtree.{name}').fetchall()
+                      for name in D.WORK_ITEMS.layout() if name!='work_items'}
+            events=cur.execute('SELECT * FROM orgtree.work_item_events').fetchall()
+            agents=cur.execute('SELECT * FROM orgtree.agents ORDER BY id').fetchall()
+        restored=docket_events.decode_item(stored,codec.Children(children,D.WORK_ITEMS.layout()),events)
+        self.assertEqual(exact(restored),exact(item))
+        self.assertEqual(stored['id'],107)
+        self.assertEqual(events[0]['id'],211)
+        self.assertEqual(stored['reviewer_agent_id'],1)
+        tomb=stored['owner_agent_id']
+        self.assertNotEqual(tomb,1)
+        self.assertEqual(next(a for a in agents if a['id']==tomb)['lineage_born'],'old')
+        for seat in children['work_item_review_seats']:
+            self.assertEqual(seat['holder_agent_id'],tomb)
+            self.assertEqual(seat['reviewer_agent_id'],tomb)
+        self.assertEqual(len(children['work_item_review_seats']),2)
+        self.assertEqual(len(children['work_item_artifact_grants']),3)
+        self.assertEqual(len(children['work_item_delivery']),5)
+        self.assertEqual([g['agent_id'] for g in sorted(children['work_item_artifact_grants'],key=lambda r:r['pos'])][:2],[1,1])
+        self.assertEqual(self.raw.execute("SELECT count(*) FROM pg_constraint WHERE confrelid='orgtree.agents'::regclass AND condeferrable").fetchone()[0],0)
+        revision=self.raw.execute('SELECT node_rev,catalog_rev,view_rev,docket_rev,node_count,'
+                                  'retired_axis_count,cost,cost_unknown FROM orgtree.org_revision').fetchone()
+        old_revision=json.loads(before['org_revision'][0][0])
+        self.assertEqual(tuple(revision[4:]),(1,0,0,0))
+        for column,actual in zip(('node_rev','catalog_rev','view_rev','docket_rev'),revision[:4]):
+            self.assertGreater(actual,old_revision[column],column)
+        self.assertEqual(self.raw.execute("SELECT n FROM orgtree.docket_counters WHERE kind='archive'").fetchone()[0],0)
+        before_write=revision
+        # An ordinary later write still accumulates and flushes exactly once.
+        with self.raw.transaction():
+            self.raw.execute("UPDATE orgtree.agents SET title='after migration' WHERE id=1")
+        after_write=self.raw.execute('SELECT node_rev,catalog_rev,view_rev,docket_rev,node_count,'
+                                     'retired_axis_count,cost,cost_unknown FROM orgtree.org_revision').fetchone()
+        self.assertEqual(after_write[0],before_write[0]+1)
+        self.assertEqual(after_write[1],before_write[1]+1)
+        self.assertEqual(after_write[2:],before_write[2:])
+
+    def test_current_identity_coercions_match_python_without_decoding_agent_bodies(self):
+        values=[None,False,0,True,2,10**100,0.0,-0.0,2.7,-2.7,1e20,1e-20,
+                '', '  +12_345\t','\u00a0\u0661\u0662\u00a0','not-int','2.0',[],{},
+                [0,False,1.0,{'x':'\0\ud800'}],{'quote':"'",'double':'"','space':'\u200b'},
+                ['\u0002\U00070000', '\u2028', '\U0001f600', "'\\\t\n"]]
+        with self.raw.transaction():
+            self.raw.execute(SQL.python_value_helpers())
+            for value in values:
+                with self.subTest(value=repr(value)),self.raw.transaction():
+                    want_str=str(value or '')
+                    try:
+                        want_int=int(value or 0)
+                    except (TypeError,ValueError,OverflowError):
+                        want_int=None
+                    actual=self.raw.execute('SELECT pg_temp.sc_python_str(%s),pg_temp.sc_python_int(%s)',
+                                            (self.Json(value),self.Json(value))).fetchone()
+                    self.assertEqual(actual[0],want_str)
+                    self.assertEqual(actual[1],want_int)
 
     def test_numeric_scalars_keep_float_scale_integer_type_and_misfits(self):
         spec=codec.Spec('',(codec.Field('amount','num',nullable=True),))

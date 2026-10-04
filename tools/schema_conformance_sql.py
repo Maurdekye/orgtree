@@ -1,7 +1,7 @@
 """Author the reviewed G1-G11 SQL backfill from mapper field declarations.
 
-This is an authoring tool, never a runtime migration hook. Only the G6/G7/G8/G10
-foundation draft is available until the docket composition is finished. The
+This is an authoring tool, never a runtime migration hook. Its full draft
+composes the reviewed typed records and current-role links in place. The
 eventual migration runs alone in migrate.py's existing transaction. The
 independent verifier does not import this tool, its descriptors, or mapper code.
 """
@@ -11,6 +11,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
@@ -445,14 +446,40 @@ class Migration:
 
     def __init__(self):
         self.compiler = Compiler()
+        self.migrated_tables = []
         self.body = [
             '-- Authored with tools/schema_conformance_sql.py; edit the generator.',
             '-- Alpha databases migrate in place. No legacy reconversion is used.',
             "SET LOCAL timezone='UTC';",
+            # Migration admission blocks other writers before any FK/backfill.
+            'LOCK TABLE orgtree.agents IN EXCLUSIVE MODE;',
+            # DDL after row backfills cannot coexist with pending deferred
+            # trigger events. Keep statement delta collectors active, suspend
+            # only our flush triggers, and queue them after the final DDL.
+            # No foreign key or user-authored trigger is disabled or forced.
+            """
+CREATE TEMP TABLE sc_flush_triggers ON COMMIT DROP AS
+ SELECT t.tgrelid,t.tgname,t.tgenabled,c.relname
+ FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+ JOIN pg_namespace s ON s.oid=c.relnamespace
+ JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace f ON f.oid=p.pronamespace
+ WHERE s.nspname='orgtree' AND f.nspname='orgtree' AND NOT t.tgisinternal
+  AND p.proname IN ('foreground_flush','docket_archive_flush')
+  AND c.relname IN ('agents','work_items','work_item_artifacts','work_item_holders','work_item_events');
+DO $pause_flush$
+DECLARE t record;
+BEGIN
+ FOR t IN SELECT * FROM sc_flush_triggers ORDER BY tgrelid,tgname LOOP
+  EXECUTE format('ALTER TABLE orgtree.%I DISABLE TRIGGER %I',t.relname,t.tgname);
+ END LOOP;
+END $pause_flush$;
+""",
         ]
 
     def migrate_record(self, table, oldspec, newspec, *, keys=('id',), where='true',
-                       prefix='', before='', after=''):
+                       prefix='', before='', after='', encode_value='original', restore=''):
+        if table not in self.migrated_tables:
+            self.migrated_tables.append(table)
         oldfn = self.compiler.function(oldspec, prefix)
         newfn = self.compiler.function(newspec, prefix)
         oldcols, newcols = dict(codec.columns(oldspec, prefix)), dict(codec.columns(newspec, prefix))
@@ -462,31 +489,33 @@ class Migration:
                 renamed[column] = 'sc_old_'+column
                 self.body.append(f'ALTER TABLE orgtree.{ident(table)} RENAME COLUMN {ident(column)} TO {ident(renamed[column])};')
             if column not in oldcols or column in renamed:
-                self.body.append(f'ALTER TABLE orgtree.{ident(table)} ADD COLUMN {ident(column)} {typ};')
-        restore = ''.join(
+                self.body.append(f'ALTER TABLE orgtree.{ident(table)} ADD COLUMN IF NOT EXISTS {ident(column)} {typ};')
+        restore_columns = ''.join(
             f'raw:=pg_temp.sc_put(raw,{literal(c)},pg_temp.sc_get(raw,{literal(old)}));'
             for c, old in renamed.items())
         update = [f'{ident(c)}={cast_column("pack",c,t)}' for c, t in newcols.items()]
         update += ["extra=pg_temp.sc_nonnull(pg_temp.sc_get(pack,'extra'))"]
         match = ' AND '.join(f't.{ident(k)}=old.{ident(k)}' for k in keys)
         assignments = ',\n '.join(update)
+        decoded = f"pg_temp.{newfn}_decode(changed,pg_temp.sc_get(changed,'extra'),children)"
+        restored = restore.replace('{value}', decoded) if restore else decoded
         self.body.append(f"""
 DO $backfill$
-DECLARE old record; raw json; original json; pack json; changed json; children json;
+DECLARE old record; raw json; original json; normalized json; pack json; changed json; children json;
 BEGIN
  FOR old IN SELECT t.*,to_json(t) AS raw FROM orgtree.{ident(table)} t WHERE {where}
   ORDER BY {','.join('t.'+ident(k) for k in keys)} LOOP
-  raw:=old.raw; {restore}
+  raw:=old.raw; {restore_columns}
   original:=pg_temp.{oldfn}_decode(raw,pg_temp.sc_get(raw,'extra'),'{{}}');
   {before}
-  pack:=pg_temp.{newfn}_encode(original);
+  pack:=pg_temp.{newfn}_encode({encode_value});
   children:=pg_temp.sc_get(pack,'children');
-  PERFORM pg_temp.sc_assert(original,pg_temp.{newfn}_decode(pg_temp.sc_get(pack,'row'),pg_temp.sc_get(pack,'extra'),children),
+  PERFORM pg_temp.sc_assert({encode_value},pg_temp.{newfn}_decode(pg_temp.sc_get(pack,'row'),pg_temp.sc_get(pack,'extra'),children),
                             '{table} before write');
   UPDATE orgtree.{ident(table)} t SET {assignments} WHERE {match};
   {after}
   SELECT to_json(t) INTO changed FROM orgtree.{ident(table)} t WHERE {match};
-  PERFORM pg_temp.sc_assert(original,pg_temp.{newfn}_decode(changed,pg_temp.sc_get(changed,'extra'),children),
+  PERFORM pg_temp.sc_assert(original,{restored},
                             '{table} after write');
  END LOOP;
 END
@@ -503,10 +532,327 @@ $backfill$;
                     ','.join(map(literal, values))+'));')
 
     def render(self):
-        return '\n'.join(self.compiler.statements + self.body) + '\n'
+        flush_tail = f"""
+DO $resume_flush$
+DECLARE t record; mode text;
+BEGIN
+ FOR t IN SELECT * FROM sc_flush_triggers ORDER BY tgrelid,tgname LOOP
+  mode:=CASE t.tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'R' THEN 'ENABLE REPLICA'
+         WHEN 'A' THEN 'ENABLE ALWAYS' ELSE 'ENABLE' END;
+  EXECUTE format('ALTER TABLE orgtree.%I %s TRIGGER %I',t.relname,mode,t.tgname);
+ END LOOP;
+ -- The same native AFTER ROW triggers perform the commit-time flush. All
+ -- earlier statement deltas are still transaction-local, including new
+ -- continuity tombstones. No revision lock is acquired during the backfill.
+ FOR t IN SELECT DISTINCT relname FROM sc_flush_triggers
+           WHERE tgenabled IN ('O','A') AND relname IN ({','.join(map(literal,self.migrated_tables))}) ORDER BY relname LOOP
+  EXECUTE format('UPDATE orgtree.%I SET extra=extra WHERE ctid=(SELECT ctid FROM orgtree.%I LIMIT 1)',
+                 t.relname,t.relname);
+ END LOOP;
+END $resume_flush$;
+"""
+        return '\n'.join(self.compiler.statements + self.body + [flush_tail]) + '\n'
 
 
-def generate():
+def python_value_helpers():
+    """SQL's cold identity comparison follows the existing Python coercions.
+
+    The ranges come from the authoring interpreter, not an installed Python
+    migration hook. They cover Python repr/strip and decimal Unicode digits.
+    """
+    ranges=[]
+    start=None
+    for code in range(0x110000):
+        if not chr(code).isprintable():
+            if start is None:
+                start=code
+        elif start is not None:
+            ranges.append((start,code-1)); start=None
+    if start is not None:
+        ranges.append((start,0x10ffff))
+    chars=[]
+    for code in range(0x110000):
+        value=unicodedata.decimal(chr(code),None)
+        if value is not None or chr(code).isspace():
+            chars.append((code,'NULL' if value is None else str(value),str(chr(code).isspace()).lower()))
+    return '''
+CREATE TEMP TABLE sc_python_nonprintable(lo int,hi int) ON COMMIT DROP;
+INSERT INTO sc_python_nonprintable VALUES '''+','.join(f'({a},{b})' for a,b in ranges)+''';
+CREATE TEMP TABLE sc_python_chars(code int PRIMARY KEY,digit int,space boolean) ON COMMIT DROP;
+INSERT INTO sc_python_chars VALUES '''+','.join(f'({a},{b},{c})' for a,b,c in chars)+r''';
+CREATE FUNCTION pg_temp.sc_truth(v json) RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE t text:=json_typeof(v); safe json;
+BEGIN
+ IF v IS NULL OR t='null' THEN RETURN false; END IF;
+ IF t='boolean' THEN RETURN v::text::boolean; END IF;
+ IF t='number' THEN RETURN v::text::numeric<>0; END IF;
+ IF t='string' THEN RETURN pg_temp.sc_string(v)<>''; END IF;
+ IF t='array' THEN RETURN json_array_length(v)>0; END IF;
+ SELECT value INTO safe FROM orgtree.docket_safe(v);
+ RETURN EXISTS(SELECT 1 FROM json_each(safe));
+END $fn$;
+CREATE FUNCTION pg_temp.sc_quote(v json) RETURNS text LANGUAGE plpgsql STABLE AS $fn$
+DECLARE codes text:=pg_temp.sc_string(v); q text:=chr(39); result text; i int; code int;
+BEGIN
+ IF EXISTS(SELECT 1 FROM generate_series(0,length(codes)/6-1) x(i)
+           WHERE substr(codes,x.i*6+1,6)='000027')
+    AND NOT EXISTS(SELECT 1 FROM generate_series(0,length(codes)/6-1) x(i)
+                   WHERE substr(codes,x.i*6+1,6)='000022') THEN q:=chr(34); END IF;
+ result:=q;
+ FOR i IN 0..length(codes)/6-1 LOOP
+  code:=('x'||substr(codes,i*6+1,6))::bit(24)::int;
+  IF code IN (ascii(q),92) THEN result:=result||chr(92)||chr(code);
+  ELSIF code IN (9,10,13) THEN result:=result||chr(92)||CASE code WHEN 9 THEN 't' WHEN 10 THEN 'n' ELSE 'r' END;
+  ELSIF EXISTS(SELECT 1 FROM sc_python_nonprintable WHERE code BETWEEN lo AND hi) THEN
+   result:=result||chr(92)||CASE WHEN code<256 THEN 'x'||lpad(to_hex(code),2,'0')
+    WHEN code<65536 THEN 'u'||lpad(to_hex(code),4,'0') ELSE 'U'||lpad(to_hex(code),8,'0') END;
+  ELSE result:=result||chr(code); END IF;
+ END LOOP;
+ RETURN result||q;
+END $fn$;
+CREATE FUNCTION pg_temp.sc_repr(v json) RETURNS text LANGUAGE plpgsql STABLE AS $fn$
+DECLARE t text:=json_typeof(v); safe json; marker text; result text; e record;
+BEGIN
+ IF v IS NULL OR t='null' THEN RETURN 'None'; END IF;
+ IF t='boolean' THEN RETURN CASE WHEN v::text='true' THEN 'True' ELSE 'False' END; END IF;
+ IF t='number' THEN RETURN CASE WHEN v::text ~ '[.eE]' THEN v::text ELSE v::text::numeric::text END; END IF;
+ IF t='string' THEN RETURN pg_temp.sc_quote(v); END IF;
+ SELECT x.value,x.marker INTO safe,marker FROM orgtree.docket_safe(v) x;
+ result:='';
+ IF t='array' THEN
+  FOR e IN SELECT value FROM json_array_elements(safe) LOOP
+   result:=result||CASE WHEN result='' THEN '' ELSE ', ' END||pg_temp.sc_repr(orgtree.docket_restore(e.value,marker));
+  END LOOP;
+  RETURN '['||result||']';
+ END IF;
+ FOR e IN SELECT * FROM json_each(safe) LOOP
+  result:=result||CASE WHEN result='' THEN '' ELSE ', ' END||pg_temp.sc_quote(orgtree.docket_restore(to_json(e.key),marker))
+   ||': '||pg_temp.sc_repr(orgtree.docket_restore(e.value,marker));
+ END LOOP;
+ RETURN '{'||result||'}';
+END $fn$;
+CREATE FUNCTION pg_temp.sc_python_str(v json) RETURNS text LANGUAGE plpgsql STABLE AS $fn$
+BEGIN
+ IF NOT pg_temp.sc_truth(v) THEN RETURN ''; END IF;
+ IF json_typeof(v)='string' THEN RETURN pg_temp.sc_text(v); END IF;
+ RETURN pg_temp.sc_repr(v);
+END $fn$;
+CREATE FUNCTION pg_temp.sc_python_int(v json) RETURNS numeric LANGUAGE plpgsql STABLE AS $fn$
+DECLARE t text:=json_typeof(v); s text; normalized text:=''; i int; digit int;
+BEGIN
+ IF NOT pg_temp.sc_truth(v) THEN RETURN 0; END IF;
+ IF t='boolean' THEN RETURN 1; END IF;
+ IF t='number' THEN RETURN trunc(v::text::numeric); END IF;
+ IF t<>'string' THEN RETURN NULL; END IF;
+ s:=pg_temp.sc_text(v); IF s IS NULL THEN RETURN NULL; END IF;
+ WHILE length(s)>0 AND EXISTS(SELECT 1 FROM sc_python_chars WHERE code=ascii(left(s,1)) AND space) LOOP s:=substr(s,2); END LOOP;
+ WHILE length(s)>0 AND EXISTS(SELECT 1 FROM sc_python_chars WHERE code=ascii(right(s,1)) AND space) LOOP s:=left(s,length(s)-1); END LOOP;
+ FOR i IN 1..length(s) LOOP
+  SELECT c.digit INTO digit FROM sc_python_chars c WHERE code=ascii(substr(s,i,1));
+  normalized:=normalized||coalesce(digit::text,substr(s,i,1));
+ END LOOP;
+ IF normalized !~ '^[-+]?[0-9]+(_[0-9]+)*$' THEN RETURN NULL; END IF;
+ RETURN replace(normalized,'_','')::numeric;
+EXCEPTION WHEN numeric_value_out_of_range OR invalid_text_representation THEN RETURN NULL;
+END $fn$;
+'''
+
+
+def current_reference_sql(migration):
+    from orgtree.orgdb.mappers import agents as A
+    identity=migration.compiler.function(subset(A.HOT,('seat_id','generation')))
+    tomb=migration.compiler.function(subset(A.HOT,('state','seat_id','generation')))
+    columns=codec.columns(subset(A.HOT,('state','seat_id','generation')))
+    migration.compiler.statements.append(python_value_helpers())
+    migration.compiler.statements.append(f'''
+CREATE FUNCTION pg_temp.sc_current(v json) RETURNS bigint LANGUAGE plpgsql AS $fn$
+DECLARE n text; born text; gen bigint; deleted boolean; x json; row record; identity json; pack json; aid bigint;
+BEGIN
+ IF json_typeof(v)='string' THEN v:=json_build_object('node',v); END IF;
+ IF json_typeof(v) IS DISTINCT FROM 'object' THEN RETURN NULL; END IF;
+ n:=pg_temp.sc_text(pg_temp.sc_get(v,'node'));
+ IF n IS NULL OR n='' OR n IN ('user','orgtree') OR n LIKE '@org:%' OR n LIKE '@net:%' THEN RETURN NULL; END IF;
+ x:=pg_temp.sc_get(v,'born');
+ IF x IS NOT NULL AND json_typeof(x)<>'null' AND NOT pg_temp.sc_fits('text',x) THEN RETURN NULL; END IF;
+ born:=coalesce(pg_temp.sc_text(x),'');
+ x:=pg_temp.sc_get(v,'generation');
+ IF x IS NOT NULL AND json_typeof(x)<>'null' AND NOT pg_temp.sc_fits('int',x) THEN RETURN NULL; END IF;
+ gen:=coalesce(pg_temp.sc_nonnull(x)::text::bigint,0);
+ x:=pg_temp.sc_get(v,'deleted');
+ IF x IS NOT NULL AND json_typeof(x)<>'null' AND NOT pg_temp.sc_fits('bool',x) THEN RETURN NULL; END IF;
+ deleted:=coalesce(pg_temp.sc_nonnull(x)::text::boolean,false);
+ SELECT t.* INTO row FROM orgtree.agents t WHERE name=n AND NOT tombstone FOR UPDATE;
+ IF FOUND AND NOT deleted THEN
+  identity:=pg_temp.{identity}_decode(to_json(row),row.extra,'{{}}');
+  IF (born<>'' AND born=pg_temp.sc_python_str(pg_temp.sc_get(identity,'seat_id')))
+   OR (born='' AND pg_temp.sc_python_int(pg_temp.sc_get(identity,'generation'))>=gen) THEN RETURN row.id; END IF;
+ END IF;
+ PERFORM pg_advisory_xact_lock(hashtext('orgdb-agent-name'),hashtext(n));
+ SELECT id INTO aid FROM orgtree.agents WHERE name=n AND tombstone AND state='deleted'
+  AND lineage_born=born AND generation=gen ORDER BY id LIMIT 1;
+ IF aid IS NOT NULL THEN RETURN aid; END IF;
+ pack:=pg_temp.{tomb}_encode(json_build_object('state','deleted','seat_id',born,'generation',gen));
+ INSERT INTO orgtree.agents(name,ord,tombstone,{','.join(ident(c) for c,_ in columns)},extra)
+ VALUES(n,NULL,true,{','.join(cast_column('pack',c,t) for c,t in columns)},pg_temp.sc_nonnull(pg_temp.sc_get(pack,'extra')))
+ RETURNING id INTO aid;
+ RETURN aid;
+END $fn$;
+''')
+    migration.body.append(A.AGENTS.indexes[-1]+';')
+
+
+def insert_pack(table, spec, key_values):
+    columns=list(codec.columns(spec))
+    names=list(key_values)+[c for c,_ in columns]+['extra']
+    values=list(key_values.values())+[cast_column('pack',c,t) for c,t in columns]+["pg_temp.sc_nonnull(pg_temp.sc_get(pack,'extra'))"]
+    return f"INSERT INTO orgtree.{ident(table)}({','.join(map(ident,names))}) VALUES({','.join(values)});"
+
+
+def docket_backfill(migration):
+    from orgtree.orgdb import docket_relations as R
+    from orgtree.orgdb.mappers import docket as D
+    out=migration.body
+    current_reference_sql(migration)
+    out += [
+        'ALTER TABLE orgtree.work_items ADD COLUMN review_seats_is char(1) CHECK(review_seats_is IN (\'n\',\'l\',\'x\'));',
+        'ALTER TABLE orgtree.work_items ADD COLUMN owner_agent_id bigint REFERENCES orgtree.agents(id) NOT DEFERRABLE;',
+        'ALTER TABLE orgtree.work_items ADD COLUMN reviewer_agent_id bigint REFERENCES orgtree.agents(id) NOT DEFERRABLE;',
+        'ALTER TABLE orgtree.work_item_holders ADD COLUMN agent_id bigint REFERENCES orgtree.agents(id) NOT DEFERRABLE;',
+        'ALTER TABLE orgtree.work_item_artifacts ADD COLUMN id bigint GENERATED ALWAYS AS IDENTITY;',
+        "ALTER TABLE orgtree.work_item_artifacts ADD COLUMN grants_is char(1) CHECK(grants_is IN ('n','l','x'));",
+        'ALTER TABLE orgtree.work_item_artifacts ADD CONSTRAINT work_item_artifact_id UNIQUE(id);',
+        'ALTER TABLE orgtree.work_item_artifacts ADD CONSTRAINT work_item_artifact_row_id UNIQUE(item_id,id);',
+    ]
+    for table in R.TABLES:
+        out.extend(s.rstrip(';')+';' for s in table.ddl())
+        for col,_,values in (*codec.markers(table.spec),*codec.enumerated(table.spec)):
+            out.append(f'ALTER TABLE orgtree.{table.spec.table} ADD CONSTRAINT {ident(table.spec.table+"_"+col+"_enum")} '
+                       f'CHECK({ident(col)} IN ('+','.join(map(literal,values))+'));')
+    migration.compiler.statements.append(r'''
+CREATE FUNCTION pg_temp.sc_list_shape(v json) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE safe json;
+BEGIN
+ IF v IS NULL THEN RETURN NULL; END IF;
+ IF json_typeof(v)='null' THEN RETURN 'n'; END IF;
+ IF json_typeof(v)<>'array' THEN RETURN 'x'; END IF;
+ SELECT value INTO safe FROM orgtree.docket_safe(v);
+ IF EXISTS(SELECT 1 FROM json_array_elements(safe) e WHERE json_typeof(e)<>'object') THEN RETURN 'x'; END IF;
+ RETURN 'l';
+END $fn$;
+''')
+    seat=migration.compiler.function(R.SEAT)
+    delivery=migration.compiler.function(R.DELIVERY)
+    grant=migration.compiler.function(R.GRANT)
+    stage_array='ARRAY['+','.join(map(literal,R.STAGES))+']::text[]'
+    migration.compiler.statements.append(f'''
+CREATE FUNCTION pg_temp.sc_item_core(v json) RETURNS json LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE seats json:=pg_temp.sc_get(v,'review_seats'); delivery json:=pg_temp.sc_get(v,'delivery');
+BEGIN
+ IF pg_temp.sc_list_shape(seats) IN ('n','l') THEN v:=pg_temp.sc_drop(v,ARRAY['review_seats']); END IF;
+ IF json_typeof(delivery)='object' THEN v:=pg_temp.sc_put(v,'delivery',pg_temp.sc_drop(delivery,{stage_array})); END IF;
+ RETURN v;
+END $fn$;
+CREATE FUNCTION pg_temp.sc_item_relations(v json,item bigint) RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE entries json; entry record; payload json; holder json; reviewer json; pack json; state text;
+BEGIN
+ entries:=pg_temp.sc_get(v,'review_seats'); state:=pg_temp.sc_list_shape(entries);
+ UPDATE orgtree.work_items SET review_seats_is=state WHERE id=item;
+ IF state='l' THEN
+  FOR entry IN SELECT value,ord FROM json_array_elements((SELECT value FROM orgtree.docket_safe(entries))) WITH ORDINALITY x(value,ord) LOOP
+   payload:=orgtree.docket_field(entries,(entry.ord-1)::text);
+   pack:=pg_temp.{seat}_encode(payload);
+   holder:=pg_temp.sc_get(payload,'holder'); reviewer:=pg_temp.sc_get(payload,'reviewer');
+   IF json_typeof(holder)='object' AND pg_temp.sc_canonical(reviewer)=pg_temp.sc_canonical(pg_temp.sc_get(holder,'node')) THEN reviewer:=holder; END IF;
+   {insert_pack(R.SEAT.table,R.SEAT,dict(item_id='item',seq='entry.ord-1',reviewer_agent_id='pg_temp.sc_current(reviewer)',holder_agent_id='pg_temp.sc_current(holder)',recheck_owner_agent_id="pg_temp.sc_current(pg_temp.sc_get(payload,'recheck_owner'))"))}
+  END LOOP;
+ END IF;
+ entries:=pg_temp.sc_get(v,'delivery');
+ IF json_typeof(entries)='object' THEN
+  FOR entry IN SELECT key FROM json_each((SELECT value FROM orgtree.docket_safe(entries))) WHERE key=ANY({stage_array}) LOOP
+   payload:=pg_temp.sc_get(entries,entry.key);
+   state:=CASE json_typeof(payload) WHEN 'null' THEN 'n' WHEN 'object' THEN 'o' ELSE 'x' END;
+   pack:=pg_temp.{delivery}_encode(CASE WHEN state='o' THEN payload ELSE '{{}}'::json END);
+   IF state='x' THEN pack:=pg_temp.sc_put(pack,'extra',json_build_object('claim',payload)); END IF;
+   {insert_pack(R.DELIVERY.table,R.DELIVERY,dict(item_id='item',stage='entry.key',claim_is='state'))}
+  END LOOP;
+ END IF;
+END $fn$;
+CREATE FUNCTION pg_temp.sc_restore_item(v json,item bigint) RETURNS json LANGUAGE plpgsql AS $fn$
+DECLARE row record; entries json; stages json; value json; state text;
+BEGIN
+ SELECT review_seats_is INTO state FROM orgtree.work_items WHERE id=item;
+ IF state='n' THEN v:=pg_temp.sc_put(v,'review_seats','null');
+ ELSIF state='l' THEN
+  entries:='[]';
+  SELECT coalesce(json_agg(pg_temp.{seat}_decode(to_json(t),extra,'{{}}') ORDER BY seq),'[]'::json) INTO entries
+   FROM orgtree.work_item_review_seats t WHERE item_id=item;
+  v:=pg_temp.sc_put(v,'review_seats',entries);
+ END IF;
+ stages:=pg_temp.sc_get(v,'delivery');
+ FOR row IN SELECT t.*,to_json(t) raw FROM orgtree.work_item_delivery t WHERE item_id=item LOOP
+  value:=CASE row.claim_is WHEN 'n' THEN 'null'::json WHEN 'x' THEN pg_temp.sc_get(row.extra,'claim')
+   ELSE pg_temp.{delivery}_decode(row.raw,row.extra,'{{}}') END;
+  stages:=pg_temp.sc_put(stages,row.stage,value);
+ END LOOP;
+ IF json_typeof(stages)='object' THEN v:=pg_temp.sc_put(v,'delivery',stages); END IF;
+ RETURN v;
+END $fn$;
+CREATE FUNCTION pg_temp.sc_grant_core(v json) RETURNS json LANGUAGE plpgsql IMMUTABLE AS $fn$
+BEGIN
+ IF pg_temp.sc_list_shape(pg_temp.sc_get(v,'grants')) IN ('n','l') THEN RETURN pg_temp.sc_drop(v,ARRAY['grants']); END IF;
+ RETURN v;
+END $fn$;
+CREATE FUNCTION pg_temp.sc_grant_relations(v json,item bigint,artifact bigint) RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE entries json:=pg_temp.sc_get(v,'grants'); entry record; payload json; pack json; state text;
+BEGIN
+ state:=pg_temp.sc_list_shape(entries);
+ UPDATE orgtree.work_item_artifacts SET grants_is=state WHERE id=artifact;
+ IF state='l' THEN
+  FOR entry IN SELECT value,ord FROM json_array_elements((SELECT value FROM orgtree.docket_safe(entries))) WITH ORDINALITY x(value,ord) LOOP
+   payload:=orgtree.docket_field(entries,(entry.ord-1)::text); pack:=pg_temp.{grant}_encode(payload);
+   {insert_pack(R.GRANT.table,R.GRANT,dict(item_id='item',artifact_id='artifact',pos='entry.ord-1',agent_id="pg_temp.sc_current(pg_temp.sc_get(payload,'to'))"))}
+  END LOOP;
+ END IF;
+END $fn$;
+CREATE FUNCTION pg_temp.sc_restore_grants(v json,artifact bigint) RETURNS json LANGUAGE plpgsql AS $fn$
+DECLARE state text; entries json;
+BEGIN
+ SELECT grants_is INTO state FROM orgtree.work_item_artifacts WHERE id=artifact;
+ IF state='n' THEN RETURN pg_temp.sc_put(v,'grants','null'); END IF;
+ IF state='l' THEN
+  SELECT coalesce(json_agg(pg_temp.{grant}_decode(to_json(t),extra,'{{}}') ORDER BY pos),'[]'::json) INTO entries
+   FROM orgtree.work_item_artifact_grants t WHERE artifact_id=artifact;
+  RETURN pg_temp.sc_put(v,'grants',entries);
+ END IF;
+ RETURN v;
+END $fn$;
+''')
+    fields=('manual_attention','accepted','owner','reviewer','delivery')
+    migration.migrate_record('work_items',subset(D.ALPHA_WORK_ITEM,fields+('review_seats',)),subset(D.WORK_ITEM,fields),
+        before='normalized:=pg_temp.sc_item_core(original);',encode_value='normalized',
+        after="PERFORM pg_temp.sc_item_relations(original,old.id); UPDATE orgtree.work_items SET "
+              "owner_agent_id=pg_temp.sc_current(pg_temp.sc_get(original,'owner')),"
+              "reviewer_agent_id=pg_temp.sc_current(pg_temp.sc_get(original,'reviewer')) WHERE id=old.id;",
+        restore='pg_temp.sc_restore_item({value},old.id)')
+    migration.migrate_record('work_item_artifacts',subset(D.LEGACY_WORK_ITEM.field('artifacts').spec,('grants',)),codec.Spec('',()),
+        keys=('item_id','pos'),before='normalized:=pg_temp.sc_grant_core(original);',encode_value='normalized',
+        after='PERFORM pg_temp.sc_grant_relations(original,old.item_id,old.id);',
+        restore='pg_temp.sc_restore_grants({value},old.id)')
+    migration.migrate_record('work_item_holders',D.LEGACY_WORK_ITEM.field('holders').spec,D._HOLDERS,
+        keys=('item_id','pos'),after='UPDATE orgtree.work_item_holders SET agent_id=pg_temp.sc_current(original) WHERE item_id=old.item_id AND pos=old.pos;')
+    # The source object owns its nested extra. Migrating only its flattened
+    # fields would move exceptional principal members to the row's top-level
+    # extra and lose them when the complete event mapper decodes history.
+    principals=('by','raised_by','next_actor')
+    migration.migrate_record('work_item_events',
+        codec.Spec('',(codec.Field('history','obj',spec=subset(D.ALPHA_SOURCE_SPECS['history'],principals)),)),
+        codec.Spec('',(codec.Field('history','obj',spec=subset(D.SOURCE_SPECS['history'],principals)),)),
+        where="source='history'")
+    out.extend(s+';' for s in D.WORK_ITEMS.indexes if s not in D.LEGACY_WORK_ITEMS.indexes)
+    out.append('CREATE INDEX work_item_holders_agent ON orgtree.work_item_holders(agent_id,item_id,pos);')
+
+
+def generate(*, foundation=False):
     from orgtree.orgdb import turns
     from orgtree.orgdb.mappers import agents as A, records as N
 
@@ -601,8 +947,8 @@ ALTER TABLE orgtree.agent_turns ADD CONSTRAINT agent_turn_recent_nonnegative CHE
     out.extend(statement.rstrip(';')+';' for statement in turns.TABLE.indexes
                if statement not in N._turns().migration_tables[0].indexes)
     out.append("CREATE INDEX agent_turns_log_at ON orgtree.agent_turns(agent_id,at DESC,id DESC) WHERE idx IS NOT NULL;")
-    # Remaining docket relations are composed below. Their mapping uses the
-    # same compiler, but existing row identities are retained rather than reset.
+    if not foundation:
+        docket_backfill(migration)
     return migration
 
 
@@ -612,9 +958,7 @@ def main():
     parser.add_argument('--foundation-draft', action='store_true',
                         help='emit only the G6/G7/G8/G10 authoring draft; never install it')
     args = parser.parse_args()
-    if not args.foundation_draft:
-        parser.error('G1-G5/G11 composition is unfinished; only --foundation-draft is available')
-    sql = '-- INCOMPLETE AUTHORING DRAFT: DO NOT INSTALL AS AN ORG MIGRATION.\n'+generate().render()
+    sql = '-- AUTHORING DRAFT: VERIFY BEFORE INSTALLING AS AN ORG MIGRATION.\n'+generate(foundation=args.foundation_draft).render()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('w', encoding='utf-8', newline='\r\n') as stream:
         stream.write(sql)
