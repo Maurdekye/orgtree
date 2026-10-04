@@ -490,8 +490,8 @@ rewrite against the revision row). Every writer of an org database takes its loc
    that key's or name's advisory lock before it looks (`rows.fence_key`, `rows.lock_doc_key`,
    the agent-name lock).
 3. **Then rows, in a fixed order per writer.** `org_tx` locks its plan's rows `FOR UPDATE` /
-   `FOR SHARE` in plan order (agents by name, sections by key, owners' records, docket items by
-   slug), then its statements write. A body that needs a row outside its plan raises `Widen`:
+   `FOR SHARE`: agents by physical id, docket items, mailboxes, then other planned rows.
+   Its statements then write. A body that needs a row outside its plan raises `Widen`:
    the transaction rolls back and reruns with the wider plan, so no row is locked late. A
    compare-and-set locks the one row it decides on. The job queue claims by `(run_at, id)` with
    `SKIP LOCKED`. Several orgs: one transaction per org, in org_id order. **A statement-time
