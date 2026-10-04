@@ -487,7 +487,8 @@ def validate_states(orgs, rows, fault_slug=None, fault='none'):
 def verify_one(verifier, source, base, database, legacy_database, legacy_id):
     import psycopg
     report = verifier.verify_report(source, with_db(base, database))
-    require(not report['problems'], 'independent destination verification rejected the org')
+    require(not report['problems'], 'independent destination verification rejected the org: ' +
+            '; '.join(f"{p['table']}.{p['field']}: {p['problem']}" for p in report['problems'][:10]))
     require(sum(v for k, v in report['stats'].items() if k.startswith('records ')) > 0,
             'independent verification compared no records')
     wanted = {k: [len(v) if isinstance(v, (dict, list)) else 1] * 2 + [digest(v)] * 2
@@ -547,6 +548,40 @@ def corrupt(verifier, source, base, database):
         with psycopg.connect(dest) as c:
             c.execute('UPDATE orgtree.agents SET title=%s WHERE id=%s', (row[1], row[0]))
         require(not verifier.verify_report(source, dest)['problems'], 'corruption undo did not restore verification')
+
+
+def corrupt_events(verifier, source, base, database):
+    """Reject a same-count history sequence swap; preserve all retained bodies."""
+    import psycopg
+    dest = with_db(base, database)
+    with psycopg.connect(dest) as c:
+        owner = c.execute("SELECT item_id FROM orgtree.work_item_events WHERE source='history' "
+                          'GROUP BY item_id HAVING count(*) >= 2 ORDER BY item_id LIMIT 1').fetchone()
+        if not owner:
+            return None
+        rows = c.execute("SELECT id,seq FROM orgtree.work_item_events WHERE item_id=%s AND source='history' "
+                         'ORDER BY seq LIMIT 2', owner).fetchall()
+        spare = c.execute('SELECT max(seq)+1 FROM orgtree.work_item_events WHERE item_id=%s', owner).fetchone()[0]
+        count = c.execute('SELECT count(*) FROM orgtree.work_item_events').fetchone()[0]
+
+    def swap(first, second):
+        with psycopg.connect(dest) as c:
+            for seq, identity in ((spare, rows[0][0]), (second, rows[1][0]), (first, rows[0][0])):
+                require(c.execute('UPDATE orgtree.work_item_events SET seq=%s WHERE id=%s',
+                                  (seq, identity)).rowcount == 1, 'event swap did not change exactly one row')
+    swap(rows[1][1], rows[0][1])
+    try:
+        with psycopg.connect(dest) as c:
+            require(c.execute('SELECT count(*) FROM orgtree.work_item_events').fetchone()[0] == count,
+                    'event corruption changed row count')
+        problems = verifier.verify_report(source, dest)['problems']
+        require(any(p['table'] == 'work_item_events' for p in problems),
+                'independent verifier accepted swapped retained event sequences')
+        return {'same_row_count': True, 'rejected': True, 'problem_count': len(problems),
+                'retained_event_count': count}
+    finally:
+        swap(rows[0][1], rows[1][1])
+        require(not verifier.verify_report(source, dest)['problems'], 'event swap undo did not restore verification')
 
 
 def worker(a):
@@ -666,6 +701,10 @@ def worker(a):
                 require(kept.get(table, {}).get(field, 0) > 0, 'report fault was not counted')
             if 'corruption' not in out:
                 out['corruption'] = corrupt(verifier, source, runtime, row['database'])
+            if 'event_corruption' not in out:
+                control = corrupt_events(verifier, source, runtime, row['database'])
+                if control is not None:
+                    out['event_corruption'] = control
     out['final_registry'] = summary(runtime, rows)
     require(files_before == file_manifest(data), 'Retry or verification changed immutable files')
     expected_final = original if undo and FAULTS[a.fault] == 'unavailable' else before

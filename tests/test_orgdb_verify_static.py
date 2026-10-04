@@ -132,21 +132,95 @@ _TYPES = {'text': 'text', 'bigint': 'bigint', 'integer': 'integer', 'boolean': '
           'uuid': 'uuid'}
 
 
-def schema() -> dict[str, dict[str, str]]:
-    """table -> {column: information_schema data_type}, parsed from the org migrations."""
-    out: dict[str, dict[str, str]] = {}
-    for path in (MIGRATIONS / '0001_core.sql', MIGRATIONS / '0002_document.sql'):
-        text = path.read_text(encoding='utf-8')
-        for m in re.finditer(r'CREATE TABLE orgtree\.(\w+) \((.*?)\n\);', text, re.S):
-            cols = {}
-            for line in m.group(2).splitlines():
-                line = line.strip().rstrip(',')
-                c = re.match(r'"?(\w+)"?\s+(double precision|char\(1\)|\w+)', line)
-                if not c or c.group(1) in ('PRIMARY', 'FOREIGN', 'UNIQUE', 'CHECK'):
-                    continue
-                cols[c.group(1)] = _TYPES[c.group(2)]
-            out[m.group(1)] = cols
-    return out
+def sql_parts(text, delimiter=','):
+    """Split SQL outside quoted values and nested expressions."""
+    parts, start, depth, quote = [], 0, 0, None
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == quote:
+                if i + 1 < len(text) and text[i + 1] == quote:
+                    i += 1
+                else:
+                    quote = None
+        elif char in ('\"', "'"):
+            quote = char
+        elif char == '(':
+            depth += 1
+        elif char == ')':
+            depth -= 1
+        elif char == delimiter and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+        i += 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def migrated_schema(texts=None):
+    """Read successive literal DDL, including additions and removals after0002.
+
+    Function bodies are excluded so runtime SQL is not mistaken for migration
+    DDL. Dynamic agent presence flags are explicitly DERIVED, outside the docket
+    contract; all item table/column migrations are literal and must be covered.
+    """
+    if texts is None:
+        texts = [p.read_text(encoding='utf-8') for p in sorted(MIGRATIONS.glob('*.sql'))]
+    out, references, foundation = {}, {}, set()
+    for index, text in enumerate(texts):
+        text = re.sub(r'\$(\w*)\$.*?\$\1\$', '', text, flags=re.S)
+        text = re.sub(r'--[^\n]*', '', text)
+        for statement in sql_parts(text, ';'):
+            create = re.fullmatch(r'CREATE TABLE orgtree\.(\w+)\s*\((.*)\)', statement, re.S)
+            alter = re.fullmatch(r'ALTER TABLE orgtree\.(\w+)\s+(.*)', statement, re.S)
+            drop = re.fullmatch(r'DROP TABLE orgtree\.(\w+)', statement)
+            if drop:
+                out.pop(drop[1], None)
+                references.pop(drop[1], None)
+                continue
+            if create:
+                table, body = create.groups()
+                out[table] = {}
+                clauses = sql_parts(body)
+                if index < 2:
+                    foundation.add(table)
+            elif alter:
+                table, body = alter.groups()
+                clauses = sql_parts(body)
+            else:
+                continue
+            references.setdefault(table, set()).update(re.findall(r'REFERENCES orgtree\.(\w+)', body))
+            for clause in clauses:
+                deleted = re.match(r'DROP COLUMN "?(\w+)"?', clause)
+                changed = re.match(r'ALTER COLUMN "?(\w+)"? TYPE (double precision|char\(1\)|\w+)', clause)
+                col = re.match(r'(?:ADD COLUMN )?"?(\w+)"?\s+(double precision|char\(1\)|\w+)', clause)
+                if deleted:
+                    out[table].pop(deleted[1], None)
+                elif changed:
+                    out[table][changed[1]] = _TYPES[changed[2]]
+                elif col and col[2] in _TYPES:
+                    out[table][col[1]] = _TYPES[col[2]]
+    return out, references, foundation
+
+
+def schema():
+    return migrated_schema()[0]
+
+
+def unread_columns(parsed, mine=None):
+    have, refs, foundation = parsed
+    mine = ov.correspondence() if mine is None else mine
+    item_tables = {'work_items'}
+    while True:
+        following = {t for t, columns in have.items() if t.startswith('work_item_')
+                     or 'item_id' in columns or refs.get(t, set()) & item_tables}
+        if following <= item_tables:
+            break
+        item_tables |= following
+    checked = (foundation - ov.OUTSIDE) | set(mine) | item_tables
+    return [f'{t}.{c}' for t, cols in have.items() if t in checked
+            for c in cols if c not in mine.get(t, {}) and c not in ov.DERIVED.get(t, ())]
 
 
 class MatchesTheSchema(unittest.TestCase):
@@ -179,9 +253,21 @@ class MatchesTheSchema(unittest.TestCase):
         self.assertEqual(wrong, [])
 
     def test_every_document_column_is_read(self) -> None:
-        unread = [f'{t}.{c}' for t, cols in self.schema.items() if t not in ov.OUTSIDE
-                  for c in cols if c not in self.mine.get(t, {})]
-        self.assertEqual(unread, [])
+        self.assertEqual(unread_columns(migrated_schema(), self.mine), [])
+
+    def test_later_item_column_and_unexpected_child_table_cannot_be_skipped(self):
+        texts = [p.read_text(encoding='utf-8') for p in sorted(MIGRATIONS.glob('*.sql'))]
+        added = ('ALTER TABLE orgtree.work_item_events ADD COLUMN retained_payload text;'
+                 'CREATE TABLE orgtree.future_events (id bigint, '
+                 'event_id bigint REFERENCES orgtree.work_item_events(id), payload json);')
+        missing = unread_columns(migrated_schema(texts + [added]))
+        self.assertIn('work_item_events.retained_payload', missing)
+        self.assertIn('future_events.payload', missing)
+
+    def test_event_table_cannot_be_omitted_even_when_its_rows_are_empty(self):
+        mine = dict(self.mine)
+        del mine['work_item_events']
+        self.assertIn('work_item_events.history_at', unread_columns(migrated_schema(), mine))
 
     def test_null_and_text_siblings_have_their_base_column(self) -> None:
         orphan = [f'{t}.{c}' for t, cols in self.schema.items() for c in cols
@@ -192,17 +278,25 @@ class MatchesTheSchema(unittest.TestCase):
 
 class ValueRules(unittest.TestCase):
     def test_independent_enum_sets_and_marker_sets_equal_all_document_checks(self) -> None:
-        text = (MIGRATIONS / '0009_enum_checks.sql').read_text(encoding='utf-8')
         checks = {}
-        for table, _name, column, members in re.findall(
-                r'ALTER TABLE orgtree\.(\w+) ADD CONSTRAINT (\w+)\s+'
-                r'CHECK \("(\w+)" IN \(([^;]+)\)\);',
-                text):
-            values = tuple(m.replace("''", "'") for m in re.findall(r"'((?:[^']|'')*)'", members))
-            checks[table, column] = set(values)
+        final = schema()
+        for path in sorted(MIGRATIONS.glob('*.sql')):
+            text = re.sub(r'\$(\w*)\$.*?\$\1\$', '', path.read_text(encoding='utf-8'), flags=re.S)
+            text = re.sub(r'--[^\n]*', '', text)
+            for statement in sql_parts(text, ';'):
+                match = re.match(r'(?:CREATE|ALTER) TABLE orgtree\.(\w+)\s*', statement)
+                if not match:
+                    continue
+                for column, members in re.findall(
+                        r'CHECK\s*\(\s*"?(\w+)"?\s+IN\s*\(([^)]*)\)\s*\)', statement):
+                    if column not in final.get(match[1], {}):
+                        continue
+                    values = {m.replace("''", "'") for m in re.findall(r"'((?:[^']|'')*)'", members)}
+                    checks[match[1], column] = values
         # Only the documented account/side-file exclusion is outside this verifier.
         outside = {'org_accounts', 'org_account_marks', 'org_account_mark_audit'}
-        expected = {key: value for key, value in checks.items() if key[0] not in outside}
+        expected = {key: value for key, value in checks.items()
+                    if key[0] not in outside and key[0] in ov.correspondence()}
         actual = {key: set(value) for key, value in ov.enum_columns(include_markers=True).items()}
         self.assertEqual(expected, actual)
         self.assertTrue(expected)

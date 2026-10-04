@@ -336,23 +336,38 @@ ITEM = [
     _item_list('done_so_far', 'work_item_done', TEXT),
     _item_list('working_on_next', 'work_item_next', TEXT),
     Col('manual_attention', JSON), Col('manual_attention_rev', INT),
-    _item_list('dismissals', 'work_item_dismissals', DISMISSAL),
     _item_list('acceptance', 'work_item_acceptance', ACCEPTANCE),
     _item_list('dependencies', 'work_item_dependencies', TEXT),
-    _item_list('evidence', 'work_item_evidence', EVIDENCE),
-    *_jsons('delivery', 'accepted', 'candidate_verdict', 'candidate_verdicts', 'review_packet',
-            'review_packets', 'review_seats'),
+    *_jsons('delivery', 'accepted', 'review_seats'),
     _item_list('review_seat_requests', 'work_item_review_seat_requests', SEAT_REQUEST),
-    _item_list('history', 'work_item_history', HISTORY),
     Col('superseded_by', TEXT), Col('parent', TEXT),
     _item_list('holders', 'work_item_holders', HOLDER),
     Col('notification_attention_epoch', INT), Col('notification_attention_active', BOOL),
-    _item_list('scope', 'work_item_scope', SCOPE_ENTRY),
     *_ints('scope_seq', 'scope_guard', 'scope_logged'),
     _item_list('artifacts', 'work_item_artifacts', ARTIFACT), Col('artifact_seq', INT),
     _item_list('findings', 'work_item_findings', FINDING), Col('finding_seq', INT),
-    *_jsons('quick_staff_receipts', 'post_completion'),
+    *_jsons('post_completion'),
 ]
+
+# The migration's retained event sources, in conversion order. These profiles
+# describe source values independently; no runtime mapper is loaded here.
+ITEM_EVENT_SOURCES = ('history', 'evidence', 'scope', 'candidate_verdicts',
+                      'review_packets', 'dismissals', 'scope_archive', 'quick_staff_receipts')
+VERDICT_ENTRY = [Col('at', TS), _holder('by'), Col('candidate', TEXT),
+                 Col('decision', TEXT, values=('approve', 'changes', 'approve_stage')),
+                 Col('evidence', JSON), Col('note', TEXT), _holder('next_actor')]
+PACKET_ENTRY = [Col('at', TS), _holder('by'), Col('candidate', TEXT), Col('base', TEXT),
+                Col('note', TEXT), Col('evidence', JSON), _holder('next_actor')]
+ITEM_EVENT_FIELDS = [Obj('history', HISTORY), Obj('evidence', EVIDENCE),
+                     Obj('scope', SCOPE_ENTRY), Obj('candidate_verdicts', VERDICT_ENTRY),
+                     Obj('review_packets', PACKET_ENTRY), Obj('dismissals', DISMISSAL),
+                     Obj('scope_archive', SCOPE_ENTRY), Col('quick_staff_receipts', JSON)]
+ITEM_EVENT_HEADERS = {'id': INT, 'item_id': INT, 'seq': INT, 'source': TEXT, 'kind': TEXT,
+                      'at': TS, 'by_node': TEXT, 'by_generation': INT, 'by_born': TEXT,
+                      'content': TEXT, 'status_change': BOOL,
+                      'original_at': JSON, 'original_scope_seq': JSON}
+ITEM_CURRENT = {'candidate_verdict': ('candidate_verdicts', 'current_verdict_event_id', 'verdict'),
+                'review_packet': ('review_packets', 'current_review_packet_event_id', 'review_packet')}
 
 ATTACHMENT = [Col('name', TEXT), Col('path', TEXT), Col('bytes', INT)]
 
@@ -669,7 +684,12 @@ def correspondence() -> dict[str, dict[str, str]]:
     out['tool_list_items'].update({'list_id': KEY, 'pos': KEY, 'tool': TEXT})
     _walk(ITEM, 'work_items', out)
     out['work_items'].update({'id': KEY, 'list_key': KEY, 'ord': KEY, 'anchor_name': OPT,
-                              'row_version': OPT})
+                              'row_version': OPT, 'archive_seq': INT})
+    out['work_items'].update({s + '_events_is': CODE for s in ITEM_EVENT_SOURCES})
+    for _source, column, _kind in ITEM_CURRENT.values():
+        out['work_items'].update({column: INT, column + '_is': CODE, column + '_kind': TEXT})
+    _walk(ITEM_EVENT_FIELDS, 'work_item_events', out)
+    out['work_item_events'].update(ITEM_EVENT_HEADERS)
     for kind, *rest in SECTIONS.values():
         if kind in ('list', 'dict', 'agent_list', 'agent_dict'):
             table, fields = rest
@@ -725,6 +745,15 @@ def enum_columns(*, include_markers: bool = False) -> dict[tuple[str, str], tupl
 
     walk(NODE, 'agents')
     walk(ITEM, 'work_items')
+    walk(ITEM_EVENT_FIELDS, 'work_item_events')
+    put('work_item_events', 'source', ITEM_EVENT_SOURCES)
+    put('work_item_events', 'kind', ('history', 'evidence', 'scope', 'decision',
+                                   'verdict', 'review_packet', 'dismissal', 'quick_staff_receipt'))
+    if include_markers:
+        for source in ITEM_EVENT_SOURCES:
+            put('work_items', source + '_events_is', MARKER_VALUES['list'])
+        for _source, column, _kind in ITEM_CURRENT.values():
+            put('work_items', column + '_is', ('n', 'v'))
     walk(SETTINGS, 'org_settings')
     for kind, *rest in SECTIONS.values():
         if kind in ('list', 'dict', 'agent_list', 'agent_dict'):
@@ -1449,10 +1478,111 @@ class Verifier(Checker):
             if not isinstance(src, dict):
                 self.bad(sec, table, ent, '*', 'record is not an object')
                 continue
+            if table == 'work_items':
+                self.item_events(sec, ent, src, row, i, list_key)
+                src = {k: v for k, v in src.items() if k not in ITEM_CURRENT and
+                       (k not in ITEM_EVENT_SOURCES or not isinstance(v, list))}
             self.record(sec, ent, fields, src, {table: row}, self.extra_of(sec, table, ent, row),
                         '', table, (row.get('id'),))
         for row in rows[len(items):]:
             self.d.take(table, row)
+
+    def item_events(self, sec: str, ent: str, src: dict, row: dict, position: int,
+                    list_key: str | None) -> None:
+        """Check the fresh conversion's complete retained sequence and current pointers.
+
+        Conversion assigns identities in active/archive order and source rank order,
+        without inventing chronology. Original bodies, including legacy event IDs,
+        are checked separately from query headers. This is a conversion verifier,
+        not an oracle for identities allocated by later application writes.
+        """
+        active = self.doc.get('work_items') or []
+        previous = list(active[:position]) if list_key == 'active' else list(active)
+        if list_key == 'archive':
+            previous += list((self.doc.get('work_items_archive') or [])[:position])
+        item_id = len(previous) + 1
+        event_id = 1 + sum(len(item.get(s, [])) for item in previous if isinstance(item, dict)
+                           for s in ITEM_EVENT_SOURCES if isinstance(item.get(s), list))
+        for column, want in (('id', item_id), ('archive_seq', item_id if list_key == 'archive' else None)):
+            if row.get(column) != want:
+                self.bad(sec, 'work_items', ent, column, 'conversion identity differs', want, row.get(column))
+        events = self.d.group('work_item_events', ('item_id',), 'seq').get((row.get('id'),), [])
+        expected = []
+        for source in ITEM_EVENT_SOURCES:
+            value = src.get(source)
+            marker = (None if source not in src else 'n' if value is None
+                      else 'l' if isinstance(value, list) else 'x')
+            self.code(sec, 'work_items', ent, source + '_events_is', row, marker)
+            if isinstance(value, list):
+                expected.extend((source, value) for value in value)
+        if len(events) != len(expected):
+            self.bad(sec, 'work_item_events', ent, '*', 'retained event count differs', len(expected), len(events))
+        for offset, ((source, value), event) in enumerate(zip(expected, events)):
+            self.d.take('work_item_events', event)
+            where = f'{ent}.{source}[{offset}]'
+            want = self.event_header(source, value)
+            want.update(id=event_id + offset, item_id=item_id, seq=offset + 1, source=source)
+            for column, kind in ITEM_EVENT_HEADERS.items():
+                self._coltype(sec, 'work_item_events', column, kind)
+                got = event.get(column)
+                if kind == JSON and column in want:
+                    try:
+                        equal = jeq(want[column], json.loads(got))
+                    except (TypeError, ValueError):
+                        equal = False
+                elif kind == TS:
+                    equal = got == want.get(column)
+                else:
+                    equal = jeq(got, want.get(column))
+                if not equal:
+                    self.bad(sec, 'work_item_events', where, column, 'event header or identity differs',
+                             want.get(column), got)
+            self.record(sec, where, ITEM_EVENT_FIELDS, {source: value}, {'work_item_events': event},
+                        self.extra_of(sec, 'work_item_events', where, event), '', 'work_item_events', (event.get('id'),))
+        for event in events[len(expected):]:
+            self.d.take('work_item_events', event)
+        for field, (source, column, kind) in ITEM_CURRENT.items():
+            value = src.get(field)
+            marker = None if field not in src else 'n' if value is None else 'v'
+            self.code(sec, 'work_items', ent, column + '_is', row, marker)
+            candidates = [event_id + offset for offset, (s, body) in enumerate(expected)
+                          if s == source and jeq(value, body)] if marker == 'v' else []
+            want = candidates[-1] if candidates else None
+            if marker == 'v' and not candidates:
+                self.bad(sec, 'work_items', ent, field, 'current value matches no retained event', value)
+            if row.get(column) != want:
+                self.bad(sec, 'work_items', ent, column, 'current pointer differs', want, row.get(column))
+            if row.get(column + '_kind') != kind:
+                self.bad(sec, 'work_items', ent, column + '_kind', 'current pointer kind differs', kind,
+                         row.get(column + '_kind'))
+
+    @staticmethod
+    def event_header(source: str, value: Any) -> dict:
+        """Independently derive the migration's query fields from the source body."""
+        record = value if isinstance(value, dict) else {}
+        actor = record.get('by')
+        actor = actor if isinstance(actor, dict) else {'node': actor}
+        kind = {'candidate_verdicts': 'verdict', 'review_packets': 'review_packet',
+                'dismissals': 'dismissal', 'quick_staff_receipts': 'quick_staff_receipt'}.get(source, source)
+        if source in ('scope', 'scope_archive'):
+            kind = 'decision' if record.get('kind') == 'decision' else 'scope'
+        at = record.get('at')
+        instant = parse_instant(at)[1] if isinstance(at, str) and len(at) >= 16 else None
+        content = next((record[k] for k in ('text', 'note', 'reason') if isinstance(record.get(k), str)), None)
+        changes = record.get('changes')
+        status = (source == 'history' and record.get('kind') != 'folded' and bool(at) and
+                  (record.get('op') in ('accept', 'reopen', 'supersede') or
+                   (record.get('op') == 'update' and isinstance(changes, dict) and 'status' in changes) or
+                   (record.get('op') == 'dismiss_attention' and record.get('from') != 'blocked')))
+        out = {'kind': kind, 'at': instant, 'status_change': status,
+               'content': content if fit_of(TEXT, content) == 'yes' else None}
+        for key, typ in (('node', TEXT), ('generation', INT), ('born', TEXT)):
+            out['by_' + key] = actor.get(key) if fit_of(typ, actor.get(key)) == 'yes' else None
+        if 'at' in record:
+            out['original_at'] = record['at']
+        if 'seq' in record:
+            out['original_scope_seq'] = record['seq']
+        return out
 
     def positional(self, sec: str, table: str, rows: list, pos: str, n: int,
                    ent: str | None = None) -> None:

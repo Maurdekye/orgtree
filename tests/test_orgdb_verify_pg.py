@@ -323,7 +323,8 @@ def document():
             item('old-thing', archived_at=T2, status='done', superseded_by='a-thing',
                  accepted={'at': T, 'by': BY}, quick_staff_receipts={'u': {'x': 1}},
                  post_completion={'count': 1}, scope_logged=2,
-                 candidate_verdict={'decision': 'approve'}, candidate_verdicts=[{'d': 1}]),
+                 candidate_verdict={'decision': 'approve'},
+                 candidate_verdicts=[{'d': 1}, {'decision': 'approve'}]),
         ],
         'hand_edited_default': {'anything': True},
     }
@@ -379,10 +380,10 @@ CORRUPTIONS = {
     'mail body changed': ('mail', [
         "UPDATE orgtree.mail SET body = 'changed' WHERE public_id = 'm1'"], [
         "UPDATE orgtree.mail SET body = 'hi' WHERE public_id = 'm1'"]),
-    'docket history entry changed': ('work_item_history', [
-        "UPDATE orgtree.work_item_history SET op = 'changed' WHERE item_id = "
+    'docket history entry changed': ('work_item_events', [
+        "UPDATE orgtree.work_item_events SET history_op = 'changed' WHERE source='history' AND item_id = "
         + ITEM_ID.format('a-thing') + " AND pos = 1"], [
-        "UPDATE orgtree.work_item_history SET op = 'edit' WHERE item_id = "
+        "UPDATE orgtree.work_item_events SET history_op = 'edit' WHERE source='history' AND item_id = "
         + ITEM_ID.format('a-thing') + " AND pos = 1"]),
     'list order swapped': ('work_item_next', SWAP_NEXT, SWAP_NEXT),
     'value moved into extra': ('agents', [
@@ -582,7 +583,7 @@ class AgainstARealConversion(unittest.TestCase):
         self.assertEqual(stats['tool lists resolved'], 3)                # one shared, one empty
         for table in ('agents', 'work_items', 'mail', 'mail_log', 'agent_turns', 'events',
                       'org_settings', 'asks', 'reservations', 'steer_attempts', 'org_tier_prices',
-                      'work_item_history', 'agent_carriers', 'delivery_batches', 'orphan_keys'):
+                      'work_item_events', 'agent_carriers', 'delivery_batches', 'orphan_keys'):
             self.assertGreater(stats.get('records ' + table, 0), 0, table)
 
     def test_a_source_that_differs_is_reported(self) -> None:
