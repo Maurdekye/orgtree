@@ -958,9 +958,16 @@ def native_startup_context_digest(org: Any, nid: str) -> str:
     # SimpleNamespace with only `.d`). A real Org always has `.nodes`, so this
     # degrades only for a shape that has no grants to read anyway; it does NOT
     # paper over a real org whose lookup failed.
-    nodes = getattr(org, "nodes", None)
-    node = (nodes.get(nid) or {}) if isinstance(nodes, dict) else {}
-    for grant in (node.get("scope") or {}).get("add_dirs") or []:
+    scope_reader = getattr(org, "capability_scope", None)
+    if callable(scope_reader):
+        scope = scope_reader(nid)
+    else:
+        # Minimal file-digest rigs have no Org methods. An actual Org always
+        # takes the current-chain reader above; its missing ancestors stay loud.
+        nodes = getattr(org, "nodes", None)
+        node = (nodes.get(nid) or {}) if isinstance(nodes, dict) else {}
+        scope = node.get("scope") or {}
+    for grant in scope.get("add_dirs") or []:
         root = str((grant or {}).get("path") or "")
         if not root:
             continue

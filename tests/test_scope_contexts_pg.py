@@ -6,7 +6,7 @@ from unittest.mock import patch
 import uuid
 
 import test_orgdb_compat_pg as fixture
-from orgtree import identity_context, ledger, lifecycle_tx, orgtx, pgdoor, policy_reads, store, supervisor
+from orgtree import identity_context, ledger, lifecycle_tx, orgtx, pgdoor, policy_context, policy_reads, store, supervisor
 from orgtree.orgdb import agents, reader_rows, registry
 
 setUpModule = fixture.setUpModule
@@ -142,6 +142,20 @@ class CurrentScopeContexts(unittest.TestCase):
         after = policy_reads.watchdog_org(self.slug)
         self.assertEqual(after.node('parent')['parent'], 'other')
         self.assertFalse(after.capability_scope('leaf')['tools']['bash'])
+
+    def test_recurring_policy_context_resolves_current_capabilities_and_paused_audiences(self):
+        self.grants(dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'))
+        with patch.object(store, 'cached_org', side_effect=AssertionError('whole policy fallback')):
+            before = policy_context.read(self.slug)
+            self.assertIsInstance(before, policy_context.PolicyContext)
+            self.assertTrue(before.capability_scope('leaf')['tools']['bash'])
+            self.assertTrue(before._has_audience('leaf', ledger.EXTERN))
+            lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'other')
+            after = policy_context.read(self.slug)
+        self.assertFalse(after.effective_agent('leaf')['scope']['tools']['bash'])
+        self.assertFalse(after._has_audience('leaf', ledger.EXTERN))
+        self.assertTrue(before.capability_scope('leaf')['tools']['bash'])
+        self.assertTrue(before._has_audience('leaf', ledger.EXTERN))
 
 
 if __name__ == '__main__':

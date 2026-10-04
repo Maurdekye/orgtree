@@ -88,7 +88,7 @@ def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
                 "ORGTREE_PORT": env["ORGTREE_PORT"], "PYTHONPATH": sup.BACKEND_DIR,
                 deployment.PROFILE_ENV: deployment.current_policy().name},
     }
-    sc = n["scope"]
+    sc = org.capability_scope(nid)
     tools = sc.get("tools", {})
     rights = {"bash": bool(tools.get("bash", True)), "edit": sup._codex_may_write(sc),
               "web": bool(tools.get("web", True)), "subagents": bool(tools.get("subagents", True))}

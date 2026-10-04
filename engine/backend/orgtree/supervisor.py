@@ -7057,7 +7057,7 @@ def granted_mcp_servers(org: Org, nid: str) -> dict[str, Any]:
     Callers add their own lane's narrowing on top (codex's expressibility
     filter) — but none of them re-derive the GRANT.
     """
-    tools = org.node(nid)["scope"].get("tools", {})
+    tools = org.capability_scope(nid).get("tools", {})
     registry = registered_mcp_servers()
     granted = expand_mcp(tools.get("mcp") or [], sorted(registry))
     # `if k in registry` is DEFENCE, not the ghost guard: expand_mcp already
@@ -7085,7 +7085,6 @@ def codex_mcp_grant(org: Org, nid: str) -> tuple[dict[str, Any], list[str]]:
     narrows away is returned so the prompt can say so out loud.
     """
     from . import codexrun            # noqa: PLC0415 — codex lane only
-    tools = org.node(nid)["scope"].get("tools", {})
     return codexrun.deliverable_mcp(granted_mcp_servers(org, nid))
 
 
@@ -7134,7 +7133,7 @@ def _claudemd_block(org: Org, nid: str) -> str:
     ws_raw = org.d.get("workspace")
     ws = os.path.normcase(os.path.normpath(ws_raw)) if ws_raw else None
     parts = []
-    for d in org.node(nid)["scope"]["add_dirs"]:
+    for d in org.capability_scope(nid)["add_dirs"]:
         if ws and os.path.normcase(os.path.normpath(d["path"])) == ws:
             continue
         p = os.path.join(d["path"], "CLAUDE.md")
@@ -7952,7 +7951,7 @@ def _org_state_parts(org: Org, nid: str,
     replaced by a pointer.
     """
     n = org.node(nid)
-    sc = n["scope"]
+    sc = org.capability_scope(nid)
     vis = sc.get("org_visibility", "team")
     # one pass over the node table for this whole block (see _render_chart)
     idx = org.children_index()
@@ -12301,7 +12300,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # tier default, or this node's chosen version — downgraded to an id THIS
     # CLI knows (claude_model_for; 5.1 → 5.0 below the 2.1.257 floor)
     model = claude_model_for(org, nid)
-    sc = n["scope"]
+    sc = org.capability_scope(nid)
     # isolation by default: the user's global hooks must not leak into agents.
     # The PostToolUse steering hook (mid-task mail delivery, 3f42476) needs a
     # CLI that fires TOOL hooks headless — <= 2.1.31 does not (live-tested).
@@ -12877,7 +12876,7 @@ def _cache_semantic_inputs(
         codex_manifest: dict[str, Any] | None = None) -> tuple[str, str]:
     """Digests of normalized provider-visible tool and argv surfaces."""
     n = org.node(nid)
-    scope = n.get("scope") or {}
+    scope = org.capability_scope(nid)
     # ⚠ WHICH CLI, NOT WHICH PROVIDER — and on this lane they finally differ.
     # The branches below project an ARGV and a TOOL SURFACE, so they belong to
     # the harness; `provider` decides them only because, until the harness
@@ -16881,6 +16880,7 @@ def _codex_process_spec(org: Org, nid: str, *,
                   encoding="utf-8") as f:
             f.write(ident)
     mcp_chosen, _ = codex_mcp_grant(org, nid)
+    scope = org.capability_scope(nid)
     port = os.environ.get("ORGTREE_PORT", "7360")
     # the metered lane's secret is resolved out of the token store HERE and
     # travels with the marker in one dict — the codex lane's single
@@ -16913,11 +16913,11 @@ def _codex_process_spec(org: Org, nid: str, *,
         "cwd": cwd,
         "identity": ident,
         "config_overrides": (codexrun.mcp_config_overrides(mcp_chosen)
-                             + _codex_tool_config(org.node(nid)["scope"])
+                             + _codex_tool_config(scope)
                              + _or_overrides),
         "env_extra": {**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                       "ORGTREE_PORT": port,
-                      **_codex_git_trust_env(org.node(nid)["scope"]),
+                      **_codex_git_trust_env(scope),
                       # marker + home originate in the SAME spec (the codex
                       # lane's single-injector: child_env strips inherited
                       # copies, this dict re-injects the bound pair together)
@@ -17010,7 +17010,7 @@ def _codex_startup_manifest(
                else str(resolved_account))
     lane = (str(lane_override) if lane_override is not None
             else str(resolved_lane))
-    scope = org.node(nid).get("scope") or {}
+    scope = org.capability_scope(nid)
     # Freeze the exact payload CodexTurn puts on thread/start AND
     # thread/resume. `_orgtree_tool_catalogue()` is the source catalogue, not
     # itself the wire shape: app-server requires the explicit function type.
