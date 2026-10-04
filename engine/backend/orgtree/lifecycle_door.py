@@ -634,9 +634,11 @@ def revoke_dir_rows(org: Any, actor: str, nid: str,
                     dir_: "str | None" = None) -> "tuple[set[str], set[str]]":
     if nid not in org.nodes:
         return {nid}, set()
-    upd = {nid, *(k for k in org.descendants(nid, live_only=True)
-                  if dir_ is None or any(d["path"] == dir_ for d in
-                                         org.nodes[k]["scope"]["add_dirs"]))}
+    from .orgdb import native_move   # noqa: PLC0415
+    upd = ({nid} if native_move.enabled() else
+           {nid, *(k for k in org.descendants(nid, live_only=True)
+                   if dir_ is None or any(d["path"] == dir_ for d in
+                                          org.nodes[k]["scope"]["add_dirs"]))})
     share = set(lt._anc(org, nid))
     if actor in org.nodes:
         share.add(actor)

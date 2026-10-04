@@ -184,6 +184,7 @@ class CurrentScopeFiles(unittest.TestCase):
                   dict(grantee='archived', grantor=ledger.EXTERN, delegated_by='boss')]
         from orgtree import staffdoor
         with orgtx.org_tx(self.slug, nodes=orgtx.ALL,
+                         structural_roots=('boss', 'archived'),
                          sections=('audiences', *lifecycle_tx.SPECS['retire'].sections),
                          share_sections=staffdoor.HIRE_SETTINGS,
                          logs=('events', 'notice_log')) as tx:

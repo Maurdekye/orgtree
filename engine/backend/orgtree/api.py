@@ -10460,7 +10460,7 @@ def _hire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
                 f"permission mode — it cannot also take yours. "
                 f"Omit {', '.join(_conflict)} (retool it after "
                 f"the insertion if it should hold less)")
-        _tsc = org.node(_dest)["scope"]
+        _tsc = org.capability_scope(_dest)
         hdirs = [dict(d) for d in _tsc["add_dirs"]]
         a = dict(a, tools={**_tsc["tools"],
                            "mcp": list(_tsc["tools"].get("mcp") or [])},
@@ -14990,7 +14990,7 @@ def _op_hire(org: Org, body: "Op",
         # is dropped here, and insert_parent's own result warning says
         # the seat holds the anchor's scope. Hire UNDER the anchor so
         # insert_parent's "nid reports to target" precondition holds.
-        _tsc = org.node(body.above)["scope"]
+        _tsc = org.capability_scope(body.above)
         _hire_parent = body.above
         _hire_dirs = [dict(d) for d in _tsc["add_dirs"]]
         _hire_tools = {**_tsc["tools"],
