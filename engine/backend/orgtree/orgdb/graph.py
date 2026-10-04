@@ -138,7 +138,12 @@ def check_scope_paths(raw: Any, roots: set[str]) -> dict[str, str | None]:
     if plan is None:
         raise LedgerError('scope authority requires its current planned org transaction')
     rows = _paths(raw, sorted(roots - {USER}))
-    missing = {str(r[1]) for r in rows if int(r[0]) not in plan['agents']}
+    # The INSERT transition collector records rows born in this transaction.
+    # They cannot have a pre-existing row lock and are already owned by us;
+    # every pre-existing ancestor must still be in the original lock block.
+    created = set(plan.get('created', ()))
+    missing = {str(r[1]) for r in rows if int(r[0]) not in plan['agents']
+               and int(r[0]) not in created}
     if missing:
         from ..pgdoor import Widen   # noqa: PLC0415
         raise Widen(share_nodes=missing)
@@ -156,8 +161,9 @@ def check_paths(raw: Any, roots: set[str], *, updates: set[str] | None = None) -
         return
     needed = roots - {USER}
     rows = _paths(raw, sorted(needed))
-    missing = {str(r[1]) for r in rows if int(r[0]) not in plan['agents']
-               or int(r[0]) not in plan['stats']}
+    created = set(plan.get('created', ()))
+    missing = {str(r[1]) for r in rows if int(r[0]) not in created
+               and (int(r[0]) not in plan['agents'] or int(r[0]) not in plan['stats'])}
     missing_updates = (updates or set()) - set(plan['updates']) if not plan['whole'] else set()
     # New agents have no physical row yet. Their update advisory/name declaration
     # is still mandatory, even when every ancestor was already held.

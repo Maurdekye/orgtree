@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import uuid
 
-from orgtree import orgtx
+from orgtree import orgtx, pgdoor
 from orgtree.orgdb import conn, graph, migrate
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
@@ -225,6 +225,57 @@ class GraphStats(unittest.TestCase):
         graph.install_plan(self.c, tx, plan)
         self.c.execute('UPDATE orgtree.agents SET parent_id=5 WHERE id=2')
         self.check_reference()
+
+    def test_native_inserted_identity_can_become_parent_without_late_existing_locks(self):
+        tx = orgtx._new_tx('test', nodes=['a', 'new_parent'], structural_roots=['a'])
+        plan = graph.plan_locks(self.c, tx)
+        self.c.execute('SELECT id FROM orgtree.agents WHERE id=ANY(%s) ORDER BY id FOR UPDATE',
+                       (sorted(plan.agent_ids),))
+        self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats WHERE agent_id=ANY(%s) '
+                       'ORDER BY agent_id FOR UPDATE', (sorted(plan.stats_ids),))
+        graph.install_plan(self.c, tx, plan)
+        # A same-save reference creates this identity before the new seat body.
+        self.c.execute("INSERT INTO orgtree.agents(id,name,tombstone) VALUES(25,'new_parent',true)")
+        self.assertEqual(graph.current_plan(self.c)['created'], [25])
+        self.assertNotIn(25, plan.agent_ids)
+        self.assertNotIn(25, plan.stats_ids)
+        graph.check_paths(self.c, {'a', 'new_parent'}, updates={'a'})
+        self.c.execute('UPDATE orgtree.agents SET parent_id=25 WHERE id=2')
+        graph.check_scope_paths(self.c, {'a'})
+        graph.check_paths(self.c, {'new_parent', 'root'}, updates={'new_parent'})
+        self.c.execute("UPDATE orgtree.agents SET parent_id=1,tombstone=false,state='live' WHERE id=25")
+        self.check_reference()
+
+    def test_native_old_row_updated_here_never_becomes_a_created_identity(self):
+        import psycopg
+        tx = orgtx._new_tx('test', nodes=['a'], structural_roots=['a'])
+        plan = graph.plan_locks(self.c, tx)
+        graph.install_plan(self.c, tx, plan)
+        self.c.execute('UPDATE orgtree.agents SET row_version=row_version+1 WHERE id=5')
+        self.assertEqual(graph.current_plan(self.c).get('created', []), [])
+        with self.assertRaises(pgdoor.Widen):
+            graph.check_paths(self.c, {'a', 'destination'}, updates={'a'})
+        self.c.execute('SAVEPOINT old_row_not_owned')
+        with self.assertRaises(psycopg.errors.SerializationFailure):
+            self.c.execute('UPDATE orgtree.agents SET parent_id=5 WHERE id=2')
+        self.c.execute('ROLLBACK TO old_row_not_owned')
+        self.check_reference()
+
+    def test_created_identity_ownership_rolls_back_at_savepoints_and_connection_reuse(self):
+        tx = orgtx._new_tx('test', nodes=['first_new', 'second_new'])
+        graph.install_plan(self.c, tx, graph.plan_locks(self.c, tx))
+        self.c.execute("INSERT INTO orgtree.agents(id,name,tombstone) VALUES(25,'first_new',true)")
+        self.c.execute('SAVEPOINT before_second_identity')
+        self.c.execute("INSERT INTO orgtree.agents(id,name,tombstone) VALUES(26,'second_new',true)")
+        self.assertEqual(graph.current_plan(self.c)['created'], [25, 26])
+        self.c.execute('ROLLBACK TO before_second_identity')
+        self.assertEqual(graph.current_plan(self.c)['created'], [25])
+        self.assertIsNone(self.c.execute('SELECT id FROM orgtree.agents WHERE id=26').fetchone())
+        self.c.execute('ROLLBACK; BEGIN')
+        self.assertIsNone(graph.current_plan(self.c))
+        graph.install_plan(self.c, tx, graph.plan_locks(self.c, tx))
+        self.assertEqual(graph.current_plan(self.c).get('created', []), [])
+        self.assertIsNone(self.c.execute('SELECT id FROM orgtree.agents WHERE id=25').fetchone())
 
     def test_savepoint_and_full_rollback_restore_caches_on_reused_connection(self):
         self.c.execute('SAVEPOINT before_move')

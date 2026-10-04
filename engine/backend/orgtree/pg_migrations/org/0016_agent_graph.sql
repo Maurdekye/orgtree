@@ -3,10 +3,22 @@
 
 CREATE FUNCTION orgtree.graph_collect_roots() RETURNS trigger
 LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
-DECLARE roots jsonb;
+DECLARE roots jsonb; native_plan jsonb; created jsonb;
 BEGIN
   IF TG_OP='INSERT' THEN
     SELECT jsonb_agg(id ORDER BY id) INTO roots FROM new_rows;
+    native_plan:=nullif(current_setting('orgtree.graph_plan',true),'')::jsonb;
+    IF roots IS NOT NULL AND native_plan IS NOT NULL THEN
+      -- Only actual INSERT images confer ownership of new rows. An UPDATE's
+      -- xmin is insufficient: it also changes for an old row written here.
+      -- The marker, including savepoint rollback, belongs to PostgreSQL.
+      SELECT jsonb_agg(id ORDER BY id) INTO created FROM (
+        SELECT DISTINCT value::bigint AS id FROM jsonb_array_elements_text(
+          coalesce(native_plan->'created','[]'::jsonb)||roots)
+      ) inserted;
+      PERFORM set_config('orgtree.graph_plan',
+        jsonb_set(native_plan,'{created}',created)::text,true);
+    END IF;
   ELSIF TG_OP='UPDATE' THEN
     SELECT jsonb_agg(v.id ORDER BY v.id) INTO roots
       FROM old_rows o JOIN new_rows v USING(id)
@@ -192,6 +204,7 @@ BEGIN
   IF native_plan IS NOT NULL AND NOT (native_plan->>'whole')::boolean AND EXISTS (
     SELECT 1 FROM unnest(paths) p(id)
     WHERE NOT (native_plan->'stats') @> jsonb_build_array(p.id)
+      AND NOT coalesce((native_plan->'created') @> jsonb_build_array(p.id),false)
       AND EXISTS(SELECT 1 FROM orgtree.agent_subtree_stats s WHERE s.agent_id=p.id)
   ) THEN
     RAISE EXCEPTION 'native graph path was not prelocked' USING ERRCODE='40001';
