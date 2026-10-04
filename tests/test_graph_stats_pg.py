@@ -519,7 +519,7 @@ class GraphStats(unittest.TestCase):
                            'max_depth': 20, 'max_children': 10, 'max_top_grant': 1000}.items():
             dict.__setitem__(doc, key, value)
         # The controlled document has no intended org settings edits.
-        doc._snap_doc = store._dump({k: v for k, v in dict.items(doc) if k != 'nodes'})
+        doc._snap_doc = store._dumps({k: v for k, v in dict.items(doc) if k != 'nodes'})
         org = ledger.Org.__new__(ledger.Org)
         org.d = doc
         wrapped = C.OrgDbConn(self.c, 'test', 1, DATABASE)
