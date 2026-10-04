@@ -51,6 +51,31 @@ class Credentials(unittest.TestCase):
             with self.assertRaises(ValueError):
                 replace(self.run, **{field: True})
 
+    def test_uuid_payload_types_are_refused_before_any_key_lookup(self):
+        encoded, _ = context.sign(self.run, self.key).split('.')
+        original = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
+        calls = []
+        for index in (5, 8):
+            for value in (1, True, None, [], {}):
+                payload = original.copy()
+                payload[index] = value
+                altered = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+                self.assertIsNone(context.verify(altered + '.' + '0' * 64,
+                                                  lambda owner: calls.append(owner)))
+        self.assertEqual(calls, [])
+
+    def test_database_identity_overflow_is_refused_before_any_key_lookup(self):
+        encoded, _ = context.sign(self.run, self.key).split('.')
+        original = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
+        calls = []
+        for index in (3, 4, 6, 7):
+            payload = original.copy()
+            payload[index] = 2 ** 63
+            altered = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+            self.assertIsNone(context.verify(altered + '.' + '0' * 64,
+                                              lambda owner: calls.append(owner)))
+        self.assertEqual(calls, [])
+
     def test_saved_default_invalid_and_environment_limits_match_existing_rules(self):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(initial_limit(root, {}), 16)
