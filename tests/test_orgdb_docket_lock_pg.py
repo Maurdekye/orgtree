@@ -363,7 +363,9 @@ class DocketAgentLocks(unittest.TestCase):
 
                 with f.f.storage(True):
                     if native:
-                        with orgtx.org_tx(twins.copy, nodes=['placeholder'], sections=['work_items']) as tx:
+                        with orgtx.org_tx(twins.copy, nodes=['placeholder'],
+                                          sections=['work_items', ('notices', 'boss')],
+                                          logs=['events', 'notice_log']) as tx:
                             probe_mode()
                             tx.org.hire(ledger.USER, None, 'haiku', 0, 'placeholder')
                             f.item(tx.org, 'owned-item')['owner'] = tx.org._work_holder('placeholder')
