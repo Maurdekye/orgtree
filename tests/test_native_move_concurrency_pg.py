@@ -45,6 +45,18 @@ class MoveConcurrency(unittest.TestCase):
                             (parent, root))
                 self._pause_body('before_commit', None)
 
+    def raw_insert(self, name):
+        """Two disjoint headers must still serialize their shared stats path."""
+        with registry.connection(self.slug) as raw, raw.transaction():
+            self._capture_connection(raw)
+            raw.execute("SET LOCAL lock_timeout='15s'")
+            row = raw.execute("INSERT INTO orgtree.agents(name,parent_id,state) "
+                              "SELECT %s,id,'live' FROM orgtree.agents "
+                              "WHERE name='boss' AND NOT tombstone RETURNING id",
+                              (name,)).fetchone()
+            self._pause_body('before_commit', None)
+            return row[0]
+
     def pair(self, first, second):
         """Pause the first real body before save; observe the other's server wait."""
         ready, release, planned = (threading.Event() for _ in range(3))
@@ -138,6 +150,7 @@ class MoveConcurrency(unittest.TestCase):
                     'outcomes': {key: {field: str(value) for field,value in result.items()}
                                  for key,result in outcomes.items()}}
         print('O1_BARRIER_MEASURED=' + json.dumps(measured), flush=True)
+        self.last_observations = observations
         return outcomes
 
     def test_crossing_moves_first_a_then_b_rechecks_cycle_after_wait(self):
@@ -165,6 +178,27 @@ class MoveConcurrency(unittest.TestCase):
         self.assertNotIn('error', got['second'], str(got['second']))
         self.assertEqual(self.values()['first-hire'][0], 'b')
         self.assertEqual(self.values()['a'][0], 'b')
+
+    def assert_stats_wait(self, got):
+        self.assertNotIn('error', got['second'], str(got['second']))
+        # Unlike native/native admission's earlier advisory wait, this direct
+        # writer has no orgtx advisories. The blocked transaction holds the
+        # aggregate table's RowExclusiveLock before waiting for a row owner.
+        waits = self.last_observations
+        self.assertTrue(any(row['wait_event'] in ('transactionid', 'tuple')
+                            and any(lock[3] == 'orgtree.agent_subtree_stats'
+                                    and lock[1] == 'RowExclusiveLock'
+                                    for lock in row['locks']) for row in waits), waits)
+
+    def test_two_raw_inserts_wait_on_the_shared_ancestor_stats(self):
+        got = self.pair(lambda: self.raw_insert('raw-first'),
+                        lambda: self.raw_insert('raw-second'))
+        self.assert_stats_wait(got)
+
+    def test_native_hire_prelocks_stats_before_raw_insert(self):
+        got = self.pair(lambda: self.hire('native-first'),
+                        lambda: self.raw_insert('raw-second'))
+        self.assert_stats_wait(got)
 
     def test_native_then_raw_crossing_move_refuses_final_cycle(self):
         got = self.pair(lambda: self.move('a', 'b'), lambda: self.raw_move('b', 'a'))
