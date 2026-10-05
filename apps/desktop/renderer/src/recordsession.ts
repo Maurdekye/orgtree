@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { RecordSession, SubscriptionInput } from './recordfeed'
+import type { PolledStatus } from './canvas/shared'
 
 /** App owns one controller per selected org. Panels consume its exact cursor
  * and overlapping sets; they neither open another socket nor fetch a baseline.
  */
-export const OrgRecordContext = createContext<{ slug: string; session: RecordSession } | null>(null)
+export const OrgRecordContext = createContext<{ slug: string; session: RecordSession; status?: PolledStatus } | null>(null)
 const emptySubscribe = () => () => {}
 const emptySnapshot = () => null
 

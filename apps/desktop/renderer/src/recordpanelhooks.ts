@@ -18,7 +18,11 @@ export function useRecordInbox(slug: string, refreshKey: unknown = 0) {
   const value = useMemo(() => view ? projectUserInbox(view.records) : null, [view])
   const status = useMemo<PolledStatus>(() => ({ loading: !view, failed: false, stale: false,
     unavailable: false, at: view ? Date.now() : null, error: null }), [view])
-  return enabled ? { value, status } : legacy
+  const context = useContext(OrgRecordContext)
+  const reported = context?.slug === slug ? context.status : undefined
+  return enabled ? { value, status: reported ? { ...reported,
+    loading: !view && !reported.failed, stale: !!view && reported.failed,
+    unavailable: !view && reported.failed } : status } : legacy
 }
 
 function usePanelAgent(slug: string, name: string) {

@@ -106,3 +106,16 @@ test('a name answer ahead of the cursor requests catchup before publishing its I
   assert.equal(recover, 1); assert.equal(results.at(-1), '9')
   s.dispose(); f.dispose()
 })
+test('shared inbox carries feed failure and recovery instead of vouching for stale empty records', async () => {
+  const f = feed()
+  f.receive({ type: 'record_snapshot', cursor: initial, records: [] })
+  function Panel() { const b = useRecordInbox('org'); return <span>{b.status.failed ? b.status.stale ? 'stale' : 'unavailable' : b.status.loading ? 'loading' : 'current'}</span> }
+  const content = (failed: boolean) => <OrgRecordContext.Provider value={{ slug: 'org', session: f,
+    status: { loading: false, failed, stale: failed, unavailable: false, error: failed ? 'offline' : null, at: 1 } }}><Panel /></OrgRecordContext.Provider>
+  const v = await mountView(content(false), el => el.textContent)
+  try {
+    assert.equal(v.el.textContent, 'current')
+    await v.render(content(true)); assert.equal(v.el.textContent, 'stale')
+    await v.render(content(false)); assert.equal(v.el.textContent, 'current')
+  } finally { await v.unmount(); f.dispose() }
+})
