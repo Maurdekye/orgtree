@@ -25,6 +25,7 @@ import unittest
 from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python
 
 from engine import enginelog
 
@@ -270,7 +271,7 @@ class EngineLog(unittest.TestCase):
             "assert _scrub('a-'*100000+'!').endswith('!'); "
             "assert _scrub('token'*100000+'!').endswith('!')"
         )
-        result = subprocess.run([sys.executable, '-I', '-c', source],
+        result = subprocess.run(child_python.argv('-c', source, flags=('-I',)),
                                 cwd=Path(__file__).resolve().parents[1],
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)

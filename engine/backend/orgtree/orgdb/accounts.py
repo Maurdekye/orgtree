@@ -10,7 +10,7 @@ import copy
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Iterator
 
-from . import codec, conn, names
+from . import app_pool, codec, conn, names
 from .convert import accounts as shape
 
 
@@ -21,8 +21,8 @@ def connection(org: str | None = None) -> Iterator[Any]:
         with registry.connection(org) as raw:
             yield raw
     else:
-        # A fresh runtime connection: no body or ambiguous commit is retried.
-        with conn.connect(conn.runtime_base(), names.app(),
+        # Reuse clean app sessions; never retry a body or ambiguous commit.
+        with app_pool.connection(conn.runtime_base(), names.app(),
                           application_name='orgtree-accounts') as raw:
             yield raw
 
