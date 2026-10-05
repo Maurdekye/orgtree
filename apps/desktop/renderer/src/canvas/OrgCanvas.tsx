@@ -3041,11 +3041,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const free = reg.status === 'blocked'
       ? { x: 0, y: 0, w: vp.width, h: vp.height }
       : reg.rect
-    const sibs = (map.get(me.parent ?? '')?.children ?? [])
+    const sibs = peerOrder((map.get(me.parent ?? '')?.children ?? [])
       .map((c) => c.id)
       .filter((k) => k !== DRAFT && map.get(k)?.state === 'live'
-        && !map.get(k)?.isBearerOf && !hidden.has(k) && target.has(k))
-      .sort((p, q) => (target.get(p)?.x ?? 0) - (target.get(q)?.x ?? 0))
+        && !map.get(k)?.isBearerOf && !hidden.has(k) && target.has(k)),
+      target, chartLayout === 'circular')
     const at = sibs.indexOf(focusId)
     if (at < 0) return []
     // the FOCUSED desk's own screen rect — every placement is measured against
@@ -3077,7 +3077,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId, map, target, hidden, view, compact, pins, regionOf])
+  }, [focusId, map, target, hidden, view, compact, pins, regionOf, chartLayout])
 
   const lod = view.z < Z_MINI ? 'mini' : 'norm'
 
@@ -3937,8 +3937,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             // every direct report immediately after its superior, indented a
             // step — replacing the old canvas-position sort, which put a
             // child hired far from its parent nowhere near it in the list.
-            // Sibling order keeps the position sort, so the tray still
-            // tracks the canvas arrangement locally.
+            // Rings already follow tree order counterclockwise. Sorting their
+            // siblings by y/x zig-zags across the arc; only rows use position.
             const all = [...map.values()]
               .filter((n) => n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
             const q = trayQ.trim().toLowerCase()
@@ -3965,7 +3965,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               match(n) || (kids.get(n.id) ?? []).some(anyMatch)
             const rows: TrayRow[] = []
             const walk = (id: string, depth: number) => {
-              for (const c of (kids.get(id) ?? []).sort(byPos)) {
+              const siblings = kids.get(id) ?? []
+              for (const c of chartLayout === 'circular' ? siblings : siblings.sort(byPos)) {
                 if (!anyMatch(c)) continue
                 rows.push({ node: c, depth, ghost: !match(c) })
                 walk(c.id, depth + 1)

@@ -76,7 +76,7 @@ import { AGENT_NAV_ATTR } from '../src/canvas/agentnav'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { resetConvos } from '../src/convo'
 import { forgetPins } from '../src/canvas/pins'
-import { setCrowdPilesOn } from '../src/canvas/shared'
+import { layout, setChartLayout, setCrowdPilesOn, USER, withDraftTree } from '../src/canvas/shared'
 import type { OpRequest } from '../src/canvas/shared'
 import type { TreePayload } from '../src/types'
 
@@ -245,6 +245,63 @@ const fixture = () => [mkNode('boss', { children: [
   mkNode('mid', { parent: 'boss' }),
   mkNode('right', { parent: 'boss', children: [mkNode('grand', { parent: 'right' })] }),
 ] })]
+
+// Read the real tray and jump buttons against measured ring geometry. A y/x
+// tray sort or x-only jump sort fails even though layoutCircular is correct.
+for (const count of [3, 7, 12, 30]) {
+  uiTest(`ring list and jump cards follow counterclockwise adjacency (${count} agents)`, async t => {
+    setChartLayout('circular')
+    t.after(() => setChartLayout('row'))
+    const ids = Array.from({ length: count }, (_, i) => `agent-${i}`)
+    const roots = ids.map(id => mkNode(id))
+    const positions = layout(withDraftTree(tree(roots), null), new Map(), 'circular')
+    const c = await mountCanvas(t, roots)
+    await openTray(c.el)
+    const listed = [...c.el.querySelectorAll('.tray-name')].map(n => n.textContent!)
+    assert.deepEqual(listed, ids, 'list preserves tree order along the ring')
+    const centre = positions.get(USER)!
+    const angles = listed.map(id => {
+      const p = positions.get(id)!
+      return Math.atan2(p.y - centre.y, p.x - centre.x)
+    })
+    let swept = 0
+    for (let i = 1; i < angles.length; i++) {
+      const step = (angles[i - 1]! - angles[i]! + 2 * Math.PI) % (2 * Math.PI)
+      assert.ok(step > 0 && step < Math.PI, 'each list step goes counterclockwise')
+      swept += step
+    }
+    assert.ok(swept < 2 * Math.PI, 'the list visits one arc without zig-zagging')
+    // Check both ends (no wrapping across the open arc) and an interior point.
+    for (const at of [0, Math.floor(count / 2), count - 1]) {
+      await openDesk(c, ids[at]!)
+      const expected = [ids[at - 1], ids[at + 1]].filter(Boolean)
+      const cards = jumpCards(c.el)
+      assert.deepEqual(cards.map(card => card.id), expected,
+        `${ids[at]}: floating cards name the adjacent ring agents`)
+      for (const card of cards) {
+        assert.equal(card.el.getAttribute(AGENT_NAV_ATTR), card.id,
+          'navigation is bound to the named neighbour')
+      }
+      await inAct(() => { cards[0]!.el.click() })
+      await flush(2); await advance(800, 50); await flush(2)
+      assert.equal(c.el.querySelector('.cc-head-left')?.getAttribute('data-copy-agent-name'),
+        expected[0], 'clicking the floating card focuses its ring neighbour')
+    }
+  })
+}
+
+uiTest('nested ring lists keep hierarchy and each arc follows its list order', async t => {
+  setChartLayout('circular')
+  t.after(() => setChartLayout('row'))
+  const roots = [mkNode('a', { children: ['a0', 'a1', 'a2'].map(id => mkNode(id)) }),
+    mkNode('b', { children: ['b0', 'b1'].map(id => mkNode(id)) })]
+  const c = await mountCanvas(t, roots)
+  await openTray(c.el)
+  assert.deepEqual([...c.el.querySelectorAll('.tray-name')].map(n => n.textContent),
+    ['a', 'a0', 'a1', 'a2', 'b', 'b0', 'b1'])
+  await openDesk(c, 'a1')
+  assert.deepEqual(jumpCards(c.el).map(card => card.id), ['a0', 'a2'])
+})
 
 // ---------------------------------------------------- §0 THE SHAPE IS REAL
 uiTest('§0 the focused desk draws one floating card per off-screen neighbor',
