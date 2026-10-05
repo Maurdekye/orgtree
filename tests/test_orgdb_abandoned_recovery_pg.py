@@ -1,5 +1,5 @@
 """Bounded abandoned-docket recovery through real per-org transactions."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
