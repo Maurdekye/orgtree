@@ -4,6 +4,8 @@ import contextlib
 import json
 import random
 import sqlite3
+import statistics
+import time
 import unittest
 from unittest.mock import patch
 
@@ -219,7 +221,7 @@ class NativeInsertParent(unittest.TestCase):
             conn.raw.execute('RELEASE SAVEPOINT failed_body')
             self.assertEqual({name: text for name, text, _ in R.nodes(conn.raw, ['a', 'leaf'])},
                              {name: old for name, _, old in writes})
-            self.assertEqual(graph._scalar_records(conn.raw), [])
+            self.assertFalse(graph._scalar_records(conn.raw))
             self.assertEqual(self.batch(conn, self.accepted_writes(conn.raw)).rowcount, 2)
             self.assertEqual(graph.verify_stats(conn.raw), [])
         self.assertEqual(self.snapshot(), before)
@@ -254,6 +256,162 @@ class NativeInsertParent(unittest.TestCase):
                 self.assertEqual(graph.verify_stats(raw), [])
                 raw.execute('ROLLBACK TO SAVEPOINT permutation')
                 raw.execute('RELEASE SAVEPOINT permutation')
+
+    def test_native_helper_uses_preheld_agent_and_stats_modes_without_late_locks(self):
+        import psycopg
+        from orgtree.orgdb import registry
+        with orgtx.org_tx(self.slug, nodes=['a', 'leaf'],
+                          structural_roots=['boss', 'a', 'leaf']) as tx:
+            raw = native_move.connection(tx.org)
+            plan = graph.current_plan(raw)
+            paths = {name: int(aid) for aid, name in raw.execute(
+                "SELECT id,name FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone",
+                (['boss', 'a', 'leaf'],)).fetchall()}
+            db = registry.lookup(self.slug)[1]
+            with psycopg.connect(fixture._with_db(fixture.RUNTIME, db), autocommit=True) as probe:
+                for name, mode in (('a', 'SHARE'), ('leaf', 'SHARE'), ('boss', 'UPDATE')):
+                    with self.subTest(name=name), self.assertRaises(psycopg.errors.LockNotAvailable):
+                        probe.execute('SELECT id FROM orgtree.agents WHERE id=%s FOR ' + mode +
+                                      ' NOWAIT', (paths[name],))
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    probe.execute('SELECT agent_id FROM orgtree.agent_subtree_stats '
+                                  'WHERE agent_id=%s FOR SHARE NOWAIT', (paths['boss'],))
+            class ReadTrace:
+                def execute(self, query, params=()):
+                    self.queries.append(query)
+                    return raw.execute(query, params)
+            trace = ReadTrace()
+            trace.queries = []
+            writes = self.accepted_writes(raw)
+            self.assertEqual([w[0] for w in graph.write_order(trace, writes, R.Names(raw))],
+                             ['leaf', 'a'])
+            self.assertTrue(trace.queries)
+            for query in trace.queries:
+                self.assertTrue(query.startswith(('SELECT ', 'WITH RECURSIVE ')), query)
+                self.assertNotIn('FOR UPDATE', query)
+                self.assertNotIn('FOR SHARE', query)
+                self.assertNotIn('set_config', query)
+            self.assertEqual(graph.current_plan(raw), plan)
+
+    def test_name_preserving_physical_alias_change_widens_before_write(self):
+        # The decoded parent stays boss, but the encoder selects the current
+        # boss head instead of a retained tombstone with that name. The guard
+        # must cover both physical paths even though the decoded name agrees.
+        with store._POOL.acquire(self.slug) as conn, conn.raw.transaction():
+            alias = conn.raw.execute("INSERT INTO orgtree.agents(name,tombstone) "
+                                    "VALUES('boss',true) RETURNING id").fetchone()[0]
+            conn.raw.execute("UPDATE orgtree.agents SET parent_id=%s WHERE name='a' "
+                             "AND NOT tombstone", (alias,))
+        before = self.snapshot()
+        with orgtx.org_tx(self.slug, nodes=['a'], structural_roots=['a']) as tx:
+            raw = native_move.connection(tx.org)
+            old = R.nodes(raw, ['a'], lock=True)[0][1]
+            self.assertEqual(json.loads(old)['parent'], 'boss')
+            with patch.object(R, 'node_put', side_effect=AssertionError('late body write')):
+                with self.assertRaises(pgdoor.Widen):
+                    graph.write_order(raw, [('a', old, None)], R.Names(raw))
+        self.assertEqual(self.snapshot(), before)
+
+    def test_complete_helper_queries_stay_indexed_at_one_and_100k_subtree_rows(self):
+        class CursorTrace:
+            def __init__(self, cursor, record):
+                self.cursor, self.record = cursor, record
+
+            def fetchone(self):
+                row = self.cursor.fetchone()
+                self.record['returned'] += int(row is not None)
+                return row
+
+            def fetchall(self):
+                rows = self.cursor.fetchall()
+                self.record['returned'] += len(rows)
+                return rows
+
+        class QueryTrace:
+            def __init__(self, raw):
+                self.raw, self.records = raw, []
+
+            def execute(self, query, params=()):
+                record = {'sql': query, 'params': params, 'returned': 0}
+                self.records.append(record)
+                self_test.assertTrue(query.startswith(('SELECT ', 'WITH RECURSIVE ')), query)
+                return CursorTrace(self.raw.execute(query, params), record)
+
+        def nodes(plan):
+            yield plan
+            for child in plan.get('Plans', []):
+                yield from nodes(child)
+
+        def plans(raw, records):
+            result = []
+            for record in records:
+                explained = raw.execute('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' +
+                                        record['sql'], record['params']).fetchone()[0][0]
+                result.append({'query': record, 'explain': explained})
+            return result
+
+        def bounded(explained):
+            total = 0
+            for record in explained:
+                for part in nodes(record['explain']['Plan']):
+                    self.assertFalse(part.get('Relation Name') == 'agents' and
+                                     part['Node Type'] == 'Seq Scan', record)
+                    total += (part.get('Actual Rows', 0) +
+                              part.get('Rows Removed by Filter', 0)) * part.get('Actual Loops', 1)
+            self.assertLessEqual(total, 100)
+            return total
+
+        self_test = self
+        measured = []
+        with self.rollback_batch() as conn:
+            raw = conn.raw
+            leaf_id = raw.execute("SELECT id FROM orgtree.agents WHERE name='leaf' "
+                                  'AND NOT tombstone').fetchone()[0]
+            for size in (1, 100000):
+                if size > 1:
+                    raw.execute("INSERT INTO orgtree.agents(name,ord,state,parent_id) "
+                                "SELECT 'order-scale-'||i,100+i,'live',%s "
+                                'FROM generate_series(1,%s) i', (leaf_id, size - 1))
+                    raw.execute('ANALYZE orgtree.agents')
+                    raw.execute('ANALYZE orgtree.agent_subtree_stats')
+                writes = self.accepted_writes(raw)
+                before = raw.execute('SELECT id,parent_id,row_version FROM orgtree.agents '
+                                     'WHERE id=ANY(%s)', ([leaf_id],)).fetchall()
+                timing = []
+                for _ in range(5):
+                    trace = QueryTrace(raw)
+                    started = time.perf_counter_ns()
+                    arranged = graph.write_order(trace, writes, R.Names(raw))
+                    timing.append((time.perf_counter_ns() - started) / 1000000)
+                    self.assertEqual([w[0] for w in arranged], ['leaf', 'a'])
+                    self.assertLessEqual(len(trace.records), 8)
+                    self.assertLessEqual(sum(r['returned'] for r in trace.records), 12)
+                explained = plans(raw, trace.records)
+                # At the tiny shape a natural sequential scan is cheaper; the
+                # 100k shape must prove every actual query's indexed bound.
+                work = bounded(explained) if size > 1 else None
+                measured.append({'subtree_size': size, 'queries': len(trace.records),
+                    'returned_rows': sum(r['returned'] for r in trace.records),
+                    'median_ms': statistics.median(timing), 'samples_ms': timing,
+                    'examined_plan_work': work, 'complete_queries_and_plans': explained})
+                self.assertEqual(raw.execute('SELECT id,parent_id,row_version FROM orgtree.agents '
+                    'WHERE id=ANY(%s)', ([leaf_id],)).fetchall(), before)
+                if size > 1:
+                    raw.execute('SET LOCAL enable_indexscan=off')
+                    raw.execute('SET LOCAL enable_bitmapscan=off')
+                    try:
+                        forced = QueryTrace(raw)
+                        self.assertEqual([w[0] for w in graph.write_order(
+                            forced, writes, R.Names(raw))], ['leaf', 'a'])
+                        with self.assertRaises(AssertionError):
+                            bounded(plans(raw, forced.records))
+                    finally:
+                        raw.execute('SET LOCAL enable_indexscan=on')
+                        raw.execute('SET LOCAL enable_bitmapscan=on')
+                    # Restoring the planner must restore the same measured gate.
+                    bounded(plans(raw, trace.records))
+            self.assertEqual(graph.verify_stats(raw), [])
+        print('MEASURED insertion-order query plans: ' + json.dumps(measured), flush=True)
 
     def test_omitted_permutation_fault_fails_public_api_then_restored_passes(self):
         with patch.object(graph, 'write_order', side_effect=lambda _raw, writes, _names: writes):
