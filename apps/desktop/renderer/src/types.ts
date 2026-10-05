@@ -1064,6 +1064,10 @@ export interface LiveRowPayload {
 export interface ChatTransient { reply_quote?: string; event_id: string; role: string; kind: string; text: string }
 
 export interface ChatPayload {
+  after?: string
+  incremental?: boolean
+  after_reset?: boolean
+  message_updates?: ChatMessage[]
   assistant_identity?: number
   assistant_scope?: string
   order_epoch?: number

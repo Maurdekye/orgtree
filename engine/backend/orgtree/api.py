@@ -14304,7 +14304,10 @@ _CHAT_RUNTIME_VIEW = store._switch_on(os.environ.get("ORGTREE_CHAT_RUNTIME_VIEW"
 
 
 def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
-              last: int = 300, before: str | None = None) -> dict[str, Any]:
+              last: int = 300, before: str | None = None,
+              after: str | None = None) -> dict[str, Any]:
+    if before and after:
+        raise HTTPException(422, 'Choose before or after, not both')
     try:
         # a PRIVATE copy either way: identity stamping (transcript
         # incarnation) is only safe on one
@@ -14329,6 +14332,15 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
         return page
     out = supervisor.read_chat(org, nid, last=max(1, min(last, 1_000_000)))
     out["conversation_id"] = conversation
+    from . import chat_after, chat_window, transcript_records
+    try:
+        out, after_boundary = chat_after.prepare(
+            out, after, [slug, nid],
+            lambda cursor: chat_window.read_page(org, nid, max(100, min(last, 1000)), cursor),
+            lambda event, rank, epoch: transcript_records.valid_order_anchor(
+                chat_window.source_key(org, nid), event, rank, epoch))
+    except ValueError as error:
+        raise HTTPException(422, 'Invalid or changed transcript cursor') from error
     # queued = the mail box PLUS the delivery journal's in-flight batches —
     # a message steered mid-task drains the box instantly, and during a long
     # tool call it showed NOWHERE (user bug 2026-07-31)
@@ -14474,7 +14486,9 @@ def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
     for _pending_row in out["pending_mail"]:
         _pending_row["event_id"] = (
             f"mail:{slug}:{nid}:{_pending_row.get('id') or 'unknown'}")
-    return out
+    # Updates share the same row objects as the expanded messages above, so
+    # their typed segments have also passed through the wire projection.
+    return chat_after.finish(out, after_boundary, [slug, nid])
 
 
 @app.get("/api/orgs/{slug}/nodes/{nid}/reply-events")

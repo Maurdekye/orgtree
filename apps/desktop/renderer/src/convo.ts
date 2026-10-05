@@ -26,7 +26,9 @@ import { segmentClientOps, segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
 import { applyAssistantDelta, assistantIds, isAssistantDelta, isAssistantSnapshot, mergeAssistantRows, uniqueFileCards } from './assistantMessages'
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react'
+import { OrgRecordContext } from './recordsession'
+import { onAgentPanelEvent } from './recordevents'
 
 /** Only the newest CHAT_WINDOW rows are fetched and rendered; scrolling to the
  *  top pages another window in. The cost that bites is DOM size — every row
@@ -218,6 +220,8 @@ const BLANK: Convo = {
 }
 
 interface Entry {
+  eventDriven?: boolean
+  refreshAgain?: boolean
   assistantRows: Map<string, ChatMessage>
   /** delta frames whose base revision has not arrived yet, per assistant id
    *  (bounded); chained as soon as a frame or a fetch supplies the base */
@@ -640,10 +644,14 @@ export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): v
 }
 
 // ------------------------------------------------------------------ the hook
-export function useConvo(slug: string, nid: string): Convo {
+export function useConvo(slug: string, nid: string, ownerWindow?: Window | null): Convo {
   const k = key(slug, nid)
+  const recordContext = useContext(OrgRecordContext)
+  const eventDriven = recordContext?.slug === slug
   const sub = useCallback((cb: () => void) => {
     const e = entry(k)
+    e.eventDriven = eventDriven
+    if (eventDriven && e.poll) { clearTimeout(e.poll); e.poll = null }
     e.subs.add(cb)
     beat(k, slug, nid)          // someone is watching -> keep it fresh
     // an event marked this node stale while nobody was looking — settle the
@@ -675,7 +683,17 @@ export function useConvo(slug: string, nid: string): Convo {
       }
       retainConvo(e)
     }
-  }, [k, slug, nid])
+  }, [k, slug, nid, eventDriven])
+  useEffect(() => {
+    if (!eventDriven) return
+    const focus = () => { void refreshConvo(slug, nid) }
+    const owner = ownerWindow ?? window
+    owner.addEventListener('focus', focus)
+    const off = onAgentPanelEvent(event => {
+      if (event.org === slug && event.node === nid) void refreshConvo(slug, nid)
+    })
+    return () => { off(); owner.removeEventListener('focus', focus) }
+  }, [slug, nid, eventDriven, ownerWindow])
   const snap = useCallback(() => entry(k).s, [k])
   return useSyncExternalStore(sub, snap, snap)
 }
@@ -799,7 +817,8 @@ export function refreshConvo(slug: string, nid: string,
   // is the real fix; this is the belt to that pair of braces, because "the
   // request always settles" is exactly the assumption that just failed.
   const now = Date.now()
-  if (e.inflight && !opts.force && now - e.inflightAt < STALL_MS) {
+  if (e.inflight && (!opts.force || e.eventDriven) && now - e.inflightAt < STALL_MS) {
+    if (e.eventDriven) e.refreshAgain = true
     return Promise.resolve()
   }
   e.inflight = true
@@ -826,19 +845,21 @@ export function refreshConvo(slug: string, nid: string,
   }
   // the literal `e.s.win` is pinned by derived.test.tsx ② (this is THE fetch);
   // askedWin was read from it a line above, so the two are the same value
-  return getChat(slug, nid, e.s.win).then(async (c) => {
+  const after = e.eventDriven && e.growingOlder === undefined ? e.s.chat?.after : undefined
+  return getChat(slug, nid, e.s.win, undefined, after).then(async (c) => {
     if (!ownsRequest()) return
     if (!stillFreshest()) return
+    const tailBefore = c.before
     const changedAssistantScope = !!c.assistant_scope && !!e.s.chat?.assistant_scope
       && c.assistant_scope !== e.s.chat.assistant_scope
-    const changedConversation = changedAssistantScope || (!!c.conversation_id && !!e.s.chat?.conversation_id
+    const changedConversation = !!c.after_reset || changedAssistantScope || (!!c.conversation_id && !!e.s.chat?.conversation_id
       && c.conversation_id !== e.s.chat.conversation_id)
       || (c.order_epoch !== undefined && e.s.chat?.order_epoch !== undefined
         && c.order_epoch !== e.s.chat.order_epoch)
     // A burst can exceed one viewport between polls. Fill only that new
     // interval before joining it to already loaded history; never silently
     // join two disjoint ranges and make the intervening messages disappear.
-    if (!changedConversation && e.s.paged && e.s.chat?.messages.length && c.messages.length) {
+    if (!c.incremental && !changedConversation && e.s.paged && e.s.chat?.messages.length && c.messages.length) {
       const previousLast = e.s.chat.messages.filter(row => typeof row.seq === 'number').at(-1)?.seq
       let cursor = c.before
       const visited = new Set<string>()
@@ -861,6 +882,13 @@ export function refreshConvo(slug: string, nid: string,
           || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
         cursor = page.before
       }
+    }
+    if (c.incremental && !changedConversation && e.s.chat) {
+      const updates = new Map((c.message_updates ?? []).map(row => [row.row_id ?? row.event_id ?? row.seq, row]))
+      const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+      c = { ...c, messages: [...e.s.chat.messages.filter(row => !ids.has(row.row_id ?? row.event_id ?? row.seq))
+        .map(row => updates.get(row.row_id ?? row.event_id ?? row.seq) ?? row), ...c.messages],
+        before: e.s.chat.before, has_older: e.s.chat.has_older, after: c.after ?? e.s.chat.after }
     }
     // A newly delivered mail can fall behind a burst larger than the
     // viewport. Page just that interval until its actual visible row is found;
@@ -1082,6 +1110,9 @@ export function refreshConvo(slug: string, nid: string,
       // An empty malformed page must not erase the last usable transcript.
       if (!c.messages.length) c = { ...c, messages: e.s.chat!.messages }
     }
+    if (c.incremental && !e.s.paged && c.messages.length > e.s.win) {
+      c = { ...c, messages: c.messages.slice(-e.s.win), before: tailBefore, has_older: true }
+    }
     patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
@@ -1103,6 +1134,11 @@ export function refreshConvo(slug: string, nid: string,
     if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
     e.requests--
     retainConvo(e)
+    if (ownsRequest() && !e.inflight && e.refreshAgain) {
+      e.refreshAgain = false
+      if (e.subs.size) void refreshConvo(slug, nid)
+      else e.dirty = true
+    }
   })
 }
 
@@ -1590,10 +1626,10 @@ function stopClock(e: Entry): void {
  *  otherwise — but the difference is only how often, never whether. */
 function beat(k: string, slug: string, nid: string): void {
   const e = entry(k)
-  if (e.poll || !e.subs.size) return
+  if (e.eventDriven || e.poll || !e.subs.size) return
   const tick = () => {
     const cur = entry(k)
-    if (!cur.subs.size) { cur.poll = null; return }
+    if (cur.eventDriven || !cur.subs.size) { cur.poll = null; return }
     void refreshConvo(slug, nid)
     cur.poll = setTimeout(tick, cur.s.chat?.busy ? BUSY_POLL_MS : IDLE_POLL_MS)
   }

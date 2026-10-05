@@ -1125,6 +1125,15 @@ def _discard_ranks(conn, source) -> None:
                  "ON CONFLICT(source) DO UPDATE SET epoch=epoch+1", (source,))
 
 
+def valid_order_anchor(source: str, event: str, rank: float, epoch: int) -> bool:
+    """Validate an incremental cursor with an indexed lookup, not a history scan."""
+    with database() as conn:
+        conn.execute('BEGIN')
+        row = conn.execute('SELECT rank FROM transcript_order WHERE source=? AND event=?',
+                           (source, event)).fetchone()
+        return bool(row and row[0] == rank and _order_epoch(conn, source) == epoch)
+
+
 def order(source: str, rows: list[dict], *, older: bool = False) -> int:
     """Stable numeric handles, including lazy prepends and late inserted
     mail; returns the source's ORDER EPOCH. All-known rows take no write

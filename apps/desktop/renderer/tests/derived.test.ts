@@ -97,7 +97,7 @@ test('②  the conversation is fetched in exactly one place', () => {
   assert.deepEqual(hits.sort(), ['canvas/desk.tsx', 'canvas/modals.tsx'],
     'a live conversation must come from convo.ts, not a private getChat')
   assert.equal(hits.length, 2, 'exactly two sanctioned getChat call sites')
-  assert.ok(read('convo.ts').includes('getChat(slug, nid, e.s.win)'),
+  assert.ok(read('convo.ts').includes('getChat(slug, nid, e.s.win, undefined, after)'),
     'convo.ts is still the one that fetches it')
 })
 
@@ -109,8 +109,8 @@ test('③  liveness is never gated on the data it repairs (D-34)', () => {
   const src = read('convo.ts')
   assert.ok(!/pollWhileBusy/.test(code('convo.ts')),
     'the busy-gated poller stays deleted')
-  assert.ok(/if \(e\.poll \|\| !e\.subs\.size\) return/.test(src),
-    'the heartbeat is gated on SUBSCRIPTION')
+  assert.ok(/if \(e\.eventDriven \|\| e\.poll \|\| !e\.subs\.size\) return/.test(src),
+    'the legacy heartbeat is gated on subscription and disabled under records')
   assert.ok(/cur\.s\.chat\?\.busy \? BUSY_POLL_MS : IDLE_POLL_MS/.test(src),
     'busy still decides the CADENCE — only how often, never whether')
   const shared = read('canvas/shared.ts')
@@ -121,11 +121,15 @@ test('③  liveness is never gated on the data it repairs (D-34)', () => {
 })
 
 // --------------------------------------------------------------------- ④
-test('④  the mutable read panels all poll (G5)', () => {
-  // getInbox / getNodeInbox / getEvents / getAudiences / getHistory /
-  // getScratch display data that changes while the panel is open.
-  const polled = ['getInbox', 'getNodeInbox', 'getEvents', 'getAudiences',
-    'getHistory', 'getScratch']
+test('④  migrated panels have no direct fetch; remaining panels retain their refresh path', () => {
+  // B4c1 panels select records or event-driven readers through dedicated hooks.
+  // Those hooks preserve the old protocol only when the capability is off.
+  const migrated = ['getInbox', 'getNodeInbox', 'getEvents', 'getHistory', 'getScratch']
+  for (const f of uiFiles) {
+    for (const fn of migrated) assert.ok(!new RegExp(`\\b${fn}\\(`).test(code(f)),
+      `${f} bypasses the record/event hook with ${fn}`)
+  }
+  const polled = ['getAudiences']
   const bad: string[] = []
   for (const f of uiFiles) {
     const text = read(f)

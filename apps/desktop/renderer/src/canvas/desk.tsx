@@ -1,5 +1,5 @@
 import { useRecordScratch } from '../recordscratch'
-import { useRecordHistory } from '../recordpanelhooks'
+import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps } from './agentnav'
@@ -1872,7 +1872,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // scroll position, its open tab, its composer draft.
   const surface = useSurface()
   const surfaceDocument = useSurfaceDocument()
-  const convo = useConvo(slug, node.id)
+  const convo = useConvo(slug, node.id, surfaceDocument?.defaultView)
+  const recordChat = useRecordsEnabled(slug)
   const chatKey = `${slug}/${node.id}`
   const noticeArmed = useNoticeArmed(chatKey)
   const deskRef = useRef<HTMLFieldSetElement>(null)
@@ -4052,7 +4053,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // recenter-on-click
   return (
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
-      onFocusCapture={() => { setActiveChatKey(chatKey); setButtonAgent(slug, node.tier ? node.id : null) }}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
+      onFocusCapture={() => { setActiveChatKey(chatKey); setButtonAgent(slug, node.tier ? node.id : null); if (recordChat) void refreshConvo(slug, node.id) }}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
         setActiveChatKey(chatKey)
         setButtonAgent(slug, node.tier ? node.id : null)
