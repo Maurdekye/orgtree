@@ -4177,7 +4177,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   map, onFocusAgent, close }: LineagePanelProps) {
   // re-render on the "show legacy models" flip — the tier list reads it
   useShowLegacyModels()
-  // …and when agy starts (or stops) listing a conditional tier (Argon)
+  // …and when agy starts (or stops) listing a conditional tier (Argon and Barium)
   useOfferedConditionalTiers()
   // spitshined (user request): generation cards in the app's current visual
   // language — tier token, per-generation consult-tier picker (№16: a bearer
@@ -4302,7 +4302,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                         && tierShown(presence, t, b.tier)
                         // Terra and Gemini Pro only with "show legacy models" on
                         && !optInLegacyHidden(t)
-                        // Argon only once agy lists it
+                        // Argon and Barium only once agy lists it
                         && !conditionalTierHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)

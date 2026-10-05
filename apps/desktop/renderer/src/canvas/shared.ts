@@ -44,7 +44,7 @@ export const TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
-  flash: 'F', pro: 'P', argon: 'A',
+  flash: 'F', pro: 'P', argon: 'A', barium: 'B',
 }
 export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
@@ -107,20 +107,21 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
  *  codex family. Seats by the standing rule: flash $1.50 standing → 1 (the
  *  $0.75 launch price is a promo), pro $2 → 2 (the >200K long-context
  *  surcharge never sets a seat). */
-export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon']
+export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon', 'barium']
 export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
-  { flash: 'F', pro: 'P', argon: 'A' }
-/** argon's 2 is a PLACEHOLDER copied from pro (coordinator ruling
- *  2026-10-01) — mirrors ledger.TIERS until the user sets Argon's price. */
+  { flash: 'F', pro: 'P', argon: 'A', barium: 'B' }
+/** Argon and Barium seats are PLACEHOLDERS copied from pro (coordinator ruling
+ *  2026-10-01; Barium mirrors Argon, user 2026-10-05). Mirrors ledger.TIERS. */
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
-  { flash: 1, pro: 2, argon: 2 }
+  { flash: 1, pro: 2, argon: 2, barium: 2 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
- *  2026-10-01). Known to the axis (a node wearing one keeps its letter,
+ *  2026-10-01) and Barium (`gemini-4-barium`, user 2026-10-05). Known to the
+ *  axis (a node wearing one keeps its letter,
  *  colour and seat) but offered by NO chooser until the backend's providers
  *  payload lists it among the Antigravity tier rows, which it does only while
  *  the account's live `agy models` list contains that id. Mirrors
  *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
-export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon']
+export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium']
 /** Provider-neutral surfaces (for example the live-agent summary) use this;
  * provider-specific controls keep using their family list. */
 export const ALL_TIERS = [...TIERS, ...CODEX_TIERS, ...ANTIGRAVITY_TIERS]
@@ -523,7 +524,7 @@ export const codexTierOffer = (
 }
 
 /** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
- *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon)
+ *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon and Barium)
  *  hides until the payload's tier rows include it — no evidence, no offer.
  *  Everything else follows the family verdict. */
 export const antigravityTierOffer = (
@@ -535,7 +536,7 @@ export const antigravityTierOffer = (
   return familyOffer(h)
 }
 
-/* ---------------- conditional tiers the payload currently offers (Argon)
+/* ---------------- conditional tiers the payload currently offers (Argon and Barium)
    For surfaces that have no HireState of their own (the bearer rehire list).
    OrgCanvas feeds it from the same providers poll the hire strips read, so
    both answer from one payload. Subscribable, so a list re-renders the

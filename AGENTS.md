@@ -501,6 +501,12 @@ rulings go here and on their ticket.
   off-by-default last resort. Agents choose the account on hire, rehire, retool and staff;
   usage readings guide them but are never a server-side admission gate. [decided: user
   2026-09-07 to 2026-09-12; [`docs/v2-user-decisions.md`](docs/v2-user-decisions.md)]
+- **Conditional Gemini tiers:** Argon (`gemini-4-argon`) and speculative Barium
+  (`gemini-4-barium`, green `#8FFF9F`) are offered only when the account's `agy models`
+  registry lists the exact base id or its supported effort suffix. Each is gated
+  independently; existing agents retain their tier. Barium copies Argon's placeholder
+  seat, effort and usage rates. [decided: user 2026-10-05; verified:
+  `providers.py`, `canvas/shared.ts`, `tests/test_barium_tier.py`]
 - A provider that is not installed is absent from the UI; installed but signed out shows
   greyed hire tokens; a disabled provider refuses new hires while live agents keep running.
   Legacy models (Terra, Gemini Pro) appear only with "Show legacy models". [decided: user

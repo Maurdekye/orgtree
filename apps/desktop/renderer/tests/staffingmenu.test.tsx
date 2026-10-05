@@ -40,7 +40,7 @@ const LOADING = 'Loading current staffing choices…'
  *  produces exactly this sequence from a scrambled organization. Change either
  *  side alone and one of the two files fails. */
 const PUBLISHED = ['haiku', 'sonnet', 'opus', 'fable', 'luna', 'terra', 'sol',
-                   'astra', 'flash', 'pro', 'argon']
+                   'astra', 'flash', 'pro', 'argon', 'barium']
 
 /** The model-switch dropdown's own order (modals.tsx): Claude, then Codex, then
  *  Antigravity, then the OpenRouter favorites, each family in the sequence its

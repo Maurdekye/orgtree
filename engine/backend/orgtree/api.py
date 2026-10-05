@@ -14793,7 +14793,7 @@ def provider_hire_gate(
                 f"not signed in — run `agy` once on this machine and sign in "
                 f"with your Google account (accounts panel → Antigravity)")
         if tier in providers.CONDITIONAL_ANTIGRAVITY_TIERS:
-            # Argon: admitted only while the account's live `agy models`
+            # Argon and Barium: admitted only while the account's live `agy models`
             # registry lists the pinned id (re-probed fresh when the cached
             # list lacks it). A model that cannot run is never hired.
             availability = providers.conditional_antigravity_availability(

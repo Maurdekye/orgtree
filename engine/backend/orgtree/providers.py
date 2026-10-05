@@ -160,7 +160,7 @@ CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
 # collision of English, the same accepted collision as sol/sonnet's S — the
 # chip class (t-flash) carries the family.
 _ANTIGRAVITY_LETTER: Final[dict[str, str]] = {"flash": "F", "pro": "P",
-                                               "argon": "A"}
+                                               "argon": "A", "barium": "B"}
 
 #: which tier names belong to the antigravity provider — the AXIS, nothing
 #: more. Seats and model ids live in ledger.TIERS / ledger.MODELS; these
@@ -169,14 +169,15 @@ _ANTIGRAVITY_LETTER: Final[dict[str, str]] = {"flash": "F", "pro": "P",
 #: 1 — pro $2 (the ≤200K band; the long-context surcharge never sets a
 #: seat), flash $1.50 standing (3.8-flash's $0.75 is launch pricing through
 #: 2026-12-31, and a promo never sets a seat) → 1.
-_ANTIGRAVITY_TIER_NAMES: Final = ("flash", "pro", "argon")
+_ANTIGRAVITY_TIER_NAMES: Final = ("flash", "pro", "argon", "barium")
 #: Antigravity tiers that are known to the axis (an existing node keeps its
 #: lane, price and colour) but OFFERED and ADMITTED only while the live
 #: `agy models` registry lists the tier's pinned model id. Argon (user
 #: 2026-10-01: "when it is selectable ...") is Google's conditional rollout:
 #: the registry is server-side per account, so the account itself says when
-#: it may run. Same seam as CONDITIONAL_CODEX_TIERS, one lane over.
-CONDITIONAL_ANTIGRAVITY_TIERS: Final = frozenset({"argon"})
+#: it may run. Barium follows the same rule (user 2026-10-05).
+#: Same seam as CONDITIONAL_CODEX_TIERS, one lane over.
+CONDITIONAL_ANTIGRAVITY_TIERS: Final = frozenset({"argon", "barium"})
 #: float for the same reason CODEX_TIERS is, even though neither antigravity
 #: seat is fractional today: the type follows ledger.TIERS, not the values
 #: that happen to be in it.
@@ -305,6 +306,8 @@ ANTIGRAVITY_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     # Google's announcement quoted Argon API pricing but the user has not
     # confirmed which rate Orgtree should use; correct this row when they do.
     "gemini-4-argon": (2.00, 0.20, 12.00),
+    # Speculative placeholder: mirror Argon, not measured Barium pricing.
+    "gemini-4-barium": (2.00, 0.20, 12.00),
 }
 #: a model id with no row above (a version the registry grows later) is
 #: priced at the PRO row: overstating a stranger's cost is recoverable, a
@@ -315,8 +318,8 @@ ANTIGRAVITY_PRICE_FALLBACK: Final[tuple[float, float, float]] = (2.00, 0.20, 12.
 #: ratio every listed row of both this provider and codex publishes.
 ANTIGRAVITY_PRO_LONG: Final[tuple[float, float, float]] = (4.00, 0.40, 18.00)
 ANTIGRAVITY_LONG_THRESHOLD: Final[int] = 200_000
-#: ⚠ gemini-4-argon is here as a PLACEHOLDER copy of pro's long-context rule
-_ANTIGRAVITY_PRO_IDS: Final = ("gemini-3.1-pro", "gemini-4-argon")
+#: ⚠ gemini-4-argon and gemini-4-barium are here as a PLACEHOLDER copy of pro's long-context rule
+_ANTIGRAVITY_PRO_IDS: Final = ("gemini-3.1-pro", "gemini-4-argon", "gemini-4-barium")
 
 #: orgtree's effort vocabulary (ledger EFFORTS: low·medium·high·xhigh·max)
 #: → the CLI's `--effort`, per tier. Measured 2026-09-02 (agy 1.1.24): the
@@ -335,6 +338,9 @@ _ANTIGRAVITY_EFFORT: Final[dict[str, dict[str, str]]] = {
     # unmeasured — no agy build has listed gemini-4-argon yet
     "argon": {"low": "low", "medium": "high", "high": "high",
               "xhigh": "high", "max": "high"},
+    # Speculative placeholder: mirror Argon (user 2026-10-05).
+    "barium": {"low": "low", "medium": "high", "high": "high",
+               "xhigh": "high", "max": "high"},
 }
 
 
@@ -939,7 +945,7 @@ def antigravity_tiers(registry: Iterable[str] | None = None
 
 def conditional_antigravity_availability(
         tier: str, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Is a conditional Antigravity tier (Argon) runnable on this account
+    """Is a conditional Antigravity tier (Argon or Barium) runnable on this account
     right now? Asks the registry the connect probe already read; when the
     cached read does not list the model, probes once more FRESH before
     saying no, so a model Google switched on a minute ago is not refused on
@@ -1656,7 +1662,7 @@ def providers_payload(claude_status: dict[str, Any], force: bool = False,
             # label: the CLI's own product name, not the vendor's.
             "label": PROVIDER_LABEL["google"],
             "cli": "Antigravity CLI",
-            # Argon (a conditional row) only while the registry this same
+            # Argon and Barium (conditional rows) only while the registry this same
             # probe read lists its id
             "tiers": antigravity_tiers(antigravity.get("models")),
             "status": antigravity,

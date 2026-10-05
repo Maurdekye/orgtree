@@ -603,7 +603,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     (v) => v.id === 'openrouter') ?? null
   useEffect(() => { setOpenRouterTiers(openrouterProvider?.tiers) },
     [openrouterProvider])
-  // the conditional Antigravity tiers (Argon) the same poll says agy lists —
+  // the conditional Antigravity tiers (Argon and Barium) the same poll says agy lists —
   // for the surfaces that carry no HireState of their own
   useEffect(() => { setOfferedConditionalTiers(antigravityProvider?.tiers) },
     [antigravityProvider])
@@ -4351,7 +4351,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   // ITSELF offerable.
   const tierOffer = (f: (typeof famRows)[number], t: string): FamilyOffer =>
     f.key === 'codex' ? codexTierOffer(f.hire, t)
-      // Gemini Pro (legacy toggle) and Argon (only once agy lists it)
+      // Gemini Pro (legacy toggle) and Argon/Barium (only once agy lists it)
       : f.key === 'antigravity' ? antigravityTierOffer(f.hire, t)
       // an opt-in legacy tier of another family, toggle off
       : optInLegacyHidden(t) ? 'hide' : f.offer

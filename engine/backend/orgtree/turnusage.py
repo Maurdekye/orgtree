@@ -47,7 +47,7 @@ _WINDOW_ORDER: Final = {
 }
 _SAFE_MODELS: Final = {
     "fable", "opus", "sonnet", "haiku",
-    "gpt-reserve", "sol", "terra", "luna", "flash", "pro", "argon",
+    "gpt-reserve", "sol", "terra", "luna", "flash", "pro", "argon", "barium",
 }
 _SAFE_GROUP: Final = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 

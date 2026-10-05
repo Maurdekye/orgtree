@@ -33,7 +33,7 @@ LANES = frozenset({"claude", "openrouter", "codex", "antigravity"})
 # ledger.TIERS' keys, copied: this module imports nothing of orgtree
 TIERS = frozenset({"fable", "opus", "sonnet", "haiku", "sol", "terra",
                    "gpt-reserve", "luna", "astra", "flash", "pro",
-                   "argon"})
+                   "argon", "barium"})
 OUTCOMES = frozenset({"completed", "interrupted", "frozen", "killed",
                       "abandoned", "unrecoverable", "redriven", "failed",
                       "crashed", "unknown"})

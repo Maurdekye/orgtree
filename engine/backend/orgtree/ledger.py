@@ -110,7 +110,9 @@ TIERS: Final[dict[str, float]] = {"fable": 10, "opus": 4, "sonnet": 2, "haiku": 
                                   # standing price for Gemini 4 Argon, so it
                                   # copies the top Gemini tier (pro) until
                                   # the user corrects it
-                                  "argon": 2}
+                                  "argon": 2,
+                                  # Barium mirrors Argon (user 2026-10-05).
+                                  "barium": 2}
 
 # The credit grid. Every seat is quantised to 0.01 and every credit quantity
 # is re-quantised after each mutation, which is what makes float arithmetic
@@ -220,6 +222,8 @@ MODELS: Final[dict[str, str]] = {
     # nothing offers or admits it until the live `agy models` registry lists
     # this id. If Google ships a different id, this is the one correction.
     "argon": "gemini-4-argon",
+    # Speculative Barium: same conditional rollout, user model id 2026-10-05.
+    "barium": "gemini-4-barium",
 }
 
 # A TIER is a price band — four of them, four chips. A model VERSION is a
