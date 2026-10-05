@@ -19,6 +19,11 @@ class MailReaders(unittest.TestCase):
             return dict(id=mid,at=fixture.AT,body=body or mid,**{'from':sender})
         def seed(slug):
             org = fixture.store.load_org(slug)
+            for name,node in org.nodes.items():
+                node.setdefault('session_id','record-'+name)
+                node.setdefault('bearer_state',None)
+            for ask in org.d['asks']:
+                ask['questions'] = [{'id':'question-1','question':ask['question']}]
             org.d['mail_log'] = {
                 'ops':[mail('ops'+str(i)) for i in range(55)],
                 'boss':[mail('boss'+str(i)) for i in range(55)],
@@ -119,11 +124,12 @@ class MailReaders(unittest.TestCase):
         if isinstance(plan,str): plan = json.loads(plan)
         scans = []
         def visit(node):
-            if node.get('Index Name') == 'record_mail_owner_sender': scans.append(node)
+            if 'Index' in node.get('Node Type',''): scans.append(node)
             for child in node.get('Plans',[]): visit(child)
         visit(plan[0]['Plan'])
-        self.assertGreaterEqual(len(scans),2)
-        self.assertTrue(all(scan['Actual Rows'] <= 1 for scan in scans))
+        self.assertGreaterEqual(len(scans),2,plan)
+        self.assertTrue(all(scan['Actual Rows'] <= 1 for scan in scans),plan)
+        self.assertTrue(all('agent_id' in scan.get('Index Cond','') for scan in scans),plan)
 
     def test_first_recipient_row_delete_moves_unchanged_sent_row_into_window(self):
         owner = self.raw.execute("SELECT id FROM orgtree.agents WHERE name='ops' AND NOT tombstone").fetchone()[0]
