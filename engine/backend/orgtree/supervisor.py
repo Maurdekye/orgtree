@@ -14803,53 +14803,54 @@ def _working_lifecycle_keeper_pass(
             cache_launch, now, checkup_mode_enabled=False)
 
 
-#: What a docket reassignment writes besides node rows: the item, the
-#: assignment mail (mail + mail_log), its notice and the lifecycle record
-#: (PG-3e-B; the work-item family's rows, found by running the pass).
-_ABANDONED_SECTIONS = ("work_items", "mail", "notices", "asks")
-# `lifecycle` is a list log since PG-3d (plan decision 38), not a section
-_ABANDONED_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log", "mail_log",
-                                              "lifecycle")
+# One bounded batch per org per keeper tick; failures must not hammer the
+# same locks every tick. Mail and assignment remain one atomic transaction.
+_ABANDONED_BATCH = 8
+_abandoned_retry: dict[str, tuple[int, float]] = {}
 
 
 def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
-    """Reassign stale docket items whose OWNER is gone — deleted, retired, or
-    an id re-minted by a later hire. An owner that merely advanced generation
-    (compaction, session replacement) keeps its items; see
-    `ledger._work_identity_state`.
-    The ledger transition and assignment mail are committed under DOC_LOCK;
-    wake nudges happen only after save, so a recipient never starts before the
-    new owner is durable.  A missing top-level leaves the item untouched.
+    """Recover a small predicted batch, rechecking ownership under its locks.
+
+    The normal mail declaration includes all send side effects. The standard
+    docket transaction widens a missed write after rollback; no all-node lock
+    is needed. Wake nudges happen only after the assignment mail commits.
     """
+    from itertools import islice
+    from . import worktx
     stamp = time.time() if now is None else now
-    # identities only: `list_orgs()` decoded every node row of every org per
-    # 20 s tick to build summary rows this loop never reads
     for row in policy_context.org_rows():
         slug = str(row["slug"])
+        failures, retry_at = _abandoned_retry.get(slug, (0, 0.0))
+        if stamp < retry_at:
+            continue
         moved: list[dict[str, Any]] = []
         try:
-            # PG-3e-B: a read-only check on a lock-free view first, so the
-            # common nothing-abandoned pass locks nothing; only an org with
-            # work to move takes the transaction, which then decides again
-            # under the locks. The reassignment deposits assignment mail into
-            # the new owners' mailboxes (their node rows) and can land on any
-            # top-level node, so it locks every node row. The view decodes
-            # only the stale items' owner rows, never the retired history
-            # (abandoned-ticket-check-decodes-every-node-row-of: the old
-            # snapshot decoded every node row of every org per 20 s tick).
-            if not store.load_runtime_org(slug).work_abandoned_pending(now_ts=stamp):
+            snap = store.load_runtime_org(slug)
+            candidates = list(islice(snap._work_abandoned_candidates(stamp, None),
+                                     _ABANDONED_BATCH))
+            tops = snap._work_live_tops() if candidates else []
+            if not tops:
+                _abandoned_retry.pop(slug, None)
                 continue
-            with orgtx.org_tx(slug, nodes=orgtx.ALL,
-                              sections=_ABANDONED_SECTIONS,
-                              logs=_ABANDONED_LOGS) as tx:
-                moved = tx.org.work_reassign_abandoned(now_ts=stamp)
-        except LedgerError as exc:
-            print(f"[orgtree] {slug}: abandoned docket recovery skipped: "
-                  f"{type(exc).__name__}: {exc}")
-            continue
-        except Exception as exc:  # noqa: BLE001
-            print(f"[orgtree] {slug}: abandoned docket recovery failed: "
-                  f"{type(exc).__name__}: {exc}")
+            recipient = tops[0]
+            slugs = {str(it["slug"]) for it, _, _ in candidates}
+            owners = {str((it.get("owner") or {}).get("node") or "")
+                      for it, _, _ in candidates} - {""}
+            rows = worktx.Rows(sections={"asks", *(("work_items", wid) for wid in slugs)})
+            rows.notify(recipient, *sorted(owners))
+            active = {str(it["slug"]) for it in snap._work_active()}
+            if slugs - active:
+                rows.logs.add("work_items_archive")
+            moved = worktx.run(slug, lambda org: org.work_reassign_abandoned(
+                now_ts=stamp, slugs=slugs, recipient=recipient), rows=rows)
+            _abandoned_retry.pop(slug, None)
+        except Exception as exc:  # rollback, then bounded per-org backoff
+            failures = min(failures + 1, 5)
+            delay = min(60.0 * (2 ** (failures - 1)), 900.0)
+            _abandoned_retry[slug] = (failures, stamp + delay)
+            print(f"[orgtree] {slug}: abandoned docket recovery failed; "
+                  f"retry in {delay:g}s: {type(exc).__name__}: {exc}")
             continue
         for item in moved:
             owner = str((item.get("owner") or {}).get("node") or "")

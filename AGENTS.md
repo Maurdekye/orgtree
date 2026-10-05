@@ -797,3 +797,10 @@ Do not rebuild, re-propose or "restore" these without a new ruling from the user
   public releases are normal releases.
 - `docs/v3-qualification.md` and `synthetic-migration-harness.md` exercise the SQLite-era
   layout, not the per-org databases.
+
+Abandoned-docket recovery processes at most eight predicted items per org per tick,
+locks their rows and notification recipients, and rechecks stale ownership and the
+destination under those locks. Mail uses the standard send declaration; missed writes
+widen only after rollback. Failures back off from 60 seconds to 15 minutes per org;
+successful passes clear the backoff. No all-node recovery lock is taken.
+[verified 2026-10-05: `supervisor._abandoned_docket_recovery_pass`, `worktx.py`]

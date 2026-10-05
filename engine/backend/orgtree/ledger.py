@@ -17383,7 +17383,8 @@ class Org:
         return want
 
     def _work_abandoned_candidates(self, now_ts: float | None,
-                                   threshold_s: float | None
+                                   threshold_s: float | None,
+                                   slugs: set[str] | None = None
                                    ) -> Iterator[tuple[WorkItem, float, str]]:
         """(item, age, owner state) for each stale nonterminal item whose
         OWNER is gone, in docket order -- the selection both the dry check
@@ -17407,6 +17408,8 @@ class Org:
                for st in self._work_archive_statuses()):
             items += self._work_archive()
         for it in items:
+            if slugs is not None and it.get("slug") not in slugs:
+                continue
             if self._work_status(it) in self.WORK_CLOSED:
                 continue
             age = self._work_recovery_age_s(it, now_ts)
@@ -17419,10 +17422,10 @@ class Org:
 
     def _work_live_tops(self) -> list[str]:
         """The live top-level node ids, sorted: where abandoned work goes.
-        A walk of the node table, so it runs only once a candidate exists."""
-        return sorted(str(nid) for nid, node in self.nodes.items()
-                      if node.get("state") == "live"
-                      and not str(node.get("parent") or "").strip())
+        The indexed live-id reader never decodes retired history."""
+        from . import store
+        return sorted(nid for nid in store.live_node_ids(self)
+                      if not str(self.nodes[nid].get("parent") or "").strip())
 
     def work_abandoned_pending(self, now_ts: float | None = None,
                                threshold_s: float | None = None) -> bool:
@@ -17434,7 +17437,9 @@ class Org:
         return False
 
     def work_reassign_abandoned(self, now_ts: float | None = None,
-                                threshold_s: float | None = None
+                                threshold_s: float | None = None, *,
+                                slugs: set[str] | None = None,
+                                recipient: str | None = None
                                 ) -> list[dict[str, Any]]:
         """Reassign stale nonterminal work whose OWNER is gone — the node was
         deleted, retired/dissolved, or its id was re-minted by a later hire.
@@ -17447,10 +17452,12 @@ class Org:
         moved: list[dict[str, Any]] = []
         tops: list[str] | None = None
         # list() first: the reassignment edits the items being selected
-        for it, age, owner_state in list(self._work_abandoned_candidates(now_ts, threshold_s)):
+        for it, age, owner_state in list(self._work_abandoned_candidates(now_ts, threshold_s, slugs)):
             if tops is None:
                 tops = self._work_live_tops()
-            if not tops:
+            # A scoped keeper plan must never switch to an unlocked recipient.
+            # A concurrent top-level change is picked up on the next pass.
+            if not tops or (recipient is not None and tops[0] != recipient):
                 return []
             result = self._work_assign_core(SYSTEM, it, tops[0], True,
                                             "abandoned-owner")
