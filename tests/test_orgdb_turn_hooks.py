@@ -173,8 +173,10 @@ class Hooks(unittest.TestCase):
 
     def test_environment_overrides_cannot_inject_run_or_seat_credentials(self):
         overrides = function('supervisor.py', 'env_overrides', {
-            'time': time, '_ENV_OVERRIDES_TTL': 2,
-            '_ENV_OVERRIDES_CACHE': {'at': time.time(), 'val': {'org/seat': {
+            # Extraction parses the large supervisor; elapsed wall time must not
+            # expire this cache-only credential-filtering fixture.
+            'time': SimpleNamespace(time=lambda: 100.0), '_ENV_OVERRIDES_TTL': 2,
+            '_ENV_OVERRIDES_CACHE': {'at': 100.0, 'val': {'org/seat': {
                 turn_context.ENV: 'forged', 'ORGTREE_AGENT_TOKEN': 'forged-seat', 'TASK_FLAG': 'yes'}}}})
         self.assertEqual(overrides('org', 'seat'), {'TASK_FLAG': 'yes'})
 
