@@ -194,19 +194,29 @@ class _File:
         self.fh = open(path, "ab")
         self.size = self.fh.tell()
 
+    def _reopen(self) -> None:
+        self.fh = open(self.path, "ab")
+        self.size = self.fh.tell()
+
     def _rotate(self) -> None:
         self.fh.close()
-        for i in range(self.keep, 0, -1):
-            src = self.path if i == 1 else self.path.with_name(f"{self.path.name}.{i - 1}")
-            if src.exists():
-                os.replace(src, self.path.with_name(f"{self.path.name}.{i}"))
-        self.fh = open(self.path, "ab")
-        self.size = 0
+        try:
+            for i in range(self.keep, 0, -1):
+                src = self.path if i == 1 else self.path.with_name(f"{self.path.name}.{i - 1}")
+                if src.exists():
+                    os.replace(src, self.path.with_name(f"{self.path.name}.{i}"))
+        finally:
+            # A failed rename must not poison every later write. The main file
+            # may still contain its old bytes, so recover its actual size.
+            self._reopen()
 
     def write_lines(self, stream: str, lines: list[str]) -> None:
         try:
             ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
             with self.lock:
+                # If reopening failed during rotation, retry on the next line.
+                if self.fh.closed:
+                    self._reopen()
                 limit = max(64, min(MAX_LINE_BYTES, self.max_bytes))
                 for ln in lines:
                     b = f"{ts}Z {stream} {_scrub(ln)}".encode("utf-8", "replace")
