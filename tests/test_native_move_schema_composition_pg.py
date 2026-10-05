@@ -1,4 +1,4 @@
-""Actual landed G/O1 composition: rename prepass after owned scalar writes.""
+"""Actual landed G/O1 composition: rename prepass after owned scalar writes."""
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import copy
@@ -198,4 +198,3 @@ class CombinedRename(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
