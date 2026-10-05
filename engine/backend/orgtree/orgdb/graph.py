@@ -438,6 +438,90 @@ def save_baselines(conn: Any, d: Any, lazy: Any, changes: Any) -> Any:
     return working
 
 
+def write_order(raw: Any, writes: list[tuple[str, str, Any]], names: Any
+                ) -> list[tuple[str, str, Any]]:
+    """Order CAS-accepted bodies by their final physical ancestor paths.
+
+    The adapter has already compared each old text once under its existing
+    locks. Only these accepted bodies participate in the overlay. A final
+    ancestor is written before its children, so detaching a rising parent
+    precedes attaching its former superior beneath it. Unchanged path edges
+    come from indexed upward reads; no descendant or whole-org scan is used.
+
+    This changes no row, baseline, name cache or lock. All native structural
+    coverage is checked before the first write. Raw compatibility writers
+    retain unconditional eager guards. A genuine final cycle keeps input
+    order and is refused by those same guards, with their existing error.
+    """
+    from . import codec   # noqa: PLC0415
+    if not writes:
+        return []
+    decoded = [json.loads(text) for _, text, _ in writes]
+    for (name, _, _), value in zip(writes, decoded):
+        guard_node_put(raw, name, value)
+    # Preserve ordinary codec errors and repeated-name statement semantics.
+    if any(not isinstance(v, dict) for v in decoded) or len({w[0] for w in writes}) != len(writes):
+        return list(writes)
+    selected = raw.execute('SELECT id,name,parent_id FROM orgtree.agents '
+                           'WHERE name=ANY(%s) AND NOT tombstone',
+                           ([w[0] for w in writes],)).fetchall()
+    identities = {str(name): int(aid) for aid, name, _ in selected}
+    if set(identities) != {w[0] for w in writes}:
+        # The accepted locked read normally makes this impossible. Do not
+        # turn an exceptional codec/identity path into a different writer.
+        return list(writes)
+    parent_names = {v['parent'] for v in decoded
+                    if codec.fits('text', v.get('parent'))}
+    # Match DbContext/Names exactly, including the empty name and tombstones.
+    # A parent also in this batch is its current physical head: node_put sets
+    # that cache entry before a later child is encoded. Other cached links
+    # retain their existing identity; uncached names use Names._find's order.
+    references = {name: int(aid) for name, aid in names.by_name.items()
+                  if name in parent_names}
+    unresolved = parent_names - references.keys() - identities.keys()
+    if unresolved:
+        references.update(raw.execute('SELECT DISTINCT ON (name) name,id FROM orgtree.agents '
+            'WHERE name=ANY(%s) ORDER BY name,tombstone,id', (sorted(unresolved),)).fetchall())
+    references.update({name: aid for name, aid in identities.items() if name in parent_names})
+    final = {identities[name]: references.get(value.get('parent'))
+             if codec.fits('text', value.get('parent')) else None
+             for (name, _, _), value in zip(writes, decoded)}
+    if all(final[int(aid)] == parent for aid, _, parent in selected):
+        return list(writes)
+    changed = {str(name) for aid, name, parent in selected if final[int(aid)] != parent}
+    roots = changed | {value['parent'] for (name, _, _), value in zip(writes, decoded)
+                       if name in changed and codec.fits('text', value.get('parent'))}
+    # A name-preserving alias change still changes a physical edge. Validate
+    # its old and new paths even if the ordinary decoded-name guard saw no
+    # change. This remains a coverage check; it acquires no body lock.
+    check_paths(raw, roots, updates=changed)
+    starts = set(final) | {aid for aid in final.values() if aid is not None}
+    rows = raw.execute(
+        'WITH RECURSIVE path(id,parent_id) AS ('
+        'SELECT id,parent_id FROM orgtree.agents WHERE id=ANY(%s) '
+        'UNION SELECT a.id,a.parent_id FROM path p CROSS JOIN LATERAL '
+        '(SELECT id,parent_id FROM orgtree.agents WHERE id=p.parent_id OFFSET 0) a) '
+        'SELECT id,parent_id FROM path', (sorted(starts),)).fetchall()
+    parents = {int(aid): parent for aid, parent in rows}
+    parents.update(final)
+    depth: dict[int, int] = {}
+    for start in final:
+        chain: list[int] = []
+        seen: set[int] = set()
+        current = start
+        while current is not None and current not in depth:
+            if current in seen:
+                return list(writes)  # let the unchanged eager guard refuse the final cycle
+            seen.add(current)
+            chain.append(current)
+            current = parents.get(current)
+        height = depth[current] + 1 if current is not None else 0
+        for aid in reversed(chain):
+            depth[aid] = height
+            height += 1
+    return sorted(writes, key=lambda write: depth[identities[write[0]]])
+
+
 def guard_node_put(raw: Any, name: str, value: Any) -> None:
     """Before lookup/encoding/header writes: cover only actual graph changes."""
     from . import codec   # noqa: PLC0415

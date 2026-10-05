@@ -1,12 +1,13 @@
 """Public native rehire-and-insert preserves a valid final graph atomically."""
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import json
 import unittest
 from unittest.mock import patch
 
 import test_orgdb_compat_pg as fixture
 import test_native_move_endpoints_pg as endpoints
-from orgtree import api, ledger, store
-from orgtree.orgdb import graph
+from orgtree import api, ledger, orgtx, pgdoor, store
+from orgtree.orgdb import graph, native_move
 from orgtree.orgdb.compat import rows as R
 
 
@@ -29,6 +30,67 @@ class NativeInsertParent(unittest.TestCase):
             rows = conn.raw.execute('SELECT id,name,tombstone,state,parent_id,row_version '
                                     'FROM orgtree.agents ORDER BY id').fetchall()
         return revision, rows
+
+    def accepted_writes(self, raw, order=('a', 'leaf')):
+        before = {name: text for name, text, _ in R.nodes(raw, list(order), lock=True)}
+        writes = []
+        for name in order:
+            value = json.loads(before[name])
+            value['parent'] = 'leaf' if name == 'a' else 'boss'
+            value['unknown_insertion_payload'] = {'escaped': '\u0000\ud800', 'value': [name]}
+            writes.append((name, store._dumps(value), before[name]))
+        return writes
+
+    def test_helper_orders_both_input_orders_and_preserves_payload_without_handoff(self):
+        before = self.snapshot()
+        for order in (('a', 'leaf'), ('leaf', 'a')):
+            with self.subTest(order=order), store._POOL.acquire(self.slug) as conn:
+                with conn.raw.transaction():
+                    conn.raw.execute('SAVEPOINT insertion_order_test')
+                    names = R.Names(conn.raw)
+                    writes = self.accepted_writes(conn.raw, order)
+                    cache = dict(names.by_name)
+                    arranged = graph.write_order(conn.raw, writes, names)
+                    self.assertEqual([write[0] for write in arranged], ['leaf', 'a'])
+                    self.assertEqual(writes, self.accepted_writes(conn.raw, order))
+                    self.assertEqual(names.by_name, cache)
+                    self.assertFalse(graph._scalar_records(conn.raw))
+                    for name, text, _ in arranged:
+                        R.node_put(conn.raw, name, json.loads(text), names)
+                    after = {name: json.loads(text) for name, text, _ in R.nodes(conn.raw, list(order))}
+                    for name, text, _ in writes:
+                        self.assertEqual(after[name], json.loads(text))
+                    self.assertEqual(graph.verify_stats(conn.raw), [])
+                    conn.raw.execute('ROLLBACK TO SAVEPOINT insertion_order_test')
+                    conn.raw.execute('RELEASE SAVEPOINT insertion_order_test')
+            self.assertEqual(self.snapshot(), before)
+
+    def test_helper_preserves_raw_final_cycle_refusal_and_rollback(self):
+        import psycopg
+        before = self.snapshot()
+        with store._POOL.acquire(self.slug) as conn:
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                with conn.raw.transaction():
+                    names = R.Names(conn.raw)
+                    writes = self.accepted_writes(conn.raw)
+                    value = json.loads(writes[1][1])
+                    value['parent'] = 'a'
+                    writes[1] = ('leaf', store._dumps(value), writes[1][2])
+                    self.assertEqual(graph.write_order(conn.raw, writes, names), writes)
+                    for name, text, _ in writes:
+                        R.node_put(conn.raw, name, json.loads(text), names)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_helper_missing_structural_coverage_widens_before_any_write(self):
+        before = self.snapshot()
+        with orgtx.org_tx(self.slug, nodes=['a', 'leaf']) as tx:
+            raw = native_move.connection(tx.org)
+            writes = self.accepted_writes(raw)
+            with patch.object(R, 'node_put', side_effect=AssertionError('unexpected body write')):
+                with self.assertRaises(pgdoor.Widen) as raised:
+                    graph.write_order(raw, writes, R.Names(raw))
+            self.assertTrue({'a', 'leaf'} & set(raised.exception.spec.structural_roots))
+        self.assertEqual(self.snapshot(), before)
 
     def test_public_rehire_insert_preserves_identity_credit_and_one_revision(self):
         org = store.load_org(self.slug)
