@@ -290,6 +290,59 @@ class EngineLog(unittest.TestCase):
             self.assertLessEqual(p.stat().st_size, 2000, p.name)
         self.assertIn("bytes, cut]", self.text())
 
+    def test_logging_recovers_after_rotation_rename_failure(self):
+        path = self.install(max_bytes=1000, keep=2)
+        log = enginelog._INSTALLED
+        print("seed " + "x" * 430)
+        before = self.text()
+        with mock.patch.object(enginelog.os, "replace", side_effect=PermissionError("busy backup")):
+            print("rotation " + "x" * 600)
+        print("after rename failure")
+        self.assertIn("after rename failure", self.text())
+        self.assertTrue(self.text().startswith(before))
+        self.assertIn("rotation", self.out.getvalue())
+        self.assertFalse(log.fh.closed)
+        self.assertLessEqual(path.stat().st_size, 1000)
+
+    def test_logging_recovers_after_rotation_reopen_failure(self):
+        path = self.install(max_bytes=1000, keep=2)
+        print("seed " + "x" * 430)
+        real_open = open
+        def unavailable(*args, **kwargs):
+            # The old log was renamed but the replacement could not be opened.
+            raise PermissionError("replacement unavailable")
+        with mock.patch.object(enginelog, "open", unavailable, create=True):
+            print("rotation " + "x" * 600)
+        print("after reopen failure")
+        self.assertIn("after reopen failure", self.text())
+        self.assertIn("seed", self.text("engine.log.1"))
+        self.assertLessEqual(path.stat().st_size, 1000)
+
+    def test_logging_recovers_from_a_closed_output_handle(self):
+        self.install()
+        enginelog._INSTALLED.fh.close()
+        print("after closed handle")
+        self.assertIn("after closed handle", self.text())
+        self.assertEqual(self.out.getvalue(), "after closed handle\n")
+
+    def test_rotation_keeps_a_bounded_number_of_files(self):
+        self.install(max_bytes=2000, keep=2)
+        for i in range(200):
+            print(f"line {i:04d} " + "x" * 40)
+        files = sorted(p.name for p in (self.data / "diagnostics").iterdir())
+        self.assertEqual(files, ["engine.log", "engine.log.1", "engine.log.2"])
+        for name in files:
+            self.assertLessEqual((self.data / "diagnostics" / name).stat().st_size, 2200)
+        self.assertIn("line 0199", self.text())
+
+    def test_install_twice_is_a_no_op(self):
+        self.install()
+        first = sys.stdout
+        self.assertEqual(enginelog.install(self.data), self.data / "diagnostics" / "engine.log")
+        self.assertIs(sys.stdout, first)
+        print("once")
+        self.assertEqual(len(re.findall(r" out once\n", self.text())), 1)
+
 
 def _outside_handler(tree):
     """(line, name) of each print()/.write() naming an except-bound
@@ -320,25 +373,6 @@ def _outside_handler(tree):
             visit(c, handlers, names)
     visit(tree, [], set())
     return bad
-
-    def test_rotation_keeps_a_bounded_number_of_files(self):
-        self.install(max_bytes=2000, keep=2)
-        for i in range(200):
-            print(f"line {i:04d} " + "x" * 40)
-        files = sorted(p.name for p in (self.data / "diagnostics").iterdir())
-        self.assertEqual(files, ["engine.log", "engine.log.1", "engine.log.2"])
-        for name in files:
-            self.assertLessEqual((self.data / "diagnostics" / name).stat().st_size, 2200)
-        self.assertIn("line 0199", self.text())
-
-    def test_install_twice_is_a_no_op(self):
-        self.install()
-        first = sys.stdout
-        self.assertEqual(enginelog.install(self.data), self.data / "diagnostics" / "engine.log")
-        self.assertIs(sys.stdout, first)
-        print("once")
-        self.assertEqual(len(re.findall(r" out once\n", self.text())), 1)
-
 
 if __name__ == "__main__":
     unittest.main()
