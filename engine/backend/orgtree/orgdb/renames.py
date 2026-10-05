@@ -120,6 +120,8 @@ def prepass(conn: Any, d: Any, lazy: Any, intent: Intent, changes: Any) -> Any:
         return lazy                 # only unsaved hires were renamed
     if lazy is None or lazy._receipt_rows:
         raise store.StaleWrite('native rename requires node and section baselines')
+    from . import graph   # noqa: PLC0415
+    lazy = graph.save_baselines(conn, d, lazy, changes)
     # Node reference columns decode joined names. Validate their old texts before
     # changing names, and carry their post-rename text as the working CAS token.
     # Org.rename already walks these nodes; every adopted baseline is compared once.

@@ -34,7 +34,7 @@ def setUpModule():
                       'INSERT INTO orgtree.org_revision DEFAULT VALUES; '
                       'CREATE TABLE orgtree.agent_subtree_stats(agent_id bigint PRIMARY KEY)')
             migration = Path(__file__).resolve().parents[1] / (
-                'engine/backend/orgtree/pg_migrations/org/0016_agent_graph.sql')
+                'engine/backend/orgtree/pg_migrations/org/0017_agent_graph.sql')
             # Kernel-only fixture. The full-schema aggregate suite separately
             # tests eager stats, whose intermediate graph must itself be acyclic.
             c.execute(migration.read_text(encoding='utf-8').split('-- Eager aggregate section')[0])

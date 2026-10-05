@@ -500,7 +500,7 @@ class Migrations(unittest.TestCase):
                                  'orgtree.docket_archive_flush', 'orgtree.graph_final_flush'})
 
     def test_final_cycle_assertion_follows_revision_and_adds_no_row_lock(self) -> None:
-        migration = functions((MIGRATIONS / '0016_agent_graph.sql').read_text(encoding='utf-8'))
+        migration = functions((MIGRATIONS / '0017_agent_graph.sql').read_text(encoding='utf-8'))
         guard = migration['orgtree.graph_final_flush'][1]
         kernel = migration['orgtree.graph_assert_final_cycles'][1]
         self.assertLess(guard.index('FROM orgtree.org_revision'),
@@ -543,7 +543,7 @@ class Migrations(unittest.TestCase):
 
     def test_eager_graph_exception_is_named_and_refuses_upstream_locks(self) -> None:
         texts = _migrations()
-        graph_file = '0016_agent_graph.sql'
+        graph_file = '0017_agent_graph.sql'
         helpers = functions(texts[graph_file])
         self.assertEqual({t for _, t in touches(helpers['orgtree.graph_apply'][1])},
                          {'agent_subtree_stats'})

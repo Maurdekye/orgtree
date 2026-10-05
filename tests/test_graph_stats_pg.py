@@ -40,7 +40,7 @@ def setUpModule():
         with psycopg.connect(conn.with_db(ADMIN, DATABASE), autocommit=True) as c:
             c.execute('CREATE SCHEMA orgtree')
             for migration in migrate.files(migrate.ORG_DIR):
-                if migration.name == '0016_agent_graph.sql':
+                if migration.name == '0017_agent_graph.sql':
                     # A real upgrade begins with committed pre-migration rows.
                     # Pending seed FK/foreground events would prohibit agents DDL.
                     with c.transaction():
