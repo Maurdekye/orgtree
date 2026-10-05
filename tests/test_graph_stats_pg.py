@@ -85,6 +85,30 @@ class GraphStats(unittest.TestCase):
         self.assertEqual(self.stats(6), (1, 1, -1, 1))
         self.assertEqual(self.stats(2), (1, 2, 2, 1))
 
+    def test_alias_gate_index_follows_child_moves_and_parent_visibility(self):
+        self.assertEqual(self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats '
+            'WHERE height=-1 AND visible_children>0 ORDER BY agent_id').fetchall(), [(6,)])
+        self.c.execute('UPDATE orgtree.agents SET parent_id=1 WHERE id=7')
+        self.check_reference()
+        self.assertEqual(self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats '
+            'WHERE height=-1 AND visible_children>0').fetchall(), [])
+        self.c.execute('UPDATE orgtree.agents SET tombstone=true WHERE id=2')
+        self.check_reference()
+        self.assertEqual(self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats '
+            'WHERE height=-1 AND visible_children>0').fetchall(), [(2,)])
+        self.c.execute('SAVEPOINT gate_visible')
+        self.c.execute('UPDATE orgtree.agents SET tombstone=false WHERE id=2')
+        self.assertEqual(self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats '
+            'WHERE height=-1 AND visible_children>0').fetchall(), [])
+        self.c.execute('ROLLBACK TO SAVEPOINT gate_visible')
+        self.check_reference()
+        self.assertEqual(self.c.execute('SELECT agent_id FROM orgtree.agent_subtree_stats '
+            'WHERE height=-1 AND visible_children>0').fetchall(), [(2,)])
+
+    def test_alias_child_count_verifier_detects_planted_wrong_count(self):
+        self.c.execute('UPDATE orgtree.agent_subtree_stats SET visible_children=0 WHERE agent_id=6')
+        self.assertIn((6, 'visible children'), graph.verify_stats(self.c))
+
     def test_typed_selected_reader_refuses_missing_or_wrong_parent_cache(self):
         from orgtree.ledger import LedgerError
         stats = graph.subtree_stats(self.c, 'a')

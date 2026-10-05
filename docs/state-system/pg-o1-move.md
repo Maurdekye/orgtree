@@ -60,7 +60,7 @@ copy has multiple reverse-successor candidates.
 ### 2.1 Small, exact subtree aggregates
 
 Add `agent_subtree_stats(agent_id PK FK->agents, parent_agent_id, descendants,
-height, org_children_count)`. Only a column with a named existing reader belongs:
+height, org_children_count, visible_children)`. Only a column with a named existing reader belongs:
 - `descendants`: the move notice tail (`ledger.py:7233`), counting all ordinary
   descendant rows the current `descendants(..., live_only=False)` returns;
 - `height`: the existing root-only depth-cap check (`ledger.py:7144`), leaf=0,
@@ -68,11 +68,40 @@ height, org_children_count)`. Only a column with a named existing reader belongs
 - `org_children_count`: the existing child-cap check (`ledger.py:7156`), using
   EXACTLY `org_children` (`ledger.py:1805`): exclude an ARCHIVED node with a truthy
   successor, not every successor and not every non-live node.
+- `visible_children`: direct non-tombstone physical children, including archived
+  bearers; `graph.clean_stats` uses it through the tombstone-parent partial index.
 
 The cached parent deliberately duplicates agents.parent_id. Add it to main design
 A.7 and the independent verifier; equality must be checked. Index
 `(parent_agent_id, height DESC, agent_id)` gives one tallest-child probe. No closure
 table, persisted depth, embedded child multiset or lineage-slot tables.
+
+### 2.1.1 Clean-graph gate for decoded parity (decision32)
+
+The stats answer only while the org has no exception rows; otherwise the decoded
+path decides. Exceptions are visible children of a physical tombstone parent and
+exceptional decoded-parent encodings, including parent misfits and NULL/empty-name
+aliases. The existing decoded children/descendants reader remains the parity oracle.
+An org with exceptions, or a document with unsaved parent/state/successor changes,
+uses that reader for cap, depth and count decisions. This exceptional path costs
+O(S); it is disclosed by `graph.DECISION_STATS` and a warning log line. It does not
+normalize history or expand aliases into the physical cache.
+
+`visible_children` counts every non-tombstone physical direct child, maintained
+eagerly alongside the other path deltas. A partial index selects stats rows with
+height=-1 and visible_children>0. Another partial index selects exceptional parent
+encodings. Two ordered LIMIT 1 probes after the body locks require no new lock and
+do not scan the org. The independent verifier also checks visible_children. Loaded
+mutation checks preserve staged births/deletions/parent/state/successor changes;
+successful scalar moves already represented in SQL remain eligible for the stats.
+
+Known limit: a raw writer creating an exception concurrently is not serialized
+against this read-only gate. One decision can follow the physical value, while
+eager aggregate maintenance and final cycle assertions still protect stored stats
+and topology. The clean-path O(h+L) measurements do not establish exceptional-path
+performance. Controls must witness fallback/clean selection, exact cap/depth/count
+and notice output, staged edits and a removed-gate mutant. Count both exception
+kinds on the owned 2026-10-02 live copy under P03 before closing this change.
 
 One migration backfill builds the stats bottom-up from existing parents. Validate
 against a recursive reference in the same transaction. A backfill mismatch is a

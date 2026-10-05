@@ -13,6 +13,73 @@ from typing import Any
 from ..ledger import USER, LedgerError
 
 
+DECISION_STATS = {'decoded_fallbacks': 0, 'exceptions': 0, 'staged': 0}
+EXCEPTION_PROBE = (
+    'SELECT (SELECT agent_id FROM orgtree.agent_subtree_stats '
+    'WHERE height=-1 AND visible_children>0 ORDER BY agent_id LIMIT 1) IS NULL '
+    'AND (SELECT id FROM orgtree.agents WHERE NOT tombstone '
+    'AND (parent_misfit OR parent IS NOT NULL '
+    'OR (parent_null IS TRUE AND parent_id IS NOT NULL)) ORDER BY id LIMIT 1) IS NULL')
+
+
+def _staged_graph_edits(org: Any, raw: Any) -> bool:
+    """Inspect loaded mutations only; successful scalar moves are already in SQL.
+
+    This neither fetches nodes nor refreshes baselines. Deletions, births and
+    unsaved parent/state/successor changes need the decoded transaction view.
+    """
+    from . import codec   # noqa: PLC0415
+    nodes = org.nodes
+    if getattr(nodes, '_deleted', None):
+        return True
+    baselines = getattr(org.d, '_snap_nodes', {})
+    parents = {}
+    for name, node in dict.items(nodes):
+        mark = getattr(node, '_mutation', None)
+        if mark is not None and not (mark.dirty or mark.aliased):
+            continue
+        text = baselines.get(name)
+        if text is None or not isinstance(node, dict):
+            return True
+        before = json.loads(text)
+        if any(node.get(k, codec.MISSING) != before.get(k, codec.MISSING)
+               for k in ('state', 'successor')):
+            return True
+        if node.get('parent', codec.MISSING) != before.get('parent', codec.MISSING):
+            parents[name] = node.get('parent', codec.MISSING)
+    if not parents:
+        return False
+    records = _scalar_records(raw)
+    identities = {int(i) for i in records}
+    identities |= {r['after']['parent']['ref'] for r in records.values()
+                   if 'parent' in r['after'] and 'ref' in r['after']['parent']}
+    names = dict(raw.execute('SELECT id,name FROM orgtree.agents WHERE id=ANY(%s)',
+                             (sorted(identities),)).fetchall()) if identities else {}
+    written = {names.get(int(i)): _image_value(r['after']['parent'], names)
+               for i, r in records.items() if 'parent' in r['after']}
+    return any(name not in written or written[name] != parent for name, parent in parents.items())
+
+
+def clean_stats(org: Any, raw: Any) -> bool:
+    """Choose aggregates only for a clean, already-planned native decision.
+
+    Raw concurrent exception creation is not serialized by this read-only
+    gate. Eager stats and final cycle guards still protect stored topology.
+    """
+    if current_plan(raw) is None:
+        raise LedgerError('native graph decision requires its held lock plan')
+    reason = 'staged' if _staged_graph_edits(org, raw) else None
+    if reason is None and not raw.execute(EXCEPTION_PROBE).fetchone()[0]:
+        reason = 'exceptions'
+    if reason is None:
+        return True
+    import logging   # noqa: PLC0415
+    DECISION_STATS['decoded_fallbacks'] += 1
+    DECISION_STATS[reason] += 1
+    logging.getLogger(__name__).warning('Native graph decision uses decoded fallback: %s', reason)
+    return False
+
+
 @dataclass(frozen=True)
 class LockPlan:
     names: frozenset[str]

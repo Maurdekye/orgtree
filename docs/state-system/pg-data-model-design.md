@@ -325,7 +325,8 @@ The protocol (rev 7.8; the move design is [`pg-o1-move.md`](pg-o1-move.md)):
    id; then their `agent_subtree_stats` rows; then the other tiers). It takes all of them before
    its first structural statement, then re-reads parents and paths under them. If what it read
    no longer matches its plan, it rolls back and retries with a wider plan (pgdoor's
-   `Widen`). Under the locks:
+   `Widen`). The stats answer only while the org has no exception rows; otherwise
+   the decoded path decides. Under the locks:
    - **Cycle:** walk up from the destination; refuse if it meets the root or any of its moving
      bearers.
    - **Depth cap (unchanged root-only rule):** refuse when

@@ -125,10 +125,18 @@ CREATE TABLE orgtree.agent_subtree_stats (
   parent_agent_id bigint,
   descendants bigint NOT NULL DEFAULT 0 CHECK (descendants>=0),
   height integer NOT NULL DEFAULT 0 CHECK (height>=-1),
-  org_children_count bigint NOT NULL DEFAULT 0 CHECK (org_children_count>=0)
+  org_children_count bigint NOT NULL DEFAULT 0 CHECK (org_children_count>=0),
+  visible_children bigint NOT NULL DEFAULT 0 CHECK (visible_children>=0)
 );
 CREATE INDEX agent_subtree_tallest
   ON orgtree.agent_subtree_stats(parent_agent_id,height DESC,agent_id);
+-- Decoded name aliases are exceptional, not a second placement authority.
+-- Both ordered LIMIT 1 probes remain small even before ANALYZE runs.
+CREATE INDEX graph_alias_parents ON orgtree.agent_subtree_stats(agent_id)
+  WHERE height=-1 AND visible_children>0;
+CREATE INDEX graph_parent_exceptions ON orgtree.agents(id)
+  WHERE NOT tombstone AND (parent_misfit OR parent IS NOT NULL
+    OR (parent_null IS TRUE AND parent_id IS NOT NULL));
 
 -- Only the transition header is copied. Configured payload and child rows stay put.
 CREATE TYPE orgtree.graph_image AS (
@@ -191,7 +199,7 @@ LANGUAGE plpgsql SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE paths bigint[]; refreshed bigint[]; native_plan jsonb;
   ids bigint[]; parents integer[]; old_parents integer[];
   present boolean[]; visible boolean[]; was_visible boolean[]; removed boolean[];
-  sizes bigint[]; deltas bigint[]; child_deltas bigint[];
+  sizes bigint[]; deltas bigint[]; child_deltas bigint[]; visible_counts bigint[];
   old_heights integer[]; heights integer[]; height_dirty boolean[];
   degrees integer[]; old_degrees integer[]; queue integer[]; ready integer[];
   n integer; i integer; p integer; processed integer:=0; old_processed integer:=0;
@@ -240,8 +248,9 @@ BEGIN
          array_agg(a.id IS NULL ORDER BY d.position),
          array_agg(coalesce(s.descendants,0) ORDER BY d.position),
          array_agg(coalesce(s.height,0) ORDER BY d.position),
-         array_agg(CASE WHEN a.id IS NOT NULL THEN coalesce(s.org_children_count,0) ELSE 0 END ORDER BY d.position)
-    INTO ids,parents,old_parents,present,visible,was_visible,removed,sizes,old_heights,child_deltas
+         array_agg(CASE WHEN a.id IS NOT NULL THEN coalesce(s.org_children_count,0) ELSE 0 END ORDER BY d.position),
+         array_agg(CASE WHEN a.id IS NOT NULL THEN coalesce(s.visible_children,0) ELSE 0 END ORDER BY d.position)
+    INTO ids,parents,old_parents,present,visible,was_visible,removed,sizes,old_heights,child_deltas,visible_counts
     FROM dense d LEFT JOIN orgtree.agents a ON a.id=d.id
     LEFT JOIN orgtree.agent_subtree_stats s ON s.agent_id=d.id
     LEFT JOIN old_rows o ON o.id=d.id LEFT JOIN new_rows v ON v.id=d.id
@@ -290,11 +299,13 @@ BEGIN
     IF old_p<>0 THEN
       IF was_visible[pos] THEN deltas[old_p]:=deltas[old_p]-sizes[pos]-1; END IF;
       child_deltas[old_p]:=child_deltas[old_p]-CASE WHEN old_count THEN 1 ELSE 0 END;
+      visible_counts[old_p]:=visible_counts[old_p]-CASE WHEN was_visible[pos] THEN 1 ELSE 0 END;
       height_dirty[old_p]:=true;
     END IF;
     IF new_p<>0 THEN
       IF visible[pos] THEN deltas[new_p]:=deltas[new_p]+sizes[pos]+1; END IF;
       child_deltas[new_p]:=child_deltas[new_p]+CASE WHEN new_count THEN 1 ELSE 0 END;
+      visible_counts[new_p]:=visible_counts[new_p]+CASE WHEN visible[pos] THEN 1 ELSE 0 END;
       height_dirty[new_p]:=true;
     END IF;
     IF was_visible[pos] IS DISTINCT FROM visible[pos] OR removed[pos]
@@ -329,10 +340,10 @@ BEGIN
     FOR pos IN 1..cardinality(queue) LOOP heights[queue[pos]]:=ready[pos]; END LOOP;
     UPDATE orgtree.agent_subtree_stats s SET
       parent_agent_id=a.parent_id,descendants=sizes[g.i]+deltas[g.i],
-      height=heights[g.i],org_children_count=child_deltas[g.i]
+      height=heights[g.i],org_children_count=child_deltas[g.i],visible_children=visible_counts[g.i]
       FROM unnest(queue) g(i) JOIN orgtree.agents a ON a.id=ids[g.i]
-      WHERE s.agent_id=a.id AND (s.parent_agent_id,s.descendants,s.height,s.org_children_count)
-        IS DISTINCT FROM (a.parent_id,sizes[g.i]+deltas[g.i],heights[g.i],child_deltas[g.i]);
+      WHERE s.agent_id=a.id AND (s.parent_agent_id,s.descendants,s.height,s.org_children_count,s.visible_children)
+        IS DISTINCT FROM (a.parent_id,sizes[g.i]+deltas[g.i],heights[g.i],child_deltas[g.i],visible_counts[g.i]);
     ready:='{}'::integer[];
     FOREACH i IN ARRAY queue LOOP
       processed:=processed+1; p:=parents[i];
@@ -426,17 +437,19 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,orgtree AS $fn$
   ), reference AS (
     SELECT a.id,a.parent_id,count(r.descendant) AS descendants,
       CASE WHEN a.tombstone THEN -1 ELSE coalesce(max(r.distance),0) END AS height,
-      (SELECT count(*) FROM orgtree.agents c WHERE c.parent_id=a.id AND orgtree.graph_child_counted(c)) AS children
+      (SELECT count(*) FROM orgtree.agents c WHERE c.parent_id=a.id AND orgtree.graph_child_counted(c)) AS children,
+      (SELECT count(*) FROM orgtree.agents c WHERE c.parent_id=a.id AND NOT c.tombstone) AS visible_children
       FROM orgtree.agents a LEFT JOIN ancestors r ON r.ancestor=a.id GROUP BY a.id
   ) SELECT coalesce(a.id,s.agent_id),CASE
       WHEN a.id IS NULL THEN 'extra cache' WHEN s.agent_id IS NULL THEN 'missing cache'
       WHEN a.parent_id IS DISTINCT FROM s.parent_agent_id THEN 'parent copy'
       WHEN a.descendants<>s.descendants THEN 'descendants'
-      WHEN a.height<>s.height THEN 'height' ELSE 'org children' END
+      WHEN a.height<>s.height THEN 'height' WHEN a.children<>s.org_children_count THEN 'org children'
+      ELSE 'visible children' END
     FROM reference a FULL JOIN orgtree.agent_subtree_stats s ON s.agent_id=a.id
     WHERE a.id IS NULL OR s.agent_id IS NULL OR
-      (a.parent_id,a.descendants,a.height,a.children) IS DISTINCT FROM
-      (s.parent_agent_id,s.descendants,s.height,s.org_children_count)
+      (a.parent_id,a.descendants,a.height,a.children,a.visible_children) IS DISTINCT FROM
+      (s.parent_agent_id,s.descendants,s.height,s.org_children_count,s.visible_children)
 $fn$;
 
 DO $backfill$

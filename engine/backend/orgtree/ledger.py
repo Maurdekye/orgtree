@@ -6519,7 +6519,8 @@ class Org:
 
         before = {nid: p_a, target: n_t["parent"]}
         kept_count = (native_move.graph.subtree_stats(native_raw, target).descendants
-                      if native_raw is not None else len(self.descendants(target, live_only=False)))
+                      if native_raw is not None and native_move.graph.clean_stats(self, native_raw)
+                      else len(self.descendants(target, live_only=False)))
         warnings: list[str] = []
 
         # ------------------------------------------------------------ mutate
@@ -6583,7 +6584,7 @@ class Org:
             "after": {target: p_a or "top level", nid: target},
             "subtree_kept": kept_count,
             "retained_by_caller": (native_move.graph.subtree_stats(native_raw, nid).descendants
-                                   if native_raw is not None
+                                   if native_raw is not None and native_move.graph.clean_stats(self, native_raw)
                                    else len(self.descendants(nid, live_only=False))),
             "warnings": warnings,
         }
@@ -7303,7 +7304,7 @@ class Org:
         # ends up deepest, not `nid` itself.
         if new_parent is not None:
             cap_d = self.d.get("max_depth", MAX_DEPTH)
-            if native is not None:
+            if native is not None and native.use_stats:
                 rel = native.stats.height
             else:
                 sub = self.descendants(nid, live_only=False)
@@ -7317,7 +7318,8 @@ class Org:
             cap_c = self.d.get("max_children", MAX_CHILDREN)
             if new_parent != p_old:
                 children_count = (native_move.graph.subtree_stats(native.raw, new_parent).org_children_count
-                                  if native is not None else len(self.org_children(new_parent)))
+                                  if native is not None and native.use_stats
+                                  else len(self.org_children(new_parent)))
                 if children_count >= cap_c:
                     raise LedgerError(
                         f"{new_parent} already has {cap_c} reports (cap)")
@@ -7398,7 +7400,8 @@ class Org:
         if native is not None:
             warnings.append('Scopes and audiences follow the new reporting chain; '
                             'configured grants are kept and can become available again on moving back.')
-            subtree = native.stats.descendants
+            subtree = (native.stats.descendants if native.use_stats
+                       else len(self.descendants(nid, live_only=False)))
         else:
             swept = self._sweep_audiences()
             warnings += [f"audience revoked (no longer ancestral): {g}→{t}" for g, t in swept]

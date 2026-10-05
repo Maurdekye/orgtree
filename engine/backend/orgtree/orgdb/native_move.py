@@ -142,6 +142,7 @@ class Leg:
     moving: tuple[str, ...]
     stats: graph.SubtreeStats
     tokens: dict[str, tuple[int, int]]
+    use_stats: bool = True
 
 
 def begin(org: Any, actor: str, root: str, target: str | None) -> Leg | None:
@@ -155,7 +156,8 @@ def begin(org: Any, actor: str, root: str, target: str | None) -> Leg | None:
         (sorted(update),)).fetchall()}
     if set(tokens) != update:
         raise LedgerError('native move agent disappeared after its lock plan')
-    return Leg(raw, (root, *org.lineage_stack(root)), graph.subtree_stats(raw, root), tokens)
+    return Leg(raw, (root, *org.lineage_stack(root)), graph.subtree_stats(raw, root), tokens,
+               graph.clean_stats(org, raw))
 
 
 def persist(leg: Leg, org: Any, target: str | None, up: list[str],
