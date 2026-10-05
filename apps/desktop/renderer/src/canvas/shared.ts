@@ -2027,6 +2027,51 @@ export function edgeJumpPlacement(
   vp: { width: number; height: number },
   elev: number,
   region: { x: number; y: number; w: number; h: number },
+  obstacles: readonly EJRect[] = [],
+): { form: EJForm; y: number; band: boolean; inset: number } {
+  const put = edgeJumpBasePlacement(side, desk, vp, elev, region)
+  if (!obstacles.length) return put
+  // Reserve the expanded width too: hover/focus restores the name even on a tab.
+  const width = EJ_FULL
+  const x = side === 'l' ? put.inset : vp.width - put.inset - width
+  const intersects = (a: EJRect, b: EJRect) =>
+    a.x0 < b.x1 + EJ_GAP && a.x1 > b.x0 - EJ_GAP
+    && a.y0 < b.y1 + EJ_GAP && a.y1 > b.y0 - EJ_GAP
+  const rect = (x0: number, y: number): EJRect =>
+    ({ x0, x1: x0 + width, y0: y - EJ_H / 2, y1: y + EJ_H / 2 })
+  if (!obstacles.some(o => intersects(rect(x, put.y), o))) return put
+  // Try vertical clearance first. In a very short viewport the controls may
+  // occupy the whole edge, so also allow an inset past their horizontal edge.
+  const xs = [x, EJ_EDGE, vp.width - EJ_EDGE - width,
+    ...obstacles.flatMap(o => [o.x1 + EJ_GAP, o.x0 - EJ_GAP - width])]
+  const ys = [put.y, region.y + EJ_H / 2, region.y + region.h - EJ_H / 2,
+    desk.y0 - EJ_GAP - EJ_H / 2, desk.y1 + EJ_GAP + EJ_H / 2,
+    ...obstacles.flatMap(o => [o.y0 - EJ_GAP - EJ_H / 2, o.y1 + EJ_GAP + EJ_H / 2])]
+  let best: { x: number; y: number; score: number } | undefined
+  // A pin-free sliver may not hold an expanded card. As with a fully blocked
+  // region, degrade to the viewport rather than covering the navigation HUD.
+  for (const bounds of [region, { x: 0, y: 0, w: vp.width, h: vp.height }]) {
+    for (const cx of xs) for (const cy of [...ys, EJ_H / 2, vp.height - EJ_H / 2]) {
+      const box = rect(cx, cy)
+      if (box.x0 < bounds.x || box.x1 > bounds.x + bounds.w
+        || box.y0 < bounds.y || box.y1 > bounds.y + bounds.h
+        || obstacles.some(o => intersects(box, o))) continue
+      const actualWidth = put.form === 'full' ? EJ_FULL : put.form === 'mid' ? EJ_MID : 22
+      const actual = side === 'l' ? { ...box, x1: box.x0 + actualWidth }
+        : { ...box, x0: box.x1 - actualWidth }
+      const score = (intersects(actual, desk) ? 1e9 : 0)
+        + Math.abs(cx - x) * 1e4 + Math.abs(cy - put.y)
+      if (!best || score < best.score) best = { x: cx, y: cy, score }
+    }
+    if (best) break
+  }
+  return best ? { ...put, y: best.y,
+    inset: side === 'l' ? best.x : vp.width - best.x - width } : put
+}
+
+function edgeJumpBasePlacement(
+  side: 'l' | 'r', desk: EJRect, vp: { width: number; height: number }, elev: number,
+  region: { x: number; y: number; w: number; h: number },
 ): { form: EJForm; y: number; band: boolean; inset: number } {
   const rx0 = region.x, rx1 = region.x + region.w
   const ry0 = region.y, ry1 = region.y + region.h

@@ -69,6 +69,37 @@ function boxOf(
 const overlaps = (a: EJRect, b: EJRect) =>
   a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0
 
+test('navigation clearance at every elevation, zoom and window shape includes hover expansion', () => {
+  let oldCollisions = 0
+  for (const [w, h] of [[1440, 860], [1280, 900], [520, 900], [380, 400], [260, 140]]) {
+    const vp = { width: w, height: h }, region = whole(w, h)
+    const hud = { x0: 10, x1: 40, y0: h - 134, y1: h - 10 }
+    for (const zoom of [0.24, 0.5, 1, 2]) for (const elev of [0, h / 2, h, h * 2]) {
+      const size = Math.min(w, h) * zoom
+      const desk = { x0: (w - size) / 2, x1: (w + size) / 2,
+        y0: (h - size) / 2, y1: (h + size) / 2 }
+      for (const side of ['l', 'r'] as const) {
+        const old = edgeJumpPlacement(side, desk, vp, elev, region)
+        if (overlaps(boxOf(side, { ...old, form: 'full' }, w), hud)) oldCollisions++
+        const put = edgeJumpPlacement(side, desk, vp, elev, region, [hud])
+        const box = boxOf(side, { ...put, form: 'full' }, w)
+        assert.equal(overlaps(box, hud), false, JSON.stringify({ w, h, zoom, elev, side, put }))
+      }
+    }
+  }
+  assert.ok(oldCollisions > 10, 'fixtures actually reach the previous navigation collision')
+})
+
+test('navigation clearance follows a HUD moved by pinned windows', () => {
+  const vp = { width: 1280, height: 900 }
+  for (const region of [{ x: 330, y: 80, w: 950, h: 600 }, { x: 0, y: 0, w: 100, h: 160 }]) {
+    const hud = { x0: region.x + 10, x1: region.x + 40,
+      y0: region.y + region.h - 134, y1: region.y + region.h - 10 }
+    const put = edgeJumpPlacement('l', deskIn(region), vp, hud.y0 + 60, region, [hud])
+    assert.equal(overlaps(boxOf('l', { ...put, form: 'full' }, vp.width), hud), false)
+  }
+})
+
 // every window shape worth caring about, including the two the probe next door
 // measures at and the near-square case that is tight on both axes
 const SHAPES: [string, number, number][] = [

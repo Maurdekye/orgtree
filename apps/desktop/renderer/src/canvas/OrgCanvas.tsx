@@ -27,7 +27,7 @@ import {
 import {
   ago, ALL_TIER_SEAT, antigravityTierOffer, anyTierSeat, attentionPip, codexTierOffer, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, optInLegacyHidden, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
-  peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI,
+  peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
@@ -1805,6 +1805,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return freeInsets(clearRegion(box, anchorObstacles), { w: viewportSize.w, h: viewportSize.h })
   }, [anchorPref.enabled, viewportSize, anchorObstacles])
 
+  const zoomHudRef = useRef<HTMLDivElement>(null)
+  const [zoomHudRect, setZoomHudRect] = useState<EJRect | null>(null)
+  useLayoutEffect(() => {
+    const hud = zoomHudRef.current, vp = viewportRef.current
+    if (!hud || !vp) return
+    const measure = () => {
+      const h = hud.getBoundingClientRect(), v = vp.getBoundingClientRect()
+      const next = h.width && h.height
+        ? { x0: h.left - v.left, y0: h.top - v.top, x1: h.right - v.left, y1: h.bottom - v.top } : null
+      setZoomHudRect(old => JSON.stringify(old) === JSON.stringify(next) ? old : next)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(hud)
+    return () => observer.disconnect()
+  }, [freeAnchor, viewportSize, isMobile])
+
   // the HUD ± buttons zoom about the FREE CANVAS CENTER — when pinned windows
   // bound the usable canvas, anchor on the center of the available bounded
   // rectangle (clearRegion), falling back to the whole viewport center when
@@ -3018,8 +3035,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }
 
   // edge JUMP CARDS (user spec 2026-08-17): at desk zoom the focused agent's
-  // coworkers (live siblings) are usually off-screen — one small card per
-  // side hugs the FREE REGION's edge at the neighbor's own screen elevation
+  // coworkers (live siblings) are usually off-screen — each adjacent sibling's
+  // card hugs its screen side's FREE REGION edge at its own screen elevation
   // (clamped into it) and glides the camera there on click. Only the NEXT
   // sibling over in each direction, and only while that sibling is genuinely
   // not clickable — a visible card needs no proxy.
@@ -3061,7 +3078,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       n: CanvasNode; side: 'l' | 'r'; y: number; inset: number
       form: EJForm; band: boolean
     }[] = []
-    for (const [k, side] of [[sibs[at - 1], 'l'], [sibs[at + 1], 'r']] as const) {
+    const obstacles = zoomHudRect ? [zoomHudRect] : []
+    for (const [k, fallbackSide] of [[sibs[at - 1], 'l'], [sibs[at + 1], 'r']] as const) {
       if (!k) continue
       const n = map.get(k), p = posOf(k)
       if (!n || !p) continue
@@ -3072,12 +3090,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // `free` is the viewport and this is the old test term for term)
       if (x1 > free.x && x0 < free.x + free.w
         && y1 > free.y && y0 < free.y + free.h) continue
-      const put = edgeJumpPlacement(side, desk, vp, (y0 + y1) / 2, free)
+      const dx = (x0 + x1) - (desk.x0 + desk.x1)
+      const side = dx < 0 ? 'l' : dx > 0 ? 'r' : fallbackSide
+      const put = edgeJumpPlacement(side, desk, vp, (y0 + y1) / 2, free, obstacles)
       out.push({ n, side, y: put.y, inset: put.inset, form: put.form, band: put.band })
+      const left = side === 'l' ? put.inset : vp.width - put.inset - EJ_FULL
+      obstacles.push({ x0: left, x1: left + EJ_FULL, y0: put.y - EJ_H / 2, y1: put.y + EJ_H / 2 })
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId, map, target, hidden, view, compact, pins, regionOf, chartLayout])
+  }, [focusId, map, target, hidden, view, compact, pins, regionOf, chartLayout, zoomHudRect])
 
   const lod = view.z < Z_MINI ? 'mini' : 'norm'
 
@@ -3829,7 +3851,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           every zoom target lives in one stack — ordered top to bottom:
           switchboard · full view · zoom in · zoom out */}
       {canvasMenu.node}
-      <div className="zoomhud" onPointerDown={(e) => e.stopPropagation()}>
+      <div ref={zoomHudRef} className="zoomhud" onPointerDown={(e) => e.stopPropagation()}>
         <button className="hud-eye" title={HUD_SWITCHBOARD}
           onClick={hudSwitchboard}>
           <svg viewBox="0 0 48 26">

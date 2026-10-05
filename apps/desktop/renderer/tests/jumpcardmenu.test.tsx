@@ -142,6 +142,10 @@ async function mountCanvas(t: TestContext, roots: unknown[]): Promise<Canvas> {
       return { x: 0, y: 0, left: 0, top: 0, width: VP.w, height: VP.h,
         right: VP.w, bottom: VP.h, toJSON() {} } as DOMRect
     }
+    if (this.classList?.contains('zoomhud')) {
+      return { x: 10, y: VP.h - 134, left: 10, top: VP.h - 134, width: 30, height: 124,
+        right: 40, bottom: VP.h - 10, toJSON() {} } as DOMRect
+    }
     return real.call(this)
   }
   const ops: OpRequest[] = []
@@ -276,16 +280,19 @@ for (const count of [3, 7, 12, 30]) {
       await openDesk(c, ids[at]!)
       const expected = [ids[at - 1], ids[at + 1]].filter(Boolean)
       const cards = jumpCards(c.el)
-      assert.deepEqual(cards.map(card => card.id), expected,
+      assert.deepEqual(cards.map(card => card.id).sort(), [...expected].sort(),
         `${ids[at]}: floating cards name the adjacent ring agents`)
       for (const card of cards) {
+        const dx = positions.get(card.id)!.x - positions.get(ids[at]!)!.x
+        assert.equal(card.side, dx < 0 ? 'l' : 'r',
+          `${ids[at]} to ${card.id}: side follows screen position on the arc`)
         assert.equal(card.el.getAttribute(AGENT_NAV_ATTR), card.id,
           'navigation is bound to the named neighbour')
       }
       await inAct(() => { cards[0]!.el.click() })
       await flush(2); await advance(800, 50); await flush(2)
       assert.equal(c.el.querySelector('.cc-head-left')?.getAttribute('data-copy-agent-name'),
-        expected[0], 'clicking the floating card focuses its ring neighbour')
+        cards[0]!.id, 'clicking the floating card focuses its ring neighbour')
     }
   })
 }
@@ -301,6 +308,26 @@ uiTest('nested ring lists keep hierarchy and each arc follows its list order', a
     ['a', 'a0', 'a1', 'a2', 'b', 'b0', 'b1'])
   await openDesk(c, 'a1')
   assert.deepEqual(jumpCards(c.el).map(card => card.id), ['a0', 'a2'])
+})
+
+uiTest('ring jump cards clear the measured navigation controls across the arc', async t => {
+  setChartLayout('circular')
+  t.after(() => setChartLayout('row'))
+  const ids = Array.from({ length: 30 }, (_, i) => `agent-${i}`)
+  const c = await mountCanvas(t, ids.map(id => mkNode(id)))
+  let measured = 0
+  for (const id of ids) {
+    await openDesk(c, id)
+    for (const card of jumpCards(c.el)) {
+      const top = Number.parseFloat(card.el.style.top) - 13
+      const left = card.side === 'l' ? Number.parseFloat(card.el.style.left)
+        : VP.w - Number.parseFloat(card.el.style.right) - 180
+      assert.ok(!(left < 40 && left + 180 > 10 && top < VP.h - 10 && top + 26 > VP.h - 134),
+        `${id} to ${card.id}: expanded jump card covers navigation`)
+      measured++
+    }
+  }
+  assert.ok(measured >= 50, 'all parts of the arc produced real proxies')
 })
 
 // ---------------------------------------------------- §0 THE SHAPE IS REAL

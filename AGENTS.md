@@ -420,8 +420,11 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
 
 - **Circular layout order:** in the circular org chart, siblings (rings, the agents list and
   the floating jump cards) follow tree order counterclockwise; never sort them by x/y
-  position. Only the row layout orders siblings by position. [verified:
-  `apps/desktop/renderer/src/canvas/OrgCanvas.tsx`, `8c25e5e`, 2026-10-05]
+  position. Only the row layout orders siblings by position. Jump-card adjacency uses
+  this order, but each card's side uses its neighbour's screen centre relative to the
+  focused agent. Placement avoids the measured navigation HUD, including the card's
+  expanded hover/focus width. [verified: `apps/desktop/renderer/src/canvas/OrgCanvas.tsx`,
+  `canvas/shared.ts`, 2026-10-05]
 - **Window bounds at fractional DPI:** Windows can add an invisible frame allowance to a
   frameless window's size, even through `setBounds`, and Electron's `did-create-window` does
   not carry the original window features. Temporary desks pass their exact rectangle and
