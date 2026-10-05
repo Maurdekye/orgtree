@@ -12486,7 +12486,7 @@ def _agent_call_in_run(body: AgentCall, request: Request) -> dict[str, Any]:
             if body.tool == "orgtree_send_file":
                 # filesystem-only (org doc untouched) — runs outside DOC_LOCK
                 # with the other read-shaped tools
-                return _agent_send_file(org, body.node, a)
+                return _agent_send_file(org, body.node, a, notify_panel=True)
             if body.tool == "orgtree_read_transcript":
                 target = a.get("node", "")
                 access = _agent_read_access(org, body.node, target)
@@ -14230,13 +14230,14 @@ def _agent_submit_report(org: Org, nid: str, a: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *,
+def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *, notify_panel: bool = False,
                      max_bytes: int | None = _SENDFILE_MAX) -> dict[str, Any]:
     """Deliver bytes under current native scope, including delivery-id replays."""
     from . import scope_actions
     result = scope_actions.run(org, nid, lambda current: _agent_send_file_body(
         current, nid, a, max_bytes=max_bytes))
-    _file_panel_notice(str(org.d["slug"]), nid, "orgtree_send_file", result)
+    if notify_panel:
+        _file_panel_notice(str(org.d["slug"]), nid, "orgtree_send_file", result)
     return result
 
 

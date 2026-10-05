@@ -25,12 +25,12 @@ class FileEvents(unittest.TestCase):
         result = {'sent': {'path': 'outbox/file'}}
         with patch('orgtree.scope_actions.run', side_effect=lambda *a: order.append('delivered') or result), \
                 patch.object(api.supervisor, 'notify', side_effect=lambda *a: order.append('notified')):
-            self.assertIs(api._agent_send_file(org, 'agent', {}), result)
+            self.assertIs(api._agent_send_file(org, 'agent', {}, notify_panel=True), result)
         self.assertEqual(order, ['delivered', 'notified'])
         with patch('orgtree.scope_actions.run', side_effect=ValueError('refused')), \
                 patch.object(api.supervisor, 'notify') as notify:
             with self.assertRaises(ValueError):
-                api._agent_send_file(org, 'agent', {})
+                api._agent_send_file(org, 'agent', {}, notify_panel=True)
             notify.assert_not_called()
 
     def test_notify_failure_keeps_successful_delivery_and_discloses_warning(self):
