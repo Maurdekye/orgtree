@@ -1,5 +1,5 @@
 """Mailbox record projection equals the existing endpoint in one snapshot."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from unittest.mock import patch
 from contextlib import ExitStack
 import unittest
@@ -153,6 +153,8 @@ class MailReaders(unittest.TestCase):
         held,after = self.baseline()
         self.assertFalse(any(body['mail']['body']=='survivor' for body in held.values()))
         source = record_panel_sql.sources(record_panels.EXTENSIONS)['mail_log']
+        original = self.raw.execute('SELECT id,agent_id,idx,"from",at,body FROM orgtree.mail_log '
+            'WHERE agent_id=%s AND id<>%s',(owner,survivor)).fetchall()
         scope = D.scope('mail_recipient','r.agent_id')
         self.assertIn(scope,source.names)
         fault = D.Source(tuple(name for name in source.names if name != scope))
@@ -166,9 +168,13 @@ class MailReaders(unittest.TestCase):
                 self.advance(dict(held),after)
         finally:
             install(source)
-        # Restored capture repairs the exact stale cursor without reconnecting
-        # through a new baseline or requiring the removed rows to return.
-        self.raw.execute('UPDATE orgtree.mail_log SET body=body WHERE id=%s',(survivor,))
+        # Replay the same deletion from a fresh control baseline. A capture
+        # restored later cannot repair history deliberately omitted by a fault.
+        with self.raw.cursor() as cursor:
+            cursor.executemany('INSERT INTO orgtree.mail_log(id,agent_id,idx,"from",at,body) '
+                'OVERRIDING SYSTEM VALUE VALUES(%s,%s,%s,%s,%s,%s)',original)
+        held,after = self.baseline()
+        self.raw.execute('DELETE FROM orgtree.mail_log WHERE agent_id=%s AND id<>%s',(owner,survivor))
         recovered,_,_ = self.advance(held,after)
         self.assertTrue(any(body['mail']['body']=='survivor' for body in recovered.values()))
 

@@ -1,5 +1,5 @@
 """Incremental transcript reads stop at an indexed, identity-fenced anchor."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import copy
 import unittest
 from types import SimpleNamespace

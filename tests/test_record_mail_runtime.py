@@ -1,5 +1,5 @@
 """Mailbox delivery stages share the ordered runtime clock, never record bodies."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -95,7 +95,7 @@ class MailRuntime(unittest.TestCase):
                 await release.wait()
                 return {'type':'records'}, inputs
 
-            with patch.object(host, '_read', side_effect=held_read), patch(
+            with patch.object(host.runner.run, 'wake'), patch.object(host, '_read', side_effect=held_read), patch(
                     'orgtree.supervisor._delivery_stages',return_value={'batch':'queued'}) as stages:
                 host._adopt(inputs)
                 task = asyncio.create_task(host.join('new', lambda frame: frames.append(frame) or True)

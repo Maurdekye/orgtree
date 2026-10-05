@@ -1,5 +1,5 @@
 """File-panel invalidations occur after successful delivery, never on refusal."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
