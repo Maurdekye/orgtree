@@ -115,7 +115,9 @@ def lock(c: Any, ids: Iterable[int], names: Iterable[str], *, updates: Iterable[
 def prepare(c: Any, records: Iterable[Mapping[str, Any]] = (), *, slugs: Iterable[str] = (),
             archive_ids: Iterable[int] = (), list_key: str | None = None) -> None:
     """Standalone compat entry, or validation of a save/org_tx's complete plan."""
-    records = list(records)
+    # Shape validation remains at the original writer boundary. Unsupported
+    # list entries cannot carry a current-agent FK and need no role locks.
+    records = [record for record in records if isinstance(record, Mapping)]
     slugs = sorted(set(slugs) | {r['slug'] for r in records if isinstance(r.get('slug'), str)})
     archive_ids = sorted(set(archive_ids))
     ids = set()
@@ -224,6 +226,7 @@ def save(c: Any, d: Any, lazy: Any, rename_intent: Any) -> None:
                 records.append(record)
     if lazy is not None:
         records.extend(lazy._pending.get('work_items_archive', ()))
+    records = [record for record in records if isinstance(record, Mapping)]
     # Settings writers take their common fence before every agent row. A
     # normal save can change settings and roles together; pulling role locks
     # forward must not put them before that existing first tier.

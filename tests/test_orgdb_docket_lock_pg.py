@@ -157,6 +157,16 @@ class DocketAgentLocks(unittest.TestCase):
     def test_mixed_settings_and_docket_save_keeps_settings_fence_before_agent_tier(self):
         self.overlap(settings=True)
 
+    def test_recorded_plan_without_physical_locks_is_caught_then_restored_passes(self):
+        def broken(raw, ids, names, *, updates=(), source='save'):
+            docket_locks.install(raw, ids, names, source=source)
+
+        with patch.object(docket_locks, 'lock', broken):
+            with self.assertRaises(AssertionError) as caught:
+                self.overlap()
+        self.assertIn('40P01', str(caught.exception), 'the intended physical-lock fault was not reached')
+        self.overlap()
+
     def test_new_role_outside_item_plan_refuses_every_write_then_widened_retry_commits(self):
         twins = f.f.Twins('docket-role-widen', before=f.prepare_legacy)
         with f.f.storage(True):
