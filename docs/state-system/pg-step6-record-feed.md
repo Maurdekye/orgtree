@@ -95,6 +95,13 @@ else reaches the renderer another way:
 - `org`: the org's top-level values, split into **groups** with id = group name, because they change at different rates (§3.1). This changes the landed projection, which reads one record with id `org`: it must merge every `org` record (renderer change R1).
 - `agent`: id = `agents.id` as text.
   - The body is today's tree node for that agent, minus the overlay fields of §1.1, plus `parent_id` (an id, not a name) and the sibling order keys `ui_order`, `created`, `ord`, `name`.
+  - Bodies contain no child lists and do not depend on the held set (decision 37).
+    `retired_children_total` is the agent's total children archived without a
+    successor at R. The root total is in an `org` group. The projection derives
+    child lists from held `parent_id` values and subtracts the distinct held
+    archived children without successors from each parent's total (null for
+    roots). A child held by several sets counts once (renderer change R4).
+    Subscribe and unsubscribe change no body and resend no body.
   - The renderer sorts siblings by exactly that tuple, the backend's order. Today `recordprojection.ts` uses `sibling_order ?? ui_order`, then the record id, and nothing produces `sibling_order` (renderer change R2).
   - The lineage fields stay as today's tree node has them: the `predecessor` and `successor` names, `lineage_count` and `consultable_predecessor`. A predecessor can be outside every set the client holds (an archived agent off the org axis), so a body must not point at a record the client may lack. A rename therefore also dirties the renamed agent's predecessor and successor records (§3.2). Rev 1's renderer change R3 (ids instead of names) is withdrawn.
 - Panel entities: §6.
@@ -279,7 +286,7 @@ The map is per table, and it lives beside the migrations as one SQL function per
 |---|---|
 | `agents` (any column) | `agent(id)` |
 | `agents` (parent, state, model, credit_grant): `free` | `agent(old parent)`, `agent(new parent)` |
-| `agents` (state, successor, parent): pile counts | `agent(old parent)`, `agent(new parent)` |
+| `agents` insert/delete or change of state, successor or parent: total retired children (decision 37) | `agent(old parent)`, `agent(new parent)`; the `org` group `foreground` for either root side |
 | `agents` (name, state, bearer_state, generation, predecessor, successor): lineage | `agent(predecessor)` and `agent(successor)` on the old and the new links, because their bodies show this agent's name; and, through the scope `lineage:<id>` resolved at r (§3.3), the successors while `lineage_count` reads them |
 | `agent_texts`, `agent_runtime`, `agent_turns` (recent members), `agent_recent_turns` (until G7 merges it), `agent_tool_denials`, `agent_tool_approvals`, `agent_mcp_servers`, `agent_dir_grants`, `agent_carriers` (+ links), `tool_list_items` of its list | `agent(agent_id)` |
 | `mail` (the pending count) | `agent(agent_id)` |

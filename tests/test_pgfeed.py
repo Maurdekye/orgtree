@@ -630,5 +630,58 @@ class SessionAnswers(unittest.TestCase):
         self.assertEqual((pgfeed._committed.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
 
 
+class NativeIdentity(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.feed = pgfeed.RevisionFeed(lambda:None,lambda *args:self.calls.append(args))
+
+    def test_first_native_identity_is_observed_and_equal_old_revision_is_ignored(self):
+        self.assertTrue(self.feed.observe('a',0,source='catchup',identity=('uuid','inc')))
+        self.assertFalse(self.feed.observe('a',0,source='poll',identity=('uuid','inc')))
+        self.assertEqual(self.calls,[('a',0,False)])
+
+    def test_replacement_lower_or_equal_revision_is_not_dropped_without_later_write(self):
+        for number in (0,8):
+            with self.subTest(number=number):
+                self.feed.observe('a',8,source='catchup',identity=('uuid','old'))
+                self.calls.clear()
+                self.assertTrue(self.feed.observe('a',number,source='catchup',identity=('uuid','new')))
+                self.assertEqual(self.calls,[('a',number,True)])
+                self.assertEqual(self.feed.last_seen('a'),number)
+                self.assertEqual(self.feed.applied_since('a',number),number)
+
+    def test_poll_and_reconnect_fetch_identity_even_at_unchanged_revision(self):
+        class Session:
+            current = ('uuid','old')
+            def listen(self, channel):
+                self.channel = channel
+            def revisions(self):
+                return [('a',0)]
+            def identity(self, slug):
+                return self.current
+        session = Session()
+        self.feed.run_once(session,until=time.monotonic())
+        session.current = ('uuid','new')
+        self.feed.run_once(session,until=time.monotonic())
+        session.current = ('other','next')
+        self.feed._read_all(session,'poll')
+        self.assertEqual(self.calls,[('a',0,False),('a',0,True),('a',0,True)])
+
+    def test_native_observations_do_not_consult_local_commit_bookkeeping(self):
+        with mock.patch.object(pgfeed,'_gap_is_local',side_effect=AssertionError('legacy door')):
+            self.feed.observe('a',1,source='catchup',identity=('uuid','inc'))
+            self.feed.observe('a',5,source='poll',identity=('uuid','inc'))
+        self.assertEqual(self.calls[-1],('a',5,True))
+
+    def test_old_callback_cannot_publish_applied_range_after_identity_replacement(self):
+        def callback(org,rev,gap):
+            if rev==8:
+                self.feed.observe(org,0,source='poll',identity=('uuid','new'))
+        self.feed._on_change = callback
+        self.feed.observe('a',8,source='catchup',identity=('uuid','old'))
+        self.assertEqual(self.feed.last_seen('a'),0)
+        self.assertEqual(self.feed._applied['a'],0)
+
+
 if __name__ == "__main__":
     unittest.main()

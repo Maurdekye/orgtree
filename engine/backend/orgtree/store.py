@@ -3481,7 +3481,60 @@ def lazy_children_index(org: Org, parents: Iterable[str | None],
 LAZY_CHILD_QUERIES = 32
 
 
-def lazy_children_of(org: Org, nid: str | None) -> list[str] | None:
+def lazy_sibling_headers(org: Org, nid: str | None, *,
+                         order_only: bool = False) -> list[tuple[str, Any]] | None:
+    """An ordered temporary child view, never inserted into the lazy node map.
+
+    Already-held values decide current edits. Unsupported healing retains the
+    ordinary child path; neither dirty marks nor original baselines are changed.
+    """
+    from .orgdb import agents   # noqa: PLC0415
+    nodes = dict.get(cast("dict[str, Any]", org.d), "nodes")
+    if not isinstance(nodes, LazyNodesMap) or nodes._complete:
+        return None
+    if not _orgdb_on() or not isinstance(org.d, LazyDoc):
+        return None
+    conn = (getattr(_orgtx_local, 'pinned', None) or {}).get(nodes._slug)
+    if conn is None or not getattr(conn, 'orgdb', False):
+        return None
+    raw = conn.raw
+    rows = (agents.sibling_headers(raw, nid, order_only=True) if order_only else
+            agents.sibling_headers(raw, nid))
+    out, seen = [], set()
+    want = {nid}
+    for physical_id, name, ordinal, header, ordinary in rows:
+        seen.add(name)
+        if name in nodes._deleted:
+            continue
+        if dict.__contains__(nodes, name):
+            value = dict.__getitem__(nodes, name)
+        else:
+            if ordinary:
+                # A narrow projection never decides a full-context heal. Re-read
+                # the unchanged default before its ordinary fallback is chosen.
+                return lazy_sibling_headers(org, nid) if order_only else None
+            value = header
+            for tier, six in ledger._GPT6_ALIASES:
+                ledger._fold_gpt6_node(value, tier, six)
+        # Keep the ordinary lazy candidate membership test: an unhashable
+        # preserved parent raises there too, rather than silently disappearing.
+        if isinstance(value, dict) and value.get('parent') in want:
+            value['parent']  # The ordinary lazy index requires the authored key.
+            out.append((name, value))
+    for name, value in dict.items(nodes):
+        if name not in seen and name not in nodes._deleted \
+                and isinstance(value, dict) and value.get('parent') in want:
+            value['parent']
+            out.append((name, value))
+    # children(..., live_only=False) still reads state before its sort.
+    for name, value in out:
+        value['state']
+    out.sort(key=lambda pair: (pair[1].get('ui_order', 0), pair[1]['created']))
+    return out
+
+
+def lazy_children_of(org: Org, nid: str | None, *,
+                     live_only: bool = False) -> list[str] | None:
     """`Org.children`'s candidates for ONE parent from one statement over
     `node_index` — or None (the caller walks the table) when the nodes are
     not on on-demand rows, already whole, or this map has already answered
@@ -3493,7 +3546,7 @@ def lazy_children_of(org: Org, nid: str | None) -> list[str] | None:
     if asked >= LAZY_CHILD_QUERIES:
         return None
     nodes.__dict__["_child_queries"] = asked + 1
-    index = lazy_children_index(org, [nid])
+    index = lazy_children_index(org, [nid], live_only=live_only)
     return None if index is None else index[nid]
 
 

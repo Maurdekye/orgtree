@@ -47,7 +47,8 @@ def _project(raw, slug, graph, request, *, sync_rev, kind, requested=None, keep=
     profile = getattr(request.state, 'profile_timing', None)
     if profile is not None:
         profile['foreground_context_ms'] = (time.perf_counter() - started) * 1000
-    saved = _kept(context, graph)
+    from . import record_api
+    saved = {**_kept(context, graph), 'record_capable': record_api.capable(raw=raw)}
     payload = _reproject(saved, request, sync_rev=sync_rev, kind=kind, requested=requested)
     return (payload, saved) if keep else payload
 
@@ -73,7 +74,8 @@ def _advance(raw, slug, saved, stamp, rows):
     reuse = {nid: node for nid, node in old.nodes.items() if nid not in rows}
     context = _context(raw, slug, graph, header=True, reuse=reuse,
                        reuse_settings=getattr(old, 'settings_key', None), inputs=inputs)
-    return _kept(context, graph)
+    from . import record_api
+    return {**_kept(context, graph), 'record_capable': record_api.capable(raw=raw)}
 
 
 # ---------------------------------------------------------------- pages
@@ -271,6 +273,9 @@ def _reproject(saved, request, *, sync_rev, kind='snapshot', requested=None):
     prepared = foreground_view.prepare(context, graph, detail_token=api._archived_detail_rev,
         sync_rev=sync_rev, primed_restart=api.supervisor.primed_restart())
     annotated = api._annotate_org_view(context, prepared['tree'], request, profile=profile)
+    from . import record_api
+    if saved.get('record_capable') and record_api.READY and record_api.orgdb.enabled():
+        annotated['capabilities'] = {**annotated.get('capabilities', {}), 'record_changes_v1': True}
     return foreground_view.finish(prepared, annotated, kind=kind, requested=requested)
 
 

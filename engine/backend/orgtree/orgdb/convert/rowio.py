@@ -37,9 +37,13 @@ def tables(sections: Iterable[Section] | None = None) -> list[str]:
 
 
 def write(conn: Any, rows: Mapping[str, list[dict[str, Any]]], *,
-          order: list[str] | None = None) -> dict[str, int]:
+          order: list[str] | None = None, new_database: bool = False) -> dict[str, int]:
     """COPY every table's rows; returns {table: rows written}. ``conn`` is a psycopg
     connection; the caller owns the transaction."""
+    if new_database:
+        from .. import record_bulk   # noqa: PLC0415
+        with record_bulk.writer(conn, new_database=True):
+            return write(conn, rows, order=order)
     order = order or tables()
     unknown = set(t for t, rs in rows.items() if rs) - set(order)
     if unknown:

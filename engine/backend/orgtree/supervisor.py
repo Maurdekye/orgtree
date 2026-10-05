@@ -178,7 +178,7 @@ except (json.JSONDecodeError, TypeError):
 
 
 def tier_context(tier: str,
-                 models: Mapping[str, Any] | None = None) -> int | None:
+                 models: Mapping[str, Any] | None = None, *, include_app: bool = True) -> int | None:
     """The pinned context window for `tier`: the static table above for the
     CLI providers' tiers, the favorite's catalog `context_length` for an
     OpenRouter tier (2026-09-02 — those tiers are minted at runtime, so no
@@ -199,7 +199,7 @@ def tier_context(tier: str,
             return providers.CODEX_MODEL_CONTEXT[mid]
         if mid.startswith("gpt-5.6-"):
             return providers.CODEX_CONTEXT
-    if openrouter.is_tier(tier):
+    if include_app and openrouter.is_tier(tier):
         return openrouter.context_for(tier, models)
     return None
 
@@ -36934,7 +36934,7 @@ def occupancy_of(tpath: str | None,
 
 
 def context_window(n: NodeDoc | dict[str, Any],
-                   models: Mapping[str, Any] | None = None) -> int | None:
+                   models: Mapping[str, Any] | None = None, *, include_app: bool = True) -> int | None:
     """The window this node's turns actually get. The pinned per-tier value
     wins (the rule `_after_turn` already follows — the CLI under-reported 1M
     models as 200k); the doc's observed `context_window` is the fallback, and
@@ -36954,7 +36954,7 @@ def context_window(n: NodeDoc | dict[str, Any],
         mid = n.get("model_id")
         if isinstance(mid, str) and mid and mid != tier:
             models = {tier: mid}
-    return tier_context(tier, models) or n.get("context_window")
+    return tier_context(tier, models, include_app=include_app) or n.get("context_window")
 
 
 def session_occupancy(org: Org, nid: str,

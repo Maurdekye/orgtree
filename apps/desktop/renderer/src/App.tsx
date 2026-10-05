@@ -77,9 +77,12 @@ import { groupByProvider } from './usagegroups'
 import { bumpLive, onLiveBump } from './livebus'
 import { applyPrimedAsks, onPrimeAsk, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
-import { orgRecordFeed } from './recordtransport'
+import { orgRecordFeed, resolveRecordSelection } from './recordtransport'
+import { RecordTreeSelection } from './recordtreeselection'
 import { projectTree, recordFeedCapable } from './recordprojection'
-import type { FeedAnswer, RecordFeed } from './recordfeed'
+import type { RecordEvent, RecordFeed } from './recordfeed'
+import { RecordSocketLink } from './recordsocketlink'
+import { OrgRecordContext } from './recordsession'
 import { TreeReadPacer } from './treepace'
 import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
@@ -666,6 +669,8 @@ export default function App() {
   const [recordSlug, setRecordSlug] = useState<string | null>(null)
   const recordMode = !!slug && recordSlug === slug
   const recordController = useRef<{ slug: string; feed: RecordFeed<TreePayload> } | null>(null)
+  const [recordSession, setRecordSession] = useState<{ slug: string; session: RecordFeed<TreePayload> } | null>(null)
+  const recordSocket = useRef<RecordSocketLink<TreePayload>>(new RecordSocketLink())
 
   // №17: a toast may carry an UNDO — a 12-second reverse on the gesture just
   // made (mis-drag reorders, accidental promotes, one-click retires)
@@ -865,12 +870,13 @@ export default function App() {
   }
   useEffect(() => {
     if (!slug || !recordMode) return
+    const feedError = (e: Error) => { setTreeRead(r => ({ ...r, error: e.message })); fetchErr(e) }
     const feed = orgRecordFeed(slug, {
       project: projectTree,
       publish: (shown, _records, _cursor, readStartedAt = 0) => {
         if (wantSlug.current !== slug) return
         // Runtime annotation frames have their own clock, outside the org revision.
-        replaceNodeMetadata(slug, shown.roots, [], true)
+        replaceNodeMetadata(slug, shown.roots)
         const visible = applyPrimedAsks(slug, shown, readStartedAt)
         setTree(visible)
         settleFromTree(slug, visible)
@@ -879,23 +885,37 @@ export default function App() {
         openBootGate()
         fetchOk()
       },
-      error: e => { setTreeRead(r => ({ ...r, error: e.message })); fetchErr(e) },
+      error: feedError,
+      identityChanged: () => { wsRef.current?.close() },
     })
     recordController.current = { slug, feed }
+    setRecordSession({ slug, session: feed })
+    const selections = new RecordTreeSelection(feed, request => resolveRecordSelection(slug, request),
+      () => { void feed.reconnect() }, feedError)
+    const select = () => selections.set(treeSelections.read(slug, savedTreeSelection(slug)).selection)
+    const offSelection = treeSelections.subscribe(org => { if (org === slug) select() })
+    select()
     // Until mutation responses carry their committed rev, one catch-up begun
     // after acknowledgment confirms local overlays. Live frames never bump
     // this bus, so publication itself causes no further reads.
     const offMutation = onLiveBump(() => { void feed.reconnect() })
     const offPrime = onPrimeAsk(org => { if (org === slug) void feed.reconnect() })
     void feed.resync()
-    return () => { offMutation(); offPrime(); feed.dispose(); recordController.current = null }
+    recordSocket.current.attach(feed)
+    return () => {
+      offSelection(); selections.dispose(); offMutation(); offPrime(); recordSocket.current.detach(); feed.dispose()
+      recordController.current = null; setRecordSession(null)
+    }
   }, [slug, recordMode, fetchOk, fetchErr])
   // A user's own save through a direct route (scope, account) re-reads the
   // tree urgently too -- see markTreeStale in api.ts.
   useEffect(() => {
     const onStale = (e: Event) => {
       const org = (e as CustomEvent<{ slug?: string }>).detail?.slug
-      if (org && org === wantSlug.current) refreshTree(org, { urgent: true })
+      if (org && org === wantSlug.current) {
+        if (recordController.current?.slug === org) void recordController.current.feed.reconnect()
+        else refreshTree(org, { urgent: true })
+      }
     }
     window.addEventListener(TREE_STALE_EVENT, onStale)
     return () => window.removeEventListener(TREE_STALE_EVENT, onStale)
@@ -1030,24 +1050,48 @@ export default function App() {
     // manual page reload — the "states never line up" bug
     let dead = false
     let timer: ReturnType<typeof setTimeout> | null = null
+    let currentSocket: WebSocket | null = null
+    let connection: number | null = null
     const connect = () => {
       if (dead) return
       // a fresh connection may have missed any number of frames — start
       // the base+patch bookkeeping over; the fetch establishes the base
       resetSync(syncRef.current)
       if (!recordController.current) refreshTree(slug)
-      wsRef.current = openWs(slug, handleWs,
-        () => { if (!dead) timer = setTimeout(connect, 1500) },
-        () => { void recordController.current?.feed.reconnect() })
+      const opened = (socket: WebSocket) => {
+        connection = recordSocket.current.open(message => {
+          if (!dead && socket === currentSocket && socket.readyState === 1) socket.send(JSON.stringify(message))
+        })
+      }
+      const socket: WebSocket = openWs(slug, ev => {
+        if (!dead && socket === currentSocket) {
+          if (connection === null) opened(socket)
+          handleWs(ev)
+        }
+      }, () => {
+        if (socket !== currentSocket) return
+        if (connection !== null) recordSocket.current.close(connection)
+        connection = null
+        if (!dead) timer = setTimeout(connect, 1500)
+      }, () => {
+        if (dead || socket !== currentSocket) return
+        opened(socket)
+        void recordController.current?.feed.reconnect()
+      })
+      currentSocket = socket; wsRef.current = socket
+      // Some already-open transports (and the DOM test transport) have no
+      // pending open callback. Keep the capability transition on this socket.
+      if (socket.readyState === 1) opened(socket)
     }
     const handleWs = (ev: MessageEvent<string>) => {
       let data: WsEvent | null = null
       const recordOn = recordController.current?.slug === slug
       try { data = JSON.parse(ev.data) as WsEvent } catch { /* ignore */ }
-      const answer = data as unknown as FeedAnswer | null
+      const answer = data as unknown as RecordEvent | null
       if (answer?.type === 'record_changes' || answer?.type === 'record_reset'
-          || answer?.type === 'record_snapshot') {
-        if (recordOn) recordController.current?.feed.receive(answer)
+          || answer?.type === 'record_snapshot' || answer?.type === 'record_subscribed'
+          || answer?.type === 'agent_runtime') {
+        if (connection !== null) recordSocket.current.receive(answer, connection)
         return
       }
       if (data?.type === 'mail') {     // spark on the wire — pure animation
@@ -1061,6 +1105,7 @@ export default function App() {
         if (data.kind === 'cache_forecast'
             || data.kind === 'mcp_tool_count'
             || data.kind === 'mcp_readiness') {
+          if (recordOn) return // the ordered runtime overlay owns these values
           // Live metadata goes straight to subscribed desks. It cannot
           // replace chart roots or rebuild layout; the frame is buffered by
           // onFrame above so a fetch racing it converges by replay
@@ -1263,7 +1308,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
+    <CurrentOrg.Provider value={slug}><OrgRecordContext.Provider value={recordSession?.slug === slug ? recordSession : null}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
       <RestartNotice />
       {/* Developer › engine debug view: off by default; while off nothing polls */}
       {engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
@@ -1837,7 +1882,7 @@ export default function App() {
       </WindowMirrors>
       {/* the in-app folder picker: LAST so it stacks above every modal */}
       <FolderPickerHost />
-    </ObjectMenuBoundary></AgentNavProvider></CurrentOrg.Provider>
+    </ObjectMenuBoundary></AgentNavProvider></OrgRecordContext.Provider></CurrentOrg.Provider>
   )
 }
 

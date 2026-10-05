@@ -120,11 +120,11 @@ wrong test verdicts and re-argued decisions.
   compatibility view, native agent and docket readers, accounts in the app database; new
   storage on by default since `4f1ddf0`); durable turn requests and queue (B5, `305c472`);
   schema conformance G1–G11 (`c162ca0`); the O(1) agent move (O1, `3535fb4`); the alpha.1
-  startup repairs (`d1c4e8c`); one shared registry connection cache (`ebb2af6`).
+  startup repairs (`d1c4e8c`); one shared registry connection cache (`ebb2af6`); B4a record-feed backend and tree subscriptions (migration 0018).
 - **Builds delivered** (local, never published): 3.2.0-alpha.0 on 2026-10-04 and
   3.2.0-alpha.1 on 2026-10-05; the user runs them on live data. alpha.1's startup failures
   are fixed on `dev` by `d1c4e8c`.
-- **In flight:** the record feed, step 6: B4a (backend core and the tree) and B4b (the app
+- **In flight:** the record feed, step 6: B4b (the app
   feed); B4c1 (inbox, events, mail, history), B4c2 (gallery, docket, audiences) and B4d
   (time and retention jobs) follow.
 - **Remaining:** B1 mail and watchdog modules with jobs; B2 questions, audiences,
@@ -225,7 +225,7 @@ end of this section says so.
 | --- | --- | --- |
 | Turn admission | With `orgdb`: a durable `turn_requests` row in the org database, a `start_turn` job, then a `turn_tickets` row in `orgtree_app` claimed by the turn host. Otherwise the in-memory `turnslots.FairSlots`. Limit: App settings `max_concurrent_turns`, default 16 | the same, shared with the worker |
 | Jobs | `orgdb/jobs.py` exists, but only `start_turn` is enqueued. The polling loops (auto-resume, watchdogs, mail drain, keepers) still run as threads started by `api._recover_startup` | every loop that reads org tables becomes a job (B1–B3) |
-| Screen feed | `pgfeed.RevisionFeed`: each commit bumps `org_revision` and sends `NOTIFY`; the renderer gets a coalesced `changed` frame and refetches, and some panels poll | a per-org change log whose frames carry records; no refetch and no polling. The renderer consumer exists behind capability `record_changes_v1`, which the engine does not advertise yet |
+| Screen feed | With orgdb and migration 0018, `record_changes_v1` enables record snapshots, catch-up and tree subscriptions; the deferred commit flush assigns the sole revision. Legacy storage keeps changed/refetch | B4b app feed and B4c panels reuse the core; B4d moves host time/retention work to jobs |
 | Processes | one engine process per data root | an engine host plus one worker (B6) |
 
 ### Code map
@@ -305,9 +305,11 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
      then mailboxes, then other planned rows. A structural writer takes every lock before
      its first structural statement; a plan that proves too narrow raises `Widen` (roll
      back, rerun wider). Never lock a row late;
-  4. the revision row `orgtree.org_revision` **last**, taken only by
-     `OrgDbConn.on_save_commit`, the commit-time triggers, or a job's last statement;
-  5. after it, only `foreground_parent_counts` and `docket_counters`.
+  4. the revision row `orgtree.org_revision` **last**, taken by the deferred record flush
+     when migration 0018 is present; retention also locks it last;
+  5. after it, only aggregate counters, the current transaction's change/revision rows
+     and record detail versions; final graph validation takes no earlier-tier lock.
+     [verified-from-source 2026-10-05: `0018_records.sql`, `tests/test_orgdb_lock_order.py`]
 - **Triggers.** A statement-time trigger writes only link rows of its own statement's rows
   and takes no row lock; the one allowlisted exception is the `agents` subtree-stats
   triggers. Writers do not force deferred checks (`SET CONSTRAINTS … IMMEDIATE`); the single
@@ -356,12 +358,19 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   by the transaction that creates the condition and claimed with `FOR UPDATE SKIP LOCKED`.
   Timers that read outside state (provider usage, update checks, the mail hub) stay timers
   in the engine host. [decided: user 2026-10-02 (Q9); §2.7]
-- **The change feed** (target): each org database records its changes in the committing
+- **The change feed** (B4a implemented, 2026-10-05): each org database records its changes in the committing
   transaction; revisions are handed out in commit order with no gaps; a cursor is
   `(org_uuid, incarnation, rev)`; baselines and catch-ups are single-snapshot reads, and the
   state at the frame's end revision decides. The desktop is the only audience; agents never
   use the websocket. [decided: §2.5;
   [`pg-step6-record-feed.md`](docs/state-system/pg-step6-record-feed.md)]
+- **Record-feed activation and commit ownership:** advertise `record_changes_v1` only
+  with orgdb enabled and migration 0018 present in the actual org snapshot. Statement
+  capture reads OLD/NEW only; deferred SQL flush owns the sole revision increment.
+  `on_save_commit` still finishes docket sources but never increments the revision.
+  Parent/configured-scope subtree scopes expand in snapshot readers, never during commit.
+  [verified-from-source 2026-10-05: `record_api.py`, `orgdb/record_sql.py`,
+  `orgdb/record_tree.py`; [`pg-step6-record-feed.md`](docs/state-system/pg-step6-record-feed.md)]
 - **Turn admission is machine-wide:** at most N turns at once (a setting, default 16), first
   come first served within an org, round-robin across orgs; lowering the limit never stops
   a running turn; a queued agent's desk explains the limit. [decided: user 2026-09-26;

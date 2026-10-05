@@ -13,9 +13,9 @@ runtime role, from the registry module's idle pool (``orgdb.registry.checkout``)
 checkout checks ``org_identity`` against the registry (design §2.11), so a database that is
 not this org's is never written.
 
-Revision. ``on_save_commit`` bumps ``org_revision`` and NOTIFYs ``org_rev`` with
-``'<slug>:<rev>'`` on the org's database, in the save's transaction, as pgstore does on the
-legacy database; the feed bookkeeping (``pgfeed.begin_local`` / settle) is the same.
+Revision. The database's deferred record flush assigns one revision and NOTIFYs
+at COMMIT. ``on_save_commit`` only finishes docket writes. After COMMIT we read
+this transaction's revision by xid, never another writer's latest revision.
 
 Creating. With ``create`` and no org of that name, the lifecycle builds a staging database
 (``Lifecycle.begin_create``); the connection is pinned with its COMMIT armed, as pgstore's
@@ -91,11 +91,12 @@ class OrgDbConn:
             yield
             return
         self.tx = R.Tx()
+        self.last_revision = None
         self.raw.execute("BEGIN" if write else "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         try:
             yield
             R.docket_finish(self.raw,self.tx)
-            self.raw.execute("COMMIT")
+            self._commit()
         except BaseException:
             with contextlib.suppress(Exception):
                 self.raw.execute("ROLLBACK")
@@ -115,6 +116,7 @@ class OrgDbConn:
                 return S.Result()
             self.raw.execute("BEGIN ISOLATION LEVEL REPEATABLE READ" if head == "BEGIN" else "BEGIN")
             self.tx = R.Tx()
+            self.last_revision = None
             return S.Result()
         if head in ("COMMIT", "END"):
             if self.pinned and not self.commit_armed:
@@ -149,16 +151,14 @@ class OrgDbConn:
         if tx.item_ord and commit:
             # a header named an item no row was written for: the save is inconsistent
             self._rollback_quietly()
-            pgstore._settle_revisions(self.raw, False)
             self._end_create(committed=False)
             raise R.CompatError(f"docket header names items never written: {sorted(tx.item_ord)}")
         try:
             if commit:
                 R.docket_finish(self.raw,tx)
-            done = self.raw.execute("COMMIT" if commit else "ROLLBACK")
+            done = self._commit() if commit else self.raw.execute("ROLLBACK")
         except BaseException as e:
             self._rollback_quietly()
-            pgstore._settle_revisions(self.raw, False)
             self._end_create(committed=False)
             # a constraint checked at commit (work_items_slug is deferred) fails HERE, and
             # store.py and orgtx read it as the legacy store raised it: sqlite3-shaped, with
@@ -167,8 +167,18 @@ class OrgDbConn:
                 raise pgstore._as_sqlite_error(e) from e
             raise
         ok = commit and getattr(done, "statusmessage", None) == "COMMIT"
-        pgstore._settle_revisions(self.raw, ok)
         self._end_create(committed=ok)
+
+    def _commit(self) -> Any:
+        """Commit without an early revision lock; retain only our committed stamp."""
+        xid = self.raw.execute('SELECT pg_current_xact_id_if_assigned()').fetchone()[0]
+        done = self.raw.execute('COMMIT')
+        self.last_revision = None
+        if xid is not None and getattr(done, 'statusmessage', None) == 'COMMIT':
+            row = self.raw.execute('SELECT rev FROM orgtree.revisions WHERE xid=%s', (xid,)).fetchone()
+            if row is not None:
+                self.last_revision = int(row[0])
+        return done
 
     def _rollback_quietly(self) -> None:
         if self.in_transaction:
@@ -190,29 +200,15 @@ class OrgDbConn:
             lc.cancel_create(build)
 
     def on_save_commit(self, changed: bool, *, work_changed: bool = False) -> None:
-        """Before the save's COMMIT: the org's revision + 1 and NOTIFY, when it changed."""
+        """Finish source writes before COMMIT; the record flush owns the revision."""
         try:
             # Pending permanent deletes can lock item/event rows. Finish them before
             # the revision singleton, which is the save's last ordinary row lock.
             R.docket_finish(self.raw, self.tx)
-            if not changed:
-                return
-            rev = int(self.raw.execute("UPDATE orgtree.org_revision SET rev = rev + 1 "
-                                       "RETURNING rev").fetchone()[0])
-            from .. import graph    # noqa: PLC0415
-            graph.assert_final_cycles(self.raw)
-            from ... import pgfeed   # noqa: PLC0415
-            pgfeed.begin_local(self.slug, rev)
-            pending = getattr(self.raw, "_ot_pending", None)
-            if pending is None:
-                pending = self.raw._ot_pending = []
-            pending.append((self.slug, rev))
-            self.raw.execute("SELECT pg_notify('org_rev', %s)", (f"{self.slug}:{rev}",))
         except Exception as e:
             if isinstance(e, _psycopg().Error):
                 raise pgstore._as_sqlite_error(e) from e
             raise
-        self.last_revision = rev
 
     def close(self) -> None:
         if self.creating is not None:

@@ -13,7 +13,7 @@ from typing import Any
 from ..ledger import USER, LedgerError
 
 
-DECISION_STATS = {'decoded_fallbacks': 0, 'exceptions': 0, 'staged': 0}
+DECISION_STATS = {'decoded_fallbacks': 0, 'exceptions': 0, 'staged': 0, 'bounded_births': 0}
 EXCEPTION_PROBE = (
     'SELECT (SELECT agent_id FROM orgtree.agent_subtree_stats '
     'WHERE height=-1 AND visible_children>0 ORDER BY agent_id LIMIT 1) IS NULL '
@@ -115,6 +115,150 @@ def subtree_stats(raw: Any, name: str) -> SubtreeStats:
     if row[3] is None or row[1] != row[2] or min(row[3:6]) < 0:
         raise LedgerError("native graph aggregate is missing or corrupt; reconciliation is required")
     return SubtreeStats(int(row[0]), row[1], int(row[3]), int(row[4]), int(row[5]), int(row[6]))
+
+
+def fresh_leaf_depth(org: Any, raw: Any, target: str, rising: str) -> int | None:
+    """Certify only one staged fresh leaf about to rise above its parent.
+
+    This is deliberately separate from clean_stats: every unsupported working
+    view retains that gate's decoded fallback. Read loaded values/baselines only;
+    no materialization, baseline adoption, write or additional lock is allowed.
+    """
+    from . import codec   # noqa: PLC0415
+    nodes = org.nodes
+    baselines = getattr(org.d, '_snap_nodes', None)
+    if not isinstance(baselines, dict) or not isinstance(nodes, dict) \
+            or not isinstance(target, str) or not target \
+            or not isinstance(rising, str) or not rising or target == rising \
+            or rising in baselines or not dict.__contains__(nodes, rising):
+        return None
+    born = dict.__getitem__(nodes, rising)
+    if not isinstance(born, dict) or born.get('parent') != target \
+            or born.get('state') != 'live' or born.get('predecessor') is not None \
+            or born.get('successor') is not None or type(born.get('generation')) is not int \
+            or born['generation'] != 0 or not isinstance(born.get('seat_id'), str) \
+            or not born['seat_id']:
+        return None
+    if getattr(nodes, '_deleted', None) \
+            or any(not dict.__contains__(nodes, name) for name in baselines):
+        return None
+    # Inspect the actual dirty view, not a count of declared names. A second
+    # birth or structural edit makes the certificate inapplicable.
+    for name, node in dict.items(nodes):
+        if not isinstance(node, dict) or not isinstance(name, str) or not name:
+            return None
+        if node.get('parent') == rising:  # current loaded membership is not empty
+            return None
+        if name == rising:
+            continue
+        text = baselines.get(name)
+        if text is None:
+            return None
+        before = json.loads(text)
+        for key in ('parent', 'state', 'successor', 'predecessor'):
+            old, new = before.get(key, codec.MISSING), node.get(key, codec.MISSING)
+            if type(old) is not type(new) or old != new:
+                return None
+    plan = current_plan(raw)
+    if plan is None:
+        raise LedgerError('native graph decision requires its held lock plan')
+    check_paths(raw, {target, rising}, updates={rising})
+    if not raw.execute(EXCEPTION_PROBE).fetchone()[0]:
+        return None
+    selected = subtree_stats(raw, target)
+    # Every recorded-name identity matters. An old tombstone, namesake, or
+    # reused seat is not a certified birth. LIMIT 2 suffices to reject aliases.
+    rows = raw.execute(
+        'SELECT id,tombstone,parent_id,state,lineage_born,predecessor_id,successor_id,extra '
+        'FROM orgtree.agents WHERE name=%s ORDER BY tombstone,id LIMIT 2', (rising,)).fetchall()
+    if len(rows) > 1:
+        return None
+    if rows:
+        aid, tomb, parent, state, seat, predecessor, successor, extra = rows[0]
+        if aid not in plan.get('created', ()) or predecessor is not None or successor is not None:
+            return None
+        if any(key in (extra or {}) for key in ('parent', 'state', 'seat_id', 'predecessor', 'successor')):
+            return None
+        if tomb:
+            if parent is not None or state is not None or seat is not None:
+                return None
+        else:  # already-persisted births keep the decoded path
+            return None
+        stats = raw.execute('SELECT parent_agent_id,descendants,height,org_children_count '
+                            'FROM orgtree.agent_subtree_stats WHERE agent_id=%s', (aid,)).fetchone()
+        if stats is None or stats[0] != parent or stats[1:] != (0, -1 if tomb else 0, 0):
+            raise LedgerError('native graph aggregate is missing or corrupt; reconciliation is required')
+        if raw.execute('SELECT id FROM orgtree.agents WHERE parent_id=%s AND NOT tombstone '
+                       'LIMIT 1', (aid,)).fetchone() is not None:
+            return None
+    paths = _paths(raw, [target])
+    parents = {int(i): parent for i, name, parent in paths}
+    cursor, depth = selected.parent_id, 0
+    while cursor is not None:
+        depth += 1
+        cursor = parents[cursor]
+    DECISION_STATS['bounded_births'] += 1
+    return depth + selected.height
+
+
+def placement_depth(org: Any, raw: Any, target: str, rising: str | None = None) -> int | None:
+    """Deepest retained report, or None for today's decoded working view.
+
+    A rising branch is excluded along its upward path only. Each sibling
+    maximum uses the existing tallest index, without enumerating descendants.
+    Only a certified single fresh leaf bypasses the ordinary staged computation.
+    """
+    roots = {target} | ({rising} if rising else set())
+    check_paths(raw, roots)
+    certified = fresh_leaf_depth(org, raw, target, rising) if rising else None
+    if certified is not None:
+        return certified
+    if not clean_stats(org, raw):
+        return None
+    selected = subtree_stats(raw, target)
+    paths = _paths(raw, sorted(roots))
+    parents = {int(i): parent for i, name, parent in paths}
+    cursor, depth = selected.parent_id, 0
+    while cursor is not None:
+        depth += 1
+        cursor = parents[cursor]
+    if not rising:
+        return depth + selected.height
+    # Validate a selected existing cache even if this optional rising branch
+    # lies outside target. Missing/corrupt rows never mean an empty branch.
+    branch = subtree_stats(raw, rising)
+    cursor = selected.agent_id
+    while cursor is not None:
+        if cursor == branch.agent_id:
+            return depth  # target itself lies in the excluded rising branch
+        cursor = parents[cursor]
+    upward = []
+    cursor = branch.agent_id
+    while cursor is not None and cursor != selected.agent_id:
+        upward.append(cursor)
+        cursor = parents[cursor]
+    if cursor is None:
+        return depth + selected.height
+    height = -1  # this branch itself rises; none of it descends with target
+    for child in upward:
+        parent = parents[child]
+        row = raw.execute(
+            'SELECT height FROM orgtree.agent_subtree_stats '
+            'WHERE parent_agent_id=%s AND height>=0 AND agent_id<>%s '
+            'ORDER BY height DESC,agent_id LIMIT 1', (parent, child)).fetchone()
+        height = max(0, height + 1, row[0] + 1 if row else 0)
+    return depth + max(0, height)
+
+
+def placement_children(org: Any, raw: Any, name: str) -> int | None:
+    """Current org-axis count, retaining decoded parity for staged/alias rows."""
+    check_paths(raw, {name})
+    node = dict.get(org.nodes, name)
+    if isinstance(node, dict) and fresh_leaf_depth(org, raw, node.get('parent'), name) is not None:
+        return 0
+    if not clean_stats(org, raw):
+        return None
+    return subtree_stats(raw, name).org_children_count
 
 
 def verify_stats(raw: Any) -> list[tuple[int, str]]:

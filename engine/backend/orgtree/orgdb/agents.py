@@ -53,6 +53,96 @@ def _hot(raw, where, params=()):
     return result
 
 
+def sibling_headers(raw, parent, *, order_only=False):
+    """Temporary exact scalar headers for the ordinary child candidate set.
+
+    No header is a node body or a save baseline. The final working-view
+    reader decides membership and ordering, including exceptional values.
+    """
+    keys = (('parent', 'state', 'ui_order', 'created', 'model') if order_only else
+            ('parent', 'state', 'model', 'grant', 'ui_order', 'created',
+             'bearer_state', 'predecessor', 'successor'))
+    refs = ('parent',) if order_only else M.REFS
+    spec = codec.Spec('agents', tuple(f for f in M.NODE_BODY.fields if f.key in keys))
+    projection = [f'a.{codec.quote(column)}' for column, _ in codec.columns(spec)]
+    selected = list(dict.fromkeys(('id', 'name', 'ord', 'lineage_born', 'scope_is', 'extra',
+                    *(ref + '_id' for ref in refs),
+                    *(column for column, _ in codec.columns(spec)))))
+    for key in keys:
+        projection += [f"a.extra::jsonb ? '{key}' AS extra_{key}_present",
+                       f"a.extra -> '{key}' AS extra_{key}"]
+    parents = [row[0] for row in raw.execute(
+        'SELECT id FROM orgtree.agents WHERE name=%s',
+        ('' if parent is None else parent,)).fetchall()]
+    if parent in (None, ''):
+        parents.append(None)
+    wanted = []
+    # Small ordered pages keep the existing child index useful even when a
+    # parent owns half the org. Separate NULL partitions preserve every row
+    # while each keyset compares only non-NULL typed ordering columns.
+    order_columns = ('ui_order', 'created', 'ord')
+    for parent_id in parents:
+        for mask in range(8):
+            ordered = [column for bit, column in enumerate(order_columns) if mask & (1 << bit)]
+            conditions = [column + (' IS NOT NULL' if mask & (1 << bit) else ' IS NULL')
+                          for bit, column in enumerate(order_columns)]
+            bound = 'parent_id IS NULL' if parent_id is None else 'parent_id=%s'
+            arguments = [] if parent_id is None else [parent_id]
+            after = None
+            while True:
+                seek, params = '', list(arguments)
+                if after is not None:
+                    if ordered:
+                        seek += ' AND (' + ','.join(ordered) + ')>=(' + ','.join(['%s'] * len(ordered)) + ')'
+                        params.extend(after[:-1])
+                    seek += ' AND (' + ','.join([*ordered, 'id']) + ')>(' + ','.join(['%s'] * (len(ordered) + 1)) + ')'
+                    params.extend(after)
+                page = raw.execute('SELECT ' + ','.join([*ordered, 'id']) +
+                    ' FROM orgtree.agents WHERE NOT tombstone AND ' + bound +
+                    ' AND ' + ' AND '.join(conditions) + seek +
+                    ' ORDER BY ' + ','.join([*ordered, 'id']) + ' LIMIT 128', params).fetchall()
+                wanted.extend(row[-1] for row in page)
+                if len(page) < 128:
+                    break
+                after = page[-1]
+    rows = _dicts(raw,
+        'WITH RECURSIVE rare(id) AS ('
+        '(SELECT id FROM orgtree.agents WHERE NOT tombstone AND parent_misfit ORDER BY id LIMIT 1) '
+        'UNION ALL SELECT next.id FROM rare previous CROSS JOIN LATERAL '
+        '(SELECT id FROM orgtree.agents WHERE NOT tombstone AND parent_misfit '
+        'AND id>previous.id ORDER BY id LIMIT 1) next), wanted(id) AS ('
+        'SELECT id FROM unnest(%s::bigint[]) selected(id) UNION '
+        'SELECT id FROM rare) '
+        'SELECT a.id,a.name,a.ord,a.lineage_born,a.scope_is,'
+        "a.extra::jsonb ? 'scope' AS healing_scope_extra,"
+        + ','.join(projection) + ','
+        'a.parent_id,p.name AS parent_name' +
+        ('' if order_only else ',a.predecessor_id,b.name AS predecessor_name,'
+         'a.successor_id,s.name AS successor_name') + ' FROM wanted w '
+        'CROSS JOIN LATERAL (SELECT ' + ','.join(map(codec.quote, selected)) + ' FROM orgtree.agents '
+        'WHERE id=w.id AND NOT tombstone OFFSET 0) a '
+        'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.parent_id OFFSET 0) p ON true ' +
+        ('' if order_only else
+         'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.predecessor_id OFFSET 0) b ON true '
+         'LEFT JOIN LATERAL (SELECT name FROM orgtree.agents WHERE id=a.successor_id OFFSET 0) s ON true ') +
+        'ORDER BY a.ord,a.id', (wanted,))
+    result = []
+    for row in rows:
+        row['extra'] = {key: row[f'extra_{key}'] for key in keys
+                        if row[f'extra_{key}_present']}
+        header = codec.decode(spec, row, None, (row['id'],))
+        for ref in refs:
+            if row[ref + '_id'] is not None:
+                header[ref] = row[ref + '_name']
+        # Point-load healing needs the ordinary reader if a lineage seat or
+        # position is absent, or preserved scope values need their full context.
+        ordinary = (not row['lineage_born'] or 'ui_order' not in header
+                    or row['scope_is'] == codec.SHAPE_NULL
+                    or bool(row['healing_scope_extra']))
+        result.append((row['id'], row['name'], row['ord'], header, ordinary))
+    return result
+
+
 def _json_text(value, *, nested=False):
     """PostgreSQL jsonb's text form for a preserved scalar or container.
 
@@ -165,7 +255,10 @@ def _ref_closure(raw, ids, ref):
         attempted.update(pending)
         selected = raw.execute(
             f'WITH RECURSIVE wanted(id,ref_id) AS ('
-            f'SELECT id,{ref}_id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone UNION '
+            f'SELECT a.id,a.{ref}_id FROM '
+            f'(SELECT DISTINCT name FROM unnest(%s::text[]) requested(name)) selected '
+            f'CROSS JOIN LATERAL (SELECT id,{ref}_id FROM orgtree.agents '
+            f'WHERE name=selected.name AND NOT tombstone OFFSET 0) a UNION '
             f'SELECT p.id,p.{ref}_id FROM wanted c CROSS JOIN LATERAL ('
             f'SELECT id,{ref}_id FROM orgtree.agents WHERE id=c.ref_id AND NOT tombstone OFFSET 0) p) '
             f'SELECT a.name,a.{ref}_misfit FROM wanted w CROSS JOIN LATERAL '
@@ -303,11 +396,23 @@ def child_page(raw, parent, limit, after=None, last=False):
     if after is not None:
         suffix = ' AND (coalesce(a.ui_order,0),' + _CREATED + ',a.ord,a.name)>(%s::numeric,%s,%s,%s)'
         params.extend(after)
-    typed = raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,' + _CREATED + ',a.ord '
-        'FROM orgtree.agents a WHERE ' + base + parent_sql +
-        ' AND NOT (a.ui_order_misfit OR a.created_misfit) AND NOT '+_RARE_AXIS + suffix +
-        ' ORDER BY coalesce(a.ui_order,0)' + direction + ',' + _CREATED + direction +
-        ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*params, limit)).fetchall()
+    # Resolve all physical parents, including tombstones with a reused name.
+    # A scalar parent bound lets the ordered index stop at each page limit;
+    # the name semi-join can instead scan and sort every retained sibling.
+    parents = [row[0] for row in raw.execute(
+        'SELECT id FROM orgtree.agents WHERE name=%s', (parent or '',)).fetchall()]
+    if not parent:
+        parents.append(None)
+    typed = []
+    for parent_id in parents:
+        bound = ' AND a.parent_id IS NULL' if parent_id is None else ' AND a.parent_id=%s'
+        arguments = [] if parent_id is None else [parent_id]
+        arguments.extend(params[1:] if parent else params)
+        typed.extend(raw.execute('SELECT a.name,coalesce(a.ui_order,0)::text,' + _CREATED + ',a.ord '
+            'FROM orgtree.agents a WHERE ' + base + bound +
+            ' AND NOT (a.ui_order_misfit OR a.created_misfit) AND NOT '+_RARE_AXIS + suffix +
+            ' ORDER BY coalesce(a.ui_order,0)' + direction + ',' + _CREATED + direction +
+            ',a.ord' + direction + ',a.name' + direction + ' LIMIT %s', (*arguments, limit)).fetchall())
     candidates = {row[0]: row for row in typed}
     rare="a.state='archived' AND ("+_RARE_AXIS+' OR ((a.ui_order_misfit OR a.created_misfit) AND '+_AXIS+parent_sql+'))'
     for name, (ordinal, value) in _hot(raw, rare,

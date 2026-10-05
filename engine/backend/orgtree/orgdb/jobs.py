@@ -193,9 +193,9 @@ def execute(c: Any, job: Job, handler: Handler, *, base_seconds: float = 1,
     roll back all its org effects; then a separate transaction records retry.
     Returns True for an attempt that ran, even when its handler failed.
 
-    Handler authors must bump orgtree.org_revision and NOTIFY org_rev
-    '<slug>:<rev>' for org record changes, in this same transaction. Take the
-    revision row lock last (design 2.5); use the feed helper when integrated.
+    Handlers write their source rows in this transaction. Record capture and
+    the deferred flush assign the revision and NOTIFY at commit; handlers
+    must not bump or lock the revision row themselves.
     """
     ran = False
     try:

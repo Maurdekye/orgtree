@@ -636,6 +636,20 @@ def next_config_seq(node: dict[str, Any]) -> int:
 _BOOT_AT: str | None = None
 
 
+def _ask_linger_visible(card: dict[str, Any] | None, boot_at: str) -> bool:
+    """Apply only the host-start bound to an already selected desk card.
+
+    Pending requests always remain visible. An unknown boot stamp hides
+    nothing. The revisioned record builder applies time/session bounds;
+    the host overlay and the legacy tree share this remaining rule.
+    """
+    if card is None:
+        return False
+    if card.get("status") in ("open", "pending"):
+        return True
+    return not boot_at or str(card.get("resolved_at") or card["at"]) >= boot_at
+
+
 def _reset_boot_at_for_tests() -> None:
     """Forget the memoised boot stamp AND the one `restart_wake` holds, so a
     test can pose as a later process and re-read it. Paired with
@@ -1434,7 +1448,7 @@ class Org:
         self.d.setdefault("credit_requests", [])     # top-level asks to the user
         self.d.setdefault("compact_at", 0.80)        # compaction ratio, ≤ 0.95 hard
 
-    def _normalize_display_models(self) -> None:
+    def _normalize_display_models(self, *, include_app: bool = True) -> None:
         """Additive model vocabulary and local node aliases; no history reads."""
         # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
         # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
@@ -1466,7 +1480,8 @@ class Org:
         # openrouter imports store only, but ledger's own import graph stays
         # minimal (the providers precedent below).
         from . import openrouter as _orr        # noqa: PLC0415
-        for key, table in (("tiers", _orr.tiers()), ("models", _orr.models())):
+        for key, table in ((("tiers", _orr.tiers()), ("models", _orr.models()))
+                           if include_app else ()):
             cur = cast("dict[str, Any]", _doc.setdefault(key, {}))
             for k, v in table.items():
                 cur.setdefault(k, v)
@@ -1536,8 +1551,9 @@ class Org:
         #
         # It stays a DROP, so the budget is safe for the same reason the
         # block above is (committed falls, free rises).
-        _t.update(_orr.stale_seats(_t, cast("dict[str, str]",
-                                            _doc.get("models") or {})))
+        if include_app:
+            _t.update(_orr.stale_seats(_t, cast("dict[str, str]",
+                                                _doc.get("models") or {})))
         # ☞ …and a MODEL-ID change needs one for exactly the same reason: the
         # add-only rule above means `MODELS["fable"] = claude-fable-5-1` reaches
         # NO org that already exists — `setdefault` finds the key present and
@@ -1743,7 +1759,7 @@ class Org:
             cand = index.get(nid, ())
         else:
             from . import store                          # noqa: PLC0415 — cycle
-            lazy = store.lazy_children_of(self, nid)
+            lazy = store.lazy_children_of(self, nid, live_only=live_only)
             cand = (lazy if lazy is not None
                     else [k for k, v in self.nodes.items() if v["parent"] == nid])
         kids = [k for k in cand
@@ -2184,11 +2200,15 @@ class Org:
         if payer == USER or free_after >= free_before:
             return []
         warns: list[str] = []
-        for c in self.children(payer, live_only=False):
-            n = self.nodes[c]
+        from . import store   # noqa: PLC0415
+        headers = store.lazy_sibling_headers(self, payer)
+        siblings = (headers if headers is not None else
+                    [(c, self.nodes[c]) for c in self.children(payer, live_only=False)])
+        for c, n in siblings:
             if n["state"] != "archived":
                 continue
-            cost = _q(self.seat_cost(c) + n["grant"])  # rehire defaults to previous grant
+            seat = (self.d["tiers"][n["model"]] if headers is not None else self.seat_cost(c))
+            cost = _q(seat + n["grant"])  # rehire defaults to previous grant
             if free_after < cost <= free_before:
                 kind = "predecessor" if n.get("bearer_state") else "report"
                 warns.append(
@@ -4702,7 +4722,19 @@ class Org:
             # user ruling 2026-07-31: the cap is runaway INSURANCE, not a shape
             # constraint — wide flat teams are legitimate (the canvas stacks
             # leaf crowds), so the default is far above any deliberate org
-            if len(self.org_children(parent)) >= self.d.get("max_children", MAX_CHILDREN):
+            from .orgdb import native_move   # noqa: PLC0415
+            raw = native_move.connection(self)
+            child_count = None
+            if raw is not None:
+                # Hire admits only a clean pre-birth view. In particular, a
+                # staged parent must not use the placement reader's fresh-leaf
+                # shortcut. A failed gate counts the decoded fallback once.
+                native_move.graph.check_paths(raw, {parent})
+                if native_move.graph.clean_stats(self, raw):
+                    child_count = native_move.graph.placement_children(self, raw, parent)
+            if child_count is None:
+                child_count = len(self.org_children(parent))
+            if child_count >= self.d.get("max_children", MAX_CHILDREN):
                 raise LedgerError(
                     f"{parent} already has {self.d.get('max_children', MAX_CHILDREN)} reports (cap)")
 
@@ -5008,7 +5040,10 @@ class Org:
         nid, i = base, 2
         while nid in self.nodes:
             nid, i = f"{base}-{i}", i + 1
-        sibs = self.children(parent, live_only=False)
+        from . import store   # noqa: PLC0415
+        headers = store.lazy_sibling_headers(self, parent, order_only=True)
+        sibs = (headers if headers is not None else
+                [(s, self.nodes[s]) for s in self.children(parent, live_only=False)])
         seat = str(uuid.uuid4())
         # a reused (freed) key may still hold a deleted seat's rows: set them
         # aside so the new seat neither overwrites nor inherits them (F1)
@@ -5027,7 +5062,7 @@ class Org:
             "created": now(),
             "archived_at": None,
             "pid": None,
-            "ui_order": max([self.nodes[s].get("ui_order", 0) for s in sibs],
+            "ui_order": max([n.get("ui_order", 0) for s, n in sibs],
                             default=-1.0) + 1.0,
             "scope": {
                 # D-102: the ORG default, capped at the parent's own. Before
@@ -7065,12 +7100,17 @@ class Org:
         # early). Only what stays beneath the target descends. From the hire
         # path there is no rising node yet — the seat does not exist — and
         # every existing descendant really does drop one.
-        risen: set[str] = set()
-        if rising:
-            risen = {rising, *self.descendants(rising, live_only=False)}
-        sub = [k for k in self.descendants(target, live_only=False)
-               if k not in risen]
-        deepest = max((self.depth(k) for k in sub), default=self.depth(target))
+        from .orgdb import native_move   # noqa: PLC0415
+        raw = native_move.connection(self)
+        deepest = (native_move.graph.placement_depth(self, raw, target, rising)
+                   if raw is not None else None)
+        if deepest is None:
+            risen: set[str] = set()
+            if rising:
+                risen = {rising, *self.descendants(rising, live_only=False)}
+            sub = [k for k in self.descendants(target, live_only=False)
+                   if k not in risen]
+            deepest = max((self.depth(k) for k in sub), default=self.depth(target))
         if deepest + 1 >= cap_d:
             raise LedgerError(
                 f"max org depth {cap_d} reached — inserting a superior above "
@@ -7131,9 +7171,15 @@ class Org:
                     f"consultation — retire them first (a stack follows its "
                     f"owner, §8.5)")
         cap_c = self.d.get("max_children", MAX_CHILDREN)
-        if len(self.org_children(nid)) + 1 > cap_c:
+        from .orgdb import native_move   # noqa: PLC0415
+        raw = native_move.connection(self)
+        children_count = (native_move.graph.placement_children(self, raw, nid)
+                          if raw is not None else None)
+        if children_count is None:
+            children_count = len(self.org_children(nid))
+        if children_count + 1 > cap_c:
             raise LedgerError(
-                f"{nid} would hold {len(self.org_children(nid)) + 1} reports "
+                f"{nid} would hold {children_count + 1} reports "
                 f"(cap {cap_c}) once {target}'s branch moves beneath it")
         p = n_t["parent"]
         # the same §8.5 slot guard swap_seats carries: `nid` rises into the
@@ -9218,7 +9264,7 @@ class Org:
                        "why": "one-shot dog spent by its fire"}, [])
         return owner
 
-    def _tomb_expired(self, tomb: dict[str, Any]) -> bool:
+    def _tomb_expired(self, tomb: dict[str, Any], *, now_ts: float | None = None) -> bool:
         """Has a spent one-shot dog's canvas tombstone outlived its welcome?
 
         Age is computed from `spent_at`; a tombstone with an unreadable stamp
@@ -9232,7 +9278,9 @@ class Org:
                                           tzinfo=timezone.utc)
         except (TypeError, ValueError):
             return True
-        age = (datetime.now(timezone.utc) - spent).total_seconds()
+        current = (datetime.now(timezone.utc) if now_ts is None
+                   else datetime.fromtimestamp(now_ts, timezone.utc))
+        age = (current - spent).total_seconds()
         return age < 0 or age > self.WATCHDOG_TOMB_TTL_S
 
     # ---- canonical Refs (design §2) — the ONE place each Ref shape is built
@@ -10825,7 +10873,8 @@ class Org:
                 return {**r, "kind": "scope"}
         return None
 
-    def node_ask(self, nid: str) -> dict[str, Any] | None:
+    def node_ask(self, nid: str, *, now_ts: float | None = None,
+                 include_boot: bool = True) -> dict[str, Any] | None:
         """The card the UI should show on this node's desk: the open BATCH
         (FR-14: the union of the open question tabs, the pending credit
         request and the pending scope items, resolved together at one
@@ -10889,7 +10938,9 @@ class Org:
         def stamp(a: dict[str, Any]) -> str:
             return str(a.get("resolved_at") or a["at"])
         best = max(pool, key=stamp)
-        cutoff = (datetime.now(timezone.utc)
+        current = (datetime.now(timezone.utc) if now_ts is None
+                   else datetime.fromtimestamp(now_ts, timezone.utc))
+        cutoff = (current
                   - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
         # THE LINGER IS PER BACKEND PROCESS, and the second bound is not a
         # refinement of the first — it is the one that makes the window mean
@@ -10921,9 +10972,8 @@ class Org:
         # visible exactly once either way. The resolved card itself is never
         # erased: it keeps its place in the user's inbox through `tree.asks`,
         # which does not consult this window at all.
-        boot_at = self._boot_at()
-        if boot_at and boot_at > cutoff:
-            cutoff = boot_at
+        if include_boot and not _ask_linger_visible(best, self._boot_at()):
+            return None
         # …AND PER SESSION, for the same reason (user report 2026-09-29: an
         # answered card came back at full size in coordinator-opus's chat
         # right after a cheap compaction, and stayed until the 15 minutes
@@ -11955,7 +12005,7 @@ class Org:
             return self.tree_node(nid, children_index=_kids)
         return self.tree_header([build(c) for c in self.org_children(None, _kids)])
 
-    def tree_header(self, roots: list[dict[str, Any]]) -> dict[str, Any]:
+    def tree_header(self, roots: list[dict[str, Any]], *, include_app: bool = True) -> dict[str, Any]:
         """Shared header projection for the full tree and a prepared foreground."""
         # F-04 history, capped by what the DESK ACTUALLY RENDERS. The full
         # list was shipped at `[-60:]` and measured 122,692 B on the live org
@@ -12018,7 +12068,7 @@ class Org:
             "default_effort": self.d.get("default_effort", ""),
             # what "" resolves to, so no UI string has to hardcode it
             "effort_default": self.DEFAULT_EFFORT,
-            "prefer_reserve_default": app_prefer_reserve_default(),
+            **({"prefer_reserve_default": app_prefer_reserve_default()} if include_app else {}),
             "credit_requests": [r for r in self.d.get("credit_requests", [])
                                 if r["status"] == "pending"],
             # F-04: everything the user's inbox interleaves as ask cards —

@@ -257,7 +257,7 @@ class Twins:
         org_id = lc.register_org(self.copy, state='converting')
         build = lc.open_build(org_id, 'convert')
         with dbconn.connect(RUNTIME, build.database, autocommit=False) as c:
-            rowio.write(c, rows, order=rowio.tables(secs))
+            rowio.write(c, rows, order=rowio.tables(secs), new_database=True)
             rowio.write_receipts(c, receipts)
             c.commit()
         lc.mark_filled(build)

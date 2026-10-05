@@ -35,7 +35,7 @@ CURRENT_LISTS = ('audiences', 'audience_requests', 'user_inbox', 'watchdogs', 'w
 _LIST_ROWS_SQL = 'SELECT val FROM log_l WHERE sect BETWEEN %s AND %s ORDER BY seq'
 
 
-def _compatible(settings, nodes):
+def _compatible(settings, nodes, *, records=False, now_ts=None):
     if not settings.get('_actors_typed') or not settings.get('whole_grants_v1'):
         raise CompatibilityRequired('whole-org legacy normalization is required')
     migrations = settings.get('_migrations') or {}
@@ -44,14 +44,14 @@ def _compatible(settings, nodes):
         if key not in migrations:
             raise CompatibilityRequired('legacy migration marker missing: ' + key)
     lock = settings.get('fable_lock') or {}
-    if lock and not lock.get('no_reset') and (
-            not lock.get('until_ts') or time.time() >= float(lock['until_ts'])):
+    if not records and lock and not lock.get('no_reset') and (
+            not lock.get('until_ts') or (time.time() if now_ts is None else now_ts) >= float(lock['until_ts'])):
         raise CompatibilityRequired('expired fable lock requires whole-org normalization')
     for nid, row in nodes.items():
         book = row.get('cache_continuity') or {}
         pred = row.get('predecessor')
         if (isinstance(book, dict) and isinstance(book.get('public'), dict)
-                and isinstance(book.get('forecast'), dict) and pred
+                and isinstance(book.get('forecast'), dict) and pred and not records
                 and pred not in nodes and pred.split('@')[0] != nid.split('@')[0]):
             # _build_cmd grants a separate predecessor's scratch only when its
             # row exists. A subset cannot decide that membership for a preview.
@@ -87,7 +87,7 @@ class ForegroundContext:
         'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
     def __init__(self, *, settings, graph, funding, windows, inbox, work_counts, reuse=None,
-                 work_raises=None, audience_parents=None):
+                 work_raises=None, records=False, now_ts=None, audience_parents=None):
         if work_counts is None:
             raise CompatibilityRequired('coherent work counts unavailable')
         # `reuse`: nodes an earlier context of THE SAME settings already
@@ -95,15 +95,26 @@ class ForegroundContext:
         # re-running it below over them changes nothing; only the others are
         # copied from the graph and normalized for the first time.
         reuse = reuse or {}
-        nodes = {nid: reuse[nid] if nid in reuse else copy.deepcopy(row['node'])
+        nodes = {nid: (copy.deepcopy(reuse[nid]) if records else reuse[nid])
+                 if nid in reuse else copy.deepcopy(row['node'])
                  for nid, row in graph['rows'].items()}
-        _compatible(settings, nodes)
+        _compatible(settings, nodes, records=records, now_ts=now_ts)
+        self._records = records
+        self._now = now_ts
         if any(not row.get('id') for row in settings.get('user_inbox', [])):
             raise CompatibilityRequired('legacy user mail identifiers require normalization')
         if any(isinstance(row, dict) and not row.get('id')
                for rows in (settings.get('mail') or {}).values() for row in rows):
             raise CompatibilityRequired('legacy pending mail identifiers require normalization')
         self.d = ProjectionDoc(copy.deepcopy(settings))
+        # A record snapshot owns its clock. Match Org's display normalization
+        # in this detached copy, without releasing the real lock or emitting
+        # notices. The legacy context keeps its whole-org fallback above.
+        lock = self.d.get('fable_lock') or {}
+        if records and lock and not lock.get('no_reset') and (
+                not lock.get('until_ts') or (time.time() if now_ts is None else now_ts)
+                >= float(lock['until_ts'])):
+            self.d.pop('fable_lock', None)
         self.d['nodes'] = nodes
         # Reused nodes are already normalized under these settings: skip their
         # per-node work (F3b-3). `_normalized_nodes` is the Org seam the shared
@@ -115,9 +126,9 @@ class ForegroundContext:
         # These helpers perform local normalization only, with no event/migration
         # side effects and no history scans. Never call Org.__init__ here.
         Org._normalize_display_basics(self)
-        Org._normalize_display_models(self)
+        Org._normalize_display_models(self, include_app=not records)
         self.d['dirs'] = norm_dirs(self.d.get('dirs'))
-        for node in fresh.values():
+        for node in (nodes if records else fresh).values():
             retag_legacy_spend_freeze(node.get('frozen'))
             if not self.d.get('fable_lock'):
                 node.pop('limit_locked', None)
@@ -199,16 +210,23 @@ class ForegroundContext:
         return result
 
     def tree_header(self, roots):
-        result = Org.tree_header(self, roots)
+        result = Org.tree_header(self, roots, include_app=not self._records)
         result['cost_usd_unknown'] = bool(self.d.get('deleted_cost_usd_unknown') or self._stamp['cost_unknown'])
         result['org_inbox'].update(copy.deepcopy(self._inbox))
         return result
+
+    def node_ask(self, nid):
+        return Org.node_ask(self, nid, now_ts=self._now, include_boot=not self._records)
+
+    def _tomb_expired(self, tomb):
+        return Org._tomb_expired(self, tomb, now_ts=self._now)
 
 
 def build(raw, slug: str, graph: dict, *, header: bool = True,
           viewer: str = USER, now_ts: float | None = None,
           reuse: dict | None = None, reuse_settings: str | None = None,
-          inputs: dict | None = None, funding: list | None = None) -> ForegroundContext:
+          inputs: dict | None = None, funding: list | None = None,
+          records: bool = False) -> ForegroundContext:
     """Consume the graph's still-open committed snapshot; never open another.
 
     ``reuse`` hands over nodes an earlier context normalized; they are used
@@ -286,7 +304,7 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
         audience_parents = read_paths(raw, blobs.get('audiences', ()))
     context = ForegroundContext(settings=blobs, graph=graph, funding=funding,
         windows=windows, inbox=inbox, work_counts=counts, work_raises=raises, reuse=reuse,
-        audience_parents=audience_parents)
+        records=records, now_ts=now_ts, audience_parents=audience_parents)
     # What was read, kept so a later advance with no doc change reuses it.
     context.inputs = {'blobs': blobs, 'funding': funding, 'windows': windows, 'inbox': inbox}
     context.settings_key = settings_key

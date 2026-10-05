@@ -244,7 +244,7 @@ def convert_org(lc: Lifecycle, cfg: Config, org: legacy.LegacyOrg, org_id: int, 
         report["enum_misfits"] = enums.misfits(org.slug, rows, secs + side_secs)
         order = rowio.tables(secs + side_secs)
         with conn.connect(cfg.runtime_base, build.database, autocommit=False) as c:
-            report["rows_written"] = rowio.write(c, rows, order=order)
+            report["rows_written"] = rowio.write(c, rows, order=order, new_database=True)
             report["rows_written"]["tx_receipts"] = rowio.write_receipts(c, receipts)
             c.commit()
         rows = None   # noqa: F841  free before the read-back

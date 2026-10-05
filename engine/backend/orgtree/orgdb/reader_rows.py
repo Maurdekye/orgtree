@@ -85,8 +85,11 @@ def read_sections(raw: Any, keys: Iterable[str], *, owners: Iterable[str] | None
     wanted_ids = None
     if owners is not None:
         wanted_ids = [aid for aid, name in raw.execute(
-            'SELECT id, name FROM orgtree.agents WHERE name = ANY(%s) '
-            'ORDER BY tombstone, id', (list(owners),)).fetchall()]
+            'SELECT a.id, a.name FROM '
+            '(SELECT DISTINCT name FROM unnest(%s::text[]) requested(name)) selected '
+            'CROSS JOIN LATERAL (SELECT id,name,tombstone FROM orgtree.agents '
+            'WHERE name=selected.name OFFSET 0) a '
+            'ORDER BY a.tombstone, a.id', (list(owners),)).fetchall()]
     for sec in picked:
         by_agent = isinstance(sec, (sections.ByAgentLists, sections.ByAgentRecords,
                                     sections.ByAgentMaps))

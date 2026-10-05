@@ -1062,6 +1062,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
     if store.STORE_BACKEND == "postgres":
         _start_revision_feed()
+        from . import record_api
+        record_api.start_timers()
     try:
         # hook processes get a sanitized env — the steering hook finds us here
         open(os.path.join(store.DATA_ROOT, ".port"), "w",
@@ -1071,6 +1073,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
 
     def notify(slug: str, node: str, event: str,
                detail: dict[str, Any] | None = None) -> None:
+        from . import record_api
+        loop.call_soon_threadsafe(record_api.transition, slug, (node,))
         asyncio.run_coroutine_threadsafe(
             hub.node_event(slug, node, event, detail), loop)
 
@@ -1085,6 +1089,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     def stream(slug: str, node: str, payload: dict[str, Any]) -> None:
         payload = supervisor.wire_reply_frame(
             supervisor.capture_reply_stream(slug, node, payload))
+        from . import record_api
+        loop.call_soon_threadsafe(record_api.transition, slug, (node,))
         if payload.get("kind") in ("cache_forecast", "mcp_tool_count",
                                    "mcp_readiness"):
             # these frames patch the rendered tree in place on every client;
@@ -1126,6 +1132,7 @@ def _recover_startup() -> None:
     # Prune staging before API writes are released: no current request can
     # own any of these files yet. Network delivery starts after recovery too.
     net.notify_changed = hub_changed
+    net.notify_runtime = hub_runtime_changed
     _prune_stage(max_age_s=0.0)
     # D-219 one-shot heal: an old 'plan' org default left 'plan' stamped in
     # node scopes, and a headless plan-mode agent is mute — every bare rehire
@@ -1248,17 +1255,18 @@ def _ws_window_id(ws: WebSocket) -> str:
     return re.sub(r"[^A-Za-z0-9_.:-]", "", raw) or "-"
 
 
-class _Outbox:
-    """One socket's pending frames and the task that writes them, in order.
-    Frames are pre-encoded text, so their byte size is known for free."""
+from .orgdb.record_transport import FrameQueue
 
-    __slots__ = ("frames", "ready", "task", "bytes", "sent", "sent_bytes",
-                 "win", "slug", "joined")
+
+class _Outbox(FrameQueue):
+    """One socket's pending frames and the task that writes them, in order.
+    Subscription batches encode one page at a time; other frames are text."""
+
+    __slots__ = ("task", "sent", "sent_bytes", "win", "slug", "joined", "records")
 
     def __init__(self, slug: str = "", win: str = "-") -> None:
-        #: (encoded text, its UTF-8 size in bytes)
-        self.frames: collections.deque[tuple[str, int]] = collections.deque()
-        self.ready = asyncio.Event()
+        super().__init__(max_frames=_WS_QUEUE_MAX)
+        self.records = False
         self.task: asyncio.Task[None] | None = None
         #: encoded size of the frames still queued
         self.bytes = 0
@@ -1295,6 +1303,7 @@ class Hub:
         box = _Outbox(slug, _ws_window_id(ws))
         self._window(box.win)["connects"] += 1
         self._boxes[ws] = box
+        box.overflow = lambda: self._record_overflow(ws, box)
         box.task = asyncio.get_running_loop().create_task(self._writer(slug, ws, box))
         self.rooms.setdefault(slug, set()).add(ws)
 
@@ -1302,6 +1311,10 @@ class Hub:
         self.rooms.get(slug, set()).discard(ws)
         box = self._boxes.pop(ws, None)
         if box is not None:
+            from . import record_api
+            current = record_api.hosts.get(slug)
+            if current is not None:
+                current.leave(ws)
             box.frames.clear()
             box.bytes = 0
             task = box.task
@@ -1317,6 +1330,28 @@ class Hub:
         """Frames queued for `ws` and not yet written (0 once it has left)."""
         box = self._boxes.get(ws)
         return len(box.frames) if box is not None else 0
+
+    def record(self, ws: WebSocket, payload: dict) -> bool:
+        return self._record_offer(ws, payload, pages=False)
+
+    def record_pages(self, ws: WebSocket, payloads) -> bool:
+        return self._record_offer(ws, payloads, pages=True)
+
+    def _record_offer(self, ws, payload, *, pages):
+        box = self._boxes.get(ws)
+        if box is None:
+            return False
+        box.records = True
+        accepted = box.offer_pages(payload) if pages else box.offer(payload)
+        return accepted
+
+    @staticmethod
+    def _record_overflow(ws, box):
+        from . import record_api
+        current = record_api.hosts.get(box.slug)
+        client = current.runner.clients.get(ws) if current is not None else None
+        if client is not None:
+            current.runner._reset(client)
 
     def _drop(self, slug: str, ws: WebSocket, reason: str) -> None:
         """Give up on a socket that is not reading: forget it, free its queue,
@@ -1340,12 +1375,11 @@ class Hub:
 
     async def _writer(self, slug: str, ws: WebSocket, box: _Outbox) -> None:
         while True:
-            while not box.frames:
-                box.ready.clear()
-                await box.ready.wait()
-            frame, size = box.frames.popleft()
-            box.bytes -= size
             try:
+                frame = await box.take()
+                if frame is None:
+                    return
+                size = len(frame.encode('utf-8'))
                 # == ws.send_json(payload): the same compact, non-ASCII-escaped text
                 await asyncio.wait_for(ws.send_text(frame), _WS_SEND_TIMEOUT)
             except asyncio.TimeoutError:
@@ -1407,6 +1441,10 @@ class Hub:
         for ws in room:
             box = self._boxes.get(ws)
             if box is None:
+                continue
+            if box.records:
+                if admin_payload.get('type') != 'changed':
+                    self.record(ws, admin_payload)
                 continue
             if len(box.frames) >= _WS_QUEUE_MAX:
                 self._drop(slug, ws, "overflow")
@@ -1492,12 +1530,20 @@ def _start_revision_feed() -> None:
     from . import orgdb, orgtx, pgfeed, pgstore
     if _REV_FEED is not None:
         return
-    orgtx.commit_listeners.append(lambda c: pgfeed.note_local(c.slug, c.revision))
+    from . import record_api
+    native = orgdb.enabled()
+    if not native:
+        orgtx.commit_listeners.append(lambda c: pgfeed.note_local(c.slug, c.revision))
+    def observed(slug, rev, gap):
+        store.external_change(slug, "feed")
+        if _LOOP is not None:
+            _LOOP.call_soon_threadsafe(record_api.observed, slug, rev, gap)
+        hub_changed(slug)
     feed = pgfeed.RevisionFeed(
         # one database per org (the storage switch): each org NOTIFYs on its own
         pgfeed.orgdb_conn if orgdb.enabled() else lambda: pgfeed.psycopg_conn(pgstore.url()),
-        pgfeed.engine_callback(lambda s: store.external_change(s, "feed"),
-                               hub_changed))
+        observed if native else pgfeed.engine_callback(
+            lambda s: store.external_change(s, "feed"), hub_changed))
     feed.start()
     _REV_FEED = feed
 
@@ -1509,6 +1555,8 @@ async def _stop_revision_feed() -> None:
     # at its next wake and closes its own session (RevisionFeed.run's finally).
     if _REV_FEED is not None:
         _REV_FEED.stop(timeout=0.0)
+    from . import record_api
+    await record_api.close()
 
 
 def _org_rev(slug: str) -> int | None:
@@ -1523,6 +1571,11 @@ def _org_rev(slug: str) -> int | None:
 _BCAST_COALESCE = 0.4      # seconds; see hub_changed
 _bcast_pending: set[str] = set()
 _bcast_lock = threading.Lock()
+
+
+def hub_runtime_changed(slug: str | None = None) -> None:
+    if _LOOP is not None:
+        _LOOP.call_soon_threadsafe(record_api.hub_transition, slug)
 
 
 def hub_changed(slug: str) -> None:
@@ -1540,6 +1593,23 @@ def hub_changed(slug: str) -> None:
     """
     if _LOOP is None:
         return
+    from . import orgdb, record_api
+    _LOOP.call_soon_threadsafe(record_api.transition, slug)
+    if orgdb.enabled() and record_api.READY:
+        _LOOP.call_soon_threadsafe(_record_or_legacy_changed, slug)
+        return
+    _legacy_hub_changed(slug)
+
+
+def _record_or_legacy_changed(slug: str) -> None:
+    # Outboxes are event-loop owned. A migrated room needs no changed timer;
+    # unmigrated or still-connecting legacy sockets keep the old protocol.
+    if any(not box.records for ws in hub.rooms.get(slug, ())
+           if (box := hub._boxes.get(ws)) is not None):
+        _legacy_hub_changed(slug)
+
+
+def _legacy_hub_changed(slug: str) -> None:
     with _bcast_lock:
         if slug in _bcast_pending:
             return                      # a broadcast is already coming
@@ -1943,7 +2013,7 @@ def _stamp_wake_countdown(node: dict[str, Any]) -> None:
 
 
 def _rederive_freeze_reset(node: dict[str, Any],
-                           cache: dict[str, dict[str, Any]]) -> None:
+                           cache: dict[str, dict[str, Any]], *, now_ts: float | None = None) -> None:
     """Re-derive a usage-limit freeze's reset from the CURRENT account roster.
 
     ⚠ THE STAMPED NUMBER DESCRIBES A ROSTER THAT MAY NO LONGER EXIST.
@@ -2081,7 +2151,7 @@ def _rederive_freeze_reset(node: dict[str, Any],
     # display's business — but it no longer decides it.
     #
     fzd = cast("dict[str, Any]", fz)
-    now = time.time()
+    now = time.time() if now_ts is None else now_ts
     # ⚠ THE BADGE READS THE RECORD AND NOTHING ELSE (review round 9). It used
     # to fetch the account's mark and the roster here, and that was the last
     # source of the disagreement this whole item is about: this endpoint
@@ -2373,6 +2443,10 @@ def _org_tree_transport(slug: str, request: Request) -> Response:
     return Response(content=body, media_type="application/json", headers=headers)
 
 
+from . import record_api
+app.include_router(record_api.router)
+
+
 @app.get("/api/orgs/{slug}/foreground-tree")
 async def foreground_tree(slug: str, request: Request) -> Response:
     from . import foreground_api
@@ -2520,6 +2594,8 @@ def _org_view(slug: str, request: Request,
         if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
         return _annotate_org_view(org, tree, request, detail_node, profile=profile)
     tree = org.tree()
+    if record_api.capable(slug):
+        tree["capabilities"] = {**tree.get("capabilities", {}), "record_changes_v1": True}
     tree["sync_rev"] = sync_rev0
     if org_rev0 is not None:
         tree["org_rev"] = org_rev0
@@ -2564,6 +2640,233 @@ def _detail_tree_node(org: Org, nid: str) -> dict[str, Any]:
             raise HTTPException(404, f"no such node: {nid!r}")
         cur = parent
     return org.tree_node(nid, children_index=index, descend=False)
+
+
+def _annotate_agent_runtime(org, node, *, account_view=None):
+    """One formatter for legacy tree nodes and ordered record runtime values.
+
+    The record path omits account display metadata, which belongs to the app
+    feed. All org inputs come from the caller's retained snapshot context.
+    """
+    slug = org.d["slug"]
+    if account_view is not None:
+        from . import accountusage
+        card_rows, available, primary, ambient_paths, registered = account_view
+    st = supervisor.state(slug, node["id"])
+    node["busy"] = st["busy"]
+    # №12: three states wore one pulse — split them: waiting on a turn
+    # slot vs actually responding vs busy-but-between (draining/queued)
+    node["waiting"] = bool(st.get("waiting"))
+    # queued behind the machine-wide concurrent-turn limit (user ruling
+    # 2026-09-26): {since, limit, waiting} while queued, else None — the
+    # desk shows a banner pointing at the setting
+    node["queued_for_slot"] = st.get("queued_for_slot") or None
+    node["responding"] = bool(st.get("responding"))
+    node["phase"] = st.get("phase")     # e.g. "compacting" (№3)
+    # ⚠ WHICH ACCOUNT ACTUALLY SERVED THIS TURN — captured at spawn from
+    # the RESOLVED environment, not from what the org intended. This is
+    # the only field that describes what HAPPENED: the switch row and the
+    # panel's "serving" line both describe intent and state, so without
+    # this a turn served by the ambient account while the panel says
+    # "fallback" looks identical to a correct one. An account uuid, or
+    # "ambient" / "api-key" / "token:unattributed". Never a credential.
+    node["ran_as"] = st.get("ran_as") or None
+    # …and the same fact in the form a READER needs (user ruling
+    # 2026-08-25): "fallback 2 · <uuid>" when this turn is running off a
+    # fallback, None otherwise. Composed in the backend because it owns
+    # the registry — the desk cannot count key rows it never fetched, and
+    # a second count is a second thing to disagree.
+    if account_view is not None:
+        node["ran_as_label"] = accounts.serving_label(
+            str(st.get("ran_as") or ""))
+    # ⚠ WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW — the
+    # same `ran_as` fact above, resolved to the account it names and shown
+    # only where a reader could not otherwise tell. Composed HERE, beside
+    # `ran_as_label`, for that field's own reason: the backend owns the
+    # registry, and a renderer that counted accounts itself would be a
+    # second definition of "available" to disagree with this one.
+    #
+    # `busy` is what makes it a statement about the CURRENT turn. `ran_as`
+    # outlives the turn that set it (it is "the turn in flight or the most
+    # recent one this process ran"), so without this gate an idle agent
+    # would keep wearing the account that served it an hour ago — the
+    # stale-state failure `codex_route.live` exists to prevent, which is
+    # why this uses the very same `st["busy"]` that gate does.
+    if account_view is not None:
+        node["serving_account"] = accountusage.serving_card(
+            st.get("ran_as"), busy=bool(st.get("busy")),
+            rows_by_id=card_rows, counts=available,
+            primary=primary, ambient_paths=ambient_paths,
+            provider=providers.provider_of(str(node.get("tier") or "")),
+            configured_account=node.get("account"), registered=registered)
+    # ⚠ WHICH POOL A LUNA IS ACTUALLY ON (item 12; user spec 2026-09-04:
+    # a header token when Luna RUNS ON RESERVE). The in-memory record
+    # is the turn in flight or the last one this process ran; the
+    # document's `codex_route_last` covers a restart. `live` is what
+    # separates "reserve" from "last: reserve" — a token that cannot
+    # tell a running turn from yesterday's is the stale-state failure
+    # the spec names. Composed here from the same label rule the
+    # backend owns (`codex_route.route_label`) so the desk and the
+    # card cannot word it two ways. Null for every tier that does not
+    # route and for a direct luna with nothing to disclose.
+    _rt = st.get("codex_route")
+    if not isinstance(_rt, dict):
+        _rt = org.node(node["id"]).get("codex_route_last")
+    if isinstance(_rt, dict):
+        _live = bool(_rt.get("live")) and bool(st.get("busy"))
+        _rt_view = cast("codex_route.Route", _rt)
+        node["codex_route"] = {
+            "route": _rt.get("route"), "pool": _rt.get("pool"),
+            "model": _rt.get("model"), "requested": _rt.get("requested"),
+            "reason": _rt.get("reason"), "selection": _rt.get("selection"),
+            "prefer": _rt.get("prefer"),
+            "outcome": _rt.get("outcome"),
+            "reported_model": _rt.get("reported_model"),
+            # the server's `model/rerouted`, when it sent one, and the
+            # pool that answer attributes the turn to (None = unknown);
+            # the label already follows both, this is for the tooltip
+            "rerouted": _rt.get("rerouted"),
+            "served_pool": _rt.get("served_pool"),
+            "live": _live, "at": _rt.get("at"),
+            # ⚠ IS THIS TURN ON RESERVE — three-valued, and the ONLY
+            # field a surface may gate the reserve card on (user ruling
+            # 2026-09-16). null is "not established", which is NOT
+            # false: an unattributable reroute lands here, and a card
+            # shown on it would be claiming a lane nobody read. Sent
+            # beside `label` and from the same one definition, so the
+            # desk and the near-zoom card cannot disagree about when
+            # the card appears or re-derive the question from `tier`.
+            "on_reserve": codex_route.on_reserve(_rt_view),
+            "label": codex_route.route_label(_rt_view, live=_live)}
+    else:
+        node["codex_route"] = None
+    node["queued"] = len(st["queue"])
+    # D-201 (contract frozen with styling 2026-08-30): is a pre-warmed
+    # CLI process PARKED for this seat right now, holding a current
+    # system prompt? A SPEED property, never health: false is the normal
+    # state for codex/antigravity lanes, archived seats, mid-turn seats and
+    # the kill-switch-off arm, and a false agent answers perfectly well —
+    # it just pays a cold spawn. Always present (never absent) on every
+    # node this block decorates.
+    node["proc_warm"] = bool(st.get("proc_warm"))
+    node["proc_live"] = bool(st.get("proc_live"))
+    node["proc_relaunch"] = bool(st.get("proc_relaunch"))
+    node["proc_relaunch_reason"] = (
+        str(st.get("proc_relaunch_reason"))
+        if st.get("proc_relaunch_reason") else None)
+    control = warmpool.process_control_status(org, node["id"])
+    node["proc_paused"] = bool(control.get("paused"))
+    node["proc_control_enabled"] = bool(control.get("enabled"))
+    node["proc_control_action"] = control.get("action")
+    node["proc_control_reason"] = (
+        str(control.get("reason")) if control.get("reason") else None)
+    last_mcp = org.node(node["id"]).get("last_turn_mcp_tool_count")
+    node["mcp_tool_count"] = (
+        int(st["mcp_tool_count"])
+        if isinstance(st.get("mcp_tool_count"), int)
+        and not isinstance(st.get("mcp_tool_count"), bool) else None)
+    node["last_turn_mcp_tool_count"] = (
+        int(last_mcp) if isinstance(last_mcp, int)
+        and not isinstance(last_mcp, bool) else None)
+    node["mcp_tool_count_provider"] = str(
+        st.get("mcp_tool_provider") or
+        providers.provider_of(str(org.node(node["id"]).get("model") or "")))
+    node["mcp_tool_count_source"] = (
+        str(st.get("mcp_tool_source")) if st.get("mcp_tool_source") else None)
+    # A KNOWN count owes the reader no excuse. `_mcp_tool_count_publish`
+    # clears the reason on SUCCESS, and this fallback then filled that
+    # silence with "no live provider process" — so a node with a resolved
+    # count and a live process reported that it had neither. Measured
+    # 2026-09-01: all five live nodes said it simultaneously, every one of
+    # them serving turns. The fallback belongs to the unknown case, which
+    # is the only one that has anything to explain.
+    node["mcp_tool_count_reason"] = (
+        str(st.get("mcp_tool_reason")) if st.get("mcp_tool_reason")
+        else None if node["mcp_tool_count"] is not None
+        else "no live provider process")
+    node["mcp_readiness_waiting"] = bool(
+        st.get("mcp_readiness_waiting"))
+    node["mcp_readiness_state"] = (
+        str(st.get("mcp_readiness_state"))
+        if st.get("mcp_readiness_state") else None)
+    node["mcp_readiness_reason"] = (
+        str(st.get("mcp_readiness_reason"))
+        if st.get("mcp_readiness_reason") else None)
+    # ⚠ ARCHIVED SEATS DO NOT PAY FOR THIS. A forecast is a claim about
+    # what the NEXT turn's provider cache will do; an archived agent has
+    # no next turn until it is rehired, and rehiring re-derives the whole
+    # book anyway. So the answer was never rendered — `CacheForecastMark`
+    # and `CacheForecastWarning` both return null on a null forecast —
+    # while the computation ran in full.
+    #
+    # MEASURED 2026-09-03, this org (6 live seats, 179 archived): the call
+    # cost 1.8-4.0 s per tree render, ~92% of it on archived seats, and
+    # `GET /api/orgs/{slug}` took 11-38 s (113 s with two in flight)
+    # against a 45 s client deadline — the "signal timed out" banner. The
+    # cost is `_cache_semantic_inputs` → `_build_cmd` → `transcript_path`,
+    # a glob whose wildcard component is the project directory, so every
+    # node re-listed the user's entire ~/.claude/projects (349 dirs,
+    # 14 ms a call). Live seats still pay it; there are six of them.
+    #
+    # The test is STATE, not liveness: a live-but-parked seat holding no
+    # warm process is exactly who the forecast is for (its next turn is
+    # the one at risk), so gating on a process check would delete the
+    # feature's whole value. Only `archived` is skipped.
+    #
+    # ⚠ EXPLICIT None, never a missing key: `Org.tree()` has already put
+    # the node's PERSISTED `cache_continuity.public` row here, and that
+    # row is a durable record of some past turn that never went through
+    # `cachecontinuity.public` classification. Leaving it would render a
+    # stale verdict on an archived card — worse than none.
+    node["cache_forecast"] = (
+        None if node["state"] == "archived"
+        else supervisor.cache_forecast_public(org, node["id"]))
+    # The composer's mid-turn steer-window warning has to say which of two
+    # things a missed window costs, and that depends on whether the
+    # compactor is on FOR THIS NODE. Resolved here rather than threaded
+    # through the UI from the org default: the effective value is the org
+    # setting merged with this node's own scope override, and only
+    # `_auto_cheap_cfg` knows that. Passing the org value down instead
+    # would render the wrong sentence on every node that overrides it.
+    _cheap_cfg = supervisor._auto_cheap_cfg(org, node["id"])
+    node["cheap_compact_on"] = _cheap_cfg is not None
+    # …and the compactor's own occupancy threshold, because the same
+    # banner is threshold-gated (user ruling 2026-09-02 19:19Z): with the
+    # compactor on it shows only at or above THIS fraction (the
+    # destructive gate's inclusive minimum, `_auto_cheap_context_ready`);
+    # off, only above the fixed 25% floor `_cache_precompact_decision`
+    # uses. None when the compactor is off — there is no threshold then.
+    node["cheap_compact_occ"] = (
+        float(_cheap_cfg["occ"]) if _cheap_cfg else None)
+    # concurrently running subagents (Task/Agent tool calls in flight) —
+    # the desk header shows it beside the working clock, only when > 0
+    node["tasks"] = int(st.get("tasks") or 0)
+    # …and BACKGROUND subagents, counted apart because they mean something
+    # different: they outlive the turn's own reply, so a node can sit
+    # `busy` for a long time with nothing else to show for it. Before the
+    # 2026-08-20 fix that state was invisible AND fatal (the idle watchdog
+    # killed it); now it is merely invisible.
+    # ⚠ API-ONLY so far: unlike `tasks` above, nothing renders this yet —
+    # no field in the frontend's types, no chip on the desk. It is here so
+    # the state is observable at all (and it is what the tests read); the
+    # desk chip that would answer "why has this agent been working for
+    # twenty minutes" is still to be built.
+    node["bg_tasks"] = int(st.get("bg_tasks") or 0)
+    node["last_error"] = st["last_error"]
+    # G4: what the agent is doing RIGHT NOW, derived from the live tail the
+    # supervisor already keeps. The client used to accumulate this itself
+    # from the websocket (`activity`, keyed by node, cleared on turn_done),
+    # which meant a missed `turn_done` stranded an indicator until the
+    # socket reconnected — a second copy of a fact the server already had.
+    # Derived here per request, stored nowhere: the newest row wins, and
+    # `busy` (above) is what decides whether it renders at all.
+    live = cast("list[dict[str, Any]]", st.get("live") or [])
+    last = live[-1] if live else {}
+    kind = last.get("kind")
+    node["activity"] = (
+        {"phase": "tool", "tool": last.get("text")} if kind == "tool"
+        else {"phase": "writing"} if kind == "text"
+        else {"phase": "thinking"})
 
 
 def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
@@ -2685,219 +2988,8 @@ def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
                         org, node["id"], rows=list(account_rows.values()))
             except (LedgerError, KeyError, ValueError, OSError):
                 node["continue_accounts"] = []
-        st = supervisor.state(slug, node["id"])
-        node["busy"] = st["busy"]
-        # №12: three states wore one pulse — split them: waiting on a turn
-        # slot vs actually responding vs busy-but-between (draining/queued)
-        node["waiting"] = bool(st.get("waiting"))
-        # queued behind the machine-wide concurrent-turn limit (user ruling
-        # 2026-09-26): {since, limit, waiting} while queued, else None — the
-        # desk shows a banner pointing at the setting
-        node["queued_for_slot"] = st.get("queued_for_slot") or None
-        node["responding"] = bool(st.get("responding"))
-        node["phase"] = st.get("phase")     # e.g. "compacting" (№3)
-        # ⚠ WHICH ACCOUNT ACTUALLY SERVED THIS TURN — captured at spawn from
-        # the RESOLVED environment, not from what the org intended. This is
-        # the only field that describes what HAPPENED: the switch row and the
-        # panel's "serving" line both describe intent and state, so without
-        # this a turn served by the ambient account while the panel says
-        # "fallback" looks identical to a correct one. An account uuid, or
-        # "ambient" / "api-key" / "token:unattributed". Never a credential.
-        node["ran_as"] = st.get("ran_as") or None
-        # …and the same fact in the form a READER needs (user ruling
-        # 2026-08-25): "fallback 2 · <uuid>" when this turn is running off a
-        # fallback, None otherwise. Composed in the backend because it owns
-        # the registry — the desk cannot count key rows it never fetched, and
-        # a second count is a second thing to disagree.
-        node["ran_as_label"] = accounts.serving_label(
-            str(st.get("ran_as") or ""))
-        # ⚠ WHICH ACCOUNT IS SERVING THE INFERENCE RUNNING RIGHT NOW — the
-        # same `ran_as` fact above, resolved to the account it names and shown
-        # only where a reader could not otherwise tell. Composed HERE, beside
-        # `ran_as_label`, for that field's own reason: the backend owns the
-        # registry, and a renderer that counted accounts itself would be a
-        # second definition of "available" to disagree with this one.
-        #
-        # `busy` is what makes it a statement about the CURRENT turn. `ran_as`
-        # outlives the turn that set it (it is "the turn in flight or the most
-        # recent one this process ran"), so without this gate an idle agent
-        # would keep wearing the account that served it an hour ago — the
-        # stale-state failure `codex_route.live` exists to prevent, which is
-        # why this uses the very same `st["busy"]` that gate does.
-        node["serving_account"] = accountusage.serving_card(
-            st.get("ran_as"), busy=bool(st.get("busy")),
-            rows_by_id=card_rows, counts=available,
-            primary=primary, ambient_paths=ambient_paths,
-            provider=providers.provider_of(str(node.get("tier") or "")),
-            configured_account=node.get("account"), registered=registered)
-        # ⚠ WHICH POOL A LUNA IS ACTUALLY ON (item 12; user spec 2026-09-04:
-        # a header token when Luna RUNS ON RESERVE). The in-memory record
-        # is the turn in flight or the last one this process ran; the
-        # document's `codex_route_last` covers a restart. `live` is what
-        # separates "reserve" from "last: reserve" — a token that cannot
-        # tell a running turn from yesterday's is the stale-state failure
-        # the spec names. Composed here from the same label rule the
-        # backend owns (`codex_route.route_label`) so the desk and the
-        # card cannot word it two ways. Null for every tier that does not
-        # route and for a direct luna with nothing to disclose.
-        _rt = st.get("codex_route")
-        if not isinstance(_rt, dict):
-            _rt = org.node(node["id"]).get("codex_route_last")
-        if isinstance(_rt, dict):
-            _live = bool(_rt.get("live")) and bool(st.get("busy"))
-            _rt_view = cast("codex_route.Route", _rt)
-            node["codex_route"] = {
-                "route": _rt.get("route"), "pool": _rt.get("pool"),
-                "model": _rt.get("model"), "requested": _rt.get("requested"),
-                "reason": _rt.get("reason"), "selection": _rt.get("selection"),
-                "prefer": _rt.get("prefer"),
-                "outcome": _rt.get("outcome"),
-                "reported_model": _rt.get("reported_model"),
-                # the server's `model/rerouted`, when it sent one, and the
-                # pool that answer attributes the turn to (None = unknown);
-                # the label already follows both, this is for the tooltip
-                "rerouted": _rt.get("rerouted"),
-                "served_pool": _rt.get("served_pool"),
-                "live": _live, "at": _rt.get("at"),
-                # ⚠ IS THIS TURN ON RESERVE — three-valued, and the ONLY
-                # field a surface may gate the reserve card on (user ruling
-                # 2026-09-16). null is "not established", which is NOT
-                # false: an unattributable reroute lands here, and a card
-                # shown on it would be claiming a lane nobody read. Sent
-                # beside `label` and from the same one definition, so the
-                # desk and the near-zoom card cannot disagree about when
-                # the card appears or re-derive the question from `tier`.
-                "on_reserve": codex_route.on_reserve(_rt_view),
-                "label": codex_route.route_label(_rt_view, live=_live)}
-        else:
-            node["codex_route"] = None
-        node["queued"] = len(st["queue"])
-        # D-201 (contract frozen with styling 2026-08-30): is a pre-warmed
-        # CLI process PARKED for this seat right now, holding a current
-        # system prompt? A SPEED property, never health: false is the normal
-        # state for codex/antigravity lanes, archived seats, mid-turn seats and
-        # the kill-switch-off arm, and a false agent answers perfectly well —
-        # it just pays a cold spawn. Always present (never absent) on every
-        # node this block decorates.
-        node["proc_warm"] = bool(st.get("proc_warm"))
-        node["proc_live"] = bool(st.get("proc_live"))
-        node["proc_relaunch"] = bool(st.get("proc_relaunch"))
-        node["proc_relaunch_reason"] = (
-            str(st.get("proc_relaunch_reason"))
-            if st.get("proc_relaunch_reason") else None)
-        control = warmpool.process_control_status(org, node["id"])
-        node["proc_paused"] = bool(control.get("paused"))
-        node["proc_control_enabled"] = bool(control.get("enabled"))
-        node["proc_control_action"] = control.get("action")
-        node["proc_control_reason"] = (
-            str(control.get("reason")) if control.get("reason") else None)
-        last_mcp = org.node(node["id"]).get("last_turn_mcp_tool_count")
-        node["mcp_tool_count"] = (
-            int(st["mcp_tool_count"])
-            if isinstance(st.get("mcp_tool_count"), int)
-            and not isinstance(st.get("mcp_tool_count"), bool) else None)
-        node["last_turn_mcp_tool_count"] = (
-            int(last_mcp) if isinstance(last_mcp, int)
-            and not isinstance(last_mcp, bool) else None)
-        node["mcp_tool_count_provider"] = str(
-            st.get("mcp_tool_provider") or
-            providers.provider_of(str(org.node(node["id"]).get("model") or "")))
-        node["mcp_tool_count_source"] = (
-            str(st.get("mcp_tool_source")) if st.get("mcp_tool_source") else None)
-        # A KNOWN count owes the reader no excuse. `_mcp_tool_count_publish`
-        # clears the reason on SUCCESS, and this fallback then filled that
-        # silence with "no live provider process" — so a node with a resolved
-        # count and a live process reported that it had neither. Measured
-        # 2026-09-01: all five live nodes said it simultaneously, every one of
-        # them serving turns. The fallback belongs to the unknown case, which
-        # is the only one that has anything to explain.
-        node["mcp_tool_count_reason"] = (
-            str(st.get("mcp_tool_reason")) if st.get("mcp_tool_reason")
-            else None if node["mcp_tool_count"] is not None
-            else "no live provider process")
-        node["mcp_readiness_waiting"] = bool(
-            st.get("mcp_readiness_waiting"))
-        node["mcp_readiness_state"] = (
-            str(st.get("mcp_readiness_state"))
-            if st.get("mcp_readiness_state") else None)
-        node["mcp_readiness_reason"] = (
-            str(st.get("mcp_readiness_reason"))
-            if st.get("mcp_readiness_reason") else None)
-        # ⚠ ARCHIVED SEATS DO NOT PAY FOR THIS. A forecast is a claim about
-        # what the NEXT turn's provider cache will do; an archived agent has
-        # no next turn until it is rehired, and rehiring re-derives the whole
-        # book anyway. So the answer was never rendered — `CacheForecastMark`
-        # and `CacheForecastWarning` both return null on a null forecast —
-        # while the computation ran in full.
-        #
-        # MEASURED 2026-09-03, this org (6 live seats, 179 archived): the call
-        # cost 1.8-4.0 s per tree render, ~92% of it on archived seats, and
-        # `GET /api/orgs/{slug}` took 11-38 s (113 s with two in flight)
-        # against a 45 s client deadline — the "signal timed out" banner. The
-        # cost is `_cache_semantic_inputs` → `_build_cmd` → `transcript_path`,
-        # a glob whose wildcard component is the project directory, so every
-        # node re-listed the user's entire ~/.claude/projects (349 dirs,
-        # 14 ms a call). Live seats still pay it; there are six of them.
-        #
-        # The test is STATE, not liveness: a live-but-parked seat holding no
-        # warm process is exactly who the forecast is for (its next turn is
-        # the one at risk), so gating on a process check would delete the
-        # feature's whole value. Only `archived` is skipped.
-        #
-        # ⚠ EXPLICIT None, never a missing key: `Org.tree()` has already put
-        # the node's PERSISTED `cache_continuity.public` row here, and that
-        # row is a durable record of some past turn that never went through
-        # `cachecontinuity.public` classification. Leaving it would render a
-        # stale verdict on an archived card — worse than none.
-        node["cache_forecast"] = (
-            None if node["state"] == "archived"
-            else supervisor.cache_forecast_public(org, node["id"]))
-        # The composer's mid-turn steer-window warning has to say which of two
-        # things a missed window costs, and that depends on whether the
-        # compactor is on FOR THIS NODE. Resolved here rather than threaded
-        # through the UI from the org default: the effective value is the org
-        # setting merged with this node's own scope override, and only
-        # `_auto_cheap_cfg` knows that. Passing the org value down instead
-        # would render the wrong sentence on every node that overrides it.
-        _cheap_cfg = supervisor._auto_cheap_cfg(org, node["id"])
-        node["cheap_compact_on"] = _cheap_cfg is not None
-        # …and the compactor's own occupancy threshold, because the same
-        # banner is threshold-gated (user ruling 2026-09-02 19:19Z): with the
-        # compactor on it shows only at or above THIS fraction (the
-        # destructive gate's inclusive minimum, `_auto_cheap_context_ready`);
-        # off, only above the fixed 25% floor `_cache_precompact_decision`
-        # uses. None when the compactor is off — there is no threshold then.
-        node["cheap_compact_occ"] = (
-            float(_cheap_cfg["occ"]) if _cheap_cfg else None)
-        # concurrently running subagents (Task/Agent tool calls in flight) —
-        # the desk header shows it beside the working clock, only when > 0
-        node["tasks"] = int(st.get("tasks") or 0)
-        # …and BACKGROUND subagents, counted apart because they mean something
-        # different: they outlive the turn's own reply, so a node can sit
-        # `busy` for a long time with nothing else to show for it. Before the
-        # 2026-08-20 fix that state was invisible AND fatal (the idle watchdog
-        # killed it); now it is merely invisible.
-        # ⚠ API-ONLY so far: unlike `tasks` above, nothing renders this yet —
-        # no field in the frontend's types, no chip on the desk. It is here so
-        # the state is observable at all (and it is what the tests read); the
-        # desk chip that would answer "why has this agent been working for
-        # twenty minutes" is still to be built.
-        node["bg_tasks"] = int(st.get("bg_tasks") or 0)
-        node["last_error"] = st["last_error"]
-        # G4: what the agent is doing RIGHT NOW, derived from the live tail the
-        # supervisor already keeps. The client used to accumulate this itself
-        # from the websocket (`activity`, keyed by node, cleared on turn_done),
-        # which meant a missed `turn_done` stranded an indicator until the
-        # socket reconnected — a second copy of a fact the server already had.
-        # Derived here per request, stored nowhere: the newest row wins, and
-        # `busy` (above) is what decides whether it renders at all.
-        live = cast("list[dict[str, Any]]", st.get("live") or [])
-        last = live[-1] if live else {}
-        kind = last.get("kind")
-        node["activity"] = (
-            {"phase": "tool", "tool": last.get("text")} if kind == "tool"
-            else {"phase": "writing"} if kind == "text"
-            else {"phase": "thinking"})
+        _annotate_agent_runtime(org, node, account_view=(
+            card_rows, available, primary, ambient_paths, registered))
         # Occupancy stays document-owned. Context-window capability is derived
         # above, rather than mirrored from process state.
         for c in node["children"]:
@@ -15168,13 +15260,28 @@ def _org_op_locked(slug: str, body: Op,
 @app.websocket("/api/orgs/{slug}/ws")
 async def org_ws(ws: WebSocket, slug: str) -> None:
     await hub.join(slug, ws)
+    current = None
     try:
+        from . import orgdb, record_api
+        if await asyncio.to_thread(record_api.capable, slug):
+            current = record_api.host(slug)
+            if not await current.join(ws, lambda frame: hub.record(ws, frame),
+                                      lambda pages: hub.record_pages(ws, pages)):
+                return
         while True:
-            await ws.receive_text()   # client pings keep it alive; content ignored
+            text = await ws.receive_text()
+            if current is not None:
+                try:
+                    record_api.socket_message(current, ws, text)
+                except (ValueError, TypeError):
+                    current.runner._reset(current.runner.clients[ws])
+                    hub.record(ws, {'type':'record_reset'})
     except WebSocketDisconnect:
         pass
     finally:
         # also on an aborted or otherwise failed socket, not only a clean close
+        if current is not None:
+            current.leave(ws)
         hub.leave(slug, ws)
 
 

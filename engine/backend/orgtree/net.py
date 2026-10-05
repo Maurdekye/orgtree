@@ -141,6 +141,17 @@ BACKOFF_MAX_S = 30.0
 # there). Called on every CONNECTIVITY TRANSITION so the UI's status dots are
 # realtime without polling (user amendment 2026-08-05).
 notify_changed: Callable[[str], None] | None = None
+# Record overlays also need roster/name and last_ok changes without an org
+# write. None broadcasts an address-level cache change to retained hosts.
+notify_runtime: Callable[[str | None], None] | None = None
+
+
+def _runtime_changed(slug: str | None = None) -> None:
+    if notify_runtime:
+        try:
+            notify_runtime(slug)
+        except Exception:                                        # noqa: BLE001
+            pass
 
 _started = False
 _kick = threading.Event()
@@ -281,7 +292,7 @@ def spool_append(org: "Org", peer: str, body: str, oid: str,
     return str(entry["id"])
 
 
-def status_block(org_d: dict[str, Any]) -> dict[str, Any] | None:
+def status_block(org_d: dict[str, Any], *, include_runtime: bool = True) -> dict[str, Any] | None:
     """The tree payload's `net` block — config + live status, NEVER the
     secret (or the full fingerprint; the slug's baked-in 6-char suffix is the
     only identity material a payload carries)."""
@@ -293,10 +304,12 @@ def status_block(org_d: dict[str, Any]) -> dict[str, Any] | None:
                      org_d.get("net_state") or {})
     for h in cast("list[dict[str, Any]]", org_d.get("net_hubs") or []):
         hid = str(h.get("id"))
-        with _status_lock:
-            st = dict(_status.get((slug, hid)) or {})
-            roster = list(_rosters.get(str(h.get("address") or "")) or [])
-            name = h.get("name") or _hub_names.get(str(h.get("address") or ""))
+        st, roster, name = {}, [], h.get("name")
+        if include_runtime:
+            with _status_lock:
+                st = dict(_status.get((slug, hid)) or {})
+                roster = list(_rosters.get(str(h.get("address") or "")) or [])
+                name = h.get("name") or _hub_names.get(str(h.get("address") or ""))
         connected = bool(st.get("connected"))
         # user ruling 2026-08-05: the IMPLICIT local entry is INVISIBLE until
         # the hub has actually answered once (registered_at is the durable
@@ -328,6 +341,10 @@ def status_block(org_d: dict[str, Any]) -> dict[str, Any] | None:
             "roster": [r for r in roster
                        if r.get("slug") != ident.get("slug")],
         })
+    if not include_runtime:
+        for hub in hubs_out:
+            for key in ('connected', 'hidden', 'last_ok', 'error', 'roster'):
+                hub.pop(key)
     return {"slug": ident.get("slug"), "hubs": hubs_out}
 
 
@@ -357,6 +374,7 @@ def probe_peer(target: str) -> bool:
                           body.get("roster") or [])
             with _status_lock:
                 _rosters[addr] = list(roster)
+            _runtime_changed()
             if any(str(x.get("slug") or "") == target for x in roster):
                 found = True
         except Exception:                                        # noqa: BLE001
@@ -396,6 +414,7 @@ def _set_status(slug: str, hub_id: str, connected: bool,
                         "last_ok": now() if connected
                         else (prev or {}).get("last_ok"),
                         "error": error}
+    _runtime_changed(slug)
     if changed and notify_changed:
         try:
             notify_changed(slug)
@@ -655,6 +674,7 @@ def _record_hub_name(addr: str, name: Any, parts: dict[str, dict[str, Any]],
         return
     with _status_lock:
         _hub_names[addr] = name
+    _runtime_changed()
     for slug in parts:
         hid = hub_ids.get(slug)
         if not hid:

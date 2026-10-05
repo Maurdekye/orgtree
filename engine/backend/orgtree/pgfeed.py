@@ -82,6 +82,7 @@ class RevisionFeed:
         self.poll_s = poll_s
         self.retry_s = retry_s
         self._last: dict[str, int] = {}
+        self._identities: dict[str, tuple[str, str]] = {}
         # Tree readers distinguish receipt of a revision from completion of
         # its invalidation callback. The initial catch-up is only a baseline:
         # it does not prove that a snapshot built BEFORE it was refreshed.
@@ -107,21 +108,35 @@ class RevisionFeed:
                 return after
             return max(after, self._applied.get(org, after))
 
-    def observe(self, org: str, revision: int, *, source: str) -> bool:
-        """Record ``revision`` for ``org``; True if it moved forward. A gap is a
+    def observe(self, org: str, revision: int, *, source: str,
+                identity: tuple[str, str] | None = None) -> bool:
+        """Record a revision, or a replacement identity even at a lower number.
+
+        Native adapter reads carry identity; first sight invokes subscribers
+        and replacement forces a gap. The legacy adapter's baseline/forward
+        rules remain unchanged. A gap is a
         forward move that skipped revisions, or any forward move found by a
         read (catch-up/poll) rather than by a notification."""
         with self._lock:
             last = self._last.get(org)
-            if last is not None and revision <= last:
+            previous_identity = self._identities.get(org)
+            replaced = (identity is not None and previous_identity is not None
+                        and identity != previous_identity)
+            if last is not None and revision <= last and not replaced:
                 return False
+            if identity is not None:
+                self._identities[org] = identity
             self._last[org] = revision
-            if last is None:
+            if replaced:
+                self._baseline[org] = revision
+                self._applied.pop(org, None)
+                gap, changed = True, True
+            elif last is None:
                 self._baseline[org] = revision
                 # first sight of this org: the baseline, not a change, unless it
                 # came from a notification (then it is a real commit)
                 gap = False
-                changed = source == "notify"
+                changed = source == "notify" or identity is not None
             else:
                 gap = source != "notify" or revision != last + 1
                 changed = True
@@ -129,7 +144,7 @@ class RevisionFeed:
                 self.stats.gaps += 1
             if changed:
                 self.stats.changes += 1
-        if gap and last is not None and _gap_is_local(org, last, revision):
+        if gap and last is not None and identity is None and _gap_is_local(org, last, revision):
             # a poll that read a revision before its NOTIFY was drained, or a
             # reconnect across commits made HERE: nothing foreign was missed
             with self._lock:
@@ -141,7 +156,8 @@ class RevisionFeed:
             # Concurrent observe callers may complete out of order. Refusing
             # to advance across an unfinished callback is conservative; the
             # tree reader then does a committed refresh instead of trusting it.
-            if last is None or self._applied.get(org) == last:
+            if (self._identities.get(org) == identity
+                    and (last is None or replaced or self._applied.get(org) == last)):
                 self._applied[org] = revision
         return changed
 
@@ -150,7 +166,8 @@ class RevisionFeed:
         if not self.catch_up_enabled:
             return
         for org, rev in conn.revisions():
-            self.observe(str(org), int(rev), source=source)
+            identity = getattr(conn, 'identity', lambda org: None)(str(org))
+            self.observe(str(org), int(rev), source=source, identity=identity)
 
     def run_once(self, conn: Conn, until: float) -> None:
         """Serve one connected session until ``until`` (monotonic) or stop.
@@ -172,7 +189,8 @@ class RevisionFeed:
                 if parsed is None:
                     self.stats.malformed += 1
                     continue
-                self.observe(parsed[0], parsed[1], source="notify")
+                identity = getattr(conn, 'identity', lambda org: None)(parsed[0])
+                self.observe(parsed[0], parsed[1], source="notify", identity=identity)
             if time.monotonic() >= next_poll:
                 self.stats.polls += 1
                 self._read_all(conn, "poll")
@@ -524,6 +542,8 @@ def orgdb_conn() -> Conn:
         def __init__(self) -> None:
             #: slug -> (database, session)
             self.c: dict[str, tuple[str, Any]] = {}
+            self.identities: dict[str, tuple[str, str]] = {}
+            self.expected: dict[str, tuple[str, str]] = {}
             self.channel: str | None = None
             #: the last per-org failures (a session that failed is retried at the next poll)
             self.errors: list[str] = []
@@ -531,6 +551,7 @@ def orgdb_conn() -> Conn:
 
         def _drop(self, slug: str, e: BaseException | None = None) -> None:
             _, s = self.c.pop(slug, ("", None))
+            self.identities.pop(slug, None)
             if e is not None:
                 self.errors.append(f"{slug}: {type(e).__name__}: {e}"[:300])
                 del self.errors[:-20]
@@ -542,7 +563,9 @@ def orgdb_conn() -> Conn:
 
         def _sync(self) -> None:
             want = {slug: (db, uuid) for slug, _, db, uuid in registry.active()}
-            for slug in [s for s, (db, _) in self.c.items() if want.get(s, ("",))[0] != db]:
+            self.expected = want
+            for slug in [s for s, (db, _) in self.c.items()
+                         if want.get(s) != (db, self.identities.get(s, ('', ''))[0])]:
                 self._drop(slug)
             for slug, (db, uuid) in want.items():
                 if slug in self.c:
@@ -550,7 +573,8 @@ def orgdb_conn() -> Conn:
                 s = None
                 try:
                     s = dbconn.connect(dbconn.runtime_base(), db, application_name="orgtree-feed")
-                    row = s.execute("SELECT org_uuid::text, slug FROM orgtree.org_identity").fetchone()
+                    row = s.execute("SELECT org_uuid::text, slug, incarnation::text "
+                                    "FROM orgtree.org_identity").fetchone()
                     if row is None or row[0] != uuid or row[1] != slug:
                         raise RuntimeError(f"{db} holds another org's identity ({row})")
                     if self.channel is not None:
@@ -560,6 +584,7 @@ def orgdb_conn() -> Conn:
                     self._drop(slug, e)
                     continue
                 self.c[slug] = (db, s)
+                self.identities[slug] = (row[0],row[2])
 
         def listen(self, channel: str) -> None:
             self.channel = channel
@@ -574,11 +599,18 @@ def orgdb_conn() -> Conn:
             out: list[tuple[str, int]] = []
             for slug, (_, s) in list(self.c.items()):
                 try:
-                    out.append((slug, int(s.execute(
-                        "SELECT rev FROM orgtree.org_revision").fetchone()[0])))
-                except psycopg.Error as e:
+                    row = s.execute("SELECT i.org_uuid::text,i.incarnation::text,r.rev,i.slug "
+                                    "FROM orgtree.org_identity i CROSS JOIN orgtree.org_revision r").fetchone()
+                    if row is None or row[0] != self.expected[slug][1] or row[3] != slug:
+                        raise RuntimeError('revision session holds another org identity')
+                    self.identities[slug] = (row[0],row[1])
+                    out.append((slug,int(row[2])))
+                except (psycopg.Error, RuntimeError) as e:
                     self._drop(slug, e)
             return out
+
+        def identity(self, slug: str) -> tuple[str, str] | None:
+            return self.identities.get(slug)
 
         def notifications(self, timeout: float) -> Iterable[str]:
             # a generator, like psycopg_conn's: each pass drains every session's received

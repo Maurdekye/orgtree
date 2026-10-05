@@ -47,9 +47,11 @@ MIGRATIONS = ORGTREE / 'pg_migrations' / 'org'
 REVISION = 'org_revision'
 #: tables whose rows are locked only under the revision row (the migration that keeps them)
 UNDER_REVISION = {'foreground_parent_counts': '0006_agents_readers.sql',
-                  'docket_counters': '0012_docket_counts.sql'}
+                  'docket_counters': '0012_docket_counts.sql',
+                  'revisions': '0018_records.sql',
+                  'record_detail_versions': '0018_records.sql'}
 #: (module, function) of the engine's Python allowed to write or lock the revision row
-PYTHON_REVISION_WRITERS = {('orgdb/compat/conn.py', 'on_save_commit')}
+PYTHON_REVISION_WRITERS: set[tuple[str, str]] = set()
 # Migration 0016 must drain these FK events before ALTER TABLE. These are not
 # revision triggers. Match the entire SQL and lexical function path: neither
 # another constraint nor a second statement inherits this narrow exception.
@@ -134,6 +136,8 @@ def touches(body: str) -> list[tuple[int, str]]:
 
 def _code(body: str) -> str:
     """A function body without its string literals (a function named in a string is not called)."""
+    # Apostrophes in SQL comments must not start a string spanning actual code.
+    body = re.sub(r'--[^\r\n]*|/\*[\s\S]*?\*/',lambda m:' '*len(m.group()),body)
     return re.sub(r"'(?:[^']|'')*'", "''", body)
 
 
@@ -146,6 +150,16 @@ def links(texts: dict[str, str]) -> dict[str, set[str]]:
                 for ref in _REFERENCES.finditer(m.group(2)):
                     out.setdefault(ref.group(1).lower(), set()).add(m.group(1).lower())
     return out
+
+
+def own_changes(body: str) -> bool:
+    """All changes writes are inserts whose first key is this transaction's xid."""
+    code = _code(body)
+    hits = [m for rx in _TOUCH for m in rx.finditer(code) if m.group(1).lower() == 'changes']
+    owned = re.findall(r'\bINSERT\s+INTO\s+orgtree\.changes\s*'
+        r'\(\s*xid\s*,\s*entity\s*,\s*entity_id\s*\)\s*'
+        r'(?:SELECT\s+(?:DISTINCT\s+)?|VALUES\s*\(\s*)pg_current_xact_id\s*\(\s*\)', code,re.I)
+    return bool(hits) and len(hits) == len(owned)
 
 
 def _ddl_without_comments(text: str) -> str:
@@ -284,6 +298,20 @@ def violations(texts: dict[str, str]) -> list[str]:
                 seen.append(f)
                 todo += sorted(calls[f])
         return seen
+
+    def ordered_touches(fn: str, path=()) -> list[str]:
+        if fn in path or fn not in defs:
+            return []
+        body = _code(defs[fn][2])
+        events = [(p,t,None) for p,t in touches(body)]
+        events += [(m.start(),None,m.group(1).lower()) for m in _CALL.finditer(body)
+                   if m.group(1).lower() in defs]
+        result = []
+        for _,table,called in sorted(events):
+            result.extend(ordered_touches(called,path+(fn,)) if called else [table])
+        return result
+
+    commit_only = {f for fn in deferred for f in reach(fn)}
     guarded = {REVISION} | set(UNDER_REVISION)
     linked = links(texts)
     judged: set[str] = set()
@@ -293,17 +321,20 @@ def violations(texts: dict[str, str]) -> list[str]:
             name, _, body = defs[f]
             via = '' if f == fn else f' (through {f})'
             for _, table in touches(body):
+                if table == 'changes' and own_changes(body):
+                    continue
                 if table not in guarded:
                     out.append(f'{name}: deferred {fn}{via} writes or locks orgtree.{table} at commit: '
                                f'only the revision row and the rows locked under it may be taken then')
-        hits = touches(defs[fn][2]) if fn in defs else []
-        first_revision = min((p for p, t in hits if t == REVISION), default=None)
-        for pos, table in hits:
+        hits = ordered_touches(fn)
+        first_revision = next((p for p,t in enumerate(hits) if t==REVISION),None)
+        for pos, table in enumerate(hits):
             if table in UNDER_REVISION and (first_revision is None or pos < first_revision):
                 out.append(f'{defs[fn][0]}: deferred {fn} takes orgtree.{table} before the revision row')
     attached = {fn for fn, _, _, _ in fired}
     statement = ({(fn, table, where) for fn, table, d, where in fired if not d and fn in defs}
                  | {(fn, '%i', defs[fn][0]) for fn in defs if defs[fn][1] and fn not in attached})
+    statement_reach = {f for fn,_,_ in statement for f in reach(fn)}
     for fn, table, where in sorted(statement):
         for f in reach(fn):
             judged.add(f)
@@ -320,6 +351,8 @@ def violations(texts: dict[str, str]) -> list[str]:
                 out.append(f'{name}: statement-time trigger {fn}{via} on orgtree.{table} takes a row lock: '
                            'a trigger locks no row its statement did not write (review A6 f8)')
             for t in sorted({t for _, t in touches(body)}):
+                if t == 'changes' and own_changes(body):
+                    continue
                 if t in guarded:
                     continue                               # reported below, once per function
                 if table == '%i':
@@ -336,14 +369,15 @@ def violations(texts: dict[str, str]) -> list[str]:
         if _FORCED.search(_code(body)) or _FORCED.search(body):
             out.append(f'{name}: {fn} forces deferred checks (SET CONSTRAINTS ... IMMEDIATE): the '
                        'commit-time triggers would take the revision row before the statements after it')
-        if fn in deferred:
+        if fn in commit_only and fn not in statement_reach:
             continue
         kind = 'statement-time trigger' if trigger else 'function'
         for table in hits:
             if table in guarded:
                 out.append(f'{name}: {kind} {fn} writes or locks orgtree.{table}: the revision row '
                            f'and the rows under it are taken at commit only')
-        if fn not in judged and not trigger and [t for t in hits if t not in guarded]:
+        if fn not in judged and not trigger and [t for t in hits if t not in guarded
+                and not (t == 'changes' and own_changes(body))]:
             out.append(f'{name}: function {fn} writes or locks {", ".join("orgtree." + t for t in hits)} '
                        'outside a trigger: a writer writes in its own statements, in its own row order')
     for fn in sorted(deferred - set(defs)):
@@ -356,6 +390,71 @@ _PY_TOUCH = re.compile(
     r'|\bFROM\s+orgtree\.(\w+)\b[^;]*?\bFOR\s+(?:NO\s+KEY\s+)?(?:UPDATE|SHARE|KEY\s+SHARE)\b', re.I | re.S)
 
 
+RETENTION_WRITES = (
+    'DELETE FROM orgtree.changes c USING orgtree.revisions h '
+    'WHERE c.xid=h.xid AND h.rev < %s',
+    'DELETE FROM orgtree.revisions WHERE rev < %s',
+    'UPDATE orgtree.org_revision SET floor=GREATEST(floor,%s) RETURNING floor',
+)
+
+
+def retention_violations(source):
+    """The one history-pruning exception: deletes first, monotonic floor last.
+
+    Pruning cannot insert into the history or take a source lock. Every SQL
+    call is literal, and the exact write sequence is checked independently of
+    the ordinary writer allowance (which remains empty).
+    """
+    tree = ast.parse(source)
+    out, statements = [], []
+    for node in sorted((n for n in ast.walk(tree) if isinstance(n,ast.Call)
+                        and isinstance(n.func,ast.Attribute)
+                        and n.func.attr in ('execute','executemany','executescript')),
+                       key=lambda n:n.lineno):
+        if node.func.attr != 'execute' or not node.args or not isinstance(node.args[0],ast.Constant) \
+                or not isinstance(node.args[0].value,str):
+            out.append('retention: SQL must be literal execute calls')
+            continue
+        statements.append(node.args[0].value)
+    writes = [s for s in statements if _PY_TOUCH.search(s)]
+    if tuple(writes) != RETENTION_WRITES:
+        out.append('retention: history deletes must precede the sole monotonic floor write')
+    if not any('h.at < clock_timestamp() - make_interval(secs => %s)' in s
+               and 'h.rev <= r.rev - %s' in s and 'h.rev > r.floor' in s for s in statements):
+        out.append('retention: both age and revision distance must bound history')
+    for sql in statements:
+        if _ROW_LOCK.search(sql) or _FORCED.search(sql) or re.search(r'\b(?:INSERT|TRUNCATE|ALTER)\b',sql,re.I):
+            out.append('retention: extra locks, inserts, DDL or forced checks are forbidden')
+    return out
+
+
+CLOCK_WRITES = (
+    'SELECT watermark FROM orgtree.record_time_state WHERE singleton FOR UPDATE',
+    'INSERT INTO orgtree.changes(xid,entity,entity_id) '
+    'VALUES (pg_current_xact_id(),%s,%s) ON CONFLICT DO NOTHING',
+    'UPDATE orgtree.record_time_state SET watermark=GREATEST(watermark,%s) WHERE singleton',
+)
+
+
+def clock_violations(source):
+    """Checkpoint before own-xid capture; source rows and revision never locked."""
+    calls = sorted((n for n in ast.walk(ast.parse(source)) if isinstance(n,ast.Call)
+        and isinstance(n.func,ast.Attribute) and n.func.attr in ('execute','executemany')),
+        key=lambda node:node.lineno)
+    statements,out = [],[]
+    for call in calls:
+        if call.func.attr != 'execute' or not call.args or not isinstance(call.args[0],ast.Constant) \
+                or not isinstance(call.args[0].value,str):
+            out.append('clock: SQL must be literal execute calls')
+        else:
+            statements.append(call.args[0].value)
+    if tuple(s for s in statements if _PY_TOUCH.search(s)) != CLOCK_WRITES:
+        out.append('clock: checkpoint lock, own-xid capture and monotonic checkpoint required')
+    if any(_FORCED.search(s) or re.search(r'\b(?:DELETE|ALTER|TRUNCATE)\b',s,re.I) for s in statements):
+        out.append('clock: deletes, DDL and forced checks forbidden')
+    return out
+
+
 def python_violations(sources: dict[str, str]) -> list[str]:
     """Every string in these Python sources (relative path -> text) that writes or locks the
     revision row outside PYTHON_REVISION_WRITERS, writes or locks a table under it, or forces
@@ -363,6 +462,17 @@ def python_violations(sources: dict[str, str]) -> list[str]:
     out = []
     for rel in sorted(sources):
         tree = ast.parse(sources[rel], filename=rel)
+        if rel == 'orgdb/record_retention.py':
+            out.extend(retention_violations(sources[rel]))
+        if rel == 'orgdb/record_clock.py':
+            out.extend(clock_violations(sources[rel]))
+        if rel == 'orgdb/record_sql.py':
+            # SQL declarations are checked as the exact generated migration,
+            # including its whole call graph. This module executes no SQL.
+            if any(isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
+                   and n.func.attr in ('execute','executemany','executescript') for n in ast.walk(tree)):
+                out.append(f'{rel}: SQL declaration module executes database statements')
+            continue
         stack: list[str] = []
 
         def visit(node: ast.AST) -> None:
@@ -371,6 +481,9 @@ def python_violations(sources: dict[str, str]) -> list[str]:
                 stack.append(node.name)                                   # type: ignore[attr-defined]
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 where = stack[-1] if stack else '<module>'
+                if rel == 'orgdb/record_retention.py' and where == 'prune' \
+                        and node.value in RETENTION_WRITES:
+                    return
                 for m in _PY_TOUCH.finditer(node.value):
                     table = (m.group(1) or m.group(2)).lower()
                     if table == REVISION and (rel, where) not in PYTHON_REVISION_WRITERS:
@@ -482,10 +595,79 @@ def _migrations() -> dict[str, str]:
 
 
 class Migrations(unittest.TestCase):
+    def test_clock_kernel_requires_checkpoint_first_own_xid_and_monotonic_watermark(self):
+        source = (ORGTREE/'orgdb'/'record_clock.py').read_text(encoding='utf-8')
+        self.assertEqual(python_violations({'orgdb/record_clock.py':source}),[])
+        for fault in (source.replace('WHERE singleton FOR UPDATE','WHERE singleton'),
+                      source.replace('watermark=GREATEST(watermark,%s)','watermark=%s'),
+                      source.replace('pg_current_xact_id()','pg_current_xact_id_if_assigned()'),
+                      source.replace('SELECT clock_timestamp()',
+                                     'SELECT id FROM orgtree.agents FOR UPDATE')):
+            self.assertTrue(python_violations({'orgdb/record_clock.py':fault}))
+
+    def test_retention_exception_rejects_early_floor_and_floor_regression(self):
+        source = (ORGTREE/'orgdb'/'record_retention.py').read_text(encoding='utf-8')
+        self.assertEqual(python_violations({'orgdb/record_retention.py':source}),[])
+        for fault in (source.replace('floor=GREATEST(floor,%s)','floor=%s'),
+                      source.replace('AND h.rev <= r.rev - %s','AND h.rev <= r.rev'),
+                      source.replace('DELETE FROM orgtree.revisions WHERE rev < %s',
+                                     'SELECT rev FROM orgtree.revisions FOR UPDATE')):
+            self.assertTrue(python_violations({'orgdb/record_retention.py':fault}))
+        # Move the actual final execute call before the two delete calls.
+        start = source.index('        changes = raw.execute(')
+        middle = source.index('        floor = raw.execute(',start)
+        stop = source.index('        return Pruned(',middle)
+        fault = source[:start]+source[middle:stop]+source[start:middle]+source[stop:]
+        self.assertTrue(python_violations({'orgdb/record_retention.py':fault}))
+
+    def test_control_foreign_change_key_is_rejected_at_statement_and_commit(self) -> None:
+        text = """
+CREATE FUNCTION orgtree.x() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN INSERT INTO orgtree.changes(xid,entity,entity_id) VALUES('7'::xid8,'agent','1'); RETURN NULL; END $fn$;
+CREATE TRIGGER x AFTER INSERT ON orgtree.agents FOR EACH STATEMENT EXECUTE FUNCTION orgtree.x();
+"""
+        got = violations({'0099_x.sql':text})
+        self.assertTrue(any('orgtree.changes' in v for v in got),got)
+        text = text.replace('CREATE TRIGGER x AFTER INSERT ON orgtree.agents FOR EACH STATEMENT',
+            'CREATE CONSTRAINT TRIGGER x AFTER INSERT ON orgtree.agents DEFERRABLE INITIALLY DEFERRED FOR EACH ROW')
+        self.assertTrue(any('orgtree.changes at commit' in v for v in violations({'0099_x.sql':text})))
+
+    def test_control_revision_history_before_the_singleton_is_rejected(self) -> None:
+        text = """
+CREATE FUNCTION orgtree.x() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+ INSERT INTO orgtree.revisions(rev,xid,at) VALUES(1,pg_current_xact_id(),now());
+ UPDATE orgtree.org_revision SET rev=rev+1;
+ RETURN NULL;
+END $fn$;
+CREATE CONSTRAINT TRIGGER x AFTER INSERT ON orgtree.changes DEFERRABLE INITIALLY DEFERRED
+ FOR EACH ROW EXECUTE FUNCTION orgtree.x();
+"""
+        self.assertTrue(any('revisions before the revision row' in v for v in violations({'0099_x.sql':text})))
+
     def test_the_org_migrations_keep_the_lock_order(self) -> None:
         texts = _migrations()
         self.assertTrue(texts)
         self.assertEqual(violations(texts), [])
+
+    def test_o1_cycle_kernel_composes_with_record_flush_without_a_late_agent_lock(self) -> None:
+        texts = _migrations()
+        graph = texts['0017_agent_graph.sql']
+        self.assertEqual(violations(texts),[])
+        bad = graph.replace("IF coalesce(current_setting('orgtree.graph_pending',true),'')<>'1' THEN RETURN; END IF;",
+            "PERFORM 1 FROM orgtree.agents FOR UPDATE;",1)
+        texts['0017_agent_graph.sql'] = bad
+        got = violations(texts)
+        self.assertTrue(any('orgtree.agents at commit' in v for v in got),got)
+
+    def test_control_commit_helper_before_revision_is_rejected(self) -> None:
+        texts = _migrations()
+        text = texts['0018_records.sql']
+        text = text.replace('UPDATE orgtree.org_revision SET rev=rev+1,',
+            'PERFORM orgtree.record_stamp_details(1);\n    UPDATE orgtree.org_revision SET rev=rev+1,',1)
+        texts['0018_records.sql'] = text
+        self.assertTrue(any('record_detail_versions before the revision row' in v
+                            for v in violations(texts)))
 
     def test_the_tables_under_the_revision_row_are_still_kept_by_their_migrations(self) -> None:
         # the list must not go stale: each table is kept by a deferred trigger of its migration
@@ -494,8 +676,17 @@ class Migrations(unittest.TestCase):
             with self.subTest(table=table):
                 self.assertIn(name, texts)
                 fns, _ = deferred_triggers(texts[name])
+                defined = functions(texts[name])
+                todo = list(fns)
+                while todo:
+                    current = todo.pop()
+                    for called in _CALL.findall(_code(defined[current][1])):
+                        called = called.lower()
+                        if called in defined and called not in fns:
+                            fns.add(called)
+                            todo.append(called)
                 self.assertTrue(any(table in {t for _, t in touches(body)}
-                                    for fn, (_, body) in functions(texts[name]).items()
+                                    for fn, (_, body) in defined.items()
                                     if fn.lower() in fns), table)
 
     def test_the_check_sees_every_deferred_trigger(self) -> None:
@@ -504,7 +695,8 @@ class Migrations(unittest.TestCase):
         for text in _migrations().values():
             found |= deferred_triggers(text)[0]
         self.assertEqual(found, {'orgtree.foreground_flush', 'orgtree.events_count_flush',
-                                 'orgtree.docket_archive_flush', 'orgtree.graph_final_flush'})
+                                 'orgtree.docket_archive_flush','orgtree.record_flush',
+                                 'orgtree.graph_final_flush'})
 
     def test_final_cycle_assertion_follows_revision_and_adds_no_row_lock(self) -> None:
         migration = functions((MIGRATIONS / '0017_agent_graph.sql').read_text(encoding='utf-8'))
@@ -514,22 +706,15 @@ class Migrations(unittest.TestCase):
                         guard.index('orgtree.graph_assert_final_cycles()'))
         self.assertEqual(touches(kernel), [])
         self.assertIsNone(_ROW_LOCK.search(_code(kernel)))
-        source = ast.parse((ORGTREE / 'orgdb/compat/conn.py').read_text(encoding='utf-8'))
-        callback = next(n for n in ast.walk(source) if isinstance(n, ast.FunctionDef)
-                        and n.name == 'on_save_commit')
-        calls = [n for n in ast.walk(callback) if isinstance(n, ast.Call)]
-        revision = next(n for n in calls if isinstance(n.func, ast.Attribute)
-                        and n.func.attr == 'execute' and n.args
-                        and any('UPDATE orgtree.org_revision' in c.value for c in ast.walk(n.args[0])
-                                if isinstance(c, ast.Constant) and isinstance(c.value, str)))
-        assertion = next(n for n in calls if isinstance(n.func, ast.Attribute)
-                         and n.func.attr == 'assert_final_cycles')
-        notify = next(n for n in calls if isinstance(n.func, ast.Attribute)
-                      and n.func.attr == 'execute' and n.args
-                      and any('pg_notify' in c.value for c in ast.walk(n.args[0])
-                              if isinstance(c, ast.Constant) and isinstance(c.value, str)))
-        self.assertLess(revision.lineno, assertion.lineno)
-        self.assertLess(assertion.lineno, notify.lineno)
+        # B4a moves the sole revision/publication door from Python to the flush.
+        flush = functions((MIGRATIONS / '0018_records.sql').read_text(encoding='utf-8'))[
+            'orgtree.record_flush'][1]
+        self.assertLess(flush.index('UPDATE orgtree.org_revision'),
+                        flush.index('PERFORM orgtree.graph_assert_final_cycles()'))
+        self.assertLess(flush.index('PERFORM orgtree.graph_assert_final_cycles()'),
+                        flush.index('PERFORM pg_notify('))
+        source = (ORGTREE / 'orgdb/compat/conn.py').read_text(encoding='utf-8')
+        self.assertEqual(python_violations({'orgdb/compat/conn.py': source}), [])
 
     def test_the_check_sees_every_writing_trigger_and_its_link_table(self) -> None:
         # the statement-time triggers of today that write: each writes the link rows of its own
@@ -543,8 +728,11 @@ class Migrations(unittest.TestCase):
             for fn, table, deferred in triggers(text)[0]:
                 if not deferred and fn in defs and touches(defs[fn]):
                     writers.add((fn, table, tuple(sorted({t for _, t in touches(defs[fn])}))))
-        self.assertEqual(writers, {('orgtree.event_refs_keep', 'events', ('event_refs',)),
-                                   ('orgtree.docket_questions', 'asks', ('docket_question_links',))})
+        from orgtree.orgdb.record_derivations import SOURCES
+        capture = {(f'orgtree.record_capture_{table}',table,('changes',))
+                   for table,source in SOURCES.items() if source.names}
+        self.assertEqual(writers, capture | {('orgtree.event_refs_keep','events',('event_refs',)),
+                                            ('orgtree.docket_questions','asks',('docket_question_links',))})
         self.assertIn('event_refs', links(texts)['events'])
         self.assertIn('docket_question_links', links(texts)['asks'])
 
@@ -772,13 +960,13 @@ class Python(unittest.TestCase):
         self.assertTrue(action, 'the native action lock phase disappeared')
         self.assertLess(fence.lineno, min(n.lineno for n in action))
 
-    def test_only_the_save_seam_writes_the_revision_row(self) -> None:
+    def test_no_python_save_or_handler_writes_the_revision_row(self) -> None:
         sources = {p.relative_to(ORGTREE).as_posix(): p.read_text(encoding='utf-8')
                    for p in sorted(ORGTREE.rglob('*.py')) if '__pycache__' not in p.parts}
         self.assertIn('orgdb/compat/conn.py', sources)
         self.assertEqual(python_violations(sources), [])
-        # the allowed writer still exists, so the allowance cannot go stale
-        self.assertIn('UPDATE orgtree.org_revision', sources['orgdb/compat/conn.py'])
+        self.assertEqual(PYTHON_REVISION_WRITERS,set())
+        self.assertNotIn('UPDATE orgtree.org_revision',sources['orgdb/compat/conn.py'])
 
     def test_control_another_writer_is_rejected(self) -> None:
         sources = {'orgdb/x.py': (
