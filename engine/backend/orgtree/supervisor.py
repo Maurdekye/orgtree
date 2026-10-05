@@ -14837,7 +14837,10 @@ def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
             slugs = {str(it["slug"]) for it, _, _ in candidates}
             owners = {str((it.get("owner") or {}).get("node") or "")
                       for it, _, _ in candidates} - {""}
-            rows = worktx.Rows(sections={"asks", *(("work_items", wid) for wid in slugs)})
+            # org_tx currently accepts keyed mailbox rows, but not keyed docket
+            # declarations. Keep the standard docket lock and bound the work;
+            # only this batch's recipients take exclusive agent locks.
+            rows = worktx.Rows()
             rows.notify(recipient, *sorted(owners))
             active = {str(it["slug"]) for it in snap._work_active()}
             if slugs - active:
