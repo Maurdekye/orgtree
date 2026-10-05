@@ -61,8 +61,13 @@ _SHORT_VALUE = 3
 _SECRETS = [
     (re.compile(r"\b(sk|pk|rk|ghp|gho|ghs|xox[abpr]|AKIA|AIza)[-_A-Za-z0-9]{12,}"), "<redacted>"),
     (re.compile(r"(?i)\b(bearer|basic)\s+[-._~+/A-Za-z0-9]{8,}=*"), r"\1 <redacted>"),
-    (re.compile(r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[-_]?key|apikey|authorization|"
-                r"credential|cookie|session[-_]?id)[\w-]*)(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"),
+    # Match each key once. Retrying inside hyphenated keys, or backtracking
+    # across repeated "token" words, can hold the GIL for minutes before the
+    # persisted line is cut to its byte limit. The lookahead classifies the
+    # whole key; the possessive key match cannot repartition it on failure.
+    (re.compile(r"(?i)(?<![\w-])(?=[\w-]*(?:token|secret|password|passwd|api[-_]?key|apikey|"
+                r"authorization|credential|cookie|session[-_]?id))"
+                r"([\w-]++)(\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|\S+)"),
      r"\1\2<redacted>"),
     (re.compile(r"\b[A-Za-z0-9_\-+/]{40,}={0,2}"), "<redacted>"),
 ]

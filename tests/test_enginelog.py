@@ -17,6 +17,7 @@ import io
 from pathlib import Path
 import re
 import sys
+import subprocess
 import tempfile
 import threading
 import time
@@ -256,6 +257,33 @@ class EngineLog(unittest.TestCase):
             self.assertNotIn(s, log)
         self.assertIn("[orgtree] call failed:", log)
         self.assertIn("hunter2", self.out.getvalue())
+
+    def test_long_non_assignment_keys_do_not_stall_logging(self):
+        # A separate interpreter bounds the old GIL-holding regex: an in-process
+        # timer thread cannot interrupt it. Exercise both overlapping key words
+        # and the word boundaries inside a long hyphenated key.
+        source = (
+            "import sys; from pathlib import Path; "
+            "root=Path.cwd(); sys.path.insert(0,str(root/'tools')); "
+            "from assert_repo_import import assert_repo_import; assert_repo_import(root); "
+            "from engine.enginelog import _scrub; "
+            "assert _scrub('a-'*100000+'!').endswith('!'); "
+            "assert _scrub('token'*100000+'!').endswith('!')"
+        )
+        result = subprocess.run([sys.executable, '-I', '-c', source],
+                                cwd=Path(__file__).resolve().parents[1],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_secret_key_matching_preserves_redaction(self):
+        for key in ('token', '-access-token', 'myTOKENsuffix', 'api-key',
+                    'api_key', 'session-id', 'session_id', 'credential',
+                    'my-cookie-value', '密token钥'):
+            with self.subTest(key=key):
+                scrubbed = enginelog._scrub(f"prefix {key}='secret value' suffix")
+                self.assertNotIn('secret value', scrubbed)
+                self.assertIn('suffix', scrubbed)
+        self.assertNotIn('hunter2', enginelog._scrub('message=password=hunter2'))
 
     def test_one_multiline_write_respects_the_cap(self):
         # review f4: a single write of many lines was written in one piece
