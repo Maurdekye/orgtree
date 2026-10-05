@@ -268,7 +268,7 @@ class FirstStart(unittest.TestCase):
         for phase in ('database-convert: new storage', f'database-convert: {self.alpha}',
                       f'database-convert: {self.beta}'):
             self.assertIn(phase, self.phases)
-        self.assertLess(self.phases.index('database-orgdb'),
+        self.assertLess(self.phases.index('database-convert: preparing application schema'),
                         self.phases.index('database-convert: new storage'))
         report = Path(self.first['first_pass']['report_dir'])
         self.assertTrue((report / 'run.json').is_file())

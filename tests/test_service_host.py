@@ -700,7 +700,7 @@ class PackagedPostgresTests(unittest.TestCase):
     def test_the_conversion_phases_get_the_long_window(self) -> None:
         line = json.dumps({"type": "startup-progress", "phase": "database-convert: copying acme (1 of 2)"})
         self.assertEqual(service_host.checkpoint_window(line), service_host.CONVERT_READY_TIMEOUT)
-        self.assertGreaterEqual(service_host.CONVERT_READY_TIMEOUT, 600)
+        self.assertEqual(service_host.CONVERT_READY_TIMEOUT, 3600)
         for other in (json.dumps({"type": "startup-progress", "phase": "database-start"}), "not json", "[]"):
             self.assertEqual(service_host.checkpoint_window(other), service_host.READY_TIMEOUT)
 

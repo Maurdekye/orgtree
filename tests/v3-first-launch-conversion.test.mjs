@@ -58,6 +58,7 @@ test('1. conversion-failed parses as its own verdict and is never the root-owned
 })
 
 test('2. only a database-convert phase is a conversion, and the message says so plainly', () => {
+  assert.equal(policy.CONVERSION_WINDOW_MS, 3600000, 'every migration step has a one-hour allowance')
   const p = JSON.stringify({ type: 'startup-progress', protocol: 1, pid: 1, dataRootId: temp, sequence: 3, phase: 'database-convert: copying acme (1 of 4)' })
   assert.equal(policy.progressPhase(p), 'database-convert: copying acme (1 of 4)')
   assert.equal(policy.isConversionPhase(policy.progressPhase(p)), true)

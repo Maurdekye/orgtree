@@ -3,12 +3,31 @@ import sys
 from pathlib import Path
 import unittest
 from unittest import mock
+import contextlib
+import io
+import json
+import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
 from orgtree.orgdb import startup, registry, turn_runtime
 
 
 class MigrationProgressTests(unittest.TestCase):
+    def test_account_migration_uses_long_window_and_publishes_attachment_status(self):
+        from engine.startup_progress import StartupProgress
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()) as out:
+            root = Path(tmp)
+            progress = StartupProgress(root)
+            progress.report('account-migration')
+            status = root / 'conversion' / 'current.json'
+            self.assertEqual(json.loads(status.read_text())['state'], 'running')
+            progress.report('account-migration-complete')
+            self.assertEqual(json.loads(status.read_text())['state'], 'done')
+            events = [json.loads(line) for line in out.getvalue().splitlines()]
+            self.assertEqual(events[0]['phase'], 'database-convert: migrating accounts and credentials')
+            self.assertEqual(events[1]['phase'], 'account-migration-complete')
+
     def run_start(self, failure=False):
         phases = []
         lc = mock.Mock(build='test', instance_id='test', prefix='test_')
@@ -33,6 +52,9 @@ class MigrationProgressTests(unittest.TestCase):
                 self.assertNotIn('database-orgdb-migrated', phases)
             else:
                 startup.start(runtime='', data_root='unused', lc=lc, env={}, progress=phases.append)
+                self.assertEqual(phases[:2], [
+                    'database-convert: preparing application schema',
+                    'database-convert: resuming interrupted storage operations'])
                 self.assertEqual(phases[-1], 'database-orgdb-migrated')
                 turn_start.assert_called_once()
         lc.migrate_orgs.assert_called_once()

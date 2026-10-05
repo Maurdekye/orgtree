@@ -318,21 +318,21 @@ class BracketTests(unittest.TestCase):
         def report(phase: str) -> None:
             phases.append(phase)
             self.assertEqual(len(self.calls()), {"database-status": 0, "database-init": 1, "database-start": 2,
-                                                 "database-attach": 3, "database-migrate": 4,
+                                                 "database-attach": 3, "database-convert: upgrading legacy schema": 4,
                                                  "database-ready": 4}[phase], f"{phase} is reported before its step")
             if phase == "database-ready":
                 self.assertEqual(len(self.migrated), 1, "ready comes after the migrations")
 
         owned = bracket.start_for_engine(self.root, self.configured(), self.migrator, progress=report)
         self.assertEqual(phases, ["database-status", "database-init", "database-start", "database-attach",
-                                  "database-migrate", "database-ready"])
+                                  "database-convert: upgrading legacy schema", "database-ready"])
         owned.stop()
         phases.clear()
         self.log.unlink()
         self.state.write_text("running")
         seen: list[str] = []
         bracket.start_for_engine(self.root, self.configured(), self.migrator, progress=seen.append).stop()
-        self.assertEqual(seen, ["database-status", "database-attach", "database-migrate", "database-ready"])
+        self.assertEqual(seen, ["database-status", "database-attach", "database-convert: upgrading legacy schema", "database-ready"])
 
     def test_a_stale_lock_is_started_not_attached(self) -> None:
         self.mark()
@@ -452,7 +452,7 @@ class BracketTests(unittest.TestCase):
         # the admin conninfo goes to the start only, never into the engine's environment
         self.assertFalse(any("orgtree_admin" in str(v) for v in env.values()))
         self.assertEqual(seen[-1], "database-ready")
-        self.assertNotIn("database-migrate", seen)
+        self.assertNotIn("database-convert: upgrading legacy schema", seen)
         self.assertEqual(owned.orgdb, {"first_pass": {"ran": False, "report_dir": str(self.root / "conversion" / "run")}})
         self.assertFalse((self.root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).exists(),
                          "no conversion ran, so no conversion status is written")
@@ -925,7 +925,8 @@ class BracketTests(unittest.TestCase):
         convert = [p for p in phases if p.startswith(bracket.CONVERT_PHASE)]
         self.assertEqual(convert[0], "database-convert: checking your data")
         self.assertIn("database-convert: checking acme (1 of 1)", convert)
-        self.assertEqual(convert[-1], "database-convert: switched to the new database")
+        self.assertEqual(convert[-2:], ["database-convert: switched to the new database",
+                                       "database-convert: upgrading legacy schema"])
         self.assertTrue(all(0 < len(p) <= 100 for p in phases), phases)
         status = json.loads((root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
         self.assertEqual((status["schema"], status["state"], status["reason"]),

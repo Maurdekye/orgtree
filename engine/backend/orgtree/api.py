@@ -1057,6 +1057,7 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     # migration) skipped while sandboxed. Never blocks startup: a partial
     # pass leaves its marker unset and the next boot finishes the remainder.
     registry_migration.run_credential_passes()
+    startup.progress("account-migration-complete")
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
     if store.STORE_BACKEND == "postgres":

@@ -909,8 +909,24 @@ class ManagedPostgres:
                 self.orgdb = run_orgdb_start(orgdb_start or default_orgdb_start(), admin, self.conninfo,
                                              self.root, self.env, step)
             else:
-                step("database-migrate")
-                self.migration = run_migrations(migrator or default_migrator(), admin)
+                phase = f"{CONVERT_PHASE}: upgrading legacy schema"
+                # Keep the first-launch conversion's diagnostic folder visible
+                # while its following legacy schema migration runs.
+                try:
+                    prior = json.loads((self.root / CONVERT_DIR / CONVERT_STATUS).read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    prior = {}
+                log = prior.get('log') if isinstance(prior, dict) else None
+                logdir = Path(log) if isinstance(log, str) and log else None
+                write_convert_status(self.root, "running", phase, logdir)
+                step(phase)
+                try:
+                    self.migration = run_migrations(migrator or default_migrator(), admin)
+                except BaseException:
+                    write_convert_status(self.root, "failed", phase, logdir,
+                                         reason="Database schema migration failed. See startup logs.")
+                    raise
+                write_convert_status(self.root, "done", phase, logdir)
                 self.conninfo = conninfo(runtime, RUNTIME_ROLE, "orgtree-engine")
             step("database-ready")
         except BaseException:

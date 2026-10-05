@@ -51,7 +51,7 @@ except ImportError:  # script entrypoint
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
 #: Between two checkpoints of the first-launch conversion (phases starting
 #: ``database-convert``): copying or reading back one large org is ONE step.
-CONVERT_READY_TIMEOUT = 900.0
+CONVERT_READY_TIMEOUT = 3600.0
 CONVERT_PHASE = "database-convert"
 SHUTDOWN_WAIT = 10.0
 DESCRIPTOR = "engine-attach.json"

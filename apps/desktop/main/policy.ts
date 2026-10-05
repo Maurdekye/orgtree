@@ -265,8 +265,9 @@ export const CONVERSION_PHASE = 'database-convert'
 export const CONVERSION_FAILED = 'Orgtree could not convert your data to the new storage.\n'
 /** Between checkpoints while converting: copying one large org, or reading
  *  it back, is a single step that can outlast the ordinary 60 s window.
- *  The boot host uses the same 900 s. */
-export const CONVERSION_WINDOW_MS = 900000
+ *  All migration/conversion steps get one hour (user request 2026-10-05).
+ *  The boot host uses the same 3600 s. */
+export const CONVERSION_WINDOW_MS = 3600000
 
 export function parseConversionFailure(line: string): string | null {
   let value: unknown

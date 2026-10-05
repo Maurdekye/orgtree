@@ -44,7 +44,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-#: The phase prefix the desktop and the boot host give their long (900 s) readiness window.
+#: The phase prefix the desktop and boot host give their one-hour readiness window.
 CONVERT_PHASE = "database-convert"
 #: The engine's per-boot desktop token: no child of the start needs it.
 _TOKEN_ENV = "ORGTREE_V2_TOKEN"
@@ -106,7 +106,7 @@ def start(*, runtime: str, data_root: str, admin: str | None = None, lc: Any = N
     from . import lifecycle as L         # noqa: PLC0415
     from . import registry               # noqa: PLC0415
     step = progress or (lambda _phase: None)
-    step("database-orgdb")
+    step(f"{CONVERT_PHASE}: preparing application schema")
     boot: dict[str, Any] = {}
     if lc is None:
         if not admin:
@@ -126,7 +126,7 @@ def start(*, runtime: str, data_root: str, admin: str | None = None, lc: Any = N
     report: dict[str, Any] = {"build": lc.build, "app": {"applied": boot.get("applied", []),
                                                         "swept": boot.get("swept", [])}}
     report["first_pass"] = first_pass(lc, data_root, child_env, step)
-    step("database-orgdb-resume")
+    step(f"{CONVERT_PHASE}: resuming interrupted storage operations")
     report["resumed"] = resume_claims(lc, data_root)
     # Schema upgrades can rewrite an existing org in one transaction. Give
     # them the same bounded window as the initial conversion; the ordinary

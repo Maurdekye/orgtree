@@ -13,6 +13,16 @@ class StartupProgress:
 
     def report(self, phase: str) -> None:
         with self.lock:
+            # The API's optional account/credential migrations run after the
+            # database bracket. Give that migration the same host deadline and
+            # attachment status as the database conversion checkpoints.
+            if phase in ('account-migration', 'account-migration-complete'):
+                from engine.pg_process import write_convert_status
+                if phase == 'account-migration':
+                    phase = 'database-convert: migrating accounts and credentials'
+                    write_convert_status(Path(self.root), 'running', phase)
+                else:
+                    write_convert_status(Path(self.root), 'done', phase)
             self.sequence += 1
             print(json.dumps({"type": "startup-progress", "protocol": 1,
                               "pid": os.getpid(), "dataRootId": self.root,
