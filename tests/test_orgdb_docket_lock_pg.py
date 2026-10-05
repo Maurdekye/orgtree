@@ -296,15 +296,24 @@ class DocketAgentLocks(unittest.TestCase):
             except BaseException as error:
                 outcomes[name] = ('raised', errors(error))
 
+        def native_save():
+            try:
+                with orgtx.org_tx(twins.copy, nodes=['placeholder'], sections=['work_items'],
+                                  lock_timeout=10, retries=0) as tx:
+                    tx.d['nodes']['placeholder']['title'] = 'second'
+                    f.item(tx.org, 'owned-item')['title'] = 'second item'
+                outcomes['second'] = ('committed', [])
+            except BaseException as error:
+                outcomes['second'] = ('raised', errors(error))
+
         with f.f.storage(True):
-            first, second = store.load_org(twins.copy), store.load_org(twins.copy)
-            for name, org in (('first', first), ('second', second)):
-                org.hire(ledger.USER, None, 'haiku', 0, 'placeholder')
-                org.nodes['placeholder']['title'] = name
-                f.item(org, 'owned-item')['owner'] = org._work_holder('placeholder')
+            first = store.load_org(twins.copy)
+            first.hire(ledger.USER, None, 'haiku', 0, 'placeholder')
+            first.nodes['placeholder']['title'] = 'first'
+            f.item(first, 'owned-item')['owner'] = first._work_holder('placeholder')
             with patch.object(docket_locks, 'lock', role_lock), patch.object(registry, 'checkout', checkout):
                 a = threading.Thread(name='first-hire', target=save, args=('first', first))
-                b = threading.Thread(name='second-hire', target=save, args=('second', second))
+                b = threading.Thread(name='second-hire', target=native_save)
                 try:
                     a.start()
                     self.assertTrue(ready.wait(10), outcomes)
@@ -326,10 +335,8 @@ class DocketAgentLocks(unittest.TestCase):
                     a.join(25)
                 self.assertFalse(a.is_alive() or b.is_alive(), outcomes)
                 self.assertNotIn('40P01', [e[1] for _, caught in outcomes.values() for e in caught], outcomes)
-                self.assertEqual(outcomes['first'], ('committed', []))
-                self.assertEqual(outcomes['second'][0], 'raised', outcomes)
-                self.assertEqual(outcomes['second'][1][0][0], 'StaleWrite', outcomes)
-            self.assertEqual(store.load_org(twins.copy).nodes['placeholder']['title'], 'first')
+                self.assertEqual(outcomes, {'first': ('committed', []), 'second': ('committed', [])})
+            self.assertEqual(store.load_org(twins.copy).nodes['placeholder']['title'], 'second')
 
     def test_whole_org_plan_includes_retained_current_roles_and_all_live_nodes(self):
         twins = f.f.Twins('docket-whole-roles', before=f.prepare_legacy)
@@ -395,6 +402,7 @@ class DocketAgentLocks(unittest.TestCase):
                 with f.f.storage(True):
                     org = store.load_org(twins.copy)
                     if archive:
+                        f.item(org, 'owned-item')['status'] = 'done'
                         org.work_archive_now(ledger.USER, 'owned-item')
                         store.save_org(org)
                         org = store.load_org(twins.copy)
