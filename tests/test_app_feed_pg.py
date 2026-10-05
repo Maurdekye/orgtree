@@ -164,7 +164,54 @@ class AppDatabase(unittest.TestCase):
     def test_killed_org_listener_converges_without_registry_write(self):
         asyncio.run(self._listener_recovery(app=False, killed=True))
 
-    async def _listener_recovery(self, *, app, killed):
+    def test_missing_notice_resolver_is_caught_by_parity_control(self):
+        from orgtree.orgdb import app_reads
+        with patch.object(app_reads, '_notices', return_value=[]):
+            with self.assertRaises(AssertionError):
+                self.test_all_notice_categories_match_original_including_exclusions()
+        # Restoring the resolver must restore the same original assertion.
+        self.test_all_notice_categories_match_original_including_exclusions()
+
+    def test_disabled_safety_read_is_caught_by_lost_notification_control(self):
+        from orgtree import pgfeed
+        original = pgfeed.RevisionFeed._read_all
+        def no_poll(feed, connection, source):
+            if source == 'catchup':
+                return original(feed, connection, source)
+        with patch.object(pgfeed.RevisionFeed, '_read_all', no_poll):
+            with self.assertRaises(TimeoutError):
+                asyncio.run(self._listener_recovery(app=True, killed=False, deadline=.4))
+        asyncio.run(self._listener_recovery(app=True, killed=False))
+
+    def test_revision_lock_is_acquired_only_at_commit_and_hold_is_measured(self):
+        # A temporary AFTER trigger observes the actual revision-row update.
+        # Client receipt is later than lock release, so this is an upper bound.
+        with self.app() as raw:
+            raw.execute('CREATE TEMP TABLE app_hold_probe(at timestamptz)')
+            raw.execute('CREATE FUNCTION pg_temp.app_hold_probe() RETURNS trigger LANGUAGE plpgsql '
+                        'AS $$ BEGIN INSERT INTO app_hold_probe VALUES (clock_timestamp()); '
+                        'RETURN NULL; END $$')
+            raw.execute('CREATE TRIGGER app_hold_probe AFTER UPDATE ON orgtree.registry_revision '
+                        'FOR EACH ROW EXECUTE FUNCTION pg_temp.app_hold_probe()')
+            try:
+                measures = []
+                for _ in range(5):
+                    raw.execute('BEGIN')
+                    raw.execute('UPDATE orgtree.orgs SET attempts=attempts+1 WHERE org_id=%s',
+                                (self.first_id,))
+                    self.assertEqual(raw.execute('SELECT count(*) FROM app_hold_probe').fetchone()[0], 0)
+                    raw.execute('COMMIT')
+                    elapsed = raw.execute('SELECT extract(epoch FROM clock_timestamp()-at)*1000 '
+                                          'FROM app_hold_probe').fetchone()[0]
+                    measures.append(float(elapsed))
+                    raw.execute('TRUNCATE app_hold_probe')
+                self.assertEqual(len(measures), 5)
+                print('registry_revision_hold_upper_bound_ms=' + json.dumps(measures))
+            finally:
+                raw.execute('ROLLBACK')
+                raw.execute('DROP TRIGGER app_hold_probe ON orgtree.registry_revision')
+
+    async def _listener_recovery(self, *, app, killed, deadline=8):
         from orgtree import pgfeed
         from orgtree.orgdb import app_reads
         from orgtree.orgdb.app_host import AppHost
@@ -238,7 +285,7 @@ class AppDatabase(unittest.TestCase):
                     if (not app and frame['type'] == 'org_summary'
                             and frame['org_id'] == self.first_id and frame['rev'] == target):
                         return frame
-            frame = await asyncio.wait_for(delivered(), 8)
+            frame = await asyncio.wait_for(delivered(), deadline)
             if app:
                 cursor, records = app_reads.registry_snapshot()
                 self.assertEqual((frame['cursor'], frame['records']), (cursor, records))
