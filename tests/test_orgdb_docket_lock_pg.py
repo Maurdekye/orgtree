@@ -5,7 +5,7 @@ production implementation. Run through the repository verification runner
 under the heavy P03 lock, with an owned disposable cluster.
 """
 
-import import_provenance  # noqa: F401  asserts this checkout before engine imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import threading
 import time
