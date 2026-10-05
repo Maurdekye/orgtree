@@ -267,7 +267,7 @@ class DocketAgentLocks(unittest.TestCase):
                 self.assertNotIn(born, docket_locks.plan(raw)['ids'])
             self.assertIsNone(docket_locks.plan(raw))
 
-    def test_revivable_placeholder_is_locked_for_update_before_identity_name_fences(self):
+    def test_placeholder_hire_and_native_save_settle_without_deadlock(self):
         twins = f.f.Twins('docket-placeholder-upgrade', before=f.prepare_legacy)
         with registry.connection(twins.copy) as raw, raw.transaction():
             R.Names(raw).id('placeholder', mint=True)
@@ -337,6 +337,33 @@ class DocketAgentLocks(unittest.TestCase):
                 self.assertNotIn('40P01', [e[1] for _, caught in outcomes.values() for e in caught], outcomes)
                 self.assertEqual(outcomes, {'first': ('committed', []), 'second': ('committed', [])})
             self.assertEqual(store.load_org(twins.copy).nodes['placeholder']['title'], 'second')
+
+    def test_placeholder_update_mode_is_held_before_ordinary_node_write(self):
+        import psycopg
+        twins = f.f.Twins('docket-placeholder-mode', before=f.prepare_legacy)
+        with registry.connection(twins.copy) as raw, raw.transaction():
+            aid = R.Names(raw).id('placeholder', mint=True)
+        real_lock = docket_locks.lock
+        reached = []
+
+        def check_mode(*args, **kwargs):
+            result = real_lock(*args, **kwargs)
+            # A second session may share a SHARE lock, but cannot share an
+            # UPDATE lock. Probe the actual row before node_put upgrades it.
+            with self.assertRaises(psycopg.errors.LockNotAvailable):
+                with registry.connection(twins.copy) as probe, probe.transaction():
+                    probe.execute('SELECT id FROM orgtree.agents WHERE id=%s FOR SHARE NOWAIT', (aid,))
+            reached.append(aid)
+            return result
+
+        with f.f.storage(True):
+            org = store.load_org(twins.copy)
+            org.hire(ledger.USER, None, 'haiku', 0, 'placeholder')
+            f.item(org, 'owned-item')['owner'] = org._work_holder('placeholder')
+            with patch.object(docket_locks, 'lock', check_mode):
+                store.save_org(org)
+            self.assertEqual(reached, [aid])
+            self.assertFalse(f.item(store.load_org(twins.copy), 'owned-item')['owner'].get('deleted', False))
 
     def test_whole_org_plan_includes_retained_current_roles_and_all_live_nodes(self):
         twins = f.f.Twins('docket-whole-roles', before=f.prepare_legacy)
