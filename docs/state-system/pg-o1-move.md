@@ -348,7 +348,39 @@ measure the instant at which PostgreSQL acquired the revision-row lock.
 Immutable evidence: artifacts/queue-sol-o1-scale/new-ded21a94a1de-887d945c9c,
 compact-grid.json SHA256
 689329f6b38a6acd4e13e24a034f84def00d9def250ad7ceff93ba34338f57fb;
-full original reports and hashes are O1 evidence48. Old-path10k/100k samples,
-real-copy62-predecessor rehearsal, concurrent barriers, final composition and
-independent implementation fault review remain gates. These measurements do not
-approve landing or an alpha build.
+full original reports and hashes are O1 evidence48.
+
+MEASURED at ee89434, with unchanged implementation bytes: all48 actual methods
+pass (11 concurrency controls and37 aggregate methods), with no skips or cleanup
+errors. Barrier-controlled two-session runs cover crossing moves, current-chain
+scope checks, child-cap races and hires. A direct raw/raw INSERT pair reaches an
+actual ancestor `agent_subtree_stats` tuple lock and transaction-id wait. A native
+hire versus the complete compatibility raw writer instead waits on an earlier
+agent row; most native/native conflicts wait on early advisory locks. Those
+controlled waits establish the lock boundary; their durations are not ordinary
+move or hire latency. Immutable five-stage concurrency retention packet:
+artifacts/queue-sol-o1-concurrency-retention-ee89434.json, SHA256
+13485b300f940b970a00dd30bf70cd98f417edc6648eb6d14d494e1be1050749,
+recorded by O1 decision22.
+
+MEASURED actual2026-10-02 copy move of coordinator-opus under
+coordinator-astra-2: N=1208, S=1144, canonical predecessor chain L=62.
+The instrumented endpoint is110.66ms,176 client SQL calls,64 agent and64 stats
+lock keys, with zero full-body rewrites. The outer hot-tool1586.05ms includes
+excluded invariant reads and is not endpoint time. All63 root/bearer parents
+reach the destination. Header changes are only63 parent pointers/null flags,
+64 row-version counters and one grant. All ordinary/retained headers, child rows,
+unrelated changed-row payload, independent free balances and before/after stats
+references agree. Input copies are unchanged and private resources are cleaned up.
+This real copy has zero stranded bearer children; separate synthetic controls
+retain that witness. Five original attempt receipts, including the earlier
+measurement-helper negatives, are retained in
+artifacts/queue-sol-o1-live-retention-ee89434.json, SHA256
+71fc06c770e4edcc7e55014996009d35fbd7459202681b01d871f62c4c19cff8,
+recorded by O1 decision23. The final SQL control explicitly verifies the omitted
+fingerprint keys use `text[]`; an uncast parameter did not remove those keys.
+
+Old-path10k/100k samples, final current-G/B4a composition, source/vector gates and
+independent implementation fault review remain gates. The initial old10k warmup
+raised PostgreSQL OutOfMemory before any timed samples; it is not a speed result.
+These owner measurements do not approve landing or an alpha build.
