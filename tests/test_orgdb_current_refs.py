@@ -208,6 +208,8 @@ class RuntimeHeaders(unittest.TestCase):
                 operations.append((sql, params))
                 return self
             def fetchone(self):
+                if operations[-1][0] == 'SELECT current_setting(%s,true)':
+                    return (None,)      # PostgreSQL returns one row with no active plan
                 return None
         c = Connection()
         names = C.Names(c)
@@ -222,7 +224,9 @@ class RuntimeHeaders(unittest.TestCase):
             operations.append(('inserted', row))
         with patch.object(C, 'new_ids', return_value=[17]), patch.object(C, 'insert', side_effect=inserted):
             self.assertEqual(names.current_tombstone(ref), 17)
-        self.assertEqual(operations[-1][0], 'inserted')
+        self.assertEqual(operations[-2][0], 'inserted')
+        self.assertEqual(operations[-1], ('SELECT current_setting(%s,true)',
+                                         ('orgtree.compat_docket_agents',)))
         lookups = [(sql, params) for sql, params in operations if sql.startswith('SELECT id')]
         self.assertEqual(len(lookups), 2)
         for sql, params in lookups:
