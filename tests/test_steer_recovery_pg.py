@@ -60,6 +60,11 @@ class SteerRecovery(unittest.TestCase):
         self.assertFalse((org.d.get('delivering') or {}).get('dev'))
         self.assertFalse((org.d.get('mail') or {}).get('dev'))
 
+    def test_restart_before_any_injection_recovers_immediately(self):
+        self.assertEqual(self.restart(), {self.tok})
+        org = f.store.load_org(self.slug)
+        self.assertEqual([m['id'] for m in org.d['mail']['dev']], ['first', 'second'])
+
     def test_real_pg_lock_timeout_keeps_carrier_for_next_poll_and_turn(self):
         database = f.registry.lookup(self.slug)[1]
         with f.dbconn.connect(f.ADMIN, database) as blocker:
@@ -67,7 +72,7 @@ class SteerRecovery(unittest.TestCase):
             blocker.execute("SELECT id FROM orgtree.agents WHERE name='dev' FOR UPDATE")
             with patch.object(orgtx, 'DEFAULT_LOCK_TIMEOUT_S', 0.1), patch('builtins.print') as log:
                 self.assertEqual(sup._pump_steer(self.slug, 'dev'), [])
-                self.assertTrue(any('LockNotAvailable' in str(c) for c in log.call_args_list),
+                self.assertTrue(any('LockTimeout' in str(c) for c in log.call_args_list),
                                 str(log.call_args_list))
             self.assertEqual(self.st['steer'], [self.carrier])
             blocker.execute('ROLLBACK')
@@ -80,6 +85,22 @@ class SteerRecovery(unittest.TestCase):
         self.assertEqual(self.st['queue'], [self.carrier])
         sup._confirm_delivered(self.slug, 'dev', [self.tok])
         self.assertFalse(self.restart())
+
+    def test_inflight_fetch_and_chunk_keep_pg_delivery_journal_intact(self):
+        org = f.store.load_org(self.slug)
+        self.st['lifecycle_operation_id'] = 'running-attempt'
+        mailruntime.register(self.st, org, 'dev', attempt='running-attempt', toks=[])
+        result = sup.manual_fetch(self.slug, 'dev', 0, ['second', 'first'])
+        self.assertTrue(result['ok'], result)
+        self.assertEqual([item['content'] for item in result['fetched']],
+                         ['second message', 'first message'])
+        self.assertTrue(all(item['inflight_read'] for item in result['fetched']))
+        self.assertEqual(f.store.load_org(self.slug).d['delivering']['dev'],
+                         org.d['delivering']['dev'])
+        for item in result['fetched']:
+            chunk = sup.manual_fetch_chunk(self.slug, 'dev', 0,
+                item['delivery_id'], item['message_id'], 0)
+            self.assertEqual(chunk['content'], item['content'])
 
 
 if __name__ == '__main__':

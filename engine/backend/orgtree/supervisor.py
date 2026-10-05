@@ -35669,7 +35669,7 @@ def _reconcile_mail_journal(org: Org, *,
     receipt, and a steered_log disclosure that the agent may see it twice. A
     marker whose mail was folded replays its authored base only. When the
     proof fails, the prior engine is added to the row's owners (`changed`) so
-    a later restart still checks it. Claims, halt/native retention, manual
+    a later restart still checks it. Halt/native retention, manual
     custody, identity changes and malformed state keep protecting. A valid
     hook claim and its matching durable attempt no longer protect once their
     owners are proven gone; positive transcript records were applied first.

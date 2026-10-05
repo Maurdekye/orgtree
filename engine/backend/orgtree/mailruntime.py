@@ -555,10 +555,10 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
                            if isinstance(m, Mapping) else own.Gap.UNSUPPORTED
                            for m in mail) if isinstance(mail, (list, tuple))             else (own.Gap.UNSUPPORTED,)
         tok = row.get("tok", own.Gap.ABSENT)
-        released = bool(owners_gone is not None and restart_uncertain(row)
-                        and owners_gone(row))
+        owners_dead = bool(owners_gone is not None and owners_gone(row))
+        released = owners_dead and restart_uncertain(row)
         batches.append(own.JournalBatch(token=tok,
-            drained_at=(now - own.DRAIN_GRACE_S if released
+            drained_at=(now - own.DRAIN_GRACE_S if owners_dead
                         else row.get("at", own.Gap.ABSENT)),
             mode=row.get("mode", own.Gap.ABSENT), message_ids=identities))
         claim = row.get("claim")
