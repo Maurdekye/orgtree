@@ -59,7 +59,7 @@ class MoveConcurrency(unittest.TestCase):
             raw = connection.raw
             self._capture_connection(raw)
             raw.execute("SET LOCAL lock_timeout='15s'")
-            R.node_put(connection, name, copy.deepcopy(self.raw_node))
+            R.node_put(raw, name, copy.deepcopy(self.raw_node), R.Names(raw))
             self._pause_body('before_commit', None)
             return name
 
