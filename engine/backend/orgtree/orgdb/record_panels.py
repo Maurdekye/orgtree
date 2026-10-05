@@ -10,8 +10,8 @@ from . import record_mail as mail, record_mail_sql as mail_sql
 from .record_panel_sql import Extension
 from .record_registry import Registry
 
-SHARED = Extension('shared_inbox_events', shared.dependencies, shared.WINDOWS)
-HISTORY = Extension('agent_history', history.dependencies, (history.WINDOW,), history.BEFORE, history.AFTER)
+SHARED = Extension('shared_inbox_events', shared.dependencies, shared.WINDOWS, prepare=shared.PREPARE)
+HISTORY = Extension('agent_history', history.dependencies, (history.WINDOW,), history.BEFORE, history.AFTER, history.PREPARE)
 MAIL = Extension('agent_mail', mail_sql.dependencies, after=mail_sql.AFTER, prepare=mail_sql.PREPARE)
 EXTENSIONS = (SHARED, HISTORY, MAIL)
 

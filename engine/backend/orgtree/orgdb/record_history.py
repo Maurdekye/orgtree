@@ -10,6 +10,10 @@ WINDOW = D.Window('history_name', 80, (
     D.Stream('event_refs', 'r.ref', "'event:'||r.event_id", ('r.win_at', '0', 'r.event_id')),
     D.Stream('notice_log', 'r.win_node', "'notice:'||r.id", ('r.win_at', '1', 'r.id')),
 ))
+PREPARE = '''
+CREATE INDEX event_refs_record_window ON orgtree.event_refs (ref, win_at DESC NULLS LAST, event_id DESC NULLS LAST);
+CREATE INDEX notice_log_record_window ON orgtree.notice_log (win_node, win_at DESC NULLS LAST, id DESC NULLS LAST);
+'''
 TABLES = {section.key: section.t for section in specs.sections()
           if section.key in ('events', 'notice_log')}
 
@@ -61,10 +65,10 @@ def members(state, arguments):
     for stream in WINDOW.streams:
         keys = ','.join(f'{value} AS k{i}' for i,value in enumerate(stream.order))
         streams.append(f'(SELECT {stream.id} AS id,{keys} FROM orgtree.{stream.table} r '
-            f'WHERE ({stream.partition})::text=%s ORDER BY k0 DESC NULLS LAST,k1 DESC,k2 DESC '
+            f'WHERE ({stream.partition})::text=%s ORDER BY k0 DESC NULLS LAST,k1 DESC NULLS LAST,k2 DESC NULLS LAST '
             f'LIMIT {WINDOW.size})')
     rows = state.raw.execute('SELECT id FROM ('+' UNION ALL '.join(streams)+') q '
-        'ORDER BY k0 DESC NULLS LAST,k1 DESC,k2 DESC LIMIT %s',
+        'ORDER BY k0 DESC NULLS LAST,k1 DESC NULLS LAST,k2 DESC NULLS LAST LIMIT %s',
         (*((row[0],)*len(streams)),WINDOW.size))
     return frozenset(str(row[0]) for row in rows)
 

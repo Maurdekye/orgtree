@@ -36,6 +36,9 @@ PANELS = (
         Stream('events', "'shared'", 'r.id::text', ('r.id',)),))),
 )
 WINDOWS = tuple(panel.window for panel in PANELS if panel.window is not None)
+PREPARE = '\n'.join(
+    f'CREATE INDEX {panel.section}_record_window ON orgtree.{panel.section} (id DESC NULLS LAST);'
+    for panel in PANELS if panel.window is not None)
 TABLES = {section.key: section.t for section in specs.sections()
           if section.key in {panel.section for panel in PANELS}}
 

@@ -6,7 +6,7 @@ import unittest
 
 import test_orgdb_compat_pg as fixture
 from orgtree import api
-from orgtree.orgdb import record_reads as Q, record_panel_sql, record_panels
+from orgtree.orgdb import record_reads as Q, record_panel_sql, record_panels, migrate
 from orgtree.orgdb import record_shared_panels as P
 from orgtree.orgdb.record_registry import Registry, Selection
 
@@ -32,9 +32,7 @@ class SharedPanels(unittest.TestCase):
         self.raw = fixture.dbconn.connect(fixture.ADMIN, self.database)
         self.addCleanup(self.raw.close)
         self.raw.execute("SET statement_timeout='10s'")
-        # Install the exact declaration-generated extension on this disposable
-        # database until the combined panel migration is assembled for landing.
-        self.raw.execute(record_panel_sql.migration_sql((), record_panels.EXTENSIONS))
+        self.assertIn('0019_record_panels.sql', migrate.applied(self.raw))
         self.registry = P.register(Registry())
         self.enterContext(fixture.storage(True))
 

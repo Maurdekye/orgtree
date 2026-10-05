@@ -114,7 +114,7 @@ AFTER = r'''
       (SELECT id FROM orgtree.mail_log WHERE agent_id=partition_key::bigint AND win_from=s.win_from
        ORDER BY win_at DESC,id DESC LIMIT __KEEP__) m LIMIT 2001 ON CONFLICT DO NOTHING;
     IF (SELECT count(*) FROM orgtree.changes WHERE xid=pg_current_xact_id())>2000 THEN
-      INSERT INTO orgtree.changes VALUES(pg_current_xact_id(),'reset','mail-bound') ON CONFLICT DO NOTHING;
+      INSERT INTO orgtree.changes(xid,entity,entity_id) VALUES(pg_current_xact_id(),'reset','mail-bound') ON CONFLICT DO NOTHING;
       RETURN;
     END IF;
   END LOOP;
@@ -124,7 +124,7 @@ AFTER = r'''
     THEN split_part(entity_id,':',4)::bigint ELSE 0 END),0) INTO named_count
     FROM orgtree.changes WHERE xid=pg_current_xact_id();
   IF named_count>2000 THEN
-    INSERT INTO orgtree.changes VALUES(pg_current_xact_id(),'reset','mail-bound') ON CONFLICT DO NOTHING;
+    INSERT INTO orgtree.changes(xid,entity,entity_id) VALUES(pg_current_xact_id(),'reset','mail-bound') ON CONFLICT DO NOTHING;
     RETURN;
   END IF;
   FOR scope_row IN SELECT entity_id FROM orgtree.changes
@@ -157,7 +157,7 @@ AFTER = r'''
       FROM orgtree.user_mail_log WHERE win_from=partition_key ORDER BY win_at DESC,id DESC
       LIMIT __KEEP__+named_count ON CONFLICT DO NOTHING;
     IF (SELECT count(*) FROM orgtree.changes WHERE xid=pg_current_xact_id())>2000 THEN
-      INSERT INTO orgtree.changes VALUES(pg_current_xact_id(),'reset','mail-bound') ON CONFLICT DO NOTHING;
+      INSERT INTO orgtree.changes(xid,entity,entity_id) VALUES(pg_current_xact_id(),'reset','mail-bound') ON CONFLICT DO NOTHING;
       RETURN;
     END IF;
   END LOOP;

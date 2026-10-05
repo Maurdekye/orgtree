@@ -57,7 +57,7 @@ class MigrationPointers(unittest.TestCase):
                 self.assertEqual(c.execute('SELECT to_json(t)::text FROM orgtree.work_items t').fetchall(), before)
                 self.assertNotIn('0016_schema_conformance.sql', migrate.applied(c))
                 report = migrate.migrate(c, migrate.ORG_DIR, migrate.ORG_LOCK)
-                self.assertEqual(report['applied'], ['0016_schema_conformance.sql', '0017_agent_graph.sql', '0018_records.sql'])
+                self.assertEqual(report['applied'], ['0016_schema_conformance.sql', '0017_agent_graph.sql', '0018_records.sql', '0019_record_panels.sql'])
                 self.assertEqual(c.execute("SELECT current_verdict_event_id,current_review_packet_event_id "
                                            "FROM orgtree.work_items WHERE id=%s", (item,)).fetchone(),
                                  (verdict, review))

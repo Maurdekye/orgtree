@@ -5,7 +5,7 @@ from contextlib import ExitStack
 import unittest
 import test_orgdb_compat_pg as fixture
 from orgtree import api
-from orgtree.orgdb import record_reads as Q, record_panels, record_panel_sql
+from orgtree.orgdb import record_reads as Q, record_panels, record_panel_sql, migrate
 from orgtree.orgdb.record_registry import Registry, Selection
 
 setUpModule = fixture.setUpModule
@@ -26,7 +26,7 @@ class History(unittest.TestCase):
         self.raw = fixture.dbconn.connect(fixture.ADMIN,self.database)
         self.addCleanup(self.raw.close)
         self.raw.execute("SET statement_timeout='10s'")
-        self.raw.execute(record_panel_sql.migration_sql((),record_panels.EXTENSIONS))
+        self.assertIn('0019_record_panels.sql', migrate.applied(self.raw))
         self.registry = record_panels.register(Registry())
         self.agent = str(self.raw.execute("SELECT id FROM orgtree.agents WHERE name='dev'").fetchone()[0])
         self.selection = (Selection('sub:1',windows=({'kind':'agent_history','agent':self.agent},)),)

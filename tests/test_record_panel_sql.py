@@ -9,6 +9,16 @@ from orgtree.orgdb import record_panel_sql as P, record_panels
 
 
 class Composition(unittest.TestCase):
+    def test_panel_migration_is_exact_and_all_changes_inserts_name_owned_columns(self):
+        path = Path(__file__).resolve().parents[1]/'engine/backend/orgtree/pg_migrations/org/0019_record_panels.sql'
+        sql = P.migration_sql((),record_panels.EXTENSIONS)
+        self.assertEqual(path.read_text(encoding='utf-8'), sql)
+        self.assertNotIn('INSERT INTO orgtree.changes VALUES', sql)
+        self.assertIn('event_refs_record_window', sql)
+        self.assertIn('user_mail_log_record_window', sql)
+        import test_orgdb_lock_order as locks
+        self.assertEqual(locks.violations(locks._migrations()), [])
+
     def test_frozen_migration_stays_byte_equivalent(self):
         path = Path(__file__).resolve().parents[1]/'engine/backend/orgtree/pg_migrations/org/0018_records.sql'
         self.assertEqual(path.read_text(encoding='utf-8'),S.migration_sql())
