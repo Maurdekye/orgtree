@@ -463,7 +463,8 @@ def join(slug: str, **rows: "Iterable[LogName]") -> "Iterator[Any]":
     yield cur[1]
 
 
-def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any]
+def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any], *,
+         op_key: str | None = None, fingerprint: str | None = None
          ) -> tuple[Any, Any]:
     """Open org_tx on `spec` and run `step(handle, spec)`; re-run on a
     retryable failure, a `Widen`, or a refused write to an unlocked row.
@@ -482,6 +483,8 @@ def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any]
                            share_nodes=list(spec.share_nodes),
                            share_sections=list(spec.share_sections),
                            logs=list(spec.logs),
+                           **({"op_key": op_key, "fingerprint": fingerprint}
+                              if op_key is not None else {}),
                            **({"structural_roots": list(spec.structural_roots)}
                               if spec.structural_roots else {})) as h:
                 token = _CURRENT.set((slug, h, spec))
@@ -516,11 +519,15 @@ def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any]
         attempts -= 1          # a widening is not a failed attempt
 
 
-def run(slug: str, spec: TxSpec, fn: Callable[[Any], Any]) -> Any:
+def run(slug: str, spec: TxSpec, fn: Callable[[Any], Any], *,
+        op_key: str | None = None, fingerprint: str | None = None) -> Any:
     """A plain door transaction for a writer that is not an agent tool (a
     supervisor pass, a lifecycle writer called on its own): `fn(handle)` with
     the same widening and retries, and `join` works inside it."""
-    return _run(slug, spec, lambda h, _held: fn(h))[1]
+    # Optional org_tx receipt remains atomic with the effect across widening.
+    # The body must inspect handle.replayed before performing its effect.
+    return _run(slug, spec, lambda h, _held: fn(h),
+                op_key=op_key, fingerprint=fingerprint)[1]
 
 
 # ------------------------------------------------------------ the prologue

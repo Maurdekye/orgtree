@@ -62,6 +62,48 @@ class CurrentScopeContexts(unittest.TestCase):
         with self.assertRaisesRegex(ledger.LedgerError, 'current planned org transaction'):
             native_move.connection(detached)
 
+    def test_inbound_mail_rechecks_moved_audience_and_preserves_receipt(self):
+        self.grants(dict(grantee='leaf', grantor=ledger.EXTERN, delegated_by='boss'))
+        self.assertEqual(supervisor._inbound_recipients(self.slug), ['leaf'])
+        original = supervisor._inbound_recipients
+        moved = []
+        def predict(slug):
+            result = original(slug)
+            if not moved:
+                moved.append(True)
+                lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'other')
+            return result
+        with patch.object(supervisor, '_inbound_recipients', side_effect=predict), \
+                patch.object(supervisor, 'send_message'), patch.object(supervisor, 'mail_spark'):
+            first = supervisor.deliver_org_inbox(self.slug, '@net:repair-test',
+                'repair fixture', net_id='repair-test', op_key='inbound-repair-test')
+            again = supervisor.deliver_org_inbox(self.slug, '@net:repair-test',
+                'repair fixture', net_id='repair-test', op_key='inbound-repair-test')
+        self.assertEqual(first, ['boss'])
+        self.assertEqual(again, first)
+        org = store.load_org(self.slug)
+        delivered = [m for m in org.d['mail']['boss'] if m.get('body') == 'repair fixture']
+        self.assertEqual(len(delivered), 1)
+        self.assertFalse(any(m.get('body') == 'repair fixture'
+                             for m in org.d['mail'].get('leaf', [])))
+
+    def test_inbound_mail_covers_four_independent_holders_in_one_plan(self):
+        org = store.load_org(self.slug)
+        for name in ('third', 'fourth'):
+            org.hire(ledger.USER, None, 'luna', 0, name)
+        store.save_org(org)
+        holders = ['boss', 'other', 'third', 'fourth']
+        self.grants(*(dict(grantee=name, grantor=ledger.EXTERN) for name in holders))
+        self.assertEqual(supervisor._inbound_recipients(self.slug), holders)
+        with patch.object(supervisor, 'send_message'), patch.object(supervisor, 'mail_spark'):
+            got = supervisor.deliver_org_inbox(self.slug, '@net:repair-test',
+                'four holders', op_key='four-holder-repair-test')
+        self.assertEqual(got, holders)
+        org = store.load_org(self.slug)
+        for name in holders:
+            self.assertEqual(sum(m.get('body') == 'four holders'
+                                 for m in org.d['mail'][name]), 1)
+
     def read(self):
         with patch.object(store, 'load_org', side_effect=AssertionError('whole identity fallback')):
             return identity_context.load(self.slug, 'leaf')

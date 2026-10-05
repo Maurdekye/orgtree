@@ -29755,6 +29755,30 @@ class _HoldersMoved(Exception):
     the locks: roll back and predict again."""
 
 
+def _inbound_recipients_from(org: Org) -> list[str]:
+    """Cover every external grant path in one widening, before deciding."""
+    from .orgdb import native_move
+    if native_move.enabled():
+        raw = native_move.connection(org)
+        if raw is not None:
+            roots = {name for grant in org.d['audiences']
+                     if grant.get('grantor') == EXTERN
+                     for name in (grant['grantee'], grant.get('delegated_by') or EXTERN)
+                     if isinstance(name, str) and name in org.nodes}
+            native_move.graph.check_scope_paths(raw, roots)
+    return org.extern_recipients_preview()
+
+
+def _inbound_recipients(slug: str) -> list[str]:
+    """Predict holders on a current path; delivery rechecks under its locks."""
+    from . import pgdoor
+    from .orgdb import native_move
+    if not native_move.enabled():
+        return orgtx.org_read(slug).extern_recipients_preview()
+    return pgdoor.run(slug, pgdoor.TxSpec(share_sections=('audiences',)),
+                      lambda tx: _inbound_recipients_from(tx.org))
+
+
 def deliver_org_inbox(slug: str, peer: str, body: str,
                       attachments: list[str] | None = None,
                       net_id: str | None = None,
@@ -29773,13 +29797,12 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
     by_node: dict[str, list[dict[str, Any]]] = {}
     missing_by_node: dict[str, list[str]] = {}
     if attachments:
-        # PG-3d: a lock-free read (was DOC_LOCK)
-        org = orgtx.org_read(slug)
+        # Resolve holders before copying attachments; delivery rechecks them.
         # C0: recipients are audience holders — and when none exist,
         # post_external_mail will BOOTSTRAP one, so the attachment
         # pre-pass must copy for the same prospective recipient or the
         # bootstrapped holder would get mail without its files
-        tops = org.extern_recipients_preview()
+        tops = _inbound_recipients(slug)
         for nid in tops:
             updir = os.path.join(scratch_dir(slug, nid), "uploads")
             metas = []
@@ -29810,8 +29833,8 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
             if metas:
                 by_node[nid] = metas
     # PG-3d: one row transaction on the destination org, not DOC_LOCK. The
-    # holders who receive it are found by the body, so they are PREDICTED
-    # lock-free, their rows (and `audiences`, which decides them) locked, and
+    # holders who receive it are found by the body, so they are PREDICTED,
+    # their rows (and `audiences`, which decides them) locked, and
     # the prediction re-checked under the locks; a holder set that moved in
     # between rolls back and predicts again.
     delivered: list[str] = []
@@ -29819,19 +29842,28 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
     if op_key is not None:
         receipt = {"op_key": op_key, "fingerprint": hashlib.sha256(
             f"{peer}\0{body}".encode("utf-8")).hexdigest()}
+    from . import pgdoor
+    from .orgdb import native_move
     for attempt in range(_INBOUND_ATTEMPTS):
-        predicted = orgtx.org_read(slug).extern_recipients_preview()
+        predicted = _inbound_recipients(slug)
         try:
-            with orgtx.org_tx(slug, **mailtx.inbound_rows(predicted), **receipt) as tx:
+            def deposit(tx: Any) -> list[str]:
                 if tx.replayed:
-                    delivered = list((tx.result or {}).get("delivered") or [])
-                    break
-                if tx.org.extern_recipients_preview() != predicted:
+                    return list((tx.result or {}).get("delivered") or [])
+                if _inbound_recipients_from(tx.org) != predicted:
                     raise _HoldersMoved(predicted)
                 delivered = tx.org.post_external_mail(
                     peer, body, attachments_by_node=by_node or None,
                     net_id=net_id, missing_by_node=missing_by_node or None)
                 tx.result = {"delivered": delivered}
+                return delivered
+            rows = mailtx.inbound_rows(predicted)
+            if native_move.enabled():
+                spec = pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+                delivered = pgdoor.run(slug, spec, deposit, **receipt)
+            else:
+                with orgtx.org_tx(slug, **rows, **receipt) as tx:
+                    delivered = deposit(tx)
             break
         except _HoldersMoved:
             if attempt == _INBOUND_ATTEMPTS - 1:
