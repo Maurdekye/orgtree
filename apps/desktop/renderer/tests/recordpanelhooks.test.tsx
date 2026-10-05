@@ -16,7 +16,7 @@ test('known capability suppresses legacy reads before the session is installed',
   globalThis.fetch = async () => { reads++; throw new Error('unexpected legacy read') }
   function Panel() {
     const inbox = useRecordInbox('org'), mail = useRecordMailbox('org','agent'), history = useRecordHistory('org','agent')
-    return <span>{inbox.status.loading && mail === null && history === null ? 'loading' : 'ready'}</span>
+    return <span>{inbox.status.loading && mail.value === null && history.value === null ? 'loading' : 'ready'}</span>
   }
   const v = await mountView(<OrgRecordContext.Provider value={{ slug: 'org', session: null }}><Panel /></OrgRecordContext.Provider>, el => el.textContent)
   try {
@@ -59,7 +59,7 @@ test('agent panels resolve one stable ID each and await an empty accepted socket
   }
   function Panel() {
     const mail = useRecordMailbox('org', 'agent'), history = useRecordHistory('org', 'agent')
-    return <span>{mail ? 'mail' : 'wait'}:{history ? 'history' : 'wait'}</span>
+    return <span>{mail.value ? 'mail' : 'wait'}:{history.value ? 'history' : 'wait'}</span>
   }
   const v = await mountView(<OrgRecordContext.Provider value={{ slug: 'org', session: f }}><Panel /></OrgRecordContext.Provider>, el => el.textContent)
   try {
@@ -72,6 +72,37 @@ test('agent panels resolve one stable ID each and await an empty accepted socket
     assert.equal(v.el.textContent, 'mail:history'); assert.equal(urls.length, 2)
     await inAct(() => f.receive({ type: 'record_changes', ...initial, from: 1, to: 2, upserts: [], tombstones: [] }))
     assert.equal(urls.length, 2, 'unrelated revisions do not refetch accepted names')
+  } finally { await v.unmount(); f.dispose(); globalThis.fetch = prior }
+})
+
+test('mail and history expose selection failures and recover on focus at the same revision', async () => {
+  const f = feed(), prior = globalThis.fetch
+  f.receive({ type: 'record_snapshot', cursor: initial, records: [] })
+  const token = f.socketOpened(() => {})
+  let reads = 0
+  globalThis.fetch = async () => {
+    if (++reads <= 2) throw new Error('selection offline')
+    return new Response(JSON.stringify({ cursor: initial, names: { agent: '7' }, missing: [], matches: [] }), { status: 200 })
+  }
+  function Panel() {
+    const mail = useRecordMailbox('org','agent'), history = useRecordHistory('org','agent')
+    return <><div ref={mail.ref}>{mail.error ? 'mail failed' : mail.value ? 'mail ready' : 'mail loading'}</div>
+      <div ref={history.ref}>{history.error ? 'history failed' : history.value ? 'history ready' : 'history loading'}</div></>
+  }
+  const v = await mountView(<OrgRecordContext.Provider value={{ slug: 'org', session: f }}><Panel /></OrgRecordContext.Provider>, el => el.textContent)
+  try {
+    await inAct(flush)
+    assert.equal(v.el.textContent, 'mail failedhistory failed')
+    assert.equal(reads, 2, 'no automatic request loop after rejection')
+    await inAct(async () => { v.el.ownerDocument.defaultView!.dispatchEvent(new Event('focus')); await flush() })
+    assert.equal(reads, 4)
+    assert.equal(f.getSnapshot()?.cursor.rev, 1)
+    await inAct(() => {
+      for (const sub of f.declarations()) f.receiveSocket({ type: 'record_subscribed', ...initial, sub: sub.sub, records: [] }, token)
+    })
+    assert.equal(v.el.textContent, 'mail readyhistory ready')
+    await inAct(async () => { v.el.ownerDocument.defaultView!.dispatchEvent(new Event('focus')); await flush() })
+    assert.equal(reads, 4, 'accepted names stay resolved on later focus')
   } finally { await v.unmount(); f.dispose(); globalThis.fetch = prior }
 })
 

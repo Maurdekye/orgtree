@@ -373,7 +373,9 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   expiry without an org read, and unsubscribe/identity replacement cancel stale deadlines.
   Subscription readiness is false
   until the current generation's final page; a reset or renewal clears it. Known record
-  capability suppresses legacy polling even before the session controller is installed. Chat uses
+  capability suppresses legacy polling even before the session controller is installed.
+  Failed panel name lookups expose Retry and recover on surface focus at the same revision.
+  Chat uses
   identity-fenced `after` cursors on agent frames/focus, with assistant revisions separate
   from new messages; scratch refreshes on turn end, completed file delivery and focus.
   Direct file delivery emits its invalidation only after commit; attachment helpers do

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { getEvents, getHistory, getInbox, getNodeInbox } from './api'
 import { usePolled, usePolledStatus } from './canvas/shared'
 import type { PolledStatus } from './canvas/shared'
@@ -30,33 +30,46 @@ function usePanelAgent(slug: string, name: string) {
   const session = context?.slug === slug ? context.session : null
   const view = useOrgRecords(slug)
   const own = view ? JSON.stringify([view.cursor.org_uuid, view.cursor.incarnation]) : ''
-  const [answer, setAnswer] = useState({ session, name, own: '', id: null as string | null })
+  const [answer, setAnswer] = useState({ session, name, own: '', id: null as string | null, error: null as Error | null })
+  const [surface, setSurface] = useState<HTMLElement | null>(null)
+  const resolver = useRef<RecordPanelSelection | null>(null)
+  const retry = useCallback(() => resolver.current?.retry(), [])
   useEffect(() => {
     if (!session) return
     const selection = new RecordPanelSelection(session, name, request => resolveRecordSelection(slug, request),
-      id => {
+      (id, error) => {
         const c = session.getSnapshot()?.cursor
-        setAnswer({ session, name, own: c ? JSON.stringify([c.org_uuid, c.incarnation]) : '', id })
+        setAnswer({ session, name, own: c ? JSON.stringify([c.org_uuid, c.incarnation]) : '', id, error })
       })
-    return () => selection.dispose()
+    resolver.current = selection
+    return () => { selection.dispose(); resolver.current = null }
   }, [session, slug, name])
-  return answer.session === session && answer.name === name && answer.own === own ? answer.id : null
+  useEffect(() => {
+    const owner = surface?.ownerDocument.defaultView
+    owner?.addEventListener('focus', retry)
+    return () => owner?.removeEventListener('focus', retry)
+  }, [surface, retry])
+  const current = answer.session === session && answer.name === name && answer.own === own
+  return { id: current ? answer.id : null, error: current ? answer.error : null, retry,
+    ref: setSurface, onFocus: retry }
 }
 
 export function useRecordMailbox(slug: string, name: string) {
-  const enabled = useRecordsEnabled(slug), agent = usePanelAgent(slug, name), view = useOrgRecords(slug)
+  const enabled = useRecordsEnabled(slug), selection = usePanelAgent(slug, name), view = useOrgRecords(slug)
+  const agent = selection.id
   const ready = useOrgRecordSubscription(slug, agent ? { windows: [{ kind: 'agent_mail', agent }], agents: [agent] } : null)
   const legacy = usePolled(() => getNodeInbox(slug, name), [slug, name], 5000, 0, !enabled)
   const value = useMemo(() => view && agent && ready ? projectMailbox(view.records, view.runtime, agent) : null, [view, agent, ready])
-  return enabled ? value : legacy
+  return { ...selection, value: enabled ? value : legacy }
 }
 
 export function useRecordHistory(slug: string, name: string) {
-  const enabled = useRecordsEnabled(slug), agent = usePanelAgent(slug, name), view = useOrgRecords(slug)
+  const enabled = useRecordsEnabled(slug), selection = usePanelAgent(slug, name), view = useOrgRecords(slug)
+  const agent = selection.id
   const ready = useOrgRecordSubscription(slug, agent ? { windows: [{ kind: 'agent_history', agent }] } : null)
   const legacy = usePolled(() => getHistory(slug, name).then(r => r.items), [slug, name], 5000, 0, !enabled)
   const value = useMemo(() => view && agent && ready ? projectHistory(view.records, agent) : null, [view, agent, ready])
-  return enabled ? value : legacy
+  return { ...selection, value: enabled ? value : legacy }
 }
 
 export function useRecordEvents(slug: string, visible: boolean, full: boolean) {

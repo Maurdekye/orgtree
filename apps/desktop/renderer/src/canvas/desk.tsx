@@ -4095,11 +4095,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
 export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
   // G5: the agent keeps acting while this tab is open — a fetch-once list is
   // a photograph of the moment the tab was clicked
-  const items = useRecordHistory(slug, nid)
+  const history = useRecordHistory(slug, nid)
+  const items = history.value
   const profile = 'operator'
   return (
-    <div className="msgs">
-      {items == null && <div className="dim pad">loading…</div>}
+    <div className="msgs" ref={history.ref} onFocusCapture={history.onFocus}>
+      {history.error ? <div className="dim pad" role="alert">Could not load history. <button onClick={history.retry}>Retry</button></div>
+        : items == null && <div className="dim pad">loading…</div>}
       {items?.length === 0 && <div className="dim pad">nothing recorded yet</div>}
       {items?.map((it, i) => {
         const text = String(it.detail.gist ?? it.detail.text ?? Object.entries(it.detail)

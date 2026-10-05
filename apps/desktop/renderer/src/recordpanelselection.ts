@@ -13,6 +13,12 @@ export class RecordPanelSelection {
   private attempted = ''
   private pending: SelectionAnswer | null = null
   private off: () => void
+  retry = (): void => {
+    if (this.dead || this.accepted || this.busy) return
+    this.attempted = ''; this.pending = null
+    this.publish(null, null)
+    this.changed()
+  }
   constructor(private feed: RecordSession, private name: string,
     private resolve: (request: SelectionRequest) => Promise<SelectionAnswer>,
     private publish: (id: string | null, error: Error | null) => void) {

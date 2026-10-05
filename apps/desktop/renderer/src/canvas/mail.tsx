@@ -1116,7 +1116,8 @@ export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocus
   // events and on nothing else — and a mail DELIVERY is not a turn event, so
   // the one panel whose whole job is showing mail was the one that did not
   // learn when mail arrived. Polled while mounted instead.
-  const box = useRecordMailbox(slug, nid)
+  const mailbox = useRecordMailbox(slug, nid)
+  const box = mailbox.value
   // the exact question, for a reference that landed outside the window this
   // poll returns. Same box, same access — it is the one-row form of the
   // fetch above, not a wider one.
@@ -1194,11 +1195,11 @@ export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocus
     setDropped((d) => d.filter((id) => box.pending.some((m) => m.id === id)))
   }, [box])
   return (
-    <div className="mailwrap">
+    <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
       <MailFolders folder={folder} setFolder={setFolder}
         unread={pending.length} tier={tier} />
       <div className="mailpane">
-        {box == null
+        {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>
           : folder === 'inbox'
             ? <MailList org={slug} pending={pending} delivered={box.delivered}
