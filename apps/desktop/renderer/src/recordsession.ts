@@ -5,7 +5,9 @@ import type { PolledStatus } from './canvas/shared'
 /** App owns one controller per selected org. Panels consume its exact cursor
  * and overlapping sets; they neither open another socket nor fetch a baseline.
  */
-export const OrgRecordContext = createContext<{ slug: string; session: RecordSession; status?: PolledStatus } | null>(null)
+// Capability can be known one render before the session effect installs its
+// controller. Keep that state distinct from the legacy protocol.
+export const OrgRecordContext = createContext<{ slug: string; session: RecordSession | null; status?: PolledStatus } | null>(null)
 const emptySubscribe = () => () => {}
 const emptySnapshot = () => null
 

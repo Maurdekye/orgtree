@@ -10,6 +10,22 @@ import { useRecordInbox, useRecordMailbox, useRecordHistory } from '../src/recor
 import { usePolledStatus } from '../src/canvas/shared'
 
 const initial = { org_uuid: 'org', incarnation: 'one', rev: 1 }
+test('known capability suppresses legacy reads before the session is installed', async () => {
+  const prior = globalThis.fetch
+  let reads = 0
+  globalThis.fetch = async () => { reads++; throw new Error('unexpected legacy read') }
+  function Panel() {
+    const inbox = useRecordInbox('org'), mail = useRecordMailbox('org','agent'), history = useRecordHistory('org','agent')
+    return <span>{inbox.status.loading && mail === null && history === null ? 'loading' : 'ready'}</span>
+  }
+  const v = await mountView(<OrgRecordContext.Provider value={{ slug: 'org', session: null }}><Panel /></OrgRecordContext.Provider>, el => el.textContent)
+  try {
+    await inAct(flush)
+    assert.equal(v.el.textContent,'loading')
+    assert.equal(reads,0)
+  } finally { await v.unmount(); globalThis.fetch = prior }
+})
+
 function feed() {
   return new RecordFeed({ snapshot: async () => { throw new Error('unexpected baseline') },
     catchup: async () => { throw new Error('unexpected catchup') }, project: r => r,

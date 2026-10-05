@@ -1312,7 +1312,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><OrgRecordContext.Provider value={recordSession?.slug === slug ? { ...recordSession, status: treeStatus } : null}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
+    <CurrentOrg.Provider value={slug}><OrgRecordContext.Provider value={recordMode ? { slug, session: recordSession?.slug === slug ? recordSession.session : null, status: treeStatus } : null}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
       <RestartNotice />
       {/* Developer › engine debug view: off by default; while off nothing polls */}
       {engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
