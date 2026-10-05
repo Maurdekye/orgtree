@@ -565,6 +565,9 @@ rulings go here and on their ticket.
   inventory test your change could affect. `run.mjs --output DIR` creates a `node_modules`
   junction inside DIR, so never point it into a worktree; `--prebuilt DIR` creates none.
   [verified: `package.json`, `apps/desktop/renderer/tests/run.mjs`]
+- The PostgreSQL subtree renderer test runs only when its Python parent supplies
+  `ORGTREE_RECORD_SUBTREE_FIXTURE`; plain renderer runs skip it. [verified 2026-10-05:
+  `apps/desktop/renderer/tests/recordpgsubtree.test.ts`, `tests/test_orgdb_record_subtree_pg.py`]
 - **The baseline:** `node tools/test-baseline.mjs show` (or `npm run test:known-failures`)
   lists known failures and runs nothing. `compare` and `record`, `npm run test:compare`,
   `npm run test:baseline:record`, `npm run verify:release` and `npm run release:windows`

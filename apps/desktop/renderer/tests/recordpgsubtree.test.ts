@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs'
 import { RecordFeed } from '../src/recordfeed'
 import type { FeedCursor, FeedRecord, RecordChanges, SubscriptionMessage } from '../src/recordfeed'
 
-test('actual snapshot subtree catch-up atomically replaces pinned ancestry without refetch', () => {
+// Driven by tests/test_orgdb_record_subtree_pg.py, which supplies the fixture;
+// the plain renderer run has no PostgreSQL parent, so it skips there.
+test('actual snapshot subtree catch-up atomically replaces pinned ancestry without refetch',
+  { skip: !process.env.ORGTREE_RECORD_SUBTREE_FIXTURE && 'needs the PostgreSQL parent test' }, () => {
   const path = process.env.ORGTREE_RECORD_SUBTREE_FIXTURE
   assert.ok(path, 'the PostgreSQL parent must supply its reached fixture')
   const p = JSON.parse(readFileSync(path, 'utf8')) as {
