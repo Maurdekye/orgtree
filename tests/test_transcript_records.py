@@ -505,6 +505,43 @@ class RecordsTests(unittest.TestCase):
         self.assertEqual(got, ["corrected", "second"])
 
 
+    def test_bad_encoding_view_advances_cursor_without_losing_next_or_partial_row(self):
+        import hashlib
+        for index, bad in enumerate((b'\xff private-row\n', b'\x00\x00\x00{\xff\n')):
+            with self.subTest(encoding=index):
+                source = self.source + str(index)
+                good = json.dumps({'sha256': 'good', 'visible': 'valid row'}).encode() + b'\n'
+                partial = json.dumps({'sha256': 'later', 'visible': 'partial row'}).encode()
+                self.path.write_bytes(bad + good + partial)
+                with self.assertLogs(records.__name__, level='WARNING') as logs:
+                    records.ingest_prompt_views(source, str(self.path), max_records=1)
+                identity = hashlib.sha256(source.encode('utf-8')).hexdigest()[:16]
+                self.assertIn(identity, logs.output[0])
+                self.assertIn('byte=0', logs.output[0])
+                self.assertNotIn('private-row', logs.output[0])
+                self.assertNotIn(str(self.path), logs.output[0])
+                self.assertEqual(len(logs.output), 1)
+                with records.database() as conn:
+                    upper = conn.execute('SELECT upper FROM transcript_view_sources WHERE source=?',
+                                         (source,)).fetchone()[0]
+                self.assertEqual(upper, len(bad))
+                with self.assertNoLogs(records.__name__, level='WARNING'):
+                    records.ingest_prompt_views(source, str(self.path))
+                    records.ingest_prompt_views(source, str(self.path))
+                self.assertEqual([v['visible'] for v in records.prompt_views_for(source, 'good')],
+                                 ['valid row'])
+                self.assertEqual(records.prompt_views_for(source, 'later'), [])
+                with records.database() as conn:
+                    upper = conn.execute('SELECT upper FROM transcript_view_sources WHERE source=?',
+                                         (source,)).fetchone()[0]
+                self.assertEqual(upper, len(bad + good))
+                with self.path.open('ab') as stream:
+                    stream.write(b'\n')
+                records.ingest_prompt_views(source, str(self.path))
+                records.ingest_prompt_views(source, str(self.path))
+                self.assertEqual([v['visible'] for v in records.prompt_views_for(source, 'later')],
+                                 ['partial row'])
+
     def test_background_sidecar_capture_is_bounded_and_resumable(self):
         sidecar = self.path
         sidecar.write_text(''.join(json.dumps({'sha256': str(i), 'visible': str(i)})+'\n'

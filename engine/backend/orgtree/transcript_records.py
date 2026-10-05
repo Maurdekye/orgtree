@@ -11,6 +11,7 @@ import contextlib
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -19,6 +20,8 @@ import weakref
 from pathlib import Path
 
 from . import census_contacts
+
+_log = logging.getLogger(__name__)
 
 BLOCK = 65536
 #: how much of the file tail before the committed upper boundary is hashed as
@@ -777,7 +780,12 @@ def ingest_prompt_views(source: str, path: str, stats: dict | None = None, *, ma
                     upper = stream.tell()
                     try:
                         row = json.loads(line)
-                    except json.JSONDecodeError:
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        # A complete malformed row must not pin the durable cursor.
+                        # Identify it without putting prompt contents in diagnostics.
+                        _log.warning('Skipping malformed prompt-view row source=%s byte=%d',
+                                     hashlib.sha256(source.encode('utf-8')).hexdigest()[:16],
+                                     upper - len(line))
                         continue
                     _insert_view_row(conn, source, row)
             anchor = _anchor_digest(stream, upper, stats)
