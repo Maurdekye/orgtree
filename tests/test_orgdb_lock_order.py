@@ -21,7 +21,8 @@ What it proves, over every org migration and the engine's Python:
   * every foreign key to agents is immediate: a commit-time KEY SHARE check would wait for
     an agent after the revision row, reversing a writer's agent-before-revision order;
   * the engine's Python writes or locks the revision row only in OrgDbConn.on_save_commit, never
-    writes the tables locked under it, and never forces deferred checks.
+    writes the tables locked under it, and never forces deferred checks except the two named
+    current-pointer FKs in the migration runner (not revision triggers).
 The controls show the check rejects the round-2 settling that deadlocked in review f7 (a
 commit-time trigger locking an owner's key row and rewriting the owner's mail rows), round 3's
 statement-time owner keys that deadlocked in f8 and f9, a link table of another table, a writing
@@ -49,6 +50,12 @@ UNDER_REVISION = {'foreground_parent_counts': '0006_agents_readers.sql',
                   'docket_counters': '0012_docket_counts.sql'}
 #: (module, function) of the engine's Python allowed to write or lock the revision row
 PYTHON_REVISION_WRITERS = {('orgdb/compat/conn.py', 'on_save_commit')}
+# Migration 0016 must drain these FK events before ALTER TABLE. These are not
+# revision triggers. Match the entire SQL and lexical function path: neither
+# another constraint nor a second statement inherits this narrow exception.
+PYTHON_FK_DRAIN = ('orgdb/migrate.py', ('migrate',),
+                   'SET CONSTRAINTS orgtree.current_verdict_event_id_fk, '
+                   'orgtree.current_review_packet_event_id_fk IMMEDIATE')
 # Design O1 decision5: this named eager helper may lock only ancestor-path
 # aggregates, between the agent and item tiers. The exception is not general.
 STATS_LOCK_HELPERS = {'orgtree.graph_apply'}
@@ -372,7 +379,7 @@ def python_violations(sources: dict[str, str]) -> list[str]:
                     elif table in UNDER_REVISION:
                         out.append(f'{rel}: {where} writes or locks orgtree.{table}, which only its '
                                    f'deferred trigger keeps, under the revision row')
-                if _FORCED.search(node.value):
+                if _FORCED.search(node.value) and (rel, tuple(stack), node.value) != PYTHON_FK_DRAIN:
                     out.append(f'{rel}: {where} forces deferred checks (SET CONSTRAINTS ... IMMEDIATE): '
                                'that takes the revision row before the statements after it (design §2.4)')
             for child in ast.iter_child_nodes(node):
@@ -783,6 +790,31 @@ class Python(unittest.TestCase):
         self.assertEqual(len(got), 2, got)
         self.assertIn('orgdb/x.py: bump writes or locks orgtree.org_revision', got[0])
         self.assertIn('orgdb/x.py: lock writes or locks orgtree.docket_counters', got[1])
+
+    def test_named_migration_fk_drain_is_allowed(self) -> None:
+        rel, _, sql = PYTHON_FK_DRAIN
+        self.assertEqual(python_violations({rel: f'def migrate(c):\n    c.execute({sql!r})\n'}), [])
+
+    def test_migration_exception_rejects_other_constraint_sets_and_statements(self) -> None:
+        rel, _, sql = PYTHON_FK_DRAIN
+        for bad in ('SET CONSTRAINTS ALL IMMEDIATE',
+                    'SET CONSTRAINTS orgtree.events_count_flush IMMEDIATE',
+                    sql.replace('current_verdict_event_id_fk', 'events_count_flush'),
+                    sql + '; SET CONSTRAINTS ALL IMMEDIATE'):
+            with self.subTest(sql=bad):
+                got = python_violations({rel: f'def migrate(c):\n    c.execute({bad!r})\n'})
+                self.assertEqual(len(got), 1, got)
+
+    def test_migration_exception_rejects_other_python_locations(self) -> None:
+        rel, _, sql = PYTHON_FK_DRAIN
+        for path, source in (
+                ('orgdb/other.py', f'def migrate(c):\n    c.execute({sql!r})\n'),
+                (rel, f'def other(c):\n    c.execute({sql!r})\n'),
+                (rel, f'class Other:\n    def migrate(c):\n        c.execute({sql!r})\n'),
+                (rel, f'def migrate(c):\n    def inner():\n        c.execute({sql!r})\n')):
+            with self.subTest(path=path, source=source):
+                got = python_violations({path: source})
+                self.assertEqual(len(got), 1, got)
 
     def test_control_a_forced_check_is_rejected(self) -> None:
         # review f9's first step; deferring a check again is allowed
