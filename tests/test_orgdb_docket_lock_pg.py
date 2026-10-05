@@ -388,6 +388,21 @@ class DocketAgentLocks(unittest.TestCase):
                 R._docket_section_put(raw, 'work_items_archive', [record], None)
         self.assertEqual(reached, ['direct item', 'archive append', 'archive replace', 'whole archive'])
 
+    def test_ordinary_active_deletes_and_whole_archive_clear_preserve_save_behavior(self):
+        for archive in (False, True):
+            with self.subTest(archive=archive):
+                twins = f.f.Twins('docket-delete-plan', before=f.prepare_legacy)
+                with f.f.storage(True):
+                    org = store.load_org(twins.copy)
+                    if archive:
+                        org.work_archive_now(ledger.USER, 'owned-item')
+                        store.save_org(org)
+                        org = store.load_org(twins.copy)
+                    key = 'work_items_archive' if archive else 'work_items'
+                    org.d[key].clear()
+                    store.save_org(org)
+                    self.assertEqual(store.load_org(twins.copy).d[key], [])
+
 
 if __name__ == '__main__':
     unittest.main()
