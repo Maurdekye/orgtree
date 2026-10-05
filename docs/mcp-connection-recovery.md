@@ -1,12 +1,18 @@
-﻿# Automatic recovery of a lost Orgtree MCP connection
+# Automatic recovery of a lost Orgtree MCP connection
 
 Claude Code can remain alive after its stdio Orgtree MCP connection fails. The
 engine asks that process for `mcp_status` every 30 seconds (first probe after five
 seconds), without sending a model prompt or an MCP mutation. It accepts only the
-matching local control response or a CLI `system/init` server status. A failed or
+matching local control response or a CLI `system/init` server status. It also
+reads newly appended CLI-owned `deferred_tools_delta` attachment records and
+checks whether this CLI still has its `python -m orgtree.mcptool` child. Two
+complete child scans separated by at least 30 seconds must find that child
+absent before recovery; inaccessible process scans remain unknown. A failed or
 disconnected `orgtree` server, or a previously present server disappearing from
 an authoritative status reply, requests recovery. Pending, an unsupported control
-request, silence, and failures of other servers do not request recovery.
+request, silence, and failures of other servers do not request recovery. Native
+transcript records predating this process are skipped. A cached connected status
+does not erase a newer native disconnect or a missing-child observation.
 
 The stdout owner consumes health replies, including delayed replies. They never
 reach the turn's mail-consumption acknowledgement. Agent prose and tool-result
@@ -51,3 +57,11 @@ synchronous stdio loop can delay health traffic during an engine stall. It does
 not prove that the incident child exited, or establish the precise historical
 cause of the CLI's reconnect timeout. This change does not replay or parallelize
 MCP mutations to work around that stall.
+
+A real isolated Claude CLI probe (no model prompt, no initialize request)
+observed startup `pending -> failed` for a broken MCP fixture and
+`pending -> connected` for a healthy one. After the healthy fixture exited,
+Claude debug recorded the connection closing but `mcp_status` continued reporting
+connected for over 30 seconds. The child-presence fallback detected that loss.
+The incident's native tool-delta shape is covered separately by transcript-tail
+tests; it is not inferred from model prose.

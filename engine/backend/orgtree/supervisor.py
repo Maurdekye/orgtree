@@ -21730,8 +21730,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 independent of EOF from child-inherited pipe handles.
                 """
                 from . import mcp_recovery
+                mcp_root = _transcript_root(org, nid)
                 mcp_recovery.attach(target, lambda line: _stdin_send(target, line, wait=1.0),
-                                    lambda: warmpool.poke(slug))
+                                    lambda: warmpool.poke(slug),
+                                    lambda: transcript_path(sid, mcp_root))
                 lines: queue.Queue[str | None] = queue.Queue(maxsize=256)
 
                 def _put(line: str | None) -> None:

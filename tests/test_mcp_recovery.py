@@ -161,6 +161,80 @@ class Health(unittest.TestCase):
         with patch.object(warmpool, 'warm_decision', return_value=(True, True)), patch.object(warmpool, '_journal'):
             self.assertEqual(warmpool.boundary_check('o', 'n', 'hash', wp), (False, True, 'mcp-disconnected'))
 
+    def test_dead_stdio_child_overrides_stale_connected_status(self):
+        p = proc()
+        m = p._orgtree_mcp_monitor
+        m.observe(status(m, 'connected'))
+        with patch.object(recovery, 'stdio_child_present', return_value=False):
+            m.check_transport(p, 100)
+            self.assertFalse(m.broken())
+            m.check_transport(p, 130)
+        m.observe(status(m, 'connected'))
+        self.assertTrue(m.broken())
+        self.assertEqual(recovery.reserve('o', 'n', 's', p)['reason'], 'orgtree MCP stdio child exited')
+
+    def test_child_scan_unknown_never_means_dead(self):
+        p = proc()
+        m = p._orgtree_mcp_monitor
+        m.observe(status(m, 'connected'))
+        with patch.object(recovery, 'stdio_child_present', return_value=None):
+            m.check_transport(p, 100)
+            m.check_transport(p, 1000)
+        self.assertFalse(m.broken())
+
+    def test_reconnected_child_clears_missing_transport(self):
+        p = proc()
+        m = p._orgtree_mcp_monitor
+        m.observe(status(m, 'connected'))
+        with patch.object(recovery, 'stdio_child_present', return_value=False):
+            m.check_transport(p, 100)
+            m.check_transport(p, 130)
+        with patch.object(recovery, 'stdio_child_present', return_value=True):
+            m.check_transport(p, 140)
+        self.assertFalse(m.broken())
+
+    def test_native_delta_beats_stale_status_and_readdition_clears_it(self):
+        m = recovery.Monitor()
+        delta = {'type': 'attachment', 'attachment': {'type': 'deferred_tools_delta',
+            'failedMcpServers': [{'name': 'orgtree', 'errorCode': 'CONNECT_TIMEOUT'}]}}
+        m.observe(delta)
+        m.observe(status(m, 'connected'))
+        self.assertTrue(m.broken())
+        m.observe({'type': 'attachment', 'attachment': {'type': 'deferred_tools_delta',
+            'addedNames': ['mcp__orgtree__orgtree_work']}})
+        self.assertFalse(m.broken())
+
+    def test_transcript_tail_ignores_old_failure_and_reads_partial_new_record(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'session.jsonl'
+            event = json.dumps({'type': 'attachment', 'attachment': {'type': 'deferred_tools_delta',
+                'failedMcpServers': [{'name': 'orgtree'}]}}).encode()
+            path.write_bytes(event + b'\n')
+            tail = recovery.TranscriptTail(lambda: str(path))
+            m = recovery.Monitor()
+            tail.read(m)
+            self.assertFalse(m.broken())
+            with path.open('ab') as stream:
+                stream.write(event[:30])
+            tail.read(m)
+            self.assertFalse(m.broken())
+            with path.open('ab') as stream:
+                stream.write(event[30:] + b'\n')
+            tail.read(m)
+            self.assertTrue(m.broken())
+
+    def test_transcript_tail_reads_new_file_but_never_agent_quoted_delta(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'new-session.jsonl'
+            tail = recovery.TranscriptTail(lambda: str(path) if path.exists() else None)
+            m = recovery.Monitor()
+            path.write_text(json.dumps({'type': 'assistant', 'attachment': {
+                'type': 'deferred_tools_delta', 'failedMcpServers': [{'name': 'orgtree'}]}}) + '\n')
+            tail.read(m)
+            self.assertFalse(m.broken())
+
     def test_keeper_busy_never_attempts_recovery(self):
         org = SimpleNamespace(nodes={'n': {'state': 'live'}})
         wp = SimpleNamespace(slug='o', nid='n', sid='s', proc=broken(), alive=lambda: True, hash='h')

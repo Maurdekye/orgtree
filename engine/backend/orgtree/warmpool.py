@@ -298,7 +298,8 @@ class WarmProc:
 
     def __init__(self, slug: str, nid: str, proc: subprocess.Popen[str],
                  sid: str, ihash: str, env_id: str,
-                 ident_components: dict[str, str] | None = None) -> None:
+                 ident_components: dict[str, str] | None = None,
+                 transcript_root: str | None = None) -> None:
         self.slug, self.nid = slug, nid
         self.proc = proc
         self.sid = sid
@@ -352,7 +353,8 @@ class WarmProc:
         self._lk = threading.Lock()
         from . import supervisor as sup
         mcp_recovery.attach(proc, lambda line: sup._stdin_send(proc, line, wait=1.0),
-                            lambda: poke(slug))
+                            lambda: poke(slug),
+                            lambda: sup.transcript_path(sid, transcript_root))
         threading.Thread(target=self._pump_out, daemon=True,
                          name=f"warmpump-{slug}-{nid}").start()
         threading.Thread(target=self._pump_err, daemon=True,
@@ -1857,6 +1859,7 @@ KILL_REASON_CLASS = {
     # cold meanwhile, and a process CLAIMED mid-initialize is never touched —
     # its turn owns the aftermath.
     "prewarm-failed": "prewarm-abort",
+    "mcp-disconnected": "tool-connection-recovery",  # user-authorized safe-boundary restart
     "suite-teardown": "test",
 }
 
@@ -2215,7 +2218,7 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
                 org.node(nid).get("last_turn_mcp_tool_count"))
             wp = WarmProc(slug, nid, proc,
                           org.node(nid)["session_id"], ih, env_id,
-                          components)
+                          components, transcript_root=sup._transcript_root(org, nid))
         except Exception:
             # setup died AFTER the child existed: reap it or every keeper
             # retry leaks a CLI+MCP tree while turns stay correct — the
