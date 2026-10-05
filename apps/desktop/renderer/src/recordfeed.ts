@@ -30,7 +30,7 @@ export interface FeedView extends FeedState { records: RecordTable }
 export interface RecordSession {
   getSnapshot: () => FeedView | null
   listen: (listener: () => void) => () => void
-  subscribe: (input: SubscriptionInput) => () => void
+  subscribe: (input: SubscriptionInput, onReady?: (ready: boolean) => void) => () => void
 }
 export type RecordTable = ReadonlyMap<string, ReadonlyMap<string, unknown>>
 const sameIdentity = (a: Pick<FeedCursor, 'org_uuid' | 'incarnation'>, b: Pick<FeedCursor, 'org_uuid' | 'incarnation'>) =>
@@ -54,6 +54,7 @@ export interface FeedIO<T> {
 
 interface SubscriptionState {
   declaration: SubscriptionDeclaration; active: boolean; sent: boolean
+  onReady?: (ready: boolean) => void
   pages?: { next: number; records: FeedRecord[]; keys: Set<string> }
 }
 
@@ -121,16 +122,22 @@ export class RecordFeed<T> {
     }
   }
 
+  private ready(s: SubscriptionState, value: boolean) {
+    try { s.onReady?.(value) }
+    catch (e) { this.io.error(e instanceof Error ? e : new Error(String(e))) }
+  }
+
   private renew(s: SubscriptionState) {
     if (s.sent) this.socketSend?.({ type: 'unsubscribe', sub: s.declaration.sub })
     if (!Number.isSafeInteger(this.nextSubscription + 1)) throw new Error('Subscription generation exhausted')
     s.declaration = { ...s.declaration, sub: ++this.nextSubscription }
     s.active = false; s.sent = false
+    this.ready(s, false)
     s.pages = undefined
   }
 
   /** The returned release drops this set immediately, even during an HTTP read. */
-  subscribe(input: SubscriptionInput): () => void {
+  subscribe(input: SubscriptionInput, onReady?: (ready: boolean) => void): () => void {
     if (this.disposed) throw new Error('Feed disposed')
     const agents = [...new Set(input.agents ?? [])], windows = structuredClone(input.windows ?? [])
     if (agents.some(id => typeof id !== 'string' || !/^[1-9][0-9]*$/.test(id)
@@ -138,7 +145,7 @@ export class RecordFeed<T> {
         || windows.some(w => !w || typeof w !== 'object' || Array.isArray(w)))
       throw new Error('Invalid subscription declaration')
     if (agents.length > 128 || this.subscriptions.size >= 128) throw new Error('Subscription bound exceeded')
-    const s = { declaration: { sub: 0, agents, windows }, active: false, sent: false }
+    const s = { declaration: { sub: 0, agents, windows }, active: false, sent: false, onReady }
     this.renew(s)
     const handle = s.declaration.sub
     this.subscriptions.set(handle, s)
@@ -228,6 +235,7 @@ export class RecordFeed<T> {
         this.commit(candidate, this.cursor)
         s.pages = undefined
         s.active = true
+        this.ready(s, true)
         return
       }
       this.receive(answer, readStartedAt)

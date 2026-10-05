@@ -65,3 +65,32 @@ test('one failing external observer cannot prevent other panels seeing an atomic
   assert.equal(feed.getSnapshot(), stable)
   stop(); feed.dispose()
 })
+
+test('empty subscribed panels become ready only after the final accepted answer and reset on reconnect', async () => {
+  const feed = new RecordFeed({ snapshot: async () => { throw new Error('no baseline') },
+    catchup: async () => { throw new Error('no catchup') }, project: r => r,
+    publish: () => {}, error: e => { throw e } })
+  const cursor = { org_uuid: 'org', incarnation: 'first', rev: 1 }
+  feed.receive({ type: 'record_snapshot', cursor, records: [] })
+  let token = feed.socketOpened(() => {})
+  function Panel() {
+    const ready = useOrgRecordSubscription('org', { windows: [{ kind: 'agent_mail', agent: '1' }] })
+    return <span>{ready ? 'empty' : 'loading'}</span>
+  }
+  const mounted = await mountView(<OrgRecordContext.Provider value={{ slug: 'org', session: feed }}><Panel /></OrgRecordContext.Provider>, el => el.textContent)
+  try {
+    const first = feed.declarations()[0].sub
+    assert.equal(mounted.el.textContent, 'loading')
+    await inAct(() => feed.receiveSocket({ type: 'record_subscribed', ...cursor, sub: first, records: [], page: 0, final: false }, token))
+    assert.equal(mounted.el.textContent, 'loading')
+    await inAct(() => feed.receiveSocket({ type: 'record_subscribed', ...cursor, sub: first, records: [], page: 1, final: true }, token))
+    assert.equal(mounted.el.textContent, 'empty')
+    await inAct(() => { token = feed.socketOpened(() => {}) })
+    assert.equal(mounted.el.textContent, 'loading')
+    await inAct(() => feed.receiveSocket({ type: 'record_subscribed', ...cursor, sub: first, records: [] }, token))
+    assert.equal(mounted.el.textContent, 'loading')
+    const current = feed.declarations()[0].sub
+    await inAct(() => feed.receiveSocket({ type: 'record_subscribed', ...cursor, sub: current, records: [] }, token))
+    assert.equal(mounted.el.textContent, 'empty')
+  } finally { await mounted.unmount(); feed.dispose() }
+})

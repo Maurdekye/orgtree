@@ -6,13 +6,15 @@ separate and only switches on with the complete panel migration and renderer.
 from __future__ import annotations
 
 from . import record_shared_panels as shared, record_history as history
+from . import record_mail as mail, record_mail_sql as mail_sql
 from .record_panel_sql import Extension
 from .record_registry import Registry
 
 SHARED = Extension('shared_inbox_events', shared.dependencies, shared.WINDOWS)
 HISTORY = Extension('agent_history', history.dependencies, (history.WINDOW,), history.BEFORE, history.AFTER)
-EXTENSIONS = (SHARED, HISTORY)
+MAIL = Extension('agent_mail', mail_sql.dependencies, after=mail_sql.AFTER, prepare=mail_sql.PREPARE)
+EXTENSIONS = (SHARED, HISTORY, MAIL)
 
 
 def register(registry: Registry) -> Registry:
-    return history.register(shared.register(registry))
+    return mail.register(history.register(shared.register(registry)))
