@@ -28,7 +28,7 @@ class Compaction(unittest.TestCase):
         self.slug = 'compact-' + uuid4().hex[:12]
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'opus', 8, 'boss')
-        org.hire('boss', 'boss', 'opus', 0, 'worker')
+        org.hire(ledger.USER, 'boss', 'opus', 0, 'worker')
         self.before = org.node('worker')['session_id']
         self.generation = org.node('worker').get('generation', 0)
         self.mail_id = org.post_mail(ledger.USER, 'worker', 'keep this work')['id']
