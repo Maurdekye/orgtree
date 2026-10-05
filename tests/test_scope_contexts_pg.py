@@ -39,6 +39,29 @@ class CurrentScopeContexts(unittest.TestCase):
         org.d['audiences'] = list(deepcopy(values))
         store.save_org(org)
 
+    def test_detached_launch_inputs_reenter_current_transaction(self):
+        from orgtree.orgdb import native_move
+        with orgtx.org_tx(self.slug, share_nodes=['leaf']) as tx:
+            detached = tx.org
+        with self.assertRaisesRegex(ledger.LedgerError, 'current planned org transaction'):
+            supervisor.granted_mcp_servers.__wrapped__(detached, 'leaf')
+        observed = []
+        def servers():
+            active = pgdoor.current(self.slug)
+            self.assertIsNotNone(active)
+            observed.append(active.org.capability_scope('leaf')['tools']['bash'])
+            return {}
+        with patch.object(supervisor, 'registered_mcp_servers', side_effect=servers):
+            self.assertEqual(supervisor.granted_mcp_servers(detached, 'leaf'), {})
+            lifecycle_tx.move(self.slug, ledger.USER, 'parent', 'other')
+            self.assertEqual(supervisor.granted_mcp_servers(detached, 'leaf'), {})
+        self.assertEqual(observed, [True, False])
+        prompt = supervisor.identity_prompt(detached, 'leaf')
+        self.assertIn('Disabled for you:', prompt)
+        self.assertIn('bash', prompt)
+        with self.assertRaisesRegex(ledger.LedgerError, 'current planned org transaction'):
+            native_move.connection(detached)
+
     def read(self):
         with patch.object(store, 'load_org', side_effect=AssertionError('whole identity fallback')):
             return identity_context.load(self.slug, 'leaf')

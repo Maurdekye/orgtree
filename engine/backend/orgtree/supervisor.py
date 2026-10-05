@@ -21,6 +21,8 @@ truth for live/archived. A server restart loses in-flight turns, never ledger st
 
 from __future__ import annotations
 
+from . import scope_actions
+
 import copy
 import datetime as _dtm
 import glob
@@ -2315,6 +2317,7 @@ def _mcp_registry_observed() -> dict[str, Any] | None:
     return copy.deepcopy(dict(raw)) if isinstance(raw, dict) else None
 
 
+@scope_actions.current_inputs
 def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
     """Hash the effective MCP launch surface, never transient readiness.
 
@@ -7046,6 +7049,7 @@ def registered_mcp_servers() -> dict[str, Any]:
         return {}
 
 
+@scope_actions.current_inputs
 def granted_mcp_servers(org: Org, nid: str) -> dict[str, Any]:
     """The registry entries a node is actually granted: expand(grant),
     against the live registry.
@@ -7119,6 +7123,7 @@ CLAUDEMD_MAX = 6000
 
 
 # ------------------------------------------------------------------ identity
+@scope_actions.current_inputs
 def _claudemd_block(org: Org, nid: str) -> str:
     """Granted-folder CLAUDE.md files, injected explicitly (spike-verified: headless
     sessions do NOT surface them natively; the scratch cwd's own CLAUDE.md DOES load
@@ -7531,6 +7536,7 @@ def _handoff_block(org: Org, nid: str) -> str:
             + "]\n" + txt)
 
 
+@scope_actions.current_inputs
 def _claudemd_caveat(org: Org, nid: str) -> str:
     """User ruling 2026-07-29: top-level agents work directly under the user, so
     CLAUDE.md files apply literally to them. Deeper agents read the same files
@@ -7942,6 +7948,7 @@ def org_state_chart(org: Org, nid: str, include_archived: bool = False) -> str:
     return _org_state_parts(org, nid, include_archived)[1]
 
 
+@scope_actions.current_inputs
 def _org_state_parts(org: Org, nid: str,
                      include_archived: bool) -> tuple[str, str, str]:
     """(roster, chart, tail) — the three spans D-223 treats differently.
@@ -8813,6 +8820,7 @@ def codex_denied_git_roots(dirs: Iterable[Mapping[str, Any]]) -> list[str]:
     return sorted(roots)
 
 
+@scope_actions.current_inputs
 def identity_prompt(org: Org, nid: str, include_archived: bool = False, *,
                     include_standing_charter: bool = True) -> str:
     """№29: the STABLE identity — who this agent is, who it answers to, what it
@@ -12279,6 +12287,7 @@ def ro_deny_rules(ro_paths: Sequence[str], own_scratch: str) -> list[str]:
     return deny
 
 
+@scope_actions.current_inputs
 def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
                session_probe: bool = True, native_probe: bool = True) -> list[str]:
     # write_ident=False renders the SAME argv without touching
@@ -12874,6 +12883,7 @@ def _cache_tool_surface_digest(org: Org, nid: str) -> str | None:
     return cachecontinuity.digest({"observed": observed})
 
 
+@scope_actions.current_inputs
 def _cache_semantic_inputs(
         org: Org, nid: str, provider: str,
         codex_manifest: dict[str, Any] | None = None) -> tuple[str, str]:
@@ -16812,6 +16822,7 @@ def _openrouter_codex_home() -> str:
     return home
 
 
+@scope_actions.current_inputs
 def _codex_process_spec(org: Org, nid: str, *,
                         write_ident: bool = True) -> dict[str, Any]:
     """The exact process-scoped inputs for one Codex app-server.
@@ -16946,6 +16957,7 @@ def _codex_process_spec(org: Org, nid: str, *,
     }
 
 
+@scope_actions.current_inputs
 def _codex_startup_manifest(
         org: Org, nid: str, *, write_ident: bool = False,
         provider_spec: dict[str, Any] | None = None,
@@ -27561,7 +27573,7 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
             # that computed its own would let one agent run at two different
             # OS privilege levels depending on whether it happened to be
             # compacting — a split nobody would find for weeks.
-            sandbox=_codex_sandbox(org.capability_scope(nid)),
+            sandbox=_codex_sandbox(scope_actions.current_scope(org, nid)),
             developer_instructions=identity_prompt(org, nid),
             on_client=compact_client_started,
         env_extra=_turn_transport_env({**agentauth.child_env(slug, nid), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,

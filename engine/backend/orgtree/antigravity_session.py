@@ -1,6 +1,8 @@
 """Account and startup specification shared by Antigravity turns and prewarm."""
 from __future__ import annotations
 
+from . import scope_actions
+
 import hashlib
 import json
 import os
@@ -63,6 +65,7 @@ def environment(org: Any, nid: str, row: dict[str, Any] | None) -> dict[str, str
     return env
 
 
+@scope_actions.current_inputs
 def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
     from . import antigravityrun, deployment, supervisor as sup
     n = org.node(nid)

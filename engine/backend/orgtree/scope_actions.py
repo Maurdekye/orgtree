@@ -3,8 +3,33 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any, TypeVar
+from functools import wraps
 
 T = TypeVar('T')
+
+
+def current_inputs(fn: Callable[..., T]) -> Callable[..., T]:
+    """Build dispatch inputs from a current transaction, before provider I/O.
+
+    Runtime readers and completed admission transactions return LazyDocs too.
+    Those documents must identify the org, not supply detached authority. Pure
+    snapshots and already-pinned callers retain their existing behavior.
+    """
+    @wraps(fn)
+    def wrapped(org: Any, nid: str, *args: Any, **kwargs: Any) -> T:
+        from . import store
+        from .orgdb import native_move
+        if (native_move.enabled() and isinstance(org.d, store.LazyDoc)
+                and not (getattr(store._orgtx_local, 'pinned', None) or {}).get(org.d['slug'])):
+            return run(org, nid, lambda current: fn(current, nid, *args, **kwargs))
+        return fn(org, nid, *args, **kwargs)
+    return wrapped
+
+
+@current_inputs
+def current_scope(org: Any, nid: str) -> dict[str, Any]:
+    """Capture scope for a launch input, including pure in-memory orgs."""
+    return org.capability_scope(nid)
 
 
 def run(org: Any, nid: str, action: Callable[[Any], T]) -> T:

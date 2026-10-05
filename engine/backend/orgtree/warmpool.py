@@ -62,6 +62,8 @@ or transcripts (which would dirty the very prompts being measured).
 """
 from __future__ import annotations
 
+from . import scope_actions
+
 import collections
 import hashlib
 import json
@@ -857,6 +859,7 @@ def _digest_file(path: str, *, memory: bool, rule: bool
     return out
 
 
+@scope_actions.current_inputs
 def native_startup_context_digest(org: Any, nid: str) -> str:
     """Digest Claude's file-borne, once-per-session instruction inputs.
 
@@ -1102,6 +1105,7 @@ def _part(b: bytes) -> str:
 IDENTITY_COMPONENTS = ("prompt", "argv", "cred", "envov")
 
 
+@scope_actions.current_inputs
 def identity_snapshot(org: Any, nid: str, *,
                       cmd: list[str] | None = None,
                       env: dict[str, str] | None = None,

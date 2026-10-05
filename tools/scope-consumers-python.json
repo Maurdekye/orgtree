@@ -1244,13 +1244,13 @@
       "reason": "Transcript journal/session namespace; not capability scope."
     },
     {
-      "path": "engine/backend/orgtree/supervisor.py",
-      "owner": "_compact_split_codex_body",
+      "path": "engine/backend/orgtree/scope_actions.py",
+      "owner": "current_scope",
       "kind": "effective-binding",
       "expression": "org.capability_scope(nid)",
-      "line": 27545,
+      "line": 39,
       "classification": "effective",
-      "reason": "Explicit current-chain/display-view source or method binding; action methods require the actual planned connection, display methods use a captured snapshot."
+      "reason": "current_inputs reenters a planned transaction for detached compaction scope; pure in-memory orgs retain their current effective chain."
     },
     {
       "path": "engine/backend/orgtree/supervisor.py",
