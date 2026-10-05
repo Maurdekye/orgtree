@@ -195,7 +195,7 @@ def socket_message(current, token, text):
     if kind == 'subscribe':
         current.runner.subscribe(token, args)
     elif kind == 'unsubscribe' and set(args) == {'sub'}:
-        current.runner.unsubscribe(token, args['sub'])
+        current.unsubscribe(token, args['sub'])
     elif kind != 'ping':
         raise ValueError('invalid record socket message')
 

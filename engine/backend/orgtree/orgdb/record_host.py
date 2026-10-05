@@ -267,6 +267,19 @@ class OrgHost:
         self.sends.pop(token, None)
         self.joining.pop(token, None)
         self.runner.leave(token)
+        self._partial(self._trim_mail())
+
+    def unsubscribe(self, token, generation):
+        self.runner.unsubscribe(token, generation)
+        self._partial(self._trim_mail())
+
+    def _trim_mail(self):
+        if not isinstance(self.overlay, mail_runtime.MailboxOverlays):
+            return {}
+        held = {str(window['agent']) for client in self.runner.clients.values()
+                for selection in client.selections.values() for window in selection.windows
+                if window.get('kind') == 'agent_mail'}
+        return self.overlay.adopt_mail({}, removed=set(self.overlay._mail)-held)
 
     async def _load_batch(self, after, requests):
         batch, inputs = await self._read('batch', after, requests)
@@ -275,12 +288,15 @@ class OrgHost:
 
     def _published(self, batch: Batch):
         # Record bodies/answers have been queued first, including new pins.
+        # A socket can unsubscribe while the worker reads. Do not retain those
+        # old mailbox inputs or publish their stages after that set was dropped.
+        cleared = self._trim_mail()
         if any(batch.answers.values()) and self.overlay is not None:
             frame = self.overlay.full()
             for token,send in list(self.sends.items()):
                 self._offer(token, send, frame)
         else:
-            self._partial(batch.runtime or {})
+            self._partial({**(batch.runtime or {}), **cleared})
 
     def _partial(self, values):
         if self.overlay is None:

@@ -7,6 +7,31 @@ from orgtree.orgdb.record_mail_runtime import MailboxOverlays
 
 
 class MailRuntime(unittest.TestCase):
+    def test_socket_unsubscribe_keeps_overlap_and_late_worker_cannot_restore_inputs(self):
+        from orgtree import record_api
+        from orgtree.orgdb.record_host import OrgHost, RuntimeInputs
+        from orgtree.orgdb.record_reads import Cursor
+        from orgtree.orgdb.record_registry import Selection
+        host = OrgHost('org',self.fail)
+        source = dict(slug='org',name='agent',leased=False,batches=[{'tok':'batch'}])
+        inputs = RuntimeInputs(Cursor('uuid','inc',5),
+            {'1':dict(id='agent',state='archived',ask=None,tier='unknown')},
+            {'1':SimpleNamespace()}, {}, held=frozenset({'1'}),
+            mail={'1':source},mail_held=frozenset({'1'}))
+        selected = Selection('sub:1',('1',),({'kind':'agent_mail','agent':'1'},))
+        for token in ('one','two'):
+            host.runner.clients[token] = SimpleNamespace(selections={1:selected},pending=set())
+        with patch('orgtree.supervisor._delivery_stages',return_value={'batch':'queued'}):
+            host._adopt(inputs)
+            record_api.socket_message(host,'one','{"type":"unsubscribe","sub":1}')
+            self.assertIn('1',host.overlay._mail)
+            host.leave('two')
+            self.assertEqual(host.overlay._mail,{})
+            changed = host._adopt(inputs)  # the already-running snapshot finishes
+            host._published(SimpleNamespace(answers={},runtime=changed))
+            self.assertEqual(host.overlay._mail,{})
+            self.assertEqual(host.overlay.full()['agents']['1']['mail_stages'],{})
+
     def test_host_adopts_mail_only_after_cursor_fence_and_clears_on_unsubscribe(self):
         from orgtree.orgdb.record_host import OrgHost, RuntimeInputs
         from orgtree.orgdb.record_reads import Cursor
