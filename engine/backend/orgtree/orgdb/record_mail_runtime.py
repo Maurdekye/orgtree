@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime
+import math
 from .record_mail import decoded
 from .record_runtime import SupervisorOverlays
 
@@ -33,6 +35,22 @@ class MailboxOverlays(SupervisorOverlays):
             self._mail.pop(key,None)
         self._mail.update(copy.deepcopy(inputs))
         return self._refresh((set(inputs) | set(removed)).intersection(self._bodies))
+
+    def next_deadline(self, now):
+        from ..supervisor import STRANDED_GRACE_S
+        deadlines = []
+        for source in self._mail.values():
+            for batch in source['batches']:
+                if not batch.get('tok'):
+                    continue
+                try:
+                    at = datetime.fromisoformat(str(batch.get('at') or '').replace('Z','+00:00')).timestamp()
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                deadline = at + STRANDED_GRACE_S
+                if math.isfinite(deadline) and deadline > now:
+                    deadlines.append(deadline)
+        return min(deadlines, default=None)
 
     def _fields(self,key):
         from .. import supervisor

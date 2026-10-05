@@ -368,7 +368,10 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   enumeration uses indexed seeks, not DISTINCT over inactive mail history. [verified
   2026-10-05: `orgdb/record_panels.py`, `record_mail_sql.py`]
 - **Mailbox delivery stages** are host-clock overlays, retained only for subscribed
-  mailboxes and refreshed from changed snapshot inputs. Subscription readiness is false
+  mailboxes and refreshed from changed snapshot inputs. Late HTTP/join workers trim
+  against live subscriptions before publishing; retained drain timestamps schedule grace
+  expiry without an org read, and unsubscribe/identity replacement cancel stale deadlines.
+  Subscription readiness is false
   until the current generation's final page; a reset or renewal clears it. Known record
   capability suppresses legacy polling even before the session controller is installed. Chat uses
   identity-fenced `after` cursors on agent frames/focus, with assistant revisions separate

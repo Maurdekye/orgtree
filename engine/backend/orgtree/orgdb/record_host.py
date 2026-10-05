@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import time
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
@@ -99,6 +100,7 @@ class OrgHost:
         self.favourites: dict = {}
         self.persisted_models: dict = {}
         self._read_lock = asyncio.Lock()
+        self._mail_timer = None
         self.runner = OrgRunner(self._load_batch, error, registry=registry,
                                 published=self._published)
 
@@ -213,6 +215,7 @@ class OrgHost:
                 return {}
         elif current is not None:
             self.retired.add(self._identity(current))
+            self._cancel_mail_timer()
             self.overlay = None
         if self.overlay is None:
             self.overlay = self.overlay_factory(*self._identity(inputs.cursor))
@@ -236,6 +239,9 @@ class OrgHost:
         if frame['type'] == 'record_reset':
             return frame
         changed = self._adopt(inputs)
+        # HTTP declarations can outlive the socket subscription while _read
+        # awaits its worker. Keep only currently subscribed mailbox overlays.
+        changed.update(self._trim_mail())
         self._partial(changed)
         # No await between input adoption, current-memory sampling and copy
         # stamp: a worker cannot mint a late stamp around an old live value.
@@ -250,7 +256,9 @@ class OrgHost:
             _frame, inputs = await self._read('baseline')
             if self.joining.get(token) is not lease:
                 return False
-            self._partial(self._adopt(inputs))  # existing sockets only
+            changed = self._adopt(inputs)
+            changed.update(self._trim_mail())
+            self._partial(changed)  # existing sockets only
             self._partial(self.overlay.transition())
             if self.closed or not send(self.overlay.full()):
                 return False
@@ -291,6 +299,7 @@ class OrgHost:
         # A socket can unsubscribe while the worker reads. Do not retain those
         # old mailbox inputs or publish their stages after that set was dropped.
         cleared = self._trim_mail()
+        self._schedule_mail()
         if any(batch.answers.values()) and self.overlay is not None:
             frame = self.overlay.full()
             for token,send in list(self.sends.items()):
@@ -299,6 +308,7 @@ class OrgHost:
             self._partial({**(batch.runtime or {}), **cleared})
 
     def _partial(self, values):
+        self._schedule_mail()
         if self.overlay is None:
             return
         net = self.overlay.net.refresh()
@@ -309,6 +319,37 @@ class OrgHost:
                      **({'net': net} if net is not None else {}))
         for token, send in list(self.sends.items()):
             self._offer(token, send, frame)
+
+    def _cancel_mail_timer(self):
+        if self._mail_timer is not None:
+            self._mail_timer.cancel()
+            self._mail_timer = None
+
+    def _schedule_mail(self):
+        self._cancel_mail_timer()
+        overlay = self.overlay
+        if self.closed or not isinstance(overlay, mail_runtime.MailboxOverlays):
+            return
+        now = time.time()
+        deadline = overlay.next_deadline(now)
+        if deadline is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # synchronous injected controls have no host loop
+            return
+
+        def expired():
+            if self.closed or self.overlay is not overlay or self._mail_timer is not handle:
+                return
+            self._mail_timer = None
+            # Retained inputs only: no org read, revision or renderer polling.
+            changed = self._trim_mail()
+            changed.update(overlay._refresh(set(overlay._mail).intersection(overlay._bodies)))
+            self._partial(changed)
+
+        handle = loop.call_later(max(0, deadline-now), expired)
+        self._mail_timer = handle
 
     def _offer(self, token, send, frame):
         if not send(frame):
@@ -332,6 +373,7 @@ class OrgHost:
 
     async def close(self):
         self.closed = True
+        self._cancel_mail_timer()
         self.fence += 1
         self.sends.clear()
         self.joining.clear()
