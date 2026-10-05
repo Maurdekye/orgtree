@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 from . import record_reads as Q, record_tree as tree
 from .record_registry import Registry, Selection, Snapshot
 from .record_runtime import SupervisorOverlays
+from .record_pass import BodyPass
 from .record_transport import Batch, OrgRunner, read_snapshot
 
 
@@ -56,6 +57,7 @@ class RuntimeInputs:
     models: Mapping
     net: Mapping | None = None
     complete: bool = True
+    held: frozenset[str] | None = None
 
 
 def runtime_inputs(registry: Registry, state: Snapshot, selections) -> RuntimeInputs:
@@ -82,6 +84,7 @@ class OrgHost:
                  overlay_factory=SupervisorOverlays):
         self.slug, self.registry, self.error = slug, registry, error
         self.worker = worker or self._worker
+        self._default_worker = worker is None
         self.overlay_factory = overlay_factory
         self.overlay = None
         self.input_cursor = None
@@ -111,25 +114,59 @@ class OrgHost:
                               for s in c.selections.values())
         return tuple(selections)
 
-    def _worker(self, kind, after, requests, selections):
+    def _worker(self, kind, after, requests, selections, *, previous=None):
         with Q.snapshot(self.slug) as state:
+            plan = BodyPass(self.registry, state)
             if kind == 'batch':
-                frame = read_snapshot(self.registry, state, after, requests)
+                frame = read_snapshot(plan, state, after, requests, defer_bodies=True)
                 active = {token:request for token,request in requests.items()
                           if frame.changes[token]['type'] != 'record_reset'}
                 if not active:
                     return frame, RuntimeInputs(Q.cursor(state), {}, {}, {}, complete=False)
-                # A reset ends this client's held sets. Do not rebuild their
-                # runtime bodies after the catch-up deliberately stopped work.
                 selections = self._selections(active)
             elif kind == 'baseline':
-                frame = Q.baseline(self.registry, state)
+                frame = Q.baseline(plan, state)
             else:
-                frame = Q.catchup(self.registry, state, after,
+                frame = Q.catchup(plan, state, after,
                                  selections=(Selection(), *requests))
                 if frame['type'] == 'record_reset':
                     return frame, RuntimeInputs(Q.cursor(state), {}, {}, {}, complete=False)
-            inputs = runtime_inputs(self.registry, state, selections)
+
+            # A HTTP caller's cursor need not equal the retained overlay's.
+            # Derive runtime invalidation from the latter, on this snapshot.
+            held = frozenset(key for selection in selections
+                for key in plan.select(state, selection).get('agent', ()))
+            current = Q.cursor(state)
+            previous_cursor, previous_ids = previous or (None, frozenset())
+            dirty = set(held - previous_ids)
+            if previous_cursor is None or self._identity(previous_cursor) != self._identity(current):
+                dirty.update(held)
+            else:
+                # Subscription generations are socket-local; give this private
+                # union unique set labels without changing any emitted set.
+                runtime_selections = (Selection(), *(Selection('sub:'+str(i+1), s.agents, s.windows)
+                    for i,s in enumerate(selections) if s.set != 'shared'))
+                runtime_frame = Q.catchup(plan, state, previous_cursor, selections=runtime_selections)
+                if runtime_frame['type'] == 'record_reset':
+                    dirty.update(held)
+                else:
+                    dirty.update(row['id'] for row in runtime_frame['upserts'] if row['entity']=='agent')
+                    dirty.update(row['id'] for replacement in runtime_frame.get('replacements', ())
+                        for row in replacement['records'] if row['entity']=='agent')
+            dirty.intersection_update(held)
+            body_refs = plan.bodies(state, 'agent', frozenset(dirty)) if dirty else {}
+            tier_ref = plan.bodies(state, 'org', frozenset(('tiers',)))['tiers']
+            plan.build()
+            inputs = RuntimeInputs(current, plan.emit(body_refs),
+                tree.runtime_contexts(state, frozenset(dirty)), plan.emit(tier_ref)['models'],
+                tree.runtime_net_inputs(state), held=held)
+            if kind == 'batch':
+                frame = replace(frame, changes=plan.emit(frame.changes), answers={
+                    token: tuple(page for answer in answers
+                        for page in Q.subscription_pages(plan.emit(answer)))
+                    for token,answers in frame.answers.items()})
+            else:
+                frame = plan.emit(frame)
             return frame, inputs
 
     async def _read(self, kind, after=None, requests=None, extra=()):
@@ -137,8 +174,10 @@ class OrgHost:
             while not self.closed:
                 fence = self.fence
                 selections = self._selections(requests if kind == 'batch' else None, extra)
+                retained = (self.input_cursor, frozenset(self.overlay._bodies) if self.overlay else frozenset())
                 frame, inputs = await asyncio.to_thread(self.worker, kind, after,
-                    requests if kind == 'batch' else extra, selections)
+                    requests if kind == 'batch' else extra, selections,
+                    **({'previous': retained} if self._default_worker else {}))
                 if self.closed:
                     raise RuntimeError('record host closed')
                 if fence != self.fence or self._identity(inputs.cursor) in self.retired:
@@ -160,9 +199,11 @@ class OrgHost:
             self.overlay = self.overlay_factory(*self._identity(inputs.cursor))
         self.input_cursor = inputs.cursor
         self.overlay.net.adopt(inputs.net)
+        models_changed = self.persisted_models != inputs.models
         self.persisted_models = copy.deepcopy(dict(inputs.models))
-        changed = self.overlay.catalog_changed(self.persisted_models, self.favourites)
-        removed = set(self.overlay._bodies) - set(inputs.bodies)
+        changed = (self.overlay.catalog_changed(self.persisted_models, self.favourites)
+                   if models_changed else {})
+        removed = set(self.overlay._bodies) - set(inputs.bodies if inputs.held is None else inputs.held)
         changed.update(self.overlay.adopt(inputs.bodies, inputs.contexts, removed=removed))
         return {key: value for key,value in changed.items() if key not in removed}
 

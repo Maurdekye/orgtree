@@ -132,7 +132,13 @@ def subscribed_pages(registry: Registry, state: Snapshot, selection: Selection,
     if (type(page_records) is not int or page_records < 1
             or type(page_bytes) is not int or page_bytes < 64):
         raise ValueError('invalid subscription page size')
-    answer = subscribed(registry,state,selection)
+    return subscription_pages(subscribed(registry,state,selection),
+                              page_records=page_records, page_bytes=page_bytes)
+
+
+def subscription_pages(answer: dict, *, page_records: int = PAGE_RECORDS,
+                       page_bytes: int = PAGE_BYTES) -> tuple[dict, ...]:
+    answer = dict(answer)
     rows = answer.pop('records')
     pages,chunk = [],[]
     def encoded_size(value):

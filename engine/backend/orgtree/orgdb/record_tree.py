@@ -133,7 +133,23 @@ def _archived_members(state: Snapshot, arguments) -> frozenset[str]:
     return frozenset(_identities(state,agents.ancestors(state.raw,list(names))).values())
 
 
+def prepare_context(state: Snapshot, ids: frozenset[str]):
+    """One pass's rebuilt IDs and formatter dependencies, never all held IDs."""
+    names = _names(state, ids)
+    closure = agents.ancestors(state.raw,
+        agents._ref_closure(state.raw, names, 'predecessor')) if names else []
+    expanded = frozenset(_identities(state, closure).values())
+    context, graph = _context(state, expanded)
+    state.cache['tree_pass_context'] = (expanded, context, graph)
+
+
 def _context(state: Snapshot, ids: frozenset[str]):
+    prepared = state.cache.get('tree_pass_context')
+    if prepared is not None:
+        covered, context, graph = prepared
+        if not ids <= covered:
+            raise RuntimeError('record pass did not plan its context dependencies')
+        return context, graph
     names = _names(state, ids)
     graph = state.cache.get('tree_shared_graph')
     if graph is None or set(graph['rows']) != set(names):
@@ -296,6 +312,9 @@ def runtime_contexts(state: Snapshot, ids: frozenset[str]) -> dict[str, Any]:
     """
     if not ids:
         return {}
+    if 'tree_pass_context' in state.cache:
+        context, _graph = _context(state, ids)
+        return {key: context for key in ids}
     names = _names(state, ids)
     closure = agents.ancestors(state.raw,
         agents._ref_closure(state.raw, names, 'predecessor'))

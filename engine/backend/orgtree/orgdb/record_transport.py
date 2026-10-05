@@ -185,7 +185,7 @@ class Batch:
 
 
 def read_snapshot(registry: Registry, state: Snapshot, after: Q.Cursor | None,
-                  requests: Mapping[Any, SocketRequest]) -> Batch:
+                  requests: Mapping[Any, SocketRequest], *, defer_bodies=False) -> Batch:
     """Every socket's changes and answers use this exact committed snapshot."""
     current = Q.cursor(state)
     changes, answers = {}, {}
@@ -195,7 +195,8 @@ def read_snapshot(registry: Registry, state: Snapshot, after: Q.Cursor | None,
             page for selection in request.selections
             if selection.set.startswith('sub:')
             and int(selection.set.partition(':')[2]) in request.pending
-            for page in Q.subscribed_pages(registry,state,selection)))
+            for page in ((Q.subscribed(registry,state,selection),) if defer_bodies
+                         else Q.subscribed_pages(registry,state,selection))))
     return Batch(current,changes,answers)
 
 
