@@ -90,12 +90,14 @@ class Host:
         self.active_orgs = active_orgs or source.active_orgs
         self._connect_org = connect_org or source.connect
         self.queue = turnqueue.Queue(self.app_connection)
+        self._lease_queue = turnqueue.Queue(self.heartbeat_connection)
         self.bridge = Bridge(self.org_connection, self.queue, instance_id)
         self.slots: Any = None
         self.key: bytes | None = None
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
+        self._heartbeat_thread: threading.Thread | None = None
         self._active_lock = threading.Lock()
         self._active: dict[str, tuple[context.Run, Callable[[], None]]] = {}
         self._unstarted: dict[str, tuple[jobs.Org, Any]] = {}
@@ -109,6 +111,16 @@ class Host:
             with conn.connect(self.runtime, names.app(self.prefix),
                               application_name='orgtree-turn-host') as c:
                 yield c
+
+    @contextmanager
+    def heartbeat_connection(self) -> Iterator[Any]:
+        """One reserved connection: admission/maintenance cannot starve the lease."""
+        from psycopg.conninfo import make_conninfo
+        base = make_conninfo(self.runtime, connect_timeout=5,
+                             options='-c statement_timeout=5000')
+        with conn.connect(base, names.app(self.prefix),
+                          application_name='orgtree-turn-heartbeat') as c:
+            yield c
 
     @contextmanager
     def org_connection(self, org: jobs.Org) -> Iterator[Any]:
@@ -198,7 +210,10 @@ class Host:
         # Publication itself performs no I/O; even an already imported
         # supervisor gets this exact shared slot object before serving.
         turnslots.activate(self.slots, limit)
-        self._thread = threading.Thread(target=self._loop, name='turn-host-heartbeat', daemon=True)
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop,
+                                                   name='turn-host-heartbeat', daemon=True)
+        self._heartbeat_thread.start()
+        self._thread = threading.Thread(target=self._loop, name='turn-host-maintenance', daemon=True)
         self._thread.start()
 
     def reclaim_verified(self, instance: int) -> dict[str, int]:
@@ -379,9 +394,10 @@ class Host:
         with self._active_lock:
             self._active.pop(run.request_id, None)
 
-    def tick(self) -> None:
+    def tick(self, *, refresh_heartbeat: bool = True) -> None:
         """The host alone refreshes its lease and rereads authoritative stopping claims."""
-        self.queue.heartbeat(self.instance_id)
+        if refresh_heartbeat:
+            self.queue.heartbeat(self.instance_id)
         self.recover_orgs()
         for org in self.active_orgs():
             try:
@@ -416,9 +432,9 @@ class Host:
         while not self._stop.is_set():
             started = time.monotonic()
             try:
-                self.tick()
+                self.tick(refresh_heartbeat=False)
             except Exception:
-                LOG.exception('turn host heartbeat failed')
+                LOG.exception('turn host maintenance failed')
             finally:
                 with self._condition:
                     self._version += 1
@@ -426,16 +442,31 @@ class Host:
             self._wake.wait(max(0, turnqueue.HEARTBEAT_SECONDS - (time.monotonic() - started)))
             self._wake.clear()
 
+    def _heartbeat_loop(self) -> None:
+        # Never do org forwarding, provider callbacks, or release guards here.
+        # Any of them may wait on a running turn's publication fence.
+        while not self._stop.is_set():
+            started = time.monotonic()
+            try:
+                self._lease_queue.heartbeat(self.instance_id)
+            except Exception:
+                LOG.exception('turn host heartbeat failed')
+            self._stop.wait(max(0, turnqueue.HEARTBEAT_SECONDS - (time.monotonic() - started)))
+
     def stop(self) -> None:
         """Stops threads; running providers and unresolved outcomes keep their claims."""
         self._stop.set()
         self._wake.set()
         with self._condition:
             self._condition.notify_all()
-        if self._thread is not None:
-            self._thread.join(10)
-            if self._thread.is_alive():
-                raise RuntimeError('turn host heartbeat did not stop')
+        pending = []
+        for thread in (self._heartbeat_thread, self._thread):
+            if thread is not None:
+                thread.join(10)
+                if thread.is_alive():
+                    pending.append(thread.name)
+        if pending:
+            raise RuntimeError('turn host threads did not stop: ' + ', '.join(pending))
         if self.slots is not None:
             self.slots.close()
 

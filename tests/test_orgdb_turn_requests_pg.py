@@ -750,7 +750,7 @@ class Requests(unittest.TestCase):
         from unittest.mock import patch
         host = self.host()
         beat = threading.Event()
-        real = host.queue.heartbeat
+        real = host._lease_queue.heartbeat
 
         def heartbeat(owner):
             if threading.current_thread().name == 'turn-host-heartbeat':
@@ -759,7 +759,7 @@ class Requests(unittest.TestCase):
 
         with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
                             _database_resolver=None, _host_slots=None, _host_limit=None,
-                            _activation_callbacks=[]), patch.object(host.queue, 'heartbeat', heartbeat):
+                            _activation_callbacks=[]), patch.object(host._lease_queue, 'heartbeat', heartbeat):
             try:
                 host.start(limit=1)
                 self.assertTrue(beat.wait(7), 'host heartbeat thread never executed')
@@ -773,6 +773,52 @@ class Requests(unittest.TestCase):
                 self.assertEqual(self.queue.snapshot()['held'], 1)
             finally:
                 host.stop()
+
+    def test_lease_survives_blocked_maintenance_and_exhausted_app_budget(self):
+        from unittest.mock import patch
+        host = self.host()
+        entered, release, renewed = threading.Event(), threading.Event(), threading.Event()
+        real = host._lease_queue.heartbeat
+
+        def blocked_step(org):
+            entered.set()
+            if not release.wait(8):
+                raise AssertionError('maintenance test was not released')
+
+        def heartbeat(owner):
+            result = real(owner)
+            if entered.is_set():
+                renewed.set()
+            return result
+
+        with patch.multiple(turnslots, _database_queue=None, _database_instance=None,
+                            _database_resolver=None, _host_slots=None, _host_limit=None,
+                            _activation_callbacks=[]), \
+                patch.object(host.bridge, 'step', blocked_step), \
+                patch.object(host._lease_queue, 'heartbeat', heartbeat), \
+                patch.object(turnqueue, 'HEARTBEAT_SECONDS', .1):
+            try:
+                host.start(limit=1)
+                self.assertTrue(entered.wait(3))
+                for _ in range(4):
+                    self.assertTrue(host._app_slots.acquire(timeout=1))
+                try:
+                    with self.queue.connect() as c:
+                        c.execute("UPDATE orgtree.engine_instances SET heartbeat_at="
+                                  "clock_timestamp()-interval '1 minute' WHERE id=%s", (self.owner,))
+                    renewed.clear()
+                    self.assertTrue(renewed.wait(3), 'maintenance blocked the reserved heartbeat')
+                    with self.queue.connect() as c:
+                        self.assertTrue(c.execute("SELECT heartbeat_at > clock_timestamp()-interval '5 seconds' "
+                                                  "FROM orgtree.engine_instances WHERE id=%s", (self.owner,)).fetchone()[0])
+                finally:
+                    for _ in range(4):
+                        host._app_slots.release()
+            finally:
+                release.set()
+                host.stop()
+        self.assertFalse(host._heartbeat_thread.is_alive())
+        self.assertFalse(host._thread.is_alive())
 
     def test_forwarder_current_selection_is_flat_across_retained_request_and_job_history(self):
         request = self.create()

@@ -1330,6 +1330,21 @@ def _publish_turn_records(records: list[dict[str, Any]], journal: Any,
     return bool(_turn_callback(publish, publication=True)())
 
 
+def _refresh_turn_codex_inventory(client: Any, owner: Any, slug: str, nid: str,
+                                  refresh_lock: Any) -> None:
+    """Wait on the provider without a request fence or a host connection slot."""
+    with refresh_lock:
+        try:
+            names = client.mcp_tool_names()
+        except Exception as error:                       # noqa: BLE001
+            detail = f"Codex runtime inventory unavailable: {type(error).__name__}"
+            _turn_callback(lambda: _mcp_tool_count_unknown(
+                slug, nid, owner, "codex", "mcpServerStatus/list", detail), publication=True)()
+            return
+        _turn_callback(lambda: _mcp_tool_count_names(
+            slug, nid, owner, names, "codex", "mcpServerStatus/list"), publication=True)()
+
+
 # ---------------------------------------------------------- child-process leash
 # Gap audit №29: nothing killed the CLI children when the backend died — and
 # update.ps1 force-kills the backend by design. Orphaned CLIs kept appending to
@@ -18201,16 +18216,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         client, owner = mcp_client, mcp_owner
         if client is None or owner is None:
             return
-        with mcp_refresh_lock:
-            try:
-                names = client.mcp_tool_names()
-            except Exception as e:                       # noqa: BLE001
-                _mcp_tool_count_unknown(
-                    slug, nid, owner, "codex", "mcpServerStatus/list",
-                    f"Codex runtime inventory unavailable: {type(e).__name__}")
-                return
-            _mcp_tool_count_names(
-                slug, nid, owner, names, "codex", "mcpServerStatus/list")
+        _refresh_turn_codex_inventory(client, owner, slug, nid, mcp_refresh_lock)
 
     # a DEDICATED lock, not `jlock`/`emit_lock` reused: see
     # `_drain_and_maybe_apply`'s docstring for the ordering guarantee this
@@ -18416,7 +18422,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 _queue_delta(d, _assistant_item(params, params.get('itemId')))
         if method in ("mcpServer/startupStatus/updated",
                       "mcpServer/event/stream/notification"):
-            threading.Thread(target=_turn_callback(_refresh_codex_mcp, publication=True), daemon=True,
+            threading.Thread(target=_turn_callback(_refresh_codex_mcp), daemon=True,
                              name=f"codexmcp-{slug}-{nid}").start()
         if method == "model/rerouted":
             # the server's own word, MID-TURN, that it is serving a

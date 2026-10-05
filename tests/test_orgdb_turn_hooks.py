@@ -178,6 +178,98 @@ class Hooks(unittest.TestCase):
                 turn_context.ENV: 'forged', 'ORGTREE_AGENT_TOKEN': 'forged-seat', 'TASK_FLAG': 'yes'}}}})
         self.assertEqual(overrides('org', 'seat'), {'TASK_FLAG': 'yes'})
 
+    def test_inventory_waits_outside_fence_and_discards_cancelled_result(self):
+        capture = function('supervisor.py', '_turn_callback', {})
+        fenced, seen = [], []
+        live = [True]
+
+        @contextmanager
+        def operation(run):
+            if not live[0]:
+                raise turn_requests.StaleRun('cancelled while inventory was pending')
+            fenced.append(run)
+            try:
+                with turn_context.bind(run):
+                    yield
+            finally:
+                fenced.pop()
+
+        refresh = function('supervisor.py', '_refresh_turn_codex_inventory', {
+            '_turn_callback': capture,
+            '_mcp_tool_count_names': lambda *args: seen.append(('names', list(fenced))),
+            '_mcp_tool_count_unknown': lambda *args: seen.append(('unknown', list(fenced)))})
+
+        def fetch():
+            self.assertEqual(fenced, [], 'provider wait must not hold a request fence')
+            self.assertEqual(turn_context.current(), self.run)
+            return ['tool']
+
+        host = SimpleNamespace(operation=operation)
+        with patch.object(turn_runtime, 'current', return_value=host), turn_context.bind(self.run):
+            refresh(SimpleNamespace(mcp_tool_names=fetch), object(), 'org', 'seat', threading.Lock())
+            def failed():
+                fetch()
+                raise TimeoutError('inventory stalled')
+            refresh(SimpleNamespace(mcp_tool_names=failed), object(), 'org', 'seat', threading.Lock())
+            def cancelled():
+                fetch()
+                live[0] = False
+                return ['stale']
+            refresh(SimpleNamespace(mcp_tool_names=cancelled), object(), 'org', 'seat', threading.Lock())
+        self.assertEqual(seen, [('names', [self.run]), ('unknown', [self.run])])
+
+    def test_inventory_notification_workers_do_not_reserve_publication_slots(self):
+        # Execute the actual notification's Thread constructor, including its
+        # callback wrapper. Sixteen requests used to occupy all 16 host slots
+        # while waiting for a response that the reader could no longer consume.
+        tree = ast.parse((ROOT / 'supervisor.py').read_text(encoding='utf-8'))
+        thread_call = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                           and isinstance(node.func, ast.Attribute) and node.func.attr == 'Thread'
+                           and any(k.arg == 'name' and isinstance(k.value, ast.JoinedStr)
+                                   and isinstance(k.value.values[0], ast.Constant)
+                                   and k.value.values[0].value == 'codexmcp-'
+                                   for k in node.keywords))
+        slots = threading.BoundedSemaphore(16)
+        entered = threading.Barrier(17)
+        release = threading.Event()
+        errors = []
+
+        @contextmanager
+        def operation(run):
+            with slots, turn_context.bind(run):
+                yield
+
+        def fetch():
+            try:
+                self.assertEqual(turn_context.current(), self.run)
+                entered.wait(5)
+                self.assertTrue(release.wait(5))
+            except BaseException as error:
+                errors.append(error)
+
+        capture = function('supervisor.py', '_turn_callback', {})
+        env = dict(threading=threading, _turn_callback=capture, _refresh_codex_mcp=fetch,
+                   slug='org', nid='seat')
+        code = compile(ast.Expression(thread_call), '<notification thread>', 'eval')
+        threads = []
+        with patch.object(turn_runtime, 'current', return_value=SimpleNamespace(operation=operation)), \
+                turn_context.bind(self.run):
+            try:
+                for _ in range(16):
+                    thread = eval(code, env)
+                    threads.append(thread)
+                    thread.start()
+                entered.wait(5)
+                acquired = slots.acquire(timeout=.5)
+                if acquired:
+                    slots.release()
+                self.assertTrue(acquired, 'inventory workers starved the response reader')
+            finally:
+                release.set()
+                for thread in threads:
+                    thread.join(5)
+        self.assertEqual(errors, [])
+
 
 class Refused(Exception):
     def __init__(self, status, detail):
