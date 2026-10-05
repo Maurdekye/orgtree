@@ -78,6 +78,14 @@ def agent_fields(body: Mapping, models: Mapping, *, boot_at: str) -> dict:
                 context_window=supervisor.context_window(body, models))
 
 
+def forecasts(bodies, contexts):
+    """Expensive read-only projection. Only call from a snapshot/background worker."""
+    from .. import supervisor
+    return {key: (None if body.get('state') == 'archived' else
+                  supervisor.cache_forecast_public(contexts[key], body['id']))
+            for key, body in bodies.items()}
+
+
 class AgentOverlays:
     """One org identity's retained inputs and ordered derived agent values.
 
@@ -139,12 +147,16 @@ class SupervisorOverlays(AgentOverlays):
     ``adopt`` replaces inputs for just the changed/added held agents. Each
     context is a non-persistable foreground context built on the snapshot
     connection. It can safely outlive that read transaction. A transition
-    reprojects retained inputs through the legacy formatter; no database or
-    account-registry read is needed. Full copies use the base class clock.
+    reprojects retained inputs through the legacy formatter, supplying the
+    worker's retained cache forecast; no manifest, database or account-registry
+    read is needed on the loop. Full copies use the base class clock.
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._contexts: dict[str, Any] = {}
+        self._forecasts: dict[str, Any] = {}
+        self._fgen: dict[str, int] = {}
+        self._turn_signatures: dict[str, tuple] = {}
 
     def adopt(self, bodies: Mapping[str, Mapping], contexts: Mapping[str, Any], *, removed=()):
         if set(bodies) != set(contexts):
@@ -152,6 +164,11 @@ class SupervisorOverlays(AgentOverlays):
         removed = tuple(removed)
         for key in removed:
             self._contexts.pop(key, None)
+            self._forecasts.pop(key, None)
+            self._turn_signatures.pop(key, None)
+            self._fgen[key] = self._fgen.get(key, 0) + 1
+        for key in bodies:
+            self._fgen[key] = self._fgen.get(key, 0) + 1
         self._contexts.update(contexts)
         return self.update(bodies, removed=removed)
 
@@ -168,7 +185,8 @@ class SupervisorOverlays(AgentOverlays):
                           mcp_tool_count_provider=None)
         else:
             node = copy.deepcopy(body)
-            api._annotate_agent_runtime(self._contexts[key], node)
+            api._annotate_agent_runtime(self._contexts[key], node,
+                                       cache_forecast=copy.deepcopy(self._forecasts.get(key)))
             fields = {name: node[name] for name in AGENT_FIELDS}
         return {**fields, **super()._fields(key)}
 
@@ -176,3 +194,20 @@ class SupervisorOverlays(AgentOverlays):
         keys = [key for key,body in self._bodies.items()
                 if names is None or body['id'] in names]
         return self._refresh(keys)
+
+    def turn_edges(self, names):
+        """The inflight accessor reads the retained node only, never disk/PG."""
+        from .. import supervisor
+        changed = []
+        for key, body in self._bodies.items():
+            if body.get('state') == 'archived' or body['id'] not in names:
+                continue
+            context = self._contexts[key]
+            attempt = supervisor._cache_inflight_attempt(context, body['id']) or {}
+            signature = (supervisor.state(context.d['slug'], body['id'])['busy'],
+                         attempt.get('captured_at'), attempt.get('session'))
+            old = self._turn_signatures.get(key)
+            self._turn_signatures[key] = signature
+            if old != signature:
+                changed.append(key)
+        return changed

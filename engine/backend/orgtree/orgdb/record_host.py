@@ -1,7 +1,7 @@
 """Org host lifecycle shared by HTTP reads and the socket record runner.
 
-Workers return snapshot inputs only. All supervisor sampling, clock stamps and
-publication happen synchronously on the event loop after cursor validation.
+Workers return snapshot inputs and expensive cache forecasts. Cheap supervisor
+sampling, clock stamps and publication stay on the loop after cursor validation.
 The registry and revision subscribers are also extension points for B4b/c.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any, Callable, Mapping
 from . import record_reads as Q, record_tree as tree, record_panels as panels
 from . import record_mail_runtime as mail_runtime
 from .record_registry import Registry, Selection, Snapshot
-from .record_runtime import SupervisorOverlays
+from .record_runtime import SupervisorOverlays, forecasts
 from .record_pass import BodyPass
 from .record_transport import Batch, OrgRunner, read_snapshot
 
@@ -62,6 +62,9 @@ class RuntimeInputs:
     held: frozenset[str] | None = None
     mail: Mapping[str, Mapping] | None = None
     mail_held: frozenset[str] | None = None
+    forecasts: Mapping | None = None
+    forecast_generations: Mapping | None = None
+    forecast_overlay: Any = None
 
 
 def runtime_inputs(registry: Registry, state: Snapshot, selections) -> RuntimeInputs:
@@ -71,8 +74,9 @@ def runtime_inputs(registry: Registry, state: Snapshot, selections) -> RuntimeIn
         for key in registry.select(state, selection).get('agent', ()))
     bodies = registry.bodies(state, 'agent', held) if held else {}
     models = registry.bodies(state, 'org', frozenset(('tiers',)))['tiers']['models']
-    return RuntimeInputs(Q.cursor(state), bodies, tree.runtime_contexts(state, held), models,
-                         tree.runtime_net_inputs(state))
+    contexts = tree.runtime_contexts(state, held)
+    return RuntimeInputs(Q.cursor(state), bodies, contexts, models,
+                         tree.runtime_net_inputs(state), forecasts=forecasts(bodies, contexts))
 
 
 class OrgHost:
@@ -101,6 +105,10 @@ class OrgHost:
         self.persisted_models: dict = {}
         self._read_lock = asyncio.Lock()
         self._mail_timer = None
+        self._forecast_pending = set()
+        self._forecast_task = None
+        self._forecast_timers = {}
+        self._forecast_periodic = None
         self.runner = OrgRunner(self._load_batch, error, registry=registry,
                                 published=self._published)
 
@@ -174,9 +182,10 @@ class OrgHost:
             body_refs = plan.bodies(state, 'agent', frozenset(dirty)) if dirty else {}
             tier_ref = plan.bodies(state, 'org', frozenset(('tiers',)))['tiers']
             plan.build()
+            bodies = plan.emit(body_refs)
             contexts = tree.runtime_contexts(state, frozenset(dirty))
-            inputs = RuntimeInputs(current, plan.emit(body_refs),
-                {key: contexts[key] for key in dirty}, plan.emit(tier_ref)['models'],
+            inputs = RuntimeInputs(current, bodies,
+                contexts, plan.emit(tier_ref)['models'],
                 tree.runtime_net_inputs(state), held=held,
                 mail=mail_runtime.inputs(state, mail_dirty), mail_held=mail_held)
             if kind == 'batch':
@@ -186,7 +195,8 @@ class OrgHost:
                     for token,answers in frame.answers.items()})
             else:
                 frame = plan.emit(frame)
-            return frame, inputs
+        # No database transaction is held during filesystem/process-spec work.
+        return frame, replace(inputs, forecasts=forecasts(bodies, contexts))
 
     async def _read(self, kind, after=None, requests=None, extra=()):
         async with self._read_lock:
@@ -194,6 +204,8 @@ class OrgHost:
                 fence = self.fence
                 selections = self._selections(requests if kind == 'batch' else None, extra)
                 retained = (self.input_cursor, frozenset(self.overlay._bodies) if self.overlay else frozenset())
+                forecast_overlay = self.overlay
+                generations = dict(getattr(self.overlay, '_fgen', {}))
                 frame, inputs = await asyncio.to_thread(self.worker, kind, after,
                     requests if kind == 'batch' else extra, selections,
                     **({'previous': retained,
@@ -203,7 +215,8 @@ class OrgHost:
                     raise RuntimeError('record host closed')
                 if fence != self.fence or self._identity(inputs.cursor) in self.retired:
                     continue
-                return frame, inputs
+                return frame, replace(inputs, forecast_generations=generations,
+                                      forecast_overlay=forecast_overlay)
         raise RuntimeError('record host closed')
 
     def _adopt(self, inputs):
@@ -216,6 +229,8 @@ class OrgHost:
         elif current is not None:
             self.retired.add(self._identity(current))
             self._cancel_mail_timer()
+            self._clear_forecast_timers()
+            self._forecast_pending.clear()
             self.overlay = None
         if self.overlay is None:
             self.overlay = self.overlay_factory(*self._identity(inputs.cursor))
@@ -230,7 +245,30 @@ class OrgHost:
         if inputs.mail is not None:
             mail_removed = set(self.overlay._mail) - set(inputs.mail_held or ())
             changed.update(self.overlay.adopt_mail(inputs.mail, removed=mail_removed))
+        stale = set()
+        if isinstance(self.overlay, SupervisorOverlays):
+            for key, value in (inputs.forecasts or {}).items():
+                captured = (inputs.forecast_generations or {}).get(key, 0)
+                if inputs.forecast_overlay is self.overlay and self.overlay._fgen.get(key, 0) != captured:
+                    stale.add(key)
+                else:
+                    self.overlay._forecasts[key] = copy.deepcopy(value)
+            for key in removed:
+                timer = self._forecast_timers.pop(key, None)
+                if timer is not None:
+                    timer.cancel()
+                self._forecast_pending.discard(key)
         changed.update(self.overlay.adopt(inputs.bodies, inputs.contexts, removed=removed))
+        if isinstance(self.overlay, SupervisorOverlays):
+            self.overlay.turn_edges({body['id'] for body in inputs.bodies.values()})
+            for key in inputs.bodies:
+                self._forecast_expiry(key)
+            # Snapshot forecasts already cover changed bodies. Models can also
+            # affect a held agent not included in this partial body refresh.
+            stale.update(set(self.overlay._bodies) - set(inputs.bodies) if models_changed else ())
+            stale.update(set(inputs.bodies) - set(inputs.forecasts or {}))
+            self._mark_forecasts(stale)
+            self._arm_forecast_periodic()
         return {key: value for key,value in changed.items() if key not in removed}
 
     async def http(self, *, after=None, selections=()):
@@ -361,11 +399,87 @@ class OrgHost:
     def transition(self, names=None):
         if self.overlay is not None:
             self._partial(self.overlay.transition(names))
+            if names is not None and isinstance(self.overlay, SupervisorOverlays):
+                self._mark_forecasts(self.overlay.turn_edges(names))
+
+    def _mark_forecasts(self, keys):
+        if self.closed or not isinstance(self.overlay, SupervisorOverlays):
+            return
+        for key in keys:
+            body = self.overlay._bodies.get(key)
+            if body is not None and body.get('state') != 'archived':
+                self.overlay._fgen[key] = self.overlay._fgen.get(key, 0) + 1
+                self._forecast_pending.add(key)
+        if self._forecast_pending and self._forecast_task is None:
+            self._forecast_task = asyncio.create_task(self._refresh_forecasts())
+
+    async def _refresh_forecasts(self):
+        try:
+            while self._forecast_pending and not self.closed:
+                overlay = self.overlay
+                keys = self._forecast_pending
+                self._forecast_pending = set()
+                generations = {key: overlay._fgen[key] for key in keys if key in overlay._bodies}
+                bodies = {key: overlay._bodies[key] for key in generations}
+                contexts = {key: overlay._contexts[key] for key in generations}
+                try:
+                    values = await asyncio.to_thread(forecasts, bodies, contexts)
+                except Exception as exc:
+                    self.error(exc)
+                    continue
+                if self.closed or self.overlay is not overlay:
+                    continue
+                accepted = [key for key in values if key in overlay._bodies
+                            and overlay._fgen[key] == generations[key]]
+                for key in accepted:
+                    overlay._forecasts[key] = copy.deepcopy(values[key])
+                    self._forecast_expiry(key)
+                # All live fields and stamps are still sampled on this loop.
+                self._partial(overlay._refresh(accepted))
+        finally:
+            self._forecast_task = None
+
+    def _forecast_expiry(self, key):
+        from .. import cachecontinuity
+        timer = self._forecast_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+        value = self.overlay._forecasts.get(key) or {}
+        expiry = cachecontinuity.epoch(value.get('expires_at'))
+        if value.get('state') == 'compatible_observed' and expiry is not None:
+            self._forecast_timers[key] = asyncio.get_running_loop().call_later(
+                max(0, expiry - time.time()), self._mark_forecasts, (key,))
+
+    def _arm_forecast_periodic(self):
+        active = self.overlay is not None and any(
+            body.get('state') != 'archived' for body in self.overlay._bodies.values())
+        if not active and self._forecast_periodic is not None:
+            self._forecast_periodic.cancel()
+            self._forecast_periodic = None
+        if active and self._forecast_periodic is None and not self.closed:
+            self._forecast_periodic = asyncio.get_running_loop().call_later(60, self._forecast_files_changed)
+
+    def _forecast_files_changed(self):
+        self._forecast_periodic = None
+        if not self.closed and self.overlay is not None:
+            # Startup file edits have no org revision. Never inspect files on
+            # the loop; coalesce their slow check with other forecast marks.
+            self._mark_forecasts(tuple(self.overlay._bodies))
+            self._arm_forecast_periodic()
+
+    def _clear_forecast_timers(self):
+        for timer in self._forecast_timers.values():
+            timer.cancel()
+        self._forecast_timers.clear()
+        if self._forecast_periodic is not None:
+            self._forecast_periodic.cancel()
+            self._forecast_periodic = None
 
     def catalog_changed(self, favourites):
         self.favourites = copy.deepcopy(dict(favourites))
         if self.overlay is not None:
             self._partial(self.overlay.catalog_changed(self.persisted_models, self.favourites))
+            self._mark_forecasts(self.overlay._bodies)
 
     def observed(self, _slug, _rev, gap):
         if gap:
@@ -378,4 +492,11 @@ class OrgHost:
         self.fence += 1
         self.sends.clear()
         self.joining.clear()
+        self._clear_forecast_timers()
+        self._forecast_pending.clear()
+        if self._forecast_task is not None:
+            task, self._forecast_task = self._forecast_task, None
+            task.cancel()
+            # Cancellation fences the result, not the worker's completion.
+            await asyncio.gather(task, return_exceptions=True)
         await self.runner.close()

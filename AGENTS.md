@@ -399,6 +399,14 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   Parent/configured-scope subtree scopes expand in snapshot readers, never during commit.
   [verified-from-source 2026-10-05: `record_api.py`, `orgdb/record_sql.py`,
   `orgdb/record_tree.py`; [`pg-step6-record-feed.md`](docs/state-system/pg-step6-record-feed.md)]
+- **Record runtime cache forecasts:** expensive cache/startup-manifest previews run in
+  snapshot or coalesced background workers, never in loop-owned transitions. Keep live
+  fields and HostClock stamps on the loop; fence forecast results by overlay identity,
+  held membership and per-agent generation. Turn edges and expiry mark forecasts;
+  stream frames and broad hub notifications do not. A 60-second worker refresh detects
+  startup-file changes without org revisions. [verified-from-source 2026-10-05:
+  `orgdb/record_host.py`, `orgdb/record_runtime.py`; decided: drag-opus 2026-10-05]
+  See [worker ordering and warm-process distinction](docs/state-system/cache-forecast-workers.md).
 - **Turn admission is machine-wide:** at most N turns at once (a setting, default 16), first
   come first served within an org, round-robin across orgs; lowering the limit never stops
   a running turn; a queued agent's desk explains the limit. [decided: user 2026-09-26;

@@ -117,7 +117,7 @@ class Routes(unittest.IsolatedAsyncioTestCase):
         socket = SimpleNamespace(receive_text=AsyncMock(side_effect=[
             'ping','{"type":"subscribe","sub":2,"agents":["7"]}',
             '{"type":"unsubscribe","sub":2}',WebSocketDisconnect()]))
-        current = SimpleNamespace(join=AsyncMock(return_value=True),runner=Mock(),leave=Mock())
+        current = SimpleNamespace(join=AsyncMock(return_value=True),runner=Mock(),leave=Mock(),unsubscribe=Mock())
         hub = SimpleNamespace(join=AsyncMock(),record=Mock(return_value=True),
                               record_pages=Mock(return_value=True),leave=Mock())
         with patch.object(api,'hub',hub),patch.object(A,'READY',True), \
@@ -127,7 +127,7 @@ class Routes(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(current.join.await_args.args[2](({'type':'record_subscribed'},)))
             hub.record_pages.assert_called_once_with(socket,({'type':'record_subscribed'},))
             current.runner.subscribe.assert_called_once_with(socket,dict(sub=2,agents=['7']))
-            current.runner.unsubscribe.assert_called_once_with(socket,2)
+            current.unsubscribe.assert_called_once_with(socket,2)
             current.leave.assert_called_once_with(socket)
         current.join.reset_mock()
         socket.receive_text = AsyncMock(side_effect=['arbitrary old ping',WebSocketDisconnect()])

@@ -2642,7 +2642,7 @@ def _detail_tree_node(org: Org, nid: str) -> dict[str, Any]:
     return org.tree_node(nid, children_index=index, descend=False)
 
 
-def _annotate_agent_runtime(org, node, *, account_view=None):
+def _annotate_agent_runtime(org, node, *, account_view=None, cache_forecast=...):
     """One formatter for legacy tree nodes and ordered record runtime values.
 
     The record path omits account display metadata, which belongs to the app
@@ -2820,7 +2820,8 @@ def _annotate_agent_runtime(org, node, *, account_view=None):
     # stale verdict on an archived card — worse than none.
     node["cache_forecast"] = (
         None if node["state"] == "archived"
-        else supervisor.cache_forecast_public(org, node["id"]))
+        else supervisor.cache_forecast_public(org, node["id"])
+        if cache_forecast is ... else cache_forecast)
     # The composer's mid-turn steer-window warning has to say which of two
     # things a missed window costs, and that depends on whether the
     # compactor is on FOR THIS NODE. Resolved here rather than threaded
