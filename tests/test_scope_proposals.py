@@ -1,5 +1,5 @@
 """Actual read-only proposals use effective permissions and retain configuration."""
-import import_provenance  # noqa: F401 asserts imports resolve inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from copy import deepcopy
 import unittest

@@ -1,5 +1,5 @@
 """Reached native audience/identity/policy controls on disposable org databases."""
-import import_provenance  # noqa: F401 asserts imports resolve inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from copy import deepcopy
 import threading
 import unittest

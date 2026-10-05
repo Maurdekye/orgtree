@@ -1,5 +1,5 @@
 """Actual two-session move, admission and current-scope controls."""
-import import_provenance  # noqa: F401 asserts own checkout before engine imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import os
 import copy
 import json

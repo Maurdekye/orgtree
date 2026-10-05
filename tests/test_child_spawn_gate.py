@@ -94,6 +94,8 @@ ALLOWED = {
     'test_scale_history_fixture.py': (1, TOOL),
     'test_scale_history_pg.py': (2, TOOL),
     'test_scale_switch_defaults.py': (1, SELF),
+    # The standalone -I CLI control must exercise the tool's own __file__ guard.
+    'test_scope_consumer_inventory.py': (1, TOOL),
     'test_service_host.py': (7, TOOL),
     'test_startup_readiness.py': (2, TOOL),
     'test_state_audit_fixes.py': (2, NOIMPORT),

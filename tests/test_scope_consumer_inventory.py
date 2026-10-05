@@ -1,5 +1,5 @@
 """The capability inventory refuses new or silently changed scope origins."""
-import import_provenance  # noqa: F401 asserts imports resolve inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import importlib.util
 import json
