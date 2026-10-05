@@ -380,7 +380,57 @@ artifacts/queue-sol-o1-live-retention-ee89434.json, SHA256
 recorded by O1 decision23. The final SQL control explicitly verifies the omitted
 fingerprint keys use `text[]`; an uncast parameter did not remove those keys.
 
-Old-path10k/100k samples, final current-G/B4a composition, source/vector gates and
-independent implementation fault review remain gates. The initial old10k warmup
-raised PostgreSQL OutOfMemory before any timed samples; it is not a speed result.
+The old/new size comparison is complete below. Final current-G/B4a composition,
+source/vector gates and independent implementation fault review remain gates.
 These owner measurements do not approve landing or an alpha build.
+
+## 9. Complete old/new comparison and the capacity control
+
+MEASURED actual API move endpoints, with h=1, L=0 and fixed peer output. Each
+median uses four plain samples, excluding setup, two warmups, tracing and invariant
+reads. The small cases use the same private cluster's original lock capacity64.
+The large cases use capacity4096 for BOTH paths; max_connections=40 and
+max_prepared_transactions=0 stay equal. fsync, synchronous_commit and full_page_writes
+are off only on this owned disposable cluster. OS/PostgreSQL caches are warm;
+these are sequential measurements, not latency guarantees under contention.
+
+| Subtree rows S | Old median milliseconds | New median milliseconds | Old / new client SQL calls |
+| --- | ---: | ---: | ---: |
+| 1 | 47.20 | 28.40 | 181 / 155 |
+| 100 | 59.02 | 30.07 | 181 / 155 |
+| 1,000 | 237.92 | 32.08 | 182 / 155 |
+| 10,000 | 5,521.90 | 36.20 | 182 / 155 |
+| 100,000 | 172,736.81 | 32.56 | 207 / 155 |
+
+The old100k instrumented trace takes174,520.93ms separately from its plain median.
+Its exclusive stages include104,884.10ms in the ledger move body,26,855.81ms in
+planning/re-derive and38,977.05ms in endpoint/door work. It retains a whole-agent
+lock declaration and100,009 lock declarations including non-agent entries. Three
+full agent rewrites run (root plus two grant rows); unchanged descendants still
+cost reads/walks. The new100k trace takes42.89ms, with155 client calls, three
+agent and three stats keys, no whole-agent plan and no full rewrites. The observed
+revision-UPDATE-start/return through COMMIT bounds are1.288/1.188ms; these do not
+observe PostgreSQL's exact lock-acquisition instant. Independent preservation,
+free-balance and aggregate-reference checks pass outside every timer. Descendant
+scope-clamp behavior differs as already accepted by the user.
+
+The original old10k attempt fails during excluded warmup with SQLSTATE53200,
+`out of shared memory`, and the server's max_locks_per_transaction hint. It has
+zero timing samples. The second diagnostic confirms that cause at capacity64,
+then changes ONLY the owned cluster to4096 and restarts it. A fresh read confirms
+4096; the new comparison independently reads the identical settings. Both negative
+receipts remain alongside successful old/new receipts. No timeout was converted
+to a sample. All completed drivers retain unchanged source/helper hashes and
+successful database/temp cleanup; both private postmasters are stopped.
+
+At a107de65, all39 full-schema aggregate methods pass, including actual self-parent
+INSERT and cyclic COPY refusal, statement/savepoint rollback, valid same-connection
+INSERT/COPY and independent aggregate references. These are owner checks, not the
+separate independent implementation/fault approval. Product bytes are unchanged
+from ded21a94; the intervening commits add tests and the main-design amendment.
+
+Immutable consolidated packet: artifacts/queue-sol-o1-scale/comparison-retention-a107de65.json,
+SHA256071bf3f6fc0c8552477d2d374b8e9597c221961125e2b4a1c76984db49bb29c5.
+It pins all four successful drivers, all samples/traces, both negatives, configuration
+receipts and the39-method verification receipt. Original full reports remain
+unchanged; earlier eleven-case depth/lineage evidence also stays in the packet.
