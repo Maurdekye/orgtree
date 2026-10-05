@@ -99,6 +99,7 @@ class Recovery(unittest.TestCase):
             return original(slug, fn, **kwargs)
         with patch.object(worktx, 'run', side_effect=changed):
             sup._abandoned_docket_recovery_pass(now=100000)
+        self.assertNotIn(self.slug, sup._abandoned_retry)
         self.assertEqual(self.owners(), ['other'] * 3)
         self.wake.assert_not_called()
 
@@ -111,6 +112,7 @@ class Recovery(unittest.TestCase):
             return original(slug, fn, **kwargs)
         with patch.object(worktx, 'run', side_effect=changed):
             sup._abandoned_docket_recovery_pass(now=100000)
+        self.assertNotIn(self.slug, sup._abandoned_retry)
         self.assertEqual(self.owners(), ['gone'] * 3)
         self.wake.assert_not_called()
 
