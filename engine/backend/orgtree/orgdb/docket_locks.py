@@ -71,16 +71,22 @@ def install(c: Any, ids: Iterable[int], names: Iterable[str], *, source: str) ->
               (SETTING, json.dumps(dict(ids=sorted(set(ids)), names=sorted(set(names)), source=source))))
 
 
+def created(c: Any, aid: int) -> None:
+    """Called only after a successful agent INSERT in this transaction.
+
+    That row cannot wait on another transaction's FK lock. Store this witness
+    alongside the plan in PostgreSQL, so the insertion and witness both roll
+    back at a savepoint; xmin need not equal the top-level transaction ID.
+    """
+    held = plan(c)
+    if held is not None:
+        install(c, [*held['ids'], aid], held['names'], source=held['source'])
+
+
 def _missing(c: Any, ids: Iterable[int] = (), names: Iterable[str] = ()) -> None:
     from .. import orgtx, store
     held = plan(c)
     missing = set(ids) - set(held['ids'] if held else ())
-    # A same-save hire/tombstone is already owned by this transaction. The
-    # immediate FK check cannot wait for another writer on that new row.
-    if missing:
-        missing -= {int(a) for a, in c.execute(
-            'SELECT id FROM orgtree.agents WHERE id=ANY(%s) '
-            'AND xmin::text=pg_current_xact_id_if_assigned()::text', (sorted(missing),)).fetchall()}
     absent = set(names) - set(held['names'] if held else ())
     if not missing and not absent:
         return

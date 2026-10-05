@@ -340,6 +340,8 @@ class Names:
             if aid is None:
                 aid = int(self.c.execute("INSERT INTO orgtree.agents (name, tombstone) "
                                          "VALUES (%s, true) RETURNING id", (name,)).fetchone()[0])
+                from .. import docket_locks
+                docket_locks.created(self.c, aid)
         if aid is None:
             return None
         self.by_name[name] = aid
@@ -380,6 +382,8 @@ class Names:
         out: Rows = {}
         A.encode_tombstone(ref.name, aid, ref.tombstone_record(), out)
         insert(self.c, 'agents', out['agents'])
+        from .. import docket_locks
+        docket_locks.created(self.c, aid)
         self.by_id[aid] = ref.name
         return aid
 

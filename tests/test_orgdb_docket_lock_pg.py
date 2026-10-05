@@ -175,7 +175,7 @@ class DocketAgentLocks(unittest.TestCase):
                 caught = None
                 try:
                     with orgtx.org_tx(twins.copy, nodes=declared,
-                                      sections=['work_items\x1fowned-item']) as tx:
+                                      sections=[('work_items', 'owned-item')]) as tx:
                         tx.d['nodes']['worker']['title'] = 'widened write'
                         record = f.item(tx.org, 'owned-item')
                         record['owner'] = tx.org._work_holder('taken')
@@ -197,7 +197,7 @@ class DocketAgentLocks(unittest.TestCase):
         with f.f.storage(True):
             before = f.rows(twins.copy)
             with self.assertRaises(orgtx.UnlockedWrite):
-                with orgtx.org_tx(twins.copy, sections=['work_items\x1fowned-item']) as tx:
+                with orgtx.org_tx(twins.copy, sections=[('work_items', 'owned-item')]) as tx:
                     # worker is physically locked for the existing owner FK,
                     # but the transaction never declared an agent write.
                     tx.d['nodes']['worker']['title'] = 'unauthorized'
@@ -292,7 +292,7 @@ class DocketAgentLocks(unittest.TestCase):
                 tx = R.Tx()
                 record['title'] = 'archive replace'
                 self.assertEqual(R.log_replace(raw, R.model().logs['work_items_archive'],
-                                               R.by_seq('log_d', seq)[1], json.dumps(record),
+                                               R.by_seq(R.model().logs['work_items_archive'].log, seq)[1], json.dumps(record),
                                                expected=None, tx=tx), 1)
                 R.docket_finish(raw, tx)
             with raw.transaction():
