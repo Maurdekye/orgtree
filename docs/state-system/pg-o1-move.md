@@ -463,3 +463,57 @@ SHA256071bf3f6fc0c8552477d2d374b8e9597c221961125e2b4a1c76984db49bb29c5.
 It pins all four successful drivers, all samples/traces, both negatives, configuration
 receipts and the39-method verification receipt. Original full reports remain
 unchanged; earlier eleven-case depth/lineage evidence also stays in the packet.
+
+## 10. Clean-graph gate verification (decision32)
+
+MEASURED at212a2ad: the corrected affected comparison retains the original
+d9f1d39 base65 passing methods and executes74 passing tip methods:41 aggregate,
+8 actual endpoint,11 concurrency,7 child-candidate and7 decision-gate controls.
+There are no new failing names, skips, unexecuted methods or cleanup errors.
+The alias fixture preserves decoded cap/depth/count and notice-tail decisions;
+removing the gate deliberately permits its forbidden move and the control catches
+that fault. Clearing the alias uses stats. Staged parent/state/birth/deletion
+changes use the decoded view; already-written scalar parent patches stay on the
+clean path. Both ordered partial-index probes are observed at5000 rows. Original
+fixture/discovery/staged-deletion failures remain in the initial receipt.
+
+MEASURED read-only on all four org databases converted from the2026-10-02 copy:
+
+| Org | Visible agents | Children of tombstone parents | Parent encoding exceptions |
+| --- | ---: | ---: | ---: |
+| maurdekye-works | 8 | 0 | 0 |
+| orgtree | 1,208 | 0 | 0 |
+| resonite | 145 | 0 | 0 |
+| unity | 6 | 0 | 0 |
+
+Every clean probe is true and every independent stats verifier reports zero
+issues. This is a count at one copied snapshot, not a guarantee about future raw
+writers. The input dump hash and both source fingerprints remain unchanged;
+the disposable databases and folders are removed and the owned postmaster stops.
+
+MEASURED actual API moves after the gate, with h=1/L=0 and fixed peer output:
+
+| Subtree rows S | Median milliseconds (four plain samples) | Client calls | Agent / stats keys |
+| --- | ---: | ---: | ---: |
+| 1 | 22.81 | 157 | 3 / 3 |
+| 100,000 | 29.82 | 157 | 3 / 3 |
+
+Both cases use the same owned capacity4096 configuration, two excluded warmups,
+warm caches and no full agent rewrite. The gate adds two client calls to the
+previous155-call trace, with no descendant lock or write. Traced revision
+UPDATE-start/return through COMMIT bounds are0.485/0.437ms atS=1 and0.838/0.745ms
+atS=100k; the exact acquisition instant is not observed. Preservation, credits
+and recursive stats references pass outside the timers. These new sequential
+measurements do not establish a speedup over the earlier grid. Source/helper
+hashes remain unchanged and all owned databases and temporary folders are cleaned.
+
+Immutable receipts:
+- artifacts/queue-sol-o1-gate-212a2ad7a9db-corrected-comparison.json,
+  SHA25674a97c09fff8bfa4c983ffd73ed3cf50655dab793407f8cecaf3e779b6a9f50f;
+- artifacts/queue-sol-o1-live-exceptions-212a2ad7a9db-51038dceac14.json,
+  SHA2562c4c0025e57e15a274e6187c9d6c17426da3f2b824430ab2a928223b8aa8fb85;
+- artifacts/queue-sol-o1-scale/validate-new-212a2ad7a9db-6a62fa1323/driver.json,
+  SHA256c241b4e5425df2ad3d7e5f1b2632deefd683cdffcc4bed5eee3493ddd76d6459.
+
+This correction still requires independent review. The original implementation's
+d9f1d39 approval does not approve the new gate or a v3 push.
