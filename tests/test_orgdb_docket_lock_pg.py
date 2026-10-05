@@ -267,6 +267,70 @@ class DocketAgentLocks(unittest.TestCase):
                 self.assertNotIn(born, docket_locks.plan(raw)['ids'])
             self.assertIsNone(docket_locks.plan(raw))
 
+    def test_revivable_placeholder_is_locked_for_update_before_identity_name_fences(self):
+        twins = f.f.Twins('docket-placeholder-upgrade', before=f.prepare_legacy)
+        with registry.connection(twins.copy) as raw, raw.transaction():
+            R.Names(raw).id('placeholder', mint=True)
+        ready, release = threading.Event(), threading.Event()
+        outcomes, pids = {}, {}
+        real_lock, real_checkout = docket_locks.lock, registry.checkout
+
+        def checkout(*args, **kwargs):
+            raw = real_checkout(*args, **kwargs)
+            if threading.current_thread().name in ('first-hire', 'second-hire'):
+                pids[threading.current_thread().name] = raw.info.backend_pid
+            return raw
+
+        def role_lock(*args, **kwargs):
+            result = real_lock(*args, **kwargs)
+            if threading.current_thread().name == 'first-hire':
+                ready.set()
+                if not release.wait(12):
+                    raise RuntimeError('placeholder scheduling barrier expired')
+            return result
+
+        def save(name, org):
+            try:
+                store.save_org(org)
+                outcomes[name] = ('committed', [])
+            except BaseException as error:
+                outcomes[name] = ('raised', errors(error))
+
+        with f.f.storage(True):
+            first, second = store.load_org(twins.copy), store.load_org(twins.copy)
+            for name, org in (('first', first), ('second', second)):
+                org.hire(ledger.USER, None, 'haiku', 0, 'placeholder')
+                org.nodes['placeholder']['title'] = name
+                f.item(org, 'owned-item')['owner'] = org._work_holder('placeholder')
+            with patch.object(docket_locks, 'lock', role_lock), patch.object(registry, 'checkout', checkout):
+                a = threading.Thread(name='first-hire', target=save, args=('first', first))
+                b = threading.Thread(name='second-hire', target=save, args=('second', second))
+                try:
+                    a.start()
+                    self.assertTrue(ready.wait(10), outcomes)
+                    b.start()
+                    deadline = time.monotonic() + 7
+                    with registry.connection(twins.copy) as monitor:
+                        while time.monotonic() < deadline:
+                            if 'second-hire' in pids and 'first-hire' in pids:
+                                row = monitor.execute('SELECT pg_blocking_pids(%s)', (pids['second-hire'],)).fetchone()
+                                if pids['first-hire'] in row[0]:
+                                    break
+                            time.sleep(.01)
+                        else:
+                            self.fail('second hire never waited on the first')
+                finally:
+                    release.set()
+                    if b.ident:
+                        b.join(25)
+                    a.join(25)
+                self.assertFalse(a.is_alive() or b.is_alive(), outcomes)
+                self.assertNotIn('40P01', [e[1] for _, caught in outcomes.values() for e in caught], outcomes)
+                self.assertEqual(outcomes['first'], ('committed', []))
+                self.assertEqual(outcomes['second'][0], 'raised', outcomes)
+                self.assertEqual(outcomes['second'][1][0][0], 'StaleWrite', outcomes)
+            self.assertEqual(store.load_org(twins.copy).nodes['placeholder']['title'], 'first')
+
     def test_whole_org_plan_includes_retained_current_roles_and_all_live_nodes(self):
         twins = f.f.Twins('docket-whole-roles', before=f.prepare_legacy)
         with f.f.storage(True):
