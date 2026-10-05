@@ -214,15 +214,29 @@ def save(c: Any, d: Any, lazy: Any, rename_intent: Any) -> None:
     """Plan only docket records the normal differ will write; no lazy materialization."""
     from .. import store
     records = []
+    snap = lazy._snap_doc if lazy is not None else {}
+    active_rows = {}
     value = dict.get(d, 'work_items')
     if value is not None:
-        snap = lazy._snap_doc if lazy is not None else {}
-        for key, text in store._split_rows('work_items', value).items():
+        active_rows = store._split_rows('work_items', value)
+        for key, text in active_rows.items():
             if key == 'work_items' or isinstance(text, store._WorkRowRef):
                 continue
             baseline = store._work_raw(snap.get(key))
             if text != baseline:
                 records.append(json.loads(text))
+    # Item CAS deletion still validates the old links before taking its item
+    # lock. Include removed split rows without decoding untouched records;
+    # an unmaterialized section keeps its deferred rows and is not a delete.
+    removed_slugs = set()
+    if lazy is None:
+        removed_slugs = {str(slug) for slug, in c.raw.execute(
+            "SELECT slug FROM orgtree.work_items WHERE list_key='active'").fetchall()
+                         if store.workrows.PREFIX + str(slug) not in active_rows}
+    elif dict.__contains__(d, 'work_items') or ('work_items' in snap and not any(
+            'work_items' in rows for rows in lazy._deferred_doc.values())):
+        removed_slugs = {key[len(store.workrows.PREFIX):] for key in snap
+                         if key.startswith(store.workrows.PREFIX) and key not in active_rows}
     archive = dict.get(d, 'work_items_archive')
     if isinstance(archive, list):
         prior = dict(archive._rows) if isinstance(archive, store.AppendLog) else {}
@@ -236,7 +250,7 @@ def save(c: Any, d: Any, lazy: Any, rename_intent: Any) -> None:
     # Settings writers take their common fence before every agent row. A
     # normal save can change settings and roles together; pulling role locks
     # forward must not put them before that existing first tier.
-    if records and plan(c.raw) is None:
+    if (records or removed_slugs) and plan(c.raw) is None:
         from .compat import rows as R
         m = R.model()
         snap = lazy._snap_doc if lazy is not None else {}
@@ -249,14 +263,14 @@ def save(c: Any, d: Any, lazy: Any, rename_intent: Any) -> None:
             if changed:
                 R.lock_doc_key(c.raw, R.SETTINGS_FENCE)
                 break
-    if not records:
+    if not records and not removed_slugs:
         if plan(c.raw) is None:
-            # Header reorders/deletes take item locks but write no role FK.
+            # Header reorders take item locks but write no role FK.
             # Seal this save's empty role plan now, so a later entry cannot
             # accidentally start an agent tier after those item locks.
             install(c.raw, (), (), source='save')
         return
-    slugs = [r['slug'] for r in records if isinstance(r.get('slug'), str)]
+    slugs = sorted(removed_slugs | {r['slug'] for r in records if isinstance(r.get('slug'), str)})
     if plan(c.raw) is not None:
         prepare(c.raw, records, slugs=slugs)
         return
