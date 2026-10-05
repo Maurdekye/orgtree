@@ -5,13 +5,14 @@ separate and only switches on with the complete panel migration and renderer.
 """
 from __future__ import annotations
 
-from . import record_shared_panels as shared
+from . import record_shared_panels as shared, record_history as history
 from .record_panel_sql import Extension
 from .record_registry import Registry
 
 SHARED = Extension('shared_inbox_events', shared.dependencies, shared.WINDOWS)
-EXTENSIONS = (SHARED,)
+HISTORY = Extension('agent_history', history.dependencies, (history.WINDOW,), history.BEFORE, history.AFTER)
+EXTENSIONS = (SHARED, HISTORY)
 
 
 def register(registry: Registry) -> Registry:
-    return shared.register(registry)
+    return history.register(shared.register(registry))
