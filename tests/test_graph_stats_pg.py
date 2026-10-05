@@ -226,6 +226,44 @@ class GraphStats(unittest.TestCase):
         self.check_reference()
         self.assertEqual(self.stats(5)[1:], (2, 2, 1))
 
+    def test_raw_self_parent_insert_refuses_and_rolls_back_its_statement(self):
+        import psycopg
+        before = self.c.execute('SELECT * FROM orgtree.agent_subtree_stats ORDER BY agent_id').fetchall()
+        self.c.execute('SAVEPOINT before_self_parent')
+        with self.assertRaisesRegex(psycopg.errors.CheckViolation, 'parent cycle'):
+            self.c.execute("INSERT INTO orgtree.agents(id,name,parent_id,state) "
+                           "VALUES(25,'self_parent',25,'live')")
+        self.c.execute('ROLLBACK TO before_self_parent')
+        self.assertIsNone(self.c.execute('SELECT id FROM orgtree.agents WHERE id=25').fetchone())
+        self.assertEqual(self.c.execute('SELECT * FROM orgtree.agent_subtree_stats ORDER BY agent_id').fetchall(),
+                         before)
+        self.check_reference()
+        # The same connection still accepts a valid birth after the refusal.
+        self.c.execute("INSERT INTO orgtree.agents(id,name,parent_id,state) "
+                       "VALUES(25,'valid_parent',5,'live')")
+        self.assertEqual(self.stats(5)[1:], (1, 1, 1))
+        self.check_reference()
+
+    def test_cyclic_copy_refuses_and_valid_copy_runs_statement_maintenance(self):
+        import psycopg
+        before = self.c.execute('SELECT * FROM orgtree.agent_subtree_stats ORDER BY agent_id').fetchall()
+        self.c.execute('SAVEPOINT before_cyclic_copy')
+        with self.assertRaisesRegex(psycopg.errors.CheckViolation, 'parent cycle'):
+            with self.c.cursor().copy('COPY orgtree.agents(id,name,parent_id,state) FROM STDIN') as copied:
+                copied.write_row((25, 'copy_a', 26, 'live'))
+                copied.write_row((26, 'copy_b', 25, 'live'))
+        self.c.execute('ROLLBACK TO before_cyclic_copy')
+        self.assertEqual(self.c.execute('SELECT count(*) FROM orgtree.agents WHERE id IN (25,26)').fetchone()[0], 0)
+        self.assertEqual(self.c.execute('SELECT * FROM orgtree.agent_subtree_stats ORDER BY agent_id').fetchall(),
+                         before)
+        self.check_reference()
+        with self.c.cursor().copy('COPY orgtree.agents(id,name,parent_id,state) FROM STDIN') as copied:
+            copied.write_row((25, 'copy_a', 5, 'live'))
+            copied.write_row((26, 'copy_b', 25, 'live'))
+        self.assertEqual(self.stats(5)[1:], (2, 2, 1))
+        self.assertEqual(self.stats(25)[1:], (1, 1, 1))
+        self.check_reference()
+
     def test_native_missing_prelock_refuses_whole_statement(self):
         import psycopg
         self.c.execute("SELECT set_config('orgtree.graph_plan','{\"stats\":[2],\"whole\":false}',true)")
