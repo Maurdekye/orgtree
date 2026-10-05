@@ -33,6 +33,10 @@ def _staged_graph_edits(org: Any, raw: Any) -> bool:
     if getattr(nodes, '_deleted', None):
         return True
     baselines = getattr(org.d, '_snap_nodes', {})
+    # A loaded _NodeMap remembers removals through touched keys, whereas the
+    # lazy map has _deleted. Both snapshots contain only already-loaded rows.
+    if any(not dict.__contains__(nodes, name) for name in baselines):
+        return True
     parents = {}
     for name, node in dict.items(nodes):
         mark = getattr(node, '_mutation', None)

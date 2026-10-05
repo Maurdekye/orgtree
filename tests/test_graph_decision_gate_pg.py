@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import test_orgdb_compat_pg as fixture
-from test_native_move_endpoints_pg import NativeMoveEndpoints, REQUEST
+import test_native_move_endpoints_pg as endpoints
 from orgtree import api, ledger, orgtx, store
 from orgtree.orgdb import graph, native_move
 
@@ -19,8 +19,8 @@ def tearDownModule():
 
 @fixture.needs_pg
 class GraphDecisionGate(unittest.TestCase):
-    setUp = NativeMoveEndpoints.setUp
-    values = NativeMoveEndpoints.values
+    setUp = endpoints.NativeMoveEndpoints.setUp
+    values = endpoints.NativeMoveEndpoints.values
 
     def alias(self, parent):
         with store._POOL.acquire(self.slug) as c:
@@ -44,7 +44,7 @@ class GraphDecisionGate(unittest.TestCase):
 
     def move(self):
         return api.org_op(self.slug, api.Op(op='move', actor=ledger.USER,
-                                            node='a', new_parent='b'), REQUEST)
+                                            node='a', new_parent='b'), endpoints.REQUEST)
 
     def refused(self, needle):
         from fastapi import HTTPException
@@ -100,13 +100,13 @@ class GraphDecisionGate(unittest.TestCase):
     def test_staged_parent_state_birth_and_deletion_select_decoded_view(self):
         class Discard(Exception):
             pass
-        for edit in (
-            lambda n: n['leaf'].__setitem__('parent', 'b'),
-            lambda n: n['leaf'].__setitem__('state', 'archived'),
-            lambda n: n.__setitem__('born', fixture.node('born', 'a')),
-            lambda n: n.pop('leaf'),
+        for kind, edit in (
+            ('parent', lambda n: n['leaf'].__setitem__('parent', 'b')),
+            ('state', lambda n: n['leaf'].__setitem__('state', 'archived')),
+            ('birth', lambda n: n.__setitem__('born', fixture.node('born', 'a'))),
+            ('delete', lambda n: n.pop('leaf')),
         ):
-            with self.subTest(edit=edit), self.assertRaises(Discard):
+            with self.subTest(edit=kind), self.assertRaises(Discard):
                 with orgtx.org_tx(self.slug, nodes=['a', 'b', 'leaf'], structural_roots=['a', 'b', 'leaf']) as tx:
                     raw = native_move.connection(tx.org)
                     self.assertTrue(graph.clean_stats(tx.org, raw))

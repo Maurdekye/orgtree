@@ -40,10 +40,12 @@ def setUpModule():
         with psycopg.connect(conn.with_db(ADMIN, DATABASE), autocommit=True) as c:
             c.execute('CREATE SCHEMA orgtree')
             for migration in migrate.files(migrate.ORG_DIR):
-                with c.transaction():
-                    if migration.name == '0016_agent_graph.sql':
-                        # A populated upgrade, not an empty-table-only backfill.
+                if migration.name == '0016_agent_graph.sql':
+                    # A real upgrade begins with committed pre-migration rows.
+                    # Pending seed FK/foreground events would prohibit agents DDL.
+                    with c.transaction():
                         c.execute(SEED)
+                with c.transaction():
                     c.execute(migration.read_text(encoding='utf-8'))
     except BaseException:
         tearDownModule()
