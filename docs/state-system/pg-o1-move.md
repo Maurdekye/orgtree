@@ -314,3 +314,41 @@ After drag-opus and review-sol approve THIS design:
    fresh matching ls-remote, then docket claim. Alpha.1 build belongs to coordinator.
 
 No prototype implementation or new-path performance is claimed by this document.
+
+## 8. Owner measurements at ded21a94 (implementation still in review preparation)
+
+MEASURED on the owned disposable fsync-off PostgreSQL cluster, under the heavy
+P03 lock, through the actual native API move handler. Four plain endpoint samples
+per case exclude fixture setup, tracing and invariant checks. Fixed depth h=1,
+no predecessors L=0 and fixed peer output:
+
+| Subtree rows S | Median move milliseconds | Client SQL calls | Agent / stats lock keys |
+| --- | ---: | ---: | ---: |
+| 1 | 28.40 | 155 | 3 / 3 |
+| 100 | 30.07 | 155 | 3 / 3 |
+| 1,000 | 32.08 | 155 | 3 / 3 |
+| 10,000 | 34.70 | 155 | 3 / 3 |
+| 100,000 | 35.08 | 155 | 3 / 3 |
+
+All eleven size/path/predecessor cases completed. Ordinary descendant headers and
+child fingerprints remained equal; independent ancestor statistics and exact free
+balances agreed. No full agent-body rewrite ran. Depth5/20 costs41.46/93.63ms;
+62 predecessors cost137.51ms aligned and189.99ms with distinct old paths. These
+are measured sensitivities, not a claim of independence from depth or lineage.
+The path union has65/127 agent and stats keys respectively.
+
+Selected effective reads at depths1/5/20 decode2/6/21 configured rows. A fresh
+Python snapshot memo measured3.36-4.89/9.33-14.13/31.64-45.62ms; OS and PostgreSQL
+caches were warm. Fifty repeated reads in the same snapshot averaged about0.005ms
+and issued zero SQL. This display memo does not authorize writes. At100k, the
+observed interval from revision UPDATE start through COMMIT was1.074ms, and from
+UPDATE return through COMMIT0.982ms. These bound the held interval; they do not
+measure the instant at which PostgreSQL acquired the revision-row lock.
+
+Immutable evidence: artifacts/queue-sol-o1-scale/new-ded21a94a1de-887d945c9c,
+compact-grid.json SHA256
+689329f6b38a6acd4e13e24a034f84def00d9def250ad7ceff93ba34338f57fb;
+full original reports and hashes are O1 evidence48. Old-path10k/100k samples,
+real-copy62-predecessor rehearsal, concurrent barriers, final composition and
+independent implementation fault review remain gates. These measurements do not
+approve landing or an alpha build.
