@@ -27,6 +27,40 @@ async function load(name) {
   return req(out)
 }
 const providerlogin = await load('providerlogin')
+const feedOutput = path.join(temp, 'provider-login-feed.cjs')
+await build({ entryPoints: ['packages/contracts/provider-login-feed.ts'], outfile: feedOutput,
+  bundle: true, platform: 'node', format: 'cjs' })
+const { subscribeProviderLogin } = req(feedOutput)
+
+test('antigravity: production subscription receives terminal completion through asynchronous IPC', async () => {
+  const seen = []
+  const bridge = {
+    onEvent(receive) {
+      return providerlogin.onProviderLoginStatus((provider, status) =>
+        receive({ type: 'provider-login-status', data: { provider, status } }))
+    },
+    getProviderLoginStatus(provider) {
+      return Promise.resolve().then(() => providerlogin.getProviderLoginStatus(provider))
+    },
+  }
+  const subscription = subscribeProviderLogin(bridge, 'antigravity', value => seen.push(value))
+  try {
+    await Promise.resolve()
+    await Promise.resolve()
+    // IPC invokes main after the renderer has registered its pending action.
+    // Both the producer and subscriber are production code; only transport
+    // and the terminal spawn are fixtures. No real terminal is opened.
+    const result = await subscription.action(Promise.resolve().then(() =>
+      providerlogin.startProviderLogin(handle.origin, TOKEN, 'antigravity')))
+    assert.equal(result.phase, 'done')
+    assert.equal(result.ok, null, 'launching a terminal does not verify login')
+    assert.deepEqual(seen.map(value => value.phase), ['idle', 'starting', 'done'])
+    assert.deepEqual(seen.at(-1), result)
+    assert.equal(antigravitySpawnCalls.length, 1)
+    assert.equal(providerlogin.getProviderLoginStatus('antigravity').phase, 'idle',
+      'the terminal remains untracked, preserving the existing refresh UX')
+  } finally { subscription.close() }
+})
 
 test('native push sends start, code prompt, success and cancel without status polling', async () => {
   const state = freshState()
