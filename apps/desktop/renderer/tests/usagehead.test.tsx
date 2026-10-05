@@ -20,6 +20,7 @@ import { advance, flush, inAct, mountView } from './harness'
 import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { UsageModal } from '../src/App'
+import { legacyAppBackend } from './appfeed-fixture'
 import type {
   AccountRegistryPayload, AccountUsage, RegisteredAccountUsage, UsagePayload,
 } from '../src/types'
@@ -89,7 +90,7 @@ const PROVIDERS = { providers: [
  *  a forced re-read actually reached the network. */
 type Routes = Record<string, unknown>
 function mockFetch(routes: Routes, calls: string[] = []) {
-  return (url: string) => {
+  return legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     calls.push(path)
     if (!(path in routes)) return Promise.reject(new Error(`unexpected fetch: ${path}`))
@@ -97,7 +98,7 @@ function mockFetch(routes: Routes, calls: string[] = []) {
     if (body instanceof Error) return Promise.reject(body)
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
 }
 
 /** ⚠ EVERY lane the modal renders answers here. A lane left unserved does

@@ -12,6 +12,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { UsageModal } from '../src/App'
+import { legacyAppBackend } from './appfeed-fixture'
 import type { AccountRegistryPayload, RegisteredAccountUsage, UsagePayload } from '../src/types'
 
 const HOST_CLAUDE: UsagePayload = {
@@ -55,14 +56,14 @@ const PROVIDERS = { providers: [
 ] }
 
 function mockFetch(routes: Record<string, unknown>) {
-  return (url: string) => {
+  return legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     if (!(path in routes)) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     const body = routes[path]
     if (body instanceof Error) return Promise.reject(body)
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
 }
 
 test('the usage modal renders each registered non-ambient account once, labelled', async () => {
