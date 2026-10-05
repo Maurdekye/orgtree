@@ -179,6 +179,25 @@ class Host(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.host.overlay._values['1']['models'],self.models)
         self.assertEqual(self.host.input_cursor.rev,1)
 
+    async def test_first_and_replacement_catalog_keep_favourites_with_empty_models(self):
+        self.models = {}
+        self.host.catalog_changed({'favourite': 42})
+        await self.host.http()
+        self.assertEqual(self.host.overlay._models, {'favourite': 42})
+        self.current = Q.Cursor('uuid', 'replacement', 0)
+        await self.host.http()
+        self.assertEqual(self.host.overlay._models, {'favourite': 42})
+
+    async def test_partial_inputs_retain_unchanged_and_remove_unheld_agents(self):
+        self.host._adopt(H.RuntimeInputs(self.current, self.rows, {}, self.models))
+        next_cursor = Q.Cursor('uuid', 'original', 2)
+        self.host._adopt(H.RuntimeInputs(next_cursor, {'1': dict(title='changed')},
+            {'1': dict(new=True)}, self.models, held=frozenset(('1','9'))))
+        self.assertEqual(self.host.overlay._bodies['1']['title'], 'changed')
+        self.assertEqual(self.host.overlay._bodies['9']['title'], 'nine')
+        self.host._adopt(H.RuntimeInputs(next_cursor, {}, {}, self.models, held=frozenset(('1',))))
+        self.assertEqual(set(self.host.overlay._bodies), {'1'})
+
     async def test_socket_queue_rejection_clears_subscriptions_without_blocking_http(self):
         await self.host.join('socket',self.send)
         await self.host.runner.run.idle()

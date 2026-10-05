@@ -21,6 +21,9 @@ class Pass(unittest.TestCase):
     def setUpClass(cls):
         seed.Tree.setUpClass()
         cls.twin, cls.database = seed.Tree.twin, seed.Tree.database
+        # The display fixture's minimal grants are not a valid move budget.
+        with fixture.dbconn.connect(fixture.ADMIN,cls.database) as raw:
+            raw.execute("UPDATE orgtree.agents SET credit_grant=100 WHERE name='boss'")
 
     def fresh(self, state):
         return Snapshot(state.raw, state.slug, state.stamp, state.now)

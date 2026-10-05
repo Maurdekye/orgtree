@@ -199,7 +199,8 @@ class OrgHost:
             self.overlay = self.overlay_factory(*self._identity(inputs.cursor))
         self.input_cursor = inputs.cursor
         self.overlay.net.adopt(inputs.net)
-        models_changed = self.persisted_models != inputs.models
+        models_changed = (current is None or self._identity(current) != self._identity(inputs.cursor)
+                          or self.persisted_models != inputs.models)
         self.persisted_models = copy.deepcopy(dict(inputs.models))
         changed = (self.overlay.catalog_changed(self.persisted_models, self.favourites)
                    if models_changed else {})

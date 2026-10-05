@@ -87,6 +87,13 @@ wrong test verdicts and re-argued decisions.
 12. **Do not revive dead ideas** (kiosk mode, the per-org Docker sandbox, the frozen
     profile, v1 import, SQLite as primary storage). → [Removed and dead ideas](#removed-and-dead-ideas)
 
+Record catch-up builds each needed body once per snapshot and shares its tree context
+only within that pass. The context covers rebuilt records plus predecessor/ancestor
+dependencies; unchanged held runtime bodies are retained using their own cursor, not
+the HTTP caller's cursor. Emitted bodies are independent copies. Membership, ordering,
+scope expansion and frames stay unchanged. [decided: drag-opus 2026-10-05;
+verified: `orgdb/record_pass.py`, `orgdb/record_host.py`, `orgdb/record_tree.py`]
+
 ## What Orgtree is, and where it stands
 
 - **The product.** A Windows desktop app for running a persistent team of coding agents.
