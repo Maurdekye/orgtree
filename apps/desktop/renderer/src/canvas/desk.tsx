@@ -1,3 +1,4 @@
+import { useRecordScratch } from '../recordscratch'
 import { useRecordHistory } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
@@ -38,7 +39,7 @@ import type {
 import { openAppSettings } from './settingskit'
 import {
   audienceAction, compactNode, fileBase, fileUrl, getChat,
-  getScratch, interruptNode, processControl, retractMail,
+  interruptNode, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
 } from '../api'
@@ -56,7 +57,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, usePolled, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -4121,14 +4122,15 @@ export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; re
 function FilesView({ slug, nid }: { slug: string; nid: string }) {
   const [path, setPath] = useState('')
   // G5: same — the agent writes into this very directory while you browse it
-  const data = usePolled(() => getScratch(slug, nid, path), [slug, nid, path])
+  const scratch = useRecordScratch(slug, nid, path)
+  const data = scratch.data
   const up = () => setPath(path.split('/').slice(0, -1).join('/'))
   // union split (type-only narrowing): a scratch payload is a dir listing OR
   // a file body — the two reads below each see only their variant
   const entries = data && 'entries' in data ? data.entries : null
   const content = data && 'content' in data ? data.content : null
   return (
-    <div className="msgs files">
+    <div className="msgs files" ref={scratch.ref} onFocusCapture={scratch.onFocus}>
       <div className="hist-row">
         <button onClick={() => setPath('')}>scratch</button>
         {path && <button onClick={up}><ArrowUpIcon fontSize="inherit" /> up</button>}

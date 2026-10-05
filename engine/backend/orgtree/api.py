@@ -11854,6 +11854,22 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
     return _agent_door_tail(body, result, after.drive)
 
 
+def _file_panel_notice(slug: str, nid: str, tool: str, result: Any) -> None:
+    """Disk-backed panels invalidate only after a successful file/presentation.
+
+    Called after the native or legacy commit, or after the filesystem-only
+    delivery returns. A notification failure cannot undo delivered bytes.
+    """
+    if not isinstance(result, dict):
+        return
+    delivered = ((tool == 'orgtree_send_file' and result.get('sent'))
+                 or (tool == 'orgtree_present' and result.get('presented'))
+                 or (tool == 'orgtree_submit_report' and result.get('presentation')))
+    if delivered:
+        pgdoor.after_commit(result, 'file_presented', supervisor.notify,
+                            slug, nid, 'file_presented')
+
+
 def _agent_door_tail(body: AgentCall, result: Any,
                      drive: list[str]) -> Any:
     """The GENERIC part of agent_call's post-save tail, for door tools: the
@@ -11905,6 +11921,7 @@ def _agent_door_tail(body: AgentCall, result: Any,
     if isinstance(result, dict):
         result.pop("bridge", None)
         ac(result, "attach_ref", _attach_ref, body.org, body.tool, result)
+    _file_panel_notice(body.org, body.node, body.tool, result)
     ac(result, "hub_changed", hub_changed, body.org)
     return result
 
@@ -13873,6 +13890,7 @@ def _agent_call_in_run(body: AgentCall, request: Request) -> dict[str, Any]:
                 "read) appear on the org inbox entry")
     if isinstance(result, dict):
         _attach_ref(body.org, body.tool, result)
+    _file_panel_notice(body.org, body.node, body.tool, result)
     hub_changed(body.org)
     return result
 
@@ -14216,8 +14234,10 @@ def _agent_send_file(org: Org, nid: str, a: dict[str, Any], *,
                      max_bytes: int | None = _SENDFILE_MAX) -> dict[str, Any]:
     """Deliver bytes under current native scope, including delivery-id replays."""
     from . import scope_actions
-    return scope_actions.run(org, nid, lambda current: _agent_send_file_body(
+    result = scope_actions.run(org, nid, lambda current: _agent_send_file_body(
         current, nid, a, max_bytes=max_bytes))
+    _file_panel_notice(str(org.d["slug"]), nid, "orgtree_send_file", result)
+    return result
 
 
 def _agent_send_file_body(org: Org, nid: str, a: dict[str, Any], *,

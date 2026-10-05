@@ -1,3 +1,4 @@
+import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
@@ -1103,6 +1104,7 @@ export default function App() {
       // frames were missed (sleep, drop) and one full fetch catches up
       const gap = !recordOn && data ? onFrame(syncRef.current, data).gap : false
       if (data?.type === 'node_stream') {
+        if (recordOn) publishAgentPanelEvent({ org: slug, node: data.node, type: 'node_stream' })
         if (data.kind === 'cache_forecast'
             || data.kind === 'mcp_tool_count'
             || data.kind === 'mcp_readiness') {
@@ -1148,6 +1150,7 @@ export default function App() {
         return   // live feed only — no tree refetch per message
       }
       if (data?.type === 'node_event') {
+        if (recordOn) publishAgentPanelEvent({ org: slug, node: data.node, type: 'node_event', event: data.event })
         if (data.event === 'renamed') emitRename(slug, data)
         ingestPulse(slug, { node: data.node, event: data.event, t: Date.now() })
         // toasts only here — the tree refetch is the shared one below (each
