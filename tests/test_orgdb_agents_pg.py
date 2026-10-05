@@ -655,8 +655,11 @@ class NativeReferences(unittest.TestCase):
             dict(grantee='dev',grantor=USER),dict(grantee='dev',grantor=EXTERN)]))
         values=self.both(lambda s:F.read_snapshot(s,lambda raw,stamp:
             identity_context._read(raw,s,'dev').d['audiences']))
-        self.assertEqual(values[0],values[1])
+        self.assertEqual(sorted(values[0],key=lambda r:r['grantor']),
+                         sorted(values[1],key=lambda r:r['grantor']))
         self.assertEqual({r['grantor'] for r in values[1]},{USER,EXTERN})
+        self.assertEqual(values[1],[dict(grantee='dev',grantor=USER),
+                                   dict(grantee='dev',grantor=EXTERN)])
 
     def test_parent_boundary_after_typed_link_and_cycle(self):
         self.twin.edit(lambda d:d['nodes']['dev'].__setitem__('parent','ops'))

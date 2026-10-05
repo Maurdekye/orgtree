@@ -443,11 +443,14 @@ class LiveChildren(unittest.TestCase):
                 with orgtx.org_tx(slug, nodes=live, sections=['notices'],
                                   logs=['events', 'notice_log']) as tx:
                     upd = lifecycle_tx._scope_plan(tx.org, USER, 'boss', caps)[0]
-                    self.assertEqual(upd, {'boss', 'dev', 'ops'})
+                    self.assertEqual(upd, {'boss'} if on else {'boss', 'dev', 'ops'})
                     tx.org.set_scope(USER, 'boss', **caps)
-                    self.assertEqual(tx.org.scope_touched, {'dev', 'ops'})
+                    self.assertEqual(tx.org.scope_touched, set() if on else {'dev', 'ops'})
                     res = tx.org.revoke_dir(USER, 'boss', 'C:/shared')
-                    self.assertEqual(sorted(res['removed_from']), live)
+                    self.assertEqual(sorted(res['removed_from']), ['boss'] if on else live)
+                    if on:
+                        for nid in ('dev', 'ops'):
+                            self.assertEqual(tx.org.node(nid)['scope'], self.SCOPE)
                     self.assertEqual(self.archived_decoded(tx.org), 0)
                 self.assertEqual(store.load_org(slug).node('old3')['scope']['tools']['mcp'],
                                  ['alpha', 'beta'])
