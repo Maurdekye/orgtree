@@ -6,7 +6,7 @@ import { NativeNotifications } from '../../main/notifications'
 import type { DesktopNotice } from '../src/notifications'
 import { eventFanout } from './heldevents'
 
-test('app notices preserve all categories, startup history, document baseline and native retry without polling', async () => {
+for (const firstEmpty of [false, true]) test('app notices preserve all categories, startup history, document baseline and native retry without polling; first empty=' + firstEmpty, async () => {
   useFakeClock(); localStorage.clear()
   localStorage.setItem('orgtree-native-notices-v1', JSON.stringify([JSON.stringify(['notice-org', 'already-shown'])]))
   const globals = globalThis as unknown as Record<string, unknown>
@@ -60,7 +60,7 @@ test('app notices preserve all categories, startup history, document baseline an
     ...(kind === 'agent-frozen' ? { agent: 'agent', generation: 0 } : {}),
   })
   const prior = notice('already-shown', 'urgent-mail'), oldDoc = notice('old-document', 'document')
-  const rows: DesktopNotice[] = [prior, oldDoc,
+  const rows: DesktopNotice[] = firstEmpty ? [] : [prior, oldDoc,
     ...(['question', 'urgent-mail', 'terminal-failure', 'work-attention', 'routine', 'agent-frozen'] as const).map(kind => notice(`new-${kind}`, kind))]
   function Probe() { useNativeNotifications(() => {}); return <div>notifications</div> }
   let view: Awaited<ReturnType<typeof mountView>> | undefined
@@ -89,7 +89,7 @@ test('app notices preserve all categories, startup history, document baseline an
     assert.equal(shown.length, delivered, 'repeated feed values and time do not display duplicates')
     assert.equal(requests.length, 1, 'only the initial capability/full-copy read, no notification endpoint or timer read')
     rows.length = 0; await publish(5)
-    assert.ok(closed.includes('new-question'), 'resolved notices close native objects')
+    assert.ok(closed.includes(firstEmpty ? 'new-document' : 'new-question'), 'resolved notices close native objects')
   } finally {
     await view?.unmount(); Object.assign(globals, saved)
     Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: undefined })
