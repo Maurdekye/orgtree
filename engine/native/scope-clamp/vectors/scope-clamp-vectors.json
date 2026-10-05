@@ -1,6 +1,6 @@
 {
  "schema": "orgtree.scope-clamp-vectors/v1",
- "oracle": {"python":"3.13.15","windows":"10.0.26200","tables_sha256":"1276b821facdd465245ff806277e8304a5d07244529c169aac2b8602863835d2","anchors":{"engine/backend/orgtree/ledger.py":"ad8b2e41e2fbbf076caad6d7732cf8b0a0ce97496831230a82c2dce66cfbc57e"}},
+ "oracle": {"python":"3.13.15","windows":"10.0.26200","tables_sha256":"1276b821facdd465245ff806277e8304a5d07244529c169aac2b8602863835d2","anchors":{"engine/backend/orgtree/ledger.py":"9ce600f8e0a165f298bf3cb3575ff7e828673b3da588fb50147b279236a8f58d"}},
  "limits": "Synthetic inputs only. Expected values are current Python behavior on this Windows build, not a new contract.",
  "normpath": [
   ["","."],
