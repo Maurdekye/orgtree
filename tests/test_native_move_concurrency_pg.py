@@ -51,7 +51,7 @@ class MoveConcurrency(unittest.TestCase):
                 self._pause_body('before_commit', None)
 
     def raw_insert(self, name):
-        """Two disjoint headers must still serialize their shared stats path."""
+        """Complete compatibility body used alongside a real native hire."""
         # A real native read may happen immediately after either commit. Keep
         # the complete authored shape rather than planting a sparse header
         # whose missing created field makes that subsequent read fail.
@@ -60,6 +60,19 @@ class MoveConcurrency(unittest.TestCase):
             self._capture_connection(raw)
             raw.execute("SET LOCAL lock_timeout='15s'")
             R.node_put(raw, name, copy.deepcopy(self.raw_node), R.Names(raw))
+            self._pause_body('before_commit', None)
+            return name
+
+    def raw_stats_insert(self, name, position):
+        """Direct INSERT avoids the compatibility writer's parent-name lock."""
+        with registry.connection(self.slug) as raw, raw.transaction():
+            self._capture_connection(raw)
+            raw.execute("SET LOCAL lock_timeout='15s'")
+            raw.execute(
+                "INSERT INTO orgtree.agents(name,ord,ui_order,lineage_born,parent_id,"
+                "state,created,credit_grant,model) SELECT %s,%s,ui_order,%s,parent_id,"
+                "state,created,0,model FROM orgtree.agents WHERE name='a' AND NOT tombstone",
+                (name, position, name + '-seat'))
             self._pause_body('before_commit', None)
             return name
 
@@ -198,8 +211,8 @@ class MoveConcurrency(unittest.TestCase):
                                     for lock in row['locks']) for row in waits), waits)
 
     def test_two_raw_inserts_wait_on_the_shared_ancestor_stats(self):
-        got = self.pair(lambda: self.raw_insert('raw-first'),
-                        lambda: self.raw_insert('raw-second'))
+        got = self.pair(lambda: self.raw_stats_insert('raw-first', 100),
+                        lambda: self.raw_stats_insert('raw-second', 101))
         self.assert_stats_wait(got)
 
     def test_native_hire_path_locks_serialize_raw_insert(self):
