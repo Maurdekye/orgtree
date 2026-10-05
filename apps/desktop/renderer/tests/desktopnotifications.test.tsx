@@ -1,5 +1,6 @@
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { notificationInboxTarget, useNativeNotifications } from '../src/notifications'
 import type { DesktopNotice } from '../src/notifications'
@@ -28,10 +29,10 @@ test('global attention reaches other orgs, retains exact click targets and stops
     { id: 'global-id-a', org: 'other-org', source_id: 'ask-42', title: 'Question', body: 'Choose', kind: 'question', agent: 'writer' },
     { id: 'global-id-b', org: 'third-org', title: 'Attention', body: 'Review', kind: 'work-attention', item: 'check-this' },
   ]
-  globalThis.fetch = async url => {
+  globalThis.fetch = legacyAppBackend(async url => {
     calls.push(String(url))
     return { ok: true, headers: new Headers(), json: async () => ({ notices, total: notices.length, truncated: false }) } as Response
-  }
+  })
   function View() { useNativeNotifications(n => opened.push(n)); return <div>owner</div> }
   const v = await mountView(<View />, el => el)
   try {
@@ -63,7 +64,7 @@ test('desktop attention has one request in flight and no fetch without the nativ
   localStorage.clear(); useFakeClock()
   const original = globalThis.fetch
   let calls = 0, release: ((r: Response) => void) | undefined
-  globalThis.fetch = () => { calls++; return new Promise<Response>(resolve => { release = resolve }) }
+  globalThis.fetch = legacyAppBackend(() => { calls++; return new Promise<Response>(resolve => { release = resolve }) })
   function View() { useNativeNotifications(() => {}); return <div>owner</div> }
   let v = await mountView(<View />, el => el)
   try {
@@ -96,14 +97,14 @@ test('pagination reaches every urgent item and persistent dedup survives remount
     onEvent: fan.onEvent,
   } })
   const stopBus = startBus()
-  globalThis.fetch = async url => {
+  globalThis.fetch = legacyAppBackend(async url => {
     const offset = Number(new URL(String(url), 'http://localhost').searchParams.get('offset') ?? 0)
     const end = offset + 200
     return { ok: true, headers: new Headers(), json: async () => ({
       notices: rows.slice(offset, end), total: rows.length, truncated: end < rows.length,
       next_offset: end < rows.length ? end : null, active: rows.map(({ org, id }) => ({ org, id })),
     }) } as Response
-  }
+  })
   function View() { useNativeNotifications(n => opened.push(n)); return <div>owner</div> }
   let v = await mountView(<View />, el => el)
   try {
@@ -132,7 +133,7 @@ test('a withdrawal while the attention read is pending discards that stale respo
     notify: async () => { delivered++; return true }, onEvent: () => () => {},
   } })
   const response = (notices: DesktopNotice[]) => ({ ok: true, headers: new Headers(), json: async () => ({ notices, total: notices.length, truncated: false }) } as Response)
-  globalThis.fetch = () => ++calls === 1 ? new Promise(resolve => { release = resolve }) : Promise.resolve(response([]))
+  globalThis.fetch = legacyAppBackend(() => ++calls === 1 ? new Promise(resolve => { release = resolve }) : Promise.resolve(response([])))
   function View() { useNativeNotifications(() => {}); return null }
   const v = await mountView(<View />, el => el)
   try {
@@ -154,11 +155,11 @@ test('a notification question opens the exact request from the Sent folder witho
     tabs: [{ kind: 'question', question: 'Which option should we use?' }], revs: { ask: 1 } }
   const tree = { slug: 'fixture', roots: [{ id: 'writer', state: 'live', tier: 'haiku', children: [],
     grant: 0, free: 0, seat: 1, scope: { tools: {}, add_dirs: [] }, ask }], asks: [ask] } as unknown as TreePayload
-  globalThis.fetch = async url => {
+  globalThis.fetch = legacyAppBackend(async url => {
     const path = String(url); lookups.push(path)
     return { ok: true, headers: new Headers(), json: async () => path.endsWith('/inbox')
       ? { pending: [], delivered: [], sent: [] } : {} } as Response
-  }
+  })
   const panel = (jumpTo: string | null) => <InboxPanel slug="fixture" tree={tree} toast={() => {}} close={() => {}} jumpTo={jumpTo} />
   const v = await mountView(panel(null), el => el)
   try {

@@ -22,6 +22,7 @@ import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
+import { nativeAppFeed } from './appfeed'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
@@ -2153,6 +2154,17 @@ else {
       }
       const first = await openStartupWindows()
       engineReady = true
+      let noticeSet = ''
+      const appFeed = nativeAppFeed(engine, () => {
+        if (quitting || installerUpgradeShutdown || appFeed.status !== 'current') return
+        const next = JSON.stringify(appFeed.state.allNotices())
+        if (next === noticeSet) return
+        noticeSet = next
+        const owner = windows.notificationOwner()
+        if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
+      })
+      appFeed.start()
+      app.once('will-quit', () => appFeed.stop())
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
       if (!process.argv.includes('--background')) revealWindow(first)
       if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
@@ -2167,8 +2179,10 @@ else {
         // it to every window would set N renderers racing on all three. It is
         // only half the guarantee: the renderer polls on its own account too,
         // which is why the WRITES are gated as well (see handleOwner).
-        const owner = windows.notificationOwner()
-        if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
+        if (appFeed.status === 'unsupported') {
+          const owner = windows.notificationOwner()
+          if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
+        }
         stats = await engine.stats(); rebuildTray()
         void updater.tick().catch(() => {})
         if (stats === null && !engine.managed && !backgroundEngineRestart) {

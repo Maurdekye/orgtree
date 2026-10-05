@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { req } from './api'
+import { useAppFeed } from './appfeed'
 import { onLiveBump } from './livebus'
 import { desktop } from './desktop'
 import { onHeldEvent } from './events/heldbus'
@@ -53,7 +54,7 @@ interface NoticePage {
   notices: DesktopNotice[]; total: number; truncated: boolean; next_offset?: number | null
   active?: NotificationIdentity[]
 }
-async function readNotices() {
+async function readLegacyNotices() {
   const notices = new Map<string, DesktopNotice>()
   let offset = 0, active: NotificationIdentity[] | null = null
   while (true) {
@@ -103,14 +104,44 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
   owner = true) {
   const target = useRef(open); target.current = open
   const bridge = desktop()
+  const feed = useAppFeed(Boolean(bridge?.notify))
+  const feedRef = useRef(feed); feedRef.current = feed
+  const ready = feed.status === 'current' || feed.status === 'unsupported'
+  const wake = useRef<(() => void) | null>(null)
+  const noticeVersion = JSON.stringify([feed.status, feed.state.allNotices()])
+  useEffect(() => { wake.current?.() }, [noticeVersion])
   useEffect(() => {
-    if (!bridge?.notify) return
+    if (!bridge?.notify || !ready) return
     // A reloaded renderer starts with an empty aggregate that may match what it
     // is about to read, so the first pass always reports, even unchanged.
     let alive = true, running = false, dirty = false, click = 0, attentionSent = false
     let prefs = notificationPreferences(), prefsReady = !bridge.getPreferences, prefsRevision = 0, loadingPrefs = false
     let documentsObserved = false
+    const observedOrgs = new Set<string>()
+    let retry: ReturnType<typeof setTimeout> | undefined
     try { documentsObserved = localStorage.getItem(DOCUMENT_BASELINE) === 'true' } catch { /* memory baseline */ }
+    const readNotices = async (fresh = false) => {
+      const current = feedRef.current
+      if (current.status === 'unsupported') return { ...await readLegacyNotices(), unloaded: [] as NotificationIdentity[] }
+      if (fresh) await current.refresh()
+      if (current.status !== 'current' || !current.state.registry) throw new Error('App notices are not current')
+      const rows = current.state.allNotices() as DesktopNotice[]
+      // A first host copy can arrive before one active org's initial read.
+      // Unknown membership is not proof that a previously delivered item was
+      // resolved: retain its dedup/native identity until that org answers.
+      const unknown = new Set(current.state.registry.records.filter(row => row.body.state === 'active'
+        && current.state.notices.get(row.id)?.value?.org_uuid !== row.body.org_uuid).map(row => row.body.slug))
+      readHistory()
+      const unloaded: NotificationIdentity[] = []
+      for (const key of seen) {
+        try {
+          const [org, id] = JSON.parse(key)
+          if (typeof org === 'string' && typeof id === 'string' && unknown.has(org)) unloaded.push({ org, id })
+        } catch { /* old malformed history is ignored */ }
+      }
+      return { notices: new Map(rows.map(n => [identity(n), n])),
+        active: [...rows.map(({ org, id }) => ({ org, id })), ...unloaded], unloaded }
+    }
     async function loadPrefs() {
       if (!bridge?.getPreferences || loadingPrefs || !alive) return
       loadingPrefs = true
@@ -119,7 +150,14 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
         const value = await bridge.getPreferences()
         if (!alive || revision !== prefsRevision) return
         prefs = notificationPreferences(value); prefsReady = true; void poll(true)
-      } catch { /* retry on the next native tick; do not guess disabled choices */ }
+      } catch {
+        // Native preference failure is retried locally; it must not require
+        // another domain change, and must never guess disabled choices.
+        if (alive && feedRef.current.status === 'current') {
+          clearTimeout(retry)
+          retry = setTimeout(() => { void poll() }, 5000)
+        }
+      }
       finally { loadingPrefs = false }
     }
     const poll = async (mutation = false) => {
@@ -143,7 +181,7 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
       try {
         do {
           dirty = false
-          const { notices, active } = await readNotices()
+          const { notices, active, unloaded } = await readNotices()
           if (!alive) return
           if (defer()) continue
           const keys = active && new Set(active.map(identity))
@@ -173,28 +211,49 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
           const visible = new Set(candidates.filter(n => n.kind === 'question'
             && questionVisible(n.org, n.source_id ?? n.id)).map(identity))
           for (const n of candidates) if (visible.has(identity(n)) ||
-            (n.kind === 'document' && (!documentsObserved || !prefs.notifyDocuments))) seen.add(identity(n))
-          documentsObserved = true
-          try { localStorage.setItem(DOCUMENT_BASELINE, 'true') } catch { /* optional history */ }
+            (n.kind === 'document' && ((!documentsObserved && !observedOrgs.has(n.org)) || !prefs.notifyDocuments))) seen.add(identity(n))
+          // Startup app copies may precede an org's first notice read. A
+          // partial inventory must not turn its existing documents into new
+          // arrivals when that read completes. Each loaded org earns its own
+          // baseline; persist completion only once all active orgs are known.
+          if (feedRef.current.status === 'unsupported') documentsObserved = true
+          else {
+            const state = feedRef.current.state
+            const activeRows = state.registry?.records.filter(r => r.body.state === 'active') ?? []
+            for (const row of activeRows) {
+              const frame = state.notices.get(row.id)?.value
+              if (frame?.org_uuid === row.body.org_uuid) observedOrgs.add(row.body.slug)
+            }
+            documentsObserved ||= activeRows.every(row => observedOrgs.has(row.body.slug))
+          }
+          if (documentsObserved) try { localStorage.setItem(DOCUMENT_BASELINE, 'true') } catch { /* optional history */ }
           saveHistory()
           const eligible = candidates.filter(n => notificationEnabled(n.kind, prefs) && !visible.has(identity(n)))
           if (active) {
-            await bridge.syncNotifications?.(eligible.map(({ org, id }) => ({ org, id })))
+            await bridge.syncNotifications?.([...eligible.map(({ org, id }) => ({ org, id })), ...unloaded])
             if (!alive) return
             if (defer()) continue
             retainHistory(keys!)
           }
-          await Promise.all(eligible.map(n => {
+          const delivered = await Promise.all(eligible.map(n => {
             // Recheck at dispatch: the card can mount while IPC sync awaits.
             if (n.kind === 'question' && questionVisible(n.org, n.source_id ?? n.id)) {
               seen.add(identity(n)); saveHistory(); return false
             }
             return notifyOnce(n)
           }))
+          // Retry an unsuccessful OS delivery from this same in-memory feed.
+          // This timer never reads an endpoint; seen items need no retry.
+          if (alive && feedRef.current.status !== 'unsupported'
+              && delivered.some((ok, i) => !ok && !seen.has(identity(eligible[i])))) {
+            clearTimeout(retry)
+            retry = setTimeout(() => { void poll() }, 5000)
+          }
         } while (alive && dirty)
       } catch { /* the next poll retries; no user action is lost */ }
       finally { running = false }
     }
+    wake.current = () => { void poll(true) }
     void poll()
     // A NON-OWNER STILL NEEDS PREFERENCES. `poll` is what used to load them,
     // and it now returns immediately in a window without the duty — so the
@@ -223,7 +282,7 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
       const request = ++click
       // The OS can retain a banner while its request is answered elsewhere.
       // Recheck on activation and recover the exact source after a reload.
-      void readNotices().then(({ notices, active }) => {
+      void readNotices(true).then(({ notices, active }) => {
         if (!alive || click !== request) return
         const current = notices.get(identity(n))
         if (current && notificationEnabled(current.kind, prefs)
@@ -231,9 +290,11 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
       }).catch(() => { /* the main window is still shown if the engine is down */ })
     })
     // Compatibility with shells predating the native poll/cleanup contract.
-    const timer = owner && !bridge.syncNotifications
+    const timer = owner && feedRef.current.status === 'unsupported' && !bridge.syncNotifications
       ? setInterval(() => { void poll() }, 6000) : undefined
-    const off = onLiveBump(() => { void poll(true) })
-    return () => { alive = false; clearInterval(timer); off(); offNative(); offClick() }
-  }, [bridge, owner])
+    const off = onLiveBump(() => {
+      if (feedRef.current.status === 'unsupported') void poll(true)
+    })
+    return () => { alive = false; wake.current = null; clearTimeout(retry); clearInterval(timer); off(); offNative(); offClick() }
+  }, [bridge, owner, ready, feed.status === 'unsupported'])
 }

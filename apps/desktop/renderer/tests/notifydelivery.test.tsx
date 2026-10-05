@@ -3,6 +3,7 @@
 // projection shape and stored preferences taken from the user's live install.
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { useNativeNotifications } from '../src/notifications'
 import { bumpLive } from '../src/livebus'
@@ -55,10 +56,10 @@ async function run(extra: DesktopNotice[], focused = false) {
     syncNotifications: async (active: unknown) => native.sync(active),
     onEvent: (fn: typeof emit) => { emit = fn; return () => { emit = () => {} } },
   } })
-  globalThis.fetch = async () => ({ ok: true, headers: new Headers(), json: async () => ({
+  globalThis.fetch = legacyAppBackend(async () => ({ ok: true, headers: new Headers(), json: async () => ({
     notices: rows, total: rows.length, truncated: false,
     active: rows.map(({ org, id }) => ({ org, id })),
-  }) }) as unknown as Response
+  }) }) as unknown as Response)
   function View() { useNativeNotifications(() => {}); return <div>owner</div> }
   const v = await mountView(<View />, el => el)
   try {
@@ -96,10 +97,10 @@ async function runArriving(extra: DesktopNotice[], focused = false) {
     syncNotifications: async (active: unknown) => native.sync(active),
     onEvent: (fn: typeof emit) => { emit = fn; return () => { emit = () => {} } },
   } })
-  globalThis.fetch = async () => ({ ok: true, headers: new Headers(), json: async () => ({
+  globalThis.fetch = legacyAppBackend(async () => ({ ok: true, headers: new Headers(), json: async () => ({
     notices: rows, total: rows.length, truncated: false,
     active: rows.map(({ org, id }) => ({ org, id })),
-  }) }) as unknown as Response
+  }) }) as unknown as Response)
   function View() { useNativeNotifications(() => {}); return <div>owner</div> }
   const v = await mountView(<View />, el => el)
   try {
@@ -166,14 +167,14 @@ test('REPRO: continuous mutation traffic must not starve dispatch', async () => 
     onEvent: (fn: typeof emit) => { emit = fn; return () => { emit = () => {} } },
   } })
   // a loaded engine answering the 47-row projection, not an instant stub
-  globalThis.fetch = async () => {
+  globalThis.fetch = legacyAppBackend(async () => {
     reads++
     await new Promise(resolve => setTimeout(resolve, 300))
     return { ok: true, headers: new Headers(), json: async () => ({
       notices: rows, total: rows.length, truncated: false,
       active: rows.map(({ org, id }) => ({ org, id })),
     }) } as unknown as Response
-  }
+  })
   function View() { useNativeNotifications(() => {}); return <div>owner</div> }
   const v = await mountView(<View />, el => el)
   try {
@@ -282,10 +283,10 @@ async function twoWindows(userIsWithTheCard: boolean) {
     syncNotifications: async (active: unknown) => native.sync(active),
     onEvent: (fn: typeof emit) => { emit = fn; return () => { emit = () => {} } },
   } })
-  globalThis.fetch = async () => ({ ok: true, headers: new Headers(), json: async () => ({
+  globalThis.fetch = legacyAppBackend(async () => ({ ok: true, headers: new Headers(), json: async () => ({
     notices: rows, total: rows.length, truncated: false,
     active: rows.map(({ org, id }) => ({ org, id })),
-  }) }) as unknown as Response
+  }) }) as unknown as Response)
   function View() {
     useNativeNotifications(() => {})
     return <AskCard ask={crossAsk} slug="orgtree" toast={() => {}} />

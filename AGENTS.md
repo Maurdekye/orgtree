@@ -155,6 +155,13 @@ end of this section says so.
   and unsubscribe on unmount. OAuth output/codes never go through the engine.
   [verified: `app_api.py`, `packages/contracts/provider-login-feed.ts`;
   decided: drag-opus 2026-10-05, B4b decision 7]
+- **Native notices (2026-10-05).** Electron's app socket uses the current desktop
+  token on the HTTP copy and WebSocket handshake. Renderer delivery keeps its
+  existing category, visibility and persistent-history rules; a failed OS
+  delivery retries cached notices, never a network read. An active org missing
+  its first notice snapshot is unknown, so it cannot clear delivery history or
+  establish the initial document baseline. [verified: `main/appfeed.ts`,
+  `renderer/src/notifications.ts`; see step-6 §5]
 
 - **Desktop** (`apps/desktop`): Electron 44. `main/` owns windows (one main window per
   org), tray, updater and the engine's lifecycle (`index.ts`, `engine.ts`, `policy.ts`).

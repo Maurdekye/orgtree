@@ -1,5 +1,6 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { useState } from 'react'
@@ -117,7 +118,7 @@ test('category switches, visible questions, new documents and stale clicks share
   native({ getPreferences: async () => prefs, notify: async (n: NativeNotice) => { delivered.push(n); return true },
     syncNotifications: async (active: unknown[]) => { synced.push(active) }, onEvent: fan.onEvent })
   const stopBus = startBus()
-  globalThis.fetch = async () => response({ notices, active: notices.map(({ org, id }) => ({ org, id })), truncated: false, total: notices.length })
+  globalThis.fetch = legacyAppBackend(async () => response({ notices, active: notices.map(({ org, id }) => ({ org, id })), truncated: false, total: notices.length }))
   function View({ card = true }: { card?: boolean }) { useNativeNotifications(n => opened.push(n)); return card ? <AskCard ask={ask} slug="one" toast={() => {}} /> : null }
   const v = await mountView(<View />, el => el)
   const row = (kind: NativeNotice['kind'], id: string = kind): NativeNotice => ({ id, kind, org: 'one', title: kind, body: 'detail', agent: 'agent', generation: 2, source_id: kind === 'question' ? ask.id : id })
@@ -170,7 +171,7 @@ test('Presentations notification selects an exact retired document on an older p
     node_state: 'archived', evicted: false }))
   const row = all[100]!
   const query = (path: string) => new URL(path, 'http://host').searchParams
-  globalThis.fetch = async url => {
+  globalThis.fetch = legacyAppBackend(async url => {
     const path = String(url); calls.push(path)
     if (path.endsWith('/documents/old-document')) return response({ ...row, body: 'The exact plan body' })
     const q = query(path)
@@ -180,7 +181,7 @@ test('Presentations notification selects an exact retired document on an older p
     if (locate) offset = Math.floor(all.findIndex(r => r.id === locate) / limit) * limit
     return response({ documents: all.slice(offset, offset + limit), total: all.length,
       offset, located: locate, next_offset: offset + limit < all.length ? offset + limit : null })
-  }
+  })
   let jump!: () => void
   function View() {
     const [target, setTarget] = useState<{ id: string; seq: number } | null>({ id: row.id, seq: 1 })
@@ -217,7 +218,7 @@ test('the app routes an other-organization document click into its exact Present
   native({ getPreferences: async () => ({ ...DEFAULT_NOTIFICATIONS, notifyDocuments: true }), notify: async () => false,
     syncNotifications: async () => {}, onEvent: fan.onEvent })
   const stopBus = startBus()
-  globalThis.fetch = async url => {
+  globalThis.fetch = legacyAppBackend(async url => {
     const path = String(url).split('?')[0]
     if (path === '/api/desktop/notifications') return response({ notices: [notice], total: 1, truncated: false, active: [notice].map(({ org, id }) => ({ org, id })) })
     if (path === '/api/orgs') return response([{ slug: 'other', name: 'Other', live: 1, seats: 1 }])
@@ -231,7 +232,7 @@ test('the app routes an other-organization document click into its exact Present
     if (/inbox|mailbox|\/mail/.test(path!)) return response({ pending: [], delivered: [], history: [], messages: [], items: [], unread: 0 })
     if (/\/(work|items|asks|watchdogs|events|audiences)$/.test(path!)) return response([])
     return response({})
-  }
+  })
   const v = await mountView(<App />, el => el)
   try {
     await settle()
@@ -257,7 +258,7 @@ test('a failed preference read retries from the native clock and honors the stor
     return { ...DEFAULT_NOTIFICATIONS, notifyQuestions: false }
   }, notify: async () => { delivered++; return true }, syncNotifications: async () => {},
   onEvent: fan.onEvent })
-  globalThis.fetch = async () => { fetched++; return response({ notices: [{ id: 'disabled', org: 'org', kind: 'question', title: 'Q', body: '?' }], total: 1, truncated: false }) }
+  globalThis.fetch = legacyAppBackend(async () => { fetched++; return response({ notices: [{ id: 'disabled', org: 'org', kind: 'question', title: 'Q', body: '?' }], total: 1, truncated: false }) })
   function View() { useNativeNotifications(() => {}); return null }
   const v = await mountView(<View />, el => el)
   try {
@@ -270,7 +271,7 @@ test('a failed preference read retries from the native clock and honors the stor
 test('a document removed during navigation reports the missing target and consumes only that jump', async () => {
   const oldFetch = globalThis.fetch, warnings: string[][] = []
   let handled = 0
-  globalThis.fetch = async () => ({ ok: false, status: 404, headers: new Headers(), json: async () => ({ detail: 'Document removed' }) } as Response)
+  globalThis.fetch = legacyAppBackend(async () => ({ ok: false, status: 404, headers: new Headers(), json: async () => ({ detail: 'Document removed' }) } as Response))
   const v = await mountView(<DocGalleryModal slug="one" toast={messages => { warnings.push(messages) }} close={() => {}}
     jumpTo={{ id: 'removed', seq: 500 }} onJumpHandled={() => { handled++ }} />, el => el)
   try { await settle(); assert.deepEqual(warnings, [['Document removed']]); assert.equal(handled, 1) }
@@ -384,7 +385,7 @@ test('master notifications switch off suppresses native polling dispatch and cli
   })
   const row = (kind: NativeNotice['kind'], id: string = kind): NativeNotice => ({ id, kind, org: 'one', title: kind, body: 'detail', agent: 'agent', generation: 2, source_id: id })
   const notices = [row('question', 'q1'), row('urgent-mail', 'u1'), row('routine', 'r1')]
-  globalThis.fetch = async () => response({ notices, active: notices.map(({ org, id }) => ({ org, id })), truncated: false, total: notices.length })
+  globalThis.fetch = legacyAppBackend(async () => response({ notices, active: notices.map(({ org, id }) => ({ org, id })), truncated: false, total: notices.length }))
 
   function View() { useNativeNotifications(n => opened.push(n)); return null }
   const v = await mountView(<View />, el => el)

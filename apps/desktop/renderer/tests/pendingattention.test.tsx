@@ -4,6 +4,7 @@
 // urgent mail is still waiting.
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { useNativeNotifications } from '../src/notifications'
 import type { DesktopNotice } from '../src/notifications'
@@ -69,10 +70,10 @@ async function poll(rows: DesktopNotice[], prefs: Record<string, boolean>) {
     setPendingAttention: async (ids: string[]) => { sent.push(ids) },
     onEvent: (fn: typeof emit) => { emit = fn; return () => { emit = () => {} } },
   } })
-  globalThis.fetch = async () => ({ ok: true, headers: new Headers(), json: async () => ({
+  globalThis.fetch = legacyAppBackend(async () => ({ ok: true, headers: new Headers(), json: async () => ({
     notices: current, total: current.length, truncated: false,
     active: current.map(({ org, id }) => ({ org, id })),
-  }) }) as unknown as Response
+  }) }) as unknown as Response)
   function View() { useNativeNotifications(() => {}); return <div>owner</div> }
   const v = await mountView(<View />, el => el)
   const tick = async () => { await inAct(async () => { emit({ type: 'notification-poll', data: null }); await flush(20) }) }

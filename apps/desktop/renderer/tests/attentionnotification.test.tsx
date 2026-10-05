@@ -81,6 +81,7 @@ async function setup(t: TestContext, mode: 'attention' | 'canvas' = 'attention')
     user_inbox_count: 2, user_inbox_urgent_count: 1, org_inbox: null, net: null }
   globals.fetch = compatibilityWorkFixture(async (input, init) => {
     const path = new URL(String(input), window.location.origin).pathname
+    if (path === '/api/app/records') return json({ detail: 'legacy notification fixture' }, 501)
     if (path === '/api/desktop/notifications') {
       const active = notices.filter(n => n.kind !== 'urgent-mail' || pending.some(m => m.id === urgent.id))
       return json({ notices: active, total: active.length, truncated: false })
