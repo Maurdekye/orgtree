@@ -7,6 +7,7 @@ import { TurnLimitsSetting } from './turnlimitssetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useRef, useState } from 'react'
+import { useAppValue } from '../appfeed'
 import { subscribeProviderLogin } from '../../../../../packages/contracts/provider-login-feed'
 import type {
   AccountUsage, ProviderInfo, ProvidersPayload, RuntimeSettingsPayload,
@@ -622,6 +623,15 @@ export function AccountsPanel({ toast, close, initialTab }: {
   const [busy, setBusy] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [discovering, setDiscovering] = useState(true)
+  const pushedProviders = useAppValue<ProvidersPayload>('providers')
+  useEffect(() => {
+    if (!pushedProviders) return
+    setProviders(pushedProviders.providers)
+    setLanes({ apikey_fallback: pushedProviders.apikey_fallback,
+      subscription_inference: pushedProviders.subscription_inference })
+    setOpenRouterTiers(pushedProviders.providers.find(p => p.id === 'openrouter')?.tiers)
+    setDiscovering(false)
+  }, [pushedProviders])
   const loadProviders = () => {
     setDiscovering(true)
     return getProviders().then(p => {

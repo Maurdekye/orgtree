@@ -67,6 +67,18 @@ class Runtime(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(keys), len(set(keys)))
         await result.close()
 
+    async def test_registered_usage_keeps_endpoint_identity_metadata(self):
+        from orgtree import api, registry
+        with patch.object(Publishers, 'add') as add:
+            result = start(Mock(), Mock())
+        read = next(call.args[1] for call in add.call_args_list if call.args[0] == 'registered_usage')
+        expected = {'account': 'openai-1', 'name': 'openai/second', 'label': 'openai/second', 'limits': []}
+        with patch.object(registry, 'list_accounts', return_value=[{'id': 'openai-1'}]), \
+                patch.object(api, '_accounts_usage', return_value=expected) as projection:
+            self.assertEqual(await read(), {'openai-1': expected})
+            projection.assert_called_once_with('openai-1')
+        await result.close()
+
 
 if __name__ == '__main__':
     unittest.main()

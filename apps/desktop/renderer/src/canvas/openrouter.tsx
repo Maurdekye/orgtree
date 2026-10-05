@@ -1,4 +1,5 @@
 import { PinFrame } from './modalpin'
+import { useAppValue } from '../appfeed'
 // canvas/openrouter.tsx — the OpenRouter lane's settings surface (user spec
 // 2026-09-02, verbatim intent):
 //
@@ -63,6 +64,8 @@ function shareDoc(d: OpenRouterDoc): void {
 function useSharedDoc(adopt: (d: OpenRouterDoc) => void): void {
   const ref = useRef(adopt)
   ref.current = adopt
+  const pushed = useAppValue<OpenRouterDoc>('openrouter')
+  useEffect(() => { if (pushed) ref.current(pushed) }, [pushed])
   useEffect(() => {
     const l = (d: OpenRouterDoc) => ref.current(d)
     docListeners.add(l)

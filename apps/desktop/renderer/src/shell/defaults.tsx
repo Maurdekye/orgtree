@@ -11,10 +11,11 @@
 // It sits in shell/ rather than in App.tsx because canvas/accounts.tsx (the
 // App settings panel) has to import it, and importing from App.tsx would make
 // a cycle: App.tsx already imports AccountsPanel.
+import { useAppRead, useAppValue } from '../appfeed'
 import { useEffect, useMemo, useState } from 'react'
 import { getDefaults, getProviders, saveDefaults } from '../api'
 import { SetToggle } from '../canvas/settingskit'
-import { availableAutopsyModels, fmtCredits, usePolled, useShowLegacyModels } from '../canvas/shared'
+import { availableAutopsyModels, fmtCredits, useShowLegacyModels } from '../canvas/shared'
 import type { DefaultsPayload, ToastFn } from '../types'
 
 /** The default-org-settings FIELDS, with no window of their own.
@@ -31,7 +32,7 @@ export function DefaultsForm({ toast, onDone }: {
   // Partial: the error fallback seeds {} and every read has its own default
   const [d, setD] = useState<Partial<DefaultsPayload> | null>(null)
   useEffect(() => { getDefaults().then(setD).catch(() => setD({})) }, [])
-  const provPayload = usePolled(getProviders, [], 60000)
+  const provPayload = useAppRead('providers', getProviders)
   const showLegacy = useShowLegacyModels()
   const autopsyGroups = useMemo(
     () => availableAutopsyModels(provPayload, d?.fable_filter_model ?? 'opus'),
@@ -158,6 +159,8 @@ export function DefaultsForm({ toast, onDone }: {
 export function LunaReserveSetting({ toast }: { toast: ToastFn }) {
   const [on, setOn] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
+  const pushed = useAppValue<boolean>('prefer_reserve_default')
+  useEffect(() => { if (pushed !== undefined) setOn(pushed) }, [pushed])
   useEffect(() => {
     let live = true
     getDefaults().then((d) => { if (live) setOn(d.prefer_reserve !== false) })

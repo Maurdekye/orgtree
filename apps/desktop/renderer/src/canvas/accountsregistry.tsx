@@ -1,6 +1,7 @@
 /** Account management belongs to each provider; usage belongs to Usage. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { req } from '../api'
+import { useAppValue } from '../appfeed'
 import { accountTint } from '../accounttint'
 import { accountDisplayId, accountIdentity } from '../accountidentity'
 import { THEMES } from '../themes'
@@ -167,6 +168,13 @@ export function useAccountRegistry() {
   const [rows, setRows] = useState<AccountRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const serial = useRef(0)
+  const pushed = useAppValue<{ accounts: AccountRow[] }>('accounts')
+  useEffect(() => {
+    if (!pushed) return
+    serial.current++
+    if (Array.isArray(pushed.accounts)) { setRows(pushed.accounts); setError(null) }
+    else setError('the backend answered without an account list')
+  }, [pushed])
   const reload = useCallback(async () => {
     const request = ++serial.current
     try {

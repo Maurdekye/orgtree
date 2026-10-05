@@ -1,3 +1,4 @@
+import { useAppRead } from '../appfeed'
 import { adoptPinLayer, canvasBox, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { revealDetachedDocument } from '../windowlife'
@@ -26,7 +27,7 @@ import {
 } from '../icons'
 import {
   ago, ALL_TIER_SEAT, antigravityTierOffer, anyTierSeat, attentionPip, codexTierOffer, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, optInLegacyHidden, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
-  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
+  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
@@ -589,7 +590,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // canvas behind App settings changes before the modal closes. The old
   // fetch-once effect made a correctly persisted toggle look inert until a
   // reload or org change.
-  const providerPayload = usePolled(getProviders, [slug], 60000)
+  const providerPayload = useAppRead('providers', getProviders)
   const providerEntries = providerPayload?.providers ?? []
   const codexProvider = providerEntries.find(
     (v) => v.id === 'openai') ?? null

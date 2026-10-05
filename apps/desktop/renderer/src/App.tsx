@@ -74,7 +74,7 @@ import type { OrgFreshness } from './orgstatus'
 import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
-import type { HostIdentity } from './accountidentity'
+import { useAppRead, useAppReadout } from './appfeed'
 import { groupByProvider } from './usagegroups'
 import { bumpLive, onLiveBump } from './livebus'
 import { applyPrimedAsks, onPrimeAsk, useAskPrimer } from './askprime'
@@ -523,20 +523,19 @@ export default function App() {
   })
   // the usage button GLOWS once a lane nears its wall (user feature
   // 2026-08-19), so a freeze stops being the first notice. It rides
-  // /api/usage/peek — the CACHE-ONLY readout — because this poll runs whether
+  // the cache-only usage peek because this reader runs whether
   // or not the modal was ever opened, and an always-on indicator must not be
   // able to add an upstream request; the server's warm loop is what keeps
-  // that cache worth reading. usePolled also wakes on the livebus, so the
-  // interval is only the floor.
-  const usagePeek = usePolled(bootUsagePeek, [], 60000)
-  const codexUsagePeek = usePolled(bootCodexUsagePeek, [], 60000)
+  // that cache worth reading. The host publishes it through the app feed.
+  const usagePeek = useAppRead('usage_peek', bootUsagePeek)
+  const codexUsagePeek = useAppRead('codex_usage_peek', bootCodexUsagePeek)
   // the Antigravity standing is observed from turns (a wall + its reset),
   // never fetched — the same cache-only contract, so it may ride the glow
-  const agyUsagePeek = usePolled(bootAntigravityUsagePeek, [], 60000)
+  const agyUsagePeek = useAppRead('antigravity_usage_peek', bootAntigravityUsagePeek)
   // OpenRouter: a prepaid credit balance, cache-only here too — see
   // openrouter_limits's module docstring for why a plain key never earns a
   // percentage without a spend cap, which is also why this lane rarely glows
-  const orrUsagePeek = usePolled(bootOpenRouterUsagePeek, [], 60000)
+  const orrUsagePeek = useAppRead('openrouter_usage_peek', bootOpenRouterUsagePeek)
   const usageAlert = useMemo(
     () => usagePeak(usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek),
     [usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek])
@@ -544,7 +543,7 @@ export default function App() {
   // label. Polled rather than fetched once so installing a CLI mid-session is
   // picked up; unresolved is ALL_PRESENT, i.e. exactly today's wording.
   const provPresence = presenceOfPayload(
-    usePolled(bootProviders, [], 60000))
+    useAppRead('providers', bootProviders))
   // mobile compact orgbar (D-125 ruling 2026-08-14, 'one row, banner→chip'):
   // the detail chips + resume banner collapse behind a ⋯ toggle
   const [barMore, setBarMore] = useState(false)
@@ -1977,42 +1976,11 @@ type UsageReadoutState = {
   refresh: (force?: boolean) => Promise<void>
 }
 
-function useUsageReadout<T extends UsageReadout>(fetcher: (force?: boolean) => Promise<T>): {
-  value: T | null
-  pending: boolean
-  failure: string | null
-  updatedAt: number | null
-  refresh: (force?: boolean) => Promise<void>
-} {
-  const [value, setValue] = useState<T | null>(null)
-  const [pending, setPending] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
-  const fetchRef = useRef(fetcher)
-  fetchRef.current = fetcher
-  const inFlight = useRef<Promise<void> | null>(null)
-  const refresh = useCallback((force = false): Promise<void> => {
-    if (inFlight.current) return inFlight.current
-    setPending(true)
-    setFailure(null)
-    const request = Promise.resolve().then(() => fetchRef.current(force)).then((next) => {
-      setValue(next)
-      setUpdatedAt(readoutObservedAt(next))
-    }).catch((error: unknown) => {
-      setFailure(error instanceof Error ? error.message : String(error))
-    }).finally(() => {
-      inFlight.current = null
-      setPending(false)
-    })
-    inFlight.current = request
-    return request
-  }, [])
-  useEffect(() => {
-    void refresh()
-    const timer = window.setInterval(() => { void refresh() }, 60000)
-    return () => window.clearInterval(timer)
-  }, [refresh])
-  return { value, pending, failure, updatedAt, refresh }
+function useUsageReadout<T extends UsageReadout>(key: string,
+  fetcher: (force?: boolean) => Promise<T>, member?: string) {
+  const state = useAppReadout(key, fetcher, member)
+  const updatedAt = useMemo(() => state.value ? readoutObservedAt(state.value) : null, [state.value])
+  return { ...state, updatedAt }
 }
 
 /** How long ago this reading was taken, kept moving.
@@ -2103,8 +2071,8 @@ function UsageAcctHead({ label, parts, provider, state }: {
  *  Each section is one account's independent read; nothing is summed
  *  across accounts. */
 function RegisteredAccountSection({ row, multiple }: { row: AccountRegistryRow; multiple: boolean }) {
-  const state = useUsageReadout(
-    (force) => getRegisteredAccountUsage(row.id, force))
+  const state = useUsageReadout('registered_usage',
+    (force) => getRegisteredAccountUsage(row.id, force), row.id)
   const u = state.value
   const provider = registryProviderName(row.provider)
   return <div className="usage-acct" data-account={row.id}>
@@ -2122,48 +2090,36 @@ export function UsageModal({ close, toast }: { close: () => void; toast: ToastFn
   // order (user ruling 2026-08-25) — one section of bars per account. The
   // bar markup itself lives in UsageBars (canvas/accounts.tsx) so this modal
   // and the panel's per-row buttons cannot drift apart.
-  const claude = useUsageReadout(getUsage)
-  const codex = useUsageReadout(getCodexUsage)
+  const claude = useUsageReadout('usage', getUsage)
+  const codex = useUsageReadout('codex_usage', getCodexUsage)
   // Antigravity's zero-token /usage command supplies real quota percentages
   // and reset timestamps through the same shared usage renderer.
-  const agy = useUsageReadout(getAntigravityUsage)
+  const agy = useUsageReadout('antigravity_usage', getAntigravityUsage)
   // OpenRouter: a prepaid credit balance read off the stored key, not a
   // subscription lane — see openrouter_limits's module docstring. `fetch`
   // answers `{available:false, error:"no API key…"}` rather than nothing
   // when no key is stored, same shape as the other providers' "not
   // installed" case, so it degrades through the same `shown.openrouter &&`
   // gate below rather than a bespoke branch.
-  const orr = useUsageReadout(getOpenRouterUsage)
+  const orr = useUsageReadout('openrouter_usage', getOpenRouterUsage)
   // D-202. ⚠ `codex` IS TRUTHY ON A MACHINE WITH NO CODEX — measured, not
   // assumed: codex_limits.fetch returns {available:false, error:"Codex CLI is
   // not installed"} rather than nothing, so the bare `codex &&` gate below
   // rendered a "Codex" heading over that error. It was the app's clearest
   // remaining "you could have Codex" advertisement, and on a Codex-less
   // machine the whole block is now absent instead.
-  const shown = presenceOfPayload(usePolled(getProviders, [], 60000))
+  const shown = presenceOfPayload(useAppRead('providers', getProviders))
   // every REGISTERED account beyond the host lanes (user report 2026-09-10:
   // the modal omitted a signed-in secondary account entirely). The registry
   // list is the source; `ambient` rows are exactly the accounts the provider
   // lanes above already show, so filtering them out renders each account
   // once. A list that cannot be read SAYS so below rather than silently
   // omitting accounts — silence here was the original defect.
-  const [registry, setRegistry] = useState<AccountRegistryRow[] | null>(null)
-  const [registryError, setRegistryError] = useState('')
-  // the same `host_identity` the account selectors read, off the same payload:
-  // who each provider's `default` login is, when no registry row carries it.
-  const [hostIdentity, setHostIdentity] = useState<HostIdentity>({})
-  useEffect(() => {
-    let live = true
-    const load = () => getAccountRegistry().then((r) => {
-      if (!live) return
-      setHostIdentity(r?.host_identity ?? {})
-      if (Array.isArray(r?.accounts)) { setRegistry(r.accounts); setRegistryError('') }
-      else setRegistryError('the backend answered without an account list (older backend?)')
-    }).catch((e: Error) => { if (live) setRegistryError(e.message) })
-    load()
-    const timer = window.setInterval(load, 60000)
-    return () => { live = false; window.clearInterval(timer) }
-  }, [])
+  const accountReadout = useAppReadout('accounts', getAccountRegistry)
+  const registry = accountReadout.value?.accounts ?? null
+  const registryError = accountReadout.failure ?? (accountReadout.value && !Array.isArray(registry)
+    ? 'the backend answered without an account list (older backend?)' : '')
+  const hostIdentity = accountReadout.value?.host_identity ?? {}
   const registered = (registry ?? []).filter((r) => !r.ambient)
   const multipleAccounts = (provider: string) =>
     registered.filter(r => r.provider === provider).length
@@ -2922,7 +2878,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const setFilterPolicy = set('filterPolicy', filterPolicy)
   const filterModel = val('filterModel', tree.fable_filter_model ?? 'opus')
   const setFilterModel = set('filterModel', filterModel)
-  const provPayload = usePolled(getProviders, [], 60000)
+  const provPayload = useAppRead('providers', getProviders)
   const showLegacy = useShowLegacyModels()
   const autopsyGroups = useMemo(
     () => availableAutopsyModels(provPayload, filterModel),

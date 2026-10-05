@@ -43,7 +43,7 @@ def start(publish, error):
     # Late import: the API owns these established projections, while mounting
     # the app router must remain inert (no processes, readers or imports of a
     # half-initialized api module).
-    from . import api, accountusage, registry, supervisor
+    from . import api, registry, supervisor
     result = Publishers(publish, error)
     readers = {
         'usage': api.claude_usage,
@@ -68,7 +68,7 @@ def start(publish, error):
         def read():
             # These are account IDs, never credentials or the key-store body.
             rows = registry.list_accounts()
-            return {row['id']: accountusage.view(row, allow_fetch=True) for row in rows}
+            return {row['id']: api._accounts_usage(row['id']) for row in rows}
         return await asyncio.to_thread(read)
     result.add('registered_usage', registered_usage)
     result.add('prefer_reserve_default', lambda: api.defaults_get()['prefer_reserve'])
