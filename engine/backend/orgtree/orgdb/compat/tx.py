@@ -46,13 +46,14 @@ def _writes_settings(tx: orgtx.OrgTx) -> bool:
 
 def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
                mail_owners: list[str] | None = None, all_nodes: bool = False,
-               whole: bool = False) -> str | None:
+               whole: bool = False, archive: bool = False) -> str | None:
     """``orgtx._lock_block`` for an org database: one DO block, entries in plan order."""
-    if not entries and not mail_owners and not all_nodes:
+    if not entries and not mail_owners and not all_nodes and not archive:
         return None
     from psycopg import sql   # noqa: PLC0415
     from .. import docket_locks
-    role_ids, role_names = docket_locks.transaction_scope(raw, entries, all_nodes=all_nodes, whole=whole)
+    role_ids, role_names = docket_locks.transaction_scope(
+        raw, entries, all_nodes=all_nodes, whole=whole, archive=archive)
     m = R.model()
     lines: list[str] = []
     items: list[str] = []
@@ -298,7 +299,8 @@ class OrgDbBackend:
                         e for e in orgtx._lock_plan(tx, ids)            # pyright: ignore[reportPrivateUsage]
                         if not (e[0] == "org" or (tx.all_nodes and e[0] == "node"))],
                         mail_owners=sorted(tx.lock_nodes) if "mail_log" in tx.logs else [],
-                        all_nodes=tx.all_nodes, whole=tx.whole)
+                        all_nodes=tx.all_nodes, whole=tx.whole,
+                        archive="work_items_archive" in tx.logs)
                     if block is not None:
                         raw.execute(block)
             except Exception as e:

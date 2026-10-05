@@ -394,6 +394,48 @@ class DocketAgentLocks(unittest.TestCase):
                 f.item(tx.org, 'owned-item')['title'] = 'whole role write'
             self.assertEqual(f.item(store.load_org(twins.copy), 'owned-item')['title'], 'whole role write')
 
+    def test_recorded_born_mismatch_locks_both_identities_before_item_changes(self):
+        import psycopg
+        # The compatibility fixture's dev role has born='b-dev', while its
+        # live node has seat_id='seat-dev': conversion preserves a tombstone.
+        twins = f.f.Twins('docket-role-namesakes')
+        with registry.connection(twins.copy) as raw:
+            identities = raw.execute("SELECT id,tombstone FROM orgtree.agents WHERE name='dev'").fetchall()
+            self.assertEqual(sorted(tomb for _, tomb in identities), [False, True])
+            original = raw.execute("SELECT owner_agent_id FROM orgtree.work_items WHERE slug='fix-the-thing'").fetchone()[0]
+        with f.f.storage(True):
+            with orgtx.org_tx(twins.copy, sections=['work_items']) as tx:
+                for aid, _ in identities:
+                    with self.assertRaises(psycopg.errors.LockNotAvailable):
+                        with registry.connection(twins.copy) as probe, probe.transaction():
+                            probe.execute('SELECT id FROM orgtree.agents WHERE id=%s FOR UPDATE NOWAIT', (aid,))
+                tx.d['work_items'][0]['title'] = 'same recorded owner'
+                tx.d['work_items'].append(f.f.item('third-item', 'Third'))
+            with registry.connection(twins.copy) as raw:
+                owners = raw.execute("SELECT owner_agent_id FROM orgtree.work_items WHERE slug=ANY(%s)",
+                                     (['fix-the-thing', 'third-item'],)).fetchall()
+                self.assertEqual(owners, [(original,), (original,)])
+
+    def test_archive_list_log_only_plans_existing_role_namesakes(self):
+        import psycopg
+        twins = f.f.Twins('docket-archive-only')
+        with f.f.storage(True):
+            org = store.load_org(twins.copy)
+            record = org.d['work_items'].pop(1)
+            record['archived_at'] = f.f.AT
+            store.log_append(org.d, 'work_items_archive', record)
+            store.save_org(org)
+            with orgtx.org_tx(twins.copy, logs=['work_items_archive']) as tx:
+                raw = store._orgtx_local.pinned[twins.copy].raw
+                identities = raw.execute("SELECT id FROM orgtree.agents WHERE name='dev'").fetchall()
+                self.assertEqual(len(identities), 2)
+                for aid, in identities:
+                    with self.assertRaises(psycopg.errors.LockNotAvailable):
+                        with registry.connection(twins.copy) as probe, probe.transaction():
+                            probe.execute('SELECT id FROM orgtree.agents WHERE id=%s FOR UPDATE NOWAIT', (aid,))
+                tx.d['work_items_archive'][0]['title'] = 'archive only'
+            self.assertEqual(store.load_org(twins.copy).d['work_items_archive'][0]['title'], 'archive only')
+
     def test_compat_item_archive_append_replace_and_whole_list_use_early_plan(self):
         twins = f.f.Twins('docket-compat-entry', before=f.prepare_legacy)
         with f.f.storage(True):

@@ -174,12 +174,13 @@ def resolver(c: Any):
 
 
 def transaction_scope(c: Any, entries: Iterable[tuple[str, str, bool]], *,
-                      all_nodes: bool = False, whole: bool = False) -> tuple[set[int], set[str]]:
+                      all_nodes: bool = False, whole: bool = False,
+                      archive: bool = False) -> tuple[set[int], set[str]]:
     """Read role links before the transaction's single combined agent tier."""
     from .. import orgtx
     from .compat import rows as R
     entries = list(entries)
-    if not whole and not any((kind == 'section' and key.partition(R.SEP)[0] in
+    if not whole and not archive and not any((kind == 'section' and key.partition(R.SEP)[0] in
                              ('work_items', 'work_items_archive')) or
                (kind == 'log' and json.loads(key)[0] == 'work_items_archive')
                for kind, key, _ in entries):
@@ -190,6 +191,10 @@ def transaction_scope(c: Any, entries: Iterable[tuple[str, str, bool]], *,
             'SELECT name FROM orgtree.agents WHERE NOT tombstone').fetchall())
     if whole:
         ids |= linked(c, 'true', ())
+    elif archive:
+        # List-log declarations are appendable and deliberately absent from
+        # orgtx._lock_plan. Their existing current roles still precede items.
+        ids |= linked(c, "w.list_key='archive'", ())
     for kind, key, _ in entries:
         if kind == 'node' and key != orgtx._ALL_NODES_KEY:
             names.add(key)
@@ -201,12 +206,14 @@ def transaction_scope(c: Any, entries: Iterable[tuple[str, str, bool]], *,
                 ids |= linked(c, "w.list_key='archive'", ())
         elif kind == 'log' and json.loads(key)[0] == 'work_items_archive':
             ids |= linked(c, "w.list_key='archive'", ())
-    # Declared names can become new current roles in the body. Retained rows
-    # of those names need the same tier, even when no live agent exists.
-    ids |= named(c, names)
     if ids:
         names.update(str(n) for n, in c.execute(
             'SELECT name FROM orgtree.agents WHERE id=ANY(%s)', (sorted(ids),)).fetchall())
+    # Resolving a recorded role checks its live namesake even when the stored
+    # FK retains a different born/generation tombstone. Lock every identity
+    # of those names now; continuity still determines which FK is written.
+    # Declared names can also become new roles without granting other writes.
+    ids |= named(c, names)
     return ids, names
 
 
