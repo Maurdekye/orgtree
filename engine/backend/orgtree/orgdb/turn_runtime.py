@@ -18,7 +18,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from .. import turnqueue, turnslots
-from . import conn, jobs, names, turn_context as context, turn_requests as requests
+from . import app_pool, conn, jobs, names, turn_context as context, turn_requests as requests
 from .turn_forwarder import Bridge
 
 LOG = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ class Host:
     @contextmanager
     def app_connection(self) -> Iterator[Any]:
         with self._app_slots:
-            with conn.connect(self.runtime, names.app(self.prefix),
+            with app_pool.connection(self.runtime, names.app(self.prefix),
                               application_name='orgtree-turn-host') as c:
                 yield c
 

@@ -11,7 +11,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
-from orgtree.orgdb import accounts, app_pool, conn, lifecycle, names
+from orgtree import turnqueue, turnslots
+from orgtree.orgdb import accounts, app_pool, conn, jobs, lifecycle, names, turn_runtime
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
 RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
@@ -96,6 +97,7 @@ class AppPool(unittest.TestCase):
             with self.assertRaisesRegex(psycopg.OperationalError, 'lost acknowledgement'):
                 with accounts.connection() as raw:
                     raw.execute('BEGIN')
+                    self.addCleanup(raw.close)
                     raw.execute('UPDATE orgtree.app_settings SET accounts_version=accounts_version+1')
                     commit = raw.commit
                     def committed_then_lost():
@@ -148,13 +150,75 @@ class AppPool(unittest.TestCase):
 
     def test_idle_cap_and_expiry_do_not_limit_active_sessions(self):
         with contextlib.ExitStack() as stack:
-            held = [stack.enter_context(accounts.connection()) for _ in range(app_pool.MAX_IDLE+1)]
+            held = [stack.enter_context(app_pool.connection(RUNTIME, names.app(),
+                       application_name=f'outage-cap-{i}')) for i in range(app_pool.MAX_IDLE+1)]
             self.assertEqual(len({raw.info.backend_pid for raw in held}), app_pool.MAX_IDLE+1)
         self.assertEqual(sum(not raw.closed for raw in held), app_pool.MAX_IDLE)
         with mock.patch.object(app_pool, 'IDLE_SECONDS', 0):
             with accounts.connection() as fresh:
                 self.assertNotIn(fresh, held)
         self.assertTrue(all(raw.closed for raw in held))
+
+    def test_account_host_and_registry_share_backend_with_current_label(self):
+        host = turn_runtime.Host(RUNTIME, self.lc.instance_id, prefix=PREFIX)
+        runtime = jobs.Runtime(RUNTIME, prefix=PREFIX)
+        with accounts.connection() as first:
+            pid = first.info.backend_pid
+            self.assertEqual(first.execute('SHOW application_name').fetchone()[0], 'orgtree-accounts')
+        with host.app_connection() as second:
+            self.assertEqual(second.info.backend_pid, pid)
+            self.assertEqual(second.execute('SHOW application_name').fetchone()[0], 'orgtree-turn-host')
+        execute = first.execute
+        labels = []
+        def record(statement, *args, **kwargs):
+            if statement.startswith('SELECT org_id, slug, database'):
+                labels.append(execute('SHOW application_name').fetchone()[0])
+            return execute(statement, *args, **kwargs)
+        with mock.patch.object(first, 'execute', record):
+            self.assertEqual(runtime.active_orgs(), [])
+        self.assertEqual(labels, ['orgtree-jobs-registry'])
+        with accounts.connection() as third:
+            self.assertEqual(third.info.backend_pid, pid)
+            self.assertEqual(third.execute('SHOW application_name').fetchone()[0], 'orgtree-accounts')
+
+    def test_actual_listener_stop_discards_subscription_before_recheckout(self):
+        host = turn_runtime.Host(RUNTIME, self.lc.instance_id, prefix=PREFIX)
+        listener = turnslots.DatabaseSlots()
+        ready = threading.Event()
+        opened = []
+        connect = conn.connect
+        def capture(*args, **kwargs):
+            raw = connect(*args, **kwargs)
+            opened.append(raw)
+            return raw
+        with mock.patch.object(turnslots, '_configured', return_value=(host.queue, self.lc.instance_id)), \
+             mock.patch.object(turnqueue, 'HEARTBEAT_SECONDS', 0.05), \
+             mock.patch.object(listener, '_changed', side_effect=ready.set), \
+             mock.patch.object(conn, 'connect', capture):
+            try:
+                listener._start()
+                self.assertTrue(ready.wait(5), 'actual LISTEN did not become ready')
+                self.assertEqual(len(opened), 1)
+                subscribed = opened[0]
+                pid = subscribed.info.backend_pid
+                self.assertEqual(subscribed.execute('SELECT pg_listening_channels()').fetchall(),
+                                 [('turn_tickets',)])
+            finally:
+                listener.close()
+        self.assertFalse(listener._thread.is_alive())
+        self.assertTrue(subscribed.closed)
+        with accounts.connection() as next_raw:
+            self.assertNotEqual(next_raw.info.backend_pid, pid)
+            self.assertEqual(next_raw.execute('SELECT pg_listening_channels()').fetchall(), [])
+
+    def test_database_targets_do_not_share_sessions(self):
+        with app_pool.connection(RUNTIME, names.app(), application_name='outage-isolation') as first:
+            pid = first.info.backend_pid
+        with app_pool.connection(RUNTIME, 'postgres', application_name='outage-isolation') as other:
+            self.assertNotEqual(other.info.backend_pid, pid)
+            self.assertEqual(other.execute('SELECT current_database()').fetchone(), ('postgres',))
+        with app_pool.connection(RUNTIME, names.app(), application_name='outage-isolation') as again:
+            self.assertEqual(again.info.backend_pid, pid)
 
     def test_runtime_target_changes_do_not_reuse_a_session(self):
         from psycopg.conninfo import make_conninfo

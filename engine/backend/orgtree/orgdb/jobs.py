@@ -27,7 +27,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Mapping
 
-from . import conn, names
+from . import app_pool, conn, names
 
 LOG = logging.getLogger(__name__)
 CHANNEL = 'org_jobs'
@@ -243,7 +243,7 @@ class Runtime:
         self.prefix = prefix or names.prefix()
 
     def active_orgs(self) -> list[Org]:
-        with conn.connect(self.base, names.app(self.prefix),
+        with app_pool.connection(self.base, names.app(self.prefix),
                           application_name='orgtree-jobs-registry') as c:
             rows = c.execute("SELECT org_id, slug, database, org_uuid::text FROM orgtree.orgs "
                              "WHERE state = 'active' AND op_kind IS NULL ORDER BY org_id").fetchall()

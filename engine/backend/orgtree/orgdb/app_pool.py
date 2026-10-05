@@ -1,6 +1,6 @@
 """Idle runtime app sessions; no transaction body or commit is ever retried.
 
-Account reads used to start a PostgreSQL backend for every operation. Retain
+App callers used to start a PostgreSQL backend for every operation. Retain
 up to four clean sessions for ten idle minutes, independently of the shared
 registry connection. This is an idle cache, not an active-connection limit:
 callers never wait while holding other transaction resources.
@@ -18,7 +18,7 @@ from . import conn
 MAX_IDLE = 4
 IDLE_SECONDS = 600.0
 # Include the entire runtime target: distinct roles/clusters must never mix.
-Key = tuple[str, str, str]
+Key = tuple[str, str]
 _idle: list[tuple[Key, Any, float]] = []
 _lock = threading.Lock()
 
@@ -28,7 +28,7 @@ def _close(raw: Any) -> None:
         raw.close()
 
 
-def _take(key: Key) -> Any:
+def _take(key: Key, application: str) -> Any:
     import psycopg
     now = time.monotonic()
     stale = []
@@ -48,11 +48,14 @@ def _take(key: Key) -> Any:
         try:
             if found.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
                 raise psycopg.OperationalError('idle app session has an open transaction')
-            found.execute('SELECT 1')
+            found.execute("SELECT set_config('application_name', %s, false)", (application,))
             return found
         except psycopg.Error:
             _close(found)
-    base, database, application = key
+        except BaseException:
+            _close(found)
+            raise
+    base, database = key
     return conn.connect(base, database, application_name=application)
 
 
@@ -62,6 +65,10 @@ def _put(key: Key, raw: Any) -> None:
         if raw.closed or raw.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
             return
         raw.autocommit = True
+        # A stopped turn-slot listener retains subscriptions and may have
+        # client-side notification backlog. Close it instead of caching it.
+        if raw.execute('SELECT pg_listening_channels()').fetchone() is not None:
+            return
         raw.execute('RESET ALL')
         with _lock:
             if len(_idle) < MAX_IDLE:
@@ -88,8 +95,8 @@ def connection(base: str, database: str, *, application_name: str) -> Iterator[A
     """Preserve psycopg's commit/rollback context semantics without closing a
     healthy session. Only a failed pre-body health check may reconnect. Any
     body or commit failure discards the session, without repeating work."""
-    key = (base, database, application_name)
-    raw = _take(key)
+    key = (base, database)
+    raw = _take(key, application_name)
     try:
         try:
             yield raw
