@@ -361,6 +361,20 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
 
 ### Background work, the feed and turns
 
+- **Panel records (B4c1):** migration 0019 appends shared inbox/events and subscribed
+  mailbox/history windows. Later panel migrations compose all earlier extensions through
+  `orgdb/record_panel_sql.py`; never rewrite shipped 0018. Mail recipient-first ties and
+  pending-delivery exclusion resolve read-only after the revision lock. Recipient sender
+  enumeration uses indexed seeks, not DISTINCT over inactive mail history. [verified
+  2026-10-05: `orgdb/record_panels.py`, `record_mail_sql.py`]
+- **Mailbox delivery stages** are host-clock overlays, retained only for subscribed
+  mailboxes and refreshed from changed snapshot inputs. Subscription readiness is false
+  until the current generation's final page; a reset or renewal clears it. Chat uses
+  identity-fenced `after` cursors on agent frames/focus, with assistant revisions separate
+  from new messages; scratch refreshes on turn end, completed file delivery and focus.
+  Direct file delivery emits its invalidation only after commit; attachment helpers do
+  not. [verified 2026-10-05: `record_host.py`, `chat_after.py`, `api.py`, renderer
+  `recordfeed.ts`, `recordscratch.ts`, `convo.ts`]
 - **Every polling loop that reads org tables becomes a job row** in the org database, written
   by the transaction that creates the condition and claimed with `FOR UPDATE SKIP LOCKED`.
   Timers that read outside state (provider usage, update checks, the mail hub) stay timers
