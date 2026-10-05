@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { projectEvents, projectHistory, projectMailbox, projectUserInbox } from '../src/recordpanels'
 import type { RecordTable } from '../src/recordfeed'
+import { RecordOverlay } from '../src/recordoverlay'
 
 const table = (...entries: [string, [string, unknown][]][]): RecordTable =>
   new Map(entries.map(([entity, rows]) => [entity, new Map(rows)]))
@@ -34,4 +35,15 @@ test('mailbox overlays stages without mutating durable rows or mixing folders', 
   assert.deepEqual(result.sent.map(row => row.id), ['earlier', 'later'])
   assert.deepEqual(result.delivered.map(row => row.id), ['d'])
   assert.equal(projectMailbox(records, new Map(), '7').pending[0].stage, undefined)
+})
+
+test('mailbox stage survives the runtime allowlist and an older full copy cannot restore it', () => {
+  const identity = { org_uuid: 'org-id', incarnation: 'inc' }
+  const frame = (seq: number, stage: string, full = false) => ({ ...identity,
+    type: 'agent_runtime' as const, epoch: 'host', seq, full,
+    agents: { '7': { epoch: 'host', seq, mail_stages: { batch: stage } } } })
+  let overlay = new RecordOverlay(identity).receive(frame(1, 'queued', true), true)
+  overlay = overlay.receive(frame(3, 'steer'))
+  overlay = overlay.receive(frame(2, 'queued', true))
+  assert.deepEqual(overlay.values.get('7')?.mail_stages, { batch: 'steer' })
 })

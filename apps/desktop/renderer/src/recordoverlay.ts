@@ -12,7 +12,7 @@ export const agentRuntimeFields = new Set(`busy waiting queued_for_slot respondi
   proc_paused proc_control_enabled proc_control_action proc_control_reason
   mcp_tool_count mcp_tool_count_provider mcp_tool_count_source mcp_tool_count_reason
   mcp_readiness_waiting mcp_readiness_state mcp_readiness_reason
-  tasks bg_tasks last_error activity cache_forecast ask_linger_visible context_window`.split(/\s+/))
+  tasks bg_tasks last_error activity cache_forecast ask_linger_visible context_window mail_stages`.split(/\s+/))
 
 /** The first FULL copy on a socket establishes that socket's host epoch.
  * HTTP copies can update an established epoch, never establish a different
