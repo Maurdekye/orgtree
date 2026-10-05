@@ -212,6 +212,13 @@ end of this section says so.
   `orgdb/registry.py`, `orgdb/turn_runtime.py`; decided: coordinator 2026-10-05, outage
   ticket decision 3]
 
+- **Prompt-view capture:** a complete JSONL row with invalid JSON or text encoding is skipped
+  with a warning containing only a source-identity hash and byte offset. The cursor advances
+  in the same transaction as captured rows; valid following rows survive and an incomplete
+  last line waits for completion. Catch `UnicodeDecodeError` as well as `JSONDecodeError`:
+  otherwise the bad row rolls back cursor progress and retries forever. [verified 2026-10-05:
+  `transcript_records.py::ingest_prompt_views`, `tests/test_transcript_records.py`]
+
 ### Turns, jobs and the feed: built today vs. 3.2.0
 
 | Part | On v3 now | 3.2.0 target |
@@ -305,7 +312,9 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   and takes no row lock; the one allowlisted exception is the `agents` subtree-stats
   triggers. Writers do not force deferred checks (`SET CONSTRAINTS … IMMEDIATE`); the single
   exception is the migration runner checking two named docket-pointer foreign keys for
-  migration 0016 (2026-10-05). A value derived from other rows is a generated column, kept
+  migration 0016 (2026-10-05). The source audit matches the entire SQL, module and lexical
+  function path; other constraint sets, appended statements and locations remain rejected.
+  [verified 2026-10-05: `tests/test_orgdb_lock_order.py`] A value derived from other rows is a generated column, kept
   at statement time under the writer's own locks, kept under the revision row (the two
   counter tables), or computed by the reader. Changing any of this means changing the
   lock-order test, whose negative controls must keep failing. [decided: design revs 7.5,
