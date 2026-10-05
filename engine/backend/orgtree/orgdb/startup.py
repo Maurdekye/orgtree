@@ -128,8 +128,12 @@ def start(*, runtime: str, data_root: str, admin: str | None = None, lc: Any = N
     report["first_pass"] = first_pass(lc, data_root, child_env, step)
     step("database-orgdb-resume")
     report["resumed"] = resume_claims(lc, data_root)
-    step("database-orgdb-migrate")
+    # Schema upgrades can rewrite an existing org in one transaction. Give
+    # them the same bounded window as the initial conversion; the ordinary
+    # 60-second desktop deadline can otherwise repeatedly roll back real work.
+    step(f"{CONVERT_PHASE}: upgrading organization schemas")
     report["migrations"] = lc.migrate_orgs()
+    step("database-orgdb-migrated")
     report["retried"] = retry_new_build(lc, data_root, child_env, step)
     # The host owns the data-root lock and the guardian has stopped the
     # previous engine tree before this lifecycle was bootstrapped. Org
