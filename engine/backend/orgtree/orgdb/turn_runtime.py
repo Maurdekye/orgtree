@@ -118,8 +118,8 @@ class Host:
         from psycopg.conninfo import make_conninfo
         base = make_conninfo(self.runtime, connect_timeout=5,
                              options='-c statement_timeout=5000')
-        with conn.connect(base, names.app(self.prefix),
-                          application_name='orgtree-turn-heartbeat') as c:
+        with app_pool.connection(base, names.app(self.prefix),
+                                 application_name='orgtree-turn-heartbeat') as c:
             yield c
 
     @contextmanager

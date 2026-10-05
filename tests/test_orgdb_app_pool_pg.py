@@ -189,6 +189,47 @@ class AppPool(unittest.TestCase):
             self.assertEqual(third.info.backend_pid, pid)
             self.assertEqual(third.execute('SHOW application_name').fetchone()[0], 'orgtree-accounts')
 
+    def test_heartbeat_reuses_its_timeout_target_and_lease_queue(self):
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
+        base = make_conninfo(RUNTIME, options='-c statement_timeout=17000')
+        host = turn_runtime.Host(base, self.lc.instance_id, prefix=PREFIX)
+        with host.app_connection() as ordinary:
+            ordinary_pid = ordinary.info.backend_pid
+            self.assertEqual(ordinary.execute('SHOW statement_timeout').fetchone()[0], '17s')
+        with mock.patch.object(conn, 'connect', wraps=conn.connect) as opened:
+            self.assertEqual(host._lease_queue.heartbeat(self.lc.instance_id), [])
+            self.assertEqual(host._lease_queue.heartbeat(self.lc.instance_id), [])
+            pids = []
+            for _ in range(2):
+                with host.heartbeat_connection() as raw:
+                    pids.append(raw.info.backend_pid)
+                    self.assertEqual(raw.execute('SHOW statement_timeout').fetchone()[0], '5s')
+                    self.assertEqual(raw.execute('SHOW application_name').fetchone()[0],
+                                     'orgtree-turn-heartbeat')
+                    self.assertEqual(conninfo_to_dict(raw.info.dsn)['connect_timeout'], '5')
+            self.assertEqual(opened.call_count, 1)
+        self.assertEqual(len(set(pids)), 1)
+        self.assertNotEqual(pids[0], ordinary_pid)
+        with host.app_connection() as ordinary_again:
+            self.assertEqual(ordinary_again.info.backend_pid, ordinary_pid)
+            self.assertEqual(ordinary_again.execute('SHOW statement_timeout').fetchone()[0], '17s')
+
+    def test_heartbeat_bypasses_exhausted_app_slots(self):
+        host = turn_runtime.Host(RUNTIME, self.lc.instance_id, prefix=PREFIX)
+        for _ in range(4):
+            self.assertTrue(host._app_slots.acquire(blocking=False))
+        self.assertFalse(host._app_slots.acquire(blocking=False))
+        def heartbeat():
+            return host._lease_queue.heartbeat(self.lc.instance_id)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            work = pool.submit(heartbeat)
+            try:
+                self.assertEqual(work.result(timeout=5), [])
+            finally:
+                # A deliberately broken app-slot adapter must not hang cleanup.
+                for _ in range(4):
+                    host._app_slots.release()
+
     def test_actual_listener_stop_discards_subscription_before_recheckout(self):
         host = turn_runtime.Host(RUNTIME, self.lc.instance_id, prefix=PREFIX)
         listener = turnslots.DatabaseSlots()
