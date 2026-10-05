@@ -562,16 +562,20 @@ def _node_cas(conn: Any, p: Sequence[Any]) -> Result:
       "AS u(id, val, old) WHERE n.id = u.id AND n.val = u.old RETURNING n.id")
 def _nodes_cas_batch(conn: Any, p: Sequence[Any]) -> Result:
     ids, vals, olds = p
-    done = []
     with conn.atomic(write=True):
+        names = _names(conn)
         wanted = [name for name in ids if name not in conn.tx.rename_checked]
         current = {n: t for n, t, _ in R.nodes(conn.raw, wanted, lock=True)} if wanted else {}
+        writes = []
         for name, text, old in zip(ids, vals, olds):
             checked = conn.tx.rename_checked.pop(name, None)
             actual = checked if checked is not None else current.get(name)
             if actual is not None and R.same(actual, old):
-                _node_write(conn, name, text, checked)
-                done.append((name,))
+                writes.append((name, text, checked))
+        from .. import graph   # noqa: PLC0415
+        for name, text, checked in graph.write_order(conn.raw, writes, names):
+            _node_write(conn, name, text, checked)
+        done = [(name,) for name, _, _ in writes]
     return Result(done, len(done), write=True)
 
 
