@@ -22,6 +22,9 @@ class AppDatabase(unittest.TestCase):
         cls.first_id = fixture.registry.lookup(cls.twin.copy)[0]
         cls.other_id = fixture.registry.lookup(cls.other.copy)[0]
 
+    def setUp(self):
+        self.enterContext(fixture.storage(True))
+
     @contextmanager
     def app(self):
         with fixture.dbconn.connect(fixture.ADMIN, fixture.names.app()) as raw:
@@ -121,9 +124,10 @@ class AppDatabase(unittest.TestCase):
         original = app_reads._notices
         baseline = app_reads.org_snapshot(row)
         def committed_between(raw, slug):
-            with fixture.store.org_tx(slug) as org:
-                org.d['name'] = 'after summary snapshot'
-                org.d['user_inbox'].append(dict(id='late-mail', body='late', **{'from': 'dev'}))
+            org = fixture.store.load_org(slug)
+            org.d['name'] = 'after summary snapshot'
+            org.d.setdefault('user_inbox', []).append(dict(id='late-mail', body='late', **{'from': 'dev'}))
+            fixture.store.save_org(org)
             return original(raw, slug)
         with patch.object(app_reads, '_notices', side_effect=committed_between):
             held = app_reads.org_snapshot(row)
