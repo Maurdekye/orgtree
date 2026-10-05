@@ -2,6 +2,8 @@
 import import_provenance  # noqa: F401  own checkout before importing orgtree
 
 from contextlib import contextmanager
+import asyncio
+import json
 import threading
 import time
 import unittest
@@ -117,6 +119,145 @@ class AppDatabase(unittest.TestCase):
         org = fixture.store.load_org(row['slug'])
         expected = desktop_notifications._attention(org)[0] + desktop_notifications._frozen(org)
         self.assertEqual(actual['notices'], expected)
+
+    def test_all_notice_categories_match_original_including_exclusions(self):
+        from orgtree import desktop_notifications
+        from orgtree.orgdb import app_reads
+        org = fixture.store.load_org(self.other.copy)
+        org.d['asks'] = [
+            dict(id='batch', node='dev', status='open', questions=[dict(question='First tab?')]),
+            dict(id='closed', node='dev', status='answered', question='Hidden'),
+            dict(id='retired', node='ops', status='open', question='Hidden retired')]
+        org.d['nodes']['dev']['frozen'] = dict(at=fixture.AT, reason='usage')
+        org.d['nodes']['ops']['state'] = 'retired'
+        org.d['nodes']['ops']['frozen'] = dict(at=fixture.AT, reason='historical')
+        org.d['user_inbox'] = [
+            dict(id='routine', body='Ordinary', **{'from': 'dev'}),
+            dict(id='urgent', urgent=True, urgent_reason='Act now', **{'from': 'dev'}),
+            dict(id='terminal', urgent=True, body='Stopped',
+                 ev=dict(variant='runtime.turn_failed_terminal'), **{'from': 'dev'})]
+        item = fixture.item('manual', 'Manual attention')
+        item.update(manual_attention=dict(reason='Check this', set_rev=7),
+                    notification_attention_epoch=3, notification_attention_active=True)
+        org.d['work_items'] = [item, fixture.item('ordinary', 'No attention')]
+        org.d['documents'] = [dict(id='doc', node='dev', title='Report', body='Not in notice')]
+        fixture.store.save_org(org)
+        row = next(r for r in fixture.registry.rows() if r['org_id'] == self.other_id)
+        actual = app_reads.org_snapshot(row)['notices']
+        loaded = fixture.store.load_org(self.other.copy)
+        expected = desktop_notifications._attention(loaded)[0] + desktop_notifications._frozen(loaded)
+        self.assertEqual(actual, expected)
+        self.assertEqual({n['kind'] for n in actual}, {'question', 'routine', 'urgent-mail',
+            'terminal-failure', 'work-attention', 'document', 'agent-frozen'})
+        self.assertEqual(len(actual), 7)
+        self.assertEqual(next(n['body'] for n in actual if n['kind'] == 'question'), 'First tab?')
+
+    def test_lost_app_notification_converges_without_later_commit(self):
+        asyncio.run(self._listener_recovery(app=True, killed=False))
+
+    def test_killed_app_listener_converges_without_later_commit(self):
+        asyncio.run(self._listener_recovery(app=True, killed=True))
+
+    def test_lost_org_notification_converges_without_registry_write(self):
+        asyncio.run(self._listener_recovery(app=False, killed=False))
+
+    def test_killed_org_listener_converges_without_registry_write(self):
+        asyncio.run(self._listener_recovery(app=False, killed=True))
+
+    async def _listener_recovery(self, *, app, killed):
+        from orgtree import pgfeed
+        from orgtree.orgdb import app_reads
+        from orgtree.orgdb.app_host import AppHost
+        from orgtree.orgdb.record_runtime import HostClock
+        loop = asyncio.get_running_loop()
+        errors, connections, dropped = [], [], []
+        listening, release = threading.Event(), threading.Event()
+        async def read_registry():
+            return await asyncio.to_thread(app_reads.registry_snapshot)
+        async def read_org(row):
+            return await asyncio.to_thread(app_reads.org_snapshot, row)
+        host = AppHost(read_registry, read_org, errors.append, clock=HostClock(), interval=.01)
+        await host.ready()
+        await host.idle()
+        queue = await host.connect()
+        await queue.take()  # initial full copy
+        factory = app_reads.AppConnection if app else pgfeed.orgdb_conn
+        class GatedConnection:
+            def __init__(self):
+                self.inner = factory()
+                self.first = not connections
+                connections.append(self.inner)
+            def __getattr__(self, key):
+                return getattr(self.inner, key)
+            def notifications(self, timeout):
+                if self.first:
+                    self.first = False
+                    listening.set()  # LISTEN and initial revision read both completed
+                    if not release.wait(8):
+                        raise TimeoutError('test did not release listener barrier')
+                for payload in self.inner.notifications(timeout):
+                    # Deliberately lose real notifications, not their source commits.
+                    dropped.append(payload)
+                    if killed:
+                        yield payload
+        def observed(slug, rev, gap):
+            if app:
+                loop.call_soon_threadsafe(host.refresh.wake)
+            else:
+                loop.call_soon_threadsafe(host.observed, slug, rev, gap)
+        feed = pgfeed.RevisionFeed(GatedConnection, observed, poll_s=.05, retry_s=.02)
+        feed.start()
+        try:
+            self.assertTrue(await asyncio.to_thread(listening.wait, 8))
+            with self.app() as raw:
+                registry_before = self.revision(raw)
+                if killed:
+                    inner = connections[0]
+                    session = inner.raw if app else inner.c[self.twin.copy][1]
+                    self.assertTrue(raw.execute('SELECT pg_terminate_backend(%s)',
+                                                (session.info.backend_pid,)).fetchone()[0])
+                if app:
+                    raw.execute('UPDATE orgtree.orgs SET attempts=attempts+1 WHERE org_id=%s',
+                                (self.first_id,))
+            if app:
+                target = app_reads.registry_snapshot()[0]['rev']
+            else:
+                org = fixture.store.load_org(self.twin.copy)
+                org.d['name'] = 'recovered ' + str(time.monotonic_ns())
+                org.d['nodes']['dev']['cost_usd'] += 1
+                fixture.store.save_org(org)
+                row = next(r for r in fixture.registry.rows() if r['org_id'] == self.first_id)
+                target = app_reads.org_snapshot(row)['rev']
+            # No writes after this barrier. Only catch-up can recover the last state.
+            release.set()
+            async def delivered():
+                while True:
+                    frame = json.loads(await queue.take())
+                    if app and frame['type'] == 'registry_snapshot' and frame['cursor']['rev'] == target:
+                        return frame
+                    if (not app and frame['type'] == 'org_summary'
+                            and frame['org_id'] == self.first_id and frame['rev'] == target):
+                        return frame
+            frame = await asyncio.wait_for(delivered(), 8)
+            if app:
+                cursor, records = app_reads.registry_snapshot()
+                self.assertEqual((frame['cursor'], frame['records']), (cursor, records))
+                self.assertEqual(cursor['rev'], registry_before + 1)
+            else:
+                self.assertEqual(frame['body'], app_reads.org_snapshot(row)['body'])
+                with self.app() as raw:
+                    self.assertEqual(self.revision(raw), registry_before)
+            if killed:
+                inner = connections[0]
+                self.assertTrue(feed.stats.reconnects if app else inner.errors)
+            else:
+                self.assertTrue(dropped, 'control must actually lose a delivered PG notification')
+            self.assertFalse(errors)
+        finally:
+            release.set()
+            await asyncio.to_thread(feed.stop, 2)
+            self.assertFalse(feed._thread.is_alive())
+            await host.close()
 
     def test_summary_and_notices_do_not_observe_commit_between_their_reads(self):
         from orgtree.orgdb import app_reads
