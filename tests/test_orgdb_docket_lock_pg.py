@@ -175,7 +175,7 @@ class DocketAgentLocks(unittest.TestCase):
                 caught = None
                 try:
                     with orgtx.org_tx(twins.copy, nodes=declared,
-                                      sections=[('work_items', 'owned-item')]) as tx:
+                                      sections=['work_items']) as tx:
                         tx.d['nodes']['worker']['title'] = 'widened write'
                         record = f.item(tx.org, 'owned-item')
                         record['owner'] = tx.org._work_holder('taken')
@@ -197,7 +197,7 @@ class DocketAgentLocks(unittest.TestCase):
         with f.f.storage(True):
             before = f.rows(twins.copy)
             with self.assertRaises(orgtx.UnlockedWrite):
-                with orgtx.org_tx(twins.copy, sections=[('work_items', 'owned-item')]) as tx:
+                with orgtx.org_tx(twins.copy, sections=['work_items']) as tx:
                     # worker is physically locked for the existing owner FK,
                     # but the transaction never declared an agent write.
                     tx.d['nodes']['worker']['title'] = 'unauthorized'
@@ -242,6 +242,30 @@ class DocketAgentLocks(unittest.TestCase):
                                   "WHERE w.slug='owned-item'").fetchone()
                 self.assertEqual(tuple(row), ('new-role', False, 'missing-role', True, 'missing-birth', 7))
             self.assertEqual(f.item(store.load_org(twins.copy), 'owned-item')['reviewer'], record['reviewer'])
+
+    def test_successful_insert_witness_rolls_back_with_the_new_row_and_retry_works(self):
+        twins = f.f.Twins('docket-birth-rollback', before=f.prepare_legacy)
+        with f.f.storage(True):
+            node = copy.deepcopy(store.load_org(twins.copy).nodes['taken'])
+        with registry.connection(twins.copy) as raw:
+            with raw.transaction():
+                ids = f.ids(twins.copy)
+                docket_locks.lock(raw, ids.values(), [*ids, 'new-nested'])
+                before = docket_locks.plan(raw)
+                with self.assertRaisesRegex(RuntimeError, 'rollback birth'):
+                    with raw.transaction():
+                        R.node_put(raw, 'new-nested', node, R.Names(raw))
+                        born = raw.execute("SELECT id FROM orgtree.agents WHERE name='new-nested'").fetchone()[0]
+                        self.assertIn(born, docket_locks.plan(raw)['ids'])
+                        raise RuntimeError('rollback birth')
+                self.assertEqual(docket_locks.plan(raw), before)
+                self.assertIsNone(raw.execute("SELECT id FROM orgtree.agents WHERE name='new-nested'").fetchone())
+                R.node_put(raw, 'new-nested', node, R.Names(raw))
+                retry = raw.execute("SELECT id FROM orgtree.agents WHERE name='new-nested'").fetchone()[0]
+                self.assertNotEqual(retry, born)
+                self.assertIn(retry, docket_locks.plan(raw)['ids'])
+                self.assertNotIn(born, docket_locks.plan(raw)['ids'])
+            self.assertIsNone(docket_locks.plan(raw))
 
     def test_whole_org_plan_includes_retained_current_roles_and_all_live_nodes(self):
         twins = f.f.Twins('docket-whole-roles', before=f.prepare_legacy)

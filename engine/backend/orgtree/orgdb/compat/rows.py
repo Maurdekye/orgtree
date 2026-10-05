@@ -1467,6 +1467,8 @@ def node_put(c: Any, name: str, value: Any, names: Names) -> None:
         arow = out["agents"][0]
         if row is None:
             insert(c, "agents", [arow])
+            from .. import docket_locks
+            docket_locks.created(c, aid)
         else:
             _clear_node_rows(c, aid)
             _update_agent(c, aid, arow)
