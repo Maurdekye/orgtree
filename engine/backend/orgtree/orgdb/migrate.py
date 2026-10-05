@@ -97,6 +97,14 @@ def migrate(conn: Any, folder: pathlib.Path, lock_key: int) -> dict[str, Any]:
                     raise MigrationDrift(f"{p.name} changed after it was applied")
                 continue
             with conn.transaction():
+                if p.name == '0016_schema_conformance.sql':
+                    # The backfill updates work_items before altering its columns.
+                    # Populated current pointers queue deferred FK trigger events
+                    # (their kind columns are generated), which block that DDL.
+                    # Check these existing links immediately in this transaction;
+                    # do not change their schema defaults or the shipped SQL hash.
+                    conn.execute('SET CONSTRAINTS orgtree.current_verdict_event_id_fk, '
+                                 'orgtree.current_review_packet_event_id_fk IMMEDIATE')
                 conn.execute(data.decode("utf-8"))
                 conn.execute("INSERT INTO orgtree.schema_migrations(name, sha256) VALUES (%s, %s)",
                              (p.name, sha))
