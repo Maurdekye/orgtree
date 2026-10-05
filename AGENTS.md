@@ -17,7 +17,7 @@ changed, land a small follow-up commit that touches only this file.
   the source) or **[decided: `<who>` `<date>`]** (a recorded ruling: "user" is the product
   owner, "design" is [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md),
   "coordinator" is the team coordinator). Link the detailed doc.
-- Describe only what has landed on `v3/3.0.0-alpha.0`. Work still in review or on a private
+- Describe only what has landed on `dev`. Work still in review or on a private
   branch is not current behaviour: its entry goes in the landing that ships it.
 - When a rule changes, edit its entry in place and say what it replaced. Dead rules live
   only in [Removed and dead ideas](#removed-and-dead-ideas).
@@ -28,7 +28,7 @@ changed, land a small follow-up commit that touches only this file.
 - `main` is public. Never put secrets, tokens, email addresses, user names, personal paths
   or live data in this file.
 
-This first version was compiled on 2026-10-05 against `v3/3.0.0-alpha.0` at `6e53697`.
+This first version was compiled on 2026-10-05 at `6e53697`, before the development branch was renamed.
 
 ## Read this first
 
@@ -36,7 +36,7 @@ These rules prevent the mistakes that have cost the most: lost work, a crashed m
 wrong test verdicts and re-argued decisions.
 
 1. **What we build.** Orgtree 3 (3.x): an Electron desktop app, a Python engine and a
-   bundled PostgreSQL. All work lands on branch `v3/3.0.0-alpha.0`; `main` is moved to it
+   bundled PostgreSQL. All work lands on branch `dev`; `main` is moved to it
    at each release. The current project is **3.2.0, the data-model rewrite** (one
    PostgreSQL database per org), designed in
    [`docs/state-system/pg-data-model-design.md`](docs/state-system/pg-data-model-design.md);
@@ -47,7 +47,7 @@ wrong test verdicts and re-argued decisions.
    scratch folders live inside it, so touch only your own. [decided: team charter;
    verified: `apps/desktop/main/policy.ts`]
 3. **Work in your own git worktree.** `git fetch origin`, then
-   `python tools/worktree.py add <name> --base origin/v3/3.0.0-alpha.0` (the tool's default
+   `python tools/worktree.py add <name> --base origin/dev` (the tool's default
    base is `main`, and the local branch refs in the shared checkout are stale: always use
    `origin/...`). Never junction or symlink `node_modules` into a worktree (removing it
    deletes through the link: 783 MB was lost this way), and never copy it. Never work in
@@ -114,7 +114,7 @@ wrong test verdicts and re-argued decisions.
   with leases, and a second engine process. [decided: user 2026-10-02, design decisions 7,
   10, 12]
 
-**3.2.0 status on 2026-10-05** (check `git log origin/v3/3.0.0-alpha.0` before relying on it):
+**3.2.0 status on 2026-10-05** (check `git log origin/dev` before relying on it):
 
 - **Landed:** phase A (per-org databases, converter with `unavailable` and Retry,
   compatibility view, native agent and docket readers, accounts in the app database; new
@@ -123,7 +123,7 @@ wrong test verdicts and re-argued decisions.
   startup repairs (`d1c4e8c`); one shared registry connection cache (`ebb2af6`).
 - **Builds delivered** (local, never published): 3.2.0-alpha.0 on 2026-10-04 and
   3.2.0-alpha.1 on 2026-10-05; the user runs them on live data. alpha.1's startup failures
-  are fixed on v3 by `d1c4e8c`.
+  are fixed on `dev` by `d1c4e8c`.
 - **In flight:** the record feed, step 6: B4a (backend core and the tree) and B4b (the app
   feed); B4c1 (inbox, events, mail, history), B4c2 (gallery, docket, audiences) and B4d
   (time and retention jobs) follow.
@@ -136,7 +136,7 @@ wrong test verdicts and re-argued decisions.
 
 ## Architecture
 
-As built on `v3/3.0.0-alpha.0` on 2026-10-05; where 3.2.0 will differ, the table at the
+As built on `dev` on 2026-10-05; where 3.2.0 will differ, the table at the
 end of this section says so.
 
 ### Processes and the desktop–engine boundary
@@ -221,7 +221,7 @@ end of this section says so.
 
 ### Turns, jobs and the feed: built today vs. 3.2.0
 
-| Part | On v3 now | 3.2.0 target |
+| Part | On dev now | 3.2.0 target |
 | --- | --- | --- |
 | Turn admission | With `orgdb`: a durable `turn_requests` row in the org database, a `start_turn` job, then a `turn_tickets` row in `orgtree_app` claimed by the turn host. Otherwise the in-memory `turnslots.FairSlots`. Limit: App settings `max_concurrent_turns`, default 16 | the same, shared with the worker |
 | Jobs | `orgdb/jobs.py` exists, but only `start_turn` is enqueued. The polling loops (auto-resume, watchdogs, mail drain, keepers) still run as threads started by `api._recover_startup` | every loop that reads org tables becomes a job (B1–B3) |
@@ -283,7 +283,7 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   that is expected to be empty; a JSON column holds only a shapeless payload that nothing
   filters inside. PostgreSQL's JSON operators fail on a `\u0000` escape anywhere in a value,
   so such text stays in `extra`. [decided: design Q1, Q2; §3.0]
-- **Migration numbers are taken at landing:** the next free number on v3 when your migration
+- **Migration numbers are taken at landing:** the next free number on `dev` when your migration
   lands, never reserved earlier. [decided: drag-opus 2026-10-04, decision 32]
 
 ### Transactions and locks
@@ -522,9 +522,13 @@ rulings go here and on their ticket.
 
 ### Branches and worktrees
 
-- All work lands on `v3/3.0.0-alpha.0` by fast-forward. `main` is moved to v3 at each
+- **Development branch changed to `dev`** on 2026-10-05, created from v3.
+  `v3/3.0.0-alpha.0` is frozen at `318fc45`; never push new work there.
+  [decided: user 2026-10-05; verified: coordinator-confirmed remote refs]
+
+- All work lands on `dev` by fast-forward. `main` is moved to `dev` at each
   release, and releases are cut from it; the user's README-only commits go to `main` first
-  and are cherry-picked to v3. 2.x maintenance lives on `release/2.x`. [decided: team
+  and are cherry-picked to `dev`. 2.x maintenance lives on `release/2.x`. [decided: team
   charter; user 2026-09-30; verified: [`docs/windows-release.md`](docs/windows-release.md)]
 - Worktrees: `python tools/worktree.py add|verify|remove`; `remove` refuses when it finds a
   link leading out of the worktree. Settle overlapping files with the agent whose ticket
@@ -553,7 +557,7 @@ rulings go here and on their ticket.
   all run the full suites: coordinator or release owner only. [decided: user 2026-09-26]
 - **Per landing:** run only the modules your change touches, at base and tip, each call under
   20 minutes; land if no new test name fails. After a rebase that only moved the base,
-  re-run only tests touching files that changed on v3 in between. [decided: team charter]
+  re-run only tests touching files that changed on `dev` in between. [decided: team charter]
 - **The machine lock:** one heavy run at a time on the whole machine (scale runs,
   rehearsals, database batches, and any test stream that creates or drops PostgreSQL
   databases: each `DROP DATABASE` waits for a checkpoint, and two such streams stalled the
@@ -578,7 +582,7 @@ rulings go here and on their ticket.
 
 1. An independent reviewer records `approve_stage` on your exact commit; the coordinator
    grants the landing (often pre-granted in the ticket). The reviewer never lands.
-2. Rebase onto the current v3 and check `git range-diff` (all `=`, or explain each `!`).
+2. Rebase onto the current `dev` and check `git range-diff` (all `=`, or explain each `!`).
 3. Re-run your targeted tests, then `python tools/source-audits.py` (about a minute, no
    database): the one import-guard line in every test module, hub isolation, the
    child-spawn allowlist, duplicate definitions and BOMs, and the native vector anchors. If
@@ -587,8 +591,8 @@ rulings go here and on their ticket.
    `engine\runtime\python.exe engine/native/<crate>/oracle/generate_vectors.py --write`
    only if it fails on the anchors alone. Any other difference means an encoded rule
    changed: stop and find out why. [verified: `tools/source-audits.py`]
-4. Fast-forward push (`git push origin HEAD:refs/heads/v3/3.0.0-alpha.0`), then put the
-   `git ls-remote origin refs/heads/v3/3.0.0-alpha.0` output in your claim note. The
+4. Fast-forward push (`git push origin HEAD:refs/heads/dev`), then put the
+   `git ls-remote origin refs/heads/dev` output in your claim note. The
    docket's `pushed` claim checks the installed app, not this repo, so it refuses; record
    the ls-remote line as evidence instead. [decided: coordinator 2026-10-03]
 5. Update this file if you found a gotcha, an invariant or a ruling.
@@ -747,7 +751,7 @@ Do not rebuild, re-propose or "restore" these without a new ruling from the user
 - `docs/verification-recipes.md` shows a bare `python -m unittest` for backend tests: use
   `tools/run-python-verification.py`.
 - `docs/worktree-operations.md`: `--base` defaults to `main`; pass
-  `--base origin/v3/3.0.0-alpha.0`.
+  `--base origin/dev`.
 - `docs/engine-contract.md` predates PostgreSQL and the account system. It is still right
   for transport, tokens and attach, but the app does elevate (through UAC) when the user
   changes the Run-as-administrator setting, and an explicit Quit stops an attached engine.
