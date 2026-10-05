@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.7)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 7.8)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -20,6 +20,23 @@ reviews the implementation again before the local alpha build. The companion
     their history; `accepted_evidence_gap` is typed.
   - A.7 gains items 7–9: the docket's three bounded reader projections, with how each stays
     consistent and what checks it.
+
+- **Rev 7.8: tree integrity for the O(1) move (2026-10-05, O1 item
+  `3-2-0-o-1-agent-move-filesystem-style-design-pro`, decisions 5-7 and 14).** Rev 7.7 is the
+  G1-G11 schema piece, which lands separately; the two do not overlap.
+  - §2.2: rev 5's deferred `org_topology` guard is **withdrawn**. It was never built, and it
+    contradicted §2.4's lock order (a commit-time lock on a row that is not the revision row).
+    A move now checks cycles and the depth cap in its body, after its sorted locks are held and
+    its paths re-read under them. A final assertion, which takes no lock, re-checks the changed
+    roots' ancestor chains after the revision row, for raw and bulk writers too.
+  - §2.4: a new lock tier, `agent_subtree_stats`, comes right after the agents tier. A structural
+    writer takes every body lock before its first structural statement. The stats trigger is
+    the one named exception to "a trigger takes no row lock": it may lock only the stats rows on
+    its own statement's paths.
+  - §3.2-3.8 and A.2: `agent_subtree_stats` replaces `org_topology`.
+  - A.7: `agent_subtree_stats.parent_agent_id` is a deliberate duplicate of `agents.parent_id`,
+    with a verifier.
+  - The full move design is `pg-o1-move.md`.
 
 - **Rev 7.6: the durable turn request is the first lock tier (2026-10-03, B5).**
   Tools and result transactions hold the signed run's request row `FOR SHARE` on the native
@@ -277,7 +294,7 @@ second is an idempotent job (§2.7). Nothing relies on both commits happening to
 | Agent names unique | `UNIQUE (name) WHERE state <> 'deleted'`. A deleted agent keeps a tombstone row, so historical references stay valid keys (§3.0) |
 | Docket slugs unique and never reused | `UNIQUE (slug)` + `retired_slugs(slug)`, checked in the create transaction |
 | No overlapping reservations | `UNIQUE (resource) WHERE state = 'held'` (today's rule), `UNIQUE (integration_key)` |
-| No loop in the tree | one topology lock per org plus a deferred check at commit (**Tree changes**, below). It refuses; it derives nothing. |
+| No loop in the tree | the writer's own check under its sorted row locks, plus a final no-lock assertion over the changed roots after the revision row (**Tree changes**, below). It refuses; it derives nothing. |
 | The database belongs to this org | a one-row `org_identity(org_uuid, slug)` table. The engine compares it with the registry row on every pool open, so a database restored under the wrong name is not served: the org becomes `unavailable` (step `identity`, §2.13). |
 | Counts and sequences sane | `CHECK`s |
 
@@ -285,54 +302,78 @@ Across databases, integrity is by construction. The app database never holds org
 is nothing to keep consistent with it except the registry row and the small references listed in
 §2.10. All of those are deleted with the org.
 
-**Tree changes (rev 4, finding f1; corrected in rev 5).** Checking only the moved row's new
+**Tree changes (rev 7.8; replaces rev 5's topology lock).** Checking only the moved row's new
 ancestors is not enough under READ COMMITTED.
 
-- **The race.** Start with A under B and C under D, where B and D are top-level. One transaction
-  moves B under C; another moves D under A. Each change walks up from its new parent, sees the
-  other's old (top-level) state, and passes. The result is the loop A→B→C→D→A.
-- **PostgreSQL limits.** Constraint triggers are row-level only. A deferred trigger's `NEW` is the
-  row as that one statement left it, not the final row. And a session setting is something any
-  caller can set, so it cannot prove that a lock is held.
+- **The race (rev 4, finding f1).** Start with A under B and C under D, where B and D are
+  top-level. One transaction moves B under C; another moves D under A. Each change walks up from
+  its new parent, sees the other's old (top-level) state, and passes. The result is the loop
+  A→B→C→D→A.
+- **What rev 5 proposed, and why it is withdrawn.** Rev 5 had a deferred constraint trigger take
+  a one-row `org_topology` lock at COMMIT and then walk up. It was never built. It also broke
+  §2.4's lock order: a row other than the revision row, locked at COMMIT, so every tree change
+  in the org would queue on one row while holding its other locks. O1 decision 5 withdrew it.
 
-The protocol (rev 5):
+The protocol (rev 7.8; the move design is [`pg-o1-move.md`](pg-o1-move.md)):
 
-1. **The guard takes the lock itself.** One constraint trigger, `DEFERRABLE INITIALLY DEFERRED`,
-   fires `AFTER INSERT OR UPDATE OF parent_id ON agents FOR EACH ROW`. At commit it first takes
-   the org's topology lock, `SELECT … FROM org_topology WHERE singleton FOR UPDATE`, and only
-   then checks.
-   - Nothing set by the caller is trusted. Whoever changes a parent, by any path, is serialized by
-     the guard.
-   - Domain functions that reshape the tree take the same lock at their start too, so their
-     business rules see a stable tree. Taking it twice in one transaction is harmless.
-2. **It judges the final tree.**
-   - The check re-reads the row by key (`SELECT parent_id FROM agents WHERE id = NEW.id`), and
-     skips a row deleted later in the transaction.
-   - It walks up from the row's current parent by primary key, with a depth guard of 64, and
-     raises if it meets the row.
-   - So a transaction that passes through a temporary loop (A under B, then A back to the top
-     level) is judged by its final, valid tree.
-3. **Inserts are covered.**
-   - The trigger fires on `INSERT` too, and `CHECK (parent_id IS DISTINCT FROM id)` refuses a
-     self-parent at once.
-   - One statement that inserts two new rows pointing at each other is caught when either row's
-     check walks up.
-   - The converter's bulk `COPY` fires the same trigger (about 1,400 agents per org, a few
-     milliseconds). It also runs one whole-table cycle query before it publishes an org.
-4. **Why it is safe.** The lock row is held until commit. A second transaction's check waits for
-   the first to commit, then walks a tree that already contains the first one's changes: under
-   READ COMMITTED each statement in the trigger takes a new snapshot. Two changes can never both
-   validate against each other's old state.
-5. **Cost** (inferred, to be measured in the prototype). Tree changes are user actions and rare.
-   The check is at most the tree depth (6 today) in key lookups per changed row. A 400-agent
-   re-parent adds at most 2,400 lookups at commit.
-6. **Tests (§9):**
-   - the original two-session race, in both orders;
-   - a transaction with a temporary loop and a valid final tree, which must commit;
-   - a self-parent insert and a two-row cyclic insert, which must fail;
-   - a direct `UPDATE … SET parent_id` racing a locked move, serialized by the guard's own lock;
-   - three mutants, each of which must make a test fail: the guard without its lock, the check
-     reading `NEW` instead of the row, and the trigger without its `INSERT` event.
+1. **`agents.parent_id` is the only placement authority.** No closure table, no stored depth,
+   no lineage slots. A move writes the moved agent and its own lineage bearers
+   (`Org.lineage_stack`, its predecessor generations): L rows in one scalar `UPDATE`, fenced by
+   physical id and `row_version`. It writes nothing under them.
+2. **The writer checks, under its own locks.** A native structural writer plans its lock set
+   (§2.4: the agents on the moved root's old and new ancestor paths and the bearers, by physical
+   id; then their `agent_subtree_stats` rows; then the other tiers). It takes all of them before
+   its first structural statement, then re-reads parents and paths under them. If what it read
+   no longer matches its plan, it rolls back and retries with a wider plan (pgdoor's
+   `Widen`). Under the locks:
+   - **Cycle:** walk up from the destination; refuse if it meets the root or any of its moving
+     bearers.
+   - **Depth cap (unchanged root-only rule):** refuse when
+     `depth(new_parent) + 1 + height(root) >= max_depth`. The depth is an O(h) walk up; the
+     height is one read of `agent_subtree_stats`.
+   - **Child cap:** `agent_subtree_stats.org_children_count` of the destination.
+3. **Why crossing moves cannot both pass.** In the race above, the first locks B, C and D and the
+   second locks D, A and B: each one's new path contains the other's moved root. They share B
+   and D and take them in one sorted order, so the second waits for the first to commit,
+   re-reads, and sees the first one's parent change.
+4. **A final assertion catches every writer, including raw and bulk SQL.** A statement trigger
+   on `agents` (`graph_roots_insert`, `graph_roots_update`) records every row whose `parent_id`
+   it inserts or changes in transaction-local PostgreSQL settings (`orgtree.graph_roots`,
+   `orgtree.graph_pending`). Rollback and savepoint rollback discard them with the
+   transaction, and a reused connection starts clean. The kernel
+   `orgtree.graph_assert_final_cycles()` walks those roots' current ancestor chains (one
+   recursive read, shared ancestors once), raises `23514` on a cycle, and clears the pending
+   state. It takes no row lock and writes no org row. It runs **after the revision row**:
+   - in alpha.1, from `OrgDbConn.on_save_commit` right after its revision update, and from the
+     deferred constraint trigger `graph_final_guard` for writers with no save seam. That
+     trigger locks only the revision row, as 0006's flush does, then calls the kernel;
+   - after B4a, from `record_flush`, immediately after it takes or updates the revision row and
+     before resolution or notification. B4a keeps the raw and late-firing fallback; it does not
+     add a second revision maker or force deferred checks.
+
+   So it judges the final tree: a transaction that passes through a temporary loop and ends
+   valid commits. Because it runs while the revision row is held, it sees every earlier
+   committed revision. It is a backstop for writers that skip the native plan, not a substitute
+   for step 2's checks.
+5. **Inserts are covered.** Inserted rows are roots for step 4, and `COPY` fires the same
+   statement triggers (nothing in the engine disables them), so a cyclic insert fails at the
+   assertion, including in the converter's bulk load. A self-parent is a one-row cycle and fails
+   the same way. Rev 5's `CHECK (parent_id IS DISTINCT FROM id)` and separate whole-table cycle
+   query after conversion were never built; the assertion makes them unnecessary.
+6. **Cost.** A move is O(h + L) reads and writes plus index costs, and O(L·h) when historical
+   bearers sit under different parents, still independent of the subtree size S. The assertion
+   reads O(h + L) rows. Measured at `ee89434` on the 2026-10-02 copy (owner measurement, O1
+   decision 23): moving coordinator-opus (S = 1,144, L = 62) took 110.7 ms at the endpoint,
+   with 176 SQL calls, 64 agent and 64 stats lock keys, and no full-body rewrites.
+7. **Tests (§9; owned by the O1 piece):**
+   - the original two-session race in both orders, native and raw writers crossing;
+   - a temporary loop with a valid final tree, which must commit;
+   - a self-parent insert, a two-row cyclic insert and a cyclic `COPY`, which must fail;
+   - savepoint rollback and connection reuse leave no pending roots;
+   - `tests/test_orgdb_lock_order.py`: the stats tier, and a traced check that native structural
+     writers take every lock before their first structural statement;
+   - mutants that must make a test fail: the body check removed, the final assertion removed,
+     and a pending root that survives rollback.
 
 ### 2.3 History costs nothing
 
@@ -513,14 +554,36 @@ rewrite against the revision row). Every writer of an org database takes its loc
    that key's or name's advisory lock before it looks (`rows.fence_key`, `rows.lock_doc_key`,
    the agent-name lock).
 3. **Then rows, in a fixed order per writer.** `org_tx` locks its plan's rows `FOR UPDATE` /
-   `FOR SHARE`: agents by physical id, docket items, mailboxes, then other planned rows.
+   `FOR SHARE`: agents by physical id, then `agent_subtree_stats` by agent id (rev 7.8), then
+   docket items, mailboxes, then other planned rows.
+   - **One agents tier.** Every agent a transaction locks is in it, sorted by physical id: the
+     plan's nodes, mail and graph-path agents and a docket item's role agents alike (O1
+     decisions 12 and 21). The strongest mode wins for a row in more than one set.
+   - **The stats tier** is taken only by a structural transaction: one that inserts or deletes an
+     agent, or changes a `parent_id` or a state that the counts read. It locks the stats rows on
+     the old and new ancestor paths of the rows it changes, or all of them for a whole-agent
+     operation. A non-structural transaction (a rename, a scope, grant or role change) takes no
+     stats lock.
+   - **Every body lock comes before the first structural statement.** A plan miss found after
+     that point rolls back and widens; it never takes an earlier-tier row late.
+     `tests/test_orgdb_lock_order.py` traces this for native structural writers.
+
    Its statements then write. A body that needs a row outside its plan raises `Widen`:
    the transaction rolls back and reruns with the wider plan, so no row is locked late. A
    compare-and-set locks the one row it decides on. The job queue claims by `(run_at, id)` with
    `SKIP LOCKED`. Several orgs: one transaction per org, in org_id order. **A statement-time
    trigger writes only the link rows of its own statement's rows** (a table with a foreign key
    to the trigger's table: `event_refs` for `events`, `docket_question_links` for `asks`), and
-   takes no row lock (rev 7.5). So a writer's locks are the rows its own statements write, in
+   takes no row lock (rev 7.5). **One named exception (rev 7.8):** the `agents` statement
+   triggers `graph_stats_insert`, `graph_stats_update` and `graph_stats_delete`
+   (`orgtree.graph_maintain_stats` and its helpers) keep `agent_subtree_stats` at statement
+   time. They lock and write only the stats rows on the ancestor paths of their own statement's
+   rows, sorted by agent id, and never agents, items, mailboxes or the revision row. A native
+   writer has already locked those rows (tier 3), so the trigger waits for nothing; a path it
+   finds unplanned raises `40001`, and the transaction retries. A raw writer that skipped the
+   plan may wait there; if its paths changed during the wait it also raises `40001`, so it can
+   deadlock and retry but cannot corrupt the stats. The static allowlist names exactly these
+   functions and this table. No other trigger gains the right to lock. So a writer's locks are the rows its own statements write, in
    its own order, and nothing a trigger adds. A value derived from other rows, such as A6's Sent
    tail key (a recipient's first archive row), is computed by the reader; rev 7.4 kept that key
    on every mail row, and its repair locked a shared owner row and rewrote rows other writers
@@ -529,7 +592,8 @@ rewrite against the revision row). Every writer of an org database takes its loc
    - the save seam, `OrgDbConn.on_save_commit`, immediately before COMMIT;
    - the deferred constraint triggers, which run at COMMIT: 0006 `foreground_flush` (the node,
      catalog and view counters; 0007's `docket_rev` uses it too), 0008 `events_count_flush`,
-     0012 `docket_archive_flush`;
+     0012 `docket_archive_flush`, and the O1 migration's `graph_final_guard` (only when a
+     `parent_id` changed in the transaction; §2.2);
    - a job handler, as its last statement (`orgdb/jobs.py`).
 
    **No code forces deferred checks** (`SET CONSTRAINTS ... IMMEDIATE`, rev 7.5): that runs the
@@ -542,6 +606,9 @@ rewrite against the revision row). Every writer of an org database takes its loc
    revision row, so ordinary commits would fail on it.
 5. **After the revision row, only the rows locked under it:** `foreground_parent_counts` (0006)
    and `docket_counters` (0012). A transaction holding the revision row waits for nothing else.
+   The final tree assertion (`orgtree.graph_assert_final_cycles()`, §2.2) runs here too. It
+   reads `agents` without a lock, so it cannot wait, and it writes only its own
+   transaction-local settings.
 
 Rules that follow:
 
@@ -558,7 +625,10 @@ Rules that follow:
   never writes the rows under it.
 - A statement-time trigger, with every function it calls, writes only link rows of its own
   statement's rows and takes no row lock; no other function writes; nothing forces deferred
-  checks (rev 7.5).
+  checks (rev 7.5). The one exception is the stats triggers of rev 7.8 (tier 3), allowlisted by
+  name. The O1 statement trigger `graph_defer` runs `SET CONSTRAINTS graph_final_guard
+  DEFERRED`. That keeps the guard deferred after a caller's earlier forced check; it never
+  makes a check run early.
 - `tests/test_orgdb_lock_order.py` checks these rules statically (no database) over every org
   migration and the engine's Python. Its controls must fail: f7's round-2 settling, round 3's
   statement-time owner keys (f8, f9; the test fails on `4afea43`'s own migrations), a link table
@@ -1311,7 +1381,7 @@ Additions:
 | `org_accounts`, `org_account_marks`, `org_account_spend` | the accounts restricted to this org (rev 4, f7); same columns as the app tables |
 | `org_extra(key PK, val json)` | a top-level section outside the engine's key registry, kept exactly (rev 4, §5.2) |
 | `turn_requests` | durable turn identities (rev 4, f2; §2.4) |
-| `org_topology` | the one-row topology lock (rev 4, f1; §2.2) |
+| `agent_subtree_stats` | each agent's own branch size, height and counted children, kept by statement triggers (rev 7.8; §2.2, A.2, A.7). Rev 5's `org_topology` lock row is withdrawn. |
 | `docket_counters` | the desktop's archived and backlog totals (rev 4, f13; A.3) |
 
 Appendix A gives the full detail: the tables, column groups, indexes, child and link tables, the
@@ -2042,7 +2112,7 @@ Added for rev 3:
 
 | Finding | Severity | Rev 4's answer | Where |
 |---|---|---|---|
-| f1 tree loops under concurrent moves | blocking | one topology lock row per org, plus a deferred row-level constraint trigger that checks the lock and walks up at commit | §2.2 |
+| f1 tree loops under concurrent moves | blocking | one topology lock row per org, plus a deferred row-level constraint trigger that checks the lock and walks up at commit | §2.2 (replaced in rev 7.8) |
 | f2 turn identity and stale workers | blocking | `turn_requests` with a permanent `request_id`; tickets unique on it forever; cancellation upserted by it; numbered claims checked on every write; leases per process; the host kills a silent worker (whose providers die with its job object) before reclaiming | §2.4 |
 | f3 reconversion after trash or purge | blocking | one first pass, ended by the `legacy_cutover` marker; legacy trashed orgs become trashed, and orphans stay unconverted; afterwards only an explicit Retry of a named org | §5.2 |
 | f4 | (folded into f6 by the reviewer) | | |
@@ -2062,7 +2132,7 @@ Rev 5 answers the rest:
 
 | Finding | Severity | Rev 5's answer | Where |
 |---|---|---|---|
-| f1 | blocking | the guard takes the topology lock itself (no caller-set marker), re-reads the final row, and fires on `INSERT` too; a no-self-parent CHECK; a whole-table cycle check after conversion | §2.2 |
+| f1 | blocking | the guard takes the topology lock itself (no caller-set marker), re-reads the final row, and fires on `INSERT` too; a no-self-parent CHECK; a whole-table cycle check after conversion | §2.2 (replaced in rev 7.8) |
 | f2 | blocking | a running cancellation becomes `stopping` and keeps its slot and agent until the provider has stopped; the epoch is raised; run operations require `state = 'running'` under a share lock; start validates the org request; the ticket columns are aligned | §2.4, §3.1 |
 | f6 | blocking | two fences: a runtime fence (`REVOKE CONNECT` from the runtime role, its backends terminated) under which the admin drains, then the no-connections fence only for rename and drop; restore and import rewrite and check `org_identity` before the runtime reconnects; `closing` added to the states | §2.10, §2.13 |
 | f8 | blocking | a proof that an overlapping coalesced frame is safe to apply whole; the client rule (ignore when `to <= c`, apply when `from <= c < to`, catch up when `from > c`); one ordered pipeline for baselines, catch-ups and frames | §2.5 |
@@ -2220,6 +2290,25 @@ Setting lists, one row each:
 **No closure table.** The tree is at most 6 levels deep (average 1.9). A closure table would rewrite
 up to 1,145 × depth rows on a big move: today's trigger cost again, under another name. Decision 3
 asks for this justification.
+
+**`agent_subtree_stats` (rev 7.8, O1).** One row per agent for its own branch:
+`(agent_id PK → agents ON DELETE CASCADE, parent_agent_id, descendants, height,
+org_children_count)`, with the index `(parent_agent_id, height DESC, agent_id)`, so the tallest
+child is a single probe. Each column has an existing reader:
+
+- `descendants`: the move notice's count tail;
+- `height`: the root-only depth cap (leaf 0, archived nodes counted as today);
+- `org_children_count`: the child cap, using exactly `org_children` (an archived node with a
+  successor is not counted).
+
+It is not a closure table. A change writes only the stats rows on the changed rows' ancestor
+paths (O(h) each, deltas along shared paths cancel), never rows under them. The
+statement triggers keep it (§2.4 tier 3), so every writer, raw SQL included, keeps it right, and a
+later statement in the same transaction sees the earlier one's result. Name-only, scope-only,
+grant-only and other non-structural updates leave it untouched. The migration builds it once,
+bottom-up, and compares it with a recursive reference in the same transaction; a mismatch rolls
+back and the org starts unavailable (Q12). `orgtree.graph_verify_stats()` reports differences
+from the reference. Missing stats never fall back to a silent subtree scan.
 
 ### A.3 Docket
 
@@ -2517,6 +2606,12 @@ predicate stays as the test oracle.
    endpoints. Since 0010 it is written in the same transaction as the scope event rows, so the
    docket list never reads the scope history. A test compares it with the event rows on every write
    path, and the independent verifier checks items 7–9 explicitly.
+10. **`agent_subtree_stats.parent_agent_id`** (rev 7.8, O1). A copy of `agents.parent_id`, so the
+   tallest-child probe is one index read on the stats table. `agents.parent_id` stays the only
+   placement authority. The stats triggers write the copy in the same statement that changes the
+   parent. `orgtree.graph_verify_stats()` and a test check that the two are equal, and that every
+   count and height equals the recursive reference. The other stats columns are derived values
+   (A.2), not copies.
 
 Nothing else is stored twice. (Rev 5–7 also kept two counters for agents' archived totals,
 `docket_subtree_counts` and `docket_anchor_counts`; decision 21 removed those totals, and the
