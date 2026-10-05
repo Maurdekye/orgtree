@@ -172,11 +172,11 @@ class OrgHost:
             body_refs = plan.bodies(state, 'agent', frozenset(dirty)) if dirty else {}
             tier_ref = plan.bodies(state, 'org', frozenset(('tiers',)))['tiers']
             plan.build()
-            contexts = tree.runtime_contexts(state, frozenset(dirty | mail_dirty))
+            contexts = tree.runtime_contexts(state, frozenset(dirty))
             inputs = RuntimeInputs(current, plan.emit(body_refs),
                 {key: contexts[key] for key in dirty}, plan.emit(tier_ref)['models'],
                 tree.runtime_net_inputs(state), held=held,
-                mail=mail_runtime.inputs(state, mail_dirty, contexts), mail_held=mail_held)
+                mail=mail_runtime.inputs(state, mail_dirty), mail_held=mail_held)
             if kind == 'batch':
                 frame = replace(frame, changes=plan.emit(frame.changes), answers={
                     token: tuple(page for answer in answers

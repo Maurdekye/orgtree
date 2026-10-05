@@ -6,17 +6,18 @@ from .record_mail import decoded
 from .record_runtime import SupervisorOverlays
 
 
-def inputs(state, ids, contexts):
+def inputs(state, ids):
     result = {}
     for aid in ids:
-        context = contexts[aid]
-        row = state.raw.execute('SELECT name FROM orgtree.agents WHERE id=%s AND NOT tombstone',
+        row = state.raw.execute('SELECT name,extra FROM orgtree.agents WHERE id=%s AND NOT tombstone',
                                 (int(aid),)).fetchone()
         if row is None:
             continue
         name = row[0]
         result[aid] = dict(slug=state.slug,name=name,
-            leased=bool(context.nodes[name].get('drive_lease')),
+            # drive_lease is an untyped payload field, read by primary key,
+            # matching the bounded node_inbox reader without a tree context.
+            leased=bool(row[1].get('drive_lease')),
             batches=[batch for _,batch in decoded(state,'delivering','agent_id=%s',(int(aid),),order='idx')])
     return result
 
