@@ -1,4 +1,5 @@
 """Exercise the real startup orchestration without a database or engine."""
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import sys
 from pathlib import Path
 import unittest

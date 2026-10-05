@@ -1,4 +1,5 @@
 """Migration of populated alpha current pointers on a disposable cluster only."""
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import os
 from pathlib import Path
 import shutil
