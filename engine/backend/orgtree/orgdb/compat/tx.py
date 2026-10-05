@@ -120,11 +120,13 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
     if agents or role_ids or all_nodes:
         wanted = ','.join(lit(n) for n in agents)
         exclusive = ','.join(lit(n) for n, write in agents.items() if write)
-        condition = f"r.name IN ({exclusive}) AND NOT r.tombstone" if exclusive else "false"
+        condition = (f"r.name IN ({exclusive}) AND "
+                     "(NOT r.tombstone OR r.state IS DISTINCT FROM 'deleted')") if exclusive else "false"
         if all_nodes:
             condition = f"NOT r.tombstone OR ({condition})"
         retained = ','.join(lit(n) for n in mail_owners)
-        live = f"(NOT tombstone OR name IN ({retained}))" if retained else "NOT tombstone"
+        revivable = "NOT tombstone OR state IS DISTINCT FROM 'deleted'"
+        live = f"({revivable} OR name IN ({retained}))" if retained else f"({revivable})"
         where = f"(name IN ({wanted}) AND {live})" if wanted else 'false'
         if role_ids:
             where += ' OR id IN (' + ','.join(str(a) for a in sorted(role_ids)) + ')'
@@ -132,7 +134,7 @@ def _lock_rows(raw: Any, org_id: int, entries: list[tuple[str, str, bool]], *,
             where += ' OR NOT tombstone'
         if retained:
             condition += f" OR r.name IN ({retained})"
-        lines.append(f"FOR r IN SELECT id,name,tombstone FROM orgtree.agents WHERE {where} ORDER BY id LOOP "
+        lines.append(f"FOR r IN SELECT id,name,tombstone,state FROM orgtree.agents WHERE {where} ORDER BY id LOOP "
                      f"IF {condition} THEN PERFORM id FROM orgtree.agents WHERE id=r.id FOR UPDATE; "
                      "ELSE PERFORM id FROM orgtree.agents WHERE id=r.id FOR SHARE; END IF; "
                      "held_ids := array_append(held_ids,r.id); END LOOP;")

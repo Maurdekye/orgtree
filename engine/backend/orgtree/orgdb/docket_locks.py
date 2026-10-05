@@ -287,5 +287,6 @@ def save(c: Any, d: Any, lazy: Any, rename_intent: Any) -> None:
     names = roles | node_names
     ids = linked(c.raw, 'w.slug=ANY(%s)', (slugs,)) | named(c.raw, names)
     updates = {int(a) for a, in c.raw.execute(
-        'SELECT id FROM orgtree.agents WHERE name=ANY(%s) AND NOT tombstone', (sorted(node_names),)).fetchall()}
+        'SELECT id FROM orgtree.agents WHERE name=ANY(%s) '
+        "AND (NOT tombstone OR state IS DISTINCT FROM 'deleted')", (sorted(node_names),)).fetchall()}
     lock(c.raw, ids, names, updates=updates)
