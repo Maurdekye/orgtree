@@ -11,14 +11,15 @@ import copy
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
-from . import record_reads as Q, record_tree as tree
+from . import record_reads as Q, record_tree as tree, record_panels as panels
+from . import record_mail_runtime as mail_runtime
 from .record_registry import Registry, Selection, Snapshot
 from .record_runtime import SupervisorOverlays
 from .record_pass import BodyPass
 from .record_transport import Batch, OrgRunner, read_snapshot
 
 
-REGISTRY = tree.register(Registry())
+REGISTRY = panels.register(tree.register(Registry()))
 
 
 class RevisionSubscribers:
@@ -58,6 +59,8 @@ class RuntimeInputs:
     net: Mapping | None = None
     complete: bool = True
     held: frozenset[str] | None = None
+    mail: Mapping[str, Mapping] | None = None
+    mail_held: frozenset[str] | None = None
 
 
 def runtime_inputs(registry: Registry, state: Snapshot, selections) -> RuntimeInputs:
@@ -81,7 +84,7 @@ class OrgHost:
     older same-identity HTTP body may return, but never replaces newer inputs.
     """
     def __init__(self, slug, error, *, registry=REGISTRY, worker=None,
-                 overlay_factory=SupervisorOverlays):
+                 overlay_factory=mail_runtime.MailboxOverlays):
         self.slug, self.registry, self.error = slug, registry, error
         self.worker = worker or self._worker
         self._default_worker = worker is None
@@ -114,7 +117,7 @@ class OrgHost:
                               for s in c.selections.values())
         return tuple(selections)
 
-    def _worker(self, kind, after, requests, selections, *, previous=None):
+    def _worker(self, kind, after, requests, selections, *, previous=None, previous_mail=frozenset()):
         with Q.snapshot(self.slug) as state:
             plan = BodyPass(self.registry, state)
             if kind == 'batch':
@@ -136,11 +139,15 @@ class OrgHost:
             # Derive runtime invalidation from the latter, on this snapshot.
             held = frozenset(key for selection in selections
                 for key in plan.select(state, selection).get('agent', ()))
+            mail_held = frozenset(entity.partition(':')[2] for selection in selections
+                for entity in plan.select(state, selection) if entity.startswith('agent_mail:')) & held
             current = Q.cursor(state)
             previous_cursor, previous_ids = previous or (None, frozenset())
             dirty = set(held - previous_ids)
+            mail_dirty = set(mail_held - previous_mail)
             if previous_cursor is None or self._identity(previous_cursor) != self._identity(current):
                 dirty.update(held)
+                mail_dirty.update(mail_held)
             else:
                 # Subscription generations are socket-local; give this private
                 # union unique set labels without changing any emitted set.
@@ -149,17 +156,27 @@ class OrgHost:
                 runtime_frame = Q.catchup(plan, state, previous_cursor, selections=runtime_selections)
                 if runtime_frame['type'] == 'record_reset':
                     dirty.update(held)
+                    mail_dirty.update(mail_held)
                 else:
                     dirty.update(row['id'] for row in runtime_frame['upserts'] if row['entity']=='agent')
                     dirty.update(row['id'] for replacement in runtime_frame.get('replacements', ())
                         for row in replacement['records'] if row['entity']=='agent')
+                    mail_rows = [*runtime_frame['upserts'], *runtime_frame['tombstones'],
+                        *(row for replacement in runtime_frame.get('replacements', ())
+                          for row in replacement['records'])]
+                    mail_dirty.update(row['entity'].partition(':')[2] for row in mail_rows
+                                      if row['entity'].startswith('agent_mail:'))
             dirty.intersection_update(held)
+            mail_dirty.update(dirty & mail_held)  # lease/name changes also affect stages
+            mail_dirty.intersection_update(mail_held)
             body_refs = plan.bodies(state, 'agent', frozenset(dirty)) if dirty else {}
             tier_ref = plan.bodies(state, 'org', frozenset(('tiers',)))['tiers']
             plan.build()
+            contexts = tree.runtime_contexts(state, frozenset(dirty | mail_dirty))
             inputs = RuntimeInputs(current, plan.emit(body_refs),
-                tree.runtime_contexts(state, frozenset(dirty)), plan.emit(tier_ref)['models'],
-                tree.runtime_net_inputs(state), held=held)
+                {key: contexts[key] for key in dirty}, plan.emit(tier_ref)['models'],
+                tree.runtime_net_inputs(state), held=held,
+                mail=mail_runtime.inputs(state, mail_dirty, contexts), mail_held=mail_held)
             if kind == 'batch':
                 frame = replace(frame, changes=plan.emit(frame.changes), answers={
                     token: tuple(page for answer in answers
@@ -177,7 +194,9 @@ class OrgHost:
                 retained = (self.input_cursor, frozenset(self.overlay._bodies) if self.overlay else frozenset())
                 frame, inputs = await asyncio.to_thread(self.worker, kind, after,
                     requests if kind == 'batch' else extra, selections,
-                    **({'previous': retained} if self._default_worker else {}))
+                    **({'previous': retained,
+                        'previous_mail': frozenset(getattr(self.overlay, '_mail', {}))}
+                       if self._default_worker else {}))
                 if self.closed:
                     raise RuntimeError('record host closed')
                 if fence != self.fence or self._identity(inputs.cursor) in self.retired:
@@ -205,6 +224,9 @@ class OrgHost:
         changed = (self.overlay.catalog_changed(self.persisted_models, self.favourites)
                    if models_changed else {})
         removed = set(self.overlay._bodies) - set(inputs.bodies if inputs.held is None else inputs.held)
+        if inputs.mail is not None:
+            mail_removed = set(self.overlay._mail) - set(inputs.mail_held or ())
+            changed.update(self.overlay.adopt_mail(inputs.mail, removed=mail_removed))
         changed.update(self.overlay.adopt(inputs.bodies, inputs.contexts, removed=removed))
         return {key: value for key,value in changed.items() if key not in removed}
 

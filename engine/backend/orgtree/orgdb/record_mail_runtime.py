@@ -27,10 +27,11 @@ class MailboxOverlays(SupervisorOverlays):
         self._mail = {}
 
     def adopt_mail(self, inputs, *, removed=()):
+        removed = tuple(removed)
         for key in removed:
             self._mail.pop(key,None)
         self._mail.update(copy.deepcopy(inputs))
-        return self._refresh(set(inputs).intersection(self._bodies))
+        return self._refresh((set(inputs) | set(removed)).intersection(self._bodies))
 
     def _fields(self,key):
         from .. import supervisor

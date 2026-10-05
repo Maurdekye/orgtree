@@ -75,6 +75,56 @@ class MailReaders(unittest.TestCase):
         self.raw.execute("DELETE FROM orgtree.mail WHERE agent_id=(SELECT id FROM orgtree.agents WHERE name='dev' AND NOT tombstone)")
         self.advance(held,after)
 
+    def test_production_worker_retains_only_subscribed_dirty_mail_inputs(self):
+        from orgtree.orgdb.record_host import OrgHost
+        from orgtree.orgdb import record_mail_runtime
+        host = OrgHost(self.twin.copy,self.fail)
+        _, initial = host._worker('baseline',None,None,(Selection(),))
+        self.assertEqual(initial.mail,{})
+        aid = str(self.raw.execute("SELECT id FROM orgtree.agents WHERE name='dev'").fetchone()[0])
+        selected = (Selection(),Selection('sub:1',(aid,),({'kind':'agent_mail','agent':aid},)))
+        _, subscribed = host._worker('changes',initial.cursor,selected[1:],selected,
+            previous=(initial.cursor,initial.held))
+        self.assertEqual(set(subscribed.mail),{aid})
+        self.assertEqual(subscribed.mail[aid]['batches'][0]['tok'],'batch')
+        with patch.object(record_mail_runtime,'inputs',wraps=record_mail_runtime.inputs) as read:
+            _, unchanged = host._worker('changes',subscribed.cursor,selected[1:],selected,
+                previous=(subscribed.cursor,subscribed.held),previous_mail=frozenset({aid}))
+            self.assertEqual(unchanged.mail,{})
+            self.assertFalse(read.call_args.args[1])
+        self.raw.execute('DELETE FROM orgtree.delivery_batches WHERE agent_id=%s',(int(aid),))
+        _, changed = host._worker('changes',unchanged.cursor,selected[1:],selected,
+            previous=(unchanged.cursor,unchanged.held),previous_mail=frozenset({aid}))
+        self.assertEqual(changed.mail[aid]['batches'],[])
+        _, unsubscribed = host._worker('changes',changed.cursor,(),(Selection(),),
+            previous=(changed.cursor,changed.held),previous_mail=frozenset({aid}))
+        self.assertEqual(unsubscribed.mail_held,frozenset())
+
+    def test_recipient_sender_scan_skips_inactive_duplicates_and_obeys_cap(self):
+        owner = self.raw.execute("SELECT id FROM orgtree.agents WHERE name='ops'").fetchone()[0]
+        self.raw.execute('INSERT INTO orgtree.mail_log(agent_id,idx,"from",at,body) '
+            "SELECT %s,10000+n,'dev',%s,'inactive' FROM generate_series(1,3000) n",(owner,fixture.AT))
+        self.raw.execute('INSERT INTO orgtree.mail_log(agent_id,idx,"from",at,body) '
+            "VALUES(%s,20001,'zzz',%s,'tail')",(owner,fixture.AT))
+        self.raw.execute('ANALYZE orgtree.mail_log')
+        self.assertEqual(self.raw.execute('SELECT * FROM orgtree.record_mail_senders(%s,2)',(owner,)).fetchall(),
+                         [('dev',),('zzz',)])
+        self.assertEqual(self.raw.execute('SELECT * FROM orgtree.record_mail_senders(%s,1)',(owner,)).fetchall(),[('dev',)])
+        # Inspect the actual SQL function body so EXPLAIN exposes each indexed
+        # seek rather than the opaque function-scan row alone.
+        sql = self.raw.execute("SELECT prosrc FROM pg_proc WHERE proname='record_mail_senders'").fetchone()[0]
+        sql = sql.replace('owner_id',str(owner)).replace('cap','2')
+        import json
+        plan = self.raw.execute('EXPLAIN (ANALYZE,FORMAT JSON) '+sql).fetchone()[0]
+        if isinstance(plan,str): plan = json.loads(plan)
+        scans = []
+        def visit(node):
+            if node.get('Index Name') == 'record_mail_owner_sender': scans.append(node)
+            for child in node.get('Plans',[]): visit(child)
+        visit(plan[0]['Plan'])
+        self.assertGreaterEqual(len(scans),2)
+        self.assertTrue(all(scan['Actual Rows'] <= 1 for scan in scans))
+
     def test_first_recipient_row_delete_moves_unchanged_sent_row_into_window(self):
         owner = self.raw.execute("SELECT id FROM orgtree.agents WHERE name='ops' AND NOT tombstone").fetchone()[0]
         row = self.raw.execute('INSERT INTO orgtree.mail_log(agent_id,idx,"from",at,body) VALUES(%s,1000,\'dev\',%s,\'survivor\') RETURNING id',

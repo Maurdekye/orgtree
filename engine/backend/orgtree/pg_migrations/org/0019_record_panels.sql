@@ -9,6 +9,19 @@ CREATE INDEX notice_log_record_window ON orgtree.notice_log (win_node, win_at DE
 
 
 CREATE INDEX record_mail_owner_sender ON orgtree.mail_log(agent_id,win_from,win_at DESC,id DESC);
+CREATE FUNCTION orgtree.record_mail_senders(owner_id bigint, cap integer) RETURNS SETOF text
+LANGUAGE sql STABLE SET search_path=pg_catalog,orgtree AS $fn$
+  WITH RECURSIVE senders(win_from, n) AS (
+    (SELECT m.win_from, 1 FROM orgtree.mail_log m
+     WHERE m.agent_id=owner_id AND m.win_from IS NOT NULL AND cap>0
+     ORDER BY m.win_from LIMIT 1)
+    UNION ALL
+    SELECT next.win_from, s.n+1 FROM senders s CROSS JOIN LATERAL
+      (SELECT m.win_from FROM orgtree.mail_log m
+       WHERE m.agent_id=owner_id AND m.win_from>s.win_from
+       ORDER BY m.win_from LIMIT 1) next WHERE s.n<cap)
+  SELECT win_from FROM senders;
+$fn$;
 CREATE FUNCTION orgtree.record_sent_ids(sender text, cap integer) RETURNS SETOF bigint
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog,orgtree AS $fn$
 DECLARE head bigint[]; edge text; kept bigint[]; owner_row record; extra_ids bigint[];
@@ -200,12 +213,11 @@ BEGIN
     partition_key := substring(scope_row.entity_id FROM length('mail_recipient:')+1);
     INSERT INTO orgtree.changes(xid,entity,entity_id)
       SELECT pg_current_xact_id(),'~scope','mail_sender:'||x.win_from FROM
-      (SELECT DISTINCT win_from FROM orgtree.mail_log WHERE agent_id=partition_key::bigint
-       ORDER BY win_from LIMIT 2001) x WHERE x.win_from IS NOT NULL ON CONFLICT DO NOTHING;
+      orgtree.record_mail_senders(partition_key::bigint,2001) x(win_from)
+      ON CONFLICT DO NOTHING;
     INSERT INTO orgtree.changes(xid,entity,entity_id)
       SELECT pg_current_xact_id(),'~mail_sent:'||s.win_from,'mail_log:'||m.id
-      FROM (SELECT DISTINCT win_from FROM orgtree.mail_log WHERE agent_id=partition_key::bigint
-            ORDER BY win_from LIMIT 2001) s CROSS JOIN LATERAL
+      FROM orgtree.record_mail_senders(partition_key::bigint,2001) s(win_from) CROSS JOIN LATERAL
       (SELECT id FROM orgtree.mail_log WHERE agent_id=partition_key::bigint AND win_from=s.win_from
        ORDER BY win_at DESC,id DESC LIMIT 50) m LIMIT 2001 ON CONFLICT DO NOTHING;
     IF (SELECT count(*) FROM orgtree.changes WHERE xid=pg_current_xact_id())>2000 THEN

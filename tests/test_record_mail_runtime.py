@@ -7,6 +7,26 @@ from orgtree.orgdb.record_mail_runtime import MailboxOverlays
 
 
 class MailRuntime(unittest.TestCase):
+    def test_host_adopts_mail_only_after_cursor_fence_and_clears_on_unsubscribe(self):
+        from orgtree.orgdb.record_host import OrgHost, RuntimeInputs
+        from orgtree.orgdb.record_reads import Cursor
+        body = dict(id='agent',state='archived',ask=None,tier='unknown')
+        context = SimpleNamespace()
+        host = OrgHost('org',self.fail)
+        source = dict(slug='org',name='agent',leased=False,batches=[{'tok':'batch'}])
+        with patch('orgtree.supervisor._delivery_stages',return_value={'batch':'queued'}):
+            changed = host._adopt(RuntimeInputs(Cursor('uuid','inc',5),{'1':body},{'1':context},{},
+                held=frozenset({'1'}),mail={'1':source},mail_held=frozenset({'1'})))
+            self.assertEqual(changed['1']['mail_stages'],{'batch':'queued'})
+            stale = RuntimeInputs(Cursor('uuid','inc',4),{},{},{},held=frozenset({'1'}),
+                                  mail={},mail_held=frozenset())
+            self.assertEqual(host._adopt(stale),{})
+            self.assertIn('1',host.overlay._mail)
+            cleared = host._adopt(RuntimeInputs(Cursor('uuid','inc',5),{},{},{},
+                held=frozenset({'1'}),mail={},mail_held=frozenset()))
+            self.assertEqual(cleared['1']['mail_stages'],{})
+            self.assertEqual(host.overlay._mail,{})
+
     def test_stage_transition_uses_retained_inputs_and_increases_sequence(self):
         source = dict(slug='org',name='agent',leased=True,batches=[{'tok':'batch'}])
         body = dict(id='agent',state='archived',ask=None,tier='unknown')
@@ -31,8 +51,7 @@ class MailRuntime(unittest.TestCase):
             overlay = MailboxOverlays('uuid','inc')
             overlay.adopt_mail({'1':dict(slug='org',name='agent',leased=False,batches=[{'tok':'batch'}])})
             overlay.adopt({'1':dict(id='agent',state='archived',ask=None,tier='unknown')},{'1':SimpleNamespace()})
-            overlay.adopt_mail({},removed=('1',))
-            changed = overlay.transition(['agent'])
+            changed = overlay.adopt_mail({},removed=('1',))
             self.assertEqual(changed['1']['mail_stages'],{})
             self.assertEqual(overlay._mail,{})
 
