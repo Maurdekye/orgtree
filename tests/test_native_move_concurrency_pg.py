@@ -1,15 +1,18 @@
 """Actual two-session move, admission and current-scope controls."""
 import import_provenance  # noqa: F401 asserts own checkout before engine imports
 import os
+import copy
 import json
 import threading
 import time
+import traceback
 import unittest
 from unittest.mock import patch
 
 import test_native_move_endpoints_pg as base
 from orgtree import api, ledger, lifecycle_tx, orgtx, store
 from orgtree.orgdb import graph, registry
+from orgtree.orgdb.compat import rows as R
 
 setUpModule = base.setUpModule
 tearDownModule = base.tearDownModule
@@ -22,6 +25,8 @@ class MoveConcurrency(unittest.TestCase):
         # Settle healing before either measured operation reaches its body.
         with orgtx.org_tx(self.slug, nodes=['boss', 'a', 'b', 'leaf']):
             pass
+        self.raw_node = copy.deepcopy(store.load_org(self.slug).node('a'))
+        self.raw_node['grant'] = 0
     values = base.NativeMoveEndpoints.values
     configure_capabilities = base.NativeMoveEndpoints.configure_capabilities
 
@@ -47,15 +52,16 @@ class MoveConcurrency(unittest.TestCase):
 
     def raw_insert(self, name):
         """Two disjoint headers must still serialize their shared stats path."""
-        with registry.connection(self.slug) as raw, raw.transaction():
+        # A real native read may happen immediately after either commit. Keep
+        # the complete authored shape rather than planting a sparse header
+        # whose missing created field makes that subsequent read fail.
+        with store._POOL.acquire(self.slug) as connection, connection.raw.transaction():
+            raw = connection.raw
             self._capture_connection(raw)
             raw.execute("SET LOCAL lock_timeout='15s'")
-            row = raw.execute("INSERT INTO orgtree.agents(name,parent_id,state) "
-                              "SELECT %s,id,'live' FROM orgtree.agents "
-                              "WHERE name='boss' AND NOT tombstone RETURNING id",
-                              (name,)).fetchone()
+            R.node_put(connection, name, copy.deepcopy(self.raw_node))
             self._pause_body('before_commit', None)
-            return row[0]
+            return name
 
     def pair(self, first, second):
         """Pause the first real body before save; observe the other's server wait."""
@@ -92,7 +98,8 @@ class MoveConcurrency(unittest.TestCase):
                     raise AssertionError('actual operation returned an error: ' + str(result))
                 outcomes[name] = {'result': result}
             except BaseException as error:
-                outcomes[name] = {'error': error}
+                outcomes[name] = {'error': error, 'frames': [
+                    (frame.name, frame.lineno) for frame in traceback.extract_tb(error.__traceback__)]}
             finally:
                 stages[name + '_ms'] = (time.perf_counter() - started) * 1000
 
@@ -195,10 +202,14 @@ class MoveConcurrency(unittest.TestCase):
                         lambda: self.raw_insert('raw-second'))
         self.assert_stats_wait(got)
 
-    def test_native_hire_prelocks_stats_before_raw_insert(self):
+    def test_native_hire_path_locks_serialize_raw_insert(self):
         got = self.pair(lambda: self.hire('native-first'),
                         lambda: self.raw_insert('raw-second'))
-        self.assert_stats_wait(got)
+        self.assertNotIn('error', got['second'], str(got['second']))
+        # The immediate parent FK meets the earlier agent lock before this
+        # writer reaches stats. Do not label that agent-row wait a stats wait.
+        self.assertTrue(any(row['wait_event'] in ('transactionid', 'tuple')
+                            for row in self.last_observations), self.last_observations)
 
     def test_native_then_raw_crossing_move_refuses_final_cycle(self):
         got = self.pair(lambda: self.move('a', 'b'), lambda: self.raw_move('b', 'a'))
