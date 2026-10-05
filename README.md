@@ -24,41 +24,35 @@ This is **Orgtree 3**, the current desktop application. It follows Orgtree 2 and
 
 **Orgtree 3: a focused agent desk.** On the left, the Work docket is pinned with one ticket open, showing its description, what is done and what is next. On the right, one agent's desk fills the canvas: its live tool calls and short progress notes scroll by, and a message from another agent waits at the bottom until the agent reaches a safe point to read it.
 
-### Orgtree 2 and earlier
+![Orgtree 3 Work docket with tickets grouped by status and one ticket's description, progress and next steps open](docs/images/orgtree-3-docket.png)
 
-These screenshots come from earlier versions. The layout differs in places, but the same ideas carry into Orgtree 3.
+**Orgtree 3: the Work docket.** Tickets are grouped by status, including work in progress, blocked work and the backlog. Opening a ticket shows its owner, description, what is done and what comes next.
 
-![Orgtree 2 workspace with the Work docket, usage limits, the Agents drawer, the org chart and a chat at an agent's desk](docs/images/orgtree-2-workspace.webp)
+![Orgtree 3 presented documents panel with a list of reports and a PostgreSQL speed audit open for reading](docs/images/orgtree-3-presented.png)
 
-**Orgtree 2: the workspace.** One window holds the docket of tickets, account usage limits, a drawer listing the agents, the org chart, and a conversation with an agent.
+**Orgtree 3: presented documents.** Browse reports from your agents and read or download a selected document. Here an agent has presented a PostgreSQL speed audit.
 
-![Orgtree 2 Work docket with tickets grouped by status and one ticket's details open](docs/images/orgtree-2-docket.png)
+![Orgtree 3 App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices](docs/images/orgtree-3-providers.png)
 
-**Orgtree 2: the Work docket.** Tickets are grouped by status, and opening one shows its owner, progress and notes.
+**Orgtree 3: providers.** App settings lists installed providers, signed-in accounts, model tiers and their seat prices. You can add secondary accounts and manage sign-ins; account emails and local usernames are blurred in this picture.
 
-![Orgtree 2 presented documents window showing a performance audit report from an agent](docs/images/orgtree-2-presented.png)
+![Orgtree 3 workspace with account usage above two agent desks open side by side, and a coordinator's desk pinned on the right](docs/images/orgtree-3-desks.png)
 
-**Orgtree 2: presented documents.** When an agent finishes a report, it can show it to you in its own reading window. Here it is a performance audit.
+**Orgtree 3: agent desks.** Open several agents' desks side by side and switch between them using tabs. Here two desks share the canvas, with Usage above them and a coordinator's desk pinned on the right.
 
-![Orgtree 2 App settings on the Providers page, listing model tiers, signed-in accounts, agents per account and model seat prices](docs/images/orgtree-2-providers.png)
+![Orgtree 3 inbox with audience holders, inbox, sent and record tabs, a message list and a selected message with an attachment](docs/images/orgtree-3-inbox.png)
 
-**Orgtree 2: providers.** App settings lists the model tiers each provider offers, the accounts you have signed in to, the agents using each account, and the seat price of each model.
-
-![Orgtree 2 canvas with you at the top, one coordinator beneath you and a long row of agents below it](docs/images/orgtree-2-org.png)
-
-**Orgtree 2: a large team on the canvas.** You sit at the top, a single coordinator reports to you, and a row of about two dozen agents works beneath it. The bar along the top shows how many agents are live, and small icons give quick access to mail, tickets and settings.
-
-![Several agent desks open side by side as tabs in one window](docs/images/orgtree-desks.png)
-
-**Earlier version: agent desks.** Several agents' desks open side by side as tabs, so you can follow more than one conversation at once.
-
-![An inbox window showing who holds each audience and a list of messages](docs/images/orgtree-inbox.png)
-
-**Earlier version: your inbox.** A window listing who holds each audience and the messages sent to you. It shows real agent names and message text from the author's own setup.
+**Orgtree 3: your inbox.** See who holds a direct audience with you, browse messages, read attachments and reply in place. The selected message contains an agent's report and a file to download.
 
 ![A mail hub window showing message traffic between hosts in a read-only view](docs/images/orgtree-mail-hub.png)
 
-**Earlier version: the mail hub.** A read-only view of message traffic between hosts. It also shows real host names and messages from the author's own setup.
+**Orgtree 3: the mail hub.** A read-only view of message traffic between hosts. Select a host or a message to inspect its delivery status and contents.
+
+### Your organizations
+
+![Orgtree 3 home page listing organizations, their capacity counts and a button to create a new organization](docs/images/orgtree-3-homepage.png)
+
+**Orgtree 3: the home page.** Open an existing organization or create a new one. The list shows each organization's capacity counts and marks organizations that are already open.
 
 ## New in Orgtree 3
 
