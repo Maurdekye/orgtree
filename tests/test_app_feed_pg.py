@@ -1,5 +1,5 @@
 """App commit ordering and same-snapshot summaries/notices on disposable PG."""
-import import_provenance  # noqa: F401  own checkout before importing orgtree
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from contextlib import contextmanager
 import asyncio

@@ -1,5 +1,5 @@
 """App snapshots and active spans: deterministic controls with real async barriers."""
-import import_provenance  # noqa: F401  own checkout before importing orgtree
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import asyncio
 import copy

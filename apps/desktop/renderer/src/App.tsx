@@ -1892,12 +1892,12 @@ export default function App() {
 
 /** One provider's live readout. The modal has four independent upstream
  * routes; keeping the in-flight latch here means a manual refresh cannot
- * start a second request while the initial poll or the interval is pending. */
+ * start a second request while another manual or legacy read is pending. */
 /** the header usage modal: the host subscription's rate-limit bars — the
  *  same session / weekly / weekly-scoped readout Claude Code shows under
  *  /usage (user feature 2026-08-18). The backend proxies the account usage
  *  endpoint with the host OAuth token and caches ~30 s; this panel rides
- *  usePolled, so it is fresh on open and stays live while it sits there.
+ *  the app feed, with the legacy polling path only on older engines.
  *  Bars render generically from the `limits` array rather than three
  *  hardcoded rows: when the account gains or loses a scoped limit (a new
  *  model bucket), it shows up here with no code change. */

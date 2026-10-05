@@ -1,5 +1,5 @@
 """Registry writers are inventoried and may never acquire the revision row."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import ast
 from pathlib import Path

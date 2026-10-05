@@ -127,12 +127,11 @@ verified: `orgdb/record_pass.py`, `orgdb/record_host.py`, `orgdb/record_tree.py`
   compatibility view, native agent and docket readers, accounts in the app database; new
   storage on by default since `4f1ddf0`); durable turn requests and queue (B5, `305c472`);
   schema conformance G1–G11 (`c162ca0`); the O(1) agent move (O1, `3535fb4`); the alpha.1
-  startup repairs (`d1c4e8c`); one shared registry connection cache (`ebb2af6`); B4a record-feed backend and tree subscriptions (migration 0018).
+  startup repairs (`d1c4e8c`); one shared registry connection cache (`ebb2af6`); B4a record-feed backend and tree subscriptions (migration 0018); B4b app feed (app migration 0005).
 - **Builds delivered** (local, never published): 3.2.0-alpha.0 on 2026-10-04 and
   3.2.0-alpha.1 on 2026-10-05; the user runs them on live data. alpha.1's startup failures
   are fixed on `dev` by `d1c4e8c`.
-- **In flight:** the record feed, step 6: B4b (the app
-  feed); B4c1 (inbox, events, mail, history), B4c2 (gallery, docket, audiences) and B4d
+- **In flight:** the record feed panels: B4c1 (inbox, events, mail, history), B4c2 (gallery, docket, audiences) and B4d
   (time and retention jobs) follow.
 - **Remaining:** B1 mail and watchdog modules with jobs; B2 questions, audiences,
   documents, reservations, events and settings modules, with every remaining polling loop
@@ -256,7 +255,7 @@ end of this section says so.
 | --- | --- | --- |
 | Turn admission | With `orgdb`: a durable `turn_requests` row in the org database, a `start_turn` job, then a `turn_tickets` row in `orgtree_app` claimed by the turn host. Otherwise the in-memory `turnslots.FairSlots`. Limit: App settings `max_concurrent_turns`, default 16 | the same, shared with the worker |
 | Jobs | `orgdb/jobs.py` exists, but only `start_turn` is enqueued. The polling loops (auto-resume, watchdogs, mail drain, keepers) still run as threads started by `api._recover_startup` | every loop that reads org tables becomes a job (B1–B3) |
-| Screen feed | With orgdb and migration 0018, `record_changes_v1` enables record snapshots, catch-up and tree subscriptions; the deferred commit flush assigns the sole revision. Legacy storage keeps changed/refetch | B4b app feed and B4c panels reuse the core; B4d moves host time/retention work to jobs |
+| Screen feed | With orgdb and migration 0018, `record_changes_v1` enables record snapshots, catch-up and tree subscriptions; the deferred commit flush assigns the sole revision. App migration 0005 adds ordered app snapshots, runtime values and notices; legacy storage keeps changed/refetch | B4c panels reuse the core; B4d moves host time/retention work to jobs |
 | Processes | one engine process per data root | an engine host plus one worker (B6) |
 
 ### Code map

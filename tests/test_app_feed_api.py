@@ -1,5 +1,5 @@
 """App route lifecycle and socket cancellation, without a database or live engine."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import asyncio
 import json
