@@ -1,3 +1,4 @@
+import { useRecordHistory } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps } from './agentnav'
@@ -36,7 +37,7 @@ import type {
 } from '../types'
 import { openAppSettings } from './settingskit'
 import {
-  audienceAction, compactNode, fileBase, fileUrl, getChat, getHistory,
+  audienceAction, compactNode, fileBase, fileUrl, getChat,
   getScratch, interruptNode, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
@@ -4092,7 +4093,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
 export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; refs?: RefRoutes }) {
   // G5: the agent keeps acting while this tab is open — a fetch-once list is
   // a photograph of the moment the tab was clicked
-  const items = usePolled(() => getHistory(slug, nid).then((r) => r.items), [slug, nid])
+  const items = useRecordHistory(slug, nid)
   const profile = 'operator'
   return (
     <div className="msgs">

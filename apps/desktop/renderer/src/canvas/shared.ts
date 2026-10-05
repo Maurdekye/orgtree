@@ -2810,7 +2810,7 @@ interface Polled<T> { value: T | null; status: PolledStatus }
  */
 export function usePolledStatus<T>(
   fetcher: () => Promise<T>, deps: DependencyList, ms = 5000,
-  refreshKey: unknown = 0,
+  refreshKey: unknown = 0, enabled = true,
 ): Polled<T> {
   const [state, setState] = useState<Polled<T>>({ value: null, status: POLL_LOADING })
   const ref = useRef(fetcher)
@@ -2831,8 +2831,9 @@ export function usePolledStatus<T>(
     accepted.current = 0
     setState({ value: null, status: POLL_LOADING })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps])
+  }, [...deps, enabled])
   useEffect(() => {
+    if (!enabled) return
     let dead = false
     // ⚠ `dead` IS WHAT INVALIDATES A PRIOR IDENTITY, and no separate generation
     // counter is needed beside it. A deps change re-runs this effect, whose
@@ -2882,7 +2883,7 @@ export function usePolledStatus<T>(
     // the fetcher rides a ref on purpose; `deps` is the identity of the thing
     // being fetched (slug, node, folder), which is what should restart it
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, ms, refreshKey])
+  }, [...deps, ms, refreshKey, enabled])
   return state
 }
 
@@ -2891,10 +2892,10 @@ export function usePolledStatus<T>(
  *  status is simply not returned, so no call site has to migrate. */
 export function usePolled<T>(
   fetcher: () => Promise<T>, deps: DependencyList, ms = 5000,
-  refreshKey: unknown = 0,
+  refreshKey: unknown = 0, enabled = true,
 ): T | null {
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return usePolledStatus(fetcher, deps, ms, refreshKey).value
+  return usePolledStatus(fetcher, deps, ms, refreshKey, enabled).value
 }
 
 /** A NAVIGATION REQUEST, with an identity of its own.

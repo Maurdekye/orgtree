@@ -1,3 +1,4 @@
+import { useRecordMailbox } from '../recordpanelhooks'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
 // the org-inbox viewer (OrgInboxModal), and the org record. One mail
@@ -9,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import type { InboxPayload, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
-  audienceAction, fileBase, fileUrl, getMailById, getNodeInbox, getOrgInbox, orgInboxRead,
+  audienceAction, fileBase, fileUrl, getMailById, getOrgInbox, orgInboxRead,
   orgInboxSend, orgInboxUpload, uploadFile,
 } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
@@ -19,7 +20,7 @@ import {
 } from '../icons'
 import {
   EXTERN, fmtCredits, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
-  useHideRetired, usePolled,
+  useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentName } from './identity'
@@ -1115,7 +1116,7 @@ export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocus
   // events and on nothing else — and a mail DELIVERY is not a turn event, so
   // the one panel whose whole job is showing mail was the one that did not
   // learn when mail arrived. Polled while mounted instead.
-  const box = usePolled(() => getNodeInbox(slug, nid), [slug, nid])
+  const box = useRecordMailbox(slug, nid)
   // the exact question, for a reference that landed outside the window this
   // poll returns. Same box, same access — it is the one-row form of the
   // fetch above, not a wider one.

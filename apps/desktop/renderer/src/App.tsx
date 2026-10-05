@@ -1,3 +1,4 @@
+import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
 import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
@@ -16,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import {
   audienceAction, clearInbox, createOrg, deleteOrg,
-  fileBase, fileUrl, getAudiences, getDefaults, getEvents, getHost, getInbox,
+  fileBase, fileUrl, getAudiences, getDefaults, getHost,
   getMailById, getOrgMd,
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
@@ -2555,7 +2556,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // readBump rides the REFRESH key, not deps: deps changes reset the value to
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
-  const box = usePolled(() => getInbox(slug), [slug], 5000, readBump)
+  const box = useRecordInbox(slug, readBump).value
   // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
   // read-takes-about-half-a-sec): out of the unread group and the unread
   // count at once, saved in the background, back to unread if refused
@@ -2627,9 +2628,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // The dep is the BOOLEAN, so typing within a search never restarts the poll.
   const [recordQuery, setRecordQuery] = useState('')
   const recordFull = recordQuery.trim() !== ''
-  const events = usePolled(
-    () => (folder === 'record' ? getEvents(slug, recordFull ? undefined : 300).then((r) => r.events)
-      : Promise.resolve(null)), [folder, slug, recordFull])
+  const events = useRecordEvents(slug, folder === 'record', recordFull)
   const userAud = aud?.audiences?.filter((a) => a.grantor === USER) ?? []
   const userReqs = (aud?.requests?.filter((r) => r.target === USER && r.currently_at === USER) ?? []) as UserAudReq[]
   const act = (action: string, node: string, target?: string | null) =>

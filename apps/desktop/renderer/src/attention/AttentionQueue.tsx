@@ -1,3 +1,4 @@
+import { useRecordInbox } from '../recordpanelhooks'
 // attention/AttentionQueue.tsx — THE "NEEDS ATTENTION" PANEL.
 //
 // One mixed list of everything waiting on the user in the open organization,
@@ -39,11 +40,12 @@ import { useSubmittedAsks } from '../asksubmitted'
 import { markReadNow, readLocally, useLocalReads } from '../mailread'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useWorkItems } from '../canvas/useworkitems'
-import { fileBase, fileUrl, getInbox, markRead } from '../api'
+import { fileBase, fileUrl, markRead } from '../api'
 import { dismissAttention } from '../attndismiss'
 import { sendLinkedReply } from '../events/reply'
 import type { MailEntry, ToastFn, TreePayload, WorkItem } from '../types'
-import { usePolledStatus } from '../canvas/shared'
+
+
 import type { MailLinkFn, MailRow, PolledStatus } from '../canvas/shared'
 import { InboxAskCard } from '../canvas/asks'
 import { MailReadPane, MailRowView } from '../canvas/mail'
@@ -113,7 +115,7 @@ export function AttentionQueue({
   // HERE lands in well under a poll interval.
   const [bump, setBump] = useState(0)
   const workFeed = useWorkItems(slug, false, false, 5000, bump)
-  const boxFeed = usePolledStatus(() => getInbox(slug), [slug], 5000, bump)
+  const boxFeed = useRecordInbox(slug, bump)
   const work = workFeed.value
   const box = boxFeed.value
   const refetch = useCallback(() => setBump((n) => n + 1), [])

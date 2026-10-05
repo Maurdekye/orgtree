@@ -28,6 +28,7 @@ export type SubscriptionMessage = ({ type: 'subscribe' } & SubscriptionDeclarati
 export interface FeedState { cursor: FeedCursor; memberships: Memberships; runtime: RuntimeTable; netRuntime?: Readonly<RuntimeValue> | null }
 export interface FeedView extends FeedState { records: RecordTable }
 export interface RecordSession {
+  reconnect?: (force?: boolean) => Promise<void>
   getSnapshot: () => FeedView | null
   listen: (listener: () => void) => () => void
   subscribe: (input: SubscriptionInput, onReady?: (ready: boolean) => void) => () => void
