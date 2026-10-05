@@ -290,7 +290,9 @@ class ScopeLaunch(unittest.TestCase):
     def test_result_boundary_rejects_old_scope_identity_without_relabeling_process(self):
         with patch.object(sup, 'codex_harness_turn', return_value=False):
             issued_hash, issued_parts = warmpool.identity_snapshot(self.org, 'leaf', env={}, overrides={})
-            process = SimpleNamespace(hash=issued_hash, ident_components=deepcopy(issued_parts))
+            process = SimpleNamespace(hash=issued_hash, ident_components=deepcopy(issued_parts),
+                                      slug=self.org.d['slug'], nid='leaf', sid='scope-fixture',
+                                      proc=SimpleNamespace())
             self.narrow()
             with patch.object(warmpool, 'warm_decision', return_value=(True, True)), \
                     patch.object(warmpool, 'node_excluded', return_value=False), \
