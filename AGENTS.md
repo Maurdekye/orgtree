@@ -505,6 +505,12 @@ rulings go here and on their ticket.
   [`docs/mail-delivery-boundaries.md`](docs/mail-delivery-boundaries.md)]
 - Notices never start a turn. Status reports (`orgtree_status`) arrive as passive notices;
   anything that needs action is a question. [decided: user 2026-10-03]
+- Unrecorded hook claims are released at startup after transcript reconciliation
+  and proof that their engines and children ended. Failed steer-fetch commits
+  restore FIFO carriers; pump lock timeouts retry. Inbox fetch reads inflight
+  content through a chunk handle without changing its delivery owner.
+  [verified 2026-10-05: `mailruntime.py`, `supervisor.py`, `inbox.py`;
+  details: `docs/mail-delivery-boundaries.md`]
 - A mid-turn model switch is queued for the next turn (an interrupt applies it at once). A
   switch to another provider is a lineage split and asks for confirmation. [decided: user
   2026-08-29, 2026-09-03]

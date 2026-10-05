@@ -10729,8 +10729,8 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
     `redelivered` +1), then exactly the requested ids that fit the budget are
     drained from the mailbox and journaled `mode="manual_fetch"` under the
     running attempt's own registered identity, then one save. An id a live
-    carrier holds is reported `already_moved` with its stage and its batch is
-    untouched. Nothing is confirmed, discarded or marked Read: the batch
+    carrier holds is served through a read-only continuation handle with its
+    stage, and its batch is untouched. Nothing is confirmed, discarded or marked Read: the batch
     returns to the mailbox when the attempt ends (`will_redeliver`).
 
     P06a. Every fetch that takes mail writes its durable attempt in that same
@@ -10800,6 +10800,7 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
         box = {i: (m if i not in twice else {**m, "body": None})
                for i, m in box.items()}
         moved: dict[str, dict[str, Any]] = {}
+        inflight: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
         for b in (o.d.get("delivering") or {}).get(nid) or []:
             if not isinstance(b, dict):
                 continue
@@ -10807,14 +10808,19 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
             for m in b.get("mail") or []:
                 mid = m.get("id") if isinstance(m, dict) else None
                 if mid in wanted and mid not in box and mid not in moved:
+                    if mailruntime._custody_problem(o, nid, b) in (None, "custody_unproven"):
+                        inflight[mid] = (m, b)
                     moved[mid] = {"message_id": mid,
                                   "state": states.get(b.get("tok"), "unavailable"),
                                   **({"delivery_id": manual["delivery_id"]}
                                      if manual.get("delivery_id") else {})}
+        readable = {**box, **{mid: pair[0] for mid, pair in inflight.items()}}
         take, deferred, unsupported = inbox.fit_budget(
-            [i for i in ids if i in box], box)
+            [i for i in ids if i in readable], readable)
+        read_taken = [mid for mid in take if mid in inflight]
+        take = [mid for mid in take if mid in box]
         result.update(delivery_id=None, fetched=[],
-                      already_moved=[moved[i] for i in ids if i in moved],
+                      already_moved=[moved[i] for i in ids if i in moved and i not in read_taken],
                       deferred_ids=deferred, unsupported_ids=unsupported,
                       not_found=[i for i in ids if i not in box and i not in moved])
         if take:
@@ -10834,6 +10840,35 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
                 mailruntime.hold_manual(st, ident, [tok])
             result.update(delivery_id=did, fetched=[
                 inbox.fetched_item(m, row["manual"]["plan"][m["id"]], did) for m in mail])
+        # Reading a live carrier must not steal or confirm its delivery. Keep
+        # a continuation plan referencing its existing journal, never a second
+        # copy of the body. Repeated fetches reuse this turn's read handle.
+        atts = _manual_attempts(o, nid)
+        for mid in read_taken:
+            message, source = inflight[mid]
+            prior = next((a for a in atts.values() if isinstance(a, dict)
+                          and a.get("inflight_read")
+                          and a.get("tok") == source.get("tok")
+                          and a.get("attempt") == ident["attempt"]
+                          and a.get("engine") == mailruntime.ENGINE_INSTANCE), None)
+            if prior is None:
+                did = "mr-" + os.urandom(8).hex()
+                record = inbox.manual_record(
+                    ident, engine=mailruntime.ENGINE_INSTANCE, delivery_id=did,
+                    mail=[], seat=o.nodes[nid].get("seat_id"))
+                prior = atts[did] = {**inbox.attempt_record(
+                    record, tok=source["tok"], at=now_iso(), op_key=op_key or None,
+                    op_id=op_id), "inflight_read": True, "plan": {}}
+            did = prior["delivery_id"]
+            plan = prior["plan"].setdefault(mid, inbox.chunk_plan(message["body"]))
+            prior["mail_ids"] = list(prior["plan"])
+            prior["digests"][mid] = {k: plan[k] for k in ("chunk_total", "body_sha256")}
+            result["fetched"].append({**inbox.fetched_item(message, plan, did),
+                                      "inflight_read": True, "state": moved[mid]["state"]})
+            if result["delivery_id"] is None:
+                result["delivery_id"] = did
+        result["fetched"].sort(key=lambda item: ids.index(item["message_id"]))
+        _trim_manual_attempts(o, nid)
         result.update(inbox.fetch_counts(result))
         if keyed is not None:
             # the LAST write before the one save: the receipt exists iff
@@ -10890,6 +10925,11 @@ def _chunk_answer(org: Org, nid: str, generation: int, delivery_id: str,
     rows = [b for b in (org.d.get("delivering") or {}).get(nid) or []
             if isinstance(b, dict) and isinstance(b.get("manual"), dict)
             and b["manual"].get("delivery_id") == delivery_id]
+    read = ((org.d.get("manual_attempts") or {}).get(nid) or {}).get(delivery_id)
+    if not rows and isinstance(read, dict) and read.get("inflight_read"):
+        rows = [{**b, "manual": read}
+                for b in (org.d.get("delivering") or {}).get(nid) or []
+                if isinstance(b, dict) and b.get("tok") == read.get("tok")]
     gone = {"ok": True, "delivery_id": delivery_id, "message_id": message_id,
             "chunk_index": chunk_index, "content": None, "content_available": False}
     if len(rows) > 1:
@@ -18787,7 +18827,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
                 # turn re-delivered the same words, so the message stood in the
                 # transcript twice (see `pop_steer`, measured on the live
                 # coordinator 2026-09-02T07:38). Commit on the ACCEPTANCE.
-                carriers = pop_steer(slug, nid, defer_commit=True)
+                carriers = _pump_steer(slug, nid)
                 if not carriers:
                     continue
                 msgs = [str(m.get("text") or "") if isinstance(m, dict)
@@ -20023,7 +20063,7 @@ def _antigravity_leg(slug: str, nid: str, org: Org, st: dict[str, Any],
         def _steer_pump() -> None:
             while not stop.wait(CODEX_STEER_POLL):
                 # Keep the carrier durable until hook and wire acknowledge it.
-                carriers = pop_steer(slug, nid, defer_commit=True)
+                carriers = _pump_steer(slug, nid)
                 if not carriers:
                     continue
                 msgs = [str(m.get("text") or "") if isinstance(m, dict)
@@ -32244,6 +32284,15 @@ def _steer_commit_rows(nid: str) -> dict[str, Any]:
     return mailtx.merge(mailtx.confirm_rows(nid), logs=[("steered_log", nid)])
 
 
+def _pump_steer(slug: str, nid: str) -> list[Any]:
+    """A failed gate/commit leaves the pump alive for its next bounded poll."""
+    try:
+        return pop_steer(slug, nid, defer_commit=True)
+    except Exception as exc:  # database lock timeout, disconnect, or failed save
+        print(f"[orgtree] {slug}/{nid}: steer fetch will retry ({type(exc).__name__})")
+        return []
+
+
 @halt.delivery(list, rows=lambda slug, nid, *_a, defer_commit=False, **_k:
                None if defer_commit else _steer_commit_rows(nid))
 def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
@@ -32287,6 +32336,17 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
             for c in msgs:
                 c.setdefault("_halt_id", uuid.uuid4().hex)
             st.setdefault("halt_steering_carriers", []).extend(msgs)
+            # The gate commits AFTER this function returns. A commit failure
+            # must restore the popped carriers before the pump retries.
+            def restore() -> None:
+                with _state_lock:
+                    chosen = {id(c) for c in msgs}
+                    st["halt_steering_carriers"] = [
+                        c for c in st.get("halt_steering_carriers") or []
+                        if id(c) not in chosen]
+                    key = "steer" if st.get("responding") else "queue"
+                    st[key] = list(msgs) + list(st.get(key) or [])
+            halt._on_abort(restore)
     if defer_commit:
         return list(msgs)
     # the legacy claude fetch: fetch-is-commit, labelled as the unconfirmed
@@ -35610,7 +35670,9 @@ def _reconcile_mail_journal(org: Org, *,
     marker whose mail was folded replays its authored base only. When the
     proof fails, the prior engine is added to the row's owners (`changed`) so
     a later restart still checks it. Claims, halt/native retention, manual
-    custody, identity changes and malformed state keep protecting.
+    custody, identity changes and malformed state keep protecting. A valid
+    hook claim and its matching durable attempt no longer protect once their
+    owners are proven gone; positive transcript records were applied first.
     """
     slug = org.d["slug"]
     all_folded = set()

@@ -36,6 +36,25 @@ ambiguous provider window.
 
 ## Bounds and holds
 
+Unrecorded hook claims do not survive a proven-dead owner as permanent holds.
+Startup first applies positive transcript records, then releases valid claims
+and their matching attempts when the owning engine and its children are gone.
+Live carriers, pending confirmations, halt/native holds and malformed custody
+still protect independently. A recovered claim may have reached the provider
+without a durable record, so its redelivery retains the uncertainty disclosure.
+
+The Codex and Antigravity steer pumps retry failed fetch transactions on their
+next poll. If the gate fails to commit after popping carriers, rollback restores
+their FIFO position before the retry or turn-end fold.
+
+Inbox fetch can also read a message held by a live delivery carrier. Its
+`inflight_read` result references the original journal through a durable chunk
+plan; it neither copies the body into another store nor takes delivery custody.
+Repeated fetches in the same turn reuse that handle. The carrier's ordinary
+confirmation or recovery still determines delivery. Once it is confirmed, the
+read handle reports confirmed and serves no stale body. Mailbox and generation
+checks apply to both fetch and chunk reads.
+
 The consumer maintains an index of pending seats, reconstructed on startup.
 It visits at most 32 seats per pass, rotating busy and held seats behind others.
 An event prompts a pass after sends and worker completion; a one-second tick

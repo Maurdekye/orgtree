@@ -207,6 +207,50 @@ class MailDrainTests(unittest.TestCase):
         self.assertFalse(self.recover_inline())
         self.assertEqual(self.delivered, [])
 
+    def test_steer_fetch_commit_failure_restores_fifo_and_pump_retries(self):
+        self.st.update(busy=True, responding=True)
+        self.send('first')
+        self.send('second')
+        original = list(self.st['steer'])
+        with patch.object(store, 'save_org', side_effect=OSError('commit failed')):
+            self.assertEqual(sup._pump_steer(self.slug, 'worker'), [])
+        self.assertEqual(self.st['steer'], original)
+        self.assertEqual(self.st.get('halt_steering_carriers'), [])
+        self.assertEqual(sup._pump_steer(self.slug, 'worker'), original)
+
+    def test_steer_pump_lock_timeout_then_turn_end_delivers_once(self):
+        from psycopg.errors import LockNotAvailable
+        self.st.update(busy=True, responding=True)
+        self.send('first')
+        self.send('second')
+        with patch.object(sup, 'pop_steer', side_effect=LockNotAvailable('lock timeout')):
+            self.assertEqual(sup._pump_steer(self.slug, 'worker'), [])
+        self.st.update(busy=False, responding=False)
+        self.assertTrue(self.recover_inline())
+        self.assertEqual(self.delivered, ['first', 'second'])
+        self.assertFalse(self.recover_inline())
+
+    def test_restart_releases_unrecorded_hook_claim_only_after_owner_death(self):
+        self.st.update(busy=True, responding=True)
+        self.send('claimed before restart')
+        org = store.load_org(self.slug)
+        row = org.d['delivering']['worker'][0]
+        row['at'] = '2000-01-01T00:00:00Z'
+        row['claim'] = {'delivery_id': 'unrecorded', 'tool_use_id': 'tool-old', 'acked': True}
+        org.d.setdefault('steer_attempts', {}).setdefault('worker', {})['unrecorded'] = {
+            'toks': [row['tok']], 'tool_use_id': 'tool-old', 'acked': True}
+        store.save_org(org)
+        sup._state.pop((self.slug, 'worker'))
+        self.st = sup.state(self.slug, 'worker')
+        org = store.load_org(self.slug)
+        self.assertFalse(sup._reconcile_mail_journal(org, owners_gone=lambda r: False))
+        folded = sup._reconcile_mail_journal(org, owners_gone=lambda r: True)
+        self.assertEqual(folded, {row['tok']})
+        store.save_org(org)
+        self.assertTrue(self.recover_inline())
+        self.assertEqual(self.delivered, ['claimed before restart'])
+        self.assertFalse(self.recover_inline())
+
     def test_foldback_storage_failure_keeps_work_for_the_next_attempt(self):
         self.st.update(busy=True, responding=True)
         self.send('remaining after storage failure')

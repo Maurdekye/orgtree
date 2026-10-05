@@ -158,7 +158,13 @@ def restart_uncertain(row: Mapping[str, Any]) -> bool:
     changes and malformed stamps are never in this set.
     """
     attempt = row.get("attempt")
-    return bool("input_attempt" in row
+    claim = row.get("claim")
+    hook_claim = (isinstance(claim, Mapping)
+                  and isinstance(claim.get("delivery_id"), str)
+                  and bool(claim.get("delivery_id"))
+                  and isinstance(claim.get("tool_use_id"), str)
+                  and bool(claim.get("tool_use_id")))
+    return bool(hook_claim or "input_attempt" in row
                 or (isinstance(attempt, Mapping) and attempt.get("outcome") == "unknown")
                 or "custody" not in row
                 or (row.get("mode") == CUSTODY_MANUAL_FETCH
@@ -538,6 +544,7 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
         current = _ref(mailbox, generation, session, IDLE_ATTEMPT)
     batches = []
     durable_claims = []
+    released_claims = {}
     rows = (org.d.get("delivering") or {}).get(nid) or []
     for row in rows:
         if not isinstance(row, Mapping):
@@ -548,16 +555,25 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
                            if isinstance(m, Mapping) else own.Gap.UNSUPPORTED
                            for m in mail) if isinstance(mail, (list, tuple))             else (own.Gap.UNSUPPORTED,)
         tok = row.get("tok", own.Gap.ABSENT)
+        released = bool(owners_gone is not None and restart_uncertain(row)
+                        and owners_gone(row))
         batches.append(own.JournalBatch(token=tok,
-            drained_at=row.get("at", own.Gap.ABSENT),
+            drained_at=(now - own.DRAIN_GRACE_S if released
+                        else row.get("at", own.Gap.ABSENT)),
             mode=row.get("mode", own.Gap.ABSENT), message_ids=identities))
-        if "claim" in row:
+        claim = row.get("claim")
+        valid_claim = (isinstance(claim, Mapping)
+                       and isinstance(claim.get("delivery_id"), str)
+                       and bool(claim.get("delivery_id"))
+                       and isinstance(claim.get("tool_use_id"), str)
+                       and bool(claim.get("tool_use_id")))
+        if released and valid_claim:
+            released_claims[tok] = claim["delivery_id"]
+        if "claim" in row and not (released and valid_claim):
             claim = row["claim"] if isinstance(row["claim"], Mapping) else {}
             durable_claims.append(own.Claim(tokens=(tok,),
                 delivery_id=claim.get("delivery_id", own.Gap.ABSENT),
                 acked=claim.get("acked", own.Gap.ABSENT)))
-        released = bool(owners_gone is not None and restart_uncertain(row)
-                        and owners_gone(row))
         attempt = row.get("attempt")
         if not released and (isinstance(attempt, Mapping)
                              and attempt.get("outcome") == "unknown"
@@ -626,8 +642,11 @@ def snapshot(org: Any, nid: str, facts: Mapping[str, Any], *,
             if not isinstance(attempt, Mapping):
                 durable_claims.append(own.Claim(tokens=own.Gap.UNSUPPORTED))
             elif not attempt.get("recorded_at") and not attempt.get("resolved"):
+                tokens = _token_membership(attempt.get("toks", own.Gap.ABSENT))
+                if not isinstance(tokens, own.Gap):
+                    tokens = tuple(t for t in tokens if released_claims.get(t) != did)
                 durable_claims.append(own.Claim(
-                    tokens=_token_membership(attempt.get("toks", own.Gap.ABSENT)),
+                    tokens=tokens,
                     delivery_id=did, acked=attempt.get("acked", own.Gap.ABSENT)))
     return own.OwnershipSnapshot(current=current, now=now, batches=batches,
         memberships=members, carriers=carriers, claims=_claims(facts) + durable_claims, leases=leases,

@@ -489,9 +489,14 @@ def transition_state(org: Any, nid: str, delivery_id: str) -> str | None:
     names this delivery, `unknown` from one of any other outcome, None when
     no receipt names it."""
     found = None
+    att = ((org.d.get("manual_attempts") or {}).get(nid) or {}).get(delivery_id)
+    read_token = (att.get("tok") if isinstance(att, Mapping)
+                  and att.get("inflight_read") else None)
     for receipt in ((org.d.get("mail_transitions") or {}).get(nid) or {}).values():
-        if (isinstance(receipt, Mapping) and isinstance(receipt.get("deliveries"), Mapping)
-                and delivery_id in receipt["deliveries"].values()):
+        if (isinstance(receipt, Mapping)
+                and ((isinstance(receipt.get("deliveries"), Mapping)
+                      and delivery_id in receipt["deliveries"].values())
+                     or (read_token is not None and read_token in receipt.get("before", {})))):
             found = {"reclaimed": "redelivered",
                      "confirmed": "confirmed"}.get(receipt.get("outcome"), "unknown")
     return found

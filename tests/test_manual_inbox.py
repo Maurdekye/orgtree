@@ -399,8 +399,10 @@ class ManualInboxTests(unittest.TestCase):
                 store.save_org(org)
                 before = self.journal_rows()
                 out = self.fetch(ids)
-                self.assertEqual(out['already_moved'], [{'message_id': ids[0], 'state': stage}])
-                self.assertEqual(out['fetched'], [])
+                self.assertEqual(out['already_moved'], [])
+                self.assertEqual(out['fetched'][0]['content'], 'hello')
+                self.assertEqual(out['fetched'][0]['state'], stage)
+                self.assertTrue(out['fetched'][0]['inflight_read'])
                 self.assertEqual(self.journal_rows(), before)
                 self.tearDown()
 
@@ -411,7 +413,7 @@ class ManualInboxTests(unittest.TestCase):
         self.begin()
         t0 = time.time()
         out = self.fetch(ids, now=t0)
-        self.assertEqual(out['already_moved'], [{'message_id': ids[0], 'state': 'settling'}])
+        self.assertEqual(out['fetched'][0]['state'], 'settling')
         later = self.fetch(ids, now=t0 + sup.STRANDED_GRACE_S + 1)
         self.assertEqual([f['message_id'] for f in later['fetched']], ids)
 
@@ -421,9 +423,8 @@ class ManualInboxTests(unittest.TestCase):
         first = self.fetch(ids)
         before = self.journal_rows()
         again = self.fetch(ids, now=time.time() + 3600)   # far past any grace
-        self.assertEqual(again['already_moved'],
-                         [{'message_id': ids[0], 'state': 'fetched_unconfirmed',
-                           'delivery_id': first['delivery_id']}])
+        self.assertEqual(again['fetched'][0]['content'], 'hello')
+        self.assertEqual(again['fetched'][0]['state'], 'fetched_unconfirmed')
         self.assertEqual(self.journal_rows(), before)
 
     def test_the_running_turn_cannot_reclaim_its_own_envelope(self):
@@ -432,8 +433,40 @@ class ManualInboxTests(unittest.TestCase):
         self.begin(toks=[tok])
         before = self.journal_rows()
         out = self.fetch(ids, now=time.time() + 3600)
-        self.assertEqual(out['already_moved'], [{'message_id': ids[0], 'state': 'inflight_turn'}])
+        self.assertEqual(out['fetched'][0]['content'], 'hello')
+        self.assertEqual(out['fetched'][0]['state'], 'inflight_turn')
         self.assertEqual(self.journal_rows(), before)
+
+    def test_inflight_fetch_chunks_reuse_handle_without_changing_delivery(self):
+        body = 'abc🙂' * 30000
+        ids = self.deposit(body)
+        tok = self.journal(ids)
+        self.begin(toks=[tok])
+        before = self.journal_rows()
+        fetched = self.fetch(ids)['fetched'][0]
+        repeated = self.fetch(ids)['fetched'][0]
+        self.assertEqual(fetched['delivery_id'], repeated['delivery_id'])
+        chunks = [sup.manual_fetch_chunk(self.slug, W, self.gen,
+                  fetched['delivery_id'], ids[0], i)['content']
+                  for i in range(fetched['chunk_total'])]
+        self.assertEqual(''.join(chunks), body)
+        self.assertEqual(self.journal_rows(), before)
+        self.assertEqual(sup._manual_candidates(self.load(), W), [])
+        sup._confirm_delivered(self.slug, W, [tok])
+        self.assertEqual(self.fetch(ids)['not_found'], ids)
+        gone = sup.manual_fetch_chunk(self.slug, W, self.gen,
+                                     fetched['delivery_id'], ids[0], 0)
+        self.assertIsNone(gone['content'])
+        self.assertEqual(gone['content_state'], 'confirmed')
+
+    def test_inflight_read_does_not_launder_another_generation(self):
+        ids = self.deposit('old generation')
+        tok = self.journal(ids)
+        self.begin(toks=[tok])
+        org = self.load()
+        org.d['delivering'][W][0]['custody']['generation'] += 1
+        store.save_org(org)
+        self.assertEqual(self.fetch(ids)['fetched'], [])
 
     def test_turn_end_returns_an_unconfirmed_manual_batch_to_the_mailbox(self):
         ids = self.deposit(count=2)
@@ -551,7 +584,7 @@ class ManualInboxTests(unittest.TestCase):
             return real(st)
         with patch.object(mailruntime, 'runtime_facts', racing):
             out = self.fetch(ids)
-        self.assertEqual(out['already_moved'], [{'message_id': ids[0], 'state': 'inflight_queue'}])
+        self.assertEqual(out['fetched'][0]['state'], 'inflight_queue')
         self.assertEqual(self.journal_rows(), before)
 
     def test_a_carrier_composed_during_the_fold_is_never_published(self):
@@ -606,7 +639,7 @@ class ManualInboxTests(unittest.TestCase):
         self.begin('op-new')
         before = self.journal_rows()
         out = self.fetch(ids, now=time.time() + 3600)
-        self.assertEqual([m['state'] for m in out['already_moved']], ['fetched_unconfirmed'])
+        self.assertEqual([m['state'] for m in out['fetched']], ['fetched_unconfirmed'])
         sup._fold_back_undelivered(self.slug, W)
         self.assertEqual(self.journal_rows(), before)
         self.assertFalse(self.restart(False))
@@ -630,7 +663,7 @@ class ManualInboxTests(unittest.TestCase):
         self.assertFalse(self.restart(True))
         self.begin('op-new')
         out = self.fetch(ids, now=time.time() + 3600)
-        self.assertEqual([m['state'] for m in out['already_moved']], ['fetched_unconfirmed'])
+        self.assertEqual([m['state'] for m in out['fetched']], ['fetched_unconfirmed'])
 
 
 if __name__ == '__main__':
