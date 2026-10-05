@@ -293,10 +293,11 @@ class EngineLog(unittest.TestCase):
     def test_logging_recovers_after_rotation_rename_failure(self):
         path = self.install(max_bytes=1000, keep=2)
         log = enginelog._INSTALLED
-        print("seed " + "x" * 430)
+        print("seed " + "word " * 86)
         before = self.text()
-        with mock.patch.object(enginelog.os, "replace", side_effect=PermissionError("busy backup")):
-            print("rotation " + "x" * 600)
+        with mock.patch.object(enginelog.os, "replace", side_effect=PermissionError("busy backup")) as replace:
+            print("rotation " + "word " * 120)
+        replace.assert_called_once()
         print("after rename failure")
         self.assertIn("after rename failure", self.text())
         self.assertTrue(self.text().startswith(before))
@@ -306,13 +307,12 @@ class EngineLog(unittest.TestCase):
 
     def test_logging_recovers_after_rotation_reopen_failure(self):
         path = self.install(max_bytes=1000, keep=2)
-        print("seed " + "x" * 430)
-        real_open = open
+        print("seed " + "word " * 86)
         def unavailable(*args, **kwargs):
             # The old log was renamed but the replacement could not be opened.
             raise PermissionError("replacement unavailable")
         with mock.patch.object(enginelog, "open", unavailable, create=True):
-            print("rotation " + "x" * 600)
+            print("rotation " + "word " * 120)
         print("after reopen failure")
         self.assertIn("after reopen failure", self.text())
         self.assertIn("seed", self.text("engine.log.1"))
