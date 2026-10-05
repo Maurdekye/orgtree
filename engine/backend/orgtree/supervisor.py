@@ -21729,6 +21729,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 waiting is disabled. This gives timeout cleanup a wake path
                 independent of EOF from child-inherited pipe handles.
                 """
+                from . import mcp_recovery
+                mcp_recovery.attach(target, lambda line: _stdin_send(target, line, wait=1.0),
+                                    lambda: warmpool.poke(slug))
                 lines: queue.Queue[str | None] = queue.Queue(maxsize=256)
 
                 def _put(line: str | None) -> None:
@@ -21746,6 +21749,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         if target.stdout is None:
                             return
                         for raw_line in target.stdout:
+                            if mcp_recovery.observe_line(target, raw_line):
+                                continue
                             if stream_stop.is_set():
                                 return
                             try:
@@ -21761,6 +21766,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     "system/init.tools")
                             _put(raw_line)
                     finally:
+                        mcp_recovery.stop(target)
                         _put(None)
                         with _state_lock:
                             wake = (st.get("mcp_tool_event")
@@ -22742,6 +22748,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # closed-death-list telemetry
                                 wp_turn.exit_reason = _bnd_why or \
                                     "identity-changed"
+                        if wp_turn is None:
+                            from . import mcp_recovery
+                            recovery = mcp_recovery.reserve(slug, nid, ran_sid or sid, proc)
+                            if recovery is not None:
+                                may_feed = False
+                                warmpool._journal("mcp-recovery", slug=slug, nid=nid,
+                                                  action="restart-at-boundary", **recovery)
                         # Reconcile this exact completed request before
                         # admitting another carrier to the same process. This
                         # is both the authoritative receipt boundary and the

@@ -73,7 +73,7 @@ import threading
 import time
 from typing import Any, Iterator
 
-from . import store, agentauth
+from . import store, agentauth, mcp_recovery
 from . import orgtx
 
 # ── knobs ──────────────────────────────────────────────────────────────────
@@ -350,6 +350,9 @@ class WarmProc:
         self.dropped_inactive = 0           # probe counter (process-cache-2)
         self.err_tail: collections.deque[str] = collections.deque(maxlen=200)
         self._lk = threading.Lock()
+        from . import supervisor as sup
+        mcp_recovery.attach(proc, lambda line: sup._stdin_send(proc, line, wait=1.0),
+                            lambda: poke(slug))
         threading.Thread(target=self._pump_out, daemon=True,
                          name=f"warmpump-{slug}-{nid}").start()
         threading.Thread(target=self._pump_err, daemon=True,
@@ -360,6 +363,8 @@ class WarmProc:
         try:
             for line in self.proc.stdout:      # pyright: ignore[reportOptionalIterable]
                 line = line.rstrip("\n")
+                if mcp_recovery.observe_line(self.proc, line):
+                    continue  # local health replies never prove prompt consumption
                 with self._lk:
                     if self.active:
                         self.lines.put(line)
@@ -394,6 +399,7 @@ class WarmProc:
                         self.dropped_inactive += 1
         except (OSError, ValueError):
             pass
+        mcp_recovery.stop(self.proc)
         self.dead.set()
         with self._lk:
             self.lines.put(None)                # EOF marker for any reader
@@ -1625,6 +1631,8 @@ def boundary_check(slug: str, nid: str,
     on, label = warm_decision()
     if not on:
         return False, label, "disabled"
+    if wp is not None and _mcp_recovery_boundary(wp):
+        return False, label, "mcp-disconnected"
     if want_hash is None:
         return False, label, "stdin-closed"
     if node_excluded(slug, nid):
@@ -2880,6 +2888,8 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                 # exit owner, and share the once-only guard with the EOF pump.
                 _journal_exit_once(wp, "crash")
                 wp = None
+            if wp is not None and _mcp_recover_idle(wp):
+                wp = None
             if (scoped and wp is not None
                     and _unchanged(org, slug, nid, org_fp, wp.hash)):
                 continue                             # nothing it reads moved
@@ -2901,6 +2911,33 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                               identity_change=change)
                 kill_node(slug, nid, "identity-changed")
             _prewarm_node(org, nid, "pre-warm" if wp is None else "identity-changed")
+
+
+def _mcp_recovery_boundary(wp: WarmProcess) -> bool:
+    monitor = getattr(wp.proc, "_orgtree_mcp_monitor", None)
+    if isinstance(monitor, mcp_recovery.Monitor) and monitor.restarting:
+        return True
+    info = mcp_recovery.reserve(wp.slug, wp.nid, wp.sid, wp.proc)
+    if info is None:
+        return False
+    _journal("mcp-recovery", slug=wp.slug, nid=wp.nid,
+             action="restart-at-boundary", **info)
+    return True
+
+
+def _mcp_recover_idle(wp: WarmProcess) -> bool:
+    info = mcp_recovery.reserve(wp.slug, wp.nid, wp.sid, wp.proc)
+    if info is None:
+        return False
+    if not kill_node(wp.slug, wp.nid, "mcp-disconnected", expected=wp):
+        monitor = getattr(wp.proc, "_orgtree_mcp_monitor", None)
+        if isinstance(monitor, mcp_recovery.Monitor):
+            with monitor.lock:
+                monitor.restarting = False
+        return False
+    _journal("mcp-recovery", slug=wp.slug, nid=wp.nid,
+             action="restart-idle", **info)
+    return True
 
 
 def _prewarm_node(org: Any, nid: str, why: str) -> None:
