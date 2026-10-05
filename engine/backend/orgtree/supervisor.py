@@ -20417,7 +20417,6 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
             "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
 
 
-
 def _run_admission_compaction(slug: str, nid: str, body: Any) -> Any:
     """Retry only rolled-back lock expansion, before any mail drains.
 
@@ -21431,31 +21430,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     # A successor is a new evidence generation. It
                                     # cannot inherit the predecessor's receipt.
                                     org.node(nid).pop("cache_continuity", None)
-                                    try:
-                                        if providers.provider_of(
-                                                str(org.node(nid).get("model")
-                                                    or "")) == "openai":
-                                            # Cheap compaction minted a successor
-                                            # generation and identity. Resolve it
-                                            # once; never carry the predecessor's
-                                            # raw launch capture across the swap.
-                                            cache_codex_manifest = \
-                                                _codex_startup_manifest(
-                                                    org, nid, write_ident=True)
-                                        (_forecast1, cache_forecast_event,
-                                         _current1) = _cache_forecast_now(
-                                             org, nid, env=cache_pre_env,
-                                             codex_manifest=cache_codex_manifest)
-                                        cache_attempt = _cache_persistable(_current1)
-                                    except Exception:               # noqa: BLE001
-                                        cache_forecast_event = None
-                                        cache_attempt = None
                                     compacted = (_r0, _occ0, _cw0, _state0, _reason0)
-                            # The generation-owned decision commits with the
-                            # compaction in THIS transaction, before the drain's
-                            # (decision 9): a restart sees the successor together
-                            # with its own evidence, so it still cannot resurrect
-                            # stale evidence.
+                            # Clearing predecessor evidence commits with the
+                            # successor; its fresh launch snapshot is resolved
+                            # after commit and journaled by the following drain.
                         return compacted
 
                     compaction_phase = True
@@ -21463,6 +21441,24 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     compaction_phase = False
                     if _compacted is not None:
                         _r0, _occ0, _cw0, _state0, _reason0 = _compacted
+                        try:
+                            if providers.provider_of(
+                                    str(org.node(nid).get("model")
+                                        or "")) == "openai":
+                                # Resolve only the committed successor: writing
+                                # managed identity for a rolled-back generation
+                                # would publish a session that never existed.
+                                cache_codex_manifest = \
+                                    _codex_startup_manifest(
+                                        org, nid, write_ident=True)
+                            (_forecast1, cache_forecast_event,
+                             _current1) = _cache_forecast_now(
+                                 org, nid, env=cache_pre_env,
+                                 codex_manifest=cache_codex_manifest)
+                            cache_attempt = _cache_persistable(_current1)
+                        except Exception:               # noqa: BLE001
+                            cache_forecast_event = None
+                            cache_attempt = None
                         # Files and success reporting belong to the committed
                         # generation, never an attempt the graph guard rolls back.
                         from . import pgdoor

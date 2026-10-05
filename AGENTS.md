@@ -382,8 +382,8 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   closes every admission and delivery path, and keeps queued mail unread until an explicit
   unhalt. [decided: user 2026-09-12; [`docs/agent-halt.md`](docs/agent-halt.md)]
 - **Automatic compaction admission** retries graph `Widen` only after rollback, at most
-  three widenings with the complete expanded plan. Export and success reporting happen
-  only after commit. A terminal compaction error retires the current mail demand and
+  three widenings with the complete expanded plan. Successor identity files, transcript
+  export and success reporting happen only after commit. A terminal compaction error retires the current mail demand and
   names the engine failure even when turn recording is disabled. [verified 2026-10-05:
   `supervisor.py` `_run_admission_compaction`, `_run_one_turn_recorded`]
 - **Turn time limits:** a total ceiling (default 24 h) and a silence limit (default 10 min),

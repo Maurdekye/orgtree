@@ -223,6 +223,28 @@ class Compaction(unittest.TestCase):
         self.assertEqual(len([n for n in self.saved().nodes.values()
                               if n.get('successor') == 'worker']), 1)
 
+    def test_successor_identity_is_written_only_after_compaction_commit(self):
+        sessions = []
+        real_provider = sup.providers.provider_of
+
+        def manifest(org, nid, **kwargs):
+            sid = org.node(nid)['session_id']
+            sessions.append((sid, self.saved().node(nid)['session_id']))
+            self.assertTrue(kwargs['write_ident'])
+            return {}
+
+        # The forecast itself is a fixture. This intercepts the actual
+        # successor-manifest branch, whose write must follow graph retry.
+        with patch.object(sup.providers, 'provider_of', return_value='openai'), \
+             patch.object(sup, '_codex_startup_manifest', side_effect=manifest), \
+             patch.object(sup, '_cache_forecast_now', return_value=(None, None, {})):
+            self.admit()
+        self.assertTrue(self.widenings)
+        self.assertEqual(len(sessions), 1)
+        self.assertNotEqual(sessions[0][0], self.before)
+        self.assertEqual(sessions[0][0], sessions[0][1])
+        self.assertEqual(len(self.at_drain), 1, self.st.get('last_error'))
+
 
 if __name__ == '__main__':
     unittest.main()
