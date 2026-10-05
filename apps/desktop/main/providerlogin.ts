@@ -469,7 +469,7 @@ export async function startProviderLogin(
       // result; it never enters `sessions`, so `getProviderLoginStatus`/
       // `cancelProviderLogin` correctly see this as already idle again —
       // there is nothing left here for either of them to act on.
-      return { phase: 'done', ok: null, timedOut: false, output: '', ageMs: 0, started: true }
+      return publishStatus(provider, { phase: 'done', ok: null, timedOut: false, output: '', ageMs: 0, started: true })
     }
     let session: LoginSession
     try {

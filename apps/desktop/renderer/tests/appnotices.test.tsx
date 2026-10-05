@@ -45,7 +45,7 @@ for (const firstEmpty of [false, true]) test('app notices preserve all categorie
     close() { this.onclose?.() }
     frame(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }) }
   }
-  const epoch = 'app-notices'
+  const epoch = 'app-notices-' + firstEmpty
   const registry = { type: 'registry_snapshot', epoch, cursor: { app_uuid: 'a', incarnation: 'i', rev: 1 }, records: [
     { entity: 'registry_org', id: '1', body: { org_id: 1, slug: 'notice-org', org_uuid: 'u', state: 'active' } },
   ] }

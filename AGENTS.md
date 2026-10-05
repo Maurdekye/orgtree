@@ -168,7 +168,10 @@ end of this section says so.
   existing category, visibility and persistent-history rules; a failed OS
   delivery retries cached notices, never a network read. An active org missing
   its first notice snapshot is unknown, so it cannot clear delivery history or
-  establish the initial document baseline. [verified: `main/appfeed.ts`,
+  establish the initial document baseline. Completing an empty inventory must wake
+  baseline observation before the first new document. Antigravity terminal launch
+  publishes done/ok:null through the native login subscription without claiming
+  verified authentication. [verified: `main/appfeed.ts`,
   `renderer/src/notifications.ts`; see step-6 §5]
 
 - **Desktop** (`apps/desktop`): Electron 44. `main/` owns windows (one main window per

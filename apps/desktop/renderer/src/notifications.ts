@@ -108,7 +108,11 @@ export function useNativeNotifications(open: (notice: DesktopNotice) => void,
   const feedRef = useRef(feed); feedRef.current = feed
   const ready = feed.status === 'current' || feed.status === 'unsupported'
   const wake = useRef<(() => void) | null>(null)
-  const noticeVersion = JSON.stringify([feed.status, feed.state.allNotices()])
+  // Completing an empty inventory must establish the document baseline too.
+  const noticeMembership = feed.state.registry?.records.filter(row => row.body.state === 'active')
+    .map(row => [row.id, row.body.slug, row.body.org_uuid,
+      feed.state.notices.get(row.id)?.value?.org_uuid === row.body.org_uuid])
+  const noticeVersion = JSON.stringify([feed.status, noticeMembership, feed.state.allNotices()])
   useEffect(() => { wake.current?.() }, [noticeVersion])
   useEffect(() => {
     if (!bridge?.notify || !ready) return
