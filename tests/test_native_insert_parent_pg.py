@@ -1,6 +1,9 @@
 """Public native rehire-and-insert preserves a valid final graph atomically."""
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import contextlib
 import json
+import random
+import sqlite3
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +12,7 @@ import test_native_move_endpoints_pg as endpoints
 from orgtree import api, ledger, orgtx, pgdoor, store
 from orgtree.orgdb import graph, native_move
 from orgtree.orgdb.compat import rows as R
+from orgtree.orgdb.compat import sql as S
 
 
 def setUpModule():
@@ -40,6 +44,222 @@ class NativeInsertParent(unittest.TestCase):
             value['unknown_insertion_payload'] = {'escaped': '\u0000\ud800', 'value': [name]}
             writes.append((name, store._dumps(value), before[name]))
         return writes
+
+    @contextlib.contextmanager
+    def rollback_batch(self):
+        with store._POOL.acquire(self.slug) as conn, conn.raw.transaction():
+            conn.raw.execute('SAVEPOINT order_control')
+            try:
+                yield conn
+            finally:
+                conn.raw.execute('ROLLBACK TO SAVEPOINT order_control')
+                conn.raw.execute('RELEASE SAVEPOINT order_control')
+
+    def batch(self, conn, writes):
+        return S._nodes_cas_batch(conn, tuple([write[i] for write in writes] for i in range(3)))
+
+    def test_adapter_keeps_input_results_and_compares_each_old_image_once(self):
+        before = self.snapshot()
+        for order in (('a', 'leaf'), ('leaf', 'a')):
+            with self.subTest(order=order), self.rollback_batch() as conn:
+                writes = self.accepted_writes(conn.raw, order)
+                executed = []
+                original = R.node_put
+
+                def put(raw, name, value, names):
+                    executed.append(name)
+                    return original(raw, name, value, names)
+
+                with patch.object(R, 'same', wraps=R.same) as same, \
+                        patch.object(R, 'node_put', side_effect=put):
+                    result = self.batch(conn, writes)
+                self.assertEqual(same.call_count, 2)
+                self.assertEqual(executed, ['leaf', 'a'])
+                self.assertEqual(result.fetchall(), [(name,) for name in order])
+                self.assertEqual(result.rowcount, 2)
+                self.assertEqual(graph.verify_stats(conn.raw), [])
+            self.assertEqual(self.snapshot(), before)
+
+    def test_adapter_stale_and_missing_rows_never_enter_the_parent_overlay(self):
+        import psycopg
+        before = self.snapshot()
+        with self.rollback_batch() as conn:
+            writes = self.accepted_writes(conn.raw)
+            writes[0] = ('a', writes[0][1], '{}')
+            writes.append(('missing', '{}', '{}'))
+            with patch.object(R, 'node_put', wraps=R.node_put) as put:
+                result = self.batch(conn, writes)
+            self.assertEqual(result.fetchall(), [('leaf',)])
+            self.assertEqual(result.rowcount, 1)
+            self.assertEqual(put.call_count, 1)
+            self.assertEqual(put.call_args.args[1], 'leaf')
+            self.assertEqual(self.values()['a'][0], 'boss')
+        self.assertEqual(self.snapshot(), before)
+        # The rejected leaf detachment must not make the accepted a->leaf
+        # appear acyclic: only the real accepted subset may guide the helper.
+        with self.rollback_batch() as conn:
+            writes = self.accepted_writes(conn.raw)
+            writes[1] = ('leaf', writes[1][1], '{}')
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                self.batch(conn, writes)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_adapter_repeated_inputs_keep_occurrences_and_last_body(self):
+        with self.rollback_batch() as conn:
+            old = R.nodes(conn.raw, ['a'], lock=True)[0][1]
+            first, second = json.loads(old), json.loads(old)
+            first['unknown_insertion_payload'] = {'occurrence': 1}
+            second['unknown_insertion_payload'] = {'occurrence': 2}
+            writes = [('a', store._dumps(value), old) for value in (first, second)]
+            with patch.object(R, 'same', wraps=R.same) as same:
+                result = self.batch(conn, writes)
+            self.assertEqual(same.call_count, 2)
+            self.assertEqual(result.fetchall(), [('a',), ('a',)])
+            self.assertEqual(result.rowcount, 2)
+            self.assertEqual(json.loads(R.nodes(conn.raw, ['a'])[0][1]), second)
+            self.assertEqual(graph.verify_stats(conn.raw), [])
+
+    def test_helper_follows_unchanged_intermediate_ancestors(self):
+        with self.rollback_batch() as conn:
+            # boss->a->middle->leaf becomes boss->leaf->a->middle.
+            # The unchanged middle edge must participate in final ordering.
+            names = R.Names(conn.raw)
+            R.node_put(conn.raw, 'middle', fixture.node('middle', 'a'), names)
+            leaf = json.loads(R.nodes(conn.raw, ['leaf'])[0][1])
+            leaf['parent'] = 'middle'
+            R.node_put(conn.raw, 'leaf', leaf, names)
+            writes = self.accepted_writes(conn.raw)
+            result = self.batch(conn, writes)
+            self.assertEqual(result.fetchall(), [('a',), ('leaf',)])
+            found = {n: json.loads(text).get('parent')
+                     for n, text, _ in R.nodes(conn.raw, ['a', 'middle', 'leaf'])}
+            self.assertEqual(found, {'a': 'leaf', 'middle': 'a', 'leaf': 'boss'})
+            self.assertEqual(graph.verify_stats(conn.raw), [])
+
+    def test_cached_namesake_empty_and_misfit_parents_match_existing_codec(self):
+        with self.rollback_batch() as conn:
+            from psycopg.types.json import Json
+            raw = conn.raw
+            alias = raw.execute("INSERT INTO orgtree.agents(name,tombstone) "
+                                "VALUES('boss',true) RETURNING id").fetchone()[0]
+            empty = raw.execute("INSERT INTO orgtree.agents(name,tombstone) "
+                                "VALUES('',true) RETURNING id").fetchone()[0]
+            original = R.nodes(raw, ['a'])[0][1]
+            for parent in ('boss', '', None, 7, '\x00', '\ud800', {'odd': 1}, 'new-parent'):
+                with self.subTest(parent=repr(parent)):
+                    raw.execute('SAVEPOINT parent_codec')
+                    value = json.loads(original)
+                    value['parent'] = parent
+                    value['unknown_insertion_payload'] = {'escaped': '\x00\ud800'}
+                    text = store._dumps(value)
+                    names = R.Names(raw)
+                    if parent == 'boss':
+                        # A previously resolved tombstone namesake must keep
+                        # its physical identity, exactly as DbContext does.
+                        names.by_name['boss'] = int(alias)
+                    cache = dict(names.by_name)
+                    arranged = graph.write_order(raw, [('a', text, None)], names)
+                    self.assertEqual(names.by_name, cache)
+                    self.assertEqual(arranged, [('a', text, None)])
+                    R.node_put(raw, 'a', value, names)
+                    self.assertEqual(json.loads(R.nodes(raw, ['a'])[0][1]), value)
+                    physical = raw.execute("SELECT parent_id FROM orgtree.agents "
+                                           "WHERE name='a' AND NOT tombstone").fetchone()[0]
+                    if parent == 'boss':
+                        self.assertEqual(physical, alias)
+                    elif parent == '':
+                        self.assertEqual(physical, empty)
+                    elif parent == 'new-parent':
+                        self.assertEqual(physical, raw.execute("SELECT id FROM orgtree.agents "
+                            "WHERE name='new-parent'").fetchone()[0])
+                    else:
+                        self.assertIsNone(physical)
+                    self.assertEqual(graph.verify_stats(raw), [])
+                    raw.execute('ROLLBACK TO SAVEPOINT parent_codec')
+                    raw.execute('RELEASE SAVEPOINT parent_codec')
+
+    def test_new_parent_head_in_batch_wins_over_cached_tombstone(self):
+        with self.rollback_batch() as conn:
+            raw = conn.raw
+            alias = raw.execute("INSERT INTO orgtree.agents(name,tombstone) "
+                                "VALUES('leaf',true) RETURNING id").fetchone()[0]
+            names = R.Names(raw)
+            names.by_name['leaf'] = int(alias)
+            writes = self.accepted_writes(raw)
+            arranged = graph.write_order(raw, writes, names)
+            self.assertEqual([w[0] for w in arranged], ['leaf', 'a'])
+            self.assertEqual(names.by_name['leaf'], alias)
+            for name, text, _ in arranged:
+                R.node_put(raw, name, json.loads(text), names)
+            self.assertEqual(raw.execute("SELECT a.parent_id=l.id FROM orgtree.agents a "
+                "JOIN orgtree.agents l ON l.name='leaf' AND NOT l.tombstone "
+                "WHERE a.name='a' AND NOT a.tombstone").fetchone()[0], True)
+            self.assertEqual(graph.verify_stats(raw), [])
+
+    def test_adapter_partial_failure_savepoint_rollback_then_fresh_retry(self):
+        before = self.snapshot()
+        with self.rollback_batch() as conn:
+            writes = self.accepted_writes(conn.raw)
+            conn.raw.execute('SAVEPOINT failed_body')
+            original = R.node_put
+            count = 0
+
+            def fail_second(raw, name, value, names):
+                nonlocal count
+                count += 1
+                if count == 2:
+                    raise RuntimeError('planted second-body failure')
+                return original(raw, name, value, names)
+
+            with patch.object(R, 'node_put', side_effect=fail_second):
+                with self.assertRaisesRegex(RuntimeError, 'planted second-body'):
+                    self.batch(conn, writes)
+            self.assertEqual(count, 2)
+            conn.raw.execute('ROLLBACK TO SAVEPOINT failed_body')
+            conn.raw.execute('RELEASE SAVEPOINT failed_body')
+            self.assertEqual({name: text for name, text, _ in R.nodes(conn.raw, ['a', 'leaf'])},
+                             {name: old for name, _, old in writes})
+            self.assertEqual(graph._scalar_records(conn.raw), [])
+            self.assertEqual(self.batch(conn, self.accepted_writes(conn.raw)).rowcount, 2)
+            self.assertEqual(graph.verify_stats(conn.raw), [])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_many_final_acyclic_permutations_never_make_a_temporary_cycle(self):
+        # Independent random rooted trees include crossing ancestors and
+        # unchanged intermediates. Each save still exercises real eager SQL.
+        rng = random.Random(90121)
+        with self.rollback_batch() as conn:
+            raw = conn.raw
+            names = R.Names(raw)
+            nodes = [f'order-{i}' for i in range(9)]
+            for i, name in enumerate(nodes):
+                R.node_put(raw, name, fixture.node(name, 'boss' if not i else nodes[i - 1]), names)
+            for trial in range(12):
+                raw.execute('SAVEPOINT permutation')
+                final_order = rng.sample(nodes, len(nodes))
+                desired = {name: rng.choice(['boss', *final_order[:i]])
+                           for i, name in enumerate(final_order)}
+                input_order = rng.sample(nodes, len(nodes))
+                old = {name: text for name, text, _ in R.nodes(raw, nodes, lock=True)}
+                writes = []
+                for name in input_order:
+                    value = json.loads(old[name])
+                    value['parent'] = desired[name]
+                    value['unknown_insertion_payload'] = {'trial': trial}
+                    writes.append((name, store._dumps(value), old[name]))
+                result = self.batch(conn, writes)
+                self.assertEqual(result.fetchall(), [(name,) for name in input_order])
+                self.assertEqual({name: json.loads(text)['parent'] for name, text, _ in
+                                  R.nodes(raw, nodes)}, desired)
+                self.assertEqual(graph.verify_stats(raw), [])
+                raw.execute('ROLLBACK TO SAVEPOINT permutation')
+                raw.execute('RELEASE SAVEPOINT permutation')
+
+    def test_omitted_permutation_fault_fails_public_api_then_restored_passes(self):
+        with patch.object(graph, 'write_order', side_effect=lambda _raw, writes, _names: writes):
+            with self.assertRaisesRegex(sqlite3.IntegrityError, '23514.*parent cycle'):
+                self.test_public_rehire_insert_preserves_identity_credit_and_one_revision()
+        self.test_public_rehire_insert_preserves_identity_credit_and_one_revision()
 
     def test_helper_orders_both_input_orders_and_preserves_payload_without_handoff(self):
         before = self.snapshot()
