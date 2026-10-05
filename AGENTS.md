@@ -369,7 +369,8 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   2026-10-05: `orgdb/record_panels.py`, `record_mail_sql.py`]
 - **Mailbox delivery stages** are host-clock overlays, retained only for subscribed
   mailboxes and refreshed from changed snapshot inputs. Subscription readiness is false
-  until the current generation's final page; a reset or renewal clears it. Chat uses
+  until the current generation's final page; a reset or renewal clears it. Known record
+  capability suppresses legacy polling even before the session controller is installed. Chat uses
   identity-fenced `after` cursors on agent frames/focus, with assistant revisions separate
   from new messages; scratch refreshes on turn end, completed file delivery and focus.
   Direct file delivery emits its invalidation only after commit; attachment helpers do
