@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import test_orgdb_compat_pg as f
-from orgtree import ledger, store
+from orgtree import ledger, orgtx, staffdoor, store
 from orgtree.orgdb import registry, renames
 from orgtree.orgdb.compat import rows as native_rows
 
@@ -286,8 +286,16 @@ class NativeRename(unittest.TestCase):
                 org = store.load_org(slug)
                 org.rename(ledger.USER, 'worker', 'renamed')
                 store.save_org(org)
-                org.hire(ledger.USER, 'boss', 'haiku', 0, 'worker')
-                store.save_org(org)
+                if on:
+                    with orgtx.org_tx(slug, nodes=['boss', 'worker'],
+                                      structural_roots=['boss', 'worker'],
+                                      sections=staffdoor.HIRE_SECTIONS,
+                                      share_sections=staffdoor.HIRE_SETTINGS,
+                                      logs=staffdoor.HIRE_LOGS) as tx:
+                        tx.org.hire(ledger.USER, 'boss', 'haiku', 0, 'worker')
+                else:
+                    org.hire(ledger.USER, 'boss', 'haiku', 0, 'worker')
+                    store.save_org(org)
                 results[on] = authorities(store.load_org(slug))
         self.assertEqual(exact(results[False]), exact(results[True]))
         with f.storage(True):

@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 import test_orgdb_schema_rename_pg as f
-from orgtree import ledger, orgtx, store
+from orgtree import ledger, orgtx, staffdoor, store
 from orgtree.orgdb import docket_locks, registry
 from orgtree.orgdb.compat import rows as R
 
@@ -229,12 +229,16 @@ class DocketAgentLocks(unittest.TestCase):
     def test_same_save_hire_and_deleted_role_tombstone_are_written_before_references(self):
         twins = f.f.Twins('docket-new-identity', before=f.prepare_legacy)
         with f.f.storage(True):
-            org = store.load_org(twins.copy)
-            org.hire(ledger.USER, 'boss', 'haiku', 0, 'new-role')
-            record = f.item(org, 'owned-item')
-            record['owner'] = org._work_holder('new-role')
-            record['reviewer'] = dict(node='missing-role', born='missing-birth', generation=7, deleted=True)
-            store.save_org(org)
+            with orgtx.org_tx(twins.copy, nodes=['boss', 'new-role', 'missing-role'],
+                              structural_roots=['boss', 'new-role'],
+                              sections=staffdoor.HIRE_SECTIONS + ('work_items',),
+                              share_sections=staffdoor.HIRE_SETTINGS,
+                              logs=staffdoor.HIRE_LOGS) as tx:
+                org = tx.org
+                org.hire(ledger.USER, 'boss', 'haiku', 0, 'new-role')
+                record = f.item(org, 'owned-item')
+                record['owner'] = org._work_holder('new-role')
+                record['reviewer'] = dict(node='missing-role', born='missing-birth', generation=7, deleted=True)
             with registry.connection(twins.copy) as raw:
                 row = raw.execute("SELECT a.name,a.tombstone,b.name,b.tombstone,b.lineage_born,b.generation "
                                   "FROM orgtree.work_items w JOIN orgtree.agents a ON a.id=w.owner_agent_id "
@@ -364,6 +368,7 @@ class DocketAgentLocks(unittest.TestCase):
                 with f.f.storage(True):
                     if native:
                         with orgtx.org_tx(twins.copy, nodes=['placeholder'],
+                                          structural_roots=['placeholder'],
                                           sections=['work_items', ('notices', 'boss')],
                                           logs=['events', 'notice_log']) as tx:
                             probe_mode()
