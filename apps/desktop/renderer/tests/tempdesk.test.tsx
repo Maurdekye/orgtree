@@ -16,12 +16,16 @@ import { FakeServer, advance, flush, inAct, installFetch, mountView, realClock, 
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { useState } from 'react'
+import { JSDOM } from 'jsdom'
+import { installBridge, removeBridge } from './shellbridge'
+import { captureWindow, windowLayoutKey } from '../src/windowlayout'
 import { resetConvos } from '../src/convo'
 import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
 import { TempDeskModal } from '../src/canvas/tempdesk'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { openSurfaces } from '../src/windowlife'
-import { removePin } from '../src/canvas/pins'
+import { removePin, readPins, forgetPins, commitRect } from '../src/canvas/pins'
 import type { CanvasNode, TreePayload } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -460,21 +464,112 @@ test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets
     assert.ok(pin, 'the temporary desk has no Pin button')
     assert.ok(pin!.classList.contains('pinwin-unpin'),
       'the Pin button does not use the pinned-desk button style')
+    const frame = { x: 51.25, y: 42.5, w: 921.5, h: 633.25 }
+    const measured = (r: typeof frame) => ({ ...r, left: r.x, top: r.y,
+      width: r.w, height: r.h, right: r.x + r.w, bottom: r.y + r.h, toJSON() {} })
+    modal()!.getBoundingClientRect = () => measured(frame)
+    const viewport = v.el.querySelector<HTMLElement>('[data-pin-org="mine"]')!
+    viewport.getBoundingClientRect = () => measured({ x: 17, y: 95, w: 1000, h: 580 })
     await inAct(() => { pin!.click() })
     await flush(2); await advance(100, 20); await flush(2)
     assert.equal(Boolean(modal()), false, 'the temporary modal did not close')
     const win = document.querySelector('.pinwin') as HTMLElement | null
     assert.ok(win, 'no pinned desk window appeared')
+    assert.deepEqual(['left', 'top', 'width', 'height'].map(k => parseFloat(win!.style[k as 'left'])),
+      [frame.x, frame.y, frame.w, frame.h], 'PIN keeps the whole modal rectangle, including above the canvas')
+    assert.equal(win!.style.position, 'fixed', 'canvas clipping must not cut off the original modal frame')
+    const borders = window.getComputedStyle(viewport)
+    assert.deepEqual(readPins('mine')[0]!.rect, { ...frame,
+      x: frame.x - 17 - (parseFloat(borders.borderLeftWidth) || 0),
+      y: frame.y - 95 - (parseFloat(borders.borderTopWidth) || 0) },
+      'the stored desk geometry is still canvas-local for subsequent gestures')
     assert.equal(win!.querySelector('.pinwin-title .pinwin-name')?.textContent?.includes('worker'), true,
       'the pinned window is not for this agent')
     assert.ok(win!.querySelector('.pinwin-body .desk-slot, .pinwin-body .cc-head'),
       'the pinned window holds no desk')
     assert.ok(!/desk is open elsewhere/.test(win!.textContent ?? ''),
       'the pinned window shows the placeholder — the desk stayed borrowed')
+    await inAct(() => forgetPins('mine'))
+    assert.deepEqual(readPins('mine')[0]!.initialPlacement?.client, frame, 'reload retains the measured placement')
     // ⚠ BOOLEANS, NOT ELEMENTS, IN THESE ASSERTS: a failing assert.equal on
     // a jsdom element makes node's reporter run out of memory.
     // opened temporarily again, an already-pinned agent is offered no Pin
     await openTemporarily()
     assert.equal(Boolean(modal()!.querySelector('.tempdesk-pin')), false,
       'an already-pinned agent still shows a Pin button')
+    await inAct(() => { commitRect('mine', 'worker', {x: 30, y: 40, w: 600, h: 400}, {w: 1000, h: 580}) })
+    assert.equal(readPins('mine')[0]!.initialPlacement, undefined, 'later gestures return to ordinary pin placement')
   })
+
+for (const ratio of [1, 1.25, 1.5, 2]) test(`temporary pop-out preserves the frame at ${ratio} DPR and closes the modal`, async t => {
+  setup()
+  installBridge({})
+  const child = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'http://localhost/' })
+  const cw = child.window as unknown as Window
+  cw.focus = noop; cw.requestAnimationFrame = () => 1; cw.cancelAnimationFrame = noop
+  const oldOpen = window.open
+  const oldObserver = globalThis.MutationObserver
+  const oldRatio = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio')!
+  const oldX = Object.getOwnPropertyDescriptor(window, 'screenX')!
+  const oldY = Object.getOwnPropertyDescriptor(window, 'screenY')!
+  Object.defineProperties(window, { devicePixelRatio: {value: ratio, configurable: true},
+    screenX: {value: -1440, configurable: true}, screenY: {value: 80, configurable: true} })
+  globalThis.MutationObserver = W.MutationObserver
+  let features = '', opens = 0
+  window.open = ((_url, _name, options) => { features = options ?? ''; opens++; return cw }) as typeof window.open
+  const n = agent(`geometry-${ratio}`)
+  function Scene() {
+    const [opened, setOpened] = useState(true)
+    return scene(n, opened, () => setOpened(false))
+  }
+  const view = await mountView(<Scene />, el => el)
+  t.after(async () => {
+    await view.unmount(); window.open = oldOpen; globalThis.MutationObserver = oldObserver
+    Object.defineProperties(window, { devicePixelRatio: oldRatio, screenX: oldX, screenY: oldY })
+    child.window.close(); removeBridge(); localStorage.clear()
+  })
+  await flush()
+  const frame = { x: 41.25, y: 52.75, width: 903.25, height: 633.5 }
+  modal()!.getBoundingClientRect = () => ({ ...frame, left: frame.x, top: frame.y,
+    right: frame.x + frame.width, bottom: frame.y + frame.height, toJSON() {} })
+  // A borrowed native desk can leave an open saved row behind. It must not
+  // override the explicit geometry of this new user placement.
+  const kind = `desk:${JSON.stringify(['org', n.id, 0])}`
+  captureWindow(windowLayoutKey(kind, 'org'), kind, 'org', cw, true)
+  const composer = modal()!.querySelector('textarea')!
+  assert.ok(composer, 'control: a real composer is mounted')
+  const button = modal()!.querySelector<HTMLButtonElement>('[aria-label="Open in new window"]')!
+  assert.ok(button, 'control: the canonical desk offers pop-out')
+  await inAct(() => button.click()); await flush()
+  assert.equal(opens, 1)
+  const actual = Object.fromEntries(features.split(',').filter(p => p.includes('=')).map(p => {
+    const [k, v] = p.split('='); return [k, Number(v)]
+  }))
+  const expected = {left: -1440 + frame.x, top: 80 + frame.y, width: frame.width, height: frame.height}
+  for (const k of Object.keys(expected) as (keyof typeof expected)[]) {
+    assert.ok(Math.abs(actual[k]! - expected[k]) * ratio <= 1, `${k} drifted by more than one physical pixel: ${features}`)
+  }
+  assert.equal(Boolean(modal()), false, 'successful pop-out closes its temporary modal')
+  assert.equal(Boolean(backdrop()), false, 'no modal backdrop remains')
+  assert.equal(cw.document.querySelector('textarea') === composer, true, 'the same composer moves into the window')
+  assert.equal(document.querySelectorAll('textarea').length, 0, 'no duplicate desk remains')
+})
+
+test('blocked temporary pop-out keeps the modal and its composer', async t => {
+  setup()
+  const oldOpen = window.open
+  window.open = () => null
+  const n = agent('blocked-popout')
+  function Scene() {
+    const [opened, setOpened] = useState(true)
+    return scene(n, opened, () => setOpened(false))
+  }
+  const view = await mountView(<Scene />, el => el)
+  t.after(async () => { await view.unmount(); window.open = oldOpen })
+  await flush()
+  const composer = modal()!.querySelector('textarea')
+  await inAct(() => modal()!.querySelector<HTMLButtonElement>('[aria-label="Open in new window"]')!.click())
+  await flush()
+  assert.ok(modal(), 'a failed pop-out must not dismiss the source')
+  assert.equal(modal()!.querySelector('textarea') === composer, true)
+})

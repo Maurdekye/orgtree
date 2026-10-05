@@ -1671,6 +1671,11 @@ export interface DeskChatProps {
    *  the registry's `remove` path, so a dismissal, an unmount, a route change
    *  and an error teardown all return it without the caller remembering to. */
   borrow?: boolean
+  /** The temporary host supplies its outer frame, measured before adoption. */
+  temporaryPlacement?: {
+    sourceBox: () => { x: number; y: number; w: number; h: number } | null
+    onPopout: () => void
+  }
   bare?: boolean
   compact?: boolean
   compactAt?: number

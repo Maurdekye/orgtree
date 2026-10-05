@@ -143,7 +143,43 @@ export function parsePopoutFeatures(features?: string): { minWidth?: number; min
   }
 }
 
+/** Only an explicit temporary-desk placement overrides native initial bounds.
+ * Windows can add several DIPs to window.open's requested frameless size at
+ * fractional DPI. Applying the outer bounds after creation removes that drift. */
+export function exactPopoutBounds(features?: string): Electron.Rectangle | null {
+  const values = new Map((features ?? '').split(',').map(part => {
+    const [key, value] = part.trim().split('=')
+    return [key?.toLowerCase(), value] as const
+  }))
+  if (values.get('orgtreeexactrect') !== '1') return null
+  const read = (key: string) => {
+    const value = values.get(key)
+    return value && /^-?\d+$/.test(value) ? Number(value) : NaN
+  }
+  const rect = {x: read('left'), y: read('top'), width: read('width'), height: read('height')}
+  return Object.values(rect).every(value => Number.isSafeInteger(value) && Math.abs(value) <= 2147483647)
+    && rect.width > 0 && rect.height > 0 ? rect : null
+}
+
+export function setExactPopoutBounds(window: Pick<BrowserWindow, 'setBounds' | 'getBounds'>, rect: Electron.Rectangle): void {
+  let requested = { ...rect }
+  // Windows may add an invisible frame allowance even to setBounds at a
+  // fractional scale. Measure that allowance instead of guessing its size.
+  // This is only the initial placement; never constrain subsequent gestures.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    window.setBounds(requested)
+    const actual = window.getBounds()
+    if (actual.x === rect.x && actual.y === rect.y && actual.width === rect.width && actual.height === rect.height) return
+    requested = { x: requested.x + rect.x - actual.x, y: requested.y + rect.y - actual.y,
+      width: Math.max(1, requested.width + rect.width - actual.width),
+      height: Math.max(1, requested.height + rect.height - actual.height) }
+  }
+}
+
 export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url), trackPopout?: TrackPopout): void {
+  // did-create-window supplies parsed options, not the original feature text.
+  // Retain only the named placement accepted by this window's open handler.
+  const exactPlacements = new Map<string, Electron.Rectangle>()
   register?.(window, !isMain)
   if (!isMain) {
     // Chromium can leave an adopted about:blank document "hidden" even while
@@ -195,11 +231,17 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     // bar. That header must therefore carry the drag region — see .popout-mount
     // in styles.css, without which the window cannot be moved at all.
     const minDims = parsePopoutFeatures(details.features)
+    const exact = exactPopoutBounds(details.features)
+    if (exact) exactPlacements.set(details.frameName, exact)
+    else exactPlacements.delete(details.frameName)
     return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, frame: false,
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: false },
       ...minDims } }
   })
   window.webContents.on('did-create-window', (child, details) => {
+    const exact = exactPlacements.get(details.frameName)
+    exactPlacements.delete(details.frameName)
+    if (exact) setExactPopoutBounds(child, exact)
     const opts = (details as { options?: { minWidth?: number; minHeight?: number } })?.options
     const minW = opts?.minWidth
     const minH = opts?.minHeight

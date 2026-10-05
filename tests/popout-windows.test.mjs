@@ -24,7 +24,7 @@ const stubElectron = {
   },
 }
 await build({ entryPoints: ['apps/desktop/main/windows.ts'], outfile: out, bundle: true, platform: 'node', format: 'cjs', plugins: [stubElectron] })
-const { popoutRegistry, parsePopoutFeatures, revealPopout } = createRequire(import.meta.url)(out)
+const { popoutRegistry, parsePopoutFeatures, exactPopoutBounds, setExactPopoutBounds, configureWindow, revealPopout } = createRequire(import.meta.url)(out)
 
 /** A native window reduced to what the registry reads, plus the levers a test
  *  needs: it can be maximized, it can be destroyed, and it can fire its own
@@ -144,6 +144,61 @@ test('parsePopoutFeatures returns empty object when min dimensions are not decla
   assert.deepEqual(parsePopoutFeatures('popup,left=100,top=100,width=800,height=600'), {})
   assert.deepEqual(parsePopoutFeatures(''), {})
   assert.deepEqual(parsePopoutFeatures(undefined), {})
+})
+
+test('only explicit temporary desk geometry requests exact native bounds', () => {
+  const fields = 'left=-1420,top=83,width=903,height=634'
+  assert.deepEqual(exactPopoutBounds('popup,orgtreeExactRect=1,' + fields),
+    {x: -1420, y: 83, width: 903, height: 634})
+  assert.equal(exactPopoutBounds('popup,' + fields), null, 'ordinary pop-outs are unchanged')
+  for (const bad of ['', 'left=1,top=2,width=0,height=3', 'left=1,top=2,width=4oops,height=3',
+    'left=1,top=2,width=Infinity,height=3', 'left=1,top=2,width=4',
+    'left=999999999999999,top=2,width=4,height=3']) {
+    assert.equal(exactPopoutBounds('orgtreeExactRect=1,' + bad), null, bad)
+  }
+})
+
+test('native creation applies the accepted rectangle once and only to its named child', () => {
+  const make = () => {
+    const events = new Map()
+    let handler
+    return {bounds: [], on() {}, isVisible: () => true, isMinimized: () => false,
+      setBounds(rect) {this.bounds.push(rect)},
+      getBounds() {return this.bounds.at(-1)},
+      webContents: {getURL: () => 'http://127.0.0.1:1234/', setBackgroundThrottling() {},
+        on(event, fn) {events.set(event, [...(events.get(event) ?? []), fn])},
+        setWindowOpenHandler(fn) {handler = fn}},
+      open(details) {return handler(details)},
+      created(child, name) {for (const fn of events.get('did-create-window') ?? []) fn(child, {frameName: name, options: {}})},
+    }
+  }
+  const parent = make(), first = make(), unrelated = make()
+  configureWindow(parent, 'http://127.0.0.1:1234', true)
+  const request = {url: 'about:blank', frameName: 'temporary-desk',
+    features: 'popup,orgtreeExactRect=1,left=-1200,top=80,width=901,height=633'}
+  assert.equal(parent.open(request).action, 'allow')
+  parent.created(unrelated, 'another-desk')
+  assert.deepEqual(unrelated.bounds, [])
+  parent.created(first, 'temporary-desk')
+  assert.deepEqual(first.bounds, [{x: -1200, y: 80, width: 901, height: 633}])
+  parent.created(unrelated, 'temporary-desk')
+  assert.deepEqual(unrelated.bounds, [], 'the placement is consumed at creation')
+  parent.open(request)
+  parent.open({...request, features: 'popup,width=500,height=400'})
+  parent.created(unrelated, 'temporary-desk')
+  assert.deepEqual(unrelated.bounds, [], 'an ordinary opening cannot inherit a failed placement')
+})
+
+test('native initial placement corrects measured frame drift and is bounded when the OS refuses', () => {
+  const target = {x: -1000, y: 83, width: 901, height: 633}
+  let actual, calls = 0
+  setExactPopoutBounds({setBounds(rect) {calls++; actual = {...rect, x: rect.x - 1, width: rect.width + 2}},
+    getBounds() {return actual}}, target)
+  assert.deepEqual(actual, target)
+  assert.equal(calls, 2, 'one measured frame adjustment is enough')
+  calls = 0
+  setExactPopoutBounds({setBounds() {calls++}, getBounds() {return {x: 0, y: 0, width: 300, height: 200}}}, target)
+  assert.equal(calls, 3, 'an OS size constraint cannot cause an unbounded placement loop')
 })
 
 // ------------------------------------------------------- surfacing a window

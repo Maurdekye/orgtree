@@ -288,7 +288,14 @@ export function popupFeatures(key: string,
   source?: { x?: number; y?: number; w: number; h: number } | null,
   owner?: { screenX: number; screenY: number } | null,
   minDimensions?: ModalDimensions | null,
-  restoring = false) {
+  restoring = false, exactSource = false) {
+  // DOM rectangles and screenX/Y are device-independent pixels in the
+  // frameless desktop. Multiplying by devicePixelRatio would scale twice.
+  // Preserve secondary-monitor (including negative) coordinates too.
+  if (exactSource && !restoring && source && owner && source.w > 0 && source.h > 0
+    && [source.x, source.y, source.w, source.h, owner.screenX, owner.screenY].every(Number.isFinite)) {
+    return `popup,orgtreeExactRect=1,left=${Math.round(owner.screenX + source.x!)},top=${Math.round(owner.screenY + source.y!)},width=${Math.round(source.w)},height=${Math.round(source.h)}`
+  }
   const saved = savedWindows().find(r => r.key === key)
   // Saved standalone bounds are used ONLY when restoring an open window across lifecycle transitions,
   // or when explicitly restoring. Closed standalone bounds (saved.open === false) are ignored.

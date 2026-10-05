@@ -229,11 +229,14 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, flush, restore, sourceBox, minDimensions }: {
+  anchor, onDetached, flush, restore, sourceBox, minDimensions, exactSourceBox = false }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean) => void; flush?: () => void
   minDimensions?: ModalDimensions | null
+  /** A temporary desk becomes a window at its current frame, even if borrowed
+   *  from an older saved window. Explicit lifecycle restores still use that save. */
+  exactSourceBox?: boolean
   /** This surface's own box in its window, for the shape AND the place a
    *  first pop-out opens at (see `popupSize` and `popupPlacement`). A
    *  surface whose visible panel is NOT the whole of its DOM has to say so:
@@ -263,8 +266,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const pendingRestore = useRef<(() => void) | null>(null)
   const cleanups = useRef<(() => void)[]>([])
   const epoch = useRef(0)
-  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions })
-  latest.current = { anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions }
+  const latest = useRef({ anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions, exactSourceBox })
+  latest.current = { anchor, parent, onDetached, flush, org, title, restore, sourceBox, minDimensions, exactSourceBox }
   const fallback = useRef<HTMLElement | null>(null)
   const initialOwner = useRef(owner)
   const popoutName = useRef('')
@@ -501,7 +504,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       // The owner's own screen origin is what turns the surface's box, which
       // is in THIS window's client coordinates, into a place on the screen.
       w = owner.defaultView!.open('', popoutName.current,
-        popupFeatures(layoutKey, surfaceShape(), owner.defaultView, latest.current.minDimensions, restoring))
+        popupFeatures(layoutKey, surfaceShape(), owner.defaultView, latest.current.minDimensions, restoring, latest.current.exactSourceBox))
       if (!w) throw new Error('The browser blocked this window. Allow pop-ups for this site and try again.')
       child.current = w
       const d = w.document

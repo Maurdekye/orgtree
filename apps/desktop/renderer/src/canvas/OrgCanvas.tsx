@@ -1,4 +1,4 @@
-import { adoptPinLayer, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
+import { adoptPinLayer, canvasBox, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
@@ -4224,12 +4224,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         transform, and it must survive the canvas being hidden. */}
     {tempDeskId && map.get(tempDeskId) && (
       <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
-        // PIN: the same `pinDesk` as the card's and the menu's pin, then the
-        // modal closes — its borrow ends, and the pinned window takes the desk.
+        // Measure the modal before ending its borrow. Pins store canvas-local
+        // coordinates, while the modal's measured rectangle is window-local.
         // No button for an agent already pinned (the glance is then borrowing
         // that very pin) or where there is no pinning at all (mobile).
         onPin={!isMobile && !pinnedIds.has(tempDeskId)
-          ? () => { if (pinDesk(tempDeskId)) setTempDeskId(null) } : undefined}
+          ? (client) => {
+            const box = canvasBox(viewportRef.current?.ownerDocument ?? document, slug)
+            const rect = { ...client, x: client.x - (box?.x ?? 0), y: client.y - (box?.y ?? 0) }
+            const result = addPin(slug, tempDeskId, rect, { client, viewport: box ? {w: box.w, h: box.h} : null })
+            if (result.ok) setTempDeskId(null)
+            else toast([result.reason])
+          } : undefined}
         desk={{
           map, op, slug, toast,
           compactAt: tree.compact_at,

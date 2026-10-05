@@ -32,13 +32,14 @@ import { AgentName } from './identity'
 import { CloseIcon } from '../icons'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import { useOverlayRoot, useSurfaceDocument } from '../popout'
+import type { PinRect } from './pins'
 
 export interface TempDeskProps {
   node: CanvasNode
   close: () => void
   /** pin this agent's desk as a window and close the modal — the host's own
    *  pin action. Absent, there is no Pin button (already pinned, or mobile). */
-  onPin?: () => void
+  onPin?: (rect: PinRect) => void
   /** the canonical desk's own props, from the host — the same ones the canvas's
    *  desks get. This panel adds none of its own and stubs nothing. */
   desk: Omit<DeskChatProps, 'node' | 'borrow' | 'bare'>
@@ -62,6 +63,10 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
   const overlayRoot = useOverlayRoot()
   const panel = useRef<HTMLDivElement | null>(null)
   const opener = useRef<Element | null>(null)
+  const sourceBox = (): PinRect | null => {
+    const r = panel.current?.getBoundingClientRect()
+    return r && r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null
+  }
   useEsc(close)
   // FOCUS GOES IN, AND COMES BACK OUT WHERE IT WAS. The element that opened
   // this (a card, a tray row, a menu item) is remembered before focus moves,
@@ -135,7 +140,10 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
           <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name" />
           <span className="spacer" />
           {onPin && (
-            <button className="tempdesk-pin pinwin-unpin" onClick={onPin}
+            <button className="tempdesk-pin pinwin-unpin" onClick={() => {
+              const rect = sourceBox()
+              if (rect) onPin(rect)
+            }}
               aria-label={`pin ${node.id}`} title={`pin ${node.id}'s desk as a window`}>
               <PushPinIcon fontSize="inherit" />
             </button>
@@ -149,7 +157,7 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
             this modal's lifetime and the registry returns it on unmount — see
             `Desks.endBorrow`. `bare` renders the desk 1:1 rather than
             counter-scaled into a canvas card, which is what a modal wants. */}
-        <DeskChat {...desk} node={node} borrow bare />
+        <DeskChat {...desk} node={node} borrow bare temporaryPlacement={{ sourceBox, onPopout: close }} />
       </div>
     </div>,
     overlayRoot)

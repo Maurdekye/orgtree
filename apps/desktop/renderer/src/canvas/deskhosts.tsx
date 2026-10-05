@@ -539,8 +539,10 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
   const props = entry.last.props
   return <MovableSurface kind={`desk:${deskIdentity(props.slug, props.node)}`} title={`${props.node.id} · desk`}
     org={props.slug} anchor={slot?.anchor ?? null}
+    sourceBox={props.temporaryPlacement?.sourceBox} exactSourceBox={!!props.temporaryPlacement}
     onDetached={(v) => {
       entry.detached = v
+      if (v) props.temporaryPlacement?.onPopout()
       if (!v && !entry.slots.size) props.onJump?.(props.node.id)
       desks.change()
     }}>

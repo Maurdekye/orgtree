@@ -68,6 +68,10 @@ export interface Pin {
   z: number
   /** Last edge/corner alignment; stale references are discarded on writes. */
   snap: PinSnap | null
+  /** A temporary modal may overlap the canvas chrome. Keep its exact window
+   *  rectangle at the original viewport dimensions. A geometry gesture clears
+   *  this; other viewport sizes use the ordinary clamp. Persist the placement. */
+  initialPlacement?: { client: PinRect; viewport: { w: number; h: number } | null }
 }
 
 /** a window smaller than this is not a usable desk; mosaic (stage 2) must
@@ -133,6 +137,9 @@ export const readPins = (slug: string): Pin[] => {
       if (Array.isArray(arr)) {
         const pins = arr.filter(isPin)
         out = pins.map((p) => ({ id: p.id, rect: { ...p.rect }, z: p.z,
+          ...(p.initialPlacement && isRect(p.initialPlacement.client)
+            && (p.initialPlacement.viewport === null || (Number.isFinite(p.initialPlacement.viewport?.w)
+              && Number.isFinite(p.initialPlacement.viewport?.h))) ? { initialPlacement: p.initialPlacement } : {}),
           snap: validPinSnap(p.id, p.rect, p.snap, pins, null) }))
       }
     }
@@ -183,14 +190,15 @@ const renorm = (pins: Pin[], top?: string): Pin[] => {
 
 /** pin `id` at `rect` (already clamped by the caller). Returns false, with
  *  a reason, when refused — already pinned, or at the cap. */
-export const addPin = (slug: string, id: string, rect: PinRect):
+export const addPin = (slug: string, id: string, rect: PinRect, initialPlacement?: Pin['initialPlacement']):
   { ok: true } | { ok: false; reason: string } => {
   const pins = readPins(slug)
   if (pins.some((p) => p.id === id)) return { ok: false, reason: `${id} is already pinned` }
   if (pins.length >= PIN_MAX) {
     return { ok: false, reason: `${PIN_MAX} windows are already pinned — unpin one first` }
   }
-  const next = renorm([...pins, { id, rect: sizeFloor(rect), z: pins.length, snap: null }], id)
+  const next = renorm([...pins, { id, rect: initialPlacement ? rect : sizeFloor(rect), z: pins.length, snap: null,
+    ...(initialPlacement ? { initialPlacement } : {}) }], id)
   writePins(slug, next)
   return { ok: true }
 }
@@ -252,7 +260,7 @@ export const commitRect = (slug: string, id: string, rect: PinRect,
   const pins = readPins(slug)
   if (!pins.some((p) => p.id === id)) return
   const next = clampRect(rect, vp)
-  writePins(slug, pins.map((p) => (p.id === id ? { ...p, rect: next,
+  writePins(slug, pins.map((p) => (p.id === id ? { ...p, rect: next, initialPlacement: undefined,
     snap: validPinSnap(id, next, snap, pins, vp) } : p)))
 }
 
@@ -465,7 +473,10 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
   // the rect on screen: the gesture's live rect while dragging, else the
   // stored one — clamped against the CURRENT viewport so a shrink can never
   // strand a window (render-time clamp; see PinLayer's resize tick)
-  const rect = clampRect(live ?? pin.rect, vp)
+  const initial = !live && pin.initialPlacement
+    && pin.initialPlacement.viewport?.w === vp?.w && pin.initialPlacement.viewport?.h === vp?.h
+    ? pin.initialPlacement : null
+  const rect = initial ? pin.rect : clampRect(live ?? pin.rect, vp)
   const layout = usePinSurface(slug, pin.id, rect, false)
   const panelRef = useRef<HTMLDivElement>(null)
   const overlapSetting = useModalOverlap()
@@ -579,6 +590,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
   const style: CSSProperties = {
     left: rect.x, top: rect.y, width: rect.w, height: rect.h,
     zIndex: layout.z,
+    ...(initial ? { position: 'fixed', left: initial.client.x, top: initial.client.y, minWidth: 0, minHeight: 0 } : {}),
   }
   return (
     <>
