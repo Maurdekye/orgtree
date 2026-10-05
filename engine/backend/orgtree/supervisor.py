@@ -20417,6 +20417,33 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
             "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
 
 
+
+def _run_admission_compaction(slug: str, nid: str, body: Any) -> Any:
+    """Retry only rolled-back lock expansion, before any mail drains.
+
+    A graph guard can discover ancestor/stat rows at save time. Carry every
+    part of its plan into the next transaction, never acquire locks late.
+    The body must leave transcript export and success reporting to its caller.
+    """
+    from . import pgdoor, lifecycle_tx
+    rows = {k: tuple(v) for k, v in _admission_rows(slug, nid, compact=True).items()}
+    plan = pgdoor.TxSpec(**rows)
+    for attempt in range(pgdoor.MAX_WIDEN + 1):
+        try:
+            with halt.txn(slug, nodes=plan.nodes, sections=plan.sections,
+                          share_nodes=plan.share_nodes,
+                          share_sections=plan.share_sections, logs=plan.logs,
+                          structural_roots=plan.structural_roots) as tx:
+                result = body(tx)
+            return result
+        except pgdoor.Widen as exc:
+            if attempt == pgdoor.MAX_WIDEN:
+                raise lifecycle_tx.WidenExhausted(
+                    "automatic compaction: lock set kept growing after "
+                    f"{pgdoor.MAX_WIDEN} widenings; nothing was applied") from exc
+            plan = plan.widened(exc)
+
+
 def _envelope_rows(nid: str) -> dict[str, Any]:
     """PG-3e-A: the rows `_envelope`'s drain writes — the agent's row, the
     drain sections (PG-3d's `mailtx.reclaim_rows` plus
@@ -20909,6 +20936,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
     cache_pre_env: dict[str, str] | None = None
     cache_codex_manifest: dict[str, Any] | None = None
     cache_forecast_event: dict[str, Any] | None = None
+    compaction_phase = False  # survives unwinding for honest terminal classification
     # a mail POINTER whose box empties between `_run_turn`'s gate and the drain
     # below is dropped HERE instead of launched (see the drop site). The flag
     # says the drop already handed the queue on, so the `finally` must not pop
@@ -21373,7 +21401,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     break
                 except _CompactFirst:
                     compact_tried = True
-                    with halt.txn(slug, **_admission_rows(slug, nid, compact=True)) as _cmp_tx:
+                    def compact_locked(_cmp_tx):
+                        nonlocal org, cache_pre_env, cache_codex_manifest
+                        nonlocal cache_forecast_event, cache_attempt
+                        compacted = None
                         org = _cmp_tx.org
                         _admission_gates(slug, org, nid)
                         (cache_pre_env, cache_codex_manifest, _forecast0,
@@ -21392,10 +21423,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 _reason0 = str(_forecast0.get("reason") or "")
                                 try:
                                     _r0 = org.cheap_compact(SYSTEM, nid)
-                                    export_predecessor_transcript(
-                                        org, nid,
-                                        old_sid=str(_r0.get("old_session") or ""),
-                                        reason="cheap_compact")
                                 except LedgerError:
                                     # A raced lifecycle change refuses the swap;
                                     # the original carrier proceeds normally.
@@ -21423,16 +21450,30 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     except Exception:               # noqa: BLE001
                                         cache_forecast_event = None
                                         cache_attempt = None
-                                    print(
-                                        f"[orgtree] {slug}/{nid}: cache-protective "
-                                        f"cheap-compact (context "
-                                        f"{100 * float(_occ0 or 0) / float(_cw0 or 1):.0f}"
-                                        f"%, {_state0}: {_reason0})")
+                                    compacted = (_r0, _occ0, _cw0, _state0, _reason0)
                             # The generation-owned decision commits with the
                             # compaction in THIS transaction, before the drain's
                             # (decision 9): a restart sees the successor together
                             # with its own evidence, so it still cannot resurrect
                             # stale evidence.
+                        return compacted
+
+                    compaction_phase = True
+                    _compacted = _run_admission_compaction(slug, nid, compact_locked)
+                    compaction_phase = False
+                    if _compacted is not None:
+                        _r0, _occ0, _cw0, _state0, _reason0 = _compacted
+                        # Files and success reporting belong to the committed
+                        # generation, never an attempt the graph guard rolls back.
+                        from . import pgdoor
+                        pgdoor.after_commit(_r0, "export predecessor transcript",
+                                            export_after_commit, slug, org, nid,
+                                            str(_r0.get("old_session") or ""),
+                                            "cheap_compact")
+                        print(f"[orgtree] {slug}/{nid}: cache-protective "
+                              f"cheap-compact (context "
+                              f"{100 * float(_occ0 or 0) / float(_cw0 or 1):.0f}"
+                              f"%, {_state0}: {_reason0})")
                     continue
             # turn-locals: `org` (the admission transaction's copy) is the
             # one version the turn keeps; the transactions themselves are done
@@ -24698,7 +24739,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
         # resume machinery and is never terminal — checked against the doc,
         # and an unreadable doc proves nothing and stays silent (the old
         # behaviour, never a false announcement).
-        if _trec is not None and _trec.disposition is None:
+        if ((_trec is not None and _trec.disposition is None)
+                or (compaction_phase and _trec is None)):
+            # Terminal compaction cleanup cannot depend on optional telemetry.
             # `_belt_owned` = some OTHER mechanism owns this node's stopped
             # state, so the belt must NOT announce a terminal error over it:
             # a freeze (the resume machinery owns it), an archived/unrecoverable
@@ -24732,6 +24775,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 _belt_owned = True
             if not _belt_owned:
                 _belt_door = (
+                    f"engine transaction error during automatic compaction ({type(e).__name__})"
+                    if compaction_phase else
                     "its provider leg failed with a terminal error"
                     if isinstance(e, _ProviderTurnFailed) else
                     "the turn failed before the CLI could run — its "
