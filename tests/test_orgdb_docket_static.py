@@ -37,6 +37,10 @@ class DocketWrites(unittest.TestCase):
                 branches = [n for n in ast.walk(function) if isinstance(n,ast.If) and
                     isinstance(n.test,ast.Compare) and isinstance(n.test.left,ast.Attribute) and
                     n.test.left.attr=='kind' and ast.literal_eval(n.test.comparators[0])=='archive']
+                # The early role-planning branch does not encode an archive row.
+                branches = [n for n in branches if any(isinstance(call,ast.Call) and
+                    isinstance(call.func,ast.Name) and call.func.id=='_docket_write'
+                    for call in ast.walk(n))]
                 self.assertEqual(len(branches),1)
                 assignments = [n for n in ast.walk(branches[0]) if isinstance(n,ast.Assign) and
                     any(isinstance(t,ast.Name) and t.id=='keys' for t in n.targets)]
