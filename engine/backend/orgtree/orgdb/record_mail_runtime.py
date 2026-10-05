@@ -28,6 +28,7 @@ class MailboxOverlays(SupervisorOverlays):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self._mail = {}
+        self.expired_through = float('-inf')
 
     def adopt_mail(self, inputs, *, removed=()):
         removed = tuple(removed)
@@ -36,7 +37,7 @@ class MailboxOverlays(SupervisorOverlays):
         self._mail.update(copy.deepcopy(inputs))
         return self._refresh((set(inputs) | set(removed)).intersection(self._bodies))
 
-    def next_deadline(self, now):
+    def next_deadline(self):
         from ..supervisor import STRANDED_GRACE_S
         deadlines = []
         for source in self._mail.values():
@@ -48,7 +49,9 @@ class MailboxOverlays(SupervisorOverlays):
                 except (TypeError, ValueError, OverflowError):
                     continue
                 deadline = at + STRANDED_GRACE_S
-                if math.isfinite(deadline) and deadline > now:
+                # Scheduling samples time after field projection. A deadline
+                # crossed between those samples still owes one refresh.
+                if math.isfinite(deadline) and deadline > self.expired_through:
                     deadlines.append(deadline)
         return min(deadlines, default=None)
 

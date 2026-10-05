@@ -371,6 +371,7 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   mailboxes and refreshed from changed snapshot inputs. Late HTTP/join workers trim
   against live subscriptions before publishing; retained drain timestamps schedule grace
   expiry without an org read, and unsubscribe/identity replacement cancel stale deadlines.
+  A deadline crossed between projection and scheduling still receives one immediate refresh.
   Subscription readiness is false
   until the current generation's final page; a reset or renewal clears it. Known record
   capability suppresses legacy polling even before the session controller is installed.

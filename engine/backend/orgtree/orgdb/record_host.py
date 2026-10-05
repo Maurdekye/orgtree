@@ -331,7 +331,7 @@ class OrgHost:
         if self.closed or not isinstance(overlay, mail_runtime.MailboxOverlays):
             return
         now = time.time()
-        deadline = overlay.next_deadline(now)
+        deadline = overlay.next_deadline()
         if deadline is None:
             return
         try:
@@ -343,6 +343,7 @@ class OrgHost:
             if self.closed or self.overlay is not overlay or self._mail_timer is not handle:
                 return
             self._mail_timer = None
+            overlay.expired_through = max(overlay.expired_through, time.time())
             # Retained inputs only: no org read, revision or renderer polling.
             changed = self._trim_mail()
             changed.update(overlay._refresh(set(overlay._mail).intersection(overlay._bodies)))

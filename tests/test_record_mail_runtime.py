@@ -35,13 +35,16 @@ class MailRuntime(unittest.TestCase):
             with patch('orgtree.supervisor.state', return_value={'queue':[]}), patch(
                     'orgtree.orgdb.record_host.time.time', side_effect=lambda: now[0]), patch.object(
                     asyncio.get_running_loop(), 'call_later', side_effect=schedule):
-                host._partial(host._adopt(inputs))
+                changed = host._adopt(inputs)
+                if action == 'crossed':
+                    now[0] = 110.001  # expires between projection and scheduling
+                host._partial(changed)
                 initial = frames[-1]['agents']['1']
                 self.assertEqual(initial['mail_stages'], {'batch':'steer'})
                 delay, fire, timer = timers[-1]
-                self.assertEqual(delay, 10.0)
-                if action == 'expire':
-                    now[0] = 110.0
+                self.assertEqual(delay, 0.0 if action == 'crossed' else 10.0)
+                if action in ('expire', 'crossed'):
+                    now[0] = 110.001
                     fire()  # only time passed: no revision, HTTP read or transition
                     final = frames[-1]['agents']['1']
                     self.assertEqual(final['mail_stages'], {'batch':'stranded'})
@@ -64,7 +67,7 @@ class MailRuntime(unittest.TestCase):
                     fire()  # even an already-queued stale callback is fenced
                     self.assertEqual(len(frames), before)
 
-        for action in ('expire','unsubscribe','identity','close'):
+        for action in ('expire','crossed','unsubscribe','identity','close'):
             with self.subTest(action=action):
                 asyncio.run(exercise(action))
 
