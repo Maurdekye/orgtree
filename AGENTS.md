@@ -143,6 +143,15 @@ verified: `orgdb/record_pass.py`, `orgdb/record_host.py`, `orgdb/record_tree.py`
 
 ## Architecture
 
+- **App registry locks and restore boundary:** app migration `0005_app_feed.sql`
+  owns the deferred registry revision update; lifecycle writers never acquire that
+  singleton themselves. Existing restore tools handle legacy or individual org
+  databases; a future app-database restore must change its incarnation with the
+  engine stopped and the root owner lock held. See the
+  [writer and restore inventory](docs/state-system/app-feed-writer-audit.md).
+  [verified: `orgdb/lifecycle.py`, `orgdb/names.py`, `pg-custodian/src/backup.rs`;
+  decided: step-6 addendum section 5; 2026-10-05]
+
 As built on `dev` on 2026-10-05; where 3.2.0 will differ, the table at the
 end of this section says so.
 

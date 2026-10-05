@@ -711,7 +711,8 @@ export default function App() {
     errStreak.current += 1
     if (errStreak.current >= ERROR_STREAK) setError(e.message)
   }, [])
-  // THE ONE ORG-LIST POLLER (`orgstatus.ts`). It replaces a `setInterval` with
+  // THE SHARED ORG LIST (`orgstatus.ts`), now driven by the app feed. Its
+  // legacy fallback replaced a `setInterval` with
   // no leading call that was also switched off whenever an organization window
   // had the list closed — the pair that made opening the list paint minutes-old
   // counts and correct them three seconds later
