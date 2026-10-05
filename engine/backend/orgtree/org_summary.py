@@ -54,7 +54,7 @@ def _live_count(raw):
         "SELECT count(*) FROM node_index i WHERE i.meta->>'state'='live'").fetchone()[0])
 
 
-def _read(slug):
+def _read(slug, *, raw=None, stamp=None):
     def snapshot(raw, stamp):
         from .orgdb import enabled
         if enabled():
@@ -84,6 +84,10 @@ def _read(slug):
         row['live'] = _live_count(raw)
         context = _AdminSummary(settings, {}, stamp['cost'])
         return row, context
+    # App-feed summary and notices must share the caller's identity/revision
+    # snapshot. The ordinary listing keeps owning its own snapshot.
+    if raw is not None:
+        return snapshot(raw, stamp)
     return foreground_store.read_snapshot(slug, snapshot)
 
 
