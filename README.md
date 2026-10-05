@@ -12,6 +12,10 @@ This is **Orgtree 3**, the current desktop application. It follows Orgtree 2 and
 
 ## Screenshots
 
+![Orgtree 3 workspace in the default rows view, with provider usage across the top and agents arranged beneath their coordinator](docs/images/orgtree-3-rows-workspace.png)
+
+**Orgtree 3: a workspace in the default rows view.** Agents sit in rows beneath their coordinator, with provider usage across the top.
+
 ![Orgtree 3 Canvas: an interactive circular org chart of agents, with the Needs attention list, a Usage panel and an open agent desk](docs/images/orgtree-3-canvas.png)
 
 **Orgtree 3 (current).** The Canvas shows your team as a circular organization chart. Beside it are the "Needs attention" list of tickets and questions waiting for you, a Usage panel, and an agent's desk open for reading its conversation.
