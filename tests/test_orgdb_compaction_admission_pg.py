@@ -211,6 +211,8 @@ class Compaction(unittest.TestCase):
         self.assertFalse(self.at_drain)
         self.assertFalse(self.exports)
         self.assertEqual(self.saved().node('worker')['session_id'], self.before)
+        self.assertEqual(self.saved().node('worker')['halt'], {'phase': 'halted'},
+                         'control must actually reach the retry and concurrent halt')
 
     def test_export_failure_after_commit_does_not_repeat_compaction(self):
         with patch.object(sup, 'export_after_commit', side_effect=OSError('export unavailable')) as export:
