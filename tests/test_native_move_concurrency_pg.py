@@ -186,7 +186,7 @@ class MoveConcurrency(unittest.TestCase):
         # aggregate table's RowExclusiveLock before waiting for a row owner.
         waits = self.last_observations
         self.assertTrue(any(row['wait_event'] in ('transactionid', 'tuple')
-                            and any(lock[3] == 'orgtree.agent_subtree_stats'
+                            and any(lock[3] is not None and lock[3].split('.')[-1] == 'agent_subtree_stats'
                                     and lock[1] == 'RowExclusiveLock'
                                     for lock in row['locks']) for row in waits), waits)
 
