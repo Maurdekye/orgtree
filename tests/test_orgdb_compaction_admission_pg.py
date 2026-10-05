@@ -1,7 +1,7 @@
 """Automatic compaction traverses the real admission and PostgreSQL graph guard."""
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from unittest.mock import patch
 import unittest
 from uuid import uuid4
@@ -160,8 +160,16 @@ class Compaction(unittest.TestCase):
         self.assertNotIn('account binding', sup._turn_abandoned.call_args.args[2])
 
     def test_unexpected_compaction_error_stops_mail_redrive_without_recording(self):
+        self.terminal_error(recording=False)
+
+    def test_unexpected_compaction_error_stops_mail_redrive_with_recording(self):
+        self.terminal_error(recording=True)
+
+    def terminal_error(self, *, recording):
+        recorder = (nullcontext() if recording else
+                    patch.object(sup.turnlog, 'start', return_value=None))
         with patch.object(ledger.Org, 'cheap_compact', side_effect=ValueError('fixture fault')) as compact, \
-             patch.object(sup.turnlog, 'start', return_value=None), \
+             recorder, \
              patch.object(sup, '_start_turn_worker', side_effect=sup._run_turn) as start:
             sup._run_turn(self.slug, 'worker', {'text': 'pending mail', 'ping': True,
                                               'mail_ids': [self.mail_id]})
