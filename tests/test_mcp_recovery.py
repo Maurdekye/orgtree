@@ -7,7 +7,7 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 _fixture = tempfile.TemporaryDirectory(prefix='mcp-recovery-')
 os.environ['ORGTREE_DATA'] = _fixture.name
@@ -234,6 +234,35 @@ class Health(unittest.TestCase):
                 'type': 'deferred_tools_delta', 'failedMcpServers': [{'name': 'orgtree'}]}}) + '\n')
             tail.read(m)
             self.assertFalse(m.broken())
+
+    def test_monitor_retries_after_real_stdin_lock_timeout(self):
+        from orgtree import supervisor as sup
+        p = SimpleNamespace(pid=123, poll=lambda: None, stdin=io.StringIO())
+        lock = sup._stdin_lock(p)
+        attempts = []
+        def send(line):
+            attempts.append(line)
+            try:
+                sup._stdin_send(p, line, wait=0.0)
+            except OSError:
+                lock.release()  # the active writer completes after the first timeout
+                raise
+        with patch.object(recovery.threading, 'Thread') as thread:
+            monitor = recovery.attach(p, send)
+            worker = thread.call_args.kwargs['target']
+        monitor.stopped = Mock()
+        monitor.stopped.wait.side_effect = [False, False, False, True]
+        lock.acquire()
+        try:
+            with patch.object(recovery.Monitor, 'check_transport') as scan:
+                worker()
+                self.assertEqual(scan.call_count, 2)
+        finally:
+            if lock.locked():
+                lock.release()
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(p.stdin.getvalue(), attempts[1])
+        self.assertEqual(monitor.stopped.wait.call_args_list[1].args, (25.0,))
 
     def test_keeper_busy_never_attempts_recovery(self):
         org = SimpleNamespace(nodes={'n': {'state': 'live'}})

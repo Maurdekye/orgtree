@@ -222,7 +222,9 @@ def attach(proc: Any, send: Callable[[str], None],
                 monitor.check_transport(proc)
                 monitor.probe(send)
             except (OSError, ValueError, AttributeError):
-                return
+                # A bounded stdin-lock timeout or unavailable observation is
+                # transient. Keep scanning on schedule until stop or CLI exit.
+                pass
             if monitor.stopped.wait(PROBE_INTERVAL - 5.0):
                 return
 
