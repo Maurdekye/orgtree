@@ -34,6 +34,18 @@ const OUTPUT_TAIL = 4000
 const VERIFY_RETRIES = 5
 const VERIFY_RETRY_DELAY_MS = 200
 
+const statusListeners = new Set<(provider: LoginProvider, status: ProviderLoginStatus) => void>()
+export function onProviderLoginStatus(listener: (provider: LoginProvider, status: ProviderLoginStatus) => void): () => void {
+  statusListeners.add(listener)
+  return () => { statusListeners.delete(listener) }
+}
+function publishStatus(provider: LoginProvider, status: ProviderLoginStatus): ProviderLoginStatus {
+  for (const listener of statusListeners) {
+    try { listener(provider, { ...status }) } catch { /* one closed window cannot stop a login */ }
+  }
+  return status
+}
+
 interface Door {
   /** The provider id `/api/providers` uses — Codex's is "openai", Antigravity's
    *  is "google", never "codex"/"antigravity"; kept as an internal mapping so
@@ -209,7 +221,8 @@ class LoginSession {
   constructor(private readonly door: Door, argv: string[],
     private readonly engineOrigin: string, private readonly engineToken: string,
     private readonly profileDir?: string,
-    private readonly accountId?: string) {
+    private readonly accountId?: string,
+    private readonly changed: () => void = () => {}) {
     // multi-account (D4): a PROFILE login runs the same CLI flow with the
     // provider's profile selector pointed at the account's directory —
     // sign-in-as-account is the parameterized form of the ambient flow,
@@ -232,9 +245,11 @@ class LoginSession {
     this.proc.stdout.on('data', (chunk: Buffer) => {
       this.buf = (this.buf + chunk.toString('utf8')).slice(-OUTPUT_TAIL)
       if (this.door.supportsCode && !this.codeSent && this.buf.includes(PASTE_PROMPT)) this.awaitingCode = true
+      this.changed()
     })
     this.proc.stderr.on('data', (chunk: Buffer) => {
       this.buf = (this.buf + chunk.toString('utf8')).slice(-OUTPUT_TAIL)
+      this.changed()
     })
     this.proc.on('exit', code => { this.exited = true; void this.finish(code === 0) })
     this.proc.on('error', () => { this.exited = true; void this.finish(false) })
@@ -289,6 +304,7 @@ class LoginSession {
     this.done = true
     this.ok = ok
     this.awaitingCode = false
+    this.changed()
   }
 
   sendCode(code: string): void {
@@ -298,6 +314,7 @@ class LoginSession {
     // ⚠ the code is written to the child's stdin and NOWHERE else — never
     // appended to `this.buf`, never logged. Do not add a log line here.
     try { this.proc.stdin.write(code + '\n') } catch { /* a dead pipe is reported via exit, not here */ }
+    this.changed()
   }
 
   /** Kills the WHOLE process tree, not just `this.proc` (coordinator
@@ -396,13 +413,18 @@ export async function startProviderLogin(
   }
   const controller = new AbortController()
   pending.set(provider, controller)
+  publishStatus(provider, { phase: 'starting', ok: null, timedOut: false, output: '', ageMs: 0 })
+  const failed = (status: ProviderLoginStatus) => {
+    if (pending.get(provider) === controller) publishStatus(provider, status)
+    return status
+  }
   try {
     const door = DOORS[provider]
     if (opts?.profileDir) {
       try { await verifyProfileWritable(opts.profileDir) }
       catch {
-        return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
-          error: 'The selected account profile is not writable. Its folder permissions must allow your Windows user before signing in.' }
+        return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
+          error: 'The selected account profile is not writable. Its folder permissions must allow your Windows user before signing in.' })
       }
     }
     let rows: ProviderRow[]
@@ -416,8 +438,8 @@ export async function startProviderLogin(
       if (controller.signal.aborted) {
         return { phase: 'done', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: 'cancelled' }
       }
-      return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
-        error: e instanceof Error ? e.message : 'could not reach the engine' }
+      return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
+        error: e instanceof Error ? e.message : 'could not reach the engine' })
     }
     if (controller.signal.aborted) {
       // ⚠ THE ONLY CHECK NEEDED, deliberately: everything from here to
@@ -434,12 +456,12 @@ export async function startProviderLogin(
     const row = rows.find(p => p.id === door.apiId)
     const exe = row?.status.path
     if (!row?.status.installed || !exe) {
-      return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: 'not-installed' }
+      return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: 'not-installed' })
     }
     if (provider === 'antigravity') {
       const launch = launchAntigravityTerminal(exe)
       if (!launch.started) {
-        return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: launch.error }
+        return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false, error: launch.error })
       }
       // ⚠ `ok: null`, not `true` — nothing here VERIFIED a sign-in, only
       // that a terminal window was opened. `null` is the renderer's signal
@@ -452,12 +474,15 @@ export async function startProviderLogin(
     let session: LoginSession
     try {
       session = new LoginSession(door, resolveArgv(exe, door.extraArgs),
-        engineOrigin, engineToken, opts?.profileDir, opts?.accountId)
+        engineOrigin, engineToken, opts?.profileDir, opts?.accountId, () => {
+          if (sessions.get(provider) === session) publishStatus(provider, session.snapshot())
+        })
     } catch (e) {
-      return { phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
-        error: e instanceof Error ? `failed to start: ${e.message}` : 'failed to start' }
+      return failed({ phase: 'error', ok: false, timedOut: false, output: '', ageMs: 0, started: false,
+        error: e instanceof Error ? `failed to start: ${e.message}` : 'failed to start' })
     }
     sessions.set(provider, session)
+    publishStatus(provider, session.snapshot())
     return { ...session.snapshot(), started: true }
   } finally {
     // ⚠ IDENTITY-CHECKED, not a bare delete (root's follow-up review,
@@ -473,6 +498,7 @@ export async function startProviderLogin(
 }
 
 export function getProviderLoginStatus(provider: LoginProvider): ProviderLoginStatus {
+  if (pending.has(provider)) return { phase: 'starting', ok: null, timedOut: false, output: '', ageMs: 0 }
   const session = sessions.get(provider)
   if (!session) return { phase: 'idle', ok: null, timedOut: false, output: '', ageMs: 0 }
   return session.snapshot()
@@ -526,7 +552,7 @@ export function cancelProviderLogin(provider: LoginProvider, waitForExit = false
     // makes for the same provider.
     pending.delete(provider)
   }
-  return { phase: 'idle', ok: null, timedOut: false, output: '', ageMs: 0 }
+  return publishStatus(provider, { phase: 'idle', ok: null, timedOut: false, output: '', ageMs: 0 })
 }
 
 /** Test-only: drop all session state between cases without a process restart. */

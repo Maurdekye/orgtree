@@ -1,3 +1,5 @@
+// The app feed now drives this list continuously. The poll/freshness history
+// below applies only to the explicitly disabled-backend compatibility path.
 // orgstatus.ts — ONE poller for the cross-organization status list, and one
 // honest answer about how old the numbers on screen are.
 //
@@ -47,6 +49,8 @@
 // status.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { listOrgs } from './api'
+import { useAppFeed } from './appfeed'
+import { projectOrgs } from './recordprojection'
 import type { OrgListEntry } from './types'
 
 /** How often an OPEN list re-asks. The pre-existing cadence, kept: the point
@@ -142,6 +146,10 @@ export interface OrgStatus {
 export function useOrgStatus(opts: OrgStatusOptions): OrgStatus {
   const { active, load, pollMs = ORG_POLL_MS, staleAfterMs = ORG_STALE_MS,
     onOk, onError } = opts
+  const appFeed = useAppFeed(!load)
+  const legacy = Boolean(load) || appFeed.status === 'unsupported'
+  const feedRef = useRef({ appFeed, legacy })
+  feedRef.current = { appFeed, legacy }
   const [snapshot, setSnapshot] = useState<OrgSnapshot>(EMPTY_SNAPSHOT)
   const [known, setKnown] = useState(false)
   // the moment the surface became visible. 0 while it is not.
@@ -159,6 +167,10 @@ export function useOrgStatus(opts: OrgStatusOptions): OrgStatus {
   const applied = useRef(0)
 
   const refresh = useCallback(async () => {
+    if (!feedRef.current.legacy) {
+      if (feedRef.current.appFeed.status === 'current') await feedRef.current.appFeed.refresh()
+      return
+    }
     const issued = Date.now()
     setNow(issued)
     try {
@@ -188,13 +200,31 @@ export function useOrgStatus(opts: OrgStatusOptions): OrgStatus {
   useEffect(() => {
     setOpenedAt(active ? Date.now() : 0)
     void refresh()
-  }, [active, refresh])
+  }, [active, refresh, legacy])
 
   useEffect(() => {
-    if (!active) return
+    if (!active || !legacy) return
     const t = setInterval(() => { setNow(Date.now()); void refresh() }, pollMs)
     return () => clearInterval(t)
-  }, [active, pollMs, refresh])
+  }, [active, pollMs, refresh, legacy])
+
+  useEffect(() => {
+    if (legacy) return
+    if (appFeed.status === 'current') {
+      cbs.current.onOk?.()
+      setKnown(true)
+      setNow(Date.now())
+    } else if (appFeed.error) cbs.current.onError?.(new Error(appFeed.error))
+  }, [legacy, appFeed.status, appFeed.error, appFeed.version])
+
+  if (!legacy) {
+    const records = new Map([['registry_org', new Map((appFeed.state.registry?.records ?? [])
+      .map(row => [row.id, row.body]))]])
+    return { orgs: projectOrgs(records, appFeed.state), known: !!appFeed.state.registry,
+      freshness: appFeed.status === 'current' ? 'current' : appFeed.state.registry ? 'stale' : 'loading',
+      ageMs: appFeed.status === 'current' ? 0 : Math.max(0, Date.now() - now),
+      error: appFeed.error, refresh }
+  }
 
   return {
     orgs: snapshot.orgs,

@@ -28,6 +28,51 @@ async function load(name) {
 }
 const providerlogin = await load('providerlogin')
 
+test('native push sends start, code prompt, success and cancel without status polling', async () => {
+  const state = freshState()
+  state.claude.connected = true
+  await new Promise(resolve => handle.server.close(resolve))
+  handle = await providersServer(state)
+  process.env.FIXTURE_MODE = 'success'
+  process.env.FIXTURE_CONFIG_PATH = path.join(temp, 'push-login.json')
+  const seen = []
+  let codeReady, finished
+  const prompt = new Promise(resolve => { codeReady = resolve })
+  const done = new Promise(resolve => { finished = resolve })
+  const off = providerlogin.onProviderLoginStatus((provider, value) => {
+    assert.equal(provider, 'claude')
+    seen.push(value)
+    if (value.phase === 'awaiting_code') codeReady()
+    if (value.phase === 'done') finished(value)
+  })
+  try {
+    await providerlogin.startProviderLogin(handle.origin, TOKEN, 'claude')
+    await prompt
+    providerlogin.submitProviderLoginCode('claude', 'fixture-push-only')
+    const result = await done
+    assert.equal(result.ok, true)
+    assert.equal(seen[0].phase, 'starting')
+    assert.ok(seen.some(s => s.phase === 'awaiting_code'))
+    assert.ok(seen.every(s => !s.output.includes('fixture-push-only')))
+    providerlogin.cancelProviderLogin('claude')
+    assert.equal(seen.at(-1).phase, 'idle')
+    off()
+    const count = seen.length
+    providerlogin.cancelProviderLogin('claude')
+    assert.equal(seen.length, count)
+  } finally { off() }
+})
+
+test('native push reports a failed start to an existing subscriber', async () => {
+  const seen = []
+  const off = providerlogin.onProviderLoginStatus((provider, value) => seen.push(value))
+  try {
+    const result = await providerlogin.startProviderLogin(handle.origin, 'invalid-test-token', 'claude')
+    assert.equal(result.phase, 'error')
+    assert.deepEqual(seen.map(s => s.phase), ['starting', 'error'])
+  } finally { off() }
+})
+
 const REPO = path.resolve('tests/fixtures')
 const CLAUDE_FIXTURE = path.join(REPO, 'fake_claude_auth_login.py')
 const CODEX_FIXTURE = path.join(REPO, 'fake_codex_login.py')

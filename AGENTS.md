@@ -148,6 +148,14 @@ end of this section says so.
 
 ### Processes and the desktop–engine boundary
 
+- **App feed and native login (2026-10-05).** App registry, org summaries/notices and
+  engine-owned values use `/api/app/ws` and `/api/app/records`; app migration 0005
+  gates activation. Native provider login remains in Electron under D231: subscribe
+  before taking its initial IPC snapshot, ignore delayed responses after newer events,
+  and unsubscribe on unmount. OAuth output/codes never go through the engine.
+  [verified: `app_api.py`, `packages/contracts/provider-login-feed.ts`;
+  decided: drag-opus 2026-10-05, B4b decision 7]
+
 - **Desktop** (`apps/desktop`): Electron 44. `main/` owns windows (one main window per
   org), tray, updater and the engine's lifecycle (`index.ts`, `engine.ts`, `policy.ts`).
   `preload/` exposes `window.orgtreeDesktop` only to the top frame at the exact engine

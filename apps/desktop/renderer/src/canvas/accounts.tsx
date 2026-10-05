@@ -6,7 +6,8 @@ import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { subscribeProviderLogin } from '../../../../../packages/contracts/provider-login-feed'
 import type {
   AccountUsage, ProviderInfo, ProvidersPayload, RuntimeSettingsPayload,
   TierStanding, ToastFn, UsageCredits, UsageLimit,
@@ -476,26 +477,22 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const phase = status?.phase ?? 'idle'
-  const active = phase === 'starting' || phase === 'awaiting_code'
+  const subscription = useRef<ReturnType<typeof subscribeProviderLogin> | null>(null)
   useEffect(() => {
-    if (!active || !bridge) return
-    let stopped = false
-    const id = setInterval(() => {
-      bridge.getProviderLoginStatus(provider).then((s) => { if (!stopped) setStatus(s) }).catch(() => {})
-    }, 800)
-    return () => { stopped = true; clearInterval(id) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, provider, bridge])
+    if (!bridge) return
+    const current = subscribeProviderLogin(bridge, provider, setStatus)
+    subscription.current = current
+    return () => { current.close(); subscription.current = null }
+  }, [provider, bridge])
   useEffect(() => {
     if (phase === 'done' && status?.ok) onRefresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status])
+  }, [phase, status?.ok])
   if (!bridge) return null
   const begin = () => {
     setBusy(true)
-    bridge.startProviderLogin(provider,
-      (profileDir || accountId) ? { profileDir, accountId } : undefined).then((s) => {
-      setStatus(s)
+    subscription.current?.action(bridge.startProviderLogin(provider,
+      (profileDir || accountId) ? { profileDir, accountId } : undefined)).then((s) => {
       if (s.phase === 'error') toast([s.error === 'not-installed'
         ? `${label} is not installed` : (s.error || 'could not start sign-in')])
     }).catch((e: Error) => toast([e.message])).finally(() => setBusy(false))
@@ -504,13 +501,13 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
     const trimmed = code.trim()
     if (!trimmed || !supportsCode) return
     setBusy(true)
-    bridge.submitProviderLoginCode(provider, trimmed).then(setStatus)
+    subscription.current?.action(bridge.submitProviderLoginCode(provider, trimmed))
       .catch((e: Error) => toast([e.message]))
       .finally(() => { setBusy(false); setCode('') })
   }
   const cancel = () => {
     setBusy(true)
-    bridge.cancelProviderLogin(provider).then(() => setStatus(null)).catch(() => {})
+    subscription.current?.action(bridge.cancelProviderLogin(provider)).catch(() => {})
       .finally(() => setBusy(false))
   }
   if (phase === 'awaiting_code' && supportsCode) {

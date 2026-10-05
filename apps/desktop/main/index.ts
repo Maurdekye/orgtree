@@ -31,7 +31,7 @@ import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixt
 import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent, RunAsAdministratorState } from '../../../packages/contracts/index'
 import { isVisualTheme, isCustomTheme } from '../../../packages/contracts/visual-theme'
-import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode } from './providerlogin'
+import { asLoginProvider, cancelProviderLogin, getProviderLoginStatus, startProviderLogin, submitProviderLoginCode, onProviderLoginStatus } from './providerlogin'
 import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
@@ -1745,6 +1745,16 @@ else {
       return submitProviderLoginCode(asLoginProvider(provider), code)
     })
     handleApp('desktop:provider-login-cancel', provider => cancelProviderLogin(asLoginProvider(provider)))
+    const stopLoginEvents = onProviderLoginStatus((provider, status) => {
+      for (const record of records.values()) {
+        try {
+          const sender = record.window.webContents
+          resolveNativeSender({ sender, senderFrame: sender.mainFrame }, windows, engine.origin)
+          sendTo(record.id, { type: 'provider-login-status', data: { provider, status } })
+        } catch { /* destroyed, navigated or untrusted documents receive nothing */ }
+      }
+    })
+    app.once('will-quit', stopLoginEvents)
     engine.on('status', status => { broadcastAll({ type: 'engine-status', data: status }); stats = null; rebuildTray() })
     // ⚠ BROADCASTING IS NOT ENOUGH WHEN THE WINDOW HAS NO DOCUMENT. The renderer
     // is what would normally react to the status above, and after a failed load

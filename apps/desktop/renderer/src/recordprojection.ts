@@ -2,6 +2,7 @@ import type { OrgListEntry, TreeNode, TreePayload } from './types'
 import type { FeedCursor, RecordTable } from './recordfeed'
 import type { RuntimeTable, RuntimeValue } from './recordoverlay'
 import { hydrateTree } from './archived'
+import type { AppFeedState, RegistryOrg } from '../../../../packages/contracts/app-feed'
 
 export interface TreeRecordInputs {
   runtime?: RuntimeTable
@@ -123,8 +124,17 @@ function hidden(total: number, held: number): number {
   return total - held
 }
 
-export function projectOrgs(records: RecordTable): OrgListEntry[] {
-  return [...(records.get('registry_org')?.values() ?? [])] as OrgListEntry[]
+export function projectOrgs(records: RecordTable, app?: AppFeedState): OrgListEntry[] {
+  const rows = [...(records.get('registry_org')?.values() ?? [])]
+  if (!app) return rows as OrgListEntry[]
+  return (rows as RegistryOrg[]).filter(row => row.state === 'active' || row.state === 'unavailable')
+    .sort((a, b) => a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0)
+    .map(row => ({ slug: row.slug, name: row.slug, nodes: 0, live: 0, created: null,
+      net_slug: null, cost_usd_total: 0,
+      ...app.summary(row),
+      working: row.state === 'active' ? app.working.get(String(row.org_id))?.value?.working ?? 0 : 0,
+      state: row.state, state_reason: row.state_reason, unavailable_step: row.unavailable_step,
+      attempts: row.attempts, report_path: row.report_path }))
 }
 
 export type AgentRecord = Omit<TreeNode, 'children'> & { parent_id: string | null; sibling_order?: number

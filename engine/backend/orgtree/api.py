@@ -1064,6 +1064,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
         _start_revision_feed()
         from . import record_api
         record_api.start_timers()
+        from . import app_api
+        await app_api.start()
     try:
         # hook processes get a sanitized env — the steering hook finds us here
         open(os.path.join(store.DATA_ROOT, ".port"), "w",
@@ -1073,8 +1075,9 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
 
     def notify(slug: str, node: str, event: str,
                detail: dict[str, Any] | None = None) -> None:
-        from . import record_api
+        from . import record_api, app_api
         loop.call_soon_threadsafe(record_api.transition, slug, (node,))
+        loop.call_soon_threadsafe(app_api.transition)
         asyncio.run_coroutine_threadsafe(
             hub.node_event(slug, node, event, detail), loop)
 
@@ -1557,6 +1560,8 @@ async def _stop_revision_feed() -> None:
         _REV_FEED.stop(timeout=0.0)
     from . import record_api
     await record_api.close()
+    from . import app_api
+    await app_api.close()
 
 
 def _org_rev(slug: str) -> int | None:
@@ -2445,6 +2450,8 @@ def _org_tree_transport(slug: str, request: Request) -> Response:
 
 from . import record_api
 app.include_router(record_api.router)
+from . import app_api
+app.include_router(app_api.router)
 
 
 @app.get("/api/orgs/{slug}/foreground-tree")

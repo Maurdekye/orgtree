@@ -173,6 +173,61 @@ class Host(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await tiny.take())
         self.assertNotIn(tiny, self.host.clients)
 
+    async def test_failed_last_org_read_retries_without_another_revision(self):
+        completed = asyncio.Event()
+        attempts = 0
+        async def read(row):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError('transient read failure')
+            value = await self.org(row)
+            completed.set()
+            return value
+        self.host.read_org = read
+        self.host.interval = .001
+        self.source['body'] = dict(name='last committed name')
+        self.host.observed('one', 100)
+        await asyncio.wait_for(completed.wait(), 1)
+        await self.host.idle()
+        self.assertEqual(attempts, 2)
+        self.assertEqual((await self.host.full())['summaries']['1']['body'], self.source['body'])
+
+    async def test_failed_last_registry_read_retries_without_another_revision(self):
+        completed = asyncio.Event()
+        attempts = 0
+        async def read():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError('transient registry failure')
+            completed.set()
+            return await self.registry()
+        self.host.read_registry = read
+        self.host.interval = .001
+        self.cursor['rev'] = 12
+        self.records = []
+        self.host.refresh.wake()
+        await asyncio.wait_for(completed.wait(), 1)
+        await self.host.idle()
+        self.assertEqual(attempts, 2)
+        self.assertEqual((await self.host.full())['registry']['records'], [])
+        self.assertEqual(self.host.runners, {})
+        self.assertEqual(self.host.last_read, {})
+
+    async def test_removed_inflight_runner_prunes_only_after_read_exits(self):
+        self.pause = True
+        self.host.observed('one', 100)
+        await self.started.wait()
+        await self.refresh([])
+        runner = self.host.runners['1']
+        self.release.set()
+        await runner.idle()
+        # task-done callbacks are ordered after the runner's finally.
+        await asyncio.sleep(0)
+        self.assertEqual(self.host.runners, {})
+        self.assertEqual(self.host.last_read, {})
+
 
 if __name__ == '__main__':
     unittest.main()

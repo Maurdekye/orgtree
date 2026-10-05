@@ -39,7 +39,43 @@ class AppHost:
         self.clients = set()
         self.invalid = False
         self.closed = False
-        self.refresh = CoalescedRunner(self._registry_read, error)
+        self.retries = {}
+        self.refresh = CoalescedRunner(self._registry_read, self._registry_failed)
+
+    def _retry(self, key, wake):
+        if self.closed or self.invalid or key in self.retries:
+            return
+        def retry():
+            self.retries.pop(key, None)
+            if not self.closed and not self.invalid:
+                wake()
+        self.retries[key] = asyncio.get_running_loop().call_later(self.interval, retry)
+
+    def _registry_failed(self, exc):
+        self.error(exc)
+        self._retry(None, self.refresh.wake)
+
+    def _org_failed(self, key, exc):
+        self.error(exc)
+        if key in self.spans:
+            self._retry(key, lambda: self._wake(key))
+
+    def _wake(self, key):
+        if key in self.spans and key in self.runners:
+            self.runners[key].wake()
+
+    def _prune(self, key, runner):
+        # Do not cancel an in-flight worker: to_thread SQL would still run.
+        # A replacement span must keep using that same serialized runner.
+        if key not in self.spans and self.runners.get(key) is runner:
+            if runner.task is not None:
+                runner.task.add_done_callback(lambda _: self._prune(key, runner))
+                return
+            self.runners.pop(key, None)
+            self.last_read.pop(key, None)
+            timer = self.retries.pop(key, None)
+            if timer is not None:
+                timer.cancel()
 
     def _send(self, frame):
         for queue in tuple(self.clients):
@@ -107,6 +143,7 @@ class AppHost:
                 if row is None or any(row[k] != span.row[k] for k in ('slug', 'org_uuid')):
                     del self.spans[key]
                     self._remove(key, span)
+                    self._prune(key, self.runners[key])
             self.registry = copy.deepcopy(dict(type='registry_snapshot',
                 epoch=self.clock.epoch, cursor=cursor, records=records))
             # Even equal bodies must publish a newer complete registry.
@@ -116,7 +153,8 @@ class AppHost:
                     self.spans[key] = Span(copy.deepcopy(row))
                     if key not in self.runners:
                         self.runners[key] = CoalescedRunner(
-                            lambda key=key: self._org_read(key), self.error)
+                            lambda key=key: self._org_read(key),
+                            lambda exc, key=key: self._org_failed(key, exc))
                     self.runners[key].wake()
 
     def _remove(self, key, span):
@@ -191,6 +229,9 @@ class AppHost:
     async def close(self):
         with self.lock:
             self.closed = True
+            for timer in self.retries.values():
+                timer.cancel()
+            self.retries.clear()
             for queue in self.clients:
                 queue.close()
             self.clients.clear()
