@@ -1,116 +1,15 @@
-"""Idle runtime app sessions; no transaction body or commit is ever retried.
-
-App callers used to start a PostgreSQL backend for every operation. Retain
-up to four clean sessions for ten idle minutes, independently of the shared
-registry connection. This is an idle cache, not an active-connection limit:
-callers never wait while holding other transaction resources.
-"""
+"""App and default Host adapters over the registry's single idle cache."""
 from __future__ import annotations
 
-import atexit
-import contextlib
-import threading
-import time
-from typing import Any, Iterator
+from typing import Any
+from . import registry
 
-from . import conn
-
-MAX_IDLE = 4
-IDLE_SECONDS = 600.0
-# Include the entire runtime target: distinct roles/clusters must never mix.
-Key = tuple[str, str]
-_idle: list[tuple[Key, Any, float]] = []
-_lock = threading.Lock()
+MAX_IDLE = registry.IDLE_APP
+connection = registry.session
+close_idle = registry.close_idle
 
 
-def _close(raw: Any) -> None:
-    with contextlib.suppress(Exception):
-        raw.close()
-
-
-def _take(key: Key, application: str) -> Any:
-    import psycopg
-    now = time.monotonic()
-    stale = []
-    found = None
-    with _lock:
-        for index in range(len(_idle) - 1, -1, -1):
-            saved, raw, at = _idle[index]
-            if now - at >= IDLE_SECONDS or raw.closed:
-                _idle.pop(index)
-                stale.append(raw)
-            elif saved == key and found is None:
-                _idle.pop(index)
-                found = raw
-    for raw in stale:
-        _close(raw)
-    if found is not None:
-        try:
-            if found.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
-                raise psycopg.OperationalError('idle app session has an open transaction')
-            found.execute("SELECT set_config('application_name', %s, false)", (application,))
-            return found
-        except psycopg.Error:
-            _close(found)
-        except BaseException:
-            _close(found)
-            raise
-    base, database = key
-    return conn.connect(base, database, application_name=application)
-
-
-def _put(key: Key, raw: Any) -> None:
-    import psycopg
-    try:
-        if raw.closed or raw.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
-            return
-        raw.autocommit = True
-        # A stopped turn-slot listener retains subscriptions and may have
-        # client-side notification backlog. Close it instead of caching it.
-        if raw.execute('SELECT pg_listening_channels()').fetchone() is not None:
-            return
-        raw.execute('RESET ALL')
-        with _lock:
-            if len(_idle) < MAX_IDLE:
-                _idle.append((key, raw, time.monotonic()))
-                raw = None
-    except Exception:
-        pass
-    finally:
-        if raw is not None:
-            _close(raw)
-
-
-def close_idle() -> None:
-    """Forget retained sessions; outstanding callers still own theirs."""
-    with _lock:
-        saved = list(_idle)
-        _idle.clear()
-    for _, raw, _ in saved:
-        _close(raw)
-
-
-@contextlib.contextmanager
-def connection(base: str, database: str, *, application_name: str) -> Iterator[Any]:
-    """Preserve psycopg's commit/rollback context semantics without closing a
-    healthy session. Only a failed pre-body health check may reconnect. Any
-    body or commit failure discards the session, without repeating work."""
-    key = (base, database)
-    raw = _take(key, application_name)
-    try:
-        try:
-            yield raw
-            raw.commit()
-        except BaseException:
-            with contextlib.suppress(Exception):
-                raw.rollback()
-            raise
-        else:
-            _put(key, raw)
-            raw = None
-    finally:
-        if raw is not None:
-            _close(raw)
-
-
-atexit.register(close_idle)
+def org_connection(base: str, org: Any) -> Any:
+    """Explicit Host target and identity; injected callbacks never enter here."""
+    return registry.session(base, org.database, application_name='orgtree-jobs',
+                            identity=(org.slug, org.org_uuid))

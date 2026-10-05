@@ -11,15 +11,13 @@ Everything engine code needs from the app database's registry, as the runtime ro
   lifecycle()       this process's Lifecycle, bootstrapped once
   retry(org_id)     Retry of an unavailable org, by the step it failed at
 
-Connections. The registry is read over one shared runtime connection to the app database. An
-org's database is reached through a small idle pool per database (``checkout`` and
-``release``, which the compatibility view uses too): at most 2 idle connections per database
-and 16 in all; one idle for 10 minutes is closed at the next checkout or release (there is no
-sweeper thread). Every checkout, of an idle connection or a new one, checks the database's
-``org_identity`` against the registry row (one short statement), so a database that is not
-this org's is never used: not one restored or renamed under its name since this process last
-opened it, and not after a reconnect (review f22). An idle connection the server dropped is
-replaced by a new one, which is checked the same way.
+Connections. App and org callers share this process's idle cache: at most four
+idle app sessions, two per org target, and sixteen globally, expiring after ten
+minutes. Full runtime conninfo and database isolate targets. There is no active
+cap or waiting queue (those belong to worker-process step 8). No database work
+runs under the cache lock. Every org checkout rechecks org_identity, including
+warm sessions and replacements. Only a failed pre-body checkout can reconnect;
+transaction bodies and ambiguous commits are never repeated.
 
 Only ``orgdb.lifecycle`` reads the admin conninfo (Q10). ``lifecycle()`` hands out this
 process's instance of it, and ``retry`` runs the converter in a child process, which inherits
@@ -28,12 +26,14 @@ this process's environment.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import datetime as _dt
 import os
 import sqlite3
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence, TypeVar
 
@@ -60,28 +60,10 @@ def _psycopg() -> Any:
 
 # ----------------------------------------------------------------- registry reads
 
-_app_lock = threading.Lock()
-_app_raw: list[Any] = []
-
-
 def _on_app(work: Callable[[Any], T]) -> T:
-    """``work(connection)`` on the shared registry connection, reconnecting once when the
-    server dropped it."""
-    psycopg = _psycopg()
-    with _app_lock:
-        for attempt in (0, 1):
-            if not _app_raw or _app_raw[0].closed:
-                _app_raw[:] = [_conn.connect(_conn.runtime_base(), _names.app(),
-                                             application_name="orgtree-registry")]
-            try:
-                return work(_app_raw[0])
-            except psycopg.OperationalError:
-                with contextlib.suppress(Exception):
-                    _app_raw[0].close()
-                _app_raw.clear()
-                if attempt:
-                    raise
-    raise AssertionError("unreachable")
+    """Run once on an exclusive app session; another stalled read cannot serialize us."""
+    with session(_conn.runtime_base(), _names.app(), application_name='orgtree-registry') as raw:
+        return work(raw)
 
 
 def query(sql: str, params: Sequence[Any] = ()) -> list[tuple[Any, ...]]:
@@ -125,21 +107,20 @@ def active_slugs() -> list[str]:
 
 
 def close_registry() -> None:
-    with _app_lock:
-        for raw in _app_raw:
-            with contextlib.suppress(Exception):
-                raw.close()
-        _app_raw.clear()
+    close_idle(_names.app())
 
 
 # ----------------------------------------------------------------- the idle pool
 
 IDLE_PER_DB = 2
+IDLE_APP = 4
 IDLE_TOTAL = 16
 IDLE_SECONDS = 600.0
 #: database -> [(connection, released at (monotonic))], newest last
 _idle: dict[str, list[tuple[Any, float]]] = {}
 _idle_lock = threading.Lock()
+# Metadata follows the raw session without retaining a discarded connection.
+_targets: weakref.WeakKeyDictionary[Any, tuple[str, int]] = weakref.WeakKeyDictionary()
 
 
 def _idle_count() -> int:
@@ -165,31 +146,67 @@ def _close_all(conns: list[Any]) -> None:
             raw.close()
 
 
-def checkout(slug: str, database: str, org_uuid: str) -> Any:
-    """A runtime connection (autocommit) to ``database`` whose ``org_identity`` is (slug,
-    org_uuid), checked now: an idle one, or a new one. OrgUnavailable when the database holds
-    another org's identity."""
+def _checkout(base: str, database: str, application_name: str,
+              identity: tuple[str, str] | None = None) -> Any:
     psycopg = _psycopg()
     found = None
     with _idle_lock:
         stale = _expire_idle(time.monotonic())
-        lst = _idle.get(database) or []
-        while lst:
-            raw, _ = lst.pop()
-            if not raw.closed and raw.info.transaction_status == psycopg.pq.TransactionStatus.IDLE:
+        lst = _idle.get(database, [])
+        for i in range(len(lst) - 1, -1, -1):
+            raw, _ = lst[i]
+            if raw.closed or raw.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+                lst.pop(i)
+                stale.append(raw)
+            elif found is None and _targets.get(raw, (None, 0))[0] == base:
+                lst.pop(i)
                 found = raw
-                break
-            stale.append(raw)
     _close_all(stale)
     if found is not None:
         try:
-            return _identified(found, slug, database, org_uuid)
+            found.execute("SELECT set_config('application_name', %s, false)", (application_name,))
+            return _identified(found, identity[0], database, identity[1]) if identity else found
         except OrgUnavailable:
-            raise
+            raise  # a wrong identity must never be hidden by reconnecting
         except psycopg.Error:
-            pass        # dropped while idle (terminated, server restarted): a new connection
-    raw = _conn.connect(_conn.runtime_base(), database, application_name="orgtree-engine")
-    return _identified(raw, slug, database, org_uuid)
+            _close_all([found])
+        except BaseException:
+            _close_all([found])
+            raise
+    raw = _conn.connect(base, database, application_name=application_name)
+    with _idle_lock:
+        _targets[raw] = (base, IDLE_PER_DB if identity else IDLE_APP)
+    return _identified(raw, identity[0], database, identity[1]) if identity else raw
+
+
+def checkout(slug: str, database: str, org_uuid: str) -> Any:
+    """Compatibility checkout; every warm, fresh or replacement session is identified."""
+    return _checkout(_conn.runtime_base(), database, 'orgtree-engine', (slug, org_uuid))
+
+
+@contextlib.contextmanager
+def session(base: str, database: str, *, application_name: str,
+            identity: tuple[str, str] | None = None) -> Iterator[Any]:
+    """Commit on normal exit, rollback/discard on failure; never repeat caller work.
+
+    Unlike connection(slug), this preserves psycopg's commit-on-success context
+    contract for the account and Host adapters. identity is (slug, org_uuid).
+    """
+    raw = _checkout(base, database, application_name, identity)
+    try:
+        try:
+            yield raw
+            raw.commit()
+        except BaseException:
+            with contextlib.suppress(Exception):
+                raw.rollback()
+            raise
+        else:
+            release(raw, database)
+            raw = None
+    finally:
+        if raw is not None:
+            _close_all([raw])
 
 
 def _identified(raw: Any, slug: str, database: str, org_uuid: str) -> Any:
@@ -197,7 +214,7 @@ def _identified(raw: Any, slug: str, database: str, org_uuid: str) -> Any:
     OrgUnavailable (a wrong identity) or the statement's own error is raised."""
     try:
         row = raw.execute("SELECT org_uuid::text, slug FROM orgtree.org_identity").fetchone()
-    except Exception:
+    except BaseException:
         with contextlib.suppress(Exception):
             raw.close()
         raise
@@ -208,29 +225,37 @@ def _identified(raw: Any, slug: str, database: str, org_uuid: str) -> Any:
 
 
 def release(raw: Any, database: str) -> None:
-    """Give a connection back: kept idle when it is clean, else closed. A revision still
-    pending on it was not confirmed by a COMMIT this session answered (pgstore's rule)."""
+    """Retain only a clean, unsubscribed session from this cache's checkout path."""
     psycopg = _psycopg()
-    pgstore._settle_revisions(raw, False)
-    clean = (not raw.closed
-             and raw.info.transaction_status == psycopg.pq.TransactionStatus.IDLE)
-    if clean:
-        try:
-            raw.execute("RESET ALL")
-        except Exception:                                   # noqa: BLE001
-            clean = False
-    if clean:
-        with _idle_lock:
-            now = time.monotonic()
-            stale = _expire_idle(now)
-            lst = _idle.setdefault(database, [])
-            if len(lst) < IDLE_PER_DB and _idle_count() < IDLE_TOTAL:
-                lst.append((raw, now))
-                raw = None
-        _close_all(stale)
-    if raw is not None:
-        with contextlib.suppress(Exception):
-            raw.close()
+    try:
+        pgstore._settle_revisions(raw, False)
+        clean = (not raw.closed and
+                 raw.info.transaction_status == psycopg.pq.TransactionStatus.IDLE)
+        if clean:
+            try:
+                # LISTEN also retains a client-side notification backlog. A stopped
+                # listener must close, not hand its session to an ordinary caller.
+                raw.autocommit = True
+                clean = raw.execute('SELECT pg_listening_channels()').fetchone() is None
+                if clean:
+                    raw.execute('RESET ALL')
+            except Exception:
+                clean = False
+        if clean:
+            with _idle_lock:
+                now = time.monotonic()
+                stale = _expire_idle(now)
+                target = _targets.get(raw)
+                lst = _idle.setdefault(database, [])
+                retained = sum(_targets.get(c, (None, 0))[0] == target[0]
+                               for c, _ in lst) if target else 0
+                if target and retained < target[1] and _idle_count() < IDLE_TOTAL:
+                    lst.append((raw, now))
+                    raw = None
+            _close_all(stale)
+    finally:
+        if raw is not None:
+            _close_all([raw])
 
 
 def close_idle(database: str | None = None) -> None:
@@ -254,6 +279,11 @@ def connection(slug: str) -> Iterator[Any]:
     raw = checkout(slug, database, org_uuid)
     try:
         yield raw
+    except BaseException:
+        with contextlib.suppress(Exception):
+            raw.rollback()
+        _close_all([raw])
+        raise
     finally:
         if not raw.closed and (raw.info.transaction_status
                                != _psycopg().pq.TransactionStatus.IDLE):
@@ -374,3 +404,6 @@ def _convert_retry(org_id: int, lc: Any, *, data_root: str | None = None,
     if r.returncode == EXIT_BUSY:
         raise L.Busy(last)
     raise L.LifecycleError(f"the converter could not retry org {org_id}: {last}")
+
+
+atexit.register(close_idle)

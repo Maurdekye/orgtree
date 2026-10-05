@@ -88,7 +88,7 @@ class Host:
         self._org_slots = threading.BoundedSemaphore(16)
         source = jobs.Runtime(runtime, prefix=self.prefix)
         self.active_orgs = active_orgs or source.active_orgs
-        self._connect_org = connect_org or source.connect
+        self._connect_org = connect_org or (lambda org: app_pool.org_connection(runtime, org))
         self.queue = turnqueue.Queue(self.app_connection)
         self._lease_queue = turnqueue.Queue(self.heartbeat_connection)
         self.bridge = Bridge(self.org_connection, self.queue, instance_id)
