@@ -32330,6 +32330,7 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
         msgs = pending[:32]
         st["steer"] = pending[32:]
         if defer_commit:
+            predecessors = {id(c) for c in st.get("queue") or []}
             # Keep ownership while a pump holds carriers outside the queue.
             # Halt must capture them even before steer_limbo is installed.
             msgs = [c if isinstance(c, dict) else {"text": str(c)} for c in msgs]
@@ -32345,7 +32346,13 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
                         c for c in st.get("halt_steering_carriers") or []
                         if id(c) not in chosen]
                     key = "steer" if st.get("responding") else "queue"
-                    st[key] = list(msgs) + list(st.get(key) or [])
+                    remaining = list(st.get(key) or [])
+                    # Turn end can fold newer steer mail while the failed
+                    # commit unwinds. Keep pre-existing queued mail ahead.
+                    at = (max((i + 1 for i, c in enumerate(remaining)
+                               if id(c) in predecessors), default=0)
+                          if key == "queue" else 0)
+                    st[key] = remaining[:at] + list(msgs) + remaining[at:]
             halt._on_abort(restore)
     if defer_commit:
         return list(msgs)

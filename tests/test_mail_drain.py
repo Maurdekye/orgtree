@@ -230,6 +230,23 @@ class MailDrainTests(unittest.TestCase):
         self.assertEqual(self.delivered, ['first', 'second'])
         self.assertFalse(self.recover_inline())
 
+    def test_failed_fetch_unwinds_after_turn_end_without_overtaking_old_queue(self):
+        self.st.update(busy=True, responding=True)
+        self.send('old queued')
+        old = self.st['steer'].pop()
+        self.st['queue'].append(old)
+        self.send('popped before commit')
+        popped = self.st['steer'][0]
+        later = {'text': 'arrived while committing', 'toks': []}
+        def failed_commit(*args, **kwargs):
+            self.st['steer'].append(later)
+            self.st['responding'] = False
+            sup._fold_steer(self.st)
+            raise OSError('commit failed after boundary')
+        with patch.object(store, 'save_org', side_effect=failed_commit):
+            self.assertEqual(sup._pump_steer(self.slug, 'worker'), [])
+        self.assertEqual(self.st['queue'], [old, popped, later])
+
     def test_restart_releases_unrecorded_hook_claim_only_after_owner_death(self):
         self.st.update(busy=True, responding=True)
         self.send('claimed before restart')

@@ -154,8 +154,9 @@ def restart_uncertain(row: Mapping[str, Any]) -> bool:
     WELL-FORMED manual-fetch row: its content went to a provider as a tool
     result, which is the same uncertainty as written input. Exactly these may
     return to the mailbox at restart once their owners are proven gone
-    (decision33); claims, retention, a malformed manual record, identity
-    changes and malformed stamps are never in this set.
+    (decision33). Valid hook claims likewise stop owning mail after their
+    engine and children end. Retention, malformed claims/manual records,
+    identity changes and malformed stamps still protect independently.
     """
     attempt = row.get("attempt")
     claim = row.get("claim")
