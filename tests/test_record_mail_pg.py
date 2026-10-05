@@ -142,6 +142,36 @@ class MailReaders(unittest.TestCase):
         self.assertTrue(any(body['mail']['body']=='survivor' for body in held.values()))
         self.assertTrue(frame['tombstones'])
 
+    def test_missing_recipient_capture_is_caught_across_reconnect(self):
+        from orgtree.orgdb import record_derivations as D
+        owner = self.raw.execute("SELECT id FROM orgtree.agents WHERE name='ops' AND NOT tombstone").fetchone()[0]
+        # The removed rows belong to another sender. Capturing that sender
+        # cannot incidentally repair dev's unchanged Sent ordering key.
+        self.raw.execute('UPDATE orgtree.mail_log SET "from"=\'outsider\' WHERE agent_id=%s',(owner,))
+        survivor = self.raw.execute('INSERT INTO orgtree.mail_log(agent_id,idx,"from",at,body) '
+            "VALUES(%s,1000,'dev',%s,'survivor') RETURNING id",(owner,fixture.AT)).fetchone()[0]
+        held,after = self.baseline()
+        self.assertFalse(any(body['mail']['body']=='survivor' for body in held.values()))
+        source = record_panel_sql.sources(record_panels.EXTENSIONS)['mail_log']
+        scope = D.scope('mail_recipient','r.agent_id')
+        self.assertIn(scope,source.names)
+        fault = D.Source(tuple(name for name in source.names if name != scope))
+        def install(declaration):
+            self.raw.execute(D.capture_function('mail_log',declaration).replace(
+                'CREATE FUNCTION','CREATE OR REPLACE FUNCTION',1))
+        install(fault)
+        try:
+            self.raw.execute('DELETE FROM orgtree.mail_log WHERE agent_id=%s AND id<>%s',(owner,survivor))
+            with self.assertRaises(AssertionError):
+                self.advance(dict(held),after)
+        finally:
+            install(source)
+        # Restored capture repairs the exact stale cursor without reconnecting
+        # through a new baseline or requiring the removed rows to return.
+        self.raw.execute('UPDATE orgtree.mail_log SET body=body WHERE id=%s',(survivor,))
+        recovered,_,_ = self.advance(held,after)
+        self.assertTrue(any(body['mail']['body']=='survivor' for body in recovered.values()))
+
     def test_sql_sent_selector_matches_compatibility_algorithm(self):
         from orgtree.orgdb.compat import sql as compat
         for cap in (1,3,50,100,200):
