@@ -1,5 +1,5 @@
 """Run-fenced transport rotation: no provider, database or live state."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import ast
 from contextlib import contextmanager
