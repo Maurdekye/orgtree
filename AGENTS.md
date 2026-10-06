@@ -56,6 +56,9 @@ user, DECISIONS 39]
 - **Builds and installs are the user's.** Prototype builds are `4.0.0-alpha.N` (N counts
   delivered builds), delivered as local installers. No agent builds, tags, publishes, installs or
   restarts. [decided: user, DECISIONS 37–38]
+- **Read-only copies of live data are allowed for rehearsals** (file copies or database dumps):
+  they never change anything live, stay in your own scratch folder (they hold secrets), are never
+  committed or sent, and are deleted when no longer needed. [decided: user, DECISIONS 40]
 
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
