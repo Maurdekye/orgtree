@@ -78,5 +78,43 @@ class AutoResumeSweepTests(unittest.TestCase):
         self.assertEqual(calls['sweep'], ['probe'])
 
 
+class _OnlyThese(dict):
+    """A node mapping that refuses a whole-org walk and any node not named."""
+
+    def __init__(self, nodes, allowed):
+        super().__init__(nodes)
+        self.allowed = set(allowed)
+
+    def items(self):
+        raise AssertionError('readiness walked every node of the org')
+
+    def __getitem__(self, k):
+        if k not in self.allowed:
+            raise AssertionError(f'readiness read unplanned node {k!r}')
+        return super().__getitem__(k)
+
+
+class ReadinessReadsOnlyPlannedNodes(unittest.TestCase):
+    """Item 3-2-0-engine-transactions-stay-open-for-10-17-s: `_auto_resume_org`
+    held its transaction 3.6 s (median, alpha.4) while `auto_resume_ready`
+    decoded every node of the org; only the planned frozen nodes can be
+    ready, so with `only` it reads just those and answers the same."""
+
+    def test_only_reads_the_planned_nodes_and_answers_the_same(self):
+        now = 1_000_000.0
+        frozen = {'state': 'live', 'model': 'haiku',
+                  'frozen': {'connection': True, 'until_ts': now - 5}}
+        nodes = {'f1': dict(frozen), 'f2': dict(frozen, frozen={'connection': True,
+                                                           'until_ts': now + 500}),
+                 'idle': {'state': 'live', 'model': 'haiku'}}
+        full = s.auto_resume_ready(types.SimpleNamespace(d={}, nodes=dict(nodes)), now)
+        guarded = types.SimpleNamespace(d={}, nodes=_OnlyThese(nodes, ['f1', 'f2']))
+        self.assertEqual(full, {'f1'})
+        self.assertEqual(s.auto_resume_ready(guarded, now, only=['f1', 'f2', 'gone']),
+                         full)
+        with self.assertRaises(AssertionError):
+            s.auto_resume_ready(guarded, now)
+
+
 if __name__ == '__main__':
     unittest.main()

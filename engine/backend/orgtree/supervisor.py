@@ -30157,7 +30157,8 @@ def _release_limit_probe(slug: str, nid: str, *, success: bool = False,
         return True
 
 
-def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
+def auto_resume_ready(org: Org, now: float | None = None,
+                      only: Iterable[str] | None = None) -> set[str]:
     """Which frozen nodes the timer should wake RIGHT NOW — asked PER NODE.
 
     ⚠ This was an org-wide `max(every frozen node's until_ts)` gate until
@@ -30253,7 +30254,13 @@ def auto_resume_ready(org: Org, now: float | None = None) -> set[str]:
         return bool(got and got.get("available"))
 
     ready: set[str] = set()
-    for nid, n in org.nodes.items():
+    # `only`: the frozen nodes the caller planned from its snapshot. Only a
+    # frozen node can be ready, and walking every node decoded the whole org
+    # inside `_auto_resume_org`'s transaction (3.6 s median hold on alpha.4,
+    # item 3-2-0-engine-transactions-stay-open-for-10-17-s).
+    nodes = (org.nodes.items() if only is None else
+             [(k, org.nodes[k]) for k in only if k in org.nodes])
+    for nid, n in nodes:
         fz = _resumable(n)
         if fz is None:
             continue
@@ -30663,11 +30670,14 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
     # A node that froze after the plan was
     # stamped by its own freeze writer (`commit_node_wake` runs wherever a
     # freeze is written) and is re-stamped on the next tick.
+    _ar_only: list[str] | None
     try:
         _ar_frozen = [k for k, v in policy_context.read(slug).nodes.items()
                       if v.get("frozen")]
+        _ar_only = _ar_frozen
     except Exception:                                    # noqa: BLE001
         _ar_frozen = []
+        _ar_only = None             # no plan: readiness scans every node
     with halt.txn(slug, nodes=_ar_frozen) as _ar_tx:
         org = _ar_tx.org
         # ⚠ BEFORE the readiness query, and it WRITES. Each frozen node records
@@ -30680,7 +30690,7 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
         for _ar_nid in _ar_frozen:
             if _ar_nid in org.nodes:
                 commit_node_wake(org.node(_ar_nid), now)
-        ready = auto_resume_ready(org, now)
+        ready = auto_resume_ready(org, now, only=_ar_only)
         if not org.d.get("auto_resume"):
             # connection wakes always pass; a LIMIT wake passes only on the
             # metered account lane — capacity the machine consented to spend
