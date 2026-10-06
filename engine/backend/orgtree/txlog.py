@@ -172,14 +172,18 @@ def _hold_start() -> None:
 
 def _hold_end(txs: Sequence[Any]) -> dict[str, Any] | None:
     """The attempt's hold, once its outermost registration ends; nothing
-    when the attempt never reached `after_lock` (it registered nothing)."""
-    if not any("after_lock" in (getattr(t, "log_marks", None) or {}) for t in txs):
+    when the attempt never reached `after_lock` (it registered nothing).
+    A multi-org attempt marks `after_lock` once PER ORG, so it registered
+    once per tx that carries the mark, and unregisters as many (review-sol
+    2026-10-06: decrementing once left the thread registered)."""
+    n = sum(1 for t in txs if "after_lock" in (getattr(t, "log_marks", None) or {}))
+    if not n:
         return None
     with _HOLDS_LOCK:
         held = _HOLDS.get(threading.get_ident())
         if held is None:
             return None
-        held["depth"] -= 1
+        held["depth"] -= n
         if held["depth"] > 0:
             return None
         return _HOLDS.pop(threading.get_ident(), None)

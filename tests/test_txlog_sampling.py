@@ -128,6 +128,40 @@ class Sampling(unittest.TestCase):
         txlog.discard([outer])
         self.assertEqual(txlog._HOLDS, {})
 
+    def test_a_multi_org_attempt_unregisters_every_org(self):
+        # review-sol: transaction_many marks after_lock once per org
+        a, b = FakeTx(), FakeTx()
+        b.slug = "beta"
+        started = time.perf_counter()
+        txlog.mark("after_lock", a)
+        txlog.mark("after_lock", b)
+        slow_body_doing_work(0.4, SECRET)
+        txlog.finish([a, b], started, None)
+        self.assertEqual(txlog._HOLDS, {})
+        rows = self.rows()
+        self.assertEqual({r["org"] for r in rows}, {"acme", "beta"})
+        self.assertTrue(all(r.get("stacks") for r in rows), rows)
+        # a refused (discarded) multi-org attempt too
+        c, d = FakeTx(), FakeTx()
+        txlog.mark("after_lock", c)
+        txlog.mark("after_lock", d)
+        txlog.discard([c, d])
+        self.assertEqual(txlog._HOLDS, {})
+
+    def test_a_multi_org_attempt_nested_in_another_hold(self):
+        outer = FakeTx()
+        started = time.perf_counter()
+        txlog.mark("after_lock", outer)
+        a, b = FakeTx(), FakeTx()
+        txlog.mark("after_lock", a)
+        txlog.mark("after_lock", b)
+        txlog.discard([a, b])
+        self.assertEqual(len(txlog._HOLDS), 1, "the outer hold must survive")
+        slow_body_doing_work(0.4, SECRET)
+        txlog.finish([outer], started, None)
+        self.assertEqual(txlog._HOLDS, {})
+        self.assertTrue(self.rows()[0].get("stacks"))
+
     def test_a_nested_hold_is_one_hold(self):
         outer, inner = FakeTx(), FakeTx()
         started = time.perf_counter()
