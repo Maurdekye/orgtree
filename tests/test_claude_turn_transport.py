@@ -4,6 +4,7 @@ import import_provenance  # noqa: F401
 import ast
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -253,6 +254,21 @@ class TransportTests(unittest.TestCase):
                     api(body, SimpleNamespace(headers={ctx.HEADER: token}))
                 self.assertEqual(caught.exception.status, status)
             self.assertEqual(api(body, SimpleNamespace(headers={ctx.HEADER: self.host.credential(self.two)})), self.two)
+
+    def test_production_warm_spawn_drops_inherited_run_credentials(self):
+        import textwrap
+        path = Path(__file__).parents[1] / 'engine/backend/orgtree/warmpool.py'
+        source = path.read_text(encoding='utf-8')
+        start = source.index('        env["ORGTREE_ORG"], env["ORGTREE_NODE"] = slug, nid')
+        end = source.index('        _journal_proc("respawn-start"', start)
+        env = {ctx.ENV: 'old-run', ct.READY_ENV: 'old-challenge'}
+        values = dict(env=env, slug='example', nid='worker', os=os,
+                      agentauth=SimpleNamespace(child_env=lambda *a: {'ORGTREE_AGENT_TOKEN': 'seat'}),
+                      sup=SimpleNamespace(BACKEND_DIR='backend'))
+        exec(compile(ast.parse(textwrap.dedent(source[start:end])), str(path), 'exec'), values)
+        self.assertNotIn(ctx.ENV, env)
+        self.assertNotIn(ct.READY_ENV, env)
+        self.assertEqual(env['ORGTREE_AGENT_TOKEN'], 'seat')
 
     def test_production_admission_never_uses_an_unacknowledged_child(self):
         wp, reason, discarded = self.admission(self.one, ack=False)
