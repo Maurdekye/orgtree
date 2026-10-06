@@ -33,7 +33,6 @@
 // would double them.
 
 import { continueOnAccount } from '../api'
-import { lineageCount } from '../archived'
 import type { ToastFn } from '../types'
 import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
@@ -158,12 +157,6 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const presentations = h.onPresentations
   if (presentations && (node.documents?.length ?? 0) > 0) {
     entries.push({ label: 'Open presentations', onSelect: () => presentations() })
-  }
-  // §4.8: an archived seat arrives summarised — lineageCount reads whichever
-  // of the full list or its count marker is present
-  const lineage = h.onLineage
-  if (lineage && lineageCount(node) > 0) {
-    entries.push({ label: 'Show lineage', onSelect: () => lineage() })
   }
   // ⭐ RECOVERY BEFORE CONFIGURATION. A frozen agent that another account
   // could carry is the one thing an operator opened this menu to fix, so the

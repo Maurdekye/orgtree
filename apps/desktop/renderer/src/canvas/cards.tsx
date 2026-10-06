@@ -14,7 +14,7 @@ import { audienceAction, dissolveAll, getCharters, unstickNode } from '../api'
 // fetch, so anything it decides about an ARCHIVED seat reads the summary
 // marker when the full field is not there. Never dereference `lineage` or
 // `scope` here directly.
-import { lineageCount, readOnlyAgent } from '../archived'
+import { readOnlyAgent } from '../archived'
 import { accountTint } from '../accounttint'
 import { THEMES } from '../themes'
 import {
@@ -1558,8 +1558,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (node.audiences_held?.length) cls.push('aud')
   if (pinned) cls.push('pinned')
   if (hireReveal) cls.push('hire-reveal')
-  const stackN = lineageCount(node)
-  if (!focused && stackN) cls.push('stack' + Math.min(stackN, 3))
   const toggleCompactHire = (which: 'b' | 'l' | 'r' | 't') =>
     setExpandedHireEdge((open) => open === which ? null : which)
   // MEDIUM-ZOOM FULL NAME (docket show-full-truncated-agent-name-on-hover-at-
@@ -1946,11 +1944,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               reserves no space for it. Its far-zoom and map exclusions are the
               ones this whole `.sq-badges` block already carries. */}
           <EffortLevelBadge node={node} />
-          {/* the lineage opens from the desk's own stack badge; out here the
-              count is a sign. Same reason as the freeze chip above. */}
-          {stackN > 0 &&
-            <ActionBadge deskView={focused} className="badge stackbadge"
-              onAct={onLineage}><LayersIcon fontSize="inherit" /> {stackN}</ActionBadge>}
         </div>
       )}
       {deskOpen && (

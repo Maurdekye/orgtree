@@ -34,7 +34,7 @@ import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
   HireState, OpFn, Pile, Pt, Seg, Spring, StreamEvent, View, WorkLinkFn,
 } from './shared'
-import { DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
+import { DeskChat, DestinationBusy, OrgKillswitchContext, TrayStatus } from './desk'
 import type { DeskChatProps } from './desk'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
 import { TempDeskModal } from './tempdesk'
@@ -4061,15 +4061,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           close={() => setConfigId(null)} />)}
         </NodeDetailGate></MaybePortal>
       )}
-      {lineageId && map.get(lineageId) && (
-        <MaybePortal><NodeDetailGate slug={slug} node={map.get(lineageId)!} lineage>
-          {(ln) => (
-        <LineagePanel node={ln} op={op} slug={slug}
-          presence={presence} userDisabled={userDisabled}
-          map={map} onFocusAgent={centerOn}
-          close={() => setLineageId(null)} />)}
-        </NodeDetailGate></MaybePortal>
-      )}
+      {/* no lineage panel: Orgtree 4 keeps no prior generations (ledger B1) */}
       {dogView && (tree.watchdogs ?? []).some((w) => w.id === dogView) && (
         <MaybePortal><WatchdogPanel slug={slug} toast={toast}
           dog={(tree.watchdogs ?? []).find((w) => w.id === dogView)!}

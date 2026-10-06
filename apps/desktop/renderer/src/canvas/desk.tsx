@@ -3334,9 +3334,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         {/* the switchboard panels mirror this header IDENTICALLY (user spec
             2026-08-19) — nothing below is compact-gated anymore; a panel and
             the agent's own desk show the same chips, actions, tabs and gear */}
-        {(node.generation ?? 0) > 0 &&
-          <button className="badge stackbadge"
-            onClick={onLineage}>gen {node.generation} <LayersIcon fontSize="inherit" /></button>}
+        {/* no "gen N" lineage button: Orgtree 4 keeps no prior generations
+            (ledger B1, decision 31) */}
         {node.bearer_state &&
           <span className={'badge ' + (node.bearer_state === 'preserving' ? 'dim' : '')}>
             {node.bearer_state}</span>}
