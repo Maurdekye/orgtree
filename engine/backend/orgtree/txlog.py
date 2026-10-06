@@ -19,7 +19,12 @@ calls `finish` when the attempt ends. `finish` appends ONE JSON line to
 A line carries: UTC time, pid, org slug, the caller label (`label()`), the
 lock plan summary (flags, counts, up to 20 node ids, section names, logs),
 wait/hold ms and the outcome (a failure: its type, SQLSTATE and where it
-was raised, never its message). On a LOCK TIMEOUT it also carries
+was raised, never its message). The hold is split (PostgreSQL backends)
+into `load_ms` (loading the org), `body_ms` (the caller's code inside the
+transaction), `commit_ms` (save and COMMIT) and `cpu_ms` (the holding
+thread's CPU), and a hold past SAMPLE_AFTER_S carries `stacks`: the most
+frequent Python stacks of the holding thread, sampled every SAMPLE_S
+(item 3-2-0-engine-transactions-stay-open-for-10-17-s). On a LOCK TIMEOUT it also carries
 `blockers`: the other database sessions most likely to block it, those
 holding the plan's own lock keys first (pid, their own caller label from
 `application_name`, state, transaction age, what they wait on, who blocks
@@ -106,11 +111,167 @@ def app_name(tx: Any) -> str:
 
 
 def mark(point: str, tx: Any) -> None:
-    """Record when an attempt reached a lock point (orgtx._pause)."""
+    """Record when an attempt reached a lock point (orgtx._pause, plus
+    `loaded` from the PostgreSQL backends once the org is loaded and the
+    body is about to run). At `after_lock` the holding thread is also
+    registered with the sampler and its CPU clock read."""
     try:
         tx.log_marks[point] = time.perf_counter()
+        if point == "after_lock":
+            tx.log_marks["cpu_after_lock"] = time.thread_time()
+            _hold_start()
     except Exception:                                           # noqa: BLE001
         pass
+
+
+# ------------------------------------------------------- holder sampling
+#
+# Item 3-2-0-engine-transactions-stay-open-for-10-17-s (2026-10-06): the log
+# said turn:run held its locks 17.5 s while taking only shared locks and a
+# reservation call sat IDLE IN TRANSACTION for 10.5 s, and nothing could say
+# what the holding thread was doing. While a transaction holds its locks, a
+# sampler thread looks at the holder's Python stack every SAMPLE_S once the
+# hold passes SAMPLE_AFTER_S; a logged line carries the most frequent stacks.
+# A stack is file:line function names only (no values), so it is as safe to
+# write as the label. The sampler sleeps while nothing is held long.
+
+#: Start sampling a hold once it is this old (seconds).
+SAMPLE_AFTER_S = float(os.environ.get("ORGTREE_TXLOG_SAMPLE_AFTER_S", "0.5"))
+#: Sampling interval (seconds).
+SAMPLE_S = float(os.environ.get("ORGTREE_TXLOG_SAMPLE_S", "0.1"))
+#: Distinct stacks kept per hold, and listed per line.
+MAX_STACKS = 50
+TOP_STACKS = 5
+#: Frames per stack: the innermost ones, plus the innermost orgtree frames
+#: outside the transaction machinery (who is doing the work).
+INNER_FRAMES = 4
+CALLER_FRAMES = 6
+
+_HOLDS: dict[int, dict[str, Any]] = {}
+_HOLDS_LOCK = threading.Lock()
+_WAKE = threading.Event()
+_sampler: threading.Thread | None = None
+_PKG_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _hold_start() -> None:
+    global _sampler
+    ident = threading.get_ident()
+    with _HOLDS_LOCK:
+        held = _HOLDS.get(ident)
+        if held is not None:            # a nested org_tx on another org: one hold
+            held["depth"] += 1
+        else:
+            _HOLDS[ident] = {"t0": time.perf_counter(), "n": 0, "stacks": {}, "depth": 1}
+        if _sampler is None or not _sampler.is_alive():
+            _sampler = threading.Thread(target=_sample_loop, name="txlog-sampler",
+                                        daemon=True)
+            _sampler.start()
+    _WAKE.set()
+
+
+def _hold_end(txs: Sequence[Any]) -> dict[str, Any] | None:
+    """The attempt's hold, once its outermost registration ends; nothing
+    when the attempt never reached `after_lock` (it registered nothing)."""
+    if not any("after_lock" in (getattr(t, "log_marks", None) or {}) for t in txs):
+        return None
+    with _HOLDS_LOCK:
+        held = _HOLDS.get(threading.get_ident())
+        if held is None:
+            return None
+        held["depth"] -= 1
+        if held["depth"] > 0:
+            return None
+        return _HOLDS.pop(threading.get_ident(), None)
+
+
+def discard(txs: Sequence[Any]) -> None:
+    """An attempt ended without a log line (orgtx's expected endings): stop
+    sampling its thread."""
+    try:
+        _hold_end(txs)
+    except Exception:                                           # noqa: BLE001
+        pass
+
+
+def _stack_key(frame: Any) -> str:
+    inner: list[str] = []
+    callers: list[str] = []
+    f = frame
+    depth = 0
+    while f is not None and depth < 200:
+        co = f.f_code
+        fn = co.co_filename
+        name = os.path.basename(fn)
+        here = f"{name}:{f.f_lineno} {co.co_name}"
+        if len(inner) < INNER_FRAMES:
+            inner.append(here)
+        elif (len(callers) < CALLER_FRAMES and name not in _SKIP_FILES
+              and os.path.abspath(fn).startswith(_PKG_DIR)):
+            callers.append(here)
+        f = f.f_back
+        depth += 1
+    return _clean_stack(" < ".join(inner + (["..."] if callers else []) + callers))
+
+
+def _clean_stack(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9 _./{}:<@#-]", "_", s)[:600]
+
+
+def _sample_once() -> bool:
+    """One pass over the held transactions; True while any is held."""
+    now = time.perf_counter()
+    with _HOLDS_LOCK:
+        due = [(i, h) for i, h in _HOLDS.items() if now - h["t0"] >= SAMPLE_AFTER_S]
+        anything = bool(_HOLDS)
+    if not due:
+        return anything
+    frames = sys._current_frames()                  # pyright: ignore[reportPrivateUsage]
+    for ident, h in due:
+        f = frames.get(ident)
+        if f is None:
+            continue
+        key = _stack_key(f)
+        stacks = h["stacks"]
+        if key not in stacks and len(stacks) >= MAX_STACKS:
+            key = "(other)"
+        stacks[key] = stacks.get(key, 0) + 1
+        h["n"] += 1
+    del frames
+    return True
+
+
+def _sample_loop() -> None:
+    while True:
+        try:
+            if not _sample_once():
+                _WAKE.wait(5.0)
+                _WAKE.clear()
+                continue
+        except Exception:                                       # noqa: BLE001
+            pass
+        time.sleep(SAMPLE_S)
+
+
+def _split(m: dict[str, float], locked: float | None, now: float,
+           cpu_now: float) -> dict[str, Any]:
+    """Where the held time went: loading the org, the caller's body, the
+    save and COMMIT, and the holding thread's CPU over the hold (CPU far
+    below the hold means it waited: database, disk, the GIL, a sleep)."""
+    out: dict[str, Any] = {}
+    if locked is None:
+        return out
+    loaded = m.get("loaded")
+    pre = m.get("before_commit")
+    if loaded is not None:
+        out["load_ms"] = round((loaded - locked) * 1000.0, 1)
+        out["body_ms"] = round(((pre if pre is not None else now) - loaded) * 1000.0, 1)
+    if pre is not None:
+        out["commit_ms"] = round((now - pre) * 1000.0, 1)
+    cpu0 = m.get("cpu_after_lock")
+    if cpu0 is not None:
+        out["cpu_ms"] = round((cpu_now - cpu0) * 1000.0, 1)
+    return out
 
 
 def _plan(tx: Any) -> dict[str, Any]:
@@ -128,6 +289,8 @@ def finish(txs: list[Any], started: float, exc: BaseException | None) -> None:
     """One attempt of `org_tx` ended (committed, replayed or raised)."""
     try:
         now = time.perf_counter()
+        cpu_now = time.thread_time()
+        hold = _hold_end(txs)
         for tx in txs:
             m = getattr(tx, "log_marks", None) or {}
             begin = m.get("before_lock", started)
@@ -143,6 +306,12 @@ def finish(txs: list[Any], started: float, exc: BaseException | None) -> None:
                 "outcome": ("replayed" if tx.replayed else "committed") if exc is None
                 else type(exc).__name__,
                 "plan": _plan(tx)}
+            row.update(_split(m, locked, now, cpu_now))
+            if hold and hold["n"]:
+                top = sorted(hold["stacks"].items(), key=lambda kv: -kv[1])[:TOP_STACKS]
+                row["samples"] = hold["n"]
+                row["sample_ms"] = round(SAMPLE_S * 1000.0)
+                row["stacks"] = [{"n": n, "stack": k} for k, n in top]
             if exc is not None:
                 row.update(_error(exc))
                 from .orgtx import LockTimeout

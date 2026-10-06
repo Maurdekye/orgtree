@@ -1107,6 +1107,8 @@ class PgBackend:
                     if not tx.all_nodes:
                         # the declared rows in ONE statement, not one each
                         store.prefetch_nodes(tx.org, tx.lock_nodes | tx.share_nodes)
+                for tx in order:
+                    txlog.mark("loaded", tx)   # load/body split (txlog)
                 yield
                 if any(tx.replayed for tx in order):
                     raw.execute("ROLLBACK")
@@ -1484,6 +1486,8 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
                 registry.pop(sl, None)
             if not _expected(failed):
                 txlog.finish(tried, started, failed)
+            else:
+                txlog.discard(tried)
         return txs
 
 

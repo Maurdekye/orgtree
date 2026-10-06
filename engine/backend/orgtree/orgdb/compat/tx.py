@@ -350,6 +350,8 @@ class OrgDbBackend:
                     store.stamp_heal_epoch(tx.org)
                     if not tx.all_nodes:
                         store.prefetch_nodes(tx.org, tx.lock_nodes | tx.share_nodes)
+                for tx in order:
+                    txlog.mark("loaded", tx)   # load/body split (txlog)
                 yield
                 if any(tx.replayed for tx in order):
                     for tx in order:
