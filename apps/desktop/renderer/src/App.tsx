@@ -98,7 +98,7 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled, useShowLegacyModels } from './canvas/shared'
+import { activeDocCount, ago, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { InboxAskCard } from './canvas/asks'
 import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
@@ -2868,17 +2868,6 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const compactAt = val<number | string>('compactAt',
     Math.round((tree.compact_at ?? 0.8) * 100))
   const setCompactAt = set('compactAt', compactAt)
-  const fablePolicy = val('fablePolicy', tree.fable_limit_policy ?? 'halt')
-  const setFablePolicy = set('fablePolicy', fablePolicy)
-  const filterPolicy = val('filterPolicy', tree.fable_filter_policy ?? 'halt')
-  const setFilterPolicy = set('filterPolicy', filterPolicy)
-  const filterModel = val('filterModel', tree.fable_filter_model ?? 'opus')
-  const setFilterModel = set('filterModel', filterModel)
-  const provPayload = useAppRead('providers', getProviders)
-  const showLegacy = useShowLegacyModels()
-  const autopsyGroups = useMemo(
-    () => availableAutopsyModels(provPayload, filterModel),
-    [provPayload, filterModel, showLegacy])
   const defEffort = val('defEffort', tree.default_effort ?? '')
   const setDefEffort = set('defEffort', defEffort)
   const cascadeHire = val('cascadeHire', tree.cascade_hire !== false)
@@ -2979,7 +2968,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
         </SetGroup>
         <SetGroup title="Agent defaults">
           <SetRow label="compaction threshold"
-            hint="50–95%. Splits the agent when its context passes this.">
+            hint="50–95%. The agent's CLI compacts its context when it passes this (Claude Code and Codex agents; a running process keeps its old value until it restarts).">
             <input type="number" min="50" max="95" step="1" value={compactAt}
               aria-label="compaction threshold percent"
               onChange={(e) => setCompactAt(e.target.value)} />
@@ -3074,60 +3063,13 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
         {/* ── Policies (was the advanced modal's "general" tab) ─────────── */}
         <SettingsTabPanel id="policies" idBase="org-settings"
           active={tab === 'policies'}>
-          {tree.fable_lock && (<SetGroup title="Locks">
-                  <SetBlock>
-                    <div className="row">
-                      <button className="danger" onClick={() =>
-                        saveSettings(tree.slug, { clear_fable_lock: true })
-                          .then((r) => { toast(r.warnings); close() })
-                          .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                        <BlockIcon fontSize="inherit" /> clear the fable weekly-limit lock (your decree)</button>
-                    </div>
-                  </SetBlock></SetGroup>)}
           {visited('policies') && (<>
-            <SetGroup title="Fable tier">
-              <SetRow label="weekly-limit policy"
-                hint="what happens when the weekly Fable-tier limit is reached">
-                <select value={fablePolicy} aria-label="fable weekly-limit policy"
-                  onChange={(e) => setFablePolicy(e.target.value)}>
-                  <option value="halt">halt (default)</option>
-                  <option value="opus">switch to opus</option>
-                  <option value="dissolve">dissolve subtree</option>
-                </select>
-              </SetRow>
-              <SetRow label="content-filter policy"
-                hint={'a flagged message halts the turn, converts the '
-                  + 'agent to opus and retries, or runs an auto-autopsy'}>
-                <select value={filterPolicy} aria-label="fable content-filter policy"
-                  onChange={(e) => setFilterPolicy(e.target.value)}>
-                  <option value="halt">halt (default)</option>
-                  <option value="opus">switch to opus + retry</option>
-                  <option value="auto-autopsy">auto-autopsy</option>
-                </select>
-              </SetRow>
-              {filterPolicy === 'auto-autopsy' && (
-                <SetRow label="autopsy model"
-                  hint="model used to run the autopsy and re-brief the replacement agent (fable not selectable)">
-                  <select value={filterModel} aria-label="autopsy model"
-                    onChange={(e) => setFilterModel(e.target.value)}>
-                    {autopsyGroups.map((g) => (
-                      <optgroup key={g.label} label={g.label}>
-                        {g.models.map((m) => (
-                          <option key={m.tier} value={m.tier}>
-                            {m.label}{m.seat != null ? ` · seat ${fmtCredits(m.seat)}` : ''}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </SetRow>
-              )}
-            </SetGroup>
             <SetGroup title="Cache-protective cheap compaction">
               <SetToggle label="reset a session before a known-cold turn"
                 checked={accOn} onChange={setAccOn}
                 hint={'org default — agents can override in their own ⚙. '
-                  + 'The old self stays consultable. Cache expiry is fixed by '
+                  + 'The agent continues on a fresh session with a summary of '
+                  + 'the old one. Cache expiry is fixed by '
                   + 'lane and never editable: Claude uses 60 min after a '
                   + 'positive subscription receipt or 5 min after a positive '
                   + 'API-key receipt; OpenAI subscription uses the documented '
@@ -3201,9 +3143,6 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                 { max_top_grant: +maxTop || undefined,
                   default_top_grant: Number.isFinite(+defTop) ? +defTop : undefined,
                   compact_at: Number.isFinite(+compactAt) ? +compactAt : undefined,
-                  fable_limit_policy: fablePolicy,
-                  fable_filter_policy: filterPolicy,
-                  fable_filter_model: filterPolicy === 'auto-autopsy' ? filterModel : undefined,
                   default_effort: defEffort,
                   cascade_hire: cascadeHire,
                   cascade_alloc: cascadeAlloc,

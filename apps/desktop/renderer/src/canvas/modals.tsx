@@ -541,39 +541,6 @@ interface DraftScopeModalProps {
   accounts?: AccountChoiceRow[]
 }
 
-/** item 12 — the "Prefer reserve" checkbox (user ruling 2026-09-04: "make
- *  the choice to use reserve instead of normal weekly luna usage a checkbox,
- *  defaulted by the app-wide setting. when off, weekly usage is used first,
- *  then reserve"). One
- *  component for the draft's modal and the gear so the wording cannot
- *  drift. It sets the ORDER only: the other pool is the fallback either
- *  way, and the header token reports what actually ran, not this box. */
-export function PreferReserveRow({ checked, onChange, onUseAppDefault }: {
-  checked: boolean; onChange: (v: boolean) => void
-  onUseAppDefault?: () => void
-}) {
-  return (
-    <>
-      <div className="field-label">reserve capacity — Luna 5.6 only</div>
-      <label className="prefer-reserve">
-        <input type="checkbox" checked={checked}
-          onChange={(e) => onChange(e.target.checked)} />
-        {' '}prefer reserve capacity
-      </label>
-      {onUseAppDefault && <button type="button" onClick={onUseAppDefault}>
-        use app default</button>}
-      <div className="dim hub-hint">
-        GPT-6 Luna uses the direct plan pool; this setting applies only when
-        version 5.6 is selected.{' '}
-        {checked
-          ? 'turns use OpenAI’s reserve pool first and fall back to normal weekly Luna usage when reserve is spent or withdrawn'
-          : 'turns use normal weekly Luna usage first and fall back to reserve when the weekly pool is spent'}
-        {' — the desk header shows which pool a turn actually ran on'}
-      </div>
-    </>
-  )
-}
-
 export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accounts: propAccounts }: DraftScopeModalProps) {
   const parent = draft.parent ? map.get(draft.parent) : null
   const inherited = (): DraftScope => ({
@@ -596,15 +563,6 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     { ...base.tools, mcp: [...(base.tools.mcp ?? [])] })
   const [vis, setVis] = useState(base.org_visibility)
   const [effort, setEffort] = useState(base.effort ?? '')
-  // item 12 (user ruling 2026-09-04): "Prefer reserve", seeded from the
-  // app-wide default; only a luna draft shows it, and only a luna acts on it
-  const [preferReserve, setPreferReserve] = useState(
-    base.prefer_reserve ?? tree.prefer_reserve_default ?? true)
-  const [preferReserveTouched, setPreferReserveTouched] = useState(
-    base.prefer_reserve !== undefined)
-  const changePreferReserve = (v: boolean) => {
-    setPreferReserve(v); setPreferReserveTouched(true)
-  }
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
   const [acctRows, setAcctRows] = useState<AccountChoiceRow[]>(propAccounts ?? [])
@@ -747,9 +705,6 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <option value="xhigh">xhigh</option>
           <option value="max">max</option>
         </select>
-        {draft.tier === 'luna' && (
-          <PreferReserveRow checked={preferReserve} onChange={changePreferReserve} />
-        )}
         <div className="field-label">account</div>
         {/* ⚠ ELIGIBLE ACCOUNTS ONLY (user ruling 2026-09-15), read from the
             staffing availability that was warmed when the org loaded — this
@@ -775,8 +730,6 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <button className="primary" onClick={() =>
             onSave({ add_dirs: dirs, tools, org_visibility: vis,
               ...(effort ? { effort } : {}),
-              ...(draft.tier === 'luna' && preferReserveTouched
-                ? { prefer_reserve: preferReserve } : {}),
               ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}) })}>apply</button>
           <button onClick={close}>cancel</button>
         </div>
@@ -989,30 +942,11 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const modelVersion = val('modelVersion', scope.model_version ?? '')
   const setModelVersion = set<string>('modelVersion', modelVersion)
   const versions = MODEL_VERSIONS[model] ?? []
-  // item 12 (user ruling 2026-09-04): the per-agent "Prefer reserve"
-  // checkbox — which pool a luna tries FIRST. Absent on the wire inherits the
-  // app-wide default.
-  // Editable here so the preference is not creation-only; shown only when
-  // the (possibly just-picked) tier is luna, saved for any tier so it
-  // survives a switch away and back.
   const accountFallback = val<string>('accountFallback',
     scope.account_fallback === undefined ? '' : scope.account_fallback ? 'on' : 'off')
   const fallbackPayload = !('accountFallback' in edit) ? {} : accountFallback === ''
     ? { clear_account_fallback: true }
     : { account_fallback: accountFallback === 'on' }
-  const preferReserve = val<boolean>('preferReserve',
-    scope.prefer_reserve ?? tree.prefer_reserve_default ?? true)
-  const preferReserveChanged = val('preferReserveChanged', false)
-  const clearPreferReserve = val('clearPreferReserve', false)
-  const setPreferReserve = (v: boolean) => setEdit((e) => ({ ...e,
-    preferReserve: v, preferReserveChanged: true, clearPreferReserve: false }))
-  const useAppDefault = () => setEdit((e) => ({ ...e,
-    preferReserve: tree.prefer_reserve_default ?? true,
-    preferReserveChanged: false, clearPreferReserve: true }))
-  const reservePayload = clearPreferReserve
-    ? { clear_prefer_reserve: true }
-    : (scope.prefer_reserve !== undefined || preferReserveChanged)
-      ? { prefer_reserve: preferReserve } : {}
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
   // multi-account (D5): the node's binding — chosen WITH a cross-provider
@@ -1067,7 +1001,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           occ: (+accOcc || 50) / 100 },
     model_version: versions.includes(modelVersion)
       ? modelVersion : '',
-    ...reservePayload, ...fallbackPayload }
+    ...fallbackPayload }
   const doSave = () =>
     (model !== node.tier
       ? op({ op: 'switch_model', node: node.id, tier: model,
@@ -1398,11 +1332,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           </>
         )}
 
-        {model === 'luna' && (
-          <PreferReserveRow checked={preferReserve} onChange={setPreferReserve}
-            onUseAppDefault={scope.prefer_reserve !== undefined
-              ? useAppDefault : undefined} />
-        )}
 
         <div className="field-label">thinking effort (user-approved: a deep
           setting, never a hire-row control)</div>
@@ -1432,7 +1361,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         </select>
 
         <div className="field-label">cache-protective cheap compaction</div>
-        <div className="dim hub-hint">Expiry is fixed by lane: Claude uses
+        <div className="dim hub-hint">Before a turn whose prompt cache is
+          known to be cold, start a fresh session with a summary instead of
+          re-reading the whole old one. Expiry is fixed by lane: Claude uses
           60 min after a positive subscription receipt or 5 min after a
           positive API-key receipt; OpenAI subscription uses the documented
           30 min default as a fixed estimate. Known identity changes are cold

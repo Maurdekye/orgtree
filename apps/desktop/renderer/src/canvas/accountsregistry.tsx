@@ -190,10 +190,52 @@ export function useAccountRegistry() {
 }
 export type AccountRegistry = ReturnType<typeof useAccountRegistry>
 
-export function AccountRegistrySection({ provider, registry, toast }: {
-  provider: AccountProvider; registry: AccountRegistry; toast: ToastFn
+/** The provider's own sign-in (`default`): the CLI's login, with or without
+ *  a registry row. Its checkbox is the provider's native-subscription switch. */
+export type NativeLogin = {
+  installed: boolean
+  connected?: boolean | null
+  email?: string | null
+  /** undefined: the engine has no such switch (no checkbox) */
+  active?: boolean
+  busy: boolean
+  onActive: (active: boolean) => void
+}
+
+/** EVERY ACCOUNT HAS ITS OWN ACTIVE CHECKBOX (user 2026-10-06): the native
+ *  subscription and each secondary account. An inactive account serves no
+ *  new turn; a running turn finishes, and its agents' mail waits until it is
+ *  active again or they move to another account. */
+function ActiveBox({ active, disabled, who, onChange }: {
+  active: boolean; disabled: boolean; who: string; onChange: (active: boolean) => void
+}) {
+  return <label className="account-active" title={active
+    ? 'Active: serves turns. Clear it and this account serves no new turns.'
+    : 'Inactive: serves no new turns. Check it to use this account again.'}>
+    <input type="checkbox" aria-label={`${who} active`} checked={active} disabled={disabled}
+      onChange={e => onChange(e.target.checked)} />
+    <span>{active ? 'active' : 'inactive'}</span>
+  </label>
+}
+
+const signInText = (auth: string | undefined) => auth === 'authenticated' ? 'Signed in'
+  : auth === 'unauthenticated' ? 'Sign-in required' : 'Sign-in not verified'
+
+const INACTIVE_NOTE = 'Inactive: its agents wait until it is active again or they move to another account.'
+
+export function AccountRegistrySection({ provider, registry, toast, native }: {
+  provider: AccountProvider; registry: AccountRegistry; toast: ToastFn; native?: NativeLogin
 }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const setActive = async (row: AccountRow, active: boolean) => {
+    setBusy(row.id)
+    try {
+      await req(`/api/accounts/${encodeURIComponent(row.id)}/enabled`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: active }) })
+      await registry.reload()
+    } catch (e) { toast([e instanceof Error ? e.message : 'Could not change the account']) }
+    finally { setBusy(null) }
+  }
   const refresh = async (row: AccountRow) => {
     setBusy(row.id)
     try {
@@ -223,16 +265,38 @@ export function AccountRegistrySection({ provider, registry, toast }: {
     catch (e) { toast([e instanceof Error ? e.message : 'Could not remove account']) }
     finally { setBusy(null) }
   }
+  const rows = registry.rows.filter(row => row.provider === provider)
+  // the sign-in usually has no registry row; when one points at it, that row is the native one
+  const nativeRow = rows.some(row => row.ambient)
+  const nativeActive = native?.active
   return <div className="provider-accounts" aria-label={`${LABELS[provider]} accounts`}>
-    {registry.rows.filter(row => row.provider === provider).map(row => {
+    {native?.installed && !nativeRow &&
+      <div className={'account-row native-login' + (nativeActive === false ? ' inactive' : '')}>
+        <div className="account-identity">
+          {nativeActive !== undefined && <ActiveBox active={nativeActive} disabled={native.busy}
+            who={`signed-in ${LABELS[provider]} subscription`} onChange={native.onActive} />}
+          <span className="account-swatch" aria-hidden="true" style={{ background: COLORS[provider] }} />
+          <strong>{accountIdentity('default', native.email)}</strong>
+          <span className="dim">signed-in subscription · {native.connected === true ? 'Signed in'
+            : native.connected === false ? 'Sign-in required' : 'Sign-in not verified'}</span>
+        </div>
+        {nativeActive === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
+      </div>}
+    {rows.map(row => {
       const login: LoginProvider | null = row.credential.kind === 'token' ? null
         : provider === 'claude' ? 'claude' : provider === 'openai' ? 'codex' : null
-      return <div key={row.id} className="account-row">
+      const who = accountIdentity(accountDisplayId(row), row.identity?.email)
+      const active = row.ambient ? nativeActive : row.enabled !== false
+      return <div key={row.id} className={'account-row' + (active === false ? ' inactive' : '')}>
         <div className="account-identity">
+          {active !== undefined && (row.ambient
+            ? <ActiveBox active={active} disabled={!native || native.busy} who={who} onChange={v => native?.onActive(v)} />
+            : <ActiveBox active={active} disabled={busy !== null} who={who} onChange={v => { void setActive(row, v) }} />)}
           <span className="account-swatch" aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
-          <strong>{accountIdentity(accountDisplayId(row), row.identity?.email)}</strong>
-          <span className="dim">{row.standing.auth === 'authenticated' ? 'Signed in' : row.standing.auth === 'unauthenticated' ? 'Sign-in required' : 'Sign-in not verified'}</span>
+          <strong>{who}</strong>
+          <span className="dim">{row.ambient ? 'signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>
         </div>
+        {active === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
         <div className="account-management">
           {row.bound.length > 0 && <span className="dim" title={row.bound.map(b => `${b.org}/${b.node}`).join(', ')}>{row.bound.length} agent(s)</span>}
           {login && <ProviderSignIn provider={login} connected={row.standing.auth === 'authenticated'} toast={toast}

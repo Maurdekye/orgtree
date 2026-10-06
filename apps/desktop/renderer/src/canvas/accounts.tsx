@@ -40,7 +40,7 @@ import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
 import { AutorenewIcon } from '../icons'
 import { AboutSection, StartupWindowsSetting, useAppVersion } from '../shell/general'
-import { DefaultsForm, LunaReserveSetting } from '../shell/defaults'
+import { DefaultsForm } from '../shell/defaults'
 import { EngineDebugToggle } from './enginedebug'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
@@ -754,20 +754,17 @@ export function AccountsPanel({ toast, close, initialTab }: {
           </div>)}
         </div> : <p className='dim acct-provider-empty'>No model tiers reported</p>}
         {p.cli_version?.update_available === true && <p className='acct-provider-update'>CLI update available: {p.cli_version.latest ?? 'newer version'}</p>}
-        <AccountRegistrySection provider={p.id as AccountProvider} registry={registry} toast={toast} />
-        {/* THE TWO MACHINE-WIDE LANE CHOICES, per provider. They sit under the
-            account list because they are statements ABOUT these accounts:
-            which of them may serve a turn, and in what order. Both are
-            omitted when the backend does not publish the map at all — an old
-            build has no such lane, which is not the same as having it off. */}
-        {lanes.subscription_inference?.[p.id] !== undefined &&
-          <SetToggle label={`use signed-in ${p.label} subscription accounts`}
-            checked={lanes.subscription_inference[p.id] !== false}
-            disabled={busy}
-            onChange={v => changeLane(setSubscriptionInferenceEnabled, p.id, v)}
-            hint={`Off: no ${p.label} subscription account serves turns on this `
-              + 'machine. API-key accounts stay available, which is how Orgtree '
-              + 'runs on keys alone.'} />}
+        {/* Each account row carries its own active checkbox (user 2026-10-06);
+            the native subscription's is the provider's subscription switch. */}
+        <AccountRegistrySection provider={p.id as AccountProvider} registry={registry} toast={toast}
+          native={{ installed: p.status.installed, connected: p.status.connected, email: p.status.email,
+            active: lanes.subscription_inference?.[p.id] === undefined ? undefined : lanes.subscription_inference[p.id] !== false,
+            busy, onActive: v => changeLane(setSubscriptionInferenceEnabled, p.id, v) }} />
+        {/* THE MACHINE-WIDE FALLBACK CHOICE sits under the account list
+            because it is a statement ABOUT these accounts: in what order they
+            may serve a turn. Omitted when the backend does not publish the map
+            at all — an old build has no such lane, which is not the same as
+            having it off. */}
         {lanes.apikey_fallback?.[p.id] !== undefined && hasEnabledKeyAccount(p.id) &&
           <SetToggle label={`fall back to ${p.label} API-key accounts`}
             checked={lanes.apikey_fallback[p.id] === true}
@@ -790,9 +787,10 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
-          hint="Keep supported harness processes ready between turns." />
+          hint={'An agent’s CLI stays running for 10 minutes after its turn (at most 64 idle at once, '
+            + 'the longest idle closed first), so a quick follow-up starts at once. CLIs start when a turn '
+            + 'needs them, not at startup. Off: close each CLI when its turn ends.'} />
         <OpenRouterHarnessSetting toast={toast} />
-        <LunaReserveSetting toast={toast} />
       </SetGroup>
       <SetGroup title="Turns">
         <TurnLimitSetting runtime={runtime} busy={busy} onSave={limit => {

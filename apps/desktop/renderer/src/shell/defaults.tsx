@@ -11,11 +11,8 @@
 // It sits in shell/ rather than in App.tsx because canvas/accounts.tsx (the
 // App settings panel) has to import it, and importing from App.tsx would make
 // a cycle: App.tsx already imports AccountsPanel.
-import { useAppRead, useAppValue } from '../appfeed'
-import { useEffect, useMemo, useState } from 'react'
-import { getDefaults, getProviders, saveDefaults } from '../api'
-import { SetToggle } from '../canvas/settingskit'
-import { availableAutopsyModels, fmtCredits, useShowLegacyModels } from '../canvas/shared'
+import { useEffect, useState } from 'react'
+import { getDefaults, saveDefaults } from '../api'
 import type { DefaultsPayload, ToastFn } from '../types'
 
 /** The default-org-settings FIELDS, with no window of their own.
@@ -32,11 +29,6 @@ export function DefaultsForm({ toast, onDone }: {
   // Partial: the error fallback seeds {} and every read has its own default
   const [d, setD] = useState<Partial<DefaultsPayload> | null>(null)
   useEffect(() => { getDefaults().then(setD).catch(() => setD({})) }, [])
-  const provPayload = useAppRead('providers', getProviders)
-  const showLegacy = useShowLegacyModels()
-  const autopsyGroups = useMemo(
-    () => availableAutopsyModels(provPayload, d?.fable_filter_model ?? 'opus'),
-    [provPayload, d?.fable_filter_model, showLegacy])
   if (d == null) return <div className="dim pad">loading…</div>
   const close = onDone
   const set = (k: string, v: unknown) => setD({ ...d, [k]: v })
@@ -71,37 +63,6 @@ export function DefaultsForm({ toast, onDone }: {
           <option value="xhigh">xhigh</option>
           <option value="max">max</option>
         </select>
-        <div className="field-label">fable weekly-limit policy</div>
-        <select value={d.fable_limit_policy ?? 'halt'}
-          onChange={(e) => set('fable_limit_policy', e.target.value)}>
-          <option value="halt">halt (default)</option>
-          <option value="opus">switch to opus</option>
-          <option value="dissolve">dissolve subtree</option>
-        </select>
-        <div className="field-label">fable content-filter policy</div>
-        <select value={d.fable_filter_policy ?? 'halt'}
-          onChange={(e) => set('fable_filter_policy', e.target.value)}>
-          <option value="halt">halt (default)</option>
-          <option value="opus">switch to opus + retry</option>
-          <option value="auto-autopsy">auto-autopsy</option>
-        </select>
-        {(d.fable_filter_policy ?? 'halt') === 'auto-autopsy' && (
-          <>
-            <div className="field-label">autopsy model (fable not selectable)</div>
-            <select value={d.fable_filter_model ?? 'opus'} aria-label="autopsy model"
-              onChange={(e) => set('fable_filter_model', e.target.value)}>
-              {autopsyGroups.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.models.map((m) => (
-                    <option key={m.tier} value={m.tier}>
-                      {m.label}{m.seat != null ? ` · seat ${fmtCredits(m.seat)}` : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </>
-        )}
         <div className="field-label">credit cost bubbling</div>
         <label className="checkline">
           <input type="checkbox" checked={d.cascade_hire !== false}
@@ -128,10 +89,6 @@ export function DefaultsForm({ toast, onDone }: {
               max_top_grant: d.max_top_grant,
               default_top_grant: d.default_top_grant,
               compact_at: Math.round((d.compact_at ?? 0.8) * 100),
-              fable_limit_policy: d.fable_limit_policy,
-              fable_filter_policy: d.fable_filter_policy,
-              fable_filter_model: d.fable_filter_policy === 'auto-autopsy'
-                ? (d.fable_filter_model ?? 'opus') : undefined,
               default_effort: d.default_effort ?? '',
               cascade_hire: d.cascade_hire !== false,
               cascade_alloc: d.cascade_alloc !== false,
@@ -144,33 +101,5 @@ export function DefaultsForm({ toast, onDone }: {
           <button onClick={close}>cancel</button>
         </div>
     </>
-  )
-}
-
-/** The app-wide Luna reserve default, in App settings > Runtime. It is read live
- *  for every agent with no preference of its own (an explicit agent preference
- *  always wins), so it saves on its own and posts only this one key. */
-export function LunaReserveSetting({ toast }: { toast: ToastFn }) {
-  const [on, setOn] = useState<boolean | null>(null)
-  const [busy, setBusy] = useState(false)
-  const pushed = useAppValue<boolean>('prefer_reserve_default')
-  useEffect(() => { if (pushed !== undefined) setOn(pushed) }, [pushed])
-  useEffect(() => {
-    let live = true
-    getDefaults().then((d) => { if (live) setOn(d.prefer_reserve !== false) })
-      .catch(() => { if (live) setOn(true) })
-    return () => { live = false }
-  }, [])
-  return (
-    <SetToggle label="prefer Luna reserve capacity first" checked={on !== false}
-      disabled={on === null || busy}
-      hint="App-wide default for every agent with no individual preference; an agent's own preference always wins."
-      onChange={(next) => {
-        setBusy(true)
-        saveDefaults({ prefer_reserve: next })
-          .then((d) => setOn(d.prefer_reserve !== false))
-          .catch((e: Error) => toast([`error: ${e.message}`]))
-          .finally(() => setBusy(false))
-      }} />
   )
 }

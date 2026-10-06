@@ -7711,6 +7711,11 @@ main:has(> .orgbar.native-header) > .error {
 .account-choice-identity{overflow-wrap:anywhere;min-width:0}
 .account-management{margin-top:8px}
 .account-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex-shrink:0}
+/* Every account row's active checkbox (user 2026-10-06); an inactive account
+   serves no new turns, so its identity is dimmed. */
+.account-active{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--dim);cursor:pointer;user-select:none}
+.account-active input{margin:0}
+.account-row.inactive .account-identity strong,.account-row.inactive .account-swatch{opacity:.55}
 .account-note{margin-top:8px}
 .add-account-dialog{width:min(480px,calc(100vw - 32px));height:auto;max-height:88vh}
 .account-marks{margin-top:6px}
