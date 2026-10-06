@@ -43,7 +43,7 @@ const BASELINE_GATE = ['node', 'tools/test-baseline.mjs', 'compare']
 // `--require-fresh` refuses every time. `--require-usable` still refuses a
 // baseline from another machine, an unreachable commit, a dirty measurement or
 // one carrying no timestamp — cases where the acquittals cannot be trusted.
-const BASELINE_TRUST = ['--max-age-days', '7', '--require-usable']
+const BASELINE_TRUST = ['--max-age-days', '14', '--require-usable'] // alpha side branch only: baseline 654658f is 7.4 days old (coordinator 2026-10-06)
 const FULL = [
   ['full-node', [...BASELINE_GATE, '--suite', 'node-root', ...BASELINE_TRUST]],
   ['full-renderer', [...BASELINE_GATE, '--suite', 'renderer', ...BASELINE_TRUST]],

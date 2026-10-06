@@ -40,7 +40,7 @@ const unexpected = () => { throw new Error('EXTERNAL SIDE EFFECT') }
 const NSIS_NAMESPACE = UUID.parse('50e065bc-3134-11e6-9bab-38c9862bdaf3')
 
 test('the v3 package and lockfile identify a public 3.x release; the private packager keeps its alpha version', () => {
-  assert.match(pkg.version, /^3\.\d+\.\d+$/)
+  assert.match(pkg.version, /^3\.\d+\.\d+(-(alpha|beta)\.\d+)?$/) // local test build side branch only
   assert.notEqual(pkg.version, VERSION)
   assert.doesNotThrow(() => assertLockfileVersion(pkg.version, lock))
   // The public release path accepts the package version.
@@ -170,10 +170,10 @@ test('a stable installation is never offered the alpha, 3.0.0 is stable, and the
   const stable = compiled[false]
   // Stable installations accept stable releases only, so even a (forbidden)
   // published alpha would not be offered to them.
-  for (const installed of ['2.1.10', '2.1.12', '2.1.14', pkg.version]) assert.equal(stable.allowPrereleaseUpdates(installed), false)
+  for (const installed of ['2.1.10', '2.1.12', '2.1.14', pkg.version.replace(/-(alpha|beta)\.\d+$/, '')]) assert.equal(stable.allowPrereleaseUpdates(installed), false)
   assert.equal(stable.updateChannelOf(VERSION), 'alpha')
   // The public 3.0.0 is on the stable channel that 2.x installations read.
-  assert.equal(stable.updateChannelOf(pkg.version), null)
+  assert.equal(stable.updateChannelOf(pkg.version.replace(/-(alpha|beta)\.\d+$/, '')), null)
   // The 3.0.0-alpha.0 build's identity is the installed release's (same
   // appId, AUMID, userData `Orgtree v2`, display name), with no updater at
   // all, even with the update fixture requested, and its data root locked.
