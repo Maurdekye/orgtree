@@ -52,7 +52,7 @@ const HISTORY_PER_ITEM: usize = 200;
 
 /// One org's 2.x data, read into memory. It holds the org's network
 /// identity secret, so it derives nothing (no Debug, no Serialize).
-pub struct Source {
+pub(crate) struct Source {
     slug: String,
     doc: Map<String, Value>,
     nodes: Vec<(String, Value)>,
@@ -116,10 +116,11 @@ fn find_orgs(dir: &Path) -> Vec<(String, PathBuf)> {
     out
 }
 
-/// The org's stable import uuid: the same 2.x org always maps to the same row.
+/// A stable import uuid from the org's identifying text: the same source org
+/// always maps to the same row, so a retry skips what already landed.
 #[logged]
-fn org_uuid(slug: &str, created: &str) -> String {
-    let h = Sha256::digest(format!("orgtree-2x:{slug}:{created}").as_bytes());
+pub(crate) fn org_uuid(key: &str) -> String {
+    let h = Sha256::digest(key.as_bytes());
     let mut b = [0u8; 16];
     b.copy_from_slice(&h[..16]);
     b[6] = (b[6] & 0x0f) | 0x50; // name-based (version 5 layout)
@@ -138,12 +139,23 @@ async fn import_org(
     let (p, st, sl) = (path.to_path_buf(), staging.to_path_buf(), slug.to_string());
     let src = tokio::task::spawn_blocking(move || load(&sl, &p, &st)).await??;
     let created = src.doc.get("created").and_then(Value::as_str).unwrap_or("").to_string();
-    let uuid = org_uuid(slug, &created);
+    let uuid = org_uuid(&format!("orgtree-2x:{slug}:{created}"));
+    copy_source(cfg, dst, &src, &uuid).await
+}
+
+/// Copy one read org in its own transaction, unless its uuid already landed.
+#[logged]
+pub(crate) async fn copy_source(
+    cfg: &Config,
+    dst: &mut deadpool_postgres::Object,
+    src: &Source,
+    uuid: &str,
+) -> Result<Option<usize>> {
     if dst.query_opt("SELECT 1 FROM ot.orgs WHERE uuid = $1::text::uuid", &[&uuid]).await?.is_some() {
         return Ok(None);
     }
     let tx = dst.transaction().await?;
-    let n = copy_org(cfg, &src, &tx, &uuid).await?;
+    let n = copy_org(cfg, src, &tx, uuid).await?;
     tx.commit().await?;
     Ok(Some(n))
 }
@@ -194,39 +206,90 @@ fn read_sqlite(slug: &str, c: &rusqlite::Connection) -> Result<Source> {
     if version.as_deref().map(|v| v.trim() != "1").unwrap_or(false) {
         anyhow::bail!("{slug}: unsupported 2.x store schema {version:?}");
     }
-    let parse = |s: String| serde_json::from_str::<Value>(&s).unwrap_or(Value::Null);
-    let mut doc = Map::new();
-    let mut q = c.prepare("SELECT key, val FROM doc")?;
-    for r in q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-        let (k, v) = r?;
-        doc.insert(k, parse(v));
-    }
-    let mut nodes = Vec::new();
-    let mut q = c.prepare("SELECT id, val FROM nodes ORDER BY ord")?;
-    for r in q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-        let (k, v) = r?;
-        nodes.push((k, parse(v)));
-    }
-    let mut mail_log = Vec::new();
-    let mut q = c.prepare(
+    let rows = |sql: &str, p: &[&dyn rusqlite::ToSql]| -> Result<Vec<(String, String)>> {
+        let mut q = c.prepare(sql)?;
+        let out = q
+            .query_map(p, |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(out)
+    };
+    let doc = rows("SELECT key, val FROM doc", &[])?;
+    let nodes = rows("SELECT id, val FROM nodes ORDER BY ord", &[])?;
+    let mail_log = rows(
         "SELECT owner, val FROM (SELECT seq, owner, val, row_number() OVER (PARTITION BY owner ORDER BY seq DESC) AS rn
                                    FROM log_d WHERE sect = 'mail_log') WHERE rn <= ?1 ORDER BY seq",
+        &[&(MAIL_LOG_PER_AGENT as i64)],
     )?;
-    for r in q.query_map([MAIL_LOG_PER_AGENT as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-        let (k, v) = r?;
-        mail_log.push((k, parse(v)));
-    }
     let mut logs = HashMap::new();
     for (sect, limit) in LOGS {
-        let mut q = c.prepare("SELECT val FROM (SELECT seq, val FROM log_l WHERE sect = ?1 ORDER BY seq DESC LIMIT ?2) ORDER BY seq")?;
-        let rows: Vec<Value> = q
-            .query_map(rusqlite::params![sect, limit.unwrap_or(-1)], |r| r.get::<_, String>(0))?
-            .filter_map(|r| r.ok())
-            .map(parse)
-            .collect();
-        logs.insert(sect.to_string(), rows);
+        let got = rows(
+            "SELECT '', val FROM (SELECT seq, val FROM log_l WHERE sect = ?1 ORDER BY seq DESC LIMIT ?2) ORDER BY seq",
+            &[sect, &limit.unwrap_or(-1)],
+        )?;
+        logs.insert(sect.to_string(), got.into_iter().map(|(_, v)| v).collect());
     }
-    Ok(Source { slug: slug.to_string(), doc, nodes, mail_log, logs })
+    Ok(build(slug, doc, nodes, mail_log, logs))
+}
+
+/// A `Source` from the store's raw rows (the 2.x SQLite file and a 3.0/3.1
+/// `org_<n>` schema hold the same five tables). Not logged: secret inside.
+pub(crate) fn build(
+    slug: &str,
+    doc_rows: Vec<(String, String)>,
+    nodes: Vec<(String, String)>,
+    mail_log: Vec<(String, String)>,
+    logs: HashMap<String, Vec<String>>,
+) -> Source {
+    let parse = |s: &str| serde_json::from_str::<Value>(s).unwrap_or(Value::Null);
+    let mut doc: Map<String, Value> = doc_rows.iter().map(|(k, v)| (k.clone(), parse(v))).collect();
+    fold_split(&mut doc);
+    Source {
+        slug: slug.to_string(),
+        doc,
+        nodes: nodes.iter().map(|(k, v)| (k.clone(), parse(v))).collect(),
+        mail_log: mail_log.iter().map(|(k, v)| (k.clone(), parse(v))).collect(),
+        logs: logs.into_iter().map(|(k, v)| (k, v.iter().map(|x| parse(x)).collect())).collect(),
+    }
+}
+
+/// Later stores keep some sections as one `doc` row per owner or item, keyed
+/// `<section>\x1f<owner|slug>`: the mail, delivering and notices queues, and
+/// the docket (a `work_items` header listing the slugs in order). Put them
+/// back into the whole-section shape the copy reads.
+fn fold_split(doc: &mut Map<String, Value>) {
+    const SEP: char = '\u{1f}';
+    let split: Vec<String> = doc.keys().filter(|k| k.contains(SEP)).cloned().collect();
+    let mut owners: HashMap<String, Map<String, Value>> = HashMap::new();
+    let mut items: HashMap<String, Value> = HashMap::new();
+    for k in split {
+        let v = doc.remove(&k).unwrap_or(Value::Null);
+        let Some((sect, rest)) = k.split_once(SEP) else { continue };
+        match sect {
+            "work_items" => {
+                items.insert(rest.to_string(), v);
+            }
+            "mail" | "delivering" | "notices" => {
+                owners.entry(sect.to_string()).or_default().insert(rest.to_string(), v);
+            }
+            _ => {}
+        }
+    }
+    for (sect, m) in owners {
+        match doc.get_mut(&sect) {
+            Some(Value::Object(base)) => base.extend(m),
+            _ => {
+                doc.insert(sect, Value::Object(m));
+            }
+        }
+    }
+    let header = doc
+        .get("work_items")
+        .filter(|h| h.get("format").and_then(Value::as_str) == Some("orgtree.work-items/v1"))
+        .cloned();
+    if let Some(h) = header {
+        let list: Vec<Value> = strs(&h, "ids").iter().filter_map(|id| items.remove(id)).collect();
+        doc.insert("work_items".into(), Value::Array(list));
+    }
 }
 
 /// A pre-SQLite org document: the same sections, inline.
@@ -994,7 +1057,7 @@ async fn insert_rest(src: &Source, tx: &Transaction<'_>, org_id: i64, ids: &Hash
 /// `accounts-registry.json` rows and their unexpired limit marks. API keys
 /// live in the machine token store, not in this file.
 #[logged]
-async fn import_accounts(path: &Path, dst: &deadpool_postgres::Object) -> Result<usize> {
+pub(crate) async fn import_accounts(path: &Path, dst: &deadpool_postgres::Object) -> Result<usize> {
     let Ok(text) = std::fs::read_to_string(path) else { return Ok(0) };
     let reg: Value = serde_json::from_str(&text).context("accounts-registry.json")?;
     let rows = reg["accounts"].as_array().cloned().unwrap_or_default();

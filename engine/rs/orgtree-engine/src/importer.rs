@@ -35,9 +35,14 @@ pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progres
         t.abort();
         (r, v30)
     };
-    // 2.x data folder (SQLite): only when no 3.x database exists at all
-    if !has_app && !has_v30 {
-        let failed = crate::import2x::run(cfg, &mut dst, progress).await?;
+    // 3.0/3.1 (one `orgtree` database) when there is no 3.2 data; a 2.x data
+    // folder (SQLite) only when no 3.x database exists at all
+    if !has_app {
+        let failed = if has_v30 {
+            crate::import30::run(cfg, cluster, &mut dst, progress).await?
+        } else {
+            crate::import2x::run(cfg, &mut dst, progress).await?
+        };
         if failed > 0 {
             // leave the marker unset: the next start retries the failed orgs
             import_app_settings(cfg, &dst).await?;

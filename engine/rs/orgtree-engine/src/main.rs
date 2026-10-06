@@ -22,6 +22,7 @@ mod feed;
 mod host;
 mod http;
 mod import2x;
+mod import30;
 mod importer;
 mod launch;
 mod mailhub;
