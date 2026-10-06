@@ -113,6 +113,9 @@ Forced Chromium DPR does not change Windows frame DPI: compare `GetDpiForWindow`
 claiming native DPI coverage. Rust sibling ties use the numeric database id (wire `ord`),
 not creation time. [verified: `main/windows.ts`, renderer `canvas/deskhosts.tsx`,
 `windowlayout.ts`, `treeorder.ts`; Rust `domain/tree.rs`, `domain/ops.rs`]
+Move previews assign destination max(live sibling order) + 1, as Rust `move_node`
+does; same-parent moves keep their order. [decided: rust-engine session via coordinator,
+2026-10-06; verified: renderer `canvas/shared.ts`, Rust `domain/ops.rs`]
 
 ## Keep this file current
 

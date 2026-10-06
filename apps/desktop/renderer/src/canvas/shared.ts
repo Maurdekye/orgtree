@@ -1478,7 +1478,7 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
 export type PendingMoves = ReadonlyMap<string, string | null>
 
 /** `tree` with every pending move applied, in order: the node leaves its
- *  current parent and joins its new siblings at the server's order key,
+ *  current parent and joins its new siblings at max(live sibling order) + 1,
  *  subtree and all. A move
  *  the tree cannot honour — an unknown node or parent, or a parent inside the
  *  node's own subtree — is skipped, so no card is ever lost. The input tree is
@@ -1496,8 +1496,17 @@ export function withPendingMoves(tree: TreePayload, moves: PendingMoves): TreePa
       return null
     }
     const node = find(roots, id)
-    if (!node || parent === id) continue
+    if (!node || node.state !== 'live' || parent === id) continue
     if (parent !== null && (!find(roots, parent) || find(node.children, parent))) continue
+    const destination = parent === null ? roots : find(roots, parent)!.children
+    // Rust move_node leaves same-parent moves unchanged and assigns every
+    // real move a fresh order after the destination's live siblings.
+    if (destination.some(k => k.id === id)) continue
+    let maxOrder: number | undefined
+    for (const k of destination) if (k.state === 'live')
+      maxOrder = maxOrder === undefined ? k.ui_order : Math.max(maxOrder, k.ui_order)
+    const order = (maxOrder ?? 0) + 1
+    const moved = { ...node, parent, ui_order: order, sibling_order: order }
     const without = (kids: TreeNode[]): TreeNode[] => {
       if (kids.some((k) => k.id === id)) return kids.filter((k) => k.id !== id)
       let changed = false
@@ -1510,9 +1519,9 @@ export function withPendingMoves(tree: TreePayload, moves: PendingMoves): TreePa
       return changed ? out : kids
     }
     const insert = (kids: TreeNode[]): TreeNode[] => {
-      const before = kids.findIndex((k) => siblingOrder(node, k) < 0)
+      const before = kids.findIndex((k) => siblingOrder(moved, k) < 0)
       const at = before < 0 ? kids.length : before
-      return [...kids.slice(0, at), node, ...kids.slice(at)]
+      return [...kids.slice(0, at), moved, ...kids.slice(at)]
     }
     const into = (kids: TreeNode[]): TreeNode[] => kids.map((k) => k.id === parent
       ? { ...k, children: insert(k.children) }
