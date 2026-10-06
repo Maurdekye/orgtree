@@ -7,6 +7,7 @@ pub mod docs;
 pub mod dogs;
 pub mod docket;
 pub mod orginbox;
+pub mod reports;
 pub mod error;
 pub mod mailbox;
 pub mod nodes;
@@ -37,6 +38,9 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/desktop/alive", get(desktop::alive))
         .route("/api/desktop/status", get(desktop::status))
         .route("/api/desktop/shutdown", post(desktop::shutdown))
+        .route("/api/desktop/notifications", get(reports::notifications))
+        .route("/api/crash-report", post(reports::crash_report))
+        .route("/api/crash-reports", get(reports::crash_reports))
         .route("/api/host", get(desktop::host))
         .route("/api/diagnostics/engine-stats", get(desktop::engine_stats))
         // app feed
