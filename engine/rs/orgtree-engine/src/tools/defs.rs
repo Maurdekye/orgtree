@@ -23,6 +23,18 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_unstick",
         "orgtree_continue_on",
         "orgtree_account_mark",
+        "orgtree_hire",
+        "orgtree_rehire",
+        "orgtree_retire",
+        "orgtree_dissolve",
+        "orgtree_move",
+        "orgtree_rename",
+        "orgtree_reallocate",
+        "orgtree_switch_model",
+        "orgtree_cheap_compact",
+        "orgtree_retool",
+        "orgtree_swap",
+        "orgtree_self_subjugate",
     ]
 }
 
@@ -233,7 +245,9 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_hire",
-            "Hire a report (or with hire_type 'superior', insert a superior over target). Write its charter in full.",
+            "Hire a report under you or under `target` in your team (or, with hire_type 'superior', insert a \
+             superior above `target`). Write its charter in full. Seat + grant must fit your free credits (with \
+             credit cascade on, your chain is raised as needed). `kickoff` sends it a first message.",
             merge(
                 json!({
                     "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
@@ -276,7 +290,8 @@ fn all() -> Vec<Value> {
             "orgtree_move",
             "Move an agent below you under another parent within your subtree.",
             json!({ "node": { "type": "string" }, "new_parent": { "type": "string" },
-                    "moves": { "type": "array", "items": { "type": "object" } } }),
+                    "moves": { "type": "array", "items": { "type": "object" },
+                               "description": "several {node, new_parent} moves as one all-or-nothing act" } }),
             &[],
         ),
         tool("orgtree_rename", "Rename an agent below you.", json!({ "node": { "type": "string" }, "name": { "type": "string" } }), &["node", "name"]),
@@ -356,7 +371,8 @@ fn all() -> Vec<Value> {
         tool("orgtree_swap", "Swap the seats of two agents below you.", json!({ "a": { "type": "string" }, "b": { "type": "string" } }), &["a", "b"]),
         tool(
             "orgtree_self_subjugate",
-            "Place yourself under a peer (target), with your team.",
+            "Step down: one of your live descendants (target) takes your seat under your superior, keeping its own \
+             team, and you become its report with the rest of yours.",
             json!({ "target": { "type": "string" } }),
             &["target"],
         ),

@@ -6,6 +6,7 @@ mod control;
 mod defs;
 mod mailtools;
 mod orgview;
+mod treetools;
 
 use std::sync::Arc;
 
@@ -115,6 +116,18 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_unstick" => control::unstick(engine, caller, args).await,
         "orgtree_continue_on" => control::continue_on(engine, caller, args).await,
         "orgtree_account_mark" => control::account_mark(engine, caller, args).await,
+        "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
+        "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
+        "orgtree_retire" => treetools::run(engine, caller, args, "retire").await,
+        "orgtree_dissolve" => treetools::run(engine, caller, args, "dissolve").await,
+        "orgtree_move" => treetools::run(engine, caller, args, "move").await,
+        "orgtree_rename" => treetools::run(engine, caller, args, "rename").await,
+        "orgtree_reallocate" => treetools::run(engine, caller, args, "reallocate").await,
+        "orgtree_switch_model" => treetools::run(engine, caller, args, "switch_model").await,
+        "orgtree_cheap_compact" => treetools::run(engine, caller, args, "cheap_compact").await,
+        "orgtree_retool" => treetools::run(engine, caller, args, "retool").await,
+        "orgtree_swap" => treetools::run(engine, caller, args, "swap").await,
+        "orgtree_self_subjugate" => treetools::run(engine, caller, args, "self_subjugate").await,
         other if other.starts_with("orgtree_") => {
             crate::refuse!(Unprocessable, "{other} is not available in this engine build yet")
         }

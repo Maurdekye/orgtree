@@ -363,6 +363,10 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op:
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
         "account" => account(engine, org, &tx, actor, req, fx).await?,
         "cheap_compact" => cheap_compact(engine, org, &tx, actor, req, fx).await?,
+        "swap" => swap(engine, org, &tx, actor, req, fx).await?,
+        "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
+        "retool" => retool(org, &tx, actor, req, fx).await?,
+        "moves" => moves(engine, org, &tx, actor, req, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
     };
     tx.commit().await?;
@@ -626,23 +630,27 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     if rescind && !matches!(actor, Actor::User) {
         refuse!(Forbidden, "only the user can rescind");
     }
-    authorize(tx, actor, &n, "retire").await?;
-    // its live reports move up to its superior
-    let kids: Vec<i64> = tx
-        .query("SELECT id FROM ot.agents WHERE parent_id = $1 AND state = 'live' FOR UPDATE", &[&n.id])
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    if !kids.is_empty() {
-        tx.execute("UPDATE ot.agents SET parent_id = $2, row_version = row_version + 1 WHERE parent_id = $1 AND state = 'live'", &[&n.id, &n.parent])
-            .await?;
+    let team = subtree(tx, n.id).await?;
+    match actor {
+        // an agent may retire itself once it has no live reports
+        Actor::Agent { id, .. } if *id == n.id => {
+            if !team.is_empty() {
+                refuse!(Conflict, "you still have live reports; retire or hand them over first");
+            }
+        }
+        _ => authorize(tx, actor, &n, "retire").await?,
     }
-    tx.execute(
-        "UPDATE ot.agents SET state = 'archived', archived_at = now(), inflight_at = NULL, row_version = row_version + 1 WHERE id = $1",
-        &[&n.id],
-    )
-    .await?;
+    // a seat with live reports takes its whole team with it
+    let mut ids = team.clone();
+    ids.push(n.id);
+    let rows = tx
+        .query(
+            "UPDATE ot.agents SET state = 'archived', archived_at = now(), inflight_at = NULL, row_version = row_version + 1
+              WHERE id = ANY($1) AND state = 'live' RETURNING id",
+            &[&ids],
+        )
+        .await?;
+    let kids: Vec<i64> = rows.iter().map(|r| r.get::<_, i64>(0)).filter(|id| *id != n.id).collect();
     let mut clawed = 0.0;
     if rescind {
         if let Some(pid) = n.parent {
@@ -658,7 +666,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         }
     }
     event(tx, org.id, if rescind { "rescind" } else { "retire" }, actor, Some(n.id),
-          json!({ "node": n.name, "reports_moved": kids.len(), "clawed_back": clawed }))
+          json!({ "node": n.name, "team_retired": kids.len(), "clawed_back": clawed }))
     .await?;
     fx.agents.insert(n.id);
     fx.agents.extend(kids.iter().copied());
@@ -666,6 +674,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         fx.agents.insert(p);
     }
     fx.stop.push(n.id);
+    fx.stop.extend(kids.iter().copied());
     fx.events = true;
     Ok(json!({ "node": n.name, "freed": n.seat + n.grant }))
 }
@@ -1038,4 +1047,211 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
     fx.stop.push(n.id);
     fx.events = true;
     Ok(json!({ "node": n.name, "compacted": true }))
+}
+
+// ------------------------------------------------------------ seats
+
+/// Two agents exchange seats: each seat keeps its superior, reports, grant,
+/// team charter and scope; each agent keeps its identity, session, charter,
+/// tier and mailbox. Only the tier's seat price moves with the agent.
+#[logged]
+async fn swap(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let a = node_by_name(tx, org.id, str_arg(req, "a").unwrap_or("")).await?;
+    let b = node_by_name(tx, org.id, str_arg(req, "b").unwrap_or("")).await?;
+    if a.id == b.id {
+        refuse!(BadRequest, "an agent cannot swap with itself");
+    }
+    if a.state != "live" || b.state != "live" {
+        refuse!(Conflict, "both agents must be live");
+    }
+    authorize(tx, actor, &a, "swap").await?;
+    authorize(tx, actor, &b, "swap").await?;
+    if matches!(actor, Actor::Agent { .. }) && (a.parent.is_none() || b.parent.is_none()) {
+        refuse!(Forbidden, "only the user reseats the top level");
+    }
+    let caps = caps(engine, tx, org.id).await?;
+    // the superior of each seat now holds the other agent's seat price
+    let mut raised = Vec::new();
+    if b.seat > a.seat {
+        raised.extend(ensure_room(tx, a.parent.filter(|p| *p != b.id), b.seat - a.seat, caps.cascade_alloc, caps.max_top, fx).await?);
+    }
+    if a.seat > b.seat {
+        raised.extend(ensure_room(tx, b.parent.filter(|p| *p != a.id), a.seat - b.seat, caps.cascade_alloc, caps.max_top, fx).await?);
+    }
+    let a_parent = if b.parent == Some(a.id) { Some(b.id) } else { b.parent };
+    let b_parent = if a.parent == Some(b.id) { Some(a.id) } else { a.parent };
+    // reports follow the seat
+    tx.execute(
+        "UPDATE ot.agents SET parent_id = CASE WHEN parent_id = $1 THEN $2 ELSE $1 END, row_version = row_version + 1
+          WHERE parent_id IN ($1, $2) AND id NOT IN ($1, $2) AND state <> 'deleted'",
+        &[&a.id, &b.id],
+    )
+    .await?;
+    let ra = tx
+        .query_one("SELECT sibling_order, grant_credits::float8, team_charter, scope FROM ot.agents WHERE id = $1", &[&a.id])
+        .await?;
+    let rb = tx
+        .query_one("SELECT sibling_order, grant_credits::float8, team_charter, scope FROM ot.agents WHERE id = $1", &[&b.id])
+        .await?;
+    for (id, parent, r) in [(a.id, a_parent, &rb), (b.id, b_parent, &ra)] {
+        let order: f64 = r.get(0);
+        let grant: f64 = r.get(1);
+        let team: Option<String> = r.get(2);
+        let sc: Value = r.get(3);
+        tx.execute(
+            "UPDATE ot.agents SET parent_id = $2, sibling_order = $3, grant_credits = $4::float8::numeric, team_charter = $5,
+                    scope = $6, row_version = row_version + 1 WHERE id = $1",
+            &[&id, &parent, &order, &grant, &team, &sc],
+        )
+        .await?;
+    }
+    event(tx, org.id, "swap", actor, Some(a.id), json!({ "a": a.name, "b": b.name, "cascaded": raised })).await?;
+    for id in [Some(a.id), Some(b.id), a.parent, b.parent].into_iter().flatten() {
+        fx.agents.insert(id);
+    }
+    let mut moved = subtree(tx, a.id).await?;
+    moved.extend(subtree(tx, b.id).await?);
+    fx.agents.extend(moved.iter().copied());
+    fx.reconfigure.extend([a.id, b.id]);
+    fx.reconfigure.extend(moved);
+    fx.events = true;
+    Ok(json!({ "a": a.name, "b": b.name, "cascaded": raised }))
+}
+
+/// The caller steps down: one of its live descendants takes its place under
+/// its superior (keeping its own team) and the caller becomes its report
+/// with the rest of its subtree.
+#[logged]
+async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let Actor::Agent { id: me_id, .. } = actor else {
+        refuse!(Forbidden, "self-subjugation is an agent's own act");
+    };
+    let me = node_by_id(tx, *me_id).await?;
+    let d = node_by_name(tx, org.id, str_arg(req, "target").unwrap_or("")).await?;
+    if d.state != "live" {
+        refuse!(Conflict, "{} is not live", d.name);
+    }
+    if d.id == me.id || !within(tx, me.id, d.id).await? {
+        refuse!(Forbidden, "{} is not below you; you can only raise one of your own descendants", d.name);
+    }
+    // the superior's hold is unchanged: the promoted agent takes over the caller's whole stake
+    let stake = me.seat + me.grant;
+    let d_grant = (stake - d.seat).max(0.0);
+    // what the promoted agent then holds: the caller (seat + its remaining grant) and its own team
+    let d_team_hold = hold(tx, d.id).await?;
+    let me_grant = (me.grant - (d.seat + d.grant)).max(hold(tx, me.id).await? - (d.seat + d.grant)).max(0.0);
+    let need = me.seat + me_grant + d_team_hold - d_grant;
+    let raised = if need > 1e-9 {
+        refuse!(
+            Conflict,
+            "{} would need {:.2} more credits to hold you and its own team; reallocate before stepping down",
+            d.name, need
+        );
+    } else {
+        Vec::<String>::new()
+    };
+    let old_parent = d.parent;
+    tx.execute(
+        "UPDATE ot.agents SET parent_id = $2, sibling_order = (SELECT sibling_order FROM ot.agents WHERE id = $3),
+                grant_credits = $4::float8::numeric, scope = $5, row_version = row_version + 1 WHERE id = $1",
+        &[&d.id, &me.parent, &me.id, &d_grant, &me.scope],
+    )
+    .await?;
+    tx.execute(
+        "UPDATE ot.agents SET parent_id = $2, sibling_order = 1, grant_credits = $3::float8::numeric, row_version = row_version + 1 WHERE id = $1",
+        &[&me.id, &d.id, &me_grant],
+    )
+    .await?;
+    event(tx, org.id, "self_subjugate", actor, Some(me.id), json!({ "node": me.name, "promoted": d.name, "cascaded": raised })).await?;
+    for id in [Some(me.id), Some(d.id), me.parent, old_parent].into_iter().flatten() {
+        fx.agents.insert(id);
+    }
+    fx.reconfigure.extend([me.id, d.id]);
+    fx.events = true;
+    Ok(json!({ "node": me.name, "promoted": d.name }))
+}
+
+/// Several moves as one all-or-nothing act (`moves: [{node, new_parent}]`).
+#[logged]
+async fn moves(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let list = req["moves"].as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        refuse!(BadRequest, "moves is a list of {{node, new_parent}}");
+    }
+    let mut done = Vec::new();
+    for m in list.iter().take(64) {
+        let one = json!({ "op": "move", "node": m["node"], "new_parent": m["new_parent"] });
+        done.push(move_node(engine, org, tx, actor, &one, fx).await?);
+    }
+    Ok(json!({ "moves": done }))
+}
+
+/// Re-scope a node below the caller (folders, tools, visibility, permission
+/// mode, effort, charter, team charter, account); on itself only the team
+/// charter. What exceeds the caller's own scope is clamped where it is read.
+#[logged]
+async fn retool(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    let own = matches!(actor, Actor::Agent { id, .. } if *id == n.id);
+    if own {
+        let fields: Vec<&str> = req.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+        if fields.iter().any(|k| !["op", "node", "team_charter"].contains(k)) {
+            refuse!(Forbidden, "on yourself only team_charter can change; ask your superior for the rest");
+        }
+    } else {
+        authorize(tx, actor, &n, "retool").await?;
+    }
+    let mut sc = scope::normalize(&n.scope);
+    let o = sc.as_object_mut().unwrap();
+    if let Some(d) = req.get("add_dirs").filter(|v| v.is_array()) {
+        o.insert("add_dirs".into(), scope::normalize(&json!({ "add_dirs": d }))["add_dirs"].clone());
+    }
+    if let Some(t) = req.get("tools").filter(|v| v.is_object()) {
+        let mut cur = o.get("tools").cloned().unwrap_or_else(scope::default_tools);
+        crate::settings::deep_merge(&mut cur, t);
+        o.insert("tools".into(), scope::normalize_tools(&cur));
+    }
+    if let Some(v) = str_arg(req, "org_visibility") {
+        if !scope::VIS_LEVELS.contains(&v) {
+            refuse!(BadRequest, "unknown visibility {v}");
+        }
+        o.insert("org_visibility".into(), json!(v));
+    }
+    if let Some(v) = str_arg(req, "permission_mode") {
+        if !scope::PM_LEVELS.contains(&v) {
+            refuse!(BadRequest, "unknown permission mode {v}");
+        }
+        o.insert("permission_mode".into(), json!(v));
+    }
+    if let Some(v) = req.get("effort").and_then(Value::as_str) {
+        if v.is_empty() {
+            o.remove("effort");
+        } else if catalog::EFFORTS.contains(&v) {
+            o.insert("effort".into(), json!(v));
+        } else {
+            refuse!(BadRequest, "unknown effort {v}");
+        }
+    }
+    if req.get("clear_account_fallback").and_then(Value::as_bool).unwrap_or(false) {
+        o.remove("account_fallback");
+    } else if let Some(b) = req.get("account_fallback").and_then(Value::as_bool) {
+        o.insert("account_fallback".into(), json!(b));
+    }
+    let charter = str_arg(req, "charter").map(str::to_string);
+    let team = str_arg(req, "team_charter").map(str::to_string);
+    let account = str_arg(req, "account").map(str::to_string);
+    tx.execute(
+        "UPDATE ot.agents SET scope = $2, charter = coalesce($3, charter), team_charter = coalesce($4, team_charter),
+                account = coalesce($5, account), row_version = row_version + 1 WHERE id = $1",
+        &[&n.id, &sc, &charter, &team, &account],
+    )
+    .await?;
+    event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req })).await?;
+    fx.agents.insert(n.id);
+    let below = subtree(tx, n.id).await?;
+    fx.agents.extend(below.iter().copied());
+    fx.reconfigure.push(n.id);
+    fx.reconfigure.extend(below);
+    fx.events = true;
+    Ok(json!({ "node": n.name }))
 }
