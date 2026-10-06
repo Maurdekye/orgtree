@@ -198,6 +198,7 @@ async fn run_with_cluster(
     runtime::warm_all(&engine);
     if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") {
         runtime::watchdogs::start(&engine).await;
+        runtime::reminders::start(&engine);
     }
 
     if let Some(pid) = cfg.parent_pid {

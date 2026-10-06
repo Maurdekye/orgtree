@@ -242,6 +242,7 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
 
 #[logged]
 async fn runtime_payload(engine: &Engine) -> Value {
+    let sw = crate::runtime::reminders::switches(engine);
     let stats = engine.sched.stats().await;
     let by_org: Map<String, Value> = stats
         .waiting_by_org
@@ -253,10 +254,10 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "quick_staff_request_accounts": false,
         "git_periodic_fetch_enabled": false,
         "warming_enabled": engine.settings.keep_warm(),
-        "working_checkups_enabled": false,
+        "working_checkups_enabled": sw.checkups,
         "wait_for_mcp_tools_enabled": engine.settings.wait_for_mcp_tools(),
-        "idle_docket_reminders_enabled": false,
-        "blocked_docket_reminders_enabled": false,
+        "idle_docket_reminders_enabled": sw.idle,
+        "blocked_docket_reminders_enabled": sw.blocked,
         "max_concurrent_turns": engine.settings.max_concurrent_turns(),
         "turn_timeout_s": engine.settings.turn_timeout_s(),
         "turn_idle_s": engine.settings.turn_idle_s(),
@@ -309,9 +310,18 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
                 }
                 rt.insert(k.clone(), json!(s));
             }
+            // stored under the 3.x keys, so an imported app-settings.json keeps the user's choice
+            "working_checkups_enabled" | "idle_docket_reminders_enabled" | "blocked_docket_reminders_enabled" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request(format!("{k} is true or false")))?;
+                let key = match k.as_str() {
+                    "working_checkups_enabled" => crate::runtime::reminders::KEY_CHECKUPS,
+                    "idle_docket_reminders_enabled" => crate::runtime::reminders::KEY_IDLE,
+                    _ => crate::runtime::reminders::KEY_BLOCKED,
+                };
+                rt.insert(key.into(), json!(on));
+            }
             // the settings of removed features are accepted and ignored
-            "git_periodic_fetch_enabled" | "working_checkups_enabled" | "idle_docket_reminders_enabled"
-            | "blocked_docket_reminders_enabled" | "quick_staff_request_accounts" => {}
+            "git_periodic_fetch_enabled" | "quick_staff_request_accounts" => {}
             other => return Err(ApiError::bad_request(format!("unknown runtime setting {other}"))),
         }
     }

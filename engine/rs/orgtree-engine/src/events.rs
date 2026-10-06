@@ -188,3 +188,17 @@ pub fn audience_changed(org: &str, node: &str, generation: i64, outcome: &str, b
     o.insert("other".into(), json!(other));
     Some(Value::Object(o))
 }
+
+/// `reminder.working_checkup`: the automatic 20-minute working-status check.
+pub fn reminder_working_checkup(org: &str, node: &str, generation: i64) -> Value {
+    Value::Object(envelope("reminder.working_checkup", actor(SYSTEM), node_ref(org, node, generation)))
+}
+
+/// `reminder.idle_docket`: the items (at most 20) whose next action is this
+/// idle agent's; `more` counts the ones not listed.
+pub fn reminder_idle_docket(org: &str, node: &str, generation: i64, items: Vec<Value>, more: i64) -> Value {
+    let mut o = envelope("reminder.idle_docket", actor(SYSTEM), node_ref(org, node, generation));
+    o.insert("items".into(), Value::Array(items));
+    o.insert("more".into(), json!(more));
+    Value::Object(o)
+}

@@ -12,6 +12,7 @@ pub mod convo;
 pub mod freeze;
 pub mod history;
 pub mod prompt;
+pub mod reminders;
 pub mod sched;
 pub mod watchdogs;
 
