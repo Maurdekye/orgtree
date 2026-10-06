@@ -76,9 +76,11 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
         crate::refuse!(BadRequest, "status must be working, done, blocked or idle");
     }
     let summary = gist(arg_str(args, "summary").unwrap_or(""), 600);
+    // "done" is a report, not a state: the agent is idle afterwards
+    let state = if status == "done" { "idle" } else { status };
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
-    let rec = json!({ "status": status, "summary": summary, "at": iso(chrono::Utc::now()) });
+    let rec = json!({ "status": state, "summary": summary, "at": iso(chrono::Utc::now()) });
     client
         .execute(
             "UPDATE ot.agents SET prev_status = last_status, last_status = $2, row_version = row_version + 1 WHERE id = $1",
@@ -116,7 +118,8 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
             }
         }
     }
-    Done::text(format!("Status recorded: {status}.{told}"))
+    let shown = if status == "done" { "done (you are idle now)" } else { status };
+    Done::text(format!("Status recorded: {shown}.{told}"))
 }
 
 #[logged]

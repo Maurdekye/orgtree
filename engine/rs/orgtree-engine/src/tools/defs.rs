@@ -139,7 +139,8 @@ fn all() -> Vec<Value> {
         tool(
             "orgtree_status",
             "Report your status. Required when you finish ('done') or get stuck ('blocked'): your superior gets \
-             your summary as a notice. A status wakes nobody; to make your superior act, send a message.",
+             your summary as a notice. 'done' leaves you idle (no separate 'idle' needed). A status wakes nobody; \
+             to make your superior act, send a message.",
             json!({
                 "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
                 "summary": { "type": "string", "description": "one or two sentences" },
