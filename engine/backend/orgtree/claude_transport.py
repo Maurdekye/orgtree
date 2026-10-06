@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 import uuid
 from typing import Any, Callable
 
@@ -87,6 +88,23 @@ class Rotation:
         import psutil
         return {(p.pid, p.create_time())
                 for p in psutil.Process(self.proc.pid).children(recursive=True)}
+
+    def drained_descendants(self, allowed: set[tuple[int, float]]) -> set[tuple[int, float]]:
+        """Wait briefly for control cleanup workers; never adopt their identities."""
+        import psutil
+        current = self.descendants()
+        deadline = time.monotonic() + 2.0
+        for pid, birth in current - allowed:
+            try:
+                proc = psutil.Process(pid)
+                if proc.create_time() != birth:
+                    continue
+                proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+            except psutil.NoSuchProcess:
+                pass
+            except psutil.TimeoutExpired:
+                break
+        return self.descendants()
 
     def observe(self, line: str) -> bool:
         try:
@@ -206,10 +224,17 @@ class Rotation:
             if self.proc.pid not in {p.pid for p in child.parents()}:
                 raise RuntimeError('MCP transport is not a child of this Claude CLI')
             identity = (pending.pid, child.create_time())
+            # Windows creates a console host for the authenticated Python child.
+            # Only that child's own console host is part of the replacement;
+            # sibling shells/control cleanup workers must actually disappear.
+            replacement = {identity}
+            for console in child.children(recursive=False):
+                if getattr(console, 'name', lambda: '')().lower() == 'conhost.exe':
+                    replacement.add((console.pid, console.create_time()))
             check()
             host.authorize(run)
-            baseline = self.descendants()
-            if baseline - before - {identity}:
+            baseline = self.drained_descendants(before | replacement)
+            if baseline - before - replacement:
                 raise RuntimeError('unknown child appeared during Claude transport rotation')
             self.child, self.servers = child, copy.deepcopy(servers)
             self.tools_digest = pending.tools_digest
@@ -251,7 +276,7 @@ class Rotation:
             except psutil.TimeoutExpired:
                 return False
         check()
-        if self.descendants() - self.process_baseline:
+        if self.drained_descendants(self.process_baseline) - self.process_baseline:
             return False  # recheck after the potentially slow drain and exit
         with self.lock:
             if self.tainted or self.tool_ids or self.background or self.background_unknown:
