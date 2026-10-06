@@ -1,4 +1,10 @@
-# Orgtree engine, rewritten in Rust — plan for approval
+# Orgtree 4: the engine rewritten in Rust — plan
+
+This ships as **Orgtree 4** (4.0.0): the rewrite removes notable functionality (§10), so it is a
+major version (user 2026-10-06). It upgrades from 3.x data (§8).
+
+**The user's standing decisions are in [`DECISIONS.md`](DECISIONS.md) and override anything here
+that disagrees with them.**
 
 Status: **approved by the user 2026-10-06**, with the changes recorded in §10 and §11. Branch
 `rust-engine`, cut from `origin/dev` at `4ddbfb1`.
@@ -7,9 +13,10 @@ The current Python engine freezes with about a dozen running agents: org-wide lo
 transactions that do file and provider work while holding them, whole-org reads on hot paths,
 polling loops, and a GIL. This plan replaces the whole engine with a new Rust program designed
 from the renderer's contract, not from the Python code. The desktop UI keeps its look and
-behaviour; two things change on the desktop side: the engine launcher starts the new executable,
-and the renderer's data layer moves from HTTP requests to one socket per window (decided
-2026-10-06, to cut transport overhead).
+behaviour; the desktop-side change the engine needs is the launcher starting the new executable.
+Loading and actions stay HTTP (keep-alive); pushed updates use the existing sockets (decided
+2026-10-06, after first trying one socket per window: HTTP keeps big replies from blocking live
+updates and needs no renderer rewrite).
 
 Targets: 1,000+ live agents per machine; UI reads p95 < 100 ms; an agent's tool call never waits
 on an unrelated agent; no global locks of any kind.
@@ -22,8 +29,8 @@ One executable, `orgtree-engine.exe`, in a new Cargo workspace at `engine/rs/`:
 
 | Piece | What it does |
 |---|---|
-| Window socket (axum/tokio) | One persistent WebSocket per window carrying every request, every reply and every pushed update (app feed and org feeds multiplexed). Requests are dispatched in-process to the same router the few remaining HTTP routes use, so there is one implementation of each route |
-| Plain HTTP (kept small) | The renderer bundle, file transfers the browser loads by URL (images, downloads, uploads, HTML document previews), crash reports, and the desktop launcher's `/api/desktop/*` handshake |
+| HTTP server (axum/tokio) | The renderer bundle and every `/api/*` route the UI calls (loads and actions, keep-alive connections, ETag/304 where the UI sends `If-None-Match`) |
+| Push sockets | The org socket (`/api/orgs/{slug}/ws`: record feed, runtime overlay, live desk frames) and the app socket (`/api/app/ws`: registry, notices, pushed values), exactly as the renderer already uses them; nothing polls |
 | Agent runtime | One lightweight task (actor) per agent that is doing something; drives the provider CLI for that agent; owns that agent's live state |
 | Provider drivers | Claude Code, Codex, Antigravity, OpenRouter (through the Claude Code or Codex CLI) |
 | Agent channels | The agents' `orgtree_*` tools and mid-turn mail travel over each CLI's own stdin/stdout: Claude Code's stream-json control channel (in-process MCP server + hook callbacks), Codex app-server dynamic tools and `turn/steer`. Antigravity uses the engine binary as a tiny stdio MCP bridge over a Windows named pipe. No HTTP, no tokens and no helper processes on the agent path |
@@ -45,10 +52,8 @@ The Python engine stays in the tree untouched, so going back is "run the old bui
   kill-on-close, so the engine dying takes every child with it.
 - The engine keeps no Python, no SQLite side stores, and no per-agent helper processes (today
   every agent also runs a Python MCP process and a Python hook script per tool call).
-- Transport: one WebSocket per window for all app traffic (requests multiplexed with pushed
-  frames, replies may arrive out of order so a slow read never holds up a fast one); agents reach
-  the engine over their CLI's own pipes. TCP is used only for the window sockets, file transfers
-  and the launcher handshake.
+- Transport: HTTP for loads and actions, the org and app sockets for pushed updates; agents reach
+  the engine over their CLI's own pipes, never over HTTP.
 
 ### 2.2 Concurrency rules (no global locks)
 
@@ -133,33 +138,33 @@ The renderer already has a push protocol (the "record feed") that it switches to
 says `capabilities.record_changes_v1: true`. The new engine speaks only that protocol for the
 tree and the panels it covers, so nothing polls.
 
-All of the following travels on the window's single socket (`/api/ws`). Each message is tagged
-with its channel: `req`/`res` (a request and its reply, with status, headers and JSON body, so
-ETag/304 keep working), `app` (app-feed frames) and `org:<slug>` (that org's frames). The renderer
-change is contained: a new `socket.ts` module provides the shared socket, a `fetch`-compatible
-request function and per-channel subscriptions; `api.ts`, `appfeed.ts` and the org-socket hookup in
-`App.tsx` switch to it. Downloads, uploads, images, document previews and crash reports keep
-using plain HTTP URLs.
-
-- **Org channel** (was `/api/orgs/{slug}/ws`): `record_changes` frames (agent records and the 12 org
+- **Org socket** `/api/orgs/{slug}/ws`: `record_changes` frames (agent records and the 12 org
   groups), `record_subscribed` answers for windows a panel opens (one agent's mailbox, one agent's
   history, retired agents under a parent, all retired agents, explicit agents), `agent_runtime`
   overlay frames (busy, responding, phase, activity, waiting-for-slot, process state, tasks…),
   `node_stream` live frames for the desk (thinking/text deltas, durable-row nudges), `node_event`
   pulses (turn done, frozen, renamed, file presented), and `mail` sparks.
-- **Org recovery requests**: `/records` (snapshot), `/changes?after=` (catch-up from a ring of
-  recent frames, or a fresh snapshot), `/records/selection` (name → id resolution, search over
+- **Rooms (user 2026-10-06).** The org socket works like topic subscriptions: each window joins
+  only what it shows. Every agent has a transcript room; live token deltas, thinking clocks and
+  durable-row nudges for an agent go only to windows whose open desk joined that agent's room
+  (the renderer joins on desk mount, leaves on unmount, and re-sends its room set on reconnect —
+  a small renderer change, `streamrooms.ts`, its own commit). Panels that open a mailbox, a
+  history or a retired-agent list already join their own sets through the record feed's
+  subscriptions. Org-wide frames stay org-wide only where the canvas needs them for every agent:
+  record changes, the runtime overlay (busy, phase, activity...), turn pulses and mail sparks. So
+  1,000 busy agents cost a window only what it is looking at.
+- **Org recovery requests** (HTTP): `/records` (snapshot), `/changes?after=` (catch-up from a ring
+  of recent frames, or a fresh snapshot), `/records/selection` (name → id resolution, search over
   retired agents).
-- **App channel** (was `/api/app/ws` + `/api/app/records`): org registry and summaries, desktop
+- **App socket** `/api/app/ws` + `GET /api/app/records`: org registry and summaries, desktop
   notices (questions, urgent mail, ticket attention), and pushed values (`providers`, `accounts`,
   `openrouter`, usage peeks, `prefer_reserve_default`).
 - **Desk**: `GET …/nodes/{id}/chat?last=&before=&after=` reads `convo` by index (incremental with
   `after`), plus pending mail and the live tail the actor holds.
-- **Docket, gallery, audiences, org.md, settings, providers, accounts, usage**: ordinary request/
-  reply routes on the socket, with ETags where the UI sends `If-None-Match`.
-- Electron's main process keeps its own small set of HTTP calls (`/api/desktop/*`: identity,
-  liveness, status for the tray, shutdown, maintenance) and its own app-feed socket, so the
-  launcher and tray need no changes beyond picking the executable.
+- **Docket, gallery, audiences, org.md, settings, providers, accounts, usage**: ordinary HTTP
+  routes with ETags where the UI sends `If-None-Match`.
+- Electron's main process keeps its HTTP calls (`/api/desktop/*`: identity, liveness, status for
+  the tray, shutdown, maintenance) and its own app-feed socket, unchanged.
 - The newer "selected tree" and "docket foreground" routes answer `409 {kind:"compatibility"}`,
   which the renderer already treats as "use the full read"; in record mode it never needs them.
 
@@ -220,7 +225,7 @@ alias), `orgtree_inbox`, `orgtree_ask`, `orgtree_withdraw_ask`, `orgtree_status`
 `orgtree_watchdog`, `orgtree_chart`, `orgtree_list_tiers`, `orgtree_list_orgs`,
 `orgtree_read_transcript`, `orgtree_read_scratch`, `orgtree_staff`, `orgtree_swap`,
 `orgtree_self_subjugate`, `orgtree_unstick`, `orgtree_continue_on`, `orgtree_account_mark`,
-`orgtree_state_inspect`, `orgtree_capabilities`, `orgtree_preview`.
+`orgtree_state_inspect`.
 
 Removed tools are listed in the ledger (§10, P). The managed agent instructions (the system prompt
 every agent gets) are rewritten to match: shorter, and stable across turns so provider prompt
@@ -235,9 +240,7 @@ caching keeps working.
   `/api/desktop/identity|alive|status|shutdown|notifications|hub|maintenance/*`.
 - Desktop changes: `apps/desktop/main/engine.ts` starts `resources/engine/orgtree-engine.exe`
   when it exists (or `ORGTREE_ENGINE_BIN` in development), otherwise the Python engine as today;
-  packaging adds the binary to `resources/engine`; the renderer data layer moves to the window
-  socket (§4). The renderer keeps working against the old Python engine too: the socket module
-  falls back to plain HTTP when the engine does not offer `/api/ws`.
+  packaging adds the binary to `resources/engine`. The renderer's data layer is unchanged.
 - **Background engine (boot task), part of the MVP.** `orgtree-engine.exe host` is a small
   supervisor mode of the same binary, run by the existing "Orgtree Background Engine" scheduled
   task (S4U, least privilege, at boot) in place of `service_host.py`. It starts the engine as the
@@ -278,9 +281,10 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
-Everything not listed here is meant to behave as it does today. "Inert" means the control is still
-drawn by the unchanged UI but has no effect; "refused" means using it shows an error toast saying
-this engine does not support it.
+Everything not listed here is meant to behave as it does today. "Inert" means the setting has no
+effect; per the user (2026-10-06) such controls are removed from the settings menus rather than
+left in place (UI clean-up is allowed outside the canvas). "Refused" means using it shows an error
+toast saying this engine does not support it.
 
 ### A. Engine, startup, data
 
@@ -288,12 +292,12 @@ this engine does not support it.
 |---|---|---|
 | A1 | Python engine | Rust engine; same windows, same tray, same launch/attach protocol |
 | A2 | Optional boot-time background engine (all-users install, scheduled task "Orgtree Background Engine") that the desktop attaches to; "Run Orgtree as administrator" | Kept, same behaviour. The task now runs `orgtree-engine.exe host` instead of the Python service host; the desktop attaches exactly as today |
-| A3 | First start of 3.x converts a 2.x SQLite data folder | Not supported: the Rust engine imports from 3.x PostgreSQL data only (a 2.x user goes through a 3.x build first) |
+| A3 | First start of 3.x converts a 2.x SQLite data folder | Not in the first builds (they import from 3.x PostgreSQL data only); a direct 2.x upgrade path is **required before 4.0.0 is published** (user 2026-10-06) |
 | A4 | Per-org databases; an org can be "unavailable" with a Retry button | One database; orgs are never "unavailable"; Retry is inert |
 | A5 | Trash and purge of orgs | Delete moves an org to trash (soft delete) as today; no purge |
 | A6 | Engine diagnostics files (slow-requests, slow-transactions, stall stacks, liveness log) | One `diagnostics\engine.log`; slow operations are logged there |
 | A7 | Developer › Engine debug view shows Python engine counters | Shows the new engine's counters (sockets, queues, memory); some old fields absent |
-| A8 | Each window makes HTTP requests plus two sockets (app, org); the browser allows ~6 concurrent requests, so a slow read could hold up others | One socket per window carries everything; replies come back as soon as each is ready, so nothing queues behind a slow read. No visible change otherwise |
+| A8 | Windows load over HTTP and receive pushed updates over the org and app sockets | Unchanged |
 
 ### B. Organizations and canvas
 
@@ -397,20 +401,20 @@ this engine does not support it.
 
 `orgtree_self_restart`, `orgtree_prime_restart`, `orgtree_restart_wake`, `orgtree_self_relaunch`,
 `orgtree_prime_relaunch` (agents restarting Orgtree itself) · `orgtree_reservation`,
-`orgtree_resource_reservation` · `orgtree_submit_report` (use `orgtree_present`).
+`orgtree_resource_reservation` · `orgtree_submit_report` (use `orgtree_present`) ·
+`orgtree_preview`, `orgtree_capabilities` (user 2026-10-06: not needed).
 
 Kept at the user's decision (2026-10-06): `orgtree_staff`, `orgtree_swap`,
 `orgtree_self_subjugate`, `orgtree_unstick`, `orgtree_continue_on`, `orgtree_account_mark`,
-`orgtree_state_inspect`, `orgtree_capabilities`, `orgtree_preview` (a dry run executes the
-operation inside a transaction that is rolled back, so it can never have side effects), and
-`orgtree_list_orgs`. `orgtree_send_notice` becomes
+`orgtree_state_inspect`, and `orgtree_list_orgs`. `orgtree_send_notice` becomes
 `orgtree_message` with `notice: true` (old name kept as an alias).
 
 ## 11. Decisions I need from you
 
 1. **New schema + one-time import** (recommended), rather than running on the 3.2 per-org schema.
    The old schema's design (org lock, revision row, compatibility view) is what we are leaving.
-2. **The ledger above** — approved 2026-10-06. Decided along the way: one socket per window,
+2. **The ledger above** — approved 2026-10-06. Decided along the way: HTTP for loading and
+   actions with the existing push sockets (one-socket-per-window was considered and dropped),
    agents over their CLIs' own pipes; kept in the MVP: the boot-time background engine, cache
    forecasting, the MCP waiting state, the org inbox with `@org:`/`@net:` mail, the hiring credit
    cascade, account fallback, mid-turn effort changes for Claude, typed system-message cards (D1),
@@ -423,15 +427,27 @@ operation inside a transaction that is rolled back, so it can never have side ef
 ## 12. Build order (after approval)
 
 1. Workspace, config, logging, data-root lock, PostgreSQL start/stop, migrations, launch protocol,
-   desktop routes, static UI, window socket + renderer `socket.ts` → the app opens and lists orgs.
+   desktop routes, static UI → the app opens and lists orgs.
 2. Importer → your orgs, agents, docket and mail appear.
 3. Record feed + app feed + tree/ops/settings routes → canvas fully live; hire/move/retire work.
 4. Agent runtime + Claude driver (control channel: tools, hooks, interrupt) + chat route →
    agents run and talk.
 5. Mail, inbox, asks, docket, documents, files, watchdogs, audiences, killswitch/halt/freeze.
 6. Codex, Antigravity, OpenRouter drivers; accounts, usage, providers.
-7. Mail hub hosting, notifications, maintenance, Electron launcher change, packaging.
+7. Mail hub hosting, notifications, maintenance, Electron launcher change, packaging (version
+   4.0.0).
 8. Background engine: `host` mode (supervisor, attach descriptor, liveness, unelevated start) and
    the boot task registration pointing at the new binary.
+9. Before publishing 4.0.0: the direct upgrade from 2.x data (A3).
 
 Each step lands as commits on `rust-engine`; I tell you when a step is usable.
+
+**Keeping the changes separable (user 2026-10-06).** Three kinds of change never share a commit:
+1. the engine itself (`engine/rs/**`), on `rust-engine`;
+2. the desktop changes the rewrite requires (the launcher picking the binary, packaging, the
+   boot-task registration, the renderer joining transcript rooms, and UI changes that follow from
+   the featureset differences, such as removing controls for settings that no longer exist), on
+   `rust-engine`, in their own commits;
+3. purely visual UI work (tidying settings menus and the like; never the canvas), on a separate
+   branch `rust-engine-ui` stacked on `rust-engine`, so it can be dropped without touching
+   anything else.
