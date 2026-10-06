@@ -378,6 +378,9 @@ export interface TreeNode {
   /** Stored choices for editing; scope above shows current effective rights. */
   configured_scope?: NodeScope
   ui_order: number
+  /** Native sibling tie-breaks, also used before a move is confirmed. */
+  created?: string
+  ord?: number
   cost_usd: number
   cost_usd_unknown?: boolean
   occupancy: number | null

@@ -14,6 +14,7 @@ import './lightbox'
 import { renderHtmlResponses } from './htmlresponse'
 // the native bridge, for revealing a local file link in the OS file manager
 import { desktop } from '../desktop'
+import { siblingOrder } from '../treeorder'
 import { onLiveBump } from '../livebus'
 import { fmtFull, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
@@ -1474,7 +1475,8 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
 export type PendingMoves = ReadonlyMap<string, string | null>
 
 /** `tree` with every pending move applied, in order: the node leaves its
- *  current parent and is appended, subtree and all, under the new one. A move
+ *  current parent and joins its new siblings at the server's order key,
+ *  subtree and all. A move
  *  the tree cannot honour — an unknown node or parent, or a parent inside the
  *  node's own subtree — is skipped, so no card is ever lost. The input tree is
  *  never mutated; untouched branches keep their object identity. */
@@ -1504,11 +1506,16 @@ export function withPendingMoves(tree: TreePayload, moves: PendingMoves): TreePa
       })
       return changed ? out : kids
     }
+    const insert = (kids: TreeNode[]): TreeNode[] => {
+      const before = kids.findIndex((k) => siblingOrder(node, k) < 0)
+      const at = before < 0 ? kids.length : before
+      return [...kids.slice(0, at), node, ...kids.slice(at)]
+    }
     const into = (kids: TreeNode[]): TreeNode[] => kids.map((k) => k.id === parent
-      ? { ...k, children: [...k.children, node] }
+      ? { ...k, children: insert(k.children) }
       : (find(k.children, parent!) ? { ...k, children: into(k.children) } : k))
     roots = without(roots)
-    roots = parent === null ? [...roots, node] : into(roots)
+    roots = parent === null ? insert(roots) : into(roots)
   }
   return roots === tree.roots ? tree : { ...tree, roots }
 }

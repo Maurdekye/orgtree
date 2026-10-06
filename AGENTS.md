@@ -480,6 +480,12 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
 
 ### Desktop and renderer
 
+- **Move previews preserve sibling order:** native moves retain `ui_order`, creation
+  time and ordinal. Record projection and pending moves share the comparator in
+  `treeorder.ts` (then Python Unicode name order); keep the tie-break fields on the
+  projected node so row and circular previews match confirmation. [verified-from-source
+  2026-10-06: `orgdb/native_move.py`, `orgdb/agents.py`, renderer `recordprojection.ts`,
+  `canvas/shared.ts`]
 - **Circular layout order:** in the circular org chart, siblings (rings, the agents list and
   the floating jump cards) follow tree order counterclockwise; never sort them by x/y
   position. Only the row layout orders siblings by position. Jump-card adjacency uses

@@ -3,6 +3,7 @@ import type { FeedCursor, RecordTable } from './recordfeed'
 import type { RuntimeTable, RuntimeValue } from './recordoverlay'
 import { hydrateTree } from './archived'
 import type { AppFeedState, RegistryOrg } from '../../../../packages/contracts/app-feed'
+import { siblingOrder } from './treeorder'
 
 export interface TreeRecordInputs {
   runtime?: RuntimeTable
@@ -30,16 +31,6 @@ function header(records: RecordTable): Omit<TreePayload, 'roots'> {
   return top as unknown as Omit<TreePayload, 'roots'>
 }
 
-// Python sorts Unicode code points; localeCompare and UTF-16 order disagree.
-function textOrder(a: string, b: string): number {
-  const x = Array.from(a), y = Array.from(b)
-  for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    const order = x[i]!.codePointAt(0)! - y[i]!.codePointAt(0)!
-    if (order) return order
-  }
-  return x.length - y.length
-}
-
 /** Bodies are set-independent Python display values. Topology/counts are
  * projected from the DISTINCT held records, including subscription-only seats.
  */
@@ -64,9 +55,7 @@ export function projectTree(records: RecordTable, inputs: TreeRecordInputs = {})
   }
   for (const siblings of children.values()) siblings.sort((a, b) => {
     const x = nodes.get(a) as AgentRecord, y = nodes.get(b) as AgentRecord
-    return (x.ui_order ?? x.sibling_order ?? 0) - (y.ui_order ?? y.sibling_order ?? 0)
-      || textOrder(x.created ?? '', y.created ?? '')
-      || (x.ord ?? 0) - (y.ord ?? 0) || textOrder(x.id, y.id)
+    return siblingOrder(x, y)
   })
   // Partial sets may have missing parents; cycles among held records are still invalid.
   const checked = new Set<string>()
@@ -87,11 +76,12 @@ export function projectTree(records: RecordTable, inputs: TreeRecordInputs = {})
     if (!row) throw new Error('Feed tree is missing a node')
     seen.add(id)
     const { parent_id: _parent, sibling_order: _order, retired_children_total: total,
-      ord: _ordinal, name: _name, ...fields } = row
+      name: _name, ...fields } = row
     const parent = row.parent_id === null ? null : (nodes.get(row.parent_id) as AgentRecord | undefined)?.id ?? null
     const overlay: Readonly<Record<string, unknown>> = inputs.runtime?.get(id) ?? {}
     const { epoch: _epoch, seq: _seq, ask_linger_visible: linger, ...runtime } = overlay ?? {}
     return { ...fields, ...runtime, ...(linger === false ? { ask: null } : {}), parent,
+      ui_order: row.ui_order ?? row.sibling_order ?? 0,
       ...(total === undefined ? {} : { hidden_retired_children: hidden(total, heldRetired.get(id) ?? 0) }),
       children: (children.get(id) ?? []).map(build) } as TreeNode
   }

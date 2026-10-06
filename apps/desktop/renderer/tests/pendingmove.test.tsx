@@ -28,9 +28,10 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
-import { NODE_H, NODE_W, treeParents, withPendingMoves } from '../src/canvas/shared'
+import { NODE_H, NODE_W, setChartLayout, treeParents, withPendingMoves } from '../src/canvas/shared'
 import type { OpRequest } from '../src/canvas/shared'
 import type { TreeNode, TreePayload } from '../src/types'
+import { projectTree } from '../src/recordprojection'
 
 const W = window as unknown as Window & typeof globalThis
 const asTree = (v: unknown) => v as TreePayload
@@ -67,6 +68,47 @@ function tree(roots: unknown[]): TreePayload {
 const before = () => tree([mkNode('boss', [mkNode('a', [mkNode('x', [mkNode('xk')])]), mkNode('b')])])
 const after = () => tree([mkNode('boss', [mkNode('a'), mkNode('b', [mkNode('x', [mkNode('xk')])])])])
 const elsewhere = () => tree([mkNode('boss', [mkNode('a'), mkNode('b'), mkNode('x', [mkNode('xk')])])])
+
+// Real feed projection: the move changes the parent link, never the order key.
+function orderedFixture(kind: 'order' | 'created' | 'ordinal' | 'name' = 'order', top = false) {
+  const ids = kind === 'name' ? ['a', '\ue000', '\u{10000}'] : ['left', 'x', 'right']
+  const rows = new Map<string, unknown>([
+    ['old', { ...mkNode('old') as TreeNode, parent_id: null, ui_order: -10 }],
+    ['target', { ...mkNode('target') as TreeNode, parent_id: null, ui_order: -5 }],
+    ...ids.map((id, i): [string, unknown] => [String(i), {
+      ...mkNode(id) as TreeNode, parent_id: i === 1 ? 'old' : top ? null : 'target',
+      ui_order: kind === 'order' ? i : 0,
+      created: kind === 'created' ? String(i) : 'same',
+      // Names deliberately disagree with ordinal (right before x by name).
+      ord: kind === 'ordinal' ? i : 0,
+    }]),
+    ['child', { ...mkNode('child') as TreeNode, parent_id: '1' }],
+  ])
+  const records = new Map([['org', new Map<string, unknown>([['org', tree([])]])], ['agent', rows]])
+  const initial = projectTree(records)
+  const confirmedRows = new Map(rows).set('1', {
+    ...(rows.get('1') as object), parent_id: top ? null : 'target',
+  })
+  const confirmed = projectTree(new Map(records).set('agent', confirmedRows))
+  return { initial, confirmed, moved: ids[1]!, ids, parent: top ? null : 'target' }
+}
+
+for (const kind of ['order', 'created', 'ordinal', 'name'] as const) {
+  for (const top of [false, true]) test(`preview matches confirmed ${kind} ordering at ${top ? 'root' : 'child'} level`, () => {
+    const { initial, confirmed, moved, ids, parent } = orderedFixture(kind, top)
+    const snapshot = JSON.stringify(initial)
+    const preview = withPendingMoves(initial, new Map([[moved, parent]]))
+    const siblings = (t: TreePayload) => top ? t.roots : t.roots.find(n => n.id === parent)!.children
+    const want = top ? ['old', 'target', ...ids] : ids
+    assert.deepEqual(siblings(confirmed).map(n => n.id), want, 'independent expected order qualifies fixture')
+    assert.deepEqual(siblings(preview).map(n => n.id), want)
+    assert.deepEqual([...treeParents(preview)], [...treeParents(confirmed)])
+    assert.equal(JSON.stringify(initial), snapshot, 'preview does not mutate the server tree')
+    assert.equal(withPendingMoves(initial, new Map()), initial, 'cleared override restores original order')
+    assert.deepEqual(siblings(withPendingMoves(confirmed, new Map([[moved, parent]]))).map(n => n.id), want,
+      'an agreeing feed received while the operation is pending does not reorder again')
+  })
+}
 
 // ------------------------------------------------------------ §1 transform
 test('§1 withPendingMoves moves the whole subtree and leaves other branches alone', () => {
@@ -171,6 +213,41 @@ async function settledAt(t: TestContext, payload: TreePayload, id: string) {
   const p = at(m.el, id)
   await m.v.unmount()
   return p
+}
+
+for (const mode of ['row', 'circular'] as const) {
+  for (const success of [true, false]) test(`${mode}: middle move ${success ? 'keeps its confirmed position' : 'rolls back on refusal'}`, async (t) => {
+    useFakeClock(); t.after(realClock)
+    setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
+    const { initial, confirmed } = orderedFixture()
+    const want = await settledAt(t, confirmed, 'x')
+    const was = await settledAt(t, initial, 'x')
+    assert.ok(!near(want, was), 'fixture changes position')
+    let resolve!: (v: unknown) => void, reject!: (e: Error) => void
+    const m = await mountCanvas(t, initial, () => new Promise((yes, no) => { resolve = yes; reject = no }))
+    await drag(m.el, 'x', 'target')
+    assert.deepEqual(m.ops, [{ op: 'demote', node: 'x', new_parent: 'target' }])
+    await advance(3000, 50)
+    assertAt(at(m.el, 'x'), want, 'pending move is already in the middle, not appended')
+    await inAct(() => (m.el.querySelector('.tray-toggle') as HTMLElement).click())
+    await flush()
+    const listOrder = () => [...m.el.querySelectorAll('.tray-row')]
+      .map(row => row.getAttribute('data-copy-agent-name'))
+    const movedOrder = ['old', 'target', 'left', 'x', 'child', 'right']
+    assert.deepEqual(listOrder(), movedOrder, 'agents list follows the same preview')
+    if (success) {
+      await inAct(() => resolve({}))
+      await m.show(confirmed)
+      await advance(3000, 50)
+      assertAt(at(m.el, 'x'), want, 'confirmation does not move the card')
+      assert.deepEqual(listOrder(), movedOrder, 'confirmation does not reorder the list')
+    } else {
+      await inAct(() => reject(new Error('move refused')))
+      await advance(3000, 50)
+      assertAt(at(m.el, 'x'), was, 'failure restores the original parent and position')
+      assert.deepEqual(listOrder(), ['old', 'x', 'child', 'target', 'left', 'right'])
+    }
+  })
 }
 
 test('§2 a dropped card sits under its new parent before the op answers', async (t) => {
