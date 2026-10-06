@@ -303,10 +303,10 @@ toast saying this engine does not support it.
 
 | # | Today | After the rewrite |
 |---|---|---|
-| B1 | Lineage stack: knowledge bearers (`agent@3`) as separate archived nodes after cheap compact or a cross-provider switch; "Show lineage"; rehire or consult an old generation | Removed. Cheap compact and cross-provider switches start a fresh session on the **same** agent; the previous session's transcript is saved as a file in the agent's scratch folder; "Show lineage" shows nothing |
-| B2 | Prompt-cache forecast badge on cards and desk (ready / not ready / unknown, expiry countdown, changed parts, send warnings) | Kept (§5). Cache keep-alive pings that kept an idle agent's cache warm are not kept |
+| B1 | Lineage stack: knowledge bearers (`agent@3`) as separate archived nodes after cheap compact or a cross-provider switch; "Show lineage"; rehire or consult an old generation | Removed. Cheap compact and cross-provider switches continue on the **same** agent on a fresh session that starts with a handoff note (last status, recent conversation); the whole desk history is saved as a file in the agent's folder (decision 43). No "gen N" button, lineage panel or "Show lineage" |
+| B2 | Prompt-cache forecast badge on cards and desk (ready / not ready / unknown, expiry countdown, changed parts, send warnings) | Kept (§5), also on idle agents and across engine restarts (the last receipt and prompt fingerprint are stored). Cache keep-alive pings that kept an idle agent's cache warm are not kept |
 | B3 | MCP tool-count badge and "waiting for MCP tools" state | Kept. Orgtree's own tools are always ready (served by the engine); external MCP servers granted to an agent (from your `~/.claude.json` registry) are tracked per process: the engine reads each server's connection state from the CLI (init report and `mcp_status` queries), shows the waiting state while any is still connecting, and, with "wait for MCP tools" on, holds a fresh process's first prompt until they connect or fail (bounded wait) |
-| B4 | Warm-process indicators; every live agent keeps a parked CLI from boot | Process indicator shows whether a CLI is currently running. CLIs start on demand and stay up 10 minutes after a turn (max 64 idle). Desk start/stop control: start pre-launches the CLI, stop closes it |
+| B4 | Warm-process indicators; every live agent keeps a parked CLI from boot | As in 3.x (decision 42): every live agent's CLI starts at engine start and on hire and stays parked between turns; at most 64 idle CLIs (longest idle closed first); warming pauses below 6 GB of free commit memory. Desk start/stop control kept |
 | B5 | Codex "luna" reserve-pool routing (prefer reserve first, reserve card, `gpt-reserve`) | Removed; luna runs on its model directly. The "prefer reserve" switch is not shown (decision 31) |
 | B6 | Remote control (hand a session to claude.ai / mobile) | Removed; the control is refused |
 | B7 | Org inbox card and network hub chips on the canvas | Kept (see D2) |
@@ -384,7 +384,7 @@ toast saying this engine does not support it.
 | I2b | Org settings: account fallback default, org-inbox multi-holder, network hubs and autoconnect | Kept |
 | I2c | Org settings: cheap-compact before auto-resume, headless | Inert |
 | I3 | Runtime: max concurrent turns, turn time limits | Kept |
-| I4 | Runtime: "keep agents warm" | Repurposed: on = keep CLIs alive for 10 minutes between turns (B4); off = close after each turn. Its hint says so |
+| I4 | Runtime: "keep agents warm" | "keep agent processes warm" works as in 3.x (B4, decision 42); off = close each CLI after its turn |
 | I5 | Runtime: wait for MCP tools | Kept (see B3) |
 | I5b | Runtime: git periodic fetch, working checkups, idle docket reminders, blocked docket reminders, include account selection when requesting staffing | Inert |
 | I6 | Charters (presets, user folder, external template folders), org.md, hire defaults, app defaults | Kept |

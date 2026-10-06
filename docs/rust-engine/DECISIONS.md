@@ -89,6 +89,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     every subscription account of a provider at once. An inactive account serves no new turn: a
     running turn finishes, its agents' mail waits until the account is active again or they move
     to another account, and hiring and account fallback skip it.
+42. **CLIs are warmed as in 3.x** (user 2026-10-07, "clis still aren't warmed"; supersedes the "no
+    parked CLI per agent" part of decision 28 and the plan's 10-minute keep-alive, ledger B4): every
+    live agent's CLI starts at engine start and on hire, and stays parked between turns. Two limits
+    remain: at most 64 idle CLIs (the longest idle closed first), and warming pauses while the machine
+    has under 6 GB of free commit memory.
+43. **Keep as much agent context as possible across provider, account and model switches** (user
+    2026-10-07): a model switch resumes the session; an account switch carries the Claude transcript or
+    the Codex thread to the new account; a provider switch, or a session that cannot be resumed, starts
+    a fresh session with a handoff note (last status and a summary of the recent conversation) and the
+    agent's whole desk history saved as a file in its folder.
+44. **The orgtree org finishes the interrupted 3.2.0 work that still applies to 4.0** (user 2026-10-07):
+    it inventories the tickets that were open when the rewrite began, classifies them against 4.0, and
+    hands the relevant ones in as branches off `rust-engine` for review and merge (decision 39 terms).
 
 ## Verification during the build
 
