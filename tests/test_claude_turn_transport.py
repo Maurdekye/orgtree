@@ -210,6 +210,7 @@ class TransportTests(unittest.TestCase):
         wp, reason, discarded = self.admission(self.one)
         self.assertIsNotNone(wp)
         self.assertEqual(reason, 'warm-hit')
+        self.assertTrue(self.tokens, 'warm admission must install an authenticated transport')
         self.assertEqual(ctx.verify(self.tokens[-1], lambda owner: self.host.key), self.one)
         self.assertTrue(self.end())
         self.host.closed.add(self.one.request_id)
@@ -218,6 +219,30 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(reason, 'warm-hit')
         self.assertEqual(ctx.verify(self.tokens[-1], lambda owner: self.host.key), self.two)
         self.assertFalse(discarded)
+
+    def test_production_admission_does_not_reuse_previous_run_credential(self):
+        self.begin(self.one)
+        self.assertTrue(self.end())
+        self.host.closed.add(self.one.request_id)
+        wp, reason, discarded = self.admission(self.two)
+        self.assertIsNotNone(wp)
+        self.assertEqual(ctx.verify(self.tokens[-1], lambda owner: self.host.key), self.two,
+                         'a warm hit must not keep the previous MCP run credential')
+
+    def test_actual_http_gate_refuses_late_old_transport_and_missing_parent_token(self):
+        from test_orgdb_turn_hooks import function, Refused
+        body = SimpleNamespace(org='example', node='worker')
+        self.host.key_for = lambda owner: self.host.key
+        api = function('api.py', 'agent_call', {
+            'USER': 'user', 'HTTPException': Refused,
+            '_agent_call_in_run': lambda *a: ctx.current()})
+        self.host.closed.add(self.one.request_id)
+        with patch.object(turn_runtime, 'current', return_value=self.host):
+            for token, status in ((None, 403), (self.host.credential(self.one), 409)):
+                with self.assertRaises(Refused) as caught:
+                    api(body, SimpleNamespace(headers={ctx.HEADER: token}))
+                self.assertEqual(caught.exception.status, status)
+            self.assertEqual(api(body, SimpleNamespace(headers={ctx.HEADER: self.host.credential(self.two)})), self.two)
 
     def test_production_admission_never_uses_an_unacknowledged_child(self):
         wp, reason, discarded = self.admission(self.one, ack=False)
