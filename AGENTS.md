@@ -117,6 +117,8 @@ This first version was compiled on 2026-10-05 at `6e53697`, before the developme
 
 ## Read this first
 
+> **3.x Python engine — legacy.** For 4.0.0 work use [Orgtree 4.0.0: read this first](#orgtree-400-rust-engine-read-this-first); rules 2, 3, 8, 9 and 10 below still apply. (2026-10-06)
+
 These rules prevent the mistakes that have cost the most: lost work, a crashed machine,
 wrong test verdicts and re-argued decisions.
 
@@ -188,6 +190,8 @@ No payload contents are logged. [verified 2026-10-06: `profiling.py`, `record_ap
 
 ## What Orgtree is, and where it stands
 
+> The product description still holds. The 3.2.0 status below is **legacy**: the user stopped the 3.2.0 Python track on 2026-10-06 18:53Z; current work is 4.0.0 ([PLAN.md](docs/rust-engine/PLAN.md)).
+
 Claude warm reuse rotates the Orgtree MCP child at a quiescent turn boundary:
 one child keeps one immutable run claim; the parked CLI carries no turn token.
 New-child authentication and an unchanged tool-list digest precede the prompt;
@@ -242,6 +246,8 @@ coordinator 2026-10-06; verified: `claude_transport.py`, `supervisor.py`]
   ticket `v3-storage-keep-indexed-fields-in-real-postgresq`, decisions 23 and 34]
 
 ## Architecture
+
+> **3.x Python engine — legacy.** 4.0.0's architecture is [PLAN.md §1–§4](docs/rust-engine/PLAN.md). (2026-10-06)
 
 - **App registry locks and restore boundary:** app migration `0005_app_feed.sql`
   owns the deferred registry revision update; lifecycle writers never acquire that
@@ -384,6 +390,8 @@ end of this section says so.
   `orgtree.events.emit_typescript()`. [verified]
 
 ## Design rules and invariants
+
+> **3.x Python engine — legacy** (the 3.2.0 per-org data model, `org_tx` lock order, revision row, jobs). 4.0.0 has its own rules: see the 4.0.0 section and [PLAN.md §2.2](docs/rust-engine/PLAN.md). The history-must-cost-nothing goal and the halt and privilege rules carry over. (2026-10-06)
 
 Break one of these and the damage is usually silent until it reaches real data. "§" refers
 to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
@@ -620,6 +628,8 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
 
 ## Product rulings
 
+> Still binding for 4.0.0 except where [PLAN.md §10](docs/rust-engine/PLAN.md) or [DECISIONS.md](docs/rust-engine/DECISIONS.md) changes them (e.g. no lineage nodes, lean docket without review machinery, `orgtree_send_notice` → `orgtree_message notice:true`). (2026-10-06)
+
 The user's standing rulings about how Orgtree behaves. The older ones (up to 2026-09-15)
 are recorded in full in [`docs/v2-user-decisions.md`](docs/v2-user-decisions.md); new
 rulings go here and on their ticket.
@@ -729,6 +739,8 @@ rulings go here and on their ticket.
 
 ## Development workflow
 
+> **3.x Python engine — legacy** (branch `dev`, P03 lock, test baseline, Python runner, source audits, push and ls-remote). For 4.0.0: local `rust-engine` branch, hand-in through the coordinator, no unit-test suites, never push — see the 4.0.0 section. (2026-10-06)
+
 ### Branches and worktrees
 
 - **Development branch changed to `dev`** on 2026-10-05, created from v3.
@@ -833,6 +845,8 @@ Never rewrite pushed history or force-push. [decided: team charter; user 2026-10
 
 ## Releases, builds and updates
 
+> **3.x — legacy.** 4.0.0 prototype builds (`4.0.0-alpha.N`) are built and installed by the user only ([DECISIONS 37–38](docs/rust-engine/DECISIONS.md)). (2026-10-06)
+
 - Only the coordinator and the release owner it names build, tag, publish or install.
   [decided: team charter]
 - **No build or publish until the whole 3.2.0 rewrite has landed**, apart from local alpha
@@ -897,6 +911,8 @@ commands. [verified: incidents 2026-08-26 to 2026-10-05]
 
 ## Gotchas in Orgtree's own agent tools
 
+> Written against the 3.x engine's tools. Under 4.0.0 the tool set and docket changed ([PLAN.md §6, §10 F and P](docs/rust-engine/PLAN.md)): no reservations, review seats, `approve_stage`, acceptance checks or relaunch tools. (2026-10-06)
+
 Agents that build Orgtree also run on it; these bite repeatedly. [verified: agents' notes
 2026-08 to 2026-10]
 
@@ -926,7 +942,8 @@ Do not rebuild, re-propose or "restore" these without a new ruling from the user
 | Per-org Docker sandbox, org disk, bridge, frozen profile | Removed on v3 for 3.2.0. The converter keeps the org-level `sandbox` key for the credential catch-up. Codex's and Antigravity's own CLI sandboxes are different and stay | [decided: user 2026-10-02] `3f379f4`, `ab95345` |
 | Orgtree v1 import | Deprecated: the App settings Import tab is gone; the engine's import routes are still present, pending removal. The 2.x first-launch conversion stays | [decided: user 2026-09-29] `e2a112f` |
 | SQLite as primary storage | Replaced by PostgreSQL in 3.0. SQLite remains for side stores (transcript records, chat-window index, the mail hub) and for converting 2.x data | [decided: user 2026-09-25] |
-| A Rust port of the engine | Deferred, not ruled out; one consolidated backlog ticket and the store branches are kept | [decided: user 2026-09-27, 2026-09-28, 2026-10-01] |
+| A Rust port of the engine | **Superseded 2026-10-06:** Orgtree 4.0.0 is a ground-up Rust engine (`engine/rs/`), designed from the renderer's contract, not a port of the Python code or of the shelved `engine/native/store*` prototype | [decided: user 2026-10-06, DECISIONS 1–2; earlier deferral 2026-09-27 to 2026-10-01] |
+| The 3.2.0 Python data-model rewrite (per-org databases, `org_tx` lock order, record feed in Python) | Stopped; 4.0.0 replaces it. The 3.x sections of this file describe it as legacy | [decided: user 2026-10-06 18:53Z] |
 | Windows service mode | Dropped; boot start stays the scheduled-task host | [decided: user 2026-09-29] |
 | A bounded pool of warm processes | Not built; warming is a user setting | [decided: user 2026-09-26] |
 | A separate "Orgtree Private Alpha" app identity | Dropped: v3 installs as normal Orgtree over 2.x | [decided: user 2026-09-28] |
