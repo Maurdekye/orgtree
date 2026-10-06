@@ -89,6 +89,10 @@ pub async fn chat(
         None => None,
     };
     let live = live.unwrap_or_else(|| LiveView { draft_epoch: format!("{}.idle:0", e.boot.id), ..LiveView::default() });
+    // an agent imported from 3.x gets its earlier history the first time
+    if let Err(err) = crate::runtime::history::ensure(&e, a.id).await {
+        tracing::warn!(agent = a.id, error = %format!("{err:#}"), "earlier history could not be imported");
+    }
     let client = e.db.get().await?;
     let before = q.before.as_deref().and_then(|b| b.parse::<i64>().ok());
     let after = q.after.as_deref().and_then(convo::parse_after);

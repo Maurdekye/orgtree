@@ -218,13 +218,7 @@ pub fn tool_arg(name: &str, input: &Value) -> String {
         "TodoWrite" => Some("todos".into()),
         _ => None,
     };
-    let s = s.unwrap_or_else(|| {
-        let mut v = input.to_string();
-        if v.len() > 300 {
-            v.truncate(300);
-        }
-        v
-    });
+    let s = s.unwrap_or_else(|| input.to_string().chars().take(300).collect());
     crate::util::gist(&s, 300)
 }
 

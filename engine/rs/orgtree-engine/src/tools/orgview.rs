@@ -273,6 +273,9 @@ pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value
     if t.id != me.id {
         downward(&client, &me, &t, "read the transcript of").await?;
     }
+    if let Err(err) = crate::runtime::history::ensure(engine, t.id).await {
+        tracing::warn!(agent = t.id, error = %format!("{err:#}"), "earlier history could not be imported");
+    }
     let page = crate::runtime::convo::read(&client, t.id, last, None, None).await?;
     let mut out = String::new();
     for m in page.messages {

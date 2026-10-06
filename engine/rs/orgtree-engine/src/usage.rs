@@ -536,3 +536,114 @@ pub async fn apikey_spend(engine: &Engine, account: &str) -> Value {
     };
     json!({ "available": true, "mode": "apikey", "currency": "USD", "spend": spend, "limits": [] })
 }
+
+// ------------------------------------------------------------ what the windows read
+
+/// One registry account's readout and standing (`registered_usage[id]`).
+#[logged]
+pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force: bool) -> Value {
+    // a scratch copy's accounts can name another data folder's sign-ins (the
+    // live install's): a safe-start engine never reads or refreshes those
+    let foreign = a.config_dir.as_deref().map(|d| {
+        let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        !canon(Path::new(d)).starts_with(canon(&engine.cfg.data_root))
+    });
+    if crate::mailhub::safe_start() && foreign == Some(true) {
+        return json!({ "available": false, "account": a.id, "provider": a.provider, "label": a.display(),
+                       "error": "not read in safe start: this account's sign-in belongs to another data folder" });
+    }
+    let mut u = if a.is_apikey() {
+        apikey_spend(engine, &a.id).await
+    } else {
+        match a.provider.as_str() {
+            "claude" => claude(engine, a.config_dir.as_deref(), force).await,
+            "openai" => codex(engine, &a.id, a.config_dir.as_deref(), force).await,
+            "google" => antigravity(engine, force).await,
+            _ => json!({ "available": false }),
+        }
+    };
+    let row = crate::accounts::row(a, Vec::new(), chrono::Utc::now());
+    u["account"] = json!(a.id);
+    u["label"] = json!(a.display());
+    u["provider"] = json!(a.provider);
+    u["standing"] = row["standing"].clone();
+    u["enabled"] = json!(a.enabled);
+    u
+}
+
+/// Push a lane's readout and its cache-only peek to every window.
+#[logged]
+pub fn publish(engine: &Engine, lane: &str, value: &Value) {
+    let (key, peek_key, cache, provider) = match lane {
+        "claude" => ("usage", "usage_peek", claude_key(None), "claude"),
+        "openai" => ("codex_usage", "codex_usage_peek", codex_key(None), "openai"),
+        "google" => ("antigravity_usage", "antigravity_usage_peek", "agy".to_string(), "google"),
+        "openrouter" => ("openrouter_usage", "openrouter_usage_peek", "openrouter".to_string(), "openrouter"),
+        _ => return,
+    };
+    engine.app.set_value(key, value.clone());
+    engine.app.set_value(peek_key, engine.usage.peek(&cache, provider));
+}
+
+/// Keep the usage the windows show fresh: the four provider lanes, their
+/// peeks (the usage button's glow) and every registered account. The
+/// windows never poll; they read these pushed values.
+#[logged]
+pub fn start(engine: &std::sync::Arc<Engine>) {
+    let eng = engine.clone();
+    tokio::spawn(async move {
+        let mut last: std::collections::HashMap<&'static str, Instant> = std::collections::HashMap::new();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        loop {
+            publish_due(&eng, &mut last).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                _ = eng.shutdown.cancelled() => break,
+            }
+        }
+    });
+}
+
+#[logged]
+async fn publish_due(engine: &Engine, last: &mut std::collections::HashMap<&'static str, Instant>) {
+    let due = |last: &std::collections::HashMap<&'static str, Instant>, k: &str, every: u64| {
+        last.get(k).map(|t| t.elapsed() >= Duration::from_secs(every)).unwrap_or(true)
+    };
+    let st = engine.providers.state.load_full();
+    if st.claude.installed && due(last, "claude", 120) {
+        let v = claude(engine, None, false).await;
+        publish(engine, "claude", &v);
+        last.insert("claude", Instant::now());
+    }
+    if st.codex.installed && due(last, "openai", 300) {
+        let v = codex(engine, "openai/primary", None, false).await;
+        publish(engine, "openai", &v);
+        last.insert("openai", Instant::now());
+    }
+    if st.agy.installed && due(last, "google", 300) {
+        let v = antigravity(engine, false).await;
+        publish(engine, "google", &v);
+        last.insert("google", Instant::now());
+    }
+    let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
+    if due(last, "openrouter", 300) {
+        if key_set {
+            let v = openrouter(engine, false).await;
+            publish(engine, "openrouter", &v);
+        }
+        crate::openrouter::publish(engine).await;
+        last.insert("openrouter", Instant::now());
+    }
+    if due(last, "registered", 300) {
+        let view = engine.accounts.view();
+        let accounts: Vec<crate::accounts::AccountInfo> =
+            view.all().into_iter().filter(|a| a.provider != "openrouter" && !crate::accounts::is_ambient(a)).cloned().collect();
+        drop(view);
+        let mut map = serde_json::Map::new();
+        for a in &accounts {
+            map.insert(a.id.clone(), registered(engine, a, false).await);
+        }
+        engine.app.set_value("registered_usage", Value::Object(map));
+        last.insert("registered", Instant::now());
+    }
+}

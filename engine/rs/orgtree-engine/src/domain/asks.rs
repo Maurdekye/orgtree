@@ -416,6 +416,19 @@ async fn open_by(tx: &Transaction<'_>, org_id: i64, uid: Option<&str>, agent: Op
     Ok(Open { uid: r.get(0), agent_id: r.get(1), agent: r.get(2), rev: r.get(3), parts: Parts::of(&r.get::<_, Value>(4)) })
 }
 
+/// A tab's chosen values, trimmed, empty ones dropped.
+fn chosen(a: &Value) -> Vec<String> {
+    match a {
+        Value::String(s) => Some(s.trim().to_string()).filter(|s| !s.is_empty()).into_iter().collect(),
+        Value::Array(list) => list.iter().filter_map(|x| x.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn header(q: &Value) -> Value {
+    q.get("header").and_then(Value::as_str).filter(|h| !h.is_empty()).map(|h| json!(h)).unwrap_or(Value::Null)
+}
+
 fn answer_text(q: &Value, a: &Value) -> String {
     let shown = match a {
         Value::Null => "(skipped)".to_string(),
@@ -437,6 +450,7 @@ async fn settle(
     status: &str,
     answer: Value,
     text: String,
+    ev: Option<Value>,
 ) -> Result<String> {
     tx.execute(
         "UPDATE ot.asks SET status = $2, resolved_at = now(), answer = $3 WHERE uid = $1",
@@ -446,6 +460,7 @@ async fn settle(
     tx.commit().await?;
     let mut out = Outgoing::new(From::User, &open.agent, &text);
     out.kind = "decision".into();
+    out.ev = ev;
     let sent = mail::send(engine, org.id, out).await?;
     let client = engine.db.get().await?;
     client.execute("UPDATE ot.asks SET answer_mail = $2 WHERE uid = $1", &[&open.uid, &sent.uid]).await?;
@@ -470,7 +485,15 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
             "The user dismissed your request without answering:\n\n{}",
             open.parts.questions.iter().map(render_question).collect::<Vec<_>>().join("\n\n")
         );
-        let node = settle(engine, org, tx, &open, "dismissed", json!({ "dismissed": true }), text).await?;
+        let qs: Vec<Value> = open
+            .parts
+            .questions
+            .iter()
+            .map(|q| json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""), "selected": [] }))
+            .collect();
+        let single = qs.len() <= 1;
+        let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, None, true, single);
+        let node = settle(engine, org, tx, &open, "dismissed", json!({ "dismissed": true }), text, Some(ev)).await?;
         return Ok(json!({ "answered": open.uid, "node": node }));
     }
     let selected = body["selected"].as_array().cloned().unwrap_or_default();
@@ -487,7 +510,20 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
         lines.push(format!("Note: {free}"));
     }
     let text = format!("The user answered your question:\n\n{}", lines.join("\n\n"));
-    let node = settle(engine, org, tx, &open, "answered", json!({ "selected": selected, "text": free }), text).await?;
+    let qs: Vec<Value> = open
+        .parts
+        .questions
+        .iter()
+        .enumerate()
+        .map(|(i, q)| {
+            json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""),
+                    "selected": chosen(&selected.get(i).cloned().unwrap_or(Value::Null)) })
+        })
+        .collect();
+    let single = qs.len() <= 1;
+    let note = Some(free.as_str()).filter(|f| !f.is_empty());
+    let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, note, false, single);
+    let node = settle(engine, org, tx, &open, "answered", json!({ "selected": selected, "text": free }), text, Some(ev)).await?;
     Ok(json!({ "answered": open.uid, "node": node }))
 }
 
@@ -553,10 +589,10 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
         let tx = client.transaction().await?;
         let open = open_by(&tx, org.id, Some(uid), None).await?;
         let msg = format!("The user granted credits: your grant is now {granted} (you asked for {asked}).");
-        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg).await?;
+        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg, None).await?;
         return Ok(json!({ "ok": true, "node": node, "warnings": warnings }));
     }
-    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text).await?;
+    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text, None).await?;
     Ok(json!({ "ok": true, "node": node, "warnings": warnings }))
 }
 
@@ -573,21 +609,36 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     }
     tx.rollback().await?;
     let mut sections = Vec::new();
+    let mut cards: Vec<Value> = Vec::new();
     // questions
     let answers = body["answers"].as_array().cloned().unwrap_or_default();
+    let mut asked = Vec::new();
     for (i, q) in open.parts.questions.iter().enumerate() {
-        sections.push(answer_text(q, &answers.get(i).cloned().unwrap_or(Value::Null)));
+        let a = answers.get(i).cloned().unwrap_or(Value::Null);
+        sections.push(answer_text(q, &a));
+        let picked = chosen(&a);
+        asked.push(json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""),
+                           "answer": if picked.is_empty() { Value::Null } else { json!(picked.join(" · ")) } }));
+    }
+    if !asked.is_empty() {
+        cards.push(json!({ "kind": "ask", "ask_id": open.uid, "questions": asked }));
     }
     // credits
     if let Some(c) = &open.parts.credit {
         let cd = &body["credits"];
+        let old = c["old"].as_f64().unwrap_or(0.0);
+        let wanted = c["new"].as_f64().unwrap_or(0.0);
         if let Some(g) = cd["granted"].as_f64() {
             grant_credits(engine, org, &open.agent, g).await?;
             sections.push(format!("Credits: granted — your grant is now {g} (you asked for {}).", c["new"]));
+            cards.push(json!({ "kind": "credit", "outcome": if (g - wanted).abs() < 1e-9 { "approved" } else { "counter" },
+                               "old": old, "asked": wanted, "granted": g, "now": g }));
         } else if cd["deny"].as_bool().unwrap_or(false) {
             sections.push(format!("Credits: denied (you asked for {}).", c["new"]));
+            cards.push(json!({ "kind": "credit", "outcome": "denied", "old": old, "asked": wanted, "granted": null, "now": old }));
         } else {
             sections.push("Credits: not decided; ask again if you still need them.".into());
+            cards.push(json!({ "kind": "credit", "outcome": "skipped", "old": old, "asked": wanted, "granted": null, "now": null }));
         }
     }
     // scope items, decided one by one
@@ -595,17 +646,27 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     if !items.is_empty() {
         let decisions = body["scope"].as_array().cloned().unwrap_or_default();
         let mut approved = Vec::new();
+        let mut decided = Vec::new();
+        let mut lines = vec![json!("[SCOPE REQUEST decided]")];
         for (i, it) in items.iter().enumerate() {
             let d = decisions.get(i).and_then(Value::as_str).unwrap_or("skip");
+            let d = if d == "approve" || d == "deny" { d } else { "skip" };
             sections.push(format!("{}: {}", item_label(it), match d {
                 "approve" => "granted",
                 "deny" => "denied",
                 _ => "not decided",
             }));
+            decided.push(json!({ "label": item_label(it), "decision": d }));
+            lines.push(json!(format!("- {} → {}", item_label(it), match d {
+                "approve" => "GRANTED — live from your next turn",
+                "deny" => "denied",
+                _ => "skipped (undecided — you may re-ask)",
+            })));
             if d == "approve" {
                 approved.push(it.clone());
             }
         }
+        cards.push(json!({ "kind": "scope", "decisions": decided, "lines": lines }));
         if !approved.is_empty() {
             apply_scope(engine, org, &open.agent, &approved).await?;
         }
@@ -614,7 +675,8 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     let tx = client.transaction().await?;
     let open = open_by(&tx, org.id, None, Some(agent)).await?;
     let text = format!("The user resolved your request:\n\n{}", sections.join("\n\n"));
-    let node = settle(engine, org, tx, &open, "answered", body.clone(), text).await?;
+    let ev = crate::events::answer_batch(&org.slug, &open.uid, &open.agent, cards);
+    let node = settle(engine, org, tx, &open, "answered", body.clone(), text, Some(ev)).await?;
     Ok(json!({ "resolved": open.uid, "node": node }))
 }
 

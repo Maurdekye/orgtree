@@ -647,7 +647,8 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
             .await;
             match fetched {
                 Ok(bytes) => {
-                    let path = dir.join(format!("net-{}-{safe}", &mid[..mid.len().min(8)]));
+                    let short: String = mid.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
+                    let path = dir.join(format!("net-{short}-{safe}"));
                     if std::fs::write(&path, &bytes).is_ok() {
                         attachments.push(json!({ "name": safe, "path": path.to_string_lossy(), "bytes": bytes.len() }));
                     } else {

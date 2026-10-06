@@ -186,6 +186,7 @@ async fn run_with_cluster(
     appfeed::start(&engine, app_inbox);
     accounts::start(&engine).await;
     providers::start(&engine);
+    usage::start(&engine);
     runtime::sched::start(&engine, sched_inbox);
     mailhub::start(&engine).await;
     net::start(&engine);

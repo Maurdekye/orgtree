@@ -817,7 +817,7 @@ mod win {
             vars.sort_by_key(|(k, _)| k.to_uppercase());
             let mut block: Vec<u16> = Vec::new();
             for (k, v) in vars {
-                if k.is_empty() || k[1..].contains('=') || k.contains('\0') || v.contains('\0') {
+                if k.is_empty() || k.chars().skip(1).any(|c| c == '=') || k.contains('\0') || v.contains('\0') {
                     continue;
                 }
                 block.extend(std::ffi::OsStr::new(&format!("{k}={v}")).encode_wide());

@@ -10,6 +10,7 @@ pub mod claude;
 pub mod codex;
 pub mod convo;
 pub mod freeze;
+pub mod history;
 pub mod prompt;
 pub mod sched;
 pub mod watchdogs;

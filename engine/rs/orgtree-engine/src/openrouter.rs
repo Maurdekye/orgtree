@@ -471,3 +471,10 @@ async fn key_info(engine: &Engine, _force: bool) -> Result<Map<String, Value>> {
     let body: Value = r.error_for_status()?.json().await?;
     Ok(body["data"].as_object().cloned().unwrap_or_default())
 }
+
+/// Push the lane's document (the OpenRouter panel reads it).
+#[logged]
+pub async fn publish(engine: &Engine) {
+    let d = doc(engine, false).await;
+    engine.app.set_value("openrouter", d);
+}

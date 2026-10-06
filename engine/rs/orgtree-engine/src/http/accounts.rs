@@ -364,7 +364,9 @@ pub async fn order(State(e): State<Arc<Engine>>, Json(b): Json<KeyOrder>) -> Api
 
 #[logged]
 pub async fn usage_claude(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
-    Json(usage::claude(&e, None, q.force).await)
+    let v = usage::claude(&e, None, q.force).await;
+    usage::publish(&e, "claude", &v);
+    Json(v)
 }
 
 #[logged]
@@ -374,7 +376,9 @@ pub async fn peek_claude(State(e): State<Arc<Engine>>) -> Json<Value> {
 
 #[logged]
 pub async fn usage_codex(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
-    Json(usage::codex(&e, "openai/primary", None, q.force).await)
+    let v = usage::codex(&e, "openai/primary", None, q.force).await;
+    usage::publish(&e, "openai", &v);
+    Json(v)
 }
 
 #[logged]
@@ -384,7 +388,9 @@ pub async fn peek_codex(State(e): State<Arc<Engine>>) -> Json<Value> {
 
 #[logged]
 pub async fn usage_agy(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
-    Json(usage::antigravity(&e, q.force).await)
+    let v = usage::antigravity(&e, q.force).await;
+    usage::publish(&e, "google", &v);
+    Json(v)
 }
 
 #[logged]
@@ -394,7 +400,9 @@ pub async fn peek_agy(State(e): State<Arc<Engine>>) -> Json<Value> {
 
 #[logged]
 pub async fn usage_openrouter(State(e): State<Arc<Engine>>, Query(q): Query<Force>) -> Json<Value> {
-    Json(usage::openrouter(&e, q.force).await)
+    let v = usage::openrouter(&e, q.force).await;
+    usage::publish(&e, "openrouter", &v);
+    Json(v)
 }
 
 #[logged]
@@ -453,27 +461,11 @@ pub async fn usage_one(State(e): State<Arc<Engine>>, Path(account): Path<String>
 
 /// `GET /api/accounts/{id}/usage`: a registry account's own readout and standing.
 #[logged]
-pub async fn usage_registered(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+pub async fn usage_registered(State(e): State<Arc<Engine>>, Path(id): Path<String>, Query(q): Query<Force>) -> ApiResult<Json<Value>> {
     let view = e.accounts.view();
     let a = view.get(&id).cloned().ok_or_else(|| ApiError::not_found(format!("no account {id}")))?;
-    let mut u = if a.is_apikey() {
-        usage::apikey_spend(&e, &a.id).await
-    } else {
-        match a.provider.as_str() {
-            "claude" => usage::claude(&e, a.config_dir.as_deref(), false).await,
-            "openai" => usage::codex(&e, &a.id, a.config_dir.as_deref(), false).await,
-            "google" => usage::antigravity(&e, false).await,
-            _ => json!({ "available": false }),
-        }
-    };
-    let now = chrono::Utc::now();
-    let row = crate::accounts::row(&a, Vec::new(), now);
-    u["account"] = json!(a.id);
-    u["label"] = json!(a.display());
-    u["provider"] = json!(a.provider);
-    u["standing"] = row["standing"].clone();
-    u["enabled"] = json!(a.enabled);
-    Ok(Json(u))
+    drop(view);
+    Ok(Json(usage::registered(&e, &a, q.force).await))
 }
 
 // ------------------------------------------------------------ OpenRouter
@@ -498,6 +490,7 @@ impl std::fmt::Debug for KeyBody {
 pub async fn openrouter_key(State(e): State<Arc<Engine>>, Json(b): Json<KeyBody>) -> ApiResult<Json<Value>> {
     crate::openrouter::set_key(&e, &b.key).await?;
     crate::providers::publish(&e);
+    crate::openrouter::publish(&e).await;
     Ok(Json(crate::openrouter::doc(&e, true).await))
 }
 
@@ -505,6 +498,7 @@ pub async fn openrouter_key(State(e): State<Arc<Engine>>, Json(b): Json<KeyBody>
 pub async fn openrouter_key_clear(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     crate::openrouter::clear_key(&e).await?;
     crate::providers::publish(&e);
+    crate::openrouter::publish(&e).await;
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
@@ -516,6 +510,7 @@ pub struct HarnessBody {
 #[logged]
 pub async fn openrouter_harness(State(e): State<Arc<Engine>>, Json(b): Json<HarnessBody>) -> ApiResult<Json<Value>> {
     crate::openrouter::set_harness(&e, &b.harness).await?;
+    crate::openrouter::publish(&e).await;
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }
 
@@ -555,5 +550,6 @@ pub async fn openrouter_favorite(State(e): State<Arc<Engine>>, Json(b): Json<Fav
     for o in e.orgs.all() {
         crate::changes::notify(&e, &o, vec![crate::changes::Change::Tiers]);
     }
+    crate::openrouter::publish(&e).await;
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }

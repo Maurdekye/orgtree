@@ -38,6 +38,25 @@ fn strings(v: &Value) -> Vec<String> {
     v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
 
+/// `answer.ask`: the user's answer to (or dismissal of) a question card. The
+/// desk retires its own queued "Request resolved" entry when this card, for
+/// the same ask id, arrives.
+pub fn answer_ask(org: &str, ask_id: &str, node: &str, questions: Vec<Value>, text: Option<&str>, dismissed: bool, single: bool) -> Value {
+    let mut o = envelope("answer.ask", actor(USER), json!({ "kind": "ask", "org": org, "id": ask_id, "node": node }));
+    o.insert("questions".into(), Value::Array(questions));
+    o.insert("text".into(), json!(text));
+    o.insert("dismissed".into(), json!(dismissed));
+    o.insert("single".into(), json!(single));
+    Value::Object(o)
+}
+
+/// `answer.batch`: a whole request (questions, credits, scope) resolved at once.
+pub fn answer_batch(org: &str, ask_id: &str, node: &str, sections: Vec<Value>) -> Value {
+    let mut o = envelope("answer.batch", actor(USER), json!({ "kind": "batch", "org": org, "id": ask_id, "node": node }));
+    o.insert("sections".into(), Value::Array(sections));
+    Value::Object(o)
+}
+
 pub fn work_item_ref(org: &str, slug: &str, title: &str) -> Value {
     json!({ "kind": "work_item", "org": org, "slug": slug, "title": title })
 }

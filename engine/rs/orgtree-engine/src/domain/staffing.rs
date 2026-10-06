@@ -411,3 +411,25 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
     }
     Ok(out)
 }
+
+/// `GET /api/orgs/{slug}/staffing-options`: the warm availability every
+/// staffing surface reads (hire modal, staff menus, model/account/effort
+/// selects): each tier this machine can staff, its efforts, its eligible
+/// accounts, and whether a hire naming no account can run it.
+#[logged]
+pub fn options(engine: &Engine) -> Value {
+    let tiers: Vec<Value> = runnable_tiers(engine)
+        .into_iter()
+        .filter_map(|t| {
+            let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, t.provider) };
+            let host = host_ready(engine, t.provider);
+            if accounts.is_empty() && !host {
+                return None;
+            }
+            Some(json!({ "tier": t.tier, "seat": t.seat, "provider": t.provider, "efforts": t.efforts,
+                         "accounts": accounts, "default_ok": host }))
+        })
+        .collect();
+    let at = Utc::now().timestamp_millis() as f64 / 1000.0;
+    json!({ "tiers": tiers, "at": at, "stale": false, "errors": [], "loading": false, "generation": 0 })
+}

@@ -138,6 +138,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/work-item-references", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-item-reference/{wid}", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-items-view", get(docket::view))
+        .route("/api/orgs/{slug}/staffing-options", get(docket::staffing_options))
+        .route("/api/orgs/{slug}/staffing-options/refresh", post(docket::staffing_options))
         .route("/api/orgs/{slug}/work-items", get(docket::view))
         .route("/api/orgs/{slug}/work-items/{wid}", get(docket::get))
         .route("/api/orgs/{slug}/work-items/{wid}/reply", post(docket::reply))
