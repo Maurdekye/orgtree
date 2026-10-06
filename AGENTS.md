@@ -7,6 +7,88 @@ docs instead of copying them. Codex reads `AGENTS.md`, and Claude Code reads it 
 repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: user
 2026-10-05]
 
+> **Since 2026-10-06 the app runs Orgtree 4.0.0, a Rust engine, built on the local branch
+> `rust-engine`.** Read [Orgtree 4.0.0: read this first](#orgtree-400-rust-engine-read-this-first)
+> below. Everything after it describes the 3.x Python engine and its procedures: it is
+> **legacy**, kept for reference and for the 3.x line, and does not apply to 4.0.0 work unless
+> the 4.0.0 section points to it. [decided: user 2026-10-06 18:53Z: the 3.2.0 Python track is
+> stopped]
+
+## Orgtree 4.0.0 (Rust engine): read this first
+
+The plan is [`docs/rust-engine/PLAN.md`](docs/rust-engine/PLAN.md) (§10 lists every user-facing
+difference from 3.x); the user's standing rulings are
+[`docs/rust-engine/DECISIONS.md`](docs/rust-engine/DECISIONS.md), numbered, and they override the
+plan and this file. Read both before you change anything. All entries below: 2026-10-06.
+
+**What it is**
+- One executable, `orgtree-engine.exe`, in the Cargo workspace `engine/rs/` (crates
+  `orgtree-engine` and the `orgtree-logged` macro). It replaces the whole Python engine; the
+  desktop and its UX contract stay. The Python engine stays in the tree untouched, so going back
+  is "run the old build". [verified: `engine/rs/`; decided: user, DECISIONS 1–3]
+- The desktop starts it from `resources/engine/orgtree-engine.exe` when packaged, or from
+  `ORGTREE_ENGINE_BIN` in development. [verified: `apps/desktop/main/index.ts`, `package.json`]
+- Storage: one database `orgtree_engine`, schema `ot`, in the bundled PostgreSQL cluster;
+  migrations are embedded in the binary (`engine/rs/orgtree-engine/migrations/`). At first start
+  it imports the 3.2 per-org databases **read-only**; the old databases and files are never
+  changed. [verified: `src/pg.rs`; PLAN §3, §8]
+- Engine log: one file per start, `<data>\diagnostics\logs\<start time>.log`, kept 30 days.
+  [verified: `src/trace.rs`; decided: user, DECISIONS 34–36]
+
+**Where and how to work** [decided: coordinator 2026-10-06, from the rust-engine session's terms;
+user, DECISIONS 39]
+- `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything
+  based on it. Make your own worktree from it, e.g.
+  `git worktree add -b <you>/<topic> .worktrees/<you>-<topic> rust-engine`. **Never edit
+  `.worktrees/rust-engine`**: that is the rust-engine session's own checkout.
+- **Hand-in:** rebase on the current `rust-engine`, then send the coordinator your branch name and
+  commit list; the coordinator passes it to the rust-engine session, which reviews and merges.
+  Bugs in 4.0.0 go the same way (agent, action, expected, actual, UTC time); check PLAN §10
+  first, since many differences are deliberate.
+- **Three kinds of change never share a commit:** the engine (`engine/rs/**`); desktop changes the
+  rewrite needs (launcher, packaging, boot task, renderer changes that follow from the feature
+  differences); and purely visual UI work, which goes on a separate branch `rust-engine-ui`
+  stacked on `rust-engine`. The canvas is not touched. [decided: user, DECISIONS 29–30; PLAN §12]
+- **Prototype restarts.** Every prototype install restarts Orgtree, which ends running turns and
+  kills every process agents started. Take only work that survives that: small committed steps,
+  no long-running jobs. When a build is announced, commit and end your turn. Stop any task that
+  restarts keep breaking. [decided: user, DECISIONS 39]
+- **Builds and installs are the user's.** Prototype builds are `4.0.0-alpha.N` (N counts
+  delivered builds), delivered as local installers. No agent builds, tags, publishes, installs or
+  restarts. [decided: user, DECISIONS 37–38]
+
+**Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
+`src/trace.rs`]
+- **No global locks of any kind.** State is owned, not shared: each running agent's state belongs
+  to its actor and changes only through messages on its channel; each org's feed is one task;
+  registries are lock-free maps. Database transactions are short, lock only the rows they change,
+  and never contain provider calls, file IO or process control. Every queue is bounded and every
+  list read has a `LIMIT`. [PLAN §2.2]
+- **`#[logged]` on every engine method.** Put `#[logged]` on each free function and inherent
+  `impl` block; it logs every call with its arguments and its return value under one invocation id.
+  Mark only extremely hot methods (per-token streaming, per-record feed rebuilding, tiny helpers)
+  `#[nolog]`. Verbose logging is off by default in packaged builds and on in development builds.
+- **No secrets in what gets logged.** The log masks a value only when its JSON field name is on the
+  masked list (`token`, `key`, `password`, `api_key`, `authorization`…, see `masked()` in
+  `trace.rs`); a value logged through `Debug` is not masked at all. So never put a secret in a
+  `Serialize` type under any other field name, and never give a secret-holding type a `Debug` that
+  prints it; keep secrets out of logged arguments and return values.
+- **Transport:** HTTP for loads and actions, the org and app sockets for pushed updates, with
+  rooms so a window receives only what it shows; agents reach the engine over their CLI's own
+  pipes, never HTTP. [decided: user, DECISIONS 13–14; PLAN §2, §4]
+
+**Verification during the prototype** [decided: user, DECISIONS 8, 33]
+- **No unit-test suites and no review rounds** while the prototype is built; brief smoke tests
+  are allowed; the user tests it. Hardening with tests and review comes later.
+- So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,
+  `test-baseline.mjs`, Python import provenance, `run-python-verification.py`,
+  `source-audits.py`.
+
+**Still valid from the 3.x sections:** [Machine traps](#machine-traps) (shell, CRLF, slow git on
+E:), the worktree rules (own worktree, no `node_modules` links, no bare `git stash`), "commit
+before you mutate", the evidence rules, and the product rulings except where PLAN §10 or
+DECISIONS changes them.
+
 ## Keep this file current
 
 **When you find an engine gotcha or a design invariant, or a new decision or ruling is
@@ -17,8 +99,11 @@ changed, land a small follow-up commit that touches only this file.
   the source) or **[decided: `<who>` `<date>`]** (a recorded ruling: "user" is the product
   owner, "design" is [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md),
   "coordinator" is the team coordinator). Link the detailed doc.
-- Describe only what has landed on `dev`. Work still in review or on a private
-  branch is not current behaviour: its entry goes in the landing that ships it.
+- Describe only what has landed: on `rust-engine` for 4.0.0, on `dev` for the 3.x line. Work
+  still in review or on a private branch is not current behaviour: its entry goes in the commit
+  that ships it. For 4.0.0, a new user decision goes in
+  [`docs/rust-engine/DECISIONS.md`](docs/rust-engine/DECISIONS.md) first; add a one-line pointer
+  here only if agents would otherwise get it wrong. (2026-10-06)
 - When a rule changes, edit its entry in place and say what it replaced. Dead rules live
   only in [Removed and dead ideas](#removed-and-dead-ideas).
 - Reviewers check this: a landing that adds a gotcha, an invariant or a ruling without
