@@ -153,6 +153,60 @@ pub async fn start(engine: &Arc<Engine>) {
         tracing::warn!(error = %e, "could not load accounts");
     }
     publish(engine);
+    tokio::spawn(fill_missing_emails(engine.clone()));
+}
+
+/// An account imported from 3.x may carry no email (3.x kept it elsewhere):
+/// read it from the account's own sign-in folder, as the refresh button
+/// does, so the surfaces can say who it is. A scratch copy (safe start) never
+/// reads a sign-in folder outside its own data folder.
+#[logged]
+pub async fn fill_missing_emails(engine: Arc<Engine>) {
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let root = canon(&engine.cfg.data_root);
+    let todo: Vec<(String, String, String)> = engine
+        .accounts
+        .view()
+        .all()
+        .into_iter()
+        .filter(|a| !a.is_apikey() && a.email.as_deref().map(str::is_empty).unwrap_or(true))
+        .filter(|a| a.provider == "claude" || a.provider == "openai")
+        .filter_map(|a| a.config_dir.clone().map(|d| (a.id.clone(), a.provider.clone(), d)))
+        .filter(|(_, _, d)| !crate::mailhub::safe_start() || canon(std::path::Path::new(d)).starts_with(&root))
+        .collect();
+    if todo.is_empty() {
+        return;
+    }
+    let mut found = 0;
+    for (id, provider, dir) in todo {
+        let email = tokio::task::spawn_blocking(move || {
+            let dir = std::path::PathBuf::from(dir);
+            match provider.as_str() {
+                "claude" => crate::providers::claude_identity(Some(&dir)).1,
+                _ => crate::providers::codex_identity(Some(&dir)).1,
+            }
+        })
+        .await
+        .ok()
+        .flatten();
+        let Some(email) = email else { continue };
+        let Ok(client) = engine.db.get().await else { return };
+        if client
+            .execute(
+                "UPDATE ot.accounts SET identity = coalesce(identity, '{}'::jsonb) || jsonb_build_object('email', $2::text) WHERE id = $1",
+                &[&id, &email],
+            )
+            .await
+            .is_ok()
+        {
+            found += 1;
+        }
+    }
+    if found > 0 {
+        let _ = engine.accounts.reload(&engine).await;
+        publish(&engine);
+        tracing::info!(accounts = found, "account emails read from their sign-in folders");
+    }
 }
 
 /// An account picked on a surface: left out, the provider's own login

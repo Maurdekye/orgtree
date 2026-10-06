@@ -493,8 +493,9 @@ pub async fn set_harness(engine: &Engine, h: &str) -> Result<()> {
 #[logged]
 pub async fn doc(engine: &Engine, force: bool) -> Value {
     let key_set = key(engine).await.is_some();
-    let mut credits = json!({ "limit": null, "limit_remaining": null, "usage": null, "usage_daily": null, "usage_weekly": null,
-                              "usage_monthly": null, "is_free_tier": null, "checked_at": null });
+    let mut credits = json!({ "limit": null, "limit_remaining": null, "limit_reset": null, "usage": null, "usage_daily": null,
+                              "usage_weekly": null, "usage_monthly": null, "is_free_tier": null, "total_credits": null,
+                              "total_usage": null, "checked_at": null });
     let mut connected = false;
     let mut reason = Value::Null;
     let mut label = engine.settings.get().pointer("/openrouter/label").cloned().unwrap_or(Value::Null);
@@ -502,7 +503,8 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
         match key_info(engine, force).await {
             Ok(d) => {
                 connected = true;
-                for k in ["limit", "limit_remaining", "usage", "usage_daily", "usage_weekly", "usage_monthly", "is_free_tier"] {
+                for k in ["limit", "limit_remaining", "limit_reset", "usage", "usage_daily", "usage_weekly", "usage_monthly",
+                          "is_free_tier", "total_credits", "total_usage"] {
                     credits[k] = d[k].clone();
                 }
                 credits["checked_at"] = json!(iso(chrono::Utc::now()));
@@ -530,16 +532,53 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
     })
 }
 
-/// `GET /api/v1/key` for the stored key: its label, limits and spend.
+/// A key's standing, as 3.x read it: `GET /api/v1/key` (label, spend, the
+/// optional spend cap and its renewal) plus `GET /api/v1/credits` (the
+/// prepaid balance, `total_credits` − `total_usage`; it answers a normal
+/// inference key, measured in 3.x). Err((true, _)): openrouter.ai refused the
+/// key. Not logged: it holds the key.
+pub async fn key_standing(key: &str) -> std::result::Result<Map<String, Value>, (bool, String)> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|e| (false, e.to_string()))?;
+    let r = client
+        .get(format!("{API_BASE}/key"))
+        .bearer_auth(key)
+        .send()
+        .await
+        .map_err(|e| (false, format!("could not reach openrouter.ai: {e}")))?;
+    let status = r.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err((true, "the stored key was rejected by openrouter.ai; replace it in App settings › Providers".into()));
+    }
+    if status != 200 {
+        return Err((false, format!("openrouter.ai answered {status} for the key check")));
+    }
+    let body: Value = r.json().await.map_err(|e| (false, e.to_string()))?;
+    let mut d = body["data"]
+        .as_object()
+        .cloned()
+        .ok_or_else(|| (false, "the key check answered without a `data` record".to_string()))?;
+    if let Ok(c) = client.get(format!("{API_BASE}/credits")).bearer_auth(key).send().await {
+        if c.status().as_u16() == 200 {
+            if let Ok(cb) = c.json::<Value>().await {
+                for k in ["total_credits", "total_usage"] {
+                    if let Some(v) = cb["data"].get(k) {
+                        d.insert(k.into(), v.clone());
+                    }
+                }
+            }
+        }
+    }
+    Ok(d)
+}
+
+/// The stored key's standing (see `key_standing`).
 async fn key_info(engine: &Engine, _force: bool) -> Result<Map<String, Value>> {
     let k = key(engine).await.ok_or_else(|| anyhow!("no key is stored"))?;
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(USER_AGENT).build()?;
-    let r = client.get(format!("{API_BASE}/key")).bearer_auth(&k).send().await?;
-    if r.status().as_u16() == 401 || r.status().as_u16() == 403 {
-        return Err(anyhow!("openrouter.ai refused the stored key"));
-    }
-    let body: Value = r.error_for_status()?.json().await?;
-    Ok(body["data"].as_object().cloned().unwrap_or_default())
+    key_standing(&k).await.map_err(|(_, e)| anyhow!(e))
 }
 
 /// Push the lane's document (the OpenRouter panel reads it).

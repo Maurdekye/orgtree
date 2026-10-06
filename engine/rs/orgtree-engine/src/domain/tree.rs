@@ -244,6 +244,10 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     } else {
         o.insert("last_error".into(), Value::Null);
     }
+    // an idle agent (no actor running) forecasts from its last cache receipt
+    if let Some(f) = stored_forecast(raw, ctx.now) {
+        o.insert("cache_forecast".into(), f);
+    }
     // a secondary account wears its card whether or not a turn is running
     o.insert(
         "serving_account".into(),
@@ -257,6 +261,37 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
         o.insert("imported_from".into(), imp.clone());
     }
     Value::Object(o)
+}
+
+/// The prompt-cache forecast of an agent with no actor running, from the
+/// receipt its last turn left: ready until the entry's lifetime ends (the
+/// desk decays it on time itself), expired after. The prompt-prefix check
+/// needs the agent's actor and is made when one runs.
+pub fn stored_forecast(raw: &Value, now: DateTime<Utc>) -> Option<Value> {
+    let rec = raw.pointer("/x_extra/cache_receipt")?;
+    let at = rec["at"].as_str().and_then(parse_ts)?;
+    let ttl = rec["ttl"].as_i64()?;
+    let provider = raw["provider"].as_str().unwrap_or("claude");
+    let codex_harness = raw.pointer("/x_extra/harness").and_then(Value::as_str) == Some("codex-cli");
+    let lane = match provider {
+        "openai" => "codex",
+        "openrouter" if codex_harness => "codex",
+        "google" => "antigravity",
+        _ => "claude",
+    };
+    let generation = raw["generation"].as_i64().unwrap_or(0).to_string();
+    let expires = at + chrono::Duration::seconds(ttl);
+    Some(if now >= expires {
+        json!({ "generation": generation, "state": "expired_known_entry", "readiness": "not_ready",
+                "readiness_cause": "receipt_expired", "reason": "the cache entry has expired",
+                "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at),
+                "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": "miss_expected" })
+    } else {
+        json!({ "generation": generation, "state": "compatible_observed", "readiness": "ready",
+                "readiness_cause": "receipt_valid", "reason": "the cache entry was observed and has not expired",
+                "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at), "ttl_seconds": ttl,
+                "expires_at": iso(expires), "precompact_action": "not_applicable" })
+    })
 }
 
 /// What the overlay fields read while no actor is running for the agent.

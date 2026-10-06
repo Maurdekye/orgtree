@@ -281,8 +281,28 @@ struct Fingerprint {
     parts: Vec<(&'static str, String)>,
 }
 
+/// The fingerprint's parts, in `plan`'s order.
+const PRINT_PARTS: [&str; 6] = ["system_prompt", "tools", "model", "permission_mode", "folders", "account"];
+
 #[logged]
 impl Fingerprint {
+    fn to_json(&self) -> Value {
+        json!(self.parts.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>())
+    }
+
+    fn from_json(v: &Value) -> Option<Fingerprint> {
+        let parts = v
+            .as_array()?
+            .iter()
+            .map(|p| {
+                let name = p.get(0)?.as_str()?;
+                let k = PRINT_PARTS.iter().find(|n| **n == name)?;
+                Some((*k, p.get(1)?.as_str()?.to_string()))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts })
+    }
+
     fn changed(&self, other: &Fingerprint) -> Vec<String> {
         self.parts
             .iter()
@@ -359,7 +379,7 @@ impl Actor {
         let client = engine.db.get().await?;
         let row = client
             .query_one(
-                "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier FROM ot.agents WHERE id = $1",
+                "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt' FROM ot.agents WHERE id = $1",
                 &[&handle.id],
             )
             .await?;
@@ -367,6 +387,12 @@ impl Actor {
         drop(client);
         let tier: String = row.get(2);
         let name: String = row.get(0);
+        // the last turn's cache receipt and prompt fingerprint, kept across restarts
+        let stored: Option<Value> = row.get(3);
+        let receipt = stored.as_ref().and_then(|r| {
+            Some((r["at"].as_str().and_then(crate::util::parse_ts)?, r["ttl"].as_i64()?))
+        });
+        let sent_print = stored.as_ref().and_then(|r| Fingerprint::from_json(&r["print"]));
         let client = crate::trace::agent_client(handle.id, &name);
         Ok(Actor {
             span: crate::trace::request(&client),
@@ -395,8 +421,8 @@ impl Actor {
             stopping: false,
             mcp: McpState::default(),
             forecast: Value::Null,
-            sent_print: None,
-            receipt: None,
+            sent_print,
+            receipt,
             reconfigured: false,
             activity: None,
             rate_limit: None,
@@ -407,6 +433,7 @@ impl Actor {
     }
 
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Envelope>) {
+        self.update_forecast().await;
         self.publish();
         loop {
             let deadline = self.next_deadline();
@@ -2865,6 +2892,7 @@ impl Actor {
         drop(client);
         if cache_read > 0 || cache_write > 0 {
             self.receipt = Some((Utc::now(), ttl as i64));
+            self.save_receipt().await;
         }
         self.last_error = error.clone();
         self.mcp.last_turn_count = self.mcp.count;
@@ -2891,6 +2919,10 @@ impl Actor {
         ];
         if freeze_rec.is_some() {
             ch.push(Change::Pulse { node: self.name.clone(), event: "frozen", extra: None });
+        }
+        if cache_read > 0 || cache_write > 0 {
+            // the record's stored forecast follows the new receipt
+            ch.push(Change::Agent(self.id));
         }
         self.changed(ch);
         if let Some(rec) = &freeze_rec {
@@ -3098,11 +3130,27 @@ impl Actor {
         for (k, val) in crate::domain::tree::idle_runtime() {
             v.insert(k, val);
         }
-        v.insert("cache_forecast".into(), self.forecast.clone());
+        // a null would hide the forecast the agent's record computes
+        v.remove("cache_forecast");
+        if !self.forecast.is_null() {
+            v.insert("cache_forecast".into(), self.forecast.clone());
+        }
         v.insert("last_error".into(), json!(self.last_error));
         let v = Value::Object(v);
         self.handle.view.store(Arc::new(v.clone()));
         self.org.feed.runtime(self.id, v);
+    }
+
+    /// Keep the cache receipt and the prompt fingerprint it was observed
+    /// with: an idle agent's card and a restarted engine forecast from them.
+    async fn save_receipt(&self) {
+        let Some((at, ttl)) = self.receipt else { return };
+        let rec = json!({ "at": iso(at), "ttl": ttl, "print": self.sent_print.as_ref().map(|p| p.to_json()) });
+        if let Ok(client) = self.engine.db.get().await {
+            let _ = client
+                .execute("UPDATE ot.agents SET extra = jsonb_set(extra, '{cache_receipt}', $2) WHERE id = $1", &[&self.id, &rec])
+                .await;
+        }
     }
 
     /// Will the next turn hit the provider's prompt cache?

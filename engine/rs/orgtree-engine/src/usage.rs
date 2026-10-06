@@ -19,7 +19,6 @@ const TTL: Duration = Duration::from_secs(30);
 /// a peek older than this is no claim about now
 const PEEK_MAX: Duration = Duration::from_secs(900);
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
-const OPENROUTER_KEY_URL: &str = "https://openrouter.ai/api/v1/key";
 const USER_AGENT: &str = concat!("orgtree-engine/", env!("CARGO_PKG_VERSION"));
 const NOT_YET: &str = "usage unavailable; start a turn on this account to see usage";
 
@@ -467,49 +466,74 @@ pub async fn openrouter(engine: &Engine, force: bool) -> Value {
         }
     }
     let mut out = match crate::openrouter::key(engine).await {
-        None => json!({ "available": false, "error": "no OpenRouter key is stored", "reauth_evidence": "not_connected" }),
+        None => json!({ "available": false, "error": "no API key — add one in App settings › Providers",
+                        "reauth_evidence": "not_connected" }),
         Some(key) => match openrouter_fetch(&key).await {
             Ok(v) => v,
-            Err(e) => json!({ "available": false, "error": NOT_YET, "detail": gist(&e, 300) }),
+            Err(e) => json!({ "available": false, "error": "OpenRouter usage check failed", "detail": gist(&e, 300) }),
         },
     };
-    out["account"] = json!("openrouter/primary");
-    out["provider"] = json!("openrouter");
+    out["account"] = json!("openrouter");
+    out["provider"] = json!("OpenRouter");
+    if out.get("label").and_then(Value::as_str).is_none() {
+        out["label"] = json!("OpenRouter API key");
+    }
     out["observed_at"] = json!(iso(Utc::now()));
     engine.usage.put("openrouter", &out);
     out
 }
 
 async fn openrouter_fetch(key: &str) -> Result<Value, String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(USER_AGENT).build().map_err(|e| e.to_string())?;
-    let r = client.get(OPENROUTER_KEY_URL).bearer_auth(key).send().await.map_err(|e| e.to_string())?;
-    let status = r.status().as_u16();
-    let body: Value = r.json().await.unwrap_or(Value::Null);
-    if status == 401 || status == 403 {
-        return Ok(json!({ "available": false, "error": "OpenRouter refused the stored key", "reauth_required": true,
-                          "reauth_evidence": "measured_403" }));
+    match crate::openrouter::key_standing(key).await {
+        Err((true, e)) => Ok(json!({ "available": false, "error": e, "reauth_required": true, "reauth_evidence": "measured_403" })),
+        Err((false, e)) => Err(e),
+        Ok(ks) => {
+            let label = ks.get("label").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("OpenRouter API key");
+            let mut out = json!({ "available": true, "label": label, "limits": openrouter_limits(&ks) });
+            if ks.get("is_free_tier") == Some(&json!(true)) {
+                out["plan"] = json!("free tier");
+            }
+            Ok(out)
+        }
     }
-    if status != 200 {
-        return Err(format!("HTTP {status}"));
-    }
-    let d = &body["data"];
-    let f = |k: &str| d[k].as_f64();
+}
+
+/// OpenRouter's one usage row, as 3.x derived it. A prepaid credit balance
+/// has no rolling window, so no reset time is ever invented: with a spend
+/// cap on the key the row is spend ÷ cap; without one it states the credits
+/// used and the remaining balance; with neither, what the key reports.
+#[logged]
+fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
+    let f = |k: &str| ks.get(k).and_then(Value::as_f64).filter(|x| x.is_finite());
+    let Some(usage) = f("usage") else { return Vec::new() };
     let balance = match (f("total_credits"), f("total_usage")) {
         (Some(t), Some(u)) => Some((t - u).max(0.0)),
-        _ => f("limit_remaining"),
+        _ => None,
     };
-    let mut label = d["label"].as_str().unwrap_or("OpenRouter key").to_string();
-    if let Some(rem) = f("limit_remaining") {
-        label.push_str(&format!(" · ${rem:.2} remaining"));
+    let row = |percent: Option<f64>, severity: &str, active: bool, label: String| {
+        json!({ "kind": "usage", "group": "credits", "percent": percent, "severity": severity, "resets_at": null,
+                "is_active": active, "model": null, "label": label })
+    };
+    if let Some(limit) = f("limit").filter(|l| *l > 0.0) {
+        let percent = (usage / limit * 100.0).clamp(0.0, 100.0);
+        let mut label = format!("${usage:.2} of ${limit:.2} spend cap");
+        if let Some(b) = balance {
+            label.push_str(&format!(" · ${b:.2} balance"));
+        } else if let Some(rem) = f("limit_remaining") {
+            label.push_str(&format!(" · ${rem:.2} remaining"));
+        }
+        if let Some(cadence) = ks.get("limit_reset").and_then(Value::as_str).map(str::trim).filter(|c| !c.is_empty()) {
+            label.push_str(&format!(" · renews {cadence}"));
+        }
+        let active = percent >= 100.0 || balance.map(|b| b <= 0.0).unwrap_or(false);
+        return vec![row(Some(percent), if active { "critical" } else { severity(percent) }, active, label)];
     }
-    let mut out = json!({ "available": balance.is_some(), "label": label, "limits": [] });
     if let Some(b) = balance {
-        out["credits"] = json!({ "balance": b, "unit": "USD", "unlimited": false });
+        let active = b <= 0.0;
+        let sev = if active { "critical" } else if b <= 1.0 { "warning" } else { "normal" };
+        return vec![row(None, sev, active, format!("${usage:.2} credits used · ${b:.2} remaining balance"))];
     }
-    if d["is_free_tier"] == json!(true) {
-        out["plan"] = json!("free tier");
-    }
-    Ok(out)
+    vec![row(None, "normal", false, format!("${usage:.2} spent · no spend cap"))]
 }
 
 // ------------------------------------------------------------ API-key accounts
