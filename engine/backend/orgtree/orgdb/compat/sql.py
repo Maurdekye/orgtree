@@ -996,6 +996,23 @@ def _project(conn: Any, p: Sequence[Any], m: re.Match[str]) -> Result:
     if ls is None:
         return Result([])
     with conn.atomic():
+        from .. import docket
+        if ls.kind == 'archive' and set(fields) <= docket._POLICY_KEYS:
+            # Decode the existing typed policy header, never archived bodies or
+            # events. Preserve the compatibility view's transitional overlay.
+            state = R.docket_pending(conn.raw)
+            main = docket._dicts(conn.raw,
+                f"SELECT {docket._POLICY_COLUMNS},i.archive_seq FROM orgtree.work_items i "
+                "WHERE i.list_key='archive' AND i.id<>ALL(%s::bigint[]) ORDER BY i.archive_seq",
+                (state['deleted'],))
+            values = docket._decode(conn.raw, main, docket._POLICY)
+            ordered = [(R.seq_of(ls, int(row['archive_seq'])), value)
+                       for row, value in zip(main, values)]
+            ordered.extend((R.seq_of(ls, int(seq)), json.loads(value['text']))
+                           for seq, value in state['moved'].items())
+            ordered.sort(key=lambda row: row[0])
+            return Result([(json.dumps([value.get(f) if isinstance(value, dict) else None
+                                        for f in fields]),) for _, value in ordered])
         out = []
         for _, _, _, text in R.log_rows(conn.raw, ls):
             v = json.loads(text)

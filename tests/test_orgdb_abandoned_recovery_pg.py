@@ -181,5 +181,67 @@ class Recovery(unittest.TestCase):
         self.assertNotIn(self.slug, sup._abandoned_retry)
 
 
+    def projection_fixture(self):
+        org = store.load_org(self.slug)
+        base = copy.deepcopy(org._work_active()[0])
+        rows = []
+        shapes = ({}, {'status': {'odd': True}, 'title': ['unusual'],
+                      'owner': 'gone', 'created_by': ['root'], 'reviewer': 7,
+                      'participants': {'root': True}, 'manual_attention': ['yes'],
+                      'docket_at': 17, 'updated_at': {'invalid': True}},
+                  {'status': 'waiting', 'owner': {'node': 'gone', 'generation': 'x'},
+                   'participants': ['root', {'odd': True}],
+                   'docket_at': '2020-01-01T01:00:00+01:00',
+                   'updated_at': 'not-a-date'},
+                  {f: None for f in ledger.Org._WORK_PROJ if f != 'slug'})
+        for i, changes in enumerate(shapes):
+            rows.append({**copy.deepcopy(base), **changes, 'slug': f'projection-{i}'})
+        org.d['work_items'] = []
+        org.d['work_items_archive'] = rows
+        store.save_org(org)
+        return rows
+
+    def test_native_projection_matches_all_fields_without_body_event_decode(self):
+        from orgtree.orgdb.compat import rows as reader
+        self.projection_fixture()
+        full = store.load_runtime_org(self.slug)._work_archive()
+        expected = [{f: row.get(f) for f in ledger.Org._WORK_PROJ} for row in full]
+        with patch.object(reader, 'entry_of', wraps=reader.entry_of) as body, \
+                patch.object(reader, '_item_events', wraps=reader._item_events) as events:
+            snap = store.load_runtime_org(self.slug)
+            self.assertEqual(snap._work_archive_proj(), expected)
+            self.assertFalse(snap.d.resident('work_items_archive'))
+            self.assertEqual(body.call_count, 0)
+            self.assertEqual(events.call_count, 0)
+            # The same counters must fire for an uncovered field request.
+            extra = ledger.Org._WORK_PROJ + ('objective',)
+            actual = snap.d.project('work_items_archive', extra)
+            self.assertEqual(actual, [{f: row.get(f) for f in extra} for row in full])
+            self.assertGreater(body.call_count, 0)
+            self.assertGreater(events.call_count, 0)
+
+    def test_native_projection_preserves_pending_moves_deletes_and_order(self):
+        import json
+        from orgtree.orgdb import docket
+        self.projection_fixture()
+        fields = ledger.Org._WORK_PROJ
+        sql = "SELECT json_extract(val," + ','.join("'$." + f + "'" for f in fields) + ") FROM log_l WHERE sect BETWEEN ? AND ? ORDER BY seq"
+        with store._POOL.acquire(self.slug) as conn:
+            with conn.atomic():
+                deleted = conn.raw.execute("SELECT id FROM orgtree.work_items WHERE list_key='archive' ORDER BY archive_seq LIMIT 1").fetchone()[0]
+                moved = {'0': {'text': json.dumps({'slug': 'moved-first', 'status': ['weird']})},
+                         '999999': {'text': json.dumps({'slug': 'moved-last', 'owner': 'gone'})}}
+                conn.raw.execute("SELECT set_config('orgtree.compat_docket_pending',%s,true)",
+                                 (json.dumps({'deleted': [deleted], 'moved': moved}),))
+                actual = conn.execute(sql, ('work_items_archive', 'work_items_archive')).fetchall()
+                with patch.object(docket, '_POLICY_KEYS', frozenset()):
+                    expected = conn.execute(sql, ('work_items_archive', 'work_items_archive')).fetchall()
+                self.assertEqual(actual, expected)
+                slugs = [json.loads(row[0])[0] for row in actual]
+                self.assertNotIn('projection-0', slugs)
+                self.assertEqual(slugs[0], 'moved-first')
+                self.assertEqual(slugs[-1], 'moved-last')
+
+
 if __name__ == '__main__':
     unittest.main()

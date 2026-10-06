@@ -912,3 +912,5 @@ successful passes clear the backoff. No all-node recovery lock is taken.
   decided: drag-opus 2026-10-06; `tests/test_orgdb_abandoned_recovery_pg.py`]
 
 Warm-pool eligibility shares one lazy NativeInventory per keeper pass through transcript lookup. It is never retained across passes; per-session path validation and ad-hoc lookup freshness remain unchanged. [decided: drag-opus 2026-10-06; verified: `warmpool._keeper_pass`, `desktop_native.native_path_for_session`]
+
+Cold archived docket projections covered by the existing policy spec use its typed decoder and policy extra, not full item/event reconstruction. The same snapshot retains pending moves/deletions and archive sequence order; uncovered fields use the full compatibility reader. [decided: drag-opus 2026-10-06; verified: `orgdb/compat/sql.py` `_project`]
