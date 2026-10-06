@@ -130,5 +130,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
 38. **Prototype builds are versioned `4.0.0-alpha.N`** (user 2026-10-06): the alpha number counts
     delivered builds. The first delivered build, labelled 4.0.0, is alpha.0; the next is
     `4.0.0-alpha.1`. Installers go to the user's Downloads folder, `E:\Libraries\Downloads`.
+39. **The orgtree org may help with 4.0.0** (user 2026-10-06; amends decision 6), "but only if it isn't
+    unstable from having to restart the org often during prototype builds". Every prototype install
+    restarts Orgtree, which interrupts running turns and kills every process agents started; so the
+    org takes only work that survives that (small committed steps, no long-running jobs), stops any
+    task that restarts keep breaking, and hands changes in as branches off `rust-engine` that the
+    rust-engine session reviews and merges. No subagents are added (decision 6 otherwise stands).
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is
     published.**
