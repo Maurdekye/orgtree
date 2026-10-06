@@ -2,6 +2,7 @@
 //! of HTTP and of provider specifics.
 
 pub mod asks;
+pub mod docs;
 pub mod mail;
 pub mod notices;
 pub mod ops;

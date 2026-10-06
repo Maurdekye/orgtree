@@ -25,6 +25,8 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_account_mark",
         "orgtree_ask",
         "orgtree_withdraw_ask",
+        "orgtree_present",
+        "orgtree_send_file",
         "orgtree_request_credits",
         "orgtree_request_scope",
         "orgtree_hire",
@@ -255,14 +257,17 @@ fn all() -> Vec<Value> {
         tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[]),
         tool(
             "orgtree_present",
-            "Present a document (markdown or html) to the user: a card on your seat opens the reader.",
+            "Present a document (plan, proposal, report) for the user to read: a card beside your seat opens it. \
+             `body` is markdown (64 KB max), or `path` a self-contained .html mockup (4 MB max, shown sandboxed with \
+             no network). `replaces` updates an earlier card in place. Needs a user audience (top-level agents hold one).",
             json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                     "replaces": { "type": "string" } }),
             &["title"],
         ),
         tool(
             "orgtree_send_file",
-            "Send a file to the user as a download card (images show inline).",
+            "Deliver a file to the user as a download card in your chat (images show as the picture). Use it \
+             whenever the user asks for a file. Relative paths start in your working folder.",
             json!({ "path": { "type": "string" }, "note": { "type": "string" } }),
             &["path"],
         ),

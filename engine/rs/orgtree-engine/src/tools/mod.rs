@@ -119,6 +119,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_ask" | "orgtree_request_credits" | "orgtree_request_scope" | "orgtree_withdraw_ask" => {
             ask_tool(engine, caller, name, args).await
         }
+        "orgtree_present" | "orgtree_send_file" => doc_tool(engine, caller, name, args).await,
         "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
         "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
         "orgtree_retire" => treetools::run(engine, caller, args, "retire").await,
@@ -299,4 +300,20 @@ async fn ask_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         _ => asks::withdraw(engine, &org, a.id).await?,
     };
     Done::text(text)
+}
+
+/// orgtree_present / orgtree_send_file.
+#[logged]
+async fn doc_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
+    use crate::domain::docs;
+    let Some(org) = engine.orgs.by_id(caller.org_id) else {
+        crate::refuse!(NotFound, "organization not open");
+    };
+    let p = docs::presenter(engine, &org, caller.agent_id).await?;
+    let (text, card) = if name == "orgtree_present" {
+        docs::present(engine, &org, &p, args).await?
+    } else {
+        docs::send_file(engine, &org, &p, args).await?
+    };
+    Ok(Done { text, card: Some(card) })
 }
