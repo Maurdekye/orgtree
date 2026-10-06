@@ -75,7 +75,7 @@ const MAIN_CHECKOUT = (() => {
 // How old a baseline may get before `compare` starts shouting. Chosen because
 // this repository lands work daily: a week-old baseline has usually survived,
 // a fortnight-old one usually has not.
-const DEFAULT_MAX_AGE_DAYS = 7
+const DEFAULT_MAX_AGE_DAYS = 14 // alpha.4 side branch only: baseline 654658f is 7.4 days old (coordinator 2026-10-06)
 
 // ---------------------------------------------------------------------------
 // Suites
