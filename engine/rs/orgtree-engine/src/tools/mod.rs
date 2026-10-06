@@ -3,7 +3,7 @@
 //! A call names no identity: the process it came from is the caller.
 
 mod control;
-mod defs;
+pub mod defs;
 mod mailtools;
 mod orgview;
 mod treetools;
@@ -78,6 +78,21 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
             json!({ "content": [{ "type": "text", "text": text }], "isError": true })
         }
     }
+}
+
+/// A tool call from a driver without MCP (Codex dynamic tools): (ok, text).
+#[logged]
+pub async fn call_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> (bool, String) {
+    let mut params = json!({ "name": name, "arguments": args });
+    if let Some(t) = tool_use {
+        params["_meta"] = json!({ "claudecode/toolUseId": t });
+    }
+    let r = call(engine, caller, &params).await;
+    let text = r["content"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default();
+    (!r["isError"].as_bool().unwrap_or(false), text)
 }
 
 /// A tool's answer: text for the agent, and optionally a card for its chip.

@@ -20,6 +20,7 @@ use crate::changes::Change;
 use crate::orgs::OrgHandle;
 use crate::providers::catalog;
 use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
+use crate::runtime::codex::{self as codexrt, CodexProc, CodexSpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
@@ -143,6 +144,16 @@ struct Turn {
     span: tracing::Span,
     /// cards `orgtree_*` tools attached to their chips, by tool_use_id
     cards: HashMap<String, Value>,
+    /// Codex: this turn's id on the thread
+    codex_turn: Option<String>,
+    /// Codex: the thread's token total before this turn
+    usage_base: Option<Value>,
+    /// Codex: the assistant row tool chips attach to
+    codex_row: Option<String>,
+    /// Codex: the last error the server reported (it ends with `turn/completed`)
+    codex_error: Option<String>,
+    /// approvals declined during the turn
+    denials: Vec<Value>,
 }
 
 #[logged]
@@ -164,7 +175,65 @@ impl Turn {
             compact,
             cards: HashMap::new(),
             span: tracing::Span::none(),
+            codex_turn: None,
+            usage_base: None,
+            codex_row: None,
+            codex_error: None,
+            denials: Vec::new(),
         }
+    }
+}
+
+/// The agent's CLI process: Claude Code or the Codex app-server.
+enum Proc {
+    Claude(ClaudeProc),
+    Codex(CodexProc),
+}
+
+#[logged]
+impl Proc {
+    #[nolog]
+    fn alive(&mut self) -> bool {
+        match self {
+            Proc::Claude(p) => p.alive(),
+            Proc::Codex(p) => p.alive(),
+        }
+    }
+
+    /// Ask the running turn to stop (`codex_turn`: the Codex turn id).
+    fn interrupt(&self, codex_turn: Option<&str>) -> bool {
+        match (self, codex_turn) {
+            (Proc::Claude(p), _) => p.interrupt(),
+            (Proc::Codex(p), Some(t)) => p.interrupt(t),
+            (Proc::Codex(_), None) => false,
+        }
+    }
+
+    /// A live effort change (Claude only; Codex takes it at the next turn).
+    fn set_effort(&self, level: &str) -> bool {
+        match self {
+            Proc::Claude(p) => p.set_effort(level),
+            Proc::Codex(_) => false,
+        }
+    }
+
+    async fn close(&mut self) {
+        match self {
+            Proc::Claude(p) => p.close().await,
+            Proc::Codex(p) => p.close().await,
+        }
+    }
+
+    async fn kill(&mut self) {
+        match self {
+            Proc::Claude(p) => p.kill().await,
+            Proc::Codex(p) => p.kill().await,
+        }
+    }
+
+    #[nolog]
+    fn is_codex(&self) -> bool {
+        matches!(self, Proc::Codex(_))
     }
 }
 
@@ -211,7 +280,7 @@ struct Actor {
     client: String,
     /// the request stray CLI output is logged under (outside any turn)
     span: tracing::Span,
-    proc: Option<ClaudeProc>,
+    proc: Option<Proc>,
     proc_print: Option<Fingerprint>,
     proc_effort: Option<String>,
     parked: bool,
@@ -240,6 +309,8 @@ struct Actor {
     /// the CLI's running session cost at the last result (its counter is cumulative)
     cost_seen: f64,
     provider: String,
+    /// Codex: the thread's latest cumulative token counts
+    codex_total: Option<Value>,
 }
 
 #[logged]
@@ -292,6 +363,7 @@ impl Actor {
             rate_limit: None,
             cost_seen: row.get(1),
             provider: catalog::provider_of(&tier).to_string(),
+            codex_total: None,
         })
     }
 
@@ -307,6 +379,10 @@ impl Actor {
                         AgentMsg::Claude(v) => {
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_claude(v), span).await
+                        }
+                        AgentMsg::Codex(v) => {
+                            let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
+                            tracing::Instrument::instrument(self.on_codex(v), span).await
                         }
                         // every other message is a request of its own, caused by its sender's
                         other => {
@@ -405,7 +481,7 @@ impl Actor {
             AgentMsg::Wake => self.on_wake().await?,
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
             AgentMsg::Claude(v) => self.on_claude(v).await?,
-            AgentMsg::Codex(_) => {}
+            AgentMsg::Codex(v) => self.on_codex(v).await?,
             AgentMsg::Hook { input, reply } => {
                 let out = match self.on_hook(&input).await {
                     Ok(v) => v,
@@ -422,7 +498,8 @@ impl Actor {
                     if let Some(t) = self.turn.as_mut() {
                         t.interrupted = true;
                     }
-                    let sent = self.proc.as_ref().map(|p| p.interrupt()).unwrap_or(false);
+                    let codex_turn = self.turn.as_ref().and_then(|t| t.codex_turn.clone());
+                    let sent = self.proc.as_ref().map(|p| p.interrupt(codex_turn.as_deref())).unwrap_or(false);
                     if sent {
                         json!({ "interrupted": true })
                     } else {
@@ -564,8 +641,12 @@ impl Actor {
 
     async fn on_wake(&mut self) -> Result<()> {
         self.idle_since = Instant::now();
+        if self.turn.is_some() && !self.stopping && self.proc.as_ref().map(|p| p.is_codex()).unwrap_or(false) {
+            // Codex takes mid-turn mail at once (`turn/steer`)
+            return self.steer_codex().await;
+        }
         if self.stopping || self.turn.is_some() || self.waiting_since.is_some() || self.slot.is_some() {
-            // mail for a running turn is handed over at the next tool boundary
+            // mail for a running Claude turn is handed over at the next tool boundary
             return Ok(());
         }
         let client = self.engine.db.get().await?;
@@ -803,6 +884,9 @@ impl Actor {
     }
 
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
+        if ctx.provider == catalog::OPENAI {
+            return self.ensure_codex(ctx).await;
+        }
         if ctx.provider != catalog::CLAUDE {
             return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
         }
@@ -899,7 +983,8 @@ impl Actor {
         };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
-        if resume.as_deref() != Some(proc.session_id.as_str()) {
+        let session_id = proc.session_id.clone();
+        if resume.as_deref() != Some(session_id.as_str()) {
             // a new session: its cost counter starts at zero
             self.cost_seen = 0.0;
             let client = self.engine.db.get().await?;
@@ -907,17 +992,17 @@ impl Actor {
                 .execute(
                     "UPDATE ot.agents SET session_id = $2, provider = $3,
                             extra = jsonb_set(extra, '{cost_seen}', '0'::jsonb) WHERE id = $1",
-                    &[&self.id, &proc.session_id, &ctx.provider],
+                    &[&self.id, &session_id, &ctx.provider],
                 )
                 .await?;
             client
                 .execute(
                     "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
-                    &[&self.id, &ctx.generation, &ctx.provider, &proc.session_id],
+                    &[&self.id, &ctx.generation, &ctx.provider, &session_id],
                 )
                 .await?;
         }
-        self.proc = Some(proc);
+        self.proc = Some(Proc::Claude(proc));
         self.proc_print = Some(plan.print);
         self.proc_effort = effort;
         self.provider = ctx.provider.clone();
@@ -934,12 +1019,160 @@ impl Actor {
         Ok(())
     }
 
+    /// Start (or keep) the agent's Codex app-server on its thread.
+    async fn ensure_codex(&mut self, ctx: &Ctx) -> Result<()> {
+        if !self.engine.settings.provider_enabled(catalog::OPENAI) {
+            return Err(anyhow!("OpenAI is turned off in App settings"));
+        }
+        let plan = self.plan(ctx);
+        let reuse = match self.proc.as_mut() {
+            Some(p) => p.is_codex() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
+            None => false,
+        };
+        if reuse {
+            return Ok(());
+        }
+        self.close_proc().await;
+        self.reconfigured = false;
+        let view = self.engine.accounts.view();
+        let account = ctx.account.as_deref().and_then(|a| view.get(a).cloned());
+        let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
+        if !apikey && !self.engine.settings.subscription_inference(catalog::OPENAI) {
+            return Err(anyhow!(
+                "subscriptions are turned off for inference (App settings › Providers); give this agent an API-key account"
+            ));
+        }
+        let exe = match self.engine.providers.codex_path() {
+            Some(p) => p,
+            None => tokio::task::spawn_blocking(crate::providers::locate_codex)
+                .await
+                .ok()
+                .flatten()
+                .map(|(p, _)| p)
+                .ok_or_else(|| anyhow!("the Codex CLI is not installed on this machine"))?,
+        };
+        std::fs::create_dir_all(&ctx.scratch)?;
+        // a key account runs in its own empty home, so the ambient login never bills it
+        let (codex_home, api_key) = if apikey {
+            let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
+            let id = ctx.account.clone().unwrap_or_default();
+            let home = self.engine.cfg.path("profiles").join(format!("openai-key-{id}"));
+            std::fs::create_dir_all(&home)?;
+            (Some(home.to_string_lossy().to_string()), Some(key))
+        } else {
+            (self.config_dir_of(ctx.account.as_deref()), None)
+        };
+        let tools = &ctx.effective["tools"];
+        let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
+        let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
+        let may_write = on("edit") && pm != "plan";
+        let sandbox = if !may_write {
+            "read-only"
+        } else if pm == "bypassPermissions" {
+            "danger-full-access"
+        } else {
+            "workspace-write"
+        };
+        let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
+        let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
+        let (config, _attached) = codexrt::mcp_overrides(&external);
+        let resume = ctx
+            .session_id
+            .clone()
+            .filter(|_| ctx.session_provider.as_deref() == Some(catalog::OPENAI));
+        let spec = CodexSpec {
+            exe,
+            cwd: ctx.scratch.clone(),
+            codex_home,
+            api_key,
+            model: ctx.model.clone(),
+            effort: Some(codexrt::codex_effort(&ctx.effort)),
+            sandbox: sandbox.to_string(),
+            instructions: plan.identity.clone(),
+            dynamic_tools: codexrt::dynamic_tools(),
+            config,
+            resume: resume.clone(),
+            may_write,
+            may_shell: on("bash"),
+            env: vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())],
+        };
+        let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        let proc = CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        let session_id = proc.session_id.clone();
+        if resume.as_deref() != Some(session_id.as_str()) {
+            self.codex_total = None;
+            let client = self.engine.db.get().await?;
+            client
+                .execute("UPDATE ot.agents SET session_id = $2, provider = $3 WHERE id = $1", &[&self.id, &session_id, &ctx.provider])
+                .await?;
+            client
+                .execute(
+                    "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
+                    &[&self.id, &ctx.generation, &ctx.provider, &session_id],
+                )
+                .await?;
+        }
+        self.proc = Some(Proc::Codex(proc));
+        self.proc_print = Some(plan.print);
+        self.proc_effort = Some(ctx.effort.clone());
+        self.provider = ctx.provider.clone();
+        self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
+        self.publish();
+        Ok(())
+    }
+
+    /// Mail that arrived during a Codex turn goes straight in (`turn/steer`);
+    /// if the turn does not take it, it waits for the next turn.
+    async fn steer_codex(&mut self) -> Result<()> {
+        let Some((turn_id, Some(codex_turn))) = self.turn.as_ref().map(|t| (t.id, t.codex_turn.clone())) else { return Ok(()) };
+        let client = self.engine.db.get().await?;
+        let claimed = client
+            .query(
+                "UPDATE ot.mail SET state = 'delivering', turn_id = $2
+                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                                ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED)
+                  RETURNING id, to_jsonb(ot.mail.*)",
+                &[&self.id, &turn_id],
+            )
+            .await?;
+        if claimed.is_empty() {
+            return Ok(());
+        }
+        let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
+        rows.sort_by_key(|(id, _)| *id);
+        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+        let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
+        let text = prompt::steer_text(&mails);
+        let steered = match &self.proc {
+            Some(Proc::Codex(p)) => p.steer(&codex_turn, &text).await,
+            _ => Err(anyhow!("no Codex process")),
+        };
+        if let Err(e) = steered {
+            tracing::info!(agent = %self.name, error = %format!("{e:#}"), "the turn did not take the mail; it waits for the next turn");
+            client
+                .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE id = ANY($1) AND state = 'delivering'", &[&ids])
+                .await?;
+            return Ok(());
+        }
+        let row = mail_row(&raw, Some("Delivered into the running turn."));
+        let seq = self.convo.append(&client, row.clone()).await?;
+        drop(client);
+        let mut committed = row;
+        committed["seq"] = json!(seq);
+        committed["row_id"] = json!(format!("r{seq}"));
+        committed["event_id"] = json!(format!("e{seq}"));
+        self.changed(vec![Change::Mailbox(self.id)]);
+        self.stream("steered", json!({ "committed_row": committed }));
+        Ok(())
+    }
+
     /// Hold a fresh process's first prompt until its MCP servers connect or
     /// fail (bounded).
     async fn wait_for_mcp(&mut self, servers: &[String]) {
         let deadline = Instant::now() + MCP_WAIT;
         loop {
-            let Some(p) = &self.proc else { return };
+            let Some(Proc::Claude(p)) = &self.proc else { return };
             let status = p.mcp_status().await;
             let pending: Vec<String> = status
                 .as_ref()
@@ -1063,14 +1296,30 @@ impl Actor {
         }
         let context = self.turn_context(&ctx).await;
         let text = prompt::turn_text(&mails, &context);
-        let images = images_for(&mails);
-        let sent = self.proc.as_ref().map(|p| p.send_user(&text, images)).unwrap_or(false);
+        let mut codex_turn: Option<String> = None;
+        let sent = match self.proc.as_ref() {
+            Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
+            Some(Proc::Codex(p)) => match p.start_turn(&text, codex_images(&mails)).await {
+                Ok(t) => {
+                    codex_turn = Some(t);
+                    true
+                }
+                Err(e) => {
+                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "turn/start failed");
+                    false
+                }
+            },
+            None => false,
+        };
         if !sent {
             self.return_mail(turn_id, true).await;
             self.close_proc().await;
-            return Err(anyhow!("the Claude process did not accept the turn"));
+            return Err(anyhow!("the {} process did not accept the turn", catalog::provider_label(&ctx.provider)));
         }
-        self.begin_turn(Turn::new(turn_id, false));
+        let mut turn = Turn::new(turn_id, false);
+        turn.codex_turn = codex_turn;
+        turn.usage_base = self.codex_total.clone();
+        self.begin_turn(turn);
         self.last_error = None;
         self.activity = Some(("thinking".into(), None));
         self.sent_print = self.proc_print.clone();
@@ -1224,6 +1473,284 @@ impl Actor {
             Some("result") => self.on_result(&v).await?,
             _ => {}
         }
+        Ok(())
+    }
+
+    /// One app-server notification (Codex's stream).
+    #[nolog]
+    async fn on_codex(&mut self, v: Value) -> Result<()> {
+        if let Some(t) = self.turn.as_mut() {
+            t.last_event = Instant::now();
+        }
+        let method = v["method"].as_str().unwrap_or("").to_string();
+        let p = &v["params"];
+        match method.as_str() {
+            "thread/tokenUsage/updated" => {
+                let tu = p["tokenUsage"].clone();
+                self.codex_total = Some(tu["total"].clone());
+                if let Some(t) = self.turn.as_mut() {
+                    t.usage = tu;
+                }
+            }
+            "account/rateLimits/updated" => self.rate_limit = Some(p["rateLimits"].clone()),
+            "item/agentMessage/delta" => {
+                let text = p["delta"].as_str().unwrap_or("");
+                if let Some(t) = self.turn.as_mut() {
+                    t.activity = true;
+                    if t.draft.len() < 64_000 {
+                        t.draft.push_str(text);
+                    }
+                }
+                self.stream("delta", json!({ "text": text }));
+                self.set_activity("writing", None);
+            }
+            "item/reasoning/summaryTextDelta" | "item/reasoning/textDelta" => {
+                let text = p["delta"].as_str().unwrap_or("");
+                if let Some(t) = self.turn.as_mut() {
+                    t.activity = true;
+                    if t.thinking.len() < 16_000 {
+                        t.thinking.push_str(text);
+                    }
+                }
+                self.stream("thinking", json!({ "text": text }));
+            }
+            "item/started" => self.on_codex_item(&p["item"], false).await?,
+            "item/completed" => self.on_codex_item(&p["item"], true).await?,
+            "turn/plan/updated" => self.on_codex_plan(p).await?,
+            "model/rerouted" => {
+                if let Some(t) = self.turn.as_mut() {
+                    t.model = p["toModel"].as_str().map(str::to_string);
+                }
+            }
+            "error" => {
+                if !p["willRetry"].as_bool().unwrap_or(false) {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.codex_error = p.pointer("/error/message").and_then(Value::as_str).map(|s| gist(s, 600));
+                    }
+                }
+            }
+            "orgtree/denied" => {
+                if let Some(t) = self.turn.as_mut() {
+                    t.denials.push(p.clone());
+                }
+            }
+            "thread/compacted" => {
+                let client = self.engine.db.get().await?;
+                let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact" });
+                self.convo.append(&client, row).await?;
+                drop(client);
+                self.text_landed();
+            }
+            "turn/completed" => {
+                let turn = &p["turn"];
+                // only this turn's completion ends it
+                let ours = self.turn.as_ref().and_then(|t| t.codex_turn.clone()).unwrap_or_default();
+                if !ours.is_empty() && turn["id"].as_str().map(|id| id != ours).unwrap_or(false) {
+                    return Ok(());
+                }
+                let interrupted = self.turn.as_ref().map(|t| t.interrupted).unwrap_or(false);
+                let error = match turn["status"].as_str().unwrap_or("completed") {
+                    "failed" => Some(
+                        turn.pointer("/error/message")
+                            .and_then(Value::as_str)
+                            .map(|s| gist(s, 600))
+                            .or_else(|| self.turn.as_ref().and_then(|t| t.codex_error.clone()))
+                            .unwrap_or_else(|| "the Codex turn failed".into()),
+                    ),
+                    "interrupted" if !interrupted => Some("the Codex turn was interrupted".into()),
+                    _ => None,
+                };
+                self.end_turn(error, json!({ "codex": true })).await?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The row Codex tool chips attach to (a fresh one when there is none).
+    async fn codex_row(&mut self, client: &tokio_postgres::Client, key_hint: &str) -> Result<Option<String>> {
+        let existing = self.turn.as_ref().and_then(|t| t.codex_row.clone()).filter(|k| self.turn.as_ref().map(|t| t.rows.contains_key(k)).unwrap_or(false));
+        if existing.is_some() {
+            return Ok(existing);
+        }
+        if self.turn.is_none() {
+            return Ok(None);
+        }
+        let key = format!("row-{key_hint}");
+        let row = json!({ "role": "assistant", "text": "", "tools": [], "ts": now_iso(), "assistant_id": key });
+        let seq = self.convo.append(client, row.clone()).await?;
+        if let Some(t) = self.turn.as_mut() {
+            t.rows.insert(key.clone(), (seq, row));
+            t.codex_row = Some(key.clone());
+        }
+        Ok(Some(key))
+    }
+
+    /// A Codex item started or completed: text rows, thoughts and tool chips.
+    async fn on_codex_item(&mut self, item: &Value, completed: bool) -> Result<()> {
+        if self.turn.is_none() {
+            return Ok(());
+        }
+        let typ = item["type"].as_str().unwrap_or("");
+        let id = item["id"].as_str().unwrap_or("").to_string();
+        if let Some(t) = self.turn.as_mut() {
+            t.activity = true;
+        }
+        match typ {
+            "userMessage" | "hookPrompt" | "contextCompaction" | "enteredReviewMode" | "exitedReviewMode" | "functionCallOutput" => {}
+            "agentMessage" | "plan" => {
+                if !completed {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.draft.clear();
+                    }
+                    self.set_activity("writing", None);
+                    return Ok(());
+                }
+                let text = item["text"].as_str().unwrap_or("").to_string();
+                if text.trim().is_empty() {
+                    return Ok(());
+                }
+                let row = json!({ "role": "assistant", "text": text, "tools": [], "ts": now_iso(), "assistant_id": id });
+                let client = self.engine.db.get().await?;
+                let seq = self.convo.append(&client, row.clone()).await?;
+                drop(client);
+                if let Some(t) = self.turn.as_mut() {
+                    t.rows.insert(id.clone(), (seq, row));
+                    t.codex_row = Some(id);
+                    t.draft.clear();
+                }
+                self.text_landed();
+            }
+            "reasoning" => {
+                if !completed {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.thinking.clear();
+                    }
+                    self.stream("thinking_start", json!({}));
+                    self.set_activity("thinking", None);
+                    return Ok(());
+                }
+                let parts: Vec<String> = item["summary"]
+                    .as_array()
+                    .filter(|a| !a.is_empty())
+                    .or_else(|| item["content"].as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+                let body = parts.join("\n");
+                if body.trim().is_empty() {
+                    return Ok(());
+                }
+                let row = json!({ "role": "assistant", "text": "", "thinking": convo::clip(&body, 20_000).0, "tools": [],
+                                  "ts": now_iso(), "assistant_id": id });
+                let client = self.engine.db.get().await?;
+                let seq = self.convo.append(&client, row.clone()).await?;
+                drop(client);
+                if let Some(t) = self.turn.as_mut() {
+                    t.rows.insert(id.clone(), (seq, row));
+                    t.codex_row = Some(id);
+                    t.thinking.clear();
+                }
+                self.stream("thought", json!({}));
+            }
+            _ => {
+                let Some((name, input)) = codex_tool(item) else { return Ok(()) };
+                let client = self.engine.db.get().await?;
+                if !completed {
+                    crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
+                    let Some(key) = self.codex_row(&client, &id).await? else { return Ok(()) };
+                    let update = {
+                        let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                        let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                        let chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) });
+                        if let Some(tools) = row["tools"].as_array_mut() {
+                            tools.push(chip);
+                        }
+                        t.tools.insert(id.clone(), key.clone());
+                        (*seq, row.clone())
+                    };
+                    self.convo.update(&client, update.0, update.1).await?;
+                    drop(client);
+                    self.set_activity("tool", Some(name));
+                    self.stream("tool", json!({ "id": id }));
+                    return Ok(());
+                }
+                let (text, failed) = codex_result(item);
+                let update = {
+                    let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                    let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
+                    let card = t.cards.remove(&id);
+                    let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                    let (clipped, truncated) = convo::clip(&text, 4000);
+                    if let Some(chips) = row["tools"].as_array_mut() {
+                        for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
+                            chip["result"] = json!(clipped);
+                            chip["result_lines"] = json!(text.lines().count());
+                            if truncated {
+                                chip["truncated"] = json!(true);
+                            }
+                            if failed {
+                                chip["error"] = json!(gist(&text, 500));
+                            }
+                            if let Some(extra) = card.as_ref().and_then(|c| c.as_object()) {
+                                if let Some(c) = chip.as_object_mut() {
+                                    for (k, val) in extra {
+                                        c.insert(k.clone(), val.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    (*seq, row.clone())
+                };
+                self.convo.update(&client, update.0, update.1).await?;
+                drop(client);
+                self.set_activity("thinking", None);
+                self.stream("tool", json!({}));
+            }
+        }
+        Ok(())
+    }
+
+    /// Codex's checklist (`turn/plan/updated`) as the desk's progress list.
+    async fn on_codex_plan(&mut self, p: &Value) -> Result<()> {
+        let Some(steps) = p["plan"].as_array() else { return Ok(()) };
+        let todos: Vec<Value> = steps
+            .iter()
+            .filter_map(|s| {
+                let step = s["step"].as_str()?;
+                let status = match s["status"].as_str().unwrap_or("pending") {
+                    "inProgress" => "in_progress",
+                    "completed" => "completed",
+                    _ => "pending",
+                };
+                Some(json!({ "content": step, "status": status, "activeForm": step }))
+            })
+            .collect();
+        let chip_id = format!("plan-{}", self.turn.as_ref().and_then(|t| t.codex_turn.clone()).unwrap_or_default());
+        let client = self.engine.db.get().await?;
+        let key = match self.turn.as_ref().and_then(|t| t.tools.get(&chip_id).cloned()) {
+            Some(k) => k,
+            None => match self.codex_row(&client, &chip_id).await? {
+                Some(k) => k,
+                None => return Ok(()),
+            },
+        };
+        let update = {
+            let Some(t) = self.turn.as_mut() else { return Ok(()) };
+            let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+            let tools = row["tools"].as_array_mut();
+            if let Some(tools) = tools {
+                match tools.iter_mut().find(|c| c["id"].as_str() == Some(chip_id.as_str())) {
+                    Some(c) => c["todos"] = json!(todos),
+                    None => tools.push(json!({ "id": chip_id, "name": "TodoWrite", "arg": "todos", "todos": todos })),
+                }
+            }
+            t.tools.insert(chip_id.clone(), key.clone());
+            (*seq, row.clone())
+        };
+        self.convo.update(&client, update.0, update.1).await?;
+        drop(client);
+        self.stream("tool", json!({ "id": chip_id }));
         Ok(())
     }
 
@@ -1507,7 +2034,7 @@ impl Actor {
         self.unpark();
         if self.turn.is_some() {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
-            let msg = if quiet { None } else { Some("the Claude process exited during the turn".to_string()) };
+            let msg = if quiet { None } else { Some(format!("the {} process exited during the turn", catalog::provider_label(&self.provider))) };
             self.end_turn(msg, Value::Null).await?;
         }
         self.publish();
@@ -1517,7 +2044,11 @@ impl Actor {
     /// The usage limit this failure reports, if it is one: when it lifts.
     fn limit_of(&self, error: &str) -> Option<DateTime<Utc>> {
         let lower = error.to_lowercase();
-        let rejected = self.rate_limit.as_ref().map(|r| r["status"] == "rejected").unwrap_or(false);
+        let rejected = self
+            .rate_limit
+            .as_ref()
+            .map(|r| r["status"] == "rejected" || !r["rateLimitReachedType"].is_null())
+            .unwrap_or(false);
         let worded = lower.contains("usage limit")
             || lower.contains("hit your limit")
             || lower.contains("limit reached")
@@ -1529,7 +2060,15 @@ impl Actor {
         let from_info = self
             .rate_limit
             .as_ref()
-            .and_then(|r| r["resetsAt"].as_i64())
+            .and_then(|r| {
+                r["resetsAt"].as_i64().or_else(|| {
+                    ["primary", "secondary"]
+                        .iter()
+                        .filter(|w| r[**w]["usedPercent"].as_i64().unwrap_or(0) >= 100)
+                        .filter_map(|w| r[*w]["resetsAt"].as_i64())
+                        .max()
+                })
+            })
             .and_then(|t| DateTime::from_timestamp(t, 0))
             .filter(|t| *t > Utc::now());
         let from_text = error
@@ -1544,30 +2083,61 @@ impl Actor {
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
-        let usage = if res.get("usage").map(|u| u.is_object()).unwrap_or(false) { res["usage"].clone() } else { turn.usage.clone() };
-        let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
-        let input = n(&usage, "input_tokens");
-        let cache_read = n(&usage, "cache_read_input_tokens");
-        let cache_write = n(&usage, "cache_creation_input_tokens");
-        let output = n(&usage, "output_tokens");
-        let ttl: i32 =
-            if usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_i64).unwrap_or(0) > 0 { 3600 } else { 300 };
-        // the last model call's input is how full the context is
-        let occupancy = (n(&turn.usage, "input_tokens")
-            + n(&turn.usage, "cache_read_input_tokens")
-            + n(&turn.usage, "cache_creation_input_tokens")) as i32;
-        // the CLI's cost counter runs for the whole session
-        let total = res.get("total_cost_usd").and_then(Value::as_f64);
-        let cost = match total {
-            Some(t) if t >= self.cost_seen => t - self.cost_seen,
-            Some(t) => t,
-            None => 0.0,
-        };
-        if let Some(t) = total {
-            self.cost_seen = t;
+        let codex = res["codex"].as_bool().unwrap_or(false);
+        if error.is_none() && codex {
+            error = turn.codex_error.clone().filter(|_| !turn.interrupted);
         }
+        let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
+        let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if codex {
+            // Codex counts tokens for the whole thread: this turn is the difference
+            let total = &turn.usage["total"];
+            let last = &turn.usage["last"];
+            let base = turn.usage_base.clone().unwrap_or_else(|| {
+                let mut b = json!({});
+                for k in ["inputTokens", "cachedInputTokens", "outputTokens", "cacheWriteInputTokens"] {
+                    b[k] = json!((n(total, k) - n(last, k)).max(0));
+                }
+                b
+            });
+            let d = |k: &str| (n(total, k) - n(&base, k)).max(0);
+            let (inp, cached, out) = (d("inputTokens"), d("cachedInputTokens").min(d("inputTokens")), d("outputTokens"));
+            let tier = self.tier().await;
+            let cost = catalog::tier(&tier)
+                .and_then(|t| t.prices)
+                .map(|(pi, pc, po)| ((inp - cached) as f64 * pi + cached as f64 * pc + out as f64 * po) / 1e6)
+                .unwrap_or(0.0);
+            let occ = if n(last, "inputTokens") > 0 { n(last, "inputTokens") } else { n(total, "inputTokens") };
+            (inp - cached, cached, d("cacheWriteInputTokens"), out, 1800, occ as i32, cost)
+        } else {
+            let usage = if res.get("usage").map(|u| u.is_object()).unwrap_or(false) { res["usage"].clone() } else { turn.usage.clone() };
+            let ttl: i32 =
+                if usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_i64).unwrap_or(0) > 0 { 3600 } else { 300 };
+            // the last model call's input is how full the context is
+            let occupancy = (n(&turn.usage, "input_tokens")
+                + n(&turn.usage, "cache_read_input_tokens")
+                + n(&turn.usage, "cache_creation_input_tokens")) as i32;
+            // the CLI's cost counter runs for the whole session
+            let total = res.get("total_cost_usd").and_then(Value::as_f64);
+            let cost = match total {
+                Some(t) if t >= self.cost_seen => t - self.cost_seen,
+                Some(t) => t,
+                None => 0.0,
+            };
+            if let Some(t) = total {
+                self.cost_seen = t;
+            }
+            (
+                n(&usage, "input_tokens"),
+                n(&usage, "cache_read_input_tokens"),
+                n(&usage, "cache_creation_input_tokens"),
+                n(&usage, "output_tokens"),
+                ttl,
+                occupancy,
+                cost,
+            )
+        };
         let ms = res.get("duration_ms").and_then(Value::as_i64).unwrap_or(turn.started.elapsed().as_millis() as i64);
-        let denials: Vec<Value> = res
+        let mut denials: Vec<Value> = res
             .get("permission_denials")
             .and_then(Value::as_array)
             .map(|a| {
@@ -1579,6 +2149,7 @@ impl Actor {
                     .collect()
             })
             .unwrap_or_default();
+        denials.extend(turn.denials.iter().cloned());
         let session = res.get("session_id").and_then(Value::as_str).map(str::to_string);
         // a usage limit freezes the agent (or moves it to another account)
         let limit = error.as_deref().and_then(|e| self.limit_of(e));
@@ -1622,11 +2193,11 @@ impl Actor {
             .execute(
                 "UPDATE ot.turns SET ended_at = now(), cost_usd = $2::float8::numeric, toks = $3, input_tokens = $4,
                         cache_read = $5, cache_write = $6, cache_ttl_s = $7, ms = $8, denials = $9, killed = $10,
-                        error = $11, model = coalesce($12, model), cost_source = 'cli'
+                        error = $11, model = coalesce($12, model), cost_source = $13
                   WHERE id = $1",
                 &[
                     &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
-                    &turn.killed, &error, &turn.model,
+                    &turn.killed, &error, &turn.model, &(if codex { "priced" } else { "cli" }),
                 ],
             )
             .await?;
@@ -1779,6 +2350,10 @@ impl Actor {
         }
         let compact = text.trim() == "/compact" || text.trim().starts_with("/compact ");
         let ctx = self.load_ctx().await?;
+        if ctx.provider != catalog::CLAUDE {
+            return Ok(json!({ "started": false,
+                              "reason": "slash commands are Claude Code's; compact this agent with cheap compact instead" }));
+        }
         if ctx.state != "live" || ctx.halted || ctx.killswitch {
             return Ok(json!({ "started": false, "reason": "this agent is not running (retired, halted or stopped)" }));
         }
@@ -1786,7 +2361,10 @@ impl Actor {
             return Ok(json!({ "started": false, "reason": "this agent has no conversation to compact yet" }));
         }
         self.ensure_proc(&ctx).await?;
-        let sent = self.proc.as_ref().map(|p| p.send_user(text, Vec::new())).unwrap_or(false);
+        let sent = match self.proc.as_ref() {
+            Some(Proc::Claude(p)) => p.send_user(text, Vec::new()),
+            _ => false,
+        };
         if !sent {
             return Ok(json!({ "started": false, "reason": "the process could not be reached" }));
         }
@@ -1920,12 +2498,13 @@ impl Actor {
     }
 
     fn forecast_for(&self, ctx: &Ctx) -> Value {
+        let lane = if ctx.provider == catalog::OPENAI { "codex" } else { "claude" };
         let generation = format!("{}", ctx.generation);
         let receipt_at = self.receipt.map(|(t, _)| iso(t));
         let Some(sent) = &self.sent_print else {
             return json!({ "generation": generation, "state": "uncertain", "readiness": "unknown",
                            "readiness_cause": "no_completed_fingerprint", "reason": "no turn has completed since the engine started",
-                           "source": "no_completed_fingerprint", "lane": "claude", "last_receipt_at": receipt_at,
+                           "source": "no_completed_fingerprint", "lane": lane, "last_receipt_at": receipt_at,
                            "ttl_seconds": null, "expires_at": null });
         };
         let now_print = self.plan(ctx).print;
@@ -1933,26 +2512,26 @@ impl Actor {
         if !changed.is_empty() {
             return json!({ "generation": generation, "state": "known_incompatible", "readiness": "not_ready",
                            "readiness_cause": "prefix_changed", "reason": "the prompt prefix changed since the last turn",
-                           "source": "authoritative_receipt", "lane": "claude", "changed_inputs": changed,
+                           "source": "authoritative_receipt", "lane": lane, "changed_inputs": changed,
                            "last_receipt_at": receipt_at, "ttl_seconds": null, "expires_at": null,
                            "precompact_action": "not_applicable" });
         }
         let Some((at, ttl)) = self.receipt else {
             return json!({ "generation": generation, "state": "uncertain", "readiness": "not_ready",
                            "readiness_cause": "no_positive_receipt", "reason": "the last turn reported no cache use",
-                           "source": "no_positive_receipt", "lane": "claude", "last_receipt_at": null,
+                           "source": "no_positive_receipt", "lane": lane, "last_receipt_at": null,
                            "ttl_seconds": null, "expires_at": null });
         };
         let expires = at + chrono::Duration::seconds(ttl);
         if Utc::now() >= expires {
             return json!({ "generation": generation, "state": "expired_known_entry", "readiness": "not_ready",
                            "readiness_cause": "receipt_expired", "reason": "the cache entry has expired",
-                           "source": "authoritative_receipt", "lane": "claude", "last_receipt_at": iso(at),
+                           "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at),
                            "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": "miss_expected" });
         }
         json!({ "generation": generation, "state": "compatible_observed", "readiness": "ready",
                 "readiness_cause": "receipt_valid", "reason": "the cache entry was observed and has not expired",
-                "source": "authoritative_receipt", "lane": "claude", "last_receipt_at": iso(at), "ttl_seconds": ttl,
+                "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at), "ttl_seconds": ttl,
                 "expires_at": iso(expires), "precompact_action": "not_applicable" })
     }
 }
@@ -2063,4 +2642,93 @@ fn patch_of(v: &Value) -> Option<Value> {
         d["truncated"] = json!(true);
     }
     Some(d)
+}
+
+/// Image attachments as Codex input items.
+fn codex_images(mails: &[Mail]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for m in mails {
+        for a in m.attachments.as_array().cloned().unwrap_or_default() {
+            let Some(path) = a.get("path").and_then(Value::as_str) else { continue };
+            let lower = path.to_lowercase();
+            if [".png", ".jpg", ".jpeg", ".gif", ".webp"].iter().any(|e| lower.ends_with(e)) && std::path::Path::new(path).is_file() {
+                out.push(json!({ "type": "localImage", "path": path }));
+            }
+        }
+    }
+    out
+}
+
+/// A Codex tool item as (chip name, argument object).
+fn codex_tool(item: &Value) -> Option<(String, Value)> {
+    let args = |v: &Value| if v.is_object() { v.clone() } else { json!({ "arguments": v }) };
+    let s = |k: &str| item[k].as_str().unwrap_or("").to_string();
+    Some(match item["type"].as_str()? {
+        "dynamicToolCall" => (item["tool"].as_str().unwrap_or("tool").to_string(), args(&item["arguments"])),
+        "mcpToolCall" => (format!("mcp__{}__{}", item["server"].as_str().unwrap_or("mcp"), item["tool"].as_str().unwrap_or("tool")), args(&item["arguments"])),
+        "commandExecution" => ("exec_command".into(), json!({ "command": s("command") })),
+        "fileChange" => {
+            let paths: Vec<String> = item["changes"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|c| c["path"].as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            ("apply_patch".into(), json!({ "path": paths.join(", ") }))
+        }
+        "webSearch" => ("web_search".into(), json!({ "query": s("query") })),
+        "imageView" => ("view_image".into(), json!({ "path": s("path") })),
+        "collabAgentToolCall" => (item["tool"].as_str().unwrap_or("collaboration").to_string(), json!({ "prompt": s("prompt") })),
+        "subAgentActivity" => ("collaboration".into(), json!({ "agent": s("agentPath"), "action": s("kind") })),
+        "sleep" => ("wait".into(), json!({ "duration_ms": item["durationMs"] })),
+        "imageGeneration" => ("image_generation".into(), json!({ "prompt": s("revisedPrompt") })),
+        _ => return None,
+    })
+}
+
+/// A completed Codex tool item's result text, and whether it failed.
+fn codex_result(item: &Value) -> (String, bool) {
+    let status = item["status"].as_str().unwrap_or("").to_lowercase();
+    let failed = item["success"] == json!(false)
+        || !item["error"].is_null()
+        || ["fail", "error", "declin"].iter().any(|x| status.contains(x));
+    match item["type"].as_str().unwrap_or("") {
+        "commandExecution" => {
+            let mut body = item["aggregatedOutput"].as_str().unwrap_or("").to_string();
+            let code = item["exitCode"].as_i64();
+            if let Some(c) = code {
+                if !body.is_empty() {
+                    body.push('\n');
+                }
+                body.push_str(&format!("exit code {c}"));
+            }
+            (body, failed || code.map(|c| c != 0).unwrap_or(false))
+        }
+        "dynamicToolCall" => {
+            let text = item["contentItems"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n"))
+                .unwrap_or_default();
+            (text, failed)
+        }
+        "fileChange" => {
+            let paths: Vec<String> = item["changes"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|c| c["path"].as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            (format!("{}{}", item["status"].as_str().unwrap_or("completed"), if paths.is_empty() { String::new() } else { format!(": {}", paths.join(", ")) }), failed)
+        }
+        "webSearch" => (
+            if item["results"].is_null() { item["query"].as_str().unwrap_or("").to_string() } else { gist(&item["results"].to_string(), 2000) },
+            failed,
+        ),
+        "mcpToolCall" => {
+            let r = if !item["result"].is_null() { &item["result"] } else { &item["error"] };
+            let text = r["content"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n"))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| r.as_str().map(str::to_string).unwrap_or_else(|| gist(&r.to_string(), 2000)));
+            (text, failed)
+        }
+        _ => (item["status"].as_str().unwrap_or("completed").to_string(), failed),
+    }
 }

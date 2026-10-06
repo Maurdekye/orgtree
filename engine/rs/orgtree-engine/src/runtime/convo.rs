@@ -207,7 +207,9 @@ pub fn clip(text: &str, max: usize) -> (String, bool) {
 pub fn tool_arg(name: &str, input: &Value) -> String {
     let pick = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
     let s = match name {
-        "Bash" | "PowerShell" => pick("command"),
+        "Bash" | "PowerShell" | "exec_command" => pick("command"),
+        "apply_patch" | "view_image" => pick("path"),
+        "web_search" => pick("query"),
         "Read" | "Edit" | "Write" | "NotebookEdit" => pick("file_path").or_else(|| pick("notebook_path")),
         "Glob" | "Grep" => pick("pattern"),
         "WebFetch" => pick("url"),
