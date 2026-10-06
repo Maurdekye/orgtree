@@ -32332,6 +32332,14 @@ def _steer_commit_rows(nid: str) -> dict[str, Any]:
 
 def _pump_steer(slug: str, nid: str) -> list[Any]:
     """A failed gate/commit leaves the pump alive for its next bounded poll."""
+    # Nothing queued: the gate transaction (nid FOR UPDATE, killswitch FOR
+    # SHARE) would lock rows to return [] on every poll. pop_steer with an
+    # empty `steer` list changes nothing, so skip it (item
+    # 3-2-0-engine-transactions-stay-open-for-10-17-s).
+    st = state(slug, nid)
+    with _state_lock:
+        if not st.get("steer"):
+            return []
     try:
         return pop_steer(slug, nid, defer_commit=True)
     except Exception as exc:  # database lock timeout, disconnect, or failed save

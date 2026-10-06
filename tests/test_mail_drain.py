@@ -218,6 +218,17 @@ class MailDrainTests(unittest.TestCase):
         self.assertEqual(self.st.get('halt_steering_carriers'), [])
         self.assertEqual(sup._pump_steer(self.slug, 'worker'), original)
 
+    def test_an_empty_steer_poll_opens_no_transaction(self):
+        # item 3-2-0-engine-transactions-stay-open-for-10-17-s: every pump
+        # poll locked the node row and killswitch to return []
+        self.st.update(busy=True, responding=True)
+        self.st['steer'] = []
+        with patch.object(sup, 'pop_steer',
+                          side_effect=AssertionError('opened the gate transaction')):
+            self.assertEqual(sup._pump_steer(self.slug, 'worker'), [])
+        self.send('queued')
+        self.assertEqual(len(sup._pump_steer(self.slug, 'worker')), 1)
+
     def test_steer_pump_lock_timeout_then_turn_end_delivers_once(self):
         from psycopg.errors import LockNotAvailable
         self.st.update(busy=True, responding=True)
