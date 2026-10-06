@@ -61,7 +61,10 @@ import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 
-export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean }
+export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean
+  /** Orgtree 4: the Rust engine executable. When set it is started instead of
+   *  the Python engine, with the same environment and launch handshake. */
+  binary?: string }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -276,13 +279,18 @@ export class Engine extends EventEmitter {
     if (this.child) throw new Error('Engine already started')
     this.lastOptions = options
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
-    if (!path.isAbsolute(options.python) || !fs.existsSync(options.python)) throw new Error('Python runtime is missing. Configure ORGTREE_V2_PYTHON for development.')
-    if (!fs.existsSync(path.join(options.directory, 'launch.py'))) throw new Error('Python engine has not been packaged')
+    const binary = options.binary
+    if (binary) {
+      if (!path.isAbsolute(binary) || !fs.existsSync(binary)) throw new Error(`The Orgtree engine is missing: ${binary}`)
+    } else {
+      if (!path.isAbsolute(options.python) || !fs.existsSync(options.python)) throw new Error('Python runtime is missing. Configure ORGTREE_V2_PYTHON for development.')
+      if (!fs.existsSync(path.join(options.directory, 'launch.py'))) throw new Error('Python engine has not been packaged')
+    }
     fs.mkdirSync(root, { recursive: true })
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
-    const env = { ...process.env, ...postgresRuntimeEnvironment(options.directory, options.packagedPostgres),
+    const env = { ...process.env, ...(binary ? {} : postgresRuntimeEnvironment(options.directory, options.packagedPostgres)),
       ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
     // Never inherit a v1 backend port or root selector.
@@ -291,7 +299,15 @@ export class Engine extends EventEmitter {
     // shell or from the development executable-path opt-in.
     delete env['ORGTREE_PG_BOOTSTRAP' as keyof typeof env]
     if (options.bootstrapPostgres) Object.assign(env, { ORGTREE_PG_BOOTSTRAP: '1' })
-    const child = spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
+    // The Rust engine finds PostgreSQL beside itself; a development build may
+    // point it elsewhere with ORGTREE_P03_PG_BIN.
+    if (binary && !(env as NodeJS.ProcessEnv).ORGTREE_P03_PG_BIN) {
+      const bin = path.join(path.dirname(binary), 'postgresql', 'bin')
+      if (fs.existsSync(path.join(bin, 'postgres.exe'))) Object.assign(env, { ORGTREE_P03_PG_BIN: bin })
+    }
+    const child = binary
+      ? spawn(binary, ['serve'], { cwd: path.dirname(binary), env, windowsHide: true, stdio: 'pipe' })
+      : spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
     this.child = child
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
     child.on('exit', () => this.childExited(child))

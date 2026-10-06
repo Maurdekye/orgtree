@@ -1774,8 +1774,13 @@ else {
     const conversionWindow = new ConversionWindow(iconPath)
     engine.on('conversion', (phase: string | null) => conversionWindow.update(phase))
     try {
+      // Orgtree 4: the Rust engine, when this build carries it (packaged beside
+      // the UI) or a development run names it with ORGTREE_ENGINE_BIN.
+      const rustEngine = process.env.ORGTREE_ENGINE_BIN
+        || (app.isPackaged ? path.join(directory, 'orgtree-engine.exe') : '')
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
+        binary: rustEngine && fs.existsSync(rustEngine) ? rustEngine : undefined,
         python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
@@ -1783,7 +1788,7 @@ else {
       // The tray's restart entry restarts THIS engine, with the runtime,
       // data root and UI directory it was started with - never a set of its own.
       engineRestartOptions = engineOptions
-      if (app.isPackaged) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
+      if (app.isPackaged && !engineOptions.binary) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
       if (!await engine.attach(engineOptions)) {
