@@ -905,3 +905,8 @@ destination under those locks. Mail uses the standard send declaration; missed w
 widen only after rollback. Failures back off from 60 seconds to 15 minutes per org;
 successful passes clear the backoff. No all-node recovery lock is taken.
 [verified 2026-10-05: `supervisor._abandoned_docket_recovery_pass`, `worktx.py`]
+
+- Recovery prediction uses the archive projection, including owner and both freshness
+  timestamps; reassignment retains full records and rejects prediction mappings.
+  Never pass a projected row to a write. [verified: `ledger.py`, `supervisor.py`;
+  decided: drag-opus 2026-10-06; `tests/test_orgdb_abandoned_recovery_pg.py`]

@@ -542,6 +542,10 @@ class LedgerError(ValueError):
     """Raised when an operation violates a precondition. Message is user-facing."""
 
 
+class _WorkRecoveryProjection(dict):
+    """Read-only recovery selection; never a record handed to a writer."""
+
+
 class StaleRevError(LedgerError):
     """A compare-and-set refusal: the item moved between the read and the write.
 
@@ -12472,9 +12476,9 @@ class Org:
     #:   slug              `_work_attention` (the ask store is keyed by it)
     #:   status            `_work_status` -> `_work_eligible`, `_work_backlogged`,
     #:                     `_work_counts_active`
-    #:   docket_at         `_work_age_s`, and the list's sort key
-    #:   updated_at        `_work_age_s`'s fallback, and the sort key's
-    #:   owner created_by  `_work_can_manage`
+    #:   docket_at         `_work_age_s`, `_work_recovery_age_s`, and sort key
+    #:   updated_at        `_work_age_s` fallback; `_work_recovery_age_s` freshness
+    #:   owner created_by  `_work_can_manage`; recovery `_work_identity_state`
     #:   participants
     #:   reviewer          `_work_can_read`
     #:   manual_attention  `_work_attention`
@@ -17384,7 +17388,8 @@ class Org:
 
     def _work_abandoned_candidates(self, now_ts: float | None,
                                    threshold_s: float | None,
-                                   slugs: set[str] | None = None
+                                   slugs: set[str] | None = None, *,
+                                   project_archive: bool = False
                                    ) -> Iterator[tuple[WorkItem, float, str]]:
         """(item, age, owner state) for each stale nonterminal item whose
         OWNER is gone, in docket order -- the selection both the dry check
@@ -17406,7 +17411,9 @@ class Org:
         items = list(self._work_active())
         if any(self._work_status({"status": st}) not in self.WORK_CLOSED
                for st in self._work_archive_statuses()):
-            items += self._work_archive()
+            items += ([_WorkRecoveryProjection(row)
+                       for row in self._work_archive_rows()]
+                      if project_archive else self._work_archive())
         for it in items:
             if slugs is not None and it.get("slug") not in slugs:
                 continue
@@ -17432,7 +17439,8 @@ class Org:
         """Would `work_reassign_abandoned` move anything? Read-only: the 20 s
         keeper asks this of a lock-free runtime view and takes the
         transaction only on True. Stops at the first candidate."""
-        for _ in self._work_abandoned_candidates(now_ts, threshold_s):
+        for _ in self._work_abandoned_candidates(
+                now_ts, threshold_s, project_archive=True):
             return bool(self._work_live_tops())
         return False
 
@@ -17452,7 +17460,10 @@ class Org:
         moved: list[dict[str, Any]] = []
         tops: list[str] | None = None
         # list() first: the reassignment edits the items being selected
-        for it, age, owner_state in list(self._work_abandoned_candidates(now_ts, threshold_s, slugs)):
+        candidates = list(self._work_abandoned_candidates(now_ts, threshold_s, slugs))
+        if any(isinstance(it, _WorkRecoveryProjection) for it, _, _ in candidates):
+            raise LedgerError("projected recovery rows cannot be assigned")
+        for it, age, owner_state in candidates:
             if tops is None:
                 tops = self._work_live_tops()
             # A scoped keeper plan must never switch to an unlocked recipient.

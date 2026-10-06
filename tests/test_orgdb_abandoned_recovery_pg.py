@@ -1,6 +1,7 @@
 """Bounded abandoned-docket recovery through real per-org transactions."""
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
+import copy
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 from uuid import uuid4
@@ -115,6 +116,56 @@ class Recovery(unittest.TestCase):
         self.assertNotIn(self.slug, sup._abandoned_retry)
         self.assertEqual(self.owners(), ['gone'] * 3)
         self.wake.assert_not_called()
+
+    def test_archived_prediction_parity_without_full_materialization(self):
+        org = store.load_org(self.slug)
+        base = copy.deepcopy(org._work_active()[0])
+        org.d['work_items'] = []
+        compacted = org._work_holder('root')
+        org.node('root')['generation'] += 1
+        reminted = {**org._work_holder('other'), 'born': 'previous-seat'}
+        cases = [
+            ('deleted', {'node': 'missing', 'generation': 1}, OLD, OLD),
+            ('retired', base['owner'], OLD, OLD),
+            ('reminted', reminted, OLD, OLD),
+            ('compacted', compacted, OLD, OLD),
+            ('fresh-update', base['owner'], OLD, '1970-01-01T00:43:20Z'),
+            ('fresh-docket', base['owner'], '1970-01-01T00:43:20Z', OLD),
+        ]
+        archived = []
+        for name, owner, docket_at, updated_at in cases:
+            archived.append({**copy.deepcopy(base), 'slug': name,
+                             'owner': owner, 'docket_at': docket_at,
+                             'updated_at': updated_at, 'status': 'open'})
+        org.d['work_items_archive'] = archived
+        store.save_org(org)
+        def selected(snap, projected, slugs=None):
+            return [(it['slug'], age, state) for it, age, state in
+                    snap._work_abandoned_candidates(3000, None, slugs,
+                                                    project_archive=projected)]
+        full = selected(store.load_runtime_org(self.slug), False)
+        self.assertEqual([x[0] for x in full], ['deleted', 'retired', 'reminted'])
+        for wanted in (None, {'retired', 'fresh-update'}, {'compacted'}):
+            snap = store.load_runtime_org(self.slug)
+            self.assertFalse(snap.d.resident('work_items_archive'))
+            with patch.object(snap, '_work_archive', side_effect=AssertionError('full archive')):
+                actual = selected(snap, True, wanted)
+            self.assertEqual(actual, selected(store.load_runtime_org(self.slug), False, wanted))
+            self.assertFalse(snap.d.resident('work_items_archive'))
+        resident = store.load_runtime_org(self.slug)
+        resident._work_archive()
+        self.assertEqual(selected(resident, True), full)
+
+    def test_projected_recovery_rows_are_rejected_before_any_assignment(self):
+        org = store.load_org(self.slug)
+        item = org._work_active()[0]
+        projected = ledger._WorkRecoveryProjection({k: item.get(k) for k in org._WORK_PROJ})
+        rows = [(item, 2000, 'archived'), (projected, 2000, 'archived')]
+        with patch.object(org, '_work_abandoned_candidates', return_value=iter(rows)), \
+                patch.object(org, '_work_assign_core') as assign:
+            with self.assertRaisesRegex(ledger.LedgerError, 'projected recovery'):
+                org.work_reassign_abandoned(now_ts=3000)
+        assign.assert_not_called()
 
     def test_failures_back_off_and_success_clears_backoff(self):
         with patch.object(worktx, 'run', side_effect=orgtx.UnlockedWrite('injected')) as run:

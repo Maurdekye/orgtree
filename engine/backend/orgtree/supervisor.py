@@ -14879,7 +14879,8 @@ def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
         moved: list[dict[str, Any]] = []
         try:
             snap = store.load_runtime_org(slug)
-            candidates = list(islice(snap._work_abandoned_candidates(stamp, None),
+            candidates = list(islice(snap._work_abandoned_candidates(
+                stamp, None, project_archive=True),
                                      _ABANDONED_BATCH))
             tops = snap._work_live_tops() if candidates else []
             if not tops:
