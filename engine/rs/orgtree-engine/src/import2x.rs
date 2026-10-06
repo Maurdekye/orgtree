@@ -291,13 +291,12 @@ async fn copy_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str) 
     let slug = src.slug.as_str();
     let doc = Value::Object(src.doc.clone());
     let org_id = insert_org(src, tx, uuid).await?;
-    let (ids, gens) = insert_agents(cfg, src, tx, org_id).await?;
+    let ids = insert_agents(cfg, src, tx, org_id).await?;
     let n = ids.len();
     insert_mail_all(src, tx, org_id, &ids).await?;
     insert_asks(&doc, tx, org_id, &ids).await?;
     insert_docket(src, tx, org_id, &ids).await?;
     insert_rest(src, tx, org_id, &ids).await?;
-    let _ = gens;
     tracing::info!(org = %slug, agents = n, "2.x organization copied");
     Ok(n)
 }
@@ -367,18 +366,17 @@ async fn insert_org(src: &Source, tx: &Transaction<'_>, uuid: &str) -> Result<i6
 }
 
 /// Agents (live and archived), their sessions and their recent turns.
-/// Returns name -> new id, and name -> generation.
+/// Returns name -> new id.
 #[logged]
 async fn insert_agents(
     cfg: &Config,
     src: &Source,
     tx: &Transaction<'_>,
     org_id: i64,
-) -> Result<(HashMap<String, i64>, HashMap<String, i64>)> {
+) -> Result<HashMap<String, i64>> {
     let tiers = src.doc.get("tiers").cloned().unwrap_or(Value::Null);
     let scratch_root = cfg.scratch_root(&src.slug);
     let mut ids: HashMap<String, i64> = HashMap::new();
-    let mut gens: HashMap<String, i64> = HashMap::new();
     let mut parents: Vec<(i64, String)> = Vec::new();
     for (name, n) in &src.nodes {
         let state = s(n, "state").unwrap_or_else(|| "archived".into());
@@ -452,7 +450,6 @@ async fn insert_agents(
             .with_context(|| format!("agent {name}"))?
             .get(0);
         ids.insert(name.clone(), id);
-        gens.insert(name.clone(), generation);
         if let Some(p) = s(n, "parent") {
             parents.push((id, p));
         }
@@ -490,7 +487,7 @@ async fn insert_agents(
             tx.execute("UPDATE ot.agents SET parent_id = $2 WHERE id = $1", &[child, p]).await?;
         }
     }
-    Ok((ids, gens))
+    Ok(ids)
 }
 
 /// 2.x scope with the defaults the 3.x importer fills in.
