@@ -10,6 +10,7 @@ pub mod notices;
 pub mod ops;
 pub mod orginbox;
 pub mod scope;
+pub mod staffing;
 pub mod tree;
 pub mod watchdogs;
 

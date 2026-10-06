@@ -105,6 +105,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/work-items", get(docket::view))
         .route("/api/orgs/{slug}/work-items/{wid}", get(docket::get))
         .route("/api/orgs/{slug}/work-items/{wid}/reply", post(docket::reply))
+        .route("/api/orgs/{slug}/work-items/{wid}/quick-staff", get(docket::quick_preview).post(docket::quick_commit))
         .route("/api/orgs/{slug}/work-items/{wid}/dismiss-attention", post(docket::dismiss))
         .route(
             "/api/orgs/{slug}/work-items/{wid}/attachments",

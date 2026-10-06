@@ -64,6 +64,15 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
             }
         }
     }
+    if op_name == "hire" || op_name == "rehire" {
+        if let (Some(item), Some(node)) = (arg_str(args, "work_item"), out["node"].as_str()) {
+            let who = crate::domain::docket::Who::Agent { id: me.id, name: me.name.clone(), generation: me.generation };
+            match crate::domain::docket::assign(engine, &org, &who, item, node).await {
+                Ok(_) => told.push_str(&format!(" {node} now owns docket item {item} (its status is unchanged).")),
+                Err(e) => told.push_str(&format!(" The docket item {item} could not be assigned: {e}")),
+            }
+        }
+    }
     let mut text = serde_json::to_string_pretty(&out).unwrap_or_default();
     text.push_str(&told);
     Ok(Done { text, card: None })

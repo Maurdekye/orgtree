@@ -135,3 +135,16 @@ pub async fn detach(State(e): State<Arc<Engine>>, Path((slug, wid, aid)): Path<(
 pub async fn artifact(Path((_slug, _wid, _aid)): Path<(String, String, String)>) -> ApiResult<Response> {
     Err(ApiError::not_found("evidence artifacts are not kept in Orgtree 4; evidence is notes and references"))
 }
+
+/// Quick staff: where the seat would go and which models can take it.
+#[logged]
+pub async fn quick_preview(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::domain::staffing::quick_preview(&e, &o, &wid).await?))
+}
+
+#[logged]
+pub async fn quick_commit(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<(String, String)>, Json(b): Json<Value>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::domain::staffing::quick_commit(&e, &o, &wid, &b).await?))
+}

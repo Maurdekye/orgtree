@@ -122,6 +122,15 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_present" | "orgtree_send_file" => doc_tool(engine, caller, name, args).await,
         "orgtree_watchdog" => dog_tool(engine, caller, args).await,
         "orgtree_work" => work_tool(engine, caller, args).await,
+        "orgtree_staff" => {
+            let Some(org) = engine.orgs.by_id(caller.org_id) else {
+                crate::refuse!(NotFound, "organization not open");
+            };
+            let client = engine.db.get().await?;
+            let m = me(&client, caller).await?;
+            drop(client);
+            Done::json(&crate::domain::staffing::staff(engine, &org, (m.id, m.name.as_str(), m.generation), args).await?)
+        }
         "orgtree_audience" => audience_tool(engine, caller, args).await,
         "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
         "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
