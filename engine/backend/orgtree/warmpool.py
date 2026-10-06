@@ -1251,7 +1251,7 @@ def _record_identity_change(wp: WarmProcess, next_hash: str,
 
 
 def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
-             ) -> tuple[bool, str]:
+             inventory=None) -> tuple[bool, str]:
     """May this node hold a warm process at all? Everything outside this set
     keeps today's spawn-per-turn behaviour, which is also the universal
     fallback. Preserving oracles remain excluded (each consult forks).
@@ -1275,9 +1275,12 @@ def eligible(org: Any, nid: str, *, ignore_exclusion: bool = False,
     # Deliberately keep warming when the transcript exists: delivery already
     # has durable evidence, and the post-echo crash path stays unchanged.
     sid = str(n.get("session_id") or "")
-    if (n.get("hard_fail_run")
-            and sup.transcript_path(sid, sup._transcript_root(org, nid)) is None):
-        return False, "terminal-failure-before-transcript"
+    if n.get("hard_fail_run"):
+        root = sup._transcript_root(org, nid)
+        path = (sup.transcript_path(sid, root, inventory=inventory) if inventory is not None
+                else sup.transcript_path(sid, root))
+        if path is None:
+            return False, "terminal-failure-before-transcript"
     if not ignore_exclusion and node_excluded(org.d["slug"], nid):
         return False, "excluded-by-flag"
     model = str(n.get("model") or "")
@@ -2799,6 +2802,8 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
     The periodic full pass remains the backstop for anything a scoped poke
     cannot know (foreign deletions, a missed hook)."""
     from . import supervisor as sup                 # noqa: PLC0415
+    from .desktop_native import NativeInventory
+    inventory = NativeInventory()  # Lazy and scoped to this pass, never retained.
     if not warm_enabled():
         # the OFF arm must be clean for the A/B: parked processes are torn
         # down, not merely unused, so "warm off" measures today's behaviour
@@ -2850,11 +2855,11 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
             if nid not in live:
                 kill_node(slug, nid, "retired")
                 continue
-            ok, why = eligible(org, nid)
+            ok, why = eligible(org, nid, inventory=inventory)
             if not ok:
                 kill_node(slug, nid, why)
         for nid in sorted(live):
-            ok, _why = eligible(org, nid)
+            ok, _why = eligible(org, nid, inventory=inventory)
             busy = _busy(slug, nid)
             if busy:
                 # A serving warm process keeps running to a safe boundary, but

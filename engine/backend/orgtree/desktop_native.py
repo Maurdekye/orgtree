@@ -690,10 +690,10 @@ def native_index() -> dict[str, str]:
     return display
 
 
-def native_path_for_session(sid: str) -> str | None:
+def native_path_for_session(sid: str, *, inventory: NativeInventory | None = None) -> str | None:
     if not isinstance(sid, str) or not UUID.fullmatch(sid):
         return None
-    found, conflicts = _native_inventory()
+    found, conflicts = inventory.read() if inventory is not None else _native_inventory()
     if sid in conflicts:
         raise NativeHeld("Duplicate native session ID in imported storage")
     path = found.get(sid)

@@ -4040,11 +4040,12 @@ def _project_transcripts(pattern: str) -> list[str]:
     return glob.glob(pattern)
 
 
-def transcript_path(session_id: str, root: str | None = None) -> str | None:
+def transcript_path(session_id: str, root: str | None = None, *, inventory=None) -> str | None:
     if root is None:
         try:
             from . import desktop_native
-            native_path = desktop_native.native_path_for_session(session_id)
+            native_path = (desktop_native.native_path_for_session(session_id, inventory=inventory)
+                           if inventory is not None else desktop_native.native_path_for_session(session_id))
             if native_path:
                 return native_path
         except ImportError:

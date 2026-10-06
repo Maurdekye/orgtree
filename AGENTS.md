@@ -910,3 +910,5 @@ successful passes clear the backoff. No all-node recovery lock is taken.
   timestamps; reassignment retains full records and rejects prediction mappings.
   Never pass a projected row to a write. [verified: `ledger.py`, `supervisor.py`;
   decided: drag-opus 2026-10-06; `tests/test_orgdb_abandoned_recovery_pg.py`]
+
+Warm-pool eligibility shares one lazy NativeInventory per keeper pass through transcript lookup. It is never retained across passes; per-session path validation and ad-hoc lookup freshness remain unchanged. [decided: drag-opus 2026-10-06; verified: `warmpool._keeper_pass`, `desktop_native.native_path_for_session`]
