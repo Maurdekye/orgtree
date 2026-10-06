@@ -35,6 +35,7 @@ pub struct Engine {
     pub hub: crate::mailhub::MailHub,
     pub dogs: crate::runtime::watchdogs::Registry,
     pub usage: crate::usage::Usage,
+    pub net: crate::net::Net,
 }
 
 pub type EngineRef = Arc<Engine>;

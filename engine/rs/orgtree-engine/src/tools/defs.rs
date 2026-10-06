@@ -179,7 +179,7 @@ fn all() -> Vec<Value> {
             &[],
         ),
         tool("orgtree_list_tiers", "Model tiers you can hire on, with seat prices in credits.", json!({}), &[]),
-        tool("orgtree_list_orgs", "Other organizations on this machine (for '@org:<slug>' mail).", json!({}), &[]),
+        tool("orgtree_list_orgs", "Other organizations: on this machine ('@org:<slug>' mail) and on the mail hubs this organization uses ('@net:<address>' mail, under \"remote\").", json!({}), &[]),
         tool(
             "orgtree_read_transcript",
             "Read the recent conversation of yourself or an agent below you.",

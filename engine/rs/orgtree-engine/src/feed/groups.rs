@@ -277,7 +277,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             }})
         }
         "net" => {
-            json!({ "net": engine.hub.net_block(org) })
+            json!({ "net": crate::net::block(engine, client, org).await? })
         }
         "work_summary" => {
             let r = client

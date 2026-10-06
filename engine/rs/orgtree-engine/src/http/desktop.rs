@@ -84,3 +84,40 @@ pub async fn engine_stats(State(e): State<Arc<Engine>>) -> Json<Value> {
                     "turns_waiting": e.sched.waiting.load(Ordering::SeqCst) },
     }))
 }
+
+/// `GET /api/desktop/hub`: this machine's hub, its hosting settings and status.
+#[logged]
+pub async fn hub_get(State(e): State<Arc<Engine>>) -> Json<Value> {
+    Json(crate::mailhub::hosting(&e).await)
+}
+
+/// `PUT /api/desktop/hub`: new hosting settings (the hub restarts on them).
+#[logged]
+pub async fn hub_put(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
+    crate::mailhub::configure(&e, &b).await.map(Json).map_err(crate::http::error::ApiError::unprocessable)
+}
+
+/// This engine issues no maintenance requests (the agent relaunch tools are
+/// gone): an acknowledgment finds nothing to accept.
+#[logged]
+pub async fn maintenance_ack(Json(_b): Json<Value>) -> Json<Value> {
+    Json(json!({ "accepted": false }))
+}
+
+/// A maintenance failure an older build left behind is released.
+#[logged]
+pub async fn maintenance_failure(Json(_b): Json<Value>) -> Json<Value> {
+    Json(json!({ "released": true }))
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+pub struct ProbeQuery {
+    #[serde(default)]
+    address: String,
+}
+
+/// `GET /api/net/probe`: does a hub answer at this address right now?
+#[logged]
+pub async fn net_probe(axum::extract::Query(q): axum::extract::Query<ProbeQuery>) -> Json<Value> {
+    Json(crate::net::probe(&q.address).await)
+}

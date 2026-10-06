@@ -52,8 +52,8 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
         .map(|d| json!({ "path": d, "mode": "rw" }))
         .collect();
     let settings = json!({ "dirs": dirs });
-    let hubs: Vec<Value> = b.net_hubs.iter().map(|a| json!({ "address": a, "enabled": true })).collect();
-    let net = json!({ "autoconnect": b.net_autoconnect.unwrap_or(true), "hubs": hubs });
+    let auto = b.net_autoconnect.unwrap_or(true);
+    let net = json!({ "autoconnect": auto, "hubs": crate::net::hub_entries(&e, auto, &b.net_hubs) });
     let uuid = uuid::Uuid::new_v4();
     let id: i64 = client
         .query_one(
@@ -71,6 +71,10 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     drop(client);
     let _ = std::fs::create_dir_all(e.cfg.workspace_dir(&slug));
     let _ = std::fs::create_dir_all(e.cfg.scratch_root(&slug));
+    if let Err(err) = crate::net::ensure_identity(&e, id, &slug).await {
+        tracing::warn!(error = %format!("{err:#}"), "the new organization's network identity could not be minted yet");
+    }
+    crate::net::kick(&e);
     let o = crate::orgs::open(&e, id, uuid.to_string(), slug.clone(), name);
     changes::notify(&e, &o, vec![Change::Registry, Change::Org]);
     Ok(Json(json!({ "slug": slug })))
@@ -81,9 +85,11 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
 pub async fn delete(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
-    client
-        .execute("UPDATE ot.orgs SET state = 'trashed', trashed_at = now() WHERE id = $1", &[&o.id])
-        .await?;
+    let net: Value = client
+        .query_one("UPDATE ot.orgs SET state = 'trashed', trashed_at = now() WHERE id = $1 RETURNING net", &[&o.id])
+        .await?
+        .get(0);
+    crate::net::unregister(&e, net);
     let live: Vec<i64> = client
         .query("SELECT id FROM ot.agents WHERE org_id = $1 AND state = 'live'", &[&o.id])
         .await?

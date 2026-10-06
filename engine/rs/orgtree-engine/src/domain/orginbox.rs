@@ -52,19 +52,9 @@ pub fn entry(r: &Value) -> Value {
 #[logged]
 pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> Result<Sent> {
     let to = out.to.trim().trim_start_matches('@');
-    if to.starts_with("net:") {
-        crate::refuse!(Unprocessable, "mail over the mail hub (@net:) is not available in this engine build yet");
-    }
-    let slug = to.strip_prefix("org:").unwrap_or(to).trim();
     let Some(src) = engine.orgs.by_id(org_id) else {
         crate::refuse!(NotFound, "organization not open");
     };
-    let Some(dst) = engine.orgs.get(slug) else {
-        crate::refuse!(NotFound, "no organization @org:{slug} on this machine (orgtree_list_orgs lists them)");
-    };
-    if dst.id == org_id {
-        crate::refuse!(BadRequest, "@org:{slug} is this organization; write to the agent directly");
-    }
     let client = engine.db.get().await?;
     let by = match &out.from {
         From::User => "user".to_string(),
@@ -87,6 +77,26 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             );
         }
     }
+    drop(client);
+    if let Some(peer) = to.strip_prefix("net:") {
+        let (uid, to) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.attachments).await?;
+        changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
+        return Ok(Sent {
+            uid,
+            to,
+            recipient_state: "remote".into(),
+            delivery: "Queued for the mail hub; it leaves as soon as a hub accepts it (the org inbox shows its progress).".into(),
+            deferred: false,
+        });
+    }
+    let slug = to.strip_prefix("org:").unwrap_or(to).trim();
+    let Some(dst) = engine.orgs.get(slug) else {
+        crate::refuse!(NotFound, "no organization @org:{slug} on this machine (orgtree_list_orgs lists them)");
+    };
+    if dst.id == org_id {
+        crate::refuse!(BadRequest, "@org:{slug} is this organization; write to the agent directly");
+    }
+    let client = engine.db.get().await?;
     let attachments = Value::Array(out.attachments.clone());
     let out_uid = uid("x");
     let in_uid = uid("x");
@@ -100,27 +110,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer],
         )
         .await?;
-    // who reads the receiving org's outside mail
-    let mut holders: Vec<String> = client
-        .query(
-            "SELECT DISTINCT grantee FROM ot.audiences WHERE org_id = $1 AND grantor = '@extern' AND revoked_at IS NULL AND NOT paused",
-            &[&dst.id],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    if holders.is_empty() {
-        holders = client
-            .query(
-                "SELECT name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' ORDER BY sibling_order, id LIMIT 1",
-                &[&dst.id],
-            )
-            .await?
-            .iter()
-            .map(|r| r.get(0))
-            .collect();
-    }
+    let holders = holders(&client, dst.id).await?;
     drop(client);
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
     changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
@@ -139,4 +129,69 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         format!("Delivered to {}'s org inbox and to {}.", dst.slug, holders.join(", "))
     };
     Ok(Sent { uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() })
+}
+
+/// Who reads an org's outside mail: its org-inbox audience holders, else its
+/// first top-level agent.
+#[logged]
+async fn holders(client: &tokio_postgres::Client, org_id: i64) -> Result<Vec<String>> {
+    let mut holders: Vec<String> = client
+        .query(
+            "SELECT DISTINCT grantee FROM ot.audiences WHERE org_id = $1 AND grantor = '@extern' AND revoked_at IS NULL AND NOT paused",
+            &[&org_id],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    if holders.is_empty() {
+        holders = client
+            .query(
+                "SELECT name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' ORDER BY sibling_order, id LIMIT 1",
+                &[&org_id],
+            )
+            .await?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+    }
+    Ok(holders)
+}
+
+/// Mail that arrived over the mail hub: stored once (keyed by its hub id),
+/// then handed to the org's outside-mail holders. Answers whether it was new.
+#[logged]
+pub async fn deliver_inbound(
+    engine: &Arc<Engine>,
+    org_id: i64,
+    peer: &str,
+    body: &str,
+    attachments: Vec<Value>,
+    net_id: &str,
+    hub: &str,
+) -> Result<bool> {
+    let Some(org) = engine.orgs.by_id(org_id) else { return Ok(false) };
+    let client = engine.db.get().await?;
+    let n = client
+        .execute(
+            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub)
+             SELECT $1, $2, 'in', $3, $4, $5, $6, $7
+              WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id = $2 AND dir = 'in' AND net_id = $6)",
+            &[&uid("x"), &org_id, &peer, &body, &Value::Array(attachments.clone()), &net_id, &hub],
+        )
+        .await?;
+    if n == 0 {
+        return Ok(false);
+    }
+    let holders = holders(&client, org_id).await?;
+    drop(client);
+    changes::notify(engine, &org, vec![Change::OrgInbox]);
+    for h in &holders {
+        let mut m = Outgoing::new(From::Extern(peer.to_string()), h, body);
+        m.attachments = attachments.clone();
+        if let Err(e) = mail::send(engine, org_id, m).await {
+            tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
+        }
+    }
+    Ok(true)
 }

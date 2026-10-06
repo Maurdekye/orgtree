@@ -25,6 +25,7 @@ mod importer;
 mod launch;
 mod mailhub;
 mod migrate;
+mod net;
 mod openrouter;
 mod orgs;
 mod pg;
@@ -177,6 +178,7 @@ async fn run_with_cluster(
         hub: mailhub::MailHub::default(),
         dogs: runtime::watchdogs::Registry::default(),
         usage: usage::Usage::default(),
+        net: net::Net::default(),
     });
 
     progress("engine-load-orgs");
@@ -186,6 +188,7 @@ async fn run_with_cluster(
     providers::start(&engine);
     runtime::sched::start(&engine, sched_inbox);
     mailhub::start(&engine).await;
+    net::start(&engine);
     runtime::recover(&engine).await;
     if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") {
         runtime::watchdogs::start(&engine).await;

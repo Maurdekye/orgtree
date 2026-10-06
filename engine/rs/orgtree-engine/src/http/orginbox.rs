@@ -53,12 +53,19 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Api
 pub async fn read(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
-    let n = client
-        .execute("UPDATE ot.org_inbox SET read = true WHERE org_id = $1 AND dir = 'in' AND NOT read", &[&o.id])
+    let rows = client
+        .query("UPDATE ot.org_inbox SET read = true WHERE org_id = $1 AND dir = 'in' AND NOT read RETURNING net_id, hub", &[&o.id])
         .await?;
     drop(client);
-    if n > 0 {
+    if !rows.is_empty() {
         changes::notify(&e, &o, vec![Change::OrgInbox]);
+        let read: Vec<(String, String)> = rows
+            .iter()
+            .filter_map(|r| Some((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))
+            .collect();
+        if !read.is_empty() {
+            crate::net::note_read(&e, o.id, &read).await;
+        }
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -147,4 +154,12 @@ pub async fn send(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     out.attachments = atts;
     let sent = orginbox::send_extern(&e, o.id, &out).await?;
     Ok(Json(json!({ "id": sent.uid, "warnings": [], "delivery": sent.delivery })))
+}
+
+/// `GET /api/orgs/{slug}/net`: the org's network identity and hubs — the
+/// one route that returns the secret (the settings panel's reveal/export).
+#[logged]
+pub async fn net(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::net::reveal(&e, o.id, &o.slug).await?))
 }

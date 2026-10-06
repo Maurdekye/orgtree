@@ -8,6 +8,7 @@ use tokio_postgres::Client;
 const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_init", include_str!("../migrations/0001_init.sql")),
     ("0002_turn_sent", include_str!("../migrations/0002_turn_sent.sql")),
+    ("0003_net", include_str!("../migrations/0003_net.sql")),
 ];
 
 #[logged]

@@ -111,6 +111,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         client
             .execute("UPDATE ot.orgs SET net = net || $2 WHERE id = $1", &[&o.id, &Value::Object(net)])
             .await?;
+        crate::net::kick(&e);
     }
     client
         .execute(

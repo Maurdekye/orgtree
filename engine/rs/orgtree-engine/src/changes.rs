@@ -52,6 +52,8 @@ pub enum Change {
     Pulse { node: String, event: &'static str, extra: Option<Value> },
     /// the org list (create, delete, rename)
     Registry,
+    /// mail hub connections and rosters (the org's `net` record)
+    Net,
 }
 
 /// Fan changes out to the feed, the rooms and the app feed.
@@ -117,6 +119,7 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
                 org.emit(frame);
             }
             Change::Registry => registry = true,
+            Change::Net => keys.push(Key::Group("net")),
         }
     }
     if !keys.is_empty() {

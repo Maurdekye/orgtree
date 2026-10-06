@@ -259,7 +259,8 @@ pub async fn list_orgs(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
         .filter(|o| o.id != caller.org_id)
         .map(|o| json!({ "slug": o.slug, "name": o.name.load().as_str(), "address": format!("@org:{}", o.slug) }))
         .collect();
-    Done::json(&json!({ "orgs": orgs }))
+    let remote = crate::net::remote_peers(engine);
+    Done::json(&json!({ "orgs": orgs, "remote": remote }))
 }
 
 #[logged]
