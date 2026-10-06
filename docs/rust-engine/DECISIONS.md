@@ -127,5 +127,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
 37. **The first complete prototype of Orgtree 4 is delivered as a local installer in the user's Downloads
     folder** (user 2026-10-06): built locally from `rust-engine` as version 4.0.0; no tag, release, push or
     install by the agent.
+38. **Prototype builds are versioned `4.0.0-alpha.N`** (user 2026-10-06): the alpha number counts
+    delivered builds. The first delivered build, labelled 4.0.0, is alpha.0; the next is
+    `4.0.0-alpha.1`. Installers go to the user's Downloads folder, `E:\Libraries\Downloads`.
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is
     published.**
