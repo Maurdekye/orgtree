@@ -124,5 +124,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 ## Release
 
+37. **The first complete prototype of Orgtree 4 is delivered as a local installer in the user's Downloads
+    folder** (user 2026-10-06): built locally from `rust-engine` as version 4.0.0; no tag, release, push or
+    install by the agent.
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is
     published.**

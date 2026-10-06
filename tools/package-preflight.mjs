@@ -5,6 +5,16 @@ import { assertRuntimeLayout } from './runtime-layout.mjs'
 import { assertPostgresRuntime } from './postgres-layout.mjs'
 
 assertPackageInputsPresent()
+// Orgtree 4: the Rust engine ships as resources/engine/orgtree-engine.exe. A
+// development build of it defaults verbose logging ON (decision 35), so the
+// package takes only one compiled with ORGTREE_RELEASE_BUILD set.
+{
+  const engine = 'engine/rs/target/release/orgtree-engine.exe'
+  if (!fs.existsSync(engine)) throw new Error('Package is incomplete: ' + engine + '. Build it with ORGTREE_RELEASE_BUILD=1 cargo build --release.')
+  const version = execFileSync(engine, ['--version'], { encoding: 'utf8' }).trim()
+  if (version.includes('(dev)')) throw new Error(`The Rust engine is a development build (${version}); rebuild it with ORGTREE_RELEASE_BUILD=1`)
+  console.log('Rust engine present:', version)
+}
 // The complete package layout, not just file existence: 2.1.4-RC4 passed the
 // input list with its site-packages staged one level above where the
 // interpreter's ._pth looks, and shipped an app that could not start.
