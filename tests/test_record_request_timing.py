@@ -1,5 +1,5 @@
 """Request-only timing controls; no database and no live data."""
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import asyncio
 import concurrent.futures
