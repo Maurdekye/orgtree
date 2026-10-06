@@ -152,33 +152,78 @@ pub async fn start(engine: &Arc<Engine>) {
     publish(engine);
 }
 
+/// An account picked on a surface: left out, the provider's own login
+/// (`provider/primary`, shown as `default`), or a registry row.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Choice {
+    Unset,
+    Primary,
+    Account(String),
+}
+
+#[logged]
+pub fn choice(raw: Option<&str>) -> Choice {
+    match raw.map(str::trim) {
+        None | Some("") => Choice::Unset,
+        Some("primary") | Some("default") => Choice::Primary,
+        Some(v) if v.ends_with("/primary") => Choice::Primary,
+        Some(v) => Choice::Account(v.to_string()),
+    }
+}
+
+/// The provider's own home (`~/.claude`, `~/.codex`): a row pointing there
+/// is the host login itself.
+#[logged]
+pub fn default_home(provider: &str) -> Option<std::path::PathBuf> {
+    let home = dirs::home_dir()?;
+    match provider {
+        "claude" => Some(home.join(".claude")),
+        "openai" => Some(home.join(".codex")),
+        _ => None,
+    }
+}
+
+#[logged]
+pub fn is_ambient(a: &AccountInfo) -> bool {
+    let (Some(dir), Some(home)) = (a.config_dir.as_deref(), default_home(&a.provider)) else { return false };
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).ok();
+    match (canon(std::path::Path::new(dir)), canon(&home)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// One registry row as the account surfaces read it.
+#[logged]
+pub fn row(a: &AccountInfo, bound: Vec<Value>, now: DateTime<Utc>) -> Value {
+    let marks: serde_json::Map<String, Value> = a
+        .marks
+        .iter()
+        .map(|(pool, (until, prov))| (pool.clone(), json!({ "until": until.timestamp(), "provenance": prov })))
+        .collect();
+    let harness = match a.provider.as_str() {
+        "openai" => "codex-cli",
+        "google" => "antigravity",
+        _ => "claude-code",
+    };
+    json!({
+        "id": a.id, "name": a.id, "provider": a.provider, "harness": harness, "label": a.label,
+        "credential": if a.is_apikey() { json!({ "kind": "apikey", "token_ref": a.id }) } else { json!({ "kind": a.kind, "path": a.config_dir }) },
+        "identity": a.email.as_ref().map(|e| json!({ "email": e })).unwrap_or(json!({})),
+        "auth": a.auth, "tint_ordinal": a.tint_ordinal,
+        "origin_org": a.origin_org, "ambient": is_ambient(a),
+        "mode": if a.is_apikey() { json!("apikey") } else { Value::Null },
+        "enabled": a.enabled,
+        "standing": { "auth": a.auth, "state": if a.limited(now).is_some() { "limited" } else { "ready" }, "marks": marks },
+        "bound": bound,
+    })
+}
+
 /// Push the registry list to every window (`accounts` app value).
 #[logged]
 pub fn publish(engine: &Engine) {
     let view = engine.accounts.view();
     let now = Utc::now();
-    let rows: Vec<Value> = view
-        .all()
-        .into_iter()
-        .map(|a| {
-            let marks: serde_json::Map<String, Value> = a
-                .marks
-                .iter()
-                .map(|(pool, (until, prov))| (pool.clone(), json!({ "until": until.timestamp(), "provenance": prov })))
-                .collect();
-            json!({
-                "id": a.id, "name": a.id, "provider": a.provider,
-                "harness": a.provider, "label": a.label,
-                "credential": { "kind": a.kind, "path": a.config_dir },
-                "identity": a.email.as_ref().map(|e| json!({ "email": e })).unwrap_or(json!({})),
-                "auth": a.auth, "tint_ordinal": a.tint_ordinal,
-                "origin_org": a.origin_org, "ambient": false,
-                "mode": if a.is_apikey() { json!("apikey") } else { Value::Null },
-                "enabled": a.enabled,
-                "standing": { "auth": a.auth, "state": if a.limited(now).is_some() { "limited" } else { "ready" }, "marks": marks },
-                "bound": [],
-            })
-        })
-        .collect();
+    let rows: Vec<Value> = view.all().into_iter().filter(|a| a.provider != "openrouter").map(|a| row(a, Vec::new(), now)).collect();
     engine.app.set_value("accounts", json!({ "accounts": rows }));
 }

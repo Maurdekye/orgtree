@@ -1,6 +1,7 @@
 //! HTTP: every `/api/*` route the renderer and the desktop call, the two
 //! push sockets, and the renderer bundle.
 
+pub mod accounts;
 pub mod asks;
 pub mod desktop;
 pub mod docs;
@@ -80,6 +81,32 @@ pub fn router(engine: Arc<Engine>) -> Router {
             get(settings::get_template_dirs).put(settings::put_template_dirs),
         )
         .route("/api/providers", get(settings::get_providers))
+        // accounts, usage, OpenRouter
+        .route("/api/accounts", get(accounts::list).post(accounts::add))
+        .route("/api/accounts/readout", get(accounts::readout))
+        .route("/api/accounts/keys", post(accounts::add_key))
+        .route("/api/accounts/keys/{id}", delete(accounts::remove_key))
+        .route("/api/accounts/order", axum::routing::put(accounts::order))
+        .route("/api/accounts/usage", get(accounts::usage_all))
+        .route("/api/accounts/usage/{account}", get(accounts::usage_one))
+        .route("/api/accounts/{id}", delete(accounts::remove))
+        .route("/api/accounts/{id}/identity", get(accounts::identity))
+        .route("/api/accounts/{id}/usage", get(accounts::usage_registered))
+        .route("/api/accounts/{id}/marks", get(accounts::marks))
+        .route("/api/accounts/{id}/marks/clear", post(accounts::clear_marks))
+        .route("/api/usage", get(accounts::usage_claude))
+        .route("/api/usage/peek", get(accounts::peek_claude))
+        .route("/api/codex/usage", get(accounts::usage_codex))
+        .route("/api/codex/usage/peek", get(accounts::peek_codex))
+        .route("/api/antigravity/usage", get(accounts::usage_agy))
+        .route("/api/antigravity/usage/peek", get(accounts::peek_agy))
+        .route("/api/openrouter/usage", get(accounts::usage_openrouter))
+        .route("/api/openrouter/usage/peek", get(accounts::peek_openrouter))
+        .route("/api/openrouter", get(accounts::openrouter_doc))
+        .route("/api/openrouter/key", axum::routing::put(accounts::openrouter_key).delete(accounts::openrouter_key_clear))
+        .route("/api/openrouter/harness", axum::routing::put(accounts::openrouter_harness))
+        .route("/api/openrouter/models", get(accounts::openrouter_models))
+        .route("/api/openrouter/favorites", axum::routing::put(accounts::openrouter_favorite))
         .route("/api/providers/{provider}/enabled", axum::routing::put(settings::provider_enabled))
         .route("/api/providers/{provider}/apikey-fallback", axum::routing::put(settings::provider_apikey_fallback))
         .route(
@@ -196,7 +223,7 @@ async fn api_not_found(req: Request) -> Response {
 /// Every API request carries the desktop's per-launch token; every response
 /// carries this process's instance id (the renderer's restart detector) and
 /// the request's id. Each request is logged as its own request (decision 34):
-/// REQUEST, HEADERS and RESPONSE lines with masked bodies.
+/// REQUEST and RESPONSE lines with masked bodies, and HEADERS when verbose.
 async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> Response {
     let client = if req.uri().path().starts_with("/api/desktop/") { "desktop" } else { "user" };
     tracing::Instrument::instrument(guarded(engine, req, next), crate::trace::request(client)).await
@@ -237,11 +264,12 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     let target = req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| path.clone());
     let info = format!("{peer} {method} {target}");
     let quiet = quiet_body(&path, req.headers());
-    let headers: serde_json::Map<String, serde_json::Value> = req
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.as_str().to_string(), serde_json::Value::String(v.to_str().unwrap_or("<binary>").to_string())))
-        .collect();
+    let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
+        req.headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), serde_json::Value::String(v.to_str().unwrap_or("<binary>").to_string())))
+            .collect()
+    });
     let req = if quiet {
         tracing::info!(target: "wire", "REQUEST  {info} | [body omitted]");
         req
@@ -260,8 +288,10 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         }
         Request::from_parts(parts, axum::body::Body::from(bytes))
     };
-    tracing::info!(target: "wire", "{}",
-        crate::trace::fit_value(&format!("HEADERS  {info} | "), crate::trace::Shown::json(&serde_json::Value::Object(headers))));
+    if let Some(headers) = headers {
+        tracing::info!(target: "wire", "{}",
+            crate::trace::fit_value(&format!("HEADERS  {info} | "), crate::trace::Shown::json(&serde_json::Value::Object(headers))));
+    }
     let rq = crate::trace::current_rq();
     let mut res = if req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req) {
         (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": "desktop token required" }))).into_response()

@@ -456,3 +456,71 @@ pub fn mcp_overrides(servers: &serde_json::Map<String, Value>) -> (Vec<String>, 
     }
     (out, attached)
 }
+
+/// A short-lived app-server's read of one login: (account, rate limits).
+#[logged]
+pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, Value)> {
+    let mut cmd = Command::new(exe);
+    cmd.arg("app-server")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    for (k, _) in std::env::vars() {
+        if k.starts_with("ANTHROPIC_")
+            || k.starts_with("CLAUDE_CODE_")
+            || ["CLAUDECODE", "OPENAI_API_KEY", "CODEX_HOME", "ORGTREE_V2_TOKEN", "ORGTREE_DATA", "ELECTRON_RUN_AS_NODE"].contains(&k.as_str())
+        {
+            cmd.env_remove(&k);
+        }
+    }
+    if let Some(h) = home {
+        cmd.env("CODEX_HOME", h);
+    }
+    winproc::no_window(&mut cmd);
+    let mut child = cmd.spawn().with_context(|| format!("could not start {}", exe.display()))?;
+    let job = winproc::child_job(&child);
+    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+    let frames = [
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": { "clientInfo": { "name": "orgtree", "title": "Orgtree", "version": env!("CARGO_PKG_VERSION") },
+                            "capabilities": { "experimentalApi": true } } }),
+        json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "account/read", "params": { "refreshToken": false } }),
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "account/rateLimits/read", "params": null }),
+    ];
+    for f in frames {
+        stdin.write_all(format!("{f}\n").as_bytes()).await?;
+    }
+    stdin.flush().await?;
+    let read = async {
+        let mut lines = BufReader::new(stdout).lines();
+        let (mut account, mut limits): (Option<Value>, Option<Result<Value>>) = (None, None);
+        while let Ok(Some(l)) = lines.next_line().await {
+            let Ok(v) = serde_json::from_str::<Value>(&l) else { continue };
+            match v["id"].as_i64() {
+                Some(2) => account = Some(v["result"]["account"].clone()),
+                Some(3) => {
+                    limits = Some(match v.get("error").filter(|e| !e.is_null()) {
+                        Some(e) => Err(anyhow!("{}", e["message"].as_str().unwrap_or("account/rateLimits/read failed"))),
+                        None => Ok(v["result"].clone()),
+                    })
+                }
+                _ => {}
+            }
+            if account.is_some() && limits.is_some() {
+                break;
+            }
+        }
+        (account, limits)
+    };
+    let got = tokio::time::timeout(Duration::from_secs(25), read).await;
+    if let Some(j) = &job {
+        j.terminate();
+    }
+    let _ = child.start_kill();
+    let (account, limits) = got.map_err(|_| anyhow!("the Codex app-server did not answer in time"))?;
+    let limits = limits.ok_or_else(|| anyhow!("the Codex app-server closed without answering"))??;
+    Ok((account.unwrap_or(Value::Null), limits))
+}

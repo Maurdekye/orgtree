@@ -25,6 +25,7 @@ mod importer;
 mod launch;
 mod mailhub;
 mod migrate;
+mod openrouter;
 mod orgs;
 mod pg;
 mod providers;
@@ -32,6 +33,7 @@ mod runtime;
 mod settings;
 mod tools;
 mod trace;
+mod usage;
 mod util;
 mod winproc;
 
@@ -54,7 +56,7 @@ fn main() -> ExitCode {
         Some("mcp-bridge") => bridge::run(&args[2..]),
         Some("agy-hook") => bridge::hook(&args[2..]),
         Some("--version") | Some("version") => {
-            println!("orgtree-engine {}", env!("CARGO_PKG_VERSION"));
+            println!("orgtree-engine {}{}", env!("CARGO_PKG_VERSION"), if trace::RELEASE_BUILD { "" } else { " (dev)" });
             ExitCode::SUCCESS
         }
         Some(other) => {
@@ -74,7 +76,8 @@ fn serve() -> ExitCode {
     };
     let (_guards, log_file) = trace::init(&cfg);
     tracing::info!(pid = std::process::id(), root = %cfg.data_root_id, log = %log_file.display(),
-                   version = env!("CARGO_PKG_VERSION"), "engine starting");
+                   version = env!("CARGO_PKG_VERSION"), build = if trace::RELEASE_BUILD { "release" } else { "dev" },
+                   "engine starting");
     winproc::install_root_job();
     let lock = match launch::RootLock::acquire(&cfg.data_root) {
         Ok(Some(lock)) => lock,
@@ -151,6 +154,10 @@ async fn run_with_cluster(
         port,
     };
     let settings = settings::AppSettings::new(settings_doc);
+    trace::apply_verbose(settings.verbose_logging());
+    if trace::verbose() {
+        tracing::info!("{}", trace::fit_value("SETTINGS ", trace::Shown::json(&settings.get())));
+    }
     let max_turns = settings.max_concurrent_turns();
     let (app, app_inbox) = appfeed::AppFeed::new();
     let (sched, sched_inbox) = runtime::sched::Scheduler::new(max_turns);
@@ -169,6 +176,7 @@ async fn run_with_cluster(
         providers: providers::Providers::default(),
         hub: mailhub::MailHub::default(),
         dogs: runtime::watchdogs::Registry::default(),
+        usage: usage::Usage::default(),
     });
 
     progress("engine-load-orgs");

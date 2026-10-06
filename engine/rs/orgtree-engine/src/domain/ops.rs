@@ -500,10 +500,15 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
     };
     let sc = hire_scope(&caps, req);
-    let account = str_arg(req, "account")
-        .map(str::to_string)
-        .or_else(|| caps.settings["default_account"].as_str().filter(|s| !s.is_empty()).map(str::to_string))
-        .or_else(|| parent.as_ref().and_then(|p| p.account.clone()));
+    let account = match crate::accounts::choice(str_arg(req, "account")) {
+        crate::accounts::Choice::Account(a) => Some(a),
+        crate::accounts::Choice::Primary => None,
+        crate::accounts::Choice::Unset => caps.settings["default_account"]
+            .as_str()
+            .filter(|s| !s.is_empty() && crate::accounts::choice(Some(s)) != crate::accounts::Choice::Primary)
+            .map(str::to_string)
+            .or_else(|| parent.as_ref().and_then(|p| p.account.clone())),
+    };
     if let Some(acc) = &account {
         let view = engine.accounts.view();
         match view.get(acc) {
@@ -933,7 +938,12 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     } else {
         Vec::new()
     };
-    let account = str_arg(req, "account").map(str::to_string);
+    let picked = crate::accounts::choice(str_arg(req, "account"));
+    let clear = picked == crate::accounts::Choice::Primary;
+    let account = match picked {
+        crate::accounts::Choice::Account(a) => Some(a),
+        _ => None,
+    };
     let mut warnings = Vec::new();
     if from != to {
         // a new provider starts a fresh session; the old transcript stays in the folder
@@ -957,8 +967,9 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         ));
     } else {
         tx.execute(
-            "UPDATE ot.agents SET tier = $2, seat = $3::float8::numeric, account = coalesce($4, account), row_version = row_version + 1 WHERE id = $1",
-            &[&n.id, &tier, &seat, &account],
+            "UPDATE ot.agents SET tier = $2, seat = $3::float8::numeric,
+                    account = CASE WHEN $5 THEN NULL ELSE coalesce($4, account) END, row_version = row_version + 1 WHERE id = $1",
+            &[&n.id, &tier, &seat, &account, &clear],
         )
         .await?;
     }
@@ -1002,7 +1013,10 @@ async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req:
 async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     authorize(tx, actor, &n, "change the account of").await?;
-    let acc = str_arg(req, "account").map(str::to_string);
+    let acc = match crate::accounts::choice(str_arg(req, "account")) {
+        crate::accounts::Choice::Account(a) => Some(a),
+        _ => None,
+    };
     let view = engine.accounts.view();
     let info = match &acc {
         Some(a) => match view.get(a) {
@@ -1277,11 +1291,16 @@ async fn retool(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     }
     let charter = str_arg(req, "charter").map(str::to_string);
     let team = str_arg(req, "team_charter").map(str::to_string);
-    let account = str_arg(req, "account").map(str::to_string);
+    let picked = crate::accounts::choice(str_arg(req, "account"));
+    let clear = picked == crate::accounts::Choice::Primary;
+    let account = match picked {
+        crate::accounts::Choice::Account(a) => Some(a),
+        _ => None,
+    };
     tx.execute(
         "UPDATE ot.agents SET scope = $2, charter = coalesce($3, charter), team_charter = coalesce($4, team_charter),
-                account = coalesce($5, account), row_version = row_version + 1 WHERE id = $1",
-        &[&n.id, &sc, &charter, &team, &account],
+                account = CASE WHEN $6 THEN NULL ELSE coalesce($5, account) END, row_version = row_version + 1 WHERE id = $1",
+        &[&n.id, &sc, &charter, &team, &account, &clear],
     )
     .await?;
     event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req })).await?;

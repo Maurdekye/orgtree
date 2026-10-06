@@ -26,7 +26,7 @@ pub struct CliStatus {
     pub kind: Option<String>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct State {
     pub claude: CliStatus,
     pub codex: CliStatus,
@@ -171,7 +171,7 @@ async fn version_of(path: &PathBuf) -> Option<String> {
 }
 
 #[logged]
-fn claude_identity(config_dir: Option<&PathBuf>) -> (bool, Option<String>) {
+pub(crate) fn claude_identity(config_dir: Option<&PathBuf>) -> (bool, Option<String>) {
     let dir = config_dir.cloned().unwrap_or_else(|| home().join(".claude"));
     let creds = dir.join(".credentials.json");
     let connected = creds.is_file();
@@ -187,7 +187,7 @@ fn claude_identity(config_dir: Option<&PathBuf>) -> (bool, Option<String>) {
 }
 
 #[logged]
-fn codex_identity(home_dir: Option<&PathBuf>) -> (bool, Option<String>, Option<String>) {
+pub(crate) fn codex_identity(home_dir: Option<&PathBuf>) -> (bool, Option<String>, Option<String>) {
     let dir = home_dir.cloned().unwrap_or_else(|| home().join(".codex"));
     let auth = std::fs::read_to_string(dir.join("auth.json")).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
     match auth {
@@ -242,7 +242,17 @@ pub async fn discover(engine: &Engine) {
             kind: None,
         };
     }
-    st.openrouter = engine
+    st.openrouter = openrouter_favorites(engine);
+    let prev_models = engine.providers.state.load().agy_models.clone();
+    st.agy_models = prev_models;
+    engine.providers.state.store(Arc::new(st));
+    publish(engine);
+}
+
+/// The OpenRouter favorites as offered tiers: (tier, seat, model, label, color).
+#[logged]
+fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, String)> {
+    engine
         .settings
         .get()
         .get("openrouter")
@@ -261,11 +271,18 @@ pub async fn discover(engine: &Engine) {
                 })
                 .collect()
         })
-        .unwrap_or_default();
-    let prev_models = engine.providers.state.load().agy_models.clone();
-    st.agy_models = prev_models;
-    engine.providers.state.store(Arc::new(st));
-    publish(engine);
+        .unwrap_or_default()
+}
+
+/// Re-read the favorites into the provider state without probing the CLIs.
+#[logged]
+pub fn refresh_openrouter(engine: &Engine) {
+    let tiers = openrouter_favorites(engine);
+    engine.providers.state.rcu(|cur| {
+        let mut st = State::clone(cur);
+        st.openrouter = tiers.clone();
+        st
+    });
 }
 
 #[logged]

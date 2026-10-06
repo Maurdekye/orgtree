@@ -258,6 +258,8 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "max_concurrent_turns": engine.settings.max_concurrent_turns(),
         "turn_timeout_s": engine.settings.turn_timeout_s(),
         "turn_idle_s": engine.settings.turn_idle_s(),
+        "verbose_logging": crate::trace::verbose(),
+        "verbose_logging_pinned": crate::trace::pinned().is_some(),
         "turn_slots": { "limit": stats.limit, "held": stats.held, "waiting": stats.waiting, "waiting_by_org": by_org },
     })
 }
@@ -270,8 +272,14 @@ pub async fn get_runtime(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>>
 #[logged]
 pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
     let mut rt = Map::new();
+    let mut verbose = None;
     for (k, v) in &b {
         match k.as_str() {
+            "verbose_logging" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request("verbose_logging is true or false"))?;
+                rt.insert(k.clone(), json!(on));
+                verbose = Some(on);
+            }
             "enabled" | "warming_enabled" => {
                 rt.insert("warming_enabled".into(), json!(v.as_bool().unwrap_or(true)));
             }
@@ -305,6 +313,9 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut client = e.db.get().await?;
     e.settings.merge(&mut client, json!({ "runtime": rt })).await?;
     drop(client);
+    if let Some(on) = verbose {
+        crate::trace::apply_verbose(on);
+    }
     Ok(Json(runtime_payload(&e).await))
 }
 

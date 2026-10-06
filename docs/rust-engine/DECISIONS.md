@@ -106,6 +106,16 @@ All entries are dated 2026-10-06 unless stated otherwise.
       `[rest omitted: x.y kb]`, until the line fits. If every value is shortened and the line is
       still too long, values are replaced largest-first by `[omitted: x.y kb]` alone. The line is
       truncated only as a last resort.
+35. **Verbose logging can be turned off, as galaxy-star's `LOG_VERBOSE` does, and is off by
+    default** (user 2026-10-06):
+    - Verbose logging is the per-method call and return lines of decision 34, each request's HEADERS
+      line, and the settings written at startup. REQUEST and RESPONSE lines, warnings and errors
+      are written either way.
+    - Off by default in packaged builds; on by default in every local development build.
+    - Implementation: a runtime switch (App settings › Developer › "verbose engine logging"),
+      applied at once, rather than a compile-time flag; with it off, a logged method costs one
+      atomic load. Packaged builds are compiled with `ORGTREE_RELEASE_BUILD` set, and
+      `ORGTREE_LOG_VERBOSE=0|1` fixes the switch for one run.
 
 ## Release
 

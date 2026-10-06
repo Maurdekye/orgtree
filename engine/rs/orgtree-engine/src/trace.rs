@@ -37,7 +37,44 @@ pub const RETENTION_DAYS: u64 = 30;
 /// Roll the file over (gzip) past this size, or daily.
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
-static ON: AtomicBool = AtomicBool::new(true);
+/// Packaged builds are compiled with `ORGTREE_RELEASE_BUILD` set; every
+/// other build is a local development build.
+pub const RELEASE_BUILD: bool = option_env!("ORGTREE_RELEASE_BUILD").is_some();
+
+/// Verbose logging (galaxy-star's `LOG_VERBOSE`): the call and return line
+/// of every logged method, every request's HEADERS line and the settings at
+/// startup. Off, a logged method costs one atomic load; REQUEST/RESPONSE
+/// lines, warnings and errors are written either way. Off by default in a
+/// packaged build, on in a development build; set live from App settings ›
+/// Developer (decision 35).
+static VERBOSE: AtomicBool = AtomicBool::new(!RELEASE_BUILD);
+
+/// Turn verbose logging on or off; answers the previous state.
+pub fn set_verbose(on: bool) -> bool {
+    VERBOSE.swap(on, Ordering::Relaxed)
+}
+
+pub fn verbose() -> bool {
+    VERBOSE.load(Ordering::Relaxed)
+}
+
+/// `ORGTREE_LOG_VERBOSE=0|1` fixes verbose logging for this run (the
+/// setting is then ignored).
+pub fn pinned() -> Option<bool> {
+    match std::env::var("ORGTREE_LOG_VERBOSE").as_deref() {
+        Ok("0") | Ok("false") | Ok("off") => Some(false),
+        Ok("1") | Ok("true") | Ok("on") => Some(true),
+        _ => None,
+    }
+}
+
+/// Apply the stored setting unless the environment pins it.
+pub fn apply_verbose(setting: bool) {
+    let on = pinned().unwrap_or(setting);
+    if set_verbose(on) != on {
+        tracing::info!("verbose logging {}", if on { "on" } else { "off" });
+    }
+}
 
 /// `orgtree_engine::domain::mail::send` → `domain.mail.send`
 pub fn dotted(path: &str) -> String {
@@ -109,18 +146,18 @@ pub fn agent_client(id: i64, name: &str) -> String {
 pub struct Frame {
     span: tracing::Span,
     path: &'static str,
-    start: Instant,
+    start: Option<Instant>,
     on: bool,
 }
 
 impl Frame {
     pub fn new(path: &'static str) -> Frame {
-        if !ON.load(Ordering::Relaxed) {
-            return Frame { span: tracing::Span::none(), path, start: Instant::now(), on: false };
+        if !VERBOSE.load(Ordering::Relaxed) {
+            return Frame { span: tracing::Span::none(), path, start: None, on: false };
         }
         let span = tracing::span!(target: "call", Level::INFO, "frame", ex = id32(), m = path);
         let on = !span.is_disabled();
-        Frame { span, path, start: Instant::now(), on }
+        Frame { span, path, start: Some(Instant::now()), on }
     }
     pub fn on(&self) -> bool {
         self.on
@@ -137,7 +174,7 @@ impl Frame {
         tracing::event!(target: "call", Level::INFO, phase = "call", "{}", line);
     }
     pub fn ret(&self, v: Shown) {
-        let ms = self.start.elapsed().as_secs_f64() * 1000.0;
+        let ms = self.start.map(|s| s.elapsed().as_secs_f64() * 1000.0).unwrap_or(0.0);
         let lead = format!("{}(...) [{ms:.3} ms] ", self.path);
         let _g = self.span.enter();
         match v.fail {
@@ -980,8 +1017,8 @@ impl std::io::Write for LogFile {
 /// writer guard (flushes on drop) and the file's path.
 pub fn init(cfg: &crate::config::Config) -> (Vec<tracing_appender::non_blocking::WorkerGuard>, PathBuf) {
     use tracing_subscriber::prelude::*;
-    if std::env::var("ORGTREE_CALL_LOG").as_deref() == Ok("0") {
-        ON.store(false, Ordering::Relaxed);
+    if let Some(on) = pinned() {
+        set_verbose(on);
     }
     let dir = cfg.diagnostics_dir().join("logs");
     let _ = std::fs::create_dir_all(&dir);

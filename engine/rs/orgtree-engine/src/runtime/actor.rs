@@ -965,8 +965,12 @@ impl Actor {
         let config_dir = self.config_dir_of(ctx.account.as_deref());
         if apikey {
             let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
-            env.push(("ANTHROPIC_API_KEY".into(), key));
-            env_remove.retain(|k| k != "ANTHROPIC_API_KEY");
+            if key.starts_with("sk-ant-oat") {
+                env.push(("CLAUDE_CODE_OAUTH_TOKEN".into(), key));
+            } else {
+                env.push(("ANTHROPIC_API_KEY".into(), key));
+                env_remove.retain(|k| k != "ANTHROPIC_API_KEY");
+            }
         }
         if let Some(dir) = &config_dir {
             env.push(("CLAUDE_CONFIG_DIR".into(), dir.clone()));

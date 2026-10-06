@@ -58,6 +58,13 @@ impl AppSettings {
         self.get().get("runtime").cloned().unwrap_or_else(|| json!({}))
     }
 
+    /// Verbose logging (App settings › Developer): left unset, off in a
+    /// packaged build and on in a development build.
+    #[nolog]
+    pub fn verbose_logging(&self) -> bool {
+        self.runtime().get("verbose_logging").and_then(Value::as_bool).unwrap_or(!crate::trace::RELEASE_BUILD)
+    }
+
     #[nolog]
     pub fn max_concurrent_turns(&self) -> usize {
         self.runtime().get("max_concurrent_turns").and_then(Value::as_u64).filter(|n| *n >= 1).unwrap_or(16) as usize
