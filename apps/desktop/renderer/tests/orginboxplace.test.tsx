@@ -177,9 +177,14 @@ const furnitureFor = (root: CanvasNode, pxc: number) => {
   }
 }
 
-test('a credit bar rising above its card pushes the inbox out too (weighted ring)', () => {
+test('a credit bar rising above its card pushes the inbox out too', () => {
   const { payload, root } = weighted()
-  const t = layout(root, new Map(), 'circular')
+  // Descendant weights no longer move ancestors around a ring. Give the tall
+  // bar an explicit collision, independent of a particular layout's phase:
+  // its card clears the inbox below it, but its bar reaches into the inbox.
+  const t = new Map([[USER, layout(root, new Map(), 'circular').get(USER)!]])
+  const u = usual(t)
+  t.set('r8', { x: u.x + 22, y: u.y + INBOX_H + INBOX_CLEAR + 1 })
   const pxc = orgPxc(payload), f = furnitureFor(root, pxc)
   const bar = f('r8', t.get('r8')!)[0]!
   assert.ok(bar.h > NODE_H + 60, `positive control: r8's bar is ${bar.h.toFixed(1)}px, well above its card`)

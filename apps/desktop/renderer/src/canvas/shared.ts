@@ -15,6 +15,7 @@ import { renderHtmlResponses } from './htmlresponse'
 // the native bridge, for revealing a local file link in the OS file manager
 import { desktop } from '../desktop'
 import { siblingOrder } from '../treeorder'
+import { ringArcCentres } from './ringarcs'
 import { onLiveBump } from '../livebus'
 import { fmtFull, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
@@ -1646,66 +1647,40 @@ export function ringInsertSide(side: 'left' | 'right', anchorId: string, sibs: s
 }
 
 export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = new Map()): Map<string, Pt> {
-  const vis = (n: CanvasNode) => !hidden.has(n.id)
-  const leaves = new Map<string, number>()
-  const count = (n: CanvasNode): number => {
-    let t = 0, any = false
-    for (const c of n.children) if (vis(c)) { any = true; t += count(c) }
-    if (!any) t = 1
-    leaves.set(n.id, t)
-    return t
-  }
-  count(root)
-  const START = -Math.PI / 2
-  const rings: number[][] = []
-  const placed: { id: string; angle: number; depth: number }[] = []
-  const walk = (n: CanvasNode, a0: number, a1: number, depth: number) => {
-    const angle = (a0 + a1) / 2
-    placed.push({ id: n.id, angle, depth })
-    if (depth > 0) (rings[depth] ??= []).push(angle)
-    const total = leaves.get(n.id)!
-    let a = a0
-    for (const c of n.children) {
-      if (!vis(c)) continue
-      const span = (a1 - a0) * leaves.get(c.id)! / total
-      walk(c, a, a + span, depth + 1)
-      a += span
-    }
-  }
-  walk(root, START, START + 2 * Math.PI, 0)
-  // A ring with fewer agents than fit around it at the dense pitch gathers
-  // them in ONE arc at the dense spacing, centred at the bottom (angle π/2);
-  // the arc grows both ways until its ends meet at the top. Past that the ring
-  // is laid out by wedge angles and grows in radius exactly as before.
-  const radius: number[] = [0]
-  const arc: (number[] | null)[] = [null]
-  for (let d = 1; d < rings.length; d++) {
-    const r = rings[d] ?? []
-    const base = d === 1 ? RING_FIRST : radius[d - 1]! + RING_STEP
-    const dense = 2 * Math.asin(Math.min(1, RING_PITCH / (2 * base)))
-    if (r.length > 0 && r.length <= Math.floor(2 * Math.PI / dense)) {
-      radius[d] = base
-      arc[d] = r.map((_, i) => Math.PI / 2 + (i - (r.length - 1) / 2) * dense)
-      continue
-    }
-    arc[d] = null
-    let gap = Math.PI * 2
-    for (let i = 1; i < r.length; i++) gap = Math.min(gap, r[i]! - r[i - 1]!)
-    if (r.length > 1) gap = Math.min(gap, r[0]! + 2 * Math.PI - r[r.length - 1]!)
-    const need = r.length > 1 ? RING_PITCH / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) : 0
-    radius[d] = Math.max(need, base)
-  }
   // Drawn MIRRORED (x = cx − r·cos): the ring runs counter-clockwise from the
   // top on screen, so the arc and the bottom of a full ring read left to right
   // in sibling order, like the row layout (user 2026-10-01: switching between
   // circle and row must not mirror the agents).
   const out = new Map<string, Pt>()
   const cx = EYE_ANCHOR_X + NODE_W / 2
-  const seen: number[] = []
-  for (const p of placed) {
-    const r = radius[p.depth]!
-    const angle = p.depth > 0 && arc[p.depth] ? arc[p.depth]![(seen[p.depth] = (seen[p.depth] ?? -1) + 1)]! : p.angle
-    out.set(p.id, { x: cx - r * Math.cos(angle) - NODE_W / 2, y: r * Math.sin(angle) - NODE_H / 2 })
+  out.set(root.id, { x: EYE_ANCHOR_X, y: -NODE_H / 2 })
+  // The eye has no radial angle: its own reports keep the bottom-centred arc.
+  // Each subsequent group follows its actual parent's angle, including any
+  // collision adjustment on the previous level. Descendant counts never move
+  // an ancestor or an unrelated ring. No work runs inside animation frames.
+  let level = [{ node: root, angle: Math.PI / 2 }], radius = 0
+  while (level.length) {
+    const groups = level.map(p => ({ angle: p.angle, kids: p.node.children.filter(c => !hidden.has(c.id)) }))
+      .filter(g => g.kids.length > 0)
+    const count = groups.reduce((sum, g) => sum + g.kids.length, 0)
+    if (!count) break
+    radius = radius === 0 ? RING_FIRST : radius + RING_STEP
+    let step = 2 * Math.asin(Math.min(1, RING_PITCH / (2 * radius)))
+    // A full level uses equal spacing, increasing the radius only as needed.
+    if (count * step >= 2 * Math.PI) {
+      step = 2 * Math.PI / count
+      radius = Math.max(radius, RING_PITCH / (2 * Math.sin(step / 2)))
+    }
+    const centres = ringArcCentres(groups.map(g => g.angle), groups.map(g => g.kids.length), step)
+    level = []
+    for (let g = 0; g < groups.length; g++) {
+      const kids = groups[g]!.kids
+      for (let i = 0; i < kids.length; i++) {
+        const angle = centres[g]! + (i - (kids.length - 1) / 2) * step, node = kids[i]!
+        level.push({ node, angle })
+        out.set(node.id, { x: cx - radius * Math.cos(angle) - NODE_W / 2, y: radius * Math.sin(angle) - NODE_H / 2 })
+      }
+    }
   }
   return out
 }

@@ -95,23 +95,68 @@ test('the arc grows until it closes at the top, then the ring grows in radius as
   assert.equal(overlaps(after), false)
 })
 
-test('every ring gathers on its own: the second ring is an arc at the bottom too', () => {
-  const root = eye([node('a', flat(3, 'a')), node('b', flat(2, 'b'))])
-  const t = layout(root, new Map(), 'circular')
-  const ids = ['a0', 'a1', 'a2', 'b0', 'b1']
-  const ang = ringAngles(t, ids)
-  assert.ok(Math.abs(ang.reduce((x, y) => x + y, 0) / 5 - Math.PI / 2) < 1e-9)
-  for (let i = 1; i < 5; i++) assert.ok(Math.abs(chord(t, ids[i - 1]!, ids[i]!) - 190) < 1e-6 || chord(t, ids[i - 1]!, ids[i]!) > 190 - 1e-6)
-  assert.ok(ringRadius(t, 'a0') > ringRadius(t, 'a'))
+const signedAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a))
+const relativeAngles = (t: Map<string, { x: number; y: number }>, parent: string, ids: string[]) => {
+  const origin = ringAngles(t, [parent])[0]!
+  return ringAngles(t, ids).map(a => signedAngle(a - origin))
+}
+test('a superior at the top has a centred sibling arc at every depth, including across the angle seam', () => {
+  for (const index of [0, 3, 6, 11]) {
+    const roots = flat(12)
+    roots[index]!.children = [node('a', [node('grand', [node('great')])]), node('b'), node('c')]
+    const t = layout(eye(roots), new Map(), 'circular')
+    const deltas = relativeAngles(t, `k${index}`, ['a', 'b', 'c'])
+    assert.ok(Math.abs(deltas.reduce((a, b) => a + b, 0)) < 1e-9, `parent ${index}: centred`)
+    assert.ok(deltas[0]! > deltas[1]! && deltas[1]! > deltas[2]!, 'counterclockwise tree order')
+    assert.ok(Math.abs(chord(t, 'a', 'b') - 190) < 1e-6)
+    assert.ok(Math.abs(relativeAngles(t, 'a', ['grand'])[0]!) < 1e-9)
+    assert.ok(Math.abs(relativeAngles(t, 'grand', ['great'])[0]!) < 1e-9)
+    if (index === 0) assert.ok(centre(t.get('b')!).y < 0, 'top parent keeps reports at the top')
+    assert.equal(overlaps(t), false)
+  }
+})
+
+test('colliding neighbouring teams move equally in opposite directions only as far as needed', () => {
+  const t = layout(eye([node('a', flat(4, 'a')), node('b', flat(4, 'b'))]), new Map(), 'circular')
+  const shiftA = relativeAngles(t, 'a', ['a0', 'a3']).reduce((a, b) => a + b, 0) / 2
+  const shiftB = relativeAngles(t, 'b', ['b0', 'b3']).reduce((a, b) => a + b, 0) / 2
+  assert.ok(shiftA > 0 && shiftB < 0)
+  assert.ok(Math.abs(shiftA + shiftB) < 1e-9, 'equal displacement shares the collision')
+  assert.ok(Math.abs(chord(t, 'a3', 'b0') - 190) < 1e-6, 'arcs touch at one neighbour pitch')
   assert.equal(overlaps(t), false)
 })
 
-test('1500 agents: no overlap and cheap', () => {
-  const root = eye(tree(10, 1).concat(Array.from({ length: 50 }, (_, i) => node(`w${i}`, tree(5, 1, `w${i}.`).concat(tree(2, 2, `w${i}x`)))))) 
+test('a remote noncolliding team and ancestors stay fixed when another team gains reports', () => {
+  const roots = flat(12)
+  roots[0]!.children = flat(1, 'a')
+  roots[6]!.children = flat(2, 'b')
+  const before = layout(eye(roots), new Map(), 'circular')
+  roots[0]!.children = flat(4, 'a')
+  const after = layout(eye(roots), new Map(), 'circular')
+  for (const id of [...roots.map(n => n.id), 'b0', 'b1']) {
+    assert.ok(chord(new Map([['before', before.get(id)!], ['after', after.get(id)!]]), 'before', 'after') < 1e-8, id)
+  }
+  assert.ok(Math.abs(relativeAngles(after, 'k6', ['b0', 'b1']).reduce((a, b) => a + b, 0)) < 1e-9)
+})
+
+test('full levels spread evenly in sibling order even for unequal teams', () => {
+  const roots = [node('a', flat(31, 'a')), node('b', flat(7, 'b')), node('c', flat(19, 'c'))]
+  const t = layout(eye(roots), new Map(), 'circular')
+  const ids = roots.flatMap(p => p.children.map(c => c.id)), angles = ringAngles(t, ids)
+  for (let i = 0; i < ids.length; i++) {
+    const next = (i + 1) % ids.length
+    assert.ok(Math.abs(chord(t, ids[i]!, ids[next]!) - 190) < 1e-6)
+    assert.ok(Math.abs(signedAngle(angles[i]! - angles[next]!) - 2 * Math.PI / ids.length) < 1e-9)
+  }
+  assert.equal(overlaps(t), false)
+})
+
+test('1331 agents: no overlap and cheap', () => {
+  const root = eye(tree(10, 1).concat(Array.from({ length: 110 }, (_, i) => node(`w${i}`, tree(5, 1, `w${i}.`).concat(tree(2, 2, `w${i}x`))))))
   const t0 = performance.now()
   const t = layout(root, new Map(), 'circular')
   const ms = performance.now() - t0
-  assert.ok(t.size > 600)
+  assert.equal(t.size, 1331)
   assert.equal(overlaps(t), false)
   assert.ok(ms < 200, `took ${ms}ms`)
 })
