@@ -17,14 +17,54 @@ use crate::providers::catalog;
 use crate::refuse;
 use crate::util::{gist, slugify};
 
-/// Tiers this build can run for a new hire (Claude Code today).
+/// A tier a new hire can take now.
+#[derive(Debug)]
+struct Offer {
+    tier: String,
+    seat: f64,
+    provider: &'static str,
+    efforts: Vec<&'static str>,
+}
+
+/// Tiers this build can run for a new hire: each installed, enabled CLI's
+/// current tiers, and the OpenRouter favorites while a key is stored.
 #[logged]
-fn runnable_tiers(engine: &Engine) -> Vec<&'static catalog::Tier> {
-    catalog::TIERS
+fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
+    let st = engine.providers.state.load();
+    let mut out: Vec<Offer> = catalog::TIERS
         .iter()
         .filter(|t| !t.legacy && !t.conditional && engine.settings.provider_enabled(t.provider))
-        .filter(|t| t.provider == catalog::CLAUDE && engine.providers.claude_path().is_some())
-        .collect()
+        .filter(|t| match t.provider {
+            catalog::CLAUDE => st.claude.installed,
+            catalog::OPENAI => st.codex.installed,
+            catalog::GOOGLE => st.agy.installed,
+            _ => false,
+        })
+        .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider, efforts: efforts(t) })
+        .collect();
+    let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
+    if key_set && engine.settings.provider_enabled(catalog::OPENROUTER) {
+        for (tier, seat, _) in engine.providers.openrouter_tiers() {
+            out.push(Offer { tier, seat, provider: catalog::OPENROUTER, efforts: Vec::new() });
+        }
+    }
+    out
+}
+
+/// Whether a hire that names no account can run `provider`: the host login
+/// is signed in and subscriptions may serve inference (an OpenRouter seat
+/// bills the stored key).
+#[logged]
+fn host_ready(engine: &Engine, provider: &str) -> bool {
+    let st = engine.providers.state.load();
+    let signed_in = match provider {
+        catalog::OPENROUTER => return true,
+        catalog::CLAUDE => st.claude.connected,
+        catalog::OPENAI => st.codex.connected,
+        catalog::GOOGLE => st.agy.installed,
+        _ => false,
+    };
+    signed_in && engine.settings.subscription_inference(provider)
 }
 
 #[logged]
@@ -86,14 +126,15 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
     let models: Vec<Value> = runnable_tiers(engine)
         .into_iter()
         .filter_map(|t| {
-            let mut m = json!({ "tier": t.tier, "seat": t.seat, "efforts": efforts(t) });
+            let mut m = json!({ "tier": t.tier, "seat": t.seat, "efforts": t.efforts });
             if !request {
-                let accounts = eligible_accounts(engine, t.provider);
-                if accounts.is_empty() {
+                let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, t.provider) };
+                let host = host_ready(engine, t.provider);
+                if accounts.is_empty() && !host {
                     return None;
                 }
                 m["accounts"] = json!(accounts);
-                m["default_ok"] = json!(true);
+                m["default_ok"] = json!(host);
             }
             Some(m)
         })
@@ -153,7 +194,7 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
             refuse!(Unprocessable, "{t} cannot be staffed right now. Reopen Staff….");
         };
         if let Some(e) = effort {
-            if !efforts(info).contains(&e) {
+            if !info.efforts.contains(&e) {
                 refuse!(Unprocessable, "That effort is not currently supported by this model. Reopen Staff….");
             }
         }

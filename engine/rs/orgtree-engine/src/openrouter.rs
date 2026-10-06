@@ -20,6 +20,11 @@ pub const API_BASE: &str = "https://openrouter.ai/api/v1";
 /// what Claude Code is pointed at (it appends /v1/messages)
 pub const ANTHROPIC_BASE: &str = "https://openrouter.ai/api";
 pub const TIER_PREFIX: &str = "or-";
+/// The `model_providers.<KEY>` block a Codex launch reaches OpenRouter
+/// through: passed with `-c`, never written to the user's config.toml.
+pub const CODEX_PROVIDER: &str = "orgtree_openrouter";
+/// The variable that block tells Codex to read the key from.
+pub const KEY_ENV: &str = "ORGTREE_OPENROUTER_KEY";
 const CATALOG_TTL: Duration = Duration::from_secs(3600);
 const USER_AGENT: &str = concat!("orgtree-engine/", env!("CARGO_PKG_VERSION"));
 
@@ -161,7 +166,7 @@ fn runnable(m: &Value) -> bool {
 /// One catalog record as the picker (and a favorite's tier) shows it.
 fn card(raw: &Value, favorites: &[String]) -> Value {
     let id = raw["id"].as_str().unwrap_or("").to_string();
-    let vendor = id.split('/').next().unwrap_or("").to_string();
+    let vendor = id.split('/').next().unwrap_or("").trim_start_matches('~').to_string();
     let label = id.split_once('/').map(|(_, m)| m.to_string()).unwrap_or_else(|| id.clone());
     let name = raw["name"].as_str().map(|n| n.split_once(": ").map(|(_, r)| r.to_string()).unwrap_or_else(|| n.to_string())).unwrap_or_else(|| label.clone());
     let p = &raw["pricing"];
@@ -303,6 +308,7 @@ pub async fn search(engine: &Engine, q: &str, offset: usize, limit: usize, sort:
 #[logged]
 pub async fn set_favorite(engine: &Engine, id: &str, selected: bool) -> Result<()> {
     let mut favs = favorites_doc(engine);
+    let mut known = Map::new();
     favs.retain(|f| f["model"].as_str() != Some(id));
     if selected {
         let models = catalog(false).await?;
@@ -311,22 +317,66 @@ pub async fn set_favorite(engine: &Engine, id: &str, selected: bool) -> Result<(
         };
         let c = card(raw, &[]);
         let prompt = c["prompt"].as_f64().unwrap_or(0.0);
-        favs.push(json!({
+        let rec = json!({
             "tier": tier_name(id), "seat": seat_for(prompt), "model": id, "label": c["label"], "name": c["name"],
             "vendor": c["vendor"], "color": c["color"], "letter": c["letter"], "prompt": prompt,
             "completion": c["completion"], "cache_read": c["cache_read"], "context": c["context"], "tools": c["tools"],
             "image": c["image"], "reasoning": c["reasoning"],
-        }));
+        });
+        known.insert(tier_name(id), rec.clone());
+        favs.push(rec);
     }
     let mut client = engine.db.get().await?;
-    engine.settings.merge(&mut client, json!({ "openrouter": { "favorites": favs } })).await?;
+    engine.settings.merge(&mut client, json!({ "openrouter": { "favorites": favs, "known": known } })).await?;
     Ok(())
 }
 
-/// A favorite's record by its tier (model id, prices per million).
+/// A favorite's record by its tier (model id, prices per million). A
+/// deselected favorite is no longer offered but stays known: seats hired on
+/// it keep running on it.
 #[logged]
 pub fn favorite(engine: &Engine, tier: &str) -> Option<Value> {
-    favorites_doc(engine).into_iter().find(|f| f["tier"].as_str() == Some(tier))
+    favorites_doc(engine).into_iter().find(|f| f["tier"].as_str() == Some(tier)).or_else(|| {
+        engine.settings.get().get("openrouter").and_then(|o| o.get("known")).and_then(|k| k.get(tier)).cloned()
+    })
+}
+
+/// A tier's rates per million tokens: (prompt, cache read, completion). An
+/// unstated cache-read rate is priced as a prompt token.
+#[logged]
+pub fn prices(engine: &Engine, tier: &str) -> Option<(f64, f64, f64)> {
+    let f = favorite(engine, tier)?;
+    let prompt = f["prompt"].as_f64()?;
+    let cached = f["cache_read"].as_f64().filter(|c| *c > 0.0).unwrap_or(prompt);
+    Some((prompt, cached, f["completion"].as_f64().unwrap_or(0.0)))
+}
+
+/// `-c` overrides pointing one Codex launch at OpenRouter's Responses API.
+#[logged]
+pub fn codex_overrides(model: &str) -> Vec<String> {
+    let q = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+    let p = format!("model_providers.{CODEX_PROVIDER}");
+    let mut out = Vec::new();
+    for kv in [
+        format!("model_provider={}", q(CODEX_PROVIDER)),
+        format!("{p}.name={}", q("OpenRouter")),
+        format!("{p}.base_url={}", q(API_BASE)),
+        format!("{p}.env_key={}", q(KEY_ENV)),
+        // the CLI refuses "chat"
+        format!("{p}.wire_api={}", q("responses")),
+        // a launch that never names the model would fall back to an OpenAI id
+        format!("model={}", q(model)),
+    ] {
+        out.push("-c".to_string());
+        out.push(kv);
+    }
+    out
+}
+
+/// The harness new OpenRouter hires get.
+#[logged]
+pub fn selected_harness(engine: &Engine) -> String {
+    harness(engine)["selected"].as_str().unwrap_or("claude-code").to_string()
 }
 
 /// Which CLIs can drive an OpenRouter agent, and the one new hires get.

@@ -290,6 +290,25 @@ async fn name_free(tx: &Transaction<'_>, org_id: i64, name: &str) -> Result<()> 
     Ok(())
 }
 
+/// An OpenRouter seat keeps the harness it starts on: stamped at hire (and
+/// on a move into the lane), kept on a rehire.
+#[logged]
+async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str, replace: bool) -> Result<()> {
+    if !catalog::is_openrouter(tier) {
+        return Ok(());
+    }
+    let h = crate::openrouter::selected_harness(engine);
+    tx.execute(
+        "UPDATE ot.agents SET extra = CASE WHEN $3 OR NOT (coalesce(extra, '{}'::jsonb) ? 'harness')
+                                    THEN coalesce(extra, '{}'::jsonb) || jsonb_build_object('harness', $2::text)
+                                    ELSE extra END
+          WHERE id = $1",
+        &[&agent, &h, &replace],
+    )
+    .await?;
+    Ok(())
+}
+
 /// The seat price of a tier (catalog or an OpenRouter favorite).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
@@ -545,6 +564,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         )
         .await?
         .get(0);
+    stamp_harness(engine, tx, id, &tier, true).await?;
     if let Some(a) = &anchor {
         tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1", &[&a.id, &id])
             .await?;
@@ -626,6 +646,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         &[&n.id, &parent_id, &order, &tier, &seat, &grant],
     )
     .await?;
+    stamp_harness(engine, tx, n.id, &tier, false).await?;
     event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": n.name, "parent": parent.as_ref().map(|p| p.name.clone()),
           "tier": tier, "grant": grant, "cascaded": raised }))
     .await?;
@@ -959,6 +980,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             &[&n.id],
         )
         .await?;
+        stamp_harness(engine, tx, n.id, &tier, true).await?;
         warnings.push(format!(
             "{} moved from {} to {}: it starts a fresh session (its previous conversation stays in its folder)",
             n.name,

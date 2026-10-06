@@ -346,7 +346,11 @@ pub fn payload(engine: &Engine) -> Value {
             })
             .collect();
         let s = CliStatus { installed: key_set, connected: key_set, ..Default::default() };
-        providers.push(entry(catalog::OPENROUTER, "OpenRouter", "openrouter", &s, tiers));
+        let mut e = entry(catalog::OPENROUTER, "OpenRouter", "openrouter", &s, tiers);
+        if !key_set {
+            e["reason"] = json!("no OpenRouter API key is set (App settings › Providers › OpenRouter)");
+        }
+        providers.push(e);
     }
     let map = |key: &str, default: bool| {
         let mut m = serde_json::Map::new();

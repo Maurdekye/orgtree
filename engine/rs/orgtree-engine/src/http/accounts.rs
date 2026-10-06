@@ -552,5 +552,8 @@ pub async fn openrouter_favorite(State(e): State<Arc<Engine>>, Json(b): Json<Fav
     crate::openrouter::set_favorite(&e, &b.id, b.selected).await?;
     crate::providers::refresh_openrouter(&e);
     crate::providers::publish(&e);
+    for o in e.orgs.all() {
+        crate::changes::notify(&e, &o, vec![crate::changes::Change::Tiers]);
+    }
     Ok(Json(crate::openrouter::doc(&e, false).await))
 }

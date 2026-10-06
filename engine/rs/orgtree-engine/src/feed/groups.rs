@@ -109,6 +109,19 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 tiers.insert(tier.clone(), json!(seat));
                 models.insert(tier, json!(model));
             }
+            // a deselected favorite stays in the table of the seats hired on it
+            let used = client
+                .query("SELECT DISTINCT tier FROM ot.agents WHERE org_id = $1 AND tier LIKE 'or-%' AND state <> 'deleted'", &[&org_id])
+                .await?;
+            for r in used {
+                let t: String = r.get(0);
+                if !tiers.contains_key(&t) {
+                    if let Some(f) = crate::openrouter::favorite(engine, &t) {
+                        tiers.insert(t.clone(), f["seat"].clone());
+                        models.insert(t, f["model"].clone());
+                    }
+                }
+            }
             json!({ "tiers": tiers, "models": models })
         }
         "cost" => {

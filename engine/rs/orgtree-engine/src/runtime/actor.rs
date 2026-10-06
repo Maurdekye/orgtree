@@ -85,6 +85,21 @@ struct Ctx {
     scratch: PathBuf,
     effort: String,
     fallback: bool,
+    /// an OpenRouter seat's harness: claude-code or codex-cli
+    harness: Option<String>,
+}
+
+/// How an OpenRouter seat reaches the gateway (the key never prints).
+struct OrRoute {
+    key: String,
+    codex: bool,
+    reasoning: bool,
+}
+
+impl std::fmt::Debug for OrRoute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OrRoute {{ key: *****, codex: {}, reasoning: {} }}", self.codex, self.reasoning)
+    }
 }
 
 impl std::fmt::Debug for Ctx {
@@ -105,6 +120,7 @@ impl std::fmt::Debug for Ctx {
             .field("generation", &self.generation)
             .field("effort", &self.effort)
             .field("fallback", &self.fallback)
+            .field("harness", &self.harness)
             .field("scratch", &self.scratch)
             .field("effective", &self.effective)
             .finish()
@@ -736,7 +752,8 @@ impl Actor {
                         a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, a.parent_id, a.scratch_dir,
                         p.team_charter, o.name, o.slug, o.settings, o.killswitch IS NOT NULL,
                         (SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
-                          WHERE ac.id = a.account AND ac.kind = 'apikey')
+                          WHERE ac.id = a.account AND ac.kind = 'apikey'),
+                        a.extra->>'harness'
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    LEFT JOIN ot.agents p ON p.id = a.parent_id
                   WHERE a.id = $1",
@@ -763,6 +780,18 @@ impl Actor {
         let configured = scope::normalize(&r.get::<_, Value>(4));
         let tier: String = r.get(2);
         let model = catalog::model_for(&tier, configured.get("model_version").and_then(Value::as_str));
+        // an OpenRouter tier runs its favorite's model id
+        let openrouter = catalog::is_openrouter(&tier);
+        let model = if openrouter {
+            crate::openrouter::favorite(&self.engine, &tier).and_then(|f| f["model"].as_str().map(str::to_string)).unwrap_or(model)
+        } else {
+            model
+        };
+        let harness = if openrouter {
+            Some(r.get::<_, Option<String>>(20).unwrap_or_else(|| crate::openrouter::selected_harness(&self.engine)))
+        } else {
+            None
+        };
         let effort = configured
             .get("effort")
             .and_then(Value::as_str)
@@ -806,7 +835,23 @@ impl Actor {
             org_md,
             effort,
             fallback,
+            harness,
         })
+    }
+
+    /// What an OpenRouter seat needs before it can launch: the lane on, its
+    /// model known, the key stored, and the harness it was hired on.
+    async fn openrouter_route(&self, ctx: &Ctx) -> Result<OrRoute> {
+        if !self.engine.settings.provider_enabled(catalog::OPENROUTER) {
+            return Err(anyhow!("OpenRouter is turned off in App settings"));
+        }
+        let fav = crate::openrouter::favorite(&self.engine, &ctx.tier)
+            .ok_or_else(|| anyhow!("{} is not an OpenRouter model this app knows; switch this agent to another tier", ctx.tier))?;
+        let key = crate::openrouter::key(&self.engine).await.ok_or_else(|| {
+            anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings › Providers › OpenRouter)")
+        })?;
+        let codex = ctx.harness.as_deref() == Some("codex-cli");
+        Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false) })
     }
 
     /// Everything a launch needs, computed without side effects (the cache
@@ -903,21 +948,24 @@ impl Actor {
     }
 
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
-        if ctx.provider == catalog::OPENAI {
-            return self.ensure_codex(ctx).await;
+        let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
+        if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
+            return self.ensure_codex(ctx, route.as_ref()).await;
         }
         if ctx.provider == catalog::GOOGLE {
             return self.ensure_agy(ctx).await;
         }
-        if ctx.provider != catalog::CLAUDE {
+        if ctx.provider != catalog::CLAUDE && route.is_none() {
             return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
         }
-        if !self.engine.settings.provider_enabled(catalog::CLAUDE) {
+        if route.is_none() && !self.engine.settings.provider_enabled(catalog::CLAUDE) {
             return Err(anyhow!("Claude is turned off in App settings"));
         }
         let plan = self.plan(ctx);
         let reuse = match self.proc.as_mut() {
-            Some(p) => self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
+            Some(p) => {
+                !p.is_codex() && !p.is_agy() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
+            }
             None => false,
         };
         if reuse {
@@ -926,9 +974,10 @@ impl Actor {
         self.close_proc().await;
         self.reconfigured = false;
         let view = self.engine.accounts.view();
-        let account = ctx.account.as_deref().and_then(|a| view.get(a).cloned());
+        // an OpenRouter seat bills the stored key: no account, no subscription
+        let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
         let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
-        if !apikey && !self.engine.settings.subscription_inference(catalog::CLAUDE) {
+        if route.is_none() && !apikey && !self.engine.settings.subscription_inference(catalog::CLAUDE) {
             return Err(anyhow!(
                 "subscriptions are turned off for inference (App settings › Providers); give this agent an API-key account"
             ));
@@ -962,7 +1011,24 @@ impl Actor {
             "CLAUDECODE".into(),
             "CLAUDE_CODE_ENTRYPOINT".into(),
         ];
-        let config_dir = self.config_dir_of(ctx.account.as_deref());
+        let config_dir = if route.is_some() { None } else { self.config_dir_of(ctx.account.as_deref()) };
+        if let Some(r) = &route {
+            // OpenRouter's Claude Code recipe: the Anthropic-compatible base, the key
+            // as the auth token, ANTHROPIC_API_KEY empty (a set key wins over the
+            // token), and every model the CLI could reach for pinned to the hired one
+            env.push(("ANTHROPIC_BASE_URL".into(), crate::openrouter::ANTHROPIC_BASE.into()));
+            env.push(("ANTHROPIC_AUTH_TOKEN".into(), r.key.clone()));
+            env.push(("ANTHROPIC_API_KEY".into(), String::new()));
+            for var in [
+                "ANTHROPIC_DEFAULT_FABLE_MODEL",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+                "CLAUDE_CODE_SUBAGENT_MODEL",
+            ] {
+                env.push((var.into(), ctx.model.clone()));
+            }
+        }
         if apikey {
             let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
             if key.starts_with("sk-ant-oat") {
@@ -980,7 +1046,7 @@ impl Actor {
         let mut resume = ctx
             .session_id
             .clone()
-            .filter(|_| ctx.session_provider.as_deref().map(|p| p == catalog::CLAUDE).unwrap_or(true));
+            .filter(|_| ctx.session_provider.as_deref().map(|p| p == ctx.provider).unwrap_or(true));
         if let Some(sid) = resume.clone() {
             let others: Vec<String> = view.all().into_iter().filter_map(|a| a.config_dir.clone()).collect();
             if !claude::ensure_session(&ctx.scratch, &sid, config_dir.as_deref(), &others) {
@@ -1046,8 +1112,8 @@ impl Actor {
     }
 
     /// Start (or keep) the agent's Codex app-server on its thread.
-    async fn ensure_codex(&mut self, ctx: &Ctx) -> Result<()> {
-        if !self.engine.settings.provider_enabled(catalog::OPENAI) {
+    async fn ensure_codex(&mut self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
+        if route.is_none() && !self.engine.settings.provider_enabled(catalog::OPENAI) {
             return Err(anyhow!("OpenAI is turned off in App settings"));
         }
         let plan = self.plan(ctx);
@@ -1061,9 +1127,9 @@ impl Actor {
         self.close_proc().await;
         self.reconfigured = false;
         let view = self.engine.accounts.view();
-        let account = ctx.account.as_deref().and_then(|a| view.get(a).cloned());
+        let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
         let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
-        if !apikey && !self.engine.settings.subscription_inference(catalog::OPENAI) {
+        if route.is_none() && !apikey && !self.engine.settings.subscription_inference(catalog::OPENAI) {
             return Err(anyhow!(
                 "subscriptions are turned off for inference (App settings › Providers); give this agent an API-key account"
             ));
@@ -1079,7 +1145,12 @@ impl Actor {
         };
         std::fs::create_dir_all(&ctx.scratch)?;
         // a key account runs in its own empty home, so the ambient login never bills it
-        let (codex_home, api_key) = if apikey {
+        let (codex_home, api_key) = if route.is_some() {
+            // its own home: the host login never holds OpenRouter threads
+            let home = self.engine.cfg.path("profiles").join("openrouter-codex");
+            std::fs::create_dir_all(&home)?;
+            (Some(home.to_string_lossy().to_string()), None)
+        } else if apikey {
             let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
             let id = ctx.account.clone().unwrap_or_default();
             let home = self.engine.cfg.path("profiles").join(format!("openai-key-{id}"));
@@ -1101,18 +1172,24 @@ impl Actor {
         };
         let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
         let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
-        let (config, _attached) = codexrt::mcp_overrides(&external);
+        let (mut config, _attached) = codexrt::mcp_overrides(&external);
+        if route.is_some() {
+            let mut gateway = crate::openrouter::codex_overrides(&ctx.model);
+            gateway.append(&mut config);
+            config = gateway;
+        }
         let resume = ctx
             .session_id
             .clone()
-            .filter(|_| ctx.session_provider.as_deref() == Some(catalog::OPENAI));
+            .filter(|_| ctx.session_provider.as_deref() == Some(ctx.provider.as_str()));
         let spec = CodexSpec {
             exe,
             cwd: ctx.scratch.clone(),
             codex_home,
             api_key,
             model: ctx.model.clone(),
-            effort: Some(codexrt::codex_effort(&ctx.effort)),
+            // a gateway model that takes no reasoning gets no effort
+            effort: Some(codexrt::codex_effort(&ctx.effort)).filter(|_| route.map(|r| r.reasoning).unwrap_or(true)),
             sandbox: sandbox.to_string(),
             instructions: plan.identity.clone(),
             dynamic_tools: codexrt::dynamic_tools(),
@@ -1120,7 +1197,13 @@ impl Actor {
             resume: resume.clone(),
             may_write,
             may_shell: on("bash"),
-            env: vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())],
+            env: {
+                let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
+                if let Some(r) = route {
+                    env.push((crate::openrouter::KEY_ENV.into(), r.key.clone()));
+                }
+                env
+            },
         };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
@@ -2408,6 +2491,7 @@ impl Actor {
             let tier = self.tier().await;
             let cost = catalog::tier(&tier)
                 .and_then(|t| t.prices)
+                .or_else(|| crate::openrouter::prices(&self.engine, &tier))
                 .map(|(pi, pc, po)| ((inp - cached) as f64 * pi + cached as f64 * pc + out as f64 * po) / 1e6)
                 .unwrap_or(0.0);
             let occ = if n(last, "inputTokens") > 0 { n(last, "inputTokens") } else { n(total, "inputTokens") };
@@ -2439,6 +2523,20 @@ impl Actor {
                 occupancy,
                 cost,
             )
+        };
+        // an OpenRouter seat on Claude Code is priced from its favorite's rates
+        // (the CLI's own counter does not know the gateway's prices)
+        let openrouter = self.provider == catalog::OPENROUTER;
+        let cost = if openrouter && !codex {
+            let tier = self.tier().await;
+            match crate::openrouter::prices(&self.engine, &tier) {
+                Some((pi, pc, po)) => {
+                    ((input + cache_write) as f64 * pi + cache_read as f64 * pc + output as f64 * po) / 1e6
+                }
+                None => cost,
+            }
+        } else {
+            cost
         };
         let ms = res.get("duration_ms").and_then(Value::as_i64).unwrap_or(turn.started.elapsed().as_millis() as i64);
         let mut denials: Vec<Value> = res
@@ -2501,7 +2599,7 @@ impl Actor {
                   WHERE id = $1",
                 &[
                     &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
-                    &turn.killed, &error, &turn.model, &(if codex || agy { "priced" } else { "cli" }),
+                    &turn.killed, &error, &turn.model, &(if codex || agy || openrouter { "priced" } else { "cli" }),
                 ],
             )
             .await?;
@@ -2654,7 +2752,9 @@ impl Actor {
         }
         let compact = text.trim() == "/compact" || text.trim().starts_with("/compact ");
         let ctx = self.load_ctx().await?;
-        if ctx.provider != catalog::CLAUDE {
+        let claude_code = ctx.provider == catalog::CLAUDE
+            || (ctx.provider == catalog::OPENROUTER && ctx.harness.as_deref() != Some("codex-cli"));
+        if !claude_code {
             return Ok(json!({ "started": false,
                               "reason": "slash commands are Claude Code's; compact this agent with cheap compact instead" }));
         }
@@ -2804,6 +2904,7 @@ impl Actor {
     fn forecast_for(&self, ctx: &Ctx) -> Value {
         let lane = match ctx.provider.as_str() {
             p if p == catalog::OPENAI => "codex",
+            p if p == catalog::OPENROUTER && ctx.harness.as_deref() == Some("codex-cli") => "codex",
             p if p == catalog::GOOGLE => "antigravity",
             _ => "claude",
         };
