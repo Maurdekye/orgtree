@@ -3,9 +3,11 @@
 
 pub mod desktop;
 pub mod error;
+pub mod mailbox;
 pub mod nodes;
 pub mod orgops;
 pub mod orgs;
+pub mod settings;
 pub mod tree;
 
 use std::sync::Arc;
@@ -39,6 +41,34 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
         .route("/api/orgs/{slug}/retry", post(orgops::retry))
+        .route("/api/orgs/{slug}/settings", post(settings::save_org))
+        .route("/api/orgs/{slug}/inbox", get(mailbox::inbox))
+        .route("/api/orgs/{slug}/inbox/read", post(mailbox::mark_read))
+        .route("/api/orgs/{slug}/inbox/clear", post(mailbox::clear))
+        .route("/api/orgs/{slug}/mail/{box}/{id}", get(mailbox::mail_by_id))
+        .route("/api/orgs/{slug}/events", get(mailbox::events))
+        .route("/api/orgs/{slug}/nodes/{nid}/history", get(mailbox::history))
+        .route("/api/orgs/{slug}/nodes/{nid}/detail", get(mailbox::detail))
+        .route("/api/orgs/{slug}/defaults", post(settings::save_org_defaults))
+        .route("/api/orgs/{slug}/orgmd", get(settings::get_orgmd).put(settings::put_orgmd))
+        .route("/api/defaults", get(settings::get_defaults).post(settings::save_defaults))
+        .route("/api/app-settings/runtime", get(settings::get_runtime).put(settings::put_runtime))
+        .route(
+            "/api/app-settings/charter-template-dirs",
+            get(settings::get_template_dirs).put(settings::put_template_dirs),
+        )
+        .route("/api/providers", get(settings::get_providers))
+        .route("/api/providers/{provider}/enabled", axum::routing::put(settings::provider_enabled))
+        .route("/api/providers/{provider}/apikey-fallback", axum::routing::put(settings::provider_apikey_fallback))
+        .route(
+            "/api/providers/{provider}/subscription-inference",
+            axum::routing::put(settings::provider_subscription_inference),
+        )
+        .route("/api/mcp-servers", get(settings::mcp_servers))
+        .route("/api/charters", get(settings::charters))
+        .route("/api/charters/populate", post(settings::charters_populate))
+        .route("/api/charters/open", post(settings::charters_open))
+        .route("/api/fs", get(settings::fs))
         .route("/api/orgs/{slug}/ops", post(orgops::run_op))
         .route("/api/orgs/{slug}/dissolve-all", post(orgops::dissolve_all))
         .route("/api/orgs/{slug}/killswitch", post(orgops::killswitch))

@@ -51,7 +51,14 @@ pub fn identity(i: &Identity) -> String {
     }
     if let Some(m) = i.org_md.filter(|c| !c.trim().is_empty()) {
         s.push_str("## Organization notes (org.md)\n\n");
-        s.push_str(m.trim());
+        let m = m.trim();
+        let cap = crate::http::settings::ORGMD_PROMPT_MAX;
+        if m.chars().count() > cap {
+            s.extend(m.chars().take(cap));
+            s.push_str("\n… (org.md continues; ask your superior for the rest)");
+        } else {
+            s.push_str(m);
+        }
         s.push_str("\n\n");
     }
     s.push_str(WORKING_RULES);
