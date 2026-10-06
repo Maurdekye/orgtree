@@ -15,6 +15,7 @@ pub struct ApiError {
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
+#[logged]
 impl ApiError {
     pub fn new(status: StatusCode, detail: impl Into<String>) -> Self {
         ApiError { status, detail: detail.into(), extra: None }

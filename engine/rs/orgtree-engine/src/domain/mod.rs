@@ -25,6 +25,7 @@ pub enum UserError {
     Unprocessable(String),
 }
 
+#[logged]
 impl UserError {
     pub fn status(&self) -> StatusCode {
         match self {
@@ -46,6 +47,7 @@ macro_rules! refuse {
     };
 }
 
+#[logged]
 pub fn user_err(kind: fn(String) -> UserError, msg: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(kind(msg.into()))
 }

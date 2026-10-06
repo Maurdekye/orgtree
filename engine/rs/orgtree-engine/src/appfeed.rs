@@ -19,11 +19,14 @@ use crate::feed::rooms::{next_socket_id, Out, SocketId};
 use crate::util::iso_opt;
 
 pub struct AppFeed {
-    tx: mpsc::UnboundedSender<Msg>,
+    tx: mpsc::UnboundedSender<Env>,
 }
 
+/// A message and the request that sent it.
+type Env = (Msg, Option<String>);
+
 /// The feed task's inbox, handed to `start` once.
-pub struct AppFeedInbox(mpsc::UnboundedReceiver<Msg>);
+pub struct AppFeedInbox(mpsc::UnboundedReceiver<Env>);
 
 enum Msg {
     Registry,
@@ -38,6 +41,7 @@ enum Msg {
     Flush,
 }
 
+#[logged]
 impl AppFeed {
     pub fn new() -> (Self, AppFeedInbox) {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -45,25 +49,26 @@ impl AppFeed {
     }
     /// The org list changed (create, delete, rename).
     pub fn registry_changed(&self) {
-        let _ = self.tx.send(Msg::Registry);
+        let _ = self.tx.send((Msg::Registry, crate::trace::current_rq()));
     }
     /// One org's summary or notices may have changed.
     pub fn org_changed(&self, org_id: i64) {
-        let _ = self.tx.send(Msg::Org(org_id));
+        let _ = self.tx.send((Msg::Org(org_id), crate::trace::current_rq()));
     }
     pub fn set_value(&self, key: &str, value: Value) {
-        let _ = self.tx.send(Msg::Value(key.to_string(), value));
+        let _ = self.tx.send((Msg::Value(key.to_string(), value), crate::trace::current_rq()));
     }
     pub fn working(&self, org_id: i64, n: i64) {
-        let _ = self.tx.send(Msg::Working(org_id, n));
+        let _ = self.tx.send((Msg::Working(org_id, n), crate::trace::current_rq()));
     }
     pub async fn snapshot(&self) -> Option<Value> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Msg::Snapshot(tx)).ok()?;
+        self.tx.send((Msg::Snapshot(tx), crate::trace::current_rq())).ok()?;
         rx.await.ok()
     }
 }
 
+#[logged]
 pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
     let rx = inbox.0;
     let actor = Actor {
@@ -110,17 +115,26 @@ struct Actor {
     dirty_orgs: HashSet<i64>,
     reading: HashSet<i64>,
     flush_scheduled: bool,
-    tx: mpsc::UnboundedSender<Msg>,
+    tx: mpsc::UnboundedSender<Env>,
 }
 
+#[logged]
 impl Actor {
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Msg>) {
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Env>) {
         self.app_uuid = app_uuid(&self.engine).await.unwrap_or_else(|_| "00000000-0000-0000-0000-000000000000".into());
-        while let Some(msg) = rx.recv().await {
+        while let Some((msg, cause)) = rx.recv().await {
+            // each message is its own request (the flush timer excepted)
+            let span = if matches!(msg, Msg::Flush) {
+                tracing::Span::none()
+            } else {
+                crate::trace::request_from("engine", cause.as_deref())
+            };
+            let _g = span.enter();
             self.handle(msg);
         }
     }
 
+    #[nolog]
     fn next(&mut self) -> u64 {
         self.seq += 1;
         self.seq
@@ -168,14 +182,15 @@ impl Actor {
         })
     }
 
+    #[nolog]
     fn handle(&mut self, msg: Msg) {
         match msg {
             Msg::Registry => {
                 let engine = self.engine.clone();
                 let tx = self.tx.clone();
-                tokio::spawn(async move {
+                crate::trace::spawn(async move {
                     if let Ok(rows) = read_registry(&engine).await {
-                        let _ = tx.send(Msg::RegistryRead(rows));
+                        let _ = tx.send((Msg::RegistryRead(rows), crate::trace::current_rq()));
                     }
                 });
             }
@@ -192,9 +207,9 @@ impl Actor {
                 if !self.flush_scheduled {
                     self.flush_scheduled = true;
                     let tx = self.tx.clone();
-                    tokio::spawn(async move {
+                    crate::trace::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(300)).await;
-                        let _ = tx.send(Msg::Flush);
+                        let _ = tx.send((Msg::Flush, None));
                     });
                 }
             }
@@ -205,9 +220,9 @@ impl Actor {
                     self.reading.insert(id);
                     let engine = self.engine.clone();
                     let tx = self.tx.clone();
-                    tokio::spawn(async move {
+                    crate::trace::spawn(async move {
                         let got = read_org(&engine, id).await.ok().flatten();
-                        let _ = tx.send(Msg::OrgRead(id, got));
+                        let _ = tx.send((Msg::OrgRead(id, got), crate::trace::current_rq()));
                     });
                 }
             }
@@ -242,9 +257,9 @@ impl Actor {
                 if self.dirty_orgs.contains(&id) && !self.flush_scheduled {
                     self.flush_scheduled = true;
                     let tx = self.tx.clone();
-                    tokio::spawn(async move {
+                    crate::trace::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(300)).await;
-                        let _ = tx.send(Msg::Flush);
+                        let _ = tx.send((Msg::Flush, None));
                     });
                 }
             }
@@ -284,6 +299,7 @@ impl Actor {
     }
 }
 
+#[logged]
 async fn app_uuid(engine: &Engine) -> anyhow::Result<String> {
     let client = engine.db.get().await?;
     if let Some(r) = client.query_opt("SELECT value FROM ot.meta WHERE key = 'app_uuid'", &[]).await? {
@@ -302,6 +318,7 @@ async fn app_uuid(engine: &Engine) -> anyhow::Result<String> {
     Ok(r.get::<_, Value>(0).as_str().unwrap_or(&id).to_string())
 }
 
+#[logged]
 async fn read_registry(engine: &Engine) -> anyhow::Result<Vec<Value>> {
     let client = engine.db.get().await?;
     let rows = client
@@ -320,6 +337,7 @@ async fn read_registry(engine: &Engine) -> anyhow::Result<Vec<Value>> {
 }
 
 /// (org row, summary body, notices) for one active org.
+#[logged]
 async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value, Value, Value)>> {
     let client = engine.db.get().await?;
     let Some(org) = client
@@ -354,14 +372,16 @@ async fn read_org(engine: &Engine, org_id: i64) -> anyhow::Result<Option<(Value,
     Ok(Some((orgv, summary, Value::Array(notices))))
 }
 
+#[logged]
 pub async fn app_ws(State(engine): State<Arc<Engine>>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| run_socket(engine, socket))
 }
 
+#[logged]
 async fn run_socket(engine: Arc<Engine>, socket: WebSocket) {
     let id = next_socket_id();
     let (out, mut rx) = mpsc::channel::<Arc<str>>(2048);
-    let _ = engine.app.tx.send(Msg::Open(id, out));
+    let _ = engine.app.tx.send((Msg::Open(id, out), crate::trace::current_rq()));
     let (mut sink, mut stream) = socket.split();
     let shutdown = engine.shutdown.clone();
     loop {
@@ -379,5 +399,5 @@ async fn run_socket(engine: Arc<Engine>, socket: WebSocket) {
             _ = shutdown.cancelled() => break,
         }
     }
-    let _ = engine.app.tx.send(Msg::Close(id));
+    let _ = engine.app.tx.send((Msg::Close(id), crate::trace::current_rq()));
 }

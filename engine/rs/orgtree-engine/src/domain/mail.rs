@@ -13,7 +13,7 @@ use crate::feed::Key;
 use crate::refuse;
 use crate::util::{gist, uid};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub enum From {
     User,
     System,
@@ -21,6 +21,7 @@ pub enum From {
     Extern(String),
 }
 
+#[logged]
 impl From {
     pub fn name(&self) -> String {
         match self {
@@ -32,6 +33,7 @@ impl From {
     }
 }
 
+#[derive(Debug, serde::Serialize)]
 pub struct Outgoing {
     pub from: From,
     pub to: String,
@@ -46,6 +48,7 @@ pub struct Outgoing {
     pub ev: Option<Value>,
 }
 
+#[logged]
 impl Outgoing {
     pub fn new(from: From, to: &str, body: &str) -> Self {
         Outgoing {
@@ -64,6 +67,7 @@ impl Outgoing {
     }
 }
 
+#[derive(Debug, serde::Serialize)]
 pub struct Sent {
     pub uid: String,
     pub to: String,
@@ -73,6 +77,7 @@ pub struct Sent {
 }
 
 /// Store one message and wake its recipient.
+#[logged]
 pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Sent> {
     let org = engine.orgs.by_id(org_id).ok_or_else(|| anyhow::Error::new(UserError::NotFound("organization".into())))?;
     let to = out.to.trim().trim_start_matches('@').to_string();
@@ -196,6 +201,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
 /// May agent `from` write to agent `to`? Superior, any descendant, peers,
 /// and anyone who granted it an audience. Writing to a non-child descendant
 /// grants that descendant an audience to reply.
+#[logged]
 async fn authorize(
     client: &tokio_postgres::Client,
     org_id: i64,
@@ -256,6 +262,7 @@ async fn authorize(
 }
 
 /// A wake-up from the engine itself (crash recovery, watchdogs, freezes ending).
+#[logged]
 pub async fn system_wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64, text: &str) -> Result<()> {
     let client = engine.db.get().await?;
     let name: String = client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&agent_id]).await?.get(0);
@@ -267,6 +274,7 @@ pub async fn system_wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64, text:
 }
 
 /// The one-line summary a mail spark or notification carries.
+#[logged]
 pub fn summary(body: &str) -> String {
     gist(body, 160)
 }

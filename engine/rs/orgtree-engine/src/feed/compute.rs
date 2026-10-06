@@ -42,6 +42,7 @@ FROM ot.agents a
 "#;
 
 /// Raw rows for these agents (any state except deleted).
+#[logged]
 pub async fn agents(client: &Client, org_id: i64, ids: &[i64]) -> Result<HashMap<i64, Value>> {
     let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.id = ANY($2) AND a.state <> 'deleted'");
     let rows = client.query(&sql, &[&org_id, &ids]).await?;
@@ -49,6 +50,7 @@ pub async fn agents(client: &Client, org_id: i64, ids: &[i64]) -> Result<HashMap
 }
 
 /// Every live agent of the org (the shared set's agent records).
+#[logged]
 pub async fn live_agents(client: &Client, org_id: i64) -> Result<HashMap<i64, Value>> {
     let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.state = 'live'");
     let rows = client.query(&sql, &[&org_id]).await?;
@@ -57,6 +59,7 @@ pub async fn live_agents(client: &Client, org_id: i64) -> Result<HashMap<i64, Va
 
 /// Retired agents for a window: all of them, or the ones under one parent
 /// (`None` = the top level).
+#[logged]
 pub async fn retired_agents(
     client: &Client,
     org_id: i64,
@@ -85,6 +88,7 @@ pub async fn retired_agents(
     Ok(rows.into_iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
 }
 
+#[logged]
 pub async fn org_row(client: &Client, org_id: i64) -> Result<Value> {
     let row = client
         .query_one("SELECT to_jsonb(o) FROM ot.orgs o WHERE o.id = $1", &[&org_id])
@@ -93,6 +97,7 @@ pub async fn org_row(client: &Client, org_id: i64) -> Result<Value> {
 }
 
 /// Grantee name → grantor names (active audiences).
+#[logged]
 pub async fn audiences_held(client: &Client, org_id: i64) -> Result<HashMap<String, Vec<String>>> {
     let rows = client
         .query(
@@ -148,6 +153,7 @@ pub fn mail_entry(m: &Value) -> Value {
 }
 
 /// `(user_inbox, user_mail_log, user_outbox)` windows, keyed by mail id.
+#[logged]
 pub async fn user_mail(client: &Client, org_id: i64) -> Result<(Vec<(i64, Value)>, Vec<(i64, Value)>, Vec<(i64, Value)>)> {
     let pending = client
         .query(
@@ -198,6 +204,7 @@ pub fn event_entry(e: &Value) -> Value {
     Value::Object(o)
 }
 
+#[logged]
 pub async fn events_window(client: &Client, org_id: i64) -> Result<(Vec<(i64, Value)>, i64)> {
     let rows = client
         .query(
@@ -213,6 +220,7 @@ pub async fn events_window(client: &Client, org_id: i64) -> Result<(Vec<(i64, Va
 }
 
 /// One agent's mailbox window: `MailRecord {folder, order, mail}` keyed by mail id.
+#[logged]
 pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String, Value)>> {
     let pending = client
         .query(
@@ -255,6 +263,7 @@ pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String
 }
 
 /// One agent's history window: its events, newest first.
+#[logged]
 pub async fn agent_history(client: &Client, agent_id: i64) -> Result<Vec<(String, Value)>> {
     let rows = client
         .query(
@@ -280,6 +289,7 @@ pub async fn agent_history(client: &Client, agent_id: i64) -> Result<Vec<(String
 }
 
 /// Open asks plus the newest resolved ones, as `AskInfo`, with the asker's name.
+#[logged]
 pub async fn asks(client: &Client, org_id: i64) -> Result<Vec<Value>> {
     let rows = client
         .query(

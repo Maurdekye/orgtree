@@ -17,9 +17,10 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::engine::Engine;
-use crate::runtime::{AgentMsg, Caller};
+use crate::runtime::{AgentMsg, AgentTx, Caller, Post};
 use crate::winproc;
 
+#[derive(Clone)]
 pub struct SpawnSpec {
     pub exe: PathBuf,
     pub cwd: PathBuf,
@@ -39,6 +40,33 @@ pub struct SpawnSpec {
     pub env_remove: Vec<String>,
 }
 
+impl std::fmt::Debug for SpawnSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let env: Vec<(String, String)> = self
+            .env
+            .iter()
+            .map(|(k, v)| {
+                let secret = ["KEY", "TOKEN", "SECRET", "PASSWORD"].iter().any(|w| k.to_ascii_uppercase().contains(w));
+                (k.clone(), if secret { "*****".to_string() } else { v.clone() })
+            })
+            .collect();
+        f.debug_struct("SpawnSpec")
+            .field("exe", &self.exe)
+            .field("cwd", &self.cwd)
+            .field("model", &self.model)
+            .field("permission_mode", &self.permission_mode)
+            .field("effort", &self.effort)
+            .field("disallowed", &self.disallowed)
+            .field("allowed", &self.allowed)
+            .field("add_dirs", &self.add_dirs)
+            .field("resume", &self.resume)
+            .field("new_session", &self.new_session)
+            .field("env", &env)
+            .field("env_remove", &self.env_remove)
+            .finish()
+    }
+}
+
 /// A running Claude process. Dropping it ends the process tree.
 pub struct ClaudeProc {
     pub pid: u32,
@@ -51,16 +79,18 @@ pub struct ClaudeProc {
 
 static REQ: AtomicU64 = AtomicU64::new(1);
 
+#[logged]
 fn req_id(prefix: &str) -> String {
     format!("{prefix}_{}", REQ.fetch_add(1, Ordering::Relaxed))
 }
 
+#[logged]
 impl ClaudeProc {
     pub async fn spawn(
         engine: Arc<Engine>,
         spec: SpawnSpec,
         caller: Caller,
-        actor: mpsc::UnboundedSender<AgentMsg>,
+        actor: AgentTx,
     ) -> Result<ClaudeProc> {
         let mut cmd = Command::new(&spec.exe);
         cmd.arg("-p")
@@ -130,18 +160,22 @@ impl ClaudeProc {
                 }
             }
         });
-        let name = caller.name.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(l)) = lines.next_line().await {
-                if !l.trim().is_empty() {
-                    tracing::debug!(agent = %name, "claude stderr: {}", crate::util::gist(&l, 400));
+        let client = crate::trace::agent_client(caller.agent_id, &caller.name);
+        let proc_span = crate::trace::request(&client);
+        tokio::spawn(tracing::Instrument::instrument(
+            async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(l)) = lines.next_line().await {
+                    if !l.trim().is_empty() {
+                        tracing::info!("claude stderr (pid {pid}): {l}");
+                    }
                 }
-            }
-        });
+            },
+            proc_span.clone(),
+        ));
         let (wtx, wrx) = mpsc::unbounded_channel();
         let writer = tx.clone();
-        tokio::spawn(read_stdout(engine, stdout, caller, actor, writer, wrx));
+        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, writer, wrx), proc_span));
         let proc = ClaudeProc { pid, stdin: tx, waiters: wtx, child: Some(child), job, session_id };
         // Register the in-process MCP server and the mail hook before any turn.
         let init = proc
@@ -160,6 +194,7 @@ impl ClaudeProc {
         Ok(proc)
     }
 
+    #[nolog]
     fn write(&self, v: &Value) -> bool {
         self.stdin.send(v.to_string()).is_ok()
     }
@@ -241,11 +276,12 @@ impl ClaudeProc {
     }
 }
 
+#[logged]
 async fn read_stdout(
     engine: Arc<Engine>,
     stdout: tokio::process::ChildStdout,
     caller: Caller,
-    actor: mpsc::UnboundedSender<AgentMsg>,
+    actor: AgentTx,
     writer: mpsc::UnboundedSender<String>,
     mut waiters_rx: mpsc::UnboundedReceiver<(String, oneshot::Sender<Value>)>,
 ) {
@@ -289,7 +325,9 @@ async fn read_stdout(
                 let engine = engine.clone();
                 let caller = caller.clone();
                 let actor = actor.clone();
-                tokio::spawn(async move {
+                // every control request (tool call, hook) is its own request
+                let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
+                tokio::spawn(tracing::Instrument::instrument(async move {
                     let response = answer_control(&engine, &caller, &actor, &req).await;
                     let line = match response {
                         Ok(r) => json!({ "type": "control_response",
@@ -298,23 +336,24 @@ async fn read_stdout(
                                           "response": { "subtype": "error", "request_id": id, "error": e.to_string() } }),
                     };
                     let _ = writer.send(line.to_string());
-                });
+                }, span));
             }
             Some("control_cancel_request") => {}
             _ => {
-                if actor.send(AgentMsg::Claude(v)).is_err() {
+                if !actor.post(AgentMsg::Claude(v)) {
                     break;
                 }
             }
         }
     }
-    let _ = actor.send(AgentMsg::ProcExited);
+    let _ = actor.post(AgentMsg::ProcExited);
 }
 
+#[logged]
 async fn answer_control(
     engine: &Arc<Engine>,
     caller: &Caller,
-    actor: &mpsc::UnboundedSender<AgentMsg>,
+    actor: &AgentTx,
     req: &Value,
 ) -> Result<Value> {
     match req["subtype"].as_str() {
@@ -328,7 +367,7 @@ async fn answer_control(
         }
         Some("hook_callback") => {
             let (tx, rx) = oneshot::channel();
-            let _ = actor.send(AgentMsg::Hook { input: req["input"].clone(), reply: tx });
+            let _ = actor.post(AgentMsg::Hook { input: req["input"].clone(), reply: tx });
             let out = tokio::time::timeout(Duration::from_secs(30), rx).await.ok().and_then(Result::ok);
             Ok(out.unwrap_or_else(|| json!({})))
         }
@@ -338,6 +377,7 @@ async fn answer_control(
 }
 
 /// Files a Claude process reads at start; rewritten before every spawn.
+#[logged]
 pub fn write_launch_files(
     scratch: &Path,
     identity: &str,
@@ -355,11 +395,13 @@ pub fn write_launch_files(
 }
 
 /// Claude Code's folder name for a working directory under `projects/`.
+#[logged]
 pub fn project_dir(cwd: &Path) -> String {
     cwd.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }
 
 /// The config folder a CLI without `CLAUDE_CONFIG_DIR` uses.
+#[logged]
 pub fn default_config_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".claude")
 }
@@ -367,6 +409,7 @@ pub fn default_config_dir() -> PathBuf {
 /// Make sure `--resume <session>` from `cwd` under `config_dir` finds its
 /// transcript: if it is not where that CLI looks, copy it there from any
 /// other project folder or account. False when it exists nowhere.
+#[logged]
 pub fn ensure_session(cwd: &Path, session: &str, config_dir: Option<&str>, others: &[String]) -> bool {
     let file = format!("{session}.jsonl");
     let root = config_dir.map(PathBuf::from).unwrap_or_else(default_config_dir);

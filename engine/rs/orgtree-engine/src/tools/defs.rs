@@ -4,6 +4,7 @@
 use serde_json::{json, Value};
 
 /// Tools this build serves (the rest are listed once they land).
+#[logged]
 pub fn implemented() -> &'static [&'static str] {
     &[
         "orgtree_message",
@@ -25,11 +26,13 @@ pub fn implemented() -> &'static [&'static str] {
     ]
 }
 
+#[logged]
 pub fn list() -> Vec<Value> {
     let on = implemented();
     all().into_iter().filter(|t| t["name"].as_str().map(|n| on.contains(&n)).unwrap_or(false)).collect()
 }
 
+#[logged]
 fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({
         "name": name,
@@ -45,6 +48,7 @@ const VIS: &[&str] = &["self", "team", "subtree", "full"];
 const PM: &[&str] = &["default", "acceptEdits", "bypassPermissions"];
 const EFFORT: &[&str] = &["low", "medium", "high", "xhigh", "max", ""];
 
+#[logged]
 fn scope_props() -> Value {
     json!({
         "add_dirs": { "type": "array", "items": { "type": "object", "properties": {
@@ -63,6 +67,7 @@ fn scope_props() -> Value {
     })
 }
 
+#[logged]
 fn merge(mut a: Value, b: Value) -> Value {
     if let (Some(ao), Some(bo)) = (a.as_object_mut(), b.as_object()) {
         for (k, v) in bo {
@@ -72,6 +77,7 @@ fn merge(mut a: Value, b: Value) -> Value {
     a
 }
 
+#[logged]
 fn all() -> Vec<Value> {
     vec![
         tool(

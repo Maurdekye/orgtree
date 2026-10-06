@@ -10,12 +10,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0002_turn_sent", include_str!("../migrations/0002_turn_sent.sql")),
 ];
 
+#[logged]
 fn checksum(sql: &str) -> String {
     // line endings normalised so a CRLF checkout hashes like an LF one
     let normalised = sql.replace("\r\n", "\n");
     hex::encode(Sha256::digest(normalised.as_bytes()))
 }
 
+#[logged]
 pub async fn run(client: &mut Client, progress: &dyn Fn(&str)) -> Result<()> {
     client
         .batch_execute(

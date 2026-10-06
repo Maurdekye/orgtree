@@ -16,6 +16,7 @@ use crate::feed::rooms::{next_socket_id, Member};
 use crate::http::error::ApiError;
 use crate::orgs::OrgHandle;
 
+#[logged]
 pub async fn org_ws(
     State(engine): State<Arc<Engine>>,
     Path(slug): Path<String>,
@@ -27,6 +28,7 @@ pub async fn org_ws(
     ws.on_upgrade(move |socket| run(engine, org, socket))
 }
 
+#[logged]
 async fn run(engine: Arc<Engine>, org: Arc<OrgHandle>, socket: WebSocket) {
     let id = next_socket_id();
     let (out_tx, mut out_rx) = mpsc::channel::<Arc<str>>(8192);

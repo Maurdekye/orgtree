@@ -16,6 +16,7 @@ use crate::util::{gist, iso};
 const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
 
 /// The agent's working folder.
+#[logged]
 pub async fn scratch_of(engine: &Engine, client: &tokio_postgres::Client, caller: &Caller, agent_id: i64) -> Result<PathBuf> {
     let r = client.query_one("SELECT name, scratch_dir FROM ot.agents WHERE id = $1", &[&agent_id]).await?;
     let name: String = r.get(0);
@@ -24,6 +25,7 @@ pub async fn scratch_of(engine: &Engine, client: &tokio_postgres::Client, caller
         .unwrap_or_else(|| engine.cfg.scratch_root(&caller.org_slug).join(name)))
 }
 
+#[logged]
 pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_notice: bool) -> Result<Done> {
     let to = need_str(args, "to")?.to_string();
     let body = args.get("body").and_then(Value::as_str).unwrap_or("").to_string();
@@ -67,6 +69,7 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     Ok(Done { text, card: Some(json!({ "mail": { "id": sent.uid, "to": box_name } })) })
 }
 
+#[logged]
 pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let status = need_str(args, "status")?;
     if !["working", "done", "blocked", "idle"].contains(&status) {
@@ -118,6 +121,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     Done::text(format!("Status recorded: {status}.{told}"))
 }
 
+#[logged]
 pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
     let client = engine.db.get().await?;

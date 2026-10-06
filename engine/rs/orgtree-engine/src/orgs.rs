@@ -21,6 +21,7 @@ pub struct OrgHandle {
     pub working: AtomicI64,
 }
 
+#[logged]
 impl OrgHandle {
     /// A turn started (+1) or ended (-1); the app feed shows the count.
     pub fn turn_delta(&self, engine: &Engine, d: i64) {
@@ -35,6 +36,7 @@ impl OrgHandle {
         self.rooms.emit_org(&frame);
     }
     /// A frame for windows with this agent's desk open.
+    #[nolog]
     pub fn emit_agent(&self, agent: i64, frame: serde_json::Value) {
         self.rooms.emit_agent(agent, &frame);
     }
@@ -46,6 +48,7 @@ pub struct OrgDirectory {
     by_id: papaya::HashMap<i64, Arc<OrgHandle>>,
 }
 
+#[logged]
 impl OrgDirectory {
     pub fn get(&self, slug: &str) -> Option<Arc<OrgHandle>> {
         self.by_slug.pin().get(slug).cloned()
@@ -71,6 +74,7 @@ impl OrgDirectory {
     }
 }
 
+#[logged]
 pub fn open(engine: &Arc<Engine>, id: i64, uuid: String, slug: String, name: String) -> Arc<OrgHandle> {
     let feed = feed::spawn(engine.clone(), id, uuid.clone());
     let h = Arc::new(OrgHandle { id, uuid, slug, name: ArcSwap::from_pointee(name), feed, rooms: Rooms::default(), working: AtomicI64::new(0) });
@@ -78,6 +82,7 @@ pub fn open(engine: &Arc<Engine>, id: i64, uuid: String, slug: String, name: Str
     h
 }
 
+#[logged]
 pub async fn load_all(engine: &Arc<Engine>) -> Result<()> {
     let client = engine.db.get().await?;
     let rows = client

@@ -8,6 +8,7 @@ use tokio_postgres::Client;
 
 use crate::util::gist;
 
+#[logged]
 pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Value>> {
     let mut out = Vec::new();
     let asks = client

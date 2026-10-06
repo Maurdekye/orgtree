@@ -50,6 +50,7 @@ pub struct McpRegistry {
     pub servers: Vec<(String, Value)>,
 }
 
+#[logged]
 impl Providers {
     pub fn openrouter_tiers(&self) -> Vec<(String, f64, String)> {
         self.state.load().openrouter.iter().map(|(t, s, m, _, _)| (t.clone(), *s, m.clone())).collect()
@@ -89,6 +90,7 @@ fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
+#[logged]
 fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
@@ -103,6 +105,7 @@ fn which(name: &str) -> Option<PathBuf> {
 }
 
 /// Prefer the real executable behind npm's `claude.cmd` shim.
+#[logged]
 pub fn locate_claude() -> Option<(PathBuf, String)> {
     if let Ok(p) = std::env::var("ORGTREE_CLAUDE_BIN") {
         let p = PathBuf::from(p);
@@ -123,6 +126,7 @@ pub fn locate_claude() -> Option<(PathBuf, String)> {
     which("claude").map(|p| (p, "path".into()))
 }
 
+#[logged]
 pub fn locate_codex() -> Option<(PathBuf, String)> {
     if let Ok(p) = std::env::var("ORGTREE_CODEX_BIN") {
         let p = PathBuf::from(p);
@@ -144,6 +148,7 @@ pub fn locate_codex() -> Option<(PathBuf, String)> {
     which("codex").map(|p| (p, "path".into()))
 }
 
+#[logged]
 pub fn locate_agy() -> Option<(PathBuf, String)> {
     if let Some(local) = dirs::data_local_dir() {
         let p = local.join("agy").join("bin").join("agy.exe");
@@ -154,6 +159,7 @@ pub fn locate_agy() -> Option<(PathBuf, String)> {
     which("agy").map(|p| (p, "path".into()))
 }
 
+#[logged]
 async fn version_of(path: &PathBuf) -> Option<String> {
     let mut cmd = tokio::process::Command::new(path);
     cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
@@ -164,6 +170,7 @@ async fn version_of(path: &PathBuf) -> Option<String> {
     Some(v.to_string())
 }
 
+#[logged]
 fn claude_identity(config_dir: Option<&PathBuf>) -> (bool, Option<String>) {
     let dir = config_dir.cloned().unwrap_or_else(|| home().join(".claude"));
     let creds = dir.join(".credentials.json");
@@ -179,6 +186,7 @@ fn claude_identity(config_dir: Option<&PathBuf>) -> (bool, Option<String>) {
     (connected || email.is_some(), email)
 }
 
+#[logged]
 fn codex_identity(home_dir: Option<&PathBuf>) -> (bool, Option<String>, Option<String>) {
     let dir = home_dir.cloned().unwrap_or_else(|| home().join(".codex"));
     let auth = std::fs::read_to_string(dir.join("auth.json")).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
@@ -203,6 +211,7 @@ fn jwt_email(token: &str) -> Option<String> {
     v.get("email").and_then(Value::as_str).map(str::to_string)
 }
 
+#[logged]
 pub async fn discover(engine: &Engine) {
     let mut st = State::default();
     if let Some((p, src)) = locate_claude() {
@@ -259,6 +268,7 @@ pub async fn discover(engine: &Engine) {
     publish(engine);
 }
 
+#[logged]
 fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
     catalog::TIERS
         .iter()
@@ -267,6 +277,7 @@ fn tier_rows(provider: &str, legacy_ok: bool) -> Vec<Value> {
         .collect()
 }
 
+#[logged]
 pub fn payload(engine: &Engine) -> Value {
     let st = engine.providers.state.load();
     let settings = engine.settings.get();
@@ -335,10 +346,12 @@ pub fn payload(engine: &Engine) -> Value {
     })
 }
 
+#[logged]
 pub fn publish(engine: &Engine) {
     engine.app.set_value("providers", payload(engine));
 }
 
+#[logged]
 pub fn start(engine: &Arc<Engine>) {
     let engine = engine.clone();
     tokio::spawn(async move {

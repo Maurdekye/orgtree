@@ -7,12 +7,14 @@ use serde_json::{json, Value};
 use tokio_postgres::Client;
 
 /// Per-agent row counters; owned by the actor (the only writer).
+#[derive(Debug)]
 pub struct ConvoWriter {
     pub agent_id: i64,
     pub seq: i64,
     pub ver: i64,
 }
 
+#[logged]
 impl ConvoWriter {
     pub async fn load(client: &Client, agent_id: i64) -> Result<Self> {
         let r = client
@@ -52,6 +54,7 @@ impl ConvoWriter {
     }
 }
 
+#[logged]
 fn stamp(body: &mut Value, seq: i64) {
     if let Some(o) = body.as_object_mut() {
         o.insert("seq".into(), json!(seq));
@@ -61,11 +64,13 @@ fn stamp(body: &mut Value, seq: i64) {
 }
 
 /// `after` cursors are `"<ver>:<max seq>"`.
+#[logged]
 pub fn parse_after(after: &str) -> Option<(i64, i64)> {
     let (v, s) = after.split_once(':')?;
     Some((v.parse().ok()?, s.parse().ok()?))
 }
 
+#[derive(Debug, serde::Serialize)]
 pub struct Page {
     pub messages: Vec<Value>,
     pub updates: Vec<Value>,
@@ -76,6 +81,7 @@ pub struct Page {
 }
 
 /// The newest `last` rows (or older than `before`), or what changed after a cursor.
+#[logged]
 pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>, after: Option<(i64, i64)>) -> Result<Page> {
     let top = client
         .query_one("SELECT coalesce(max(seq), 0), coalesce(max(ver), 0) FROM ot.convo WHERE agent_id = $1", &[&agent_id])
@@ -140,6 +146,7 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
 }
 
 /// Shorten a tool result for display; the agent saw it whole.
+#[logged]
 pub fn clip(text: &str, max: usize) -> (String, bool) {
     if text.chars().count() <= max {
         return (text.to_string(), false);
@@ -149,6 +156,7 @@ pub fn clip(text: &str, max: usize) -> (String, bool) {
 }
 
 /// The short argument a tool chip shows beside the tool name.
+#[logged]
 pub fn tool_arg(name: &str, input: &Value) -> String {
     let pick = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
     let s = match name {
@@ -172,6 +180,7 @@ pub fn tool_arg(name: &str, input: &Value) -> String {
 }
 
 /// Text of a tool_result's content (string, or text blocks); counts images.
+#[logged]
 pub fn tool_result_text(content: &Value) -> (String, usize) {
     match content {
         Value::String(s) => (s.clone(), 0),

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     /// The data root (`%APPDATA%\Orgtree v2\data`), canonical absolute path.
     pub data_root: PathBuf,
@@ -25,6 +25,21 @@ pub struct Config {
     pub pg_bootstrap: bool,
 }
 
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("data_root", &self.data_root)
+            .field("desktop_token", &if self.desktop_token.is_empty() { "" } else { "*****" })
+            .field("ui_dir", &self.ui_dir)
+            .field("parent_pid", &self.parent_pid)
+            .field("pg_bin", &self.pg_bin)
+            .field("exe_dir", &self.exe_dir)
+            .field("pg_bootstrap", &self.pg_bootstrap)
+            .finish()
+    }
+}
+
+#[logged]
 impl Config {
     pub fn from_env() -> Result<Self> {
         let data = std::env::var("ORGTREE_DATA")
@@ -80,11 +95,13 @@ impl Config {
 
 /// Canonical path WITHOUT the `\\?\` verbatim prefix Windows' canonicalize adds:
 /// the desktop compares `dataRootId` with `path.resolve(...)` output.
+#[logged]
 pub fn canonical(p: &Path) -> Result<PathBuf> {
     let c = std::fs::canonicalize(p).with_context(|| format!("could not resolve {}", p.display()))?;
     Ok(strip_verbatim(&c))
 }
 
+#[logged]
 pub fn strip_verbatim(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
     if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {

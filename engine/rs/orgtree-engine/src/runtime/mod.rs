@@ -30,6 +30,7 @@ pub struct Caller {
     pub name: String,
 }
 
+#[derive(Debug)]
 pub enum AgentMsg {
     /// waking mail (or anything else that may need a turn)
     Wake,
@@ -64,17 +65,39 @@ pub enum AgentMsg {
     ToolCard(String, Value),
 }
 
+/// A message to an agent's actor and the request that sent it (the actor
+/// handles it as a new request caused by that one).
+pub struct Envelope {
+    pub msg: AgentMsg,
+    pub cause: Option<String>,
+}
+
+pub type AgentTx = mpsc::UnboundedSender<Envelope>;
+
+pub trait Post {
+    fn post(&self, msg: AgentMsg) -> bool;
+}
+
+impl Post for AgentTx {
+    fn post(&self, msg: AgentMsg) -> bool {
+        // the CLI's stream lines run under their turn's request
+        let cause = if matches!(msg, AgentMsg::Claude(_)) { None } else { crate::trace::current_rq() };
+        self.send(Envelope { msg, cause }).is_ok()
+    }
+}
+
 pub struct AgentHandle {
     pub id: i64,
     pub org_id: i64,
-    pub tx: mpsc::UnboundedSender<AgentMsg>,
+    pub tx: AgentTx,
     /// the overlay values the actor last published (read lock-free)
     pub view: ArcSwap<Value>,
 }
 
+#[logged]
 impl AgentHandle {
     pub fn send(&self, msg: AgentMsg) -> bool {
-        self.tx.send(msg).is_ok()
+        self.tx.post(msg)
     }
 }
 
@@ -83,6 +106,7 @@ pub struct AgentRegistry {
     pub map: papaya::HashMap<i64, Arc<AgentHandle>>,
 }
 
+#[logged]
 impl AgentRegistry {
     pub fn get(&self, id: i64) -> Option<Arc<AgentHandle>> {
         self.map.pin().get(&id).cloned()
@@ -99,6 +123,7 @@ impl AgentRegistry {
 }
 
 /// The agent's actor, started on demand.
+#[logged]
 pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandle> {
     if let Some(h) = engine.agents.get(agent_id) {
         if !h.tx.is_closed() {
@@ -124,17 +149,20 @@ pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandl
 }
 
 /// Wake an agent: start its actor if needed and tell it mail is waiting.
+#[logged]
 pub fn wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
     actor(engine, org_id, agent_id).send(AgentMsg::Wake);
 }
 
 /// Agents running a turn right now, per org.
+#[logged]
 pub fn working_by_org(engine: &Engine) -> HashMap<i64, i64> {
     engine.orgs.all().into_iter().map(|o| (o.id, o.working.load(std::sync::atomic::Ordering::SeqCst))).collect()
 }
 
 /// Resume agents that were mid-turn when the last engine stopped, and wake
 /// agents with waiting mail.
+#[logged]
 pub async fn recover(engine: &Arc<Engine>) {
     if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() == Ok("1") {
         tracing::warn!("safe start: no agent is woken automatically");
@@ -194,6 +222,7 @@ pub async fn recover(engine: &Arc<Engine>) {
 
 /// Stop admitting turns and end the running ones (their mail returns to the
 /// queue; they resume on the next start).
+#[logged]
 pub async fn shutdown(engine: &Arc<Engine>) {
     let handles: Vec<Arc<AgentHandle>> = engine.agents.map.pin().values().cloned().collect();
     let mut waits = Vec::new();

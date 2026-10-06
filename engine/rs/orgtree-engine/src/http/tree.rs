@@ -9,6 +9,7 @@ use serde_json::{json, Map, Value};
 
 use crate::feed::groups::GROUPS;
 
+#[logged]
 pub fn project(snapshot: &Value) -> Value {
     let records = snapshot["records"].as_array().cloned().unwrap_or_default();
     let mut header = Map::new();

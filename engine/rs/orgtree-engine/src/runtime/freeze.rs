@@ -19,6 +19,7 @@ use crate::util::parse_ts;
 pub const WAKE_GRACE_S: i64 = 60;
 
 /// Arrange the automatic wake for a freeze record (if the org auto-resumes).
+#[logged]
 pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, rec: &Value) {
     let Some(until) = rec["until"].as_str().and_then(parse_ts) else { return };
     let grace = if rec["connection"].as_bool().unwrap_or(false) { 0 } else { WAKE_GRACE_S };
@@ -42,6 +43,7 @@ pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, rec: &Value) {
     });
 }
 
+#[logged]
 async fn auto_resume_on(engine: &Engine, org_id: i64) -> Result<bool> {
     let client = engine.db.get().await?;
     let s: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
@@ -51,6 +53,7 @@ async fn auto_resume_on(engine: &Engine, org_id: i64) -> Result<bool> {
 
 /// Release one agent's freeze and wake it to continue. With `only_due`, a
 /// freeze whose reset is still ahead (a newer freeze) is left alone.
+#[logged]
 pub async fn thaw(engine: &Arc<Engine>, org_id: i64, agent_id: i64, only_due: bool) -> Result<bool> {
     let client = engine.db.get().await?;
     let row = client
@@ -75,6 +78,7 @@ pub async fn thaw(engine: &Arc<Engine>, org_id: i64, agent_id: i64, only_due: bo
 }
 
 /// Every frozen agent of the org (the top bar's resume button).
+#[logged]
 pub async fn resume_org(engine: &Arc<Engine>, org_id: i64) -> Result<Vec<String>> {
     let client = engine.db.get().await?;
     let rows = client
@@ -91,6 +95,7 @@ pub async fn resume_org(engine: &Arc<Engine>, org_id: i64) -> Result<Vec<String>
 }
 
 /// After a restart: re-arm the automatic wakes.
+#[logged]
 pub async fn recover(engine: &Arc<Engine>) {
     let Ok(client) = engine.db.get().await else { return };
     let rows = client
@@ -105,6 +110,7 @@ pub async fn recover(engine: &Arc<Engine>) {
 /// Another account of `provider` this agent could continue on, honoring the
 /// API-key fallback and subscription switches: subscriptions first, then
 /// metered keys.
+#[logged]
 pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>) -> Option<String> {
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
@@ -116,6 +122,7 @@ pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>) -> 
 }
 
 /// Move an agent to `account` and let its held work go on.
+#[logged]
 pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str) -> Result<Value> {
     let view = engine.accounts.view();
     let Some(acc) = view.get(account).cloned() else {

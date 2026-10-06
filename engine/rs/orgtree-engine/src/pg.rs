@@ -26,11 +26,13 @@ pub struct Cluster {
     child: Option<Child>,
 }
 
+#[logged]
 impl Cluster {
     fn tool(&self, name: &str) -> PathBuf {
         self.bin.join(format!("{name}.exe"))
     }
 
+    #[nolog]
     pub fn connect_config(&self, db: &str) -> tokio_postgres::Config {
         let mut c = tokio_postgres::Config::new();
         c.host("127.0.0.1")
@@ -224,6 +226,7 @@ fn read_password(creds: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("credentials.json has no {ADMIN_ROLE} entry"))
 }
 
+#[logged]
 fn pick_pg_port(cluster_dir: &Path) -> u16 {
     let preferred = std::fs::read_to_string(cluster_dir.join("pg-attach.json"))
         .ok()
@@ -243,6 +246,7 @@ fn pick_pg_port(cluster_dir: &Path) -> u16 {
         .unwrap_or(55433)
 }
 
+#[logged]
 fn clear_stale_postmaster_pid(data_dir: &Path) -> Result<()> {
     let pidfile = data_dir.join("postmaster.pid");
     let Ok(text) = std::fs::read_to_string(&pidfile) else { return Ok(()) };
@@ -255,6 +259,7 @@ fn clear_stale_postmaster_pid(data_dir: &Path) -> Result<()> {
 }
 
 #[cfg(windows)]
+#[logged]
 fn is_postgres(pid: u32) -> bool {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
@@ -274,10 +279,12 @@ fn is_postgres(pid: u32) -> bool {
 }
 
 #[cfg(not(windows))]
+#[logged]
 fn is_postgres(_pid: u32) -> bool {
     true
 }
 
+#[logged]
 async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Path) -> Result<()> {
     use rand::RngCore;
     let secrets = cluster_dir.join("secrets");

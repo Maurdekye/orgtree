@@ -22,6 +22,7 @@ pub struct MailHub {
     pub state: ArcSwap<HubState>,
 }
 
+#[logged]
 impl MailHub {
     /// The tree's `net` block for one org, or null when it has no network config.
     pub fn net_block(&self, org: &Value) -> Value {
@@ -52,6 +53,8 @@ impl MailHub {
     }
 }
 
+#[logged]
 pub async fn start(_engine: &Arc<Engine>) {}
 
+#[logged]
 pub async fn stop(_engine: &Arc<Engine>) {}

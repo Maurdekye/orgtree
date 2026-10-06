@@ -20,6 +20,7 @@ use crate::util::{iso, uid};
 
 const MARKER: &str = "import_v1";
 
+#[logged]
 pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progress: &dyn Fn(&str)) -> Result<()> {
     let mut dst = pool.get().await?;
     if dst.query_opt("SELECT 1 FROM ot.meta WHERE key = $1", &[&MARKER]).await?.is_some() {
@@ -105,6 +106,7 @@ fn opt_j(row: &tokio_postgres::Row, i: &str) -> Value {
     row.try_get::<_, Option<Value>>(i).ok().flatten().unwrap_or(Value::Null)
 }
 
+#[logged]
 async fn import_org(
     cfg: &Config,
     cluster: &Cluster,
@@ -128,6 +130,7 @@ async fn import_org(
     result
 }
 
+#[logged]
 async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, uuid: &str, db: &str) -> Result<usize> {
     // ---- org row ----
     let s = src
@@ -893,6 +896,7 @@ async fn insert_mail(
     Ok(())
 }
 
+#[logged]
 async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
     let rows = app
         .query(
@@ -955,6 +959,7 @@ async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
 }
 
 /// `app-settings.json` → `ot.kv/app_settings` (first start only).
+#[logged]
 async fn import_app_settings(cfg: &Config, dst: &Client) -> Result<()> {
     let have = dst.query_opt("SELECT 1 FROM ot.kv WHERE key = 'app_settings'", &[]).await?.is_some();
     if have {

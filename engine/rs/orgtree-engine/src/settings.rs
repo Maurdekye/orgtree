@@ -16,11 +16,13 @@ pub struct AppSettings {
     snapshot: ArcSwap<Value>,
 }
 
+#[logged]
 impl AppSettings {
     pub fn new(initial: Value) -> Self {
         AppSettings { snapshot: ArcSwap::from_pointee(initial) }
     }
 
+    #[nolog]
     pub fn get(&self) -> Arc<Value> {
         self.snapshot.load_full()
     }
@@ -51,25 +53,32 @@ impl AppSettings {
     }
 
     // ---- typed readers with the documented defaults ----
+    #[nolog]
     fn runtime(&self) -> Value {
         self.get().get("runtime").cloned().unwrap_or_else(|| json!({}))
     }
 
+    #[nolog]
     pub fn max_concurrent_turns(&self) -> usize {
         self.runtime().get("max_concurrent_turns").and_then(Value::as_u64).filter(|n| *n >= 1).unwrap_or(16) as usize
     }
+    #[nolog]
     pub fn turn_timeout_s(&self) -> u64 {
         self.runtime().get("turn_timeout_s").and_then(Value::as_u64).unwrap_or(86_400)
     }
+    #[nolog]
     pub fn turn_idle_s(&self) -> u64 {
         self.runtime().get("turn_idle_s").and_then(Value::as_u64).unwrap_or(600)
     }
+    #[nolog]
     pub fn keep_warm(&self) -> bool {
         self.runtime().get("warming_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    #[nolog]
     pub fn wait_for_mcp_tools(&self) -> bool {
         self.runtime().get("wait_for_mcp_tools_enabled").and_then(Value::as_bool).unwrap_or(false)
     }
+    #[nolog]
     pub fn quick_staff_behavior(&self) -> String {
         self.runtime()
             .get("quick_staff_behavior")
@@ -77,9 +86,11 @@ impl AppSettings {
             .unwrap_or("request")
             .to_string()
     }
+    #[nolog]
     pub fn provider_enabled(&self, provider: &str) -> bool {
         self.get().get("providers").and_then(|p| p.get(provider)).and_then(Value::as_bool).unwrap_or(true)
     }
+    #[nolog]
     pub fn apikey_fallback(&self, provider: &str) -> bool {
         self.get()
             .get("apikey_fallback")
@@ -87,6 +98,7 @@ impl AppSettings {
             .and_then(Value::as_bool)
             .unwrap_or(false)
     }
+    #[nolog]
     pub fn subscription_inference(&self, provider: &str) -> bool {
         self.get()
             .get("subscription_inference")
@@ -94,6 +106,7 @@ impl AppSettings {
             .and_then(Value::as_bool)
             .unwrap_or(true)
     }
+    #[nolog]
     pub fn defaults(&self) -> Map<String, Value> {
         self.get().get("defaults").and_then(Value::as_object).cloned().unwrap_or_default()
     }

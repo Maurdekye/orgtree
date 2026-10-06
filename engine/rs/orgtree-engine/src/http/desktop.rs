@@ -11,14 +11,17 @@ use serde_json::{json, Value};
 use crate::engine::Engine;
 use crate::http::error::ApiResult;
 
+#[logged]
 pub async fn identity(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(json!({ "protocol": 1, "pid": e.boot.pid, "dataRootId": e.cfg.data_root_id }))
 }
 
+#[logged]
 pub async fn alive(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(json!({ "pid": e.boot.pid, "dataRootId": e.cfg.data_root_id, "alive": true }))
 }
 
+#[logged]
 pub async fn status(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     let client = e.db.get().await?;
     let total: i64 = client.query_one("SELECT count(*) FROM ot.agents WHERE state = 'live'", &[]).await?.get(0);
@@ -37,6 +40,7 @@ pub async fn status(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     Ok(Json(v))
 }
 
+#[logged]
 pub async fn shutdown(State(e): State<Arc<Engine>>) -> Json<Value> {
     tracing::info!("shutdown requested by the desktop");
     let eng = e.clone();
@@ -47,6 +51,7 @@ pub async fn shutdown(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(json!({ "ok": true }))
 }
 
+#[logged]
 pub async fn host(State(e): State<Arc<Engine>>) -> Json<Value> {
     let st = e.providers.state.load();
     Json(json!({
@@ -60,6 +65,7 @@ pub async fn host(State(e): State<Arc<Engine>>) -> Json<Value> {
     }))
 }
 
+#[logged]
 pub async fn engine_stats(State(e): State<Arc<Engine>>) -> Json<Value> {
     let mut sockets = Vec::new();
     for org in e.orgs.all() {

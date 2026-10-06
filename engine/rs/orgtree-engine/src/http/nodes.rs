@@ -23,6 +23,7 @@ use crate::orgs::OrgHandle;
 use crate::runtime::{self, actor::LiveView, convo, freeze, AgentMsg};
 use crate::util::{gist, iso, uid};
 
+#[derive(Debug, serde::Serialize)]
 pub struct Agent {
     pub id: i64,
     pub name: String,
@@ -30,6 +31,7 @@ pub struct Agent {
     pub parent_id: Option<i64>,
 }
 
+#[logged]
 pub async fn agent(engine: &Engine, org: &OrgHandle, nid: &str) -> ApiResult<Agent> {
     let client = engine.db.get().await?;
     let r = client
@@ -45,6 +47,7 @@ pub async fn agent(engine: &Engine, org: &OrgHandle, nid: &str) -> ApiResult<Age
 }
 
 /// Ask an agent's actor (started on demand) and wait for its answer.
+#[logged]
 async fn ask(engine: &Arc<Engine>, org_id: i64, agent_id: i64, make: impl FnOnce(oneshot::Sender<Value>) -> AgentMsg) -> ApiResult<Value> {
     let (tx, rx) = oneshot::channel();
     if !runtime::actor(engine, org_id, agent_id).send(make(tx)) {
@@ -58,13 +61,14 @@ async fn ask(engine: &Arc<Engine>, org_id: i64, agent_id: i64, make: impl FnOnce
 
 // ------------------------------------------------------------ chat
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ChatQuery {
     last: Option<i64>,
     before: Option<String>,
     after: Option<String>,
 }
 
+#[logged]
 pub async fn chat(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -150,7 +154,7 @@ pub async fn chat(
 
 // ------------------------------------------------------------ mail from the user
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Debug)]
 pub struct MessageBody {
     #[serde(default)]
     text: String,
@@ -163,6 +167,7 @@ pub struct MessageBody {
     notice: bool,
 }
 
+#[logged]
 pub async fn message(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -208,6 +213,7 @@ pub async fn message(
 }
 
 /// `{kind, org, box, node?, id}` (object identity only) → the reply snapshot.
+#[logged]
 async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value) -> ApiResult<Option<Value>> {
     let kind = t["kind"].as_str().unwrap_or("");
     let id = t["id"].as_str().unwrap_or("");
@@ -239,6 +245,7 @@ async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value) -> ApiResult<Opt
     }
 }
 
+#[logged]
 pub async fn retract(
     State(e): State<Arc<Engine>>,
     Path((slug, nid, mid)): Path<(String, String, String)>,
@@ -262,6 +269,7 @@ pub async fn retract(
 
 // ------------------------------------------------------------ turn controls
 
+#[logged]
 pub async fn interrupt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
@@ -271,6 +279,7 @@ pub async fn interrupt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(St
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Interrupt).await?))
 }
 
+#[logged]
 pub async fn halt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
@@ -280,12 +289,14 @@ pub async fn halt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String,
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Halt).await?))
 }
 
+#[logged]
 pub async fn unhalt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Unhalt).await?))
 }
 
+#[logged]
 pub async fn compact(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
@@ -293,11 +304,12 @@ pub async fn compact(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Stri
     Ok(Json(json!({ "started": r["started"].as_bool().unwrap_or(false), "reason": r["reason"] })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ProcessBody {
     action: String,
 }
 
+#[logged]
 pub async fn process(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -315,6 +327,7 @@ pub async fn process(
     Ok(Json(ask(&e, org.id, a.id, move |tx| AgentMsg::Process { action, reply: tx }).await?))
 }
 
+#[logged]
 pub async fn unstick(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
@@ -338,11 +351,12 @@ pub async fn unstick(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Stri
     Ok(Json(json!({ "released": released, "status": if released.is_empty() { "nothing to release" } else { "released" } })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ContinueBody {
     account: String,
 }
 
+#[logged]
 pub async fn continue_on(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -353,18 +367,21 @@ pub async fn continue_on(
     Ok(Json(freeze::continue_on(&e, org.id, a.id, &b.account, "continue on another account (user)").await?))
 }
 
+#[logged]
 pub async fn resume(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let resumed = freeze::resume_org(&e, org.id).await?;
     Ok(Json(json!({ "resumed": resumed })))
 }
 
+#[logged]
 pub async fn remote_control(Path((_slug, _nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     Err(ApiError::unprocessable("remote control is not part of Orgtree 4"))
 }
 
 // ------------------------------------------------------------ scope
 
+#[logged]
 pub async fn set_scope(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -493,6 +510,7 @@ pub async fn set_scope(
 
 /// Raise each ancestor's configured scope to cover `child` (tools, MCP
 /// servers, folders, permission mode, visibility). Returns who changed.
+#[logged]
 async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64>, child: &Value) -> anyhow::Result<Vec<String>> {
     let mut changed = Vec::new();
     let mut depth = 0;
@@ -559,11 +577,12 @@ async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64
 
 // ------------------------------------------------------------ files
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UploadQuery {
     name: String,
 }
 
+#[logged]
 pub async fn upload(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -596,13 +615,14 @@ pub async fn upload(
     Ok(Json(json!({ "path": p, "bytes": body.len() })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct FileQuery {
     path: String,
 }
 
 /// A file the desk links to: inside the org's scratch folders, the uploads,
 /// the org's own folders, or a file this org's mail or deliveries name.
+#[logged]
 pub async fn file(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -657,12 +677,13 @@ pub async fn file(
         .into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ScratchQuery {
     #[serde(default)]
     path: String,
 }
 
+#[logged]
 pub async fn scratch(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
@@ -701,6 +722,7 @@ pub async fn scratch(
 }
 
 /// `GET /nodes/{nid}/inbox`: the agent's mailbox (pending, delivered, sent).
+#[logged]
 pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;

@@ -49,6 +49,7 @@ pub fn entry(r: &Value) -> Value {
 /// Mail to the outside: `@org:<slug>` (another org on this machine: one
 /// transaction into both inboxes, then the receiving org's holders are
 /// woken) or `@net:<slug>` (the mail hub).
+#[logged]
 pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> Result<Sent> {
     let to = out.to.trim().trim_start_matches('@');
     if to.starts_with("net:") {

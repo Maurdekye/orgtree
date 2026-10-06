@@ -4,6 +4,7 @@
 
 use std::process::ExitCode;
 
+#[logged]
 pub fn run() -> ExitCode {
     eprintln!("orgtree-engine host: not available in this build yet");
     ExitCode::from(1)

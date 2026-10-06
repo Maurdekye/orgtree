@@ -37,7 +37,9 @@ pub struct Engine {
 
 pub type EngineRef = Arc<Engine>;
 
+#[logged]
 impl Engine {
+    #[nolog]
     pub fn is_stopping(&self) -> bool {
         self.stopping.load(Ordering::SeqCst)
     }

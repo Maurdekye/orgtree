@@ -15,10 +15,12 @@ use crate::http::error::{ApiError, ApiResult};
 use crate::orgs::OrgHandle;
 use crate::util::iso_opt;
 
+#[logged]
 pub fn org(engine: &Engine, slug: &str) -> Result<Arc<OrgHandle>, ApiError> {
     engine.orgs.get(slug).ok_or_else(|| ApiError::not_found(format!("no organization named {slug}")))
 }
 
+#[logged]
 pub async fn list(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     let client = e.db.get().await?;
     let rows = client
@@ -48,6 +50,7 @@ pub async fn list(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     )))
 }
 
+#[logged]
 pub async fn tree(State(e): State<Arc<Engine>>, Path(slug): Path<String>, headers: HeaderMap) -> ApiResult<Response> {
     let org = org(&e, &slug)?;
     let snap = org.feed.snapshot().await.ok_or_else(|| ApiError::unavailable("organization feed unavailable"))?;
@@ -67,11 +70,13 @@ pub async fn tree(State(e): State<Arc<Engine>>, Path(slug): Path<String>, header
     Ok(r)
 }
 
+#[logged]
 pub async fn records(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     Ok(Json(org.feed.snapshot().await.ok_or_else(|| ApiError::unavailable("organization feed unavailable"))?))
 }
 
+#[logged]
 pub async fn changes(
     State(e): State<Arc<Engine>>,
     Path(slug): Path<String>,
@@ -86,6 +91,7 @@ pub async fn changes(
     ))
 }
 
+#[logged]
 pub async fn selection(
     State(e): State<Arc<Engine>>,
     Path(slug): Path<String>,
@@ -99,20 +105,24 @@ pub async fn selection(
     Ok(Json(org.feed.select(req).await.ok_or_else(|| ApiError::unavailable("organization feed unavailable"))?))
 }
 
+#[logged]
 pub async fn compatibility() -> ApiError {
     ApiError::compatibility()
 }
 
+#[logged]
 pub async fn app_records(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     Ok(Json(e.app.snapshot().await.ok_or_else(|| ApiError::unavailable("app feed unavailable"))?))
 }
 
 /// A pending updater maintenance request, if any (see `/api/desktop/maintenance/*`).
+#[logged]
 pub fn maintenance_request(_e: &Engine) -> Option<Value> {
     None
 }
 
 #[cfg(windows)]
+#[logged]
 pub fn private_bytes() -> Value {
     use windows_sys::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
@@ -127,6 +137,7 @@ pub fn private_bytes() -> Value {
 }
 
 #[cfg(not(windows))]
+#[logged]
 pub fn private_bytes() -> Value {
     Value::Null
 }

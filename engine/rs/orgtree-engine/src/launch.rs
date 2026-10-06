@@ -15,6 +15,7 @@ use serde_json::json;
 
 static SEQUENCE: AtomicI64 = AtomicI64::new(0);
 
+#[logged]
 fn emit(line: serde_json::Value) {
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{}", line);
@@ -22,6 +23,7 @@ fn emit(line: serde_json::Value) {
 }
 
 /// One startup checkpoint: resets the launcher's silence deadline.
+#[logged]
 pub fn progress(phase: &str, data_root_id: &str) {
     let seq = SEQUENCE.fetch_add(1, Ordering::SeqCst) + 1;
     emit(json!({
@@ -30,6 +32,7 @@ pub fn progress(phase: &str, data_root_id: &str) {
     }));
 }
 
+#[logged]
 pub fn ready(port: u16, data_root_id: &str) {
     emit(json!({
         "type": "ready", "protocol": 1, "port": port,
@@ -38,6 +41,7 @@ pub fn ready(port: u16, data_root_id: &str) {
 }
 
 /// Another engine owns this data root: the desktop retries attachment.
+#[logged]
 pub fn refused_root_owned(reason: &str) {
     emit(json!({ "type": "refused", "code": "root-owned", "reason": reason }));
 }
@@ -49,6 +53,7 @@ pub struct RootLock {
     _file: File,
 }
 
+#[logged]
 impl RootLock {
     pub fn acquire(root: &Path) -> Result<Option<RootLock>> {
         let path = root.join(".desktop-engine.lock");
@@ -81,6 +86,7 @@ impl RootLock {
 }
 
 #[cfg(windows)]
+#[logged]
 fn lock_byte(file: &File) -> Result<bool> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{GetLastError, ERROR_LOCK_VIOLATION};
@@ -108,12 +114,14 @@ fn lock_byte(file: &File) -> Result<bool> {
 }
 
 #[cfg(not(windows))]
+#[logged]
 fn lock_byte(_file: &File) -> Result<bool> {
     Ok(true)
 }
 
 /// Bind the persisted port when it is free, else a fresh one in 20000–49151,
 /// and persist the choice: moving the origin strands the renderer's storage.
+#[logged]
 pub fn bind_port(root: &Path) -> Result<TcpListener> {
     let file = root.join("engine-port.json");
     let preferred = std::fs::read_to_string(&file)

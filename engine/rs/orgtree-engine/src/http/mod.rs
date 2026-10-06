@@ -21,6 +21,7 @@ use error::ApiError;
 
 pub const TOKEN_HEADER: &str = "x-orgtree-desktop-token";
 
+#[logged]
 pub fn router(engine: Arc<Engine>) -> Router {
     let api = Router::new()
         // desktop launcher / tray
@@ -77,6 +78,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
 
 /// The renderer bundle: a file under the UI folder, else `index.html`
 /// (never cached: it names the content-hashed assets).
+#[logged]
 async fn ui(State(engine): State<Arc<Engine>>, req: Request) -> Response {
     let Some(dir) = engine.cfg.ui_dir.clone() else {
         return (StatusCode::NOT_FOUND, "no UI bundle configured").into_response();
@@ -113,31 +115,120 @@ async fn ui(State(engine): State<Arc<Engine>>, req: Request) -> Response {
     }
 }
 
+#[logged]
 async fn api_not_found(req: Request) -> Response {
     ApiError::not_found(format!("no route {} {}", req.method(), req.uri().path())).into_response()
 }
 
 /// Every API request carries the desktop's per-launch token; every response
-/// carries this process's instance id (the renderer's restart detector).
+/// carries this process's instance id (the renderer's restart detector) and
+/// the request's id. Each request is logged as its own request (decision 34):
+/// REQUEST, HEADERS and RESPONSE lines with masked bodies.
 async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> Response {
-    let path = req.uri().path();
-    if path.starts_with("/api/") && !engine.cfg.desktop_token.is_empty() {
-        let ok = req
-            .headers()
-            .get(TOKEN_HEADER)
+    let client = if req.uri().path().starts_with("/api/desktop/") { "desktop" } else { "user" };
+    tracing::Instrument::instrument(guarded(engine, req, next), crate::trace::request(client)).await
+}
+
+/// Bodies the log never holds: uploads, downloads, the UI bundle, sockets.
+fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
+    !path.starts_with("/api/")
+        || path.ends_with("/upload")
+        || path.ends_with("/file")
+        || headers.contains_key(axum::http::header::UPGRADE)
+        || headers
+            .get(axum::http::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .map(|v| constant_eq(v.as_bytes(), engine.cfg.desktop_token.as_bytes()))
-            .unwrap_or(false);
-        if !ok {
-            return (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": "desktop token required" })))
-                .into_response();
-        }
+            .map(|ct| ct.starts_with("multipart/") || ct.starts_with("application/octet-stream"))
+            .unwrap_or(false)
+}
+
+fn body_text(bytes: &[u8]) -> Option<crate::trace::Shown> {
+    if bytes.is_empty() {
+        return None;
     }
-    let mut res = next.run(req).await;
+    Some(match serde_json::from_slice::<serde_json::Value>(bytes) {
+        Ok(v) => crate::trace::Shown::json(&v),
+        Err(_) => crate::trace::Shown::text(String::from_utf8_lossy(bytes).to_string()),
+    })
+}
+
+async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
+    use axum::extract::ConnectInfo;
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|c| c.0.to_string())
+        .unwrap_or_else(|| "-".into());
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let target = req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| path.clone());
+    let info = format!("{peer} {method} {target}");
+    let quiet = quiet_body(&path, req.headers());
+    let headers: serde_json::Map<String, serde_json::Value> = req
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), serde_json::Value::String(v.to_str().unwrap_or("<binary>").to_string())))
+        .collect();
+    let req = if quiet {
+        tracing::info!(target: "wire", "REQUEST  {info} | [body omitted]");
+        req
+    } else {
+        let (parts, body) = req.into_parts();
+        let bytes = match axum::body::to_bytes(body, 64 << 20).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(target: "wire", "REQUEST  {info} | [unreadable body: {e}]");
+                return ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "request body too large").into_response();
+            }
+        };
+        match body_text(&bytes) {
+            Some(shown) => tracing::info!(target: "wire", "{}", crate::trace::fit_value(&format!("REQUEST  {info} | "), shown)),
+            None => tracing::info!(target: "wire", "REQUEST  {info}"),
+        }
+        Request::from_parts(parts, axum::body::Body::from(bytes))
+    };
+    tracing::info!(target: "wire", "{}",
+        crate::trace::fit_value(&format!("HEADERS  {info} | "), crate::trace::Shown::json(&serde_json::Value::Object(headers))));
+    let rq = crate::trace::current_rq();
+    let mut res = if req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req) {
+        (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": "desktop token required" }))).into_response()
+    } else {
+        next.run(req).await
+    };
     if let Ok(v) = HeaderValue::from_str(&engine.boot.id) {
         res.headers_mut().insert("x-orgtree-instance", v);
     }
-    res
+    if let Some(v) = rq.and_then(|r| HeaderValue::from_str(&r).ok()) {
+        res.headers_mut().insert("x-orgtree-request", v);
+    }
+    let status = res.status();
+    let phrase = status.canonical_reason().unwrap_or("");
+    let json = res
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.starts_with("application/json"))
+        .unwrap_or(false);
+    if quiet || !json || status == StatusCode::SWITCHING_PROTOCOLS {
+        tracing::info!(target: "wire", "RESPONSE {info} {} {phrase} | [body omitted]", status.as_u16());
+        return res;
+    }
+    let (parts, body) = res.into_parts();
+    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap_or_default();
+    let lead = format!("RESPONSE {info} {} {phrase} | ", status.as_u16());
+    match body_text(&bytes) {
+        Some(shown) => tracing::info!(target: "wire", "{}", crate::trace::fit_value(&lead, shown)),
+        None => tracing::info!(target: "wire", "{}", lead.trim_end_matches(" | ")),
+    }
+    Response::from_parts(parts, axum::body::Body::from(bytes))
+}
+
+fn token_ok(engine: &Engine, req: &Request) -> bool {
+    req.headers()
+        .get(TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| constant_eq(v.as_bytes(), engine.cfg.desktop_token.as_bytes()))
+        .unwrap_or(false)
 }
 
 fn constant_eq(a: &[u8], b: &[u8]) -> bool {

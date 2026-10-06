@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::util::{gist, iso};
 
+#[derive(Debug)]
 pub struct Identity<'a> {
     pub name: &'a str,
     pub title: &'a str,
@@ -19,6 +20,7 @@ pub struct Identity<'a> {
 }
 
 /// The appended system prompt. Only slow-changing facts belong here.
+#[logged]
 pub fn identity(i: &Identity) -> String {
     let mut s = String::new();
     s.push_str(&format!("# You are {}\n\n", i.name));
@@ -77,6 +79,7 @@ with `orgtree_present`.
 ";
 
 /// One waiting message, as the agent reads it.
+#[derive(Debug, serde::Serialize)]
 pub struct Mail {
     pub uid: String,
     pub sender: String,
@@ -89,6 +92,7 @@ pub struct Mail {
     pub reply_to: Value,
 }
 
+#[logged]
 fn envelope(m: &Mail) -> String {
     let from = if m.sender == "@user" { "the user".to_string() } else { m.sender.clone() };
     let mut s = format!("--- Mail from {from}");
@@ -120,6 +124,7 @@ fn envelope(m: &Mail) -> String {
 }
 
 /// The opening message of a turn.
+#[logged]
 pub fn turn_text(mail: &[Mail], context: &str) -> String {
     let mut s = String::new();
     if !context.is_empty() {
@@ -137,6 +142,7 @@ pub fn turn_text(mail: &[Mail], context: &str) -> String {
 }
 
 /// Mail handed over mid-turn, after a tool call.
+#[logged]
 pub fn steer_text(mail: &[Mail]) -> String {
     let mut s = String::from("[Orgtree] New mail arrived while you were working:\n\n");
     for m in mail {

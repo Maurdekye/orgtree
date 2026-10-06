@@ -52,6 +52,12 @@ pub struct Slot {
     held: Arc<AtomicUsize>,
 }
 
+impl std::fmt::Debug for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Slot")
+    }
+}
+
 impl Drop for Slot {
     fn drop(&mut self) {
         self.held.fetch_sub(1, Ordering::SeqCst);
@@ -59,6 +65,7 @@ impl Drop for Slot {
     }
 }
 
+#[logged]
 impl Scheduler {
     pub fn new(limit: usize) -> (Self, SchedInbox) {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -107,6 +114,7 @@ impl Scheduler {
     }
 }
 
+#[logged]
 pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
     let engine = engine.clone();
     let mut rx = inbox.0;
@@ -116,6 +124,14 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
         let mut parked: VecDeque<i64> = VecDeque::new();
         let sched = &engine.sched;
         while let Some(msg) = rx.recv().await {
+            let span = match &msg {
+                Msg::Want { agent, .. } => crate::trace::request(&format!("agent:{agent}")),
+                Msg::Cancel { agent } | Msg::Parked(agent) | Msg::Unparked(agent) => {
+                    crate::trace::request(&format!("agent:{agent}"))
+                }
+                _ => tracing::Span::none(),
+            };
+            let _g = span.enter();
             match msg {
                 Msg::Want { org, agent, reply } => {
                     let q = queues.entry(org).or_default();

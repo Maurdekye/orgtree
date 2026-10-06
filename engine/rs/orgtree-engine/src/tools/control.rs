@@ -13,6 +13,7 @@ use crate::runtime::{self, freeze, AgentMsg, Caller};
 use crate::util::iso;
 
 /// Ask an agent's actor something and wait for the answer.
+#[logged]
 pub async fn ask_actor(
     engine: &Arc<Engine>,
     org_id: i64,
@@ -30,6 +31,7 @@ pub async fn ask_actor(
     }
 }
 
+#[logged]
 pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let client = engine.db.get().await?;
@@ -41,6 +43,7 @@ pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
     Done::json(&json!({ "node": t.name, "result": r }))
 }
 
+#[logged]
 pub async fn halt(engine: &Arc<Engine>, caller: &Caller, args: &Value, on: bool) -> Result<Done> {
     let mut names: Vec<String> = args["nodes"]
         .as_array()
@@ -77,6 +80,7 @@ pub async fn halt(engine: &Arc<Engine>, caller: &Caller, args: &Value, on: bool)
     Done::json(&json!({ "results": results }))
 }
 
+#[logged]
 pub async fn unstick(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let client = engine.db.get().await?;
@@ -92,6 +96,7 @@ pub async fn unstick(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Res
     })
 }
 
+#[logged]
 pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let account = need_str(args, "account")?;
@@ -116,6 +121,7 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     Done::json(&r)
 }
 
+#[logged]
 pub async fn account_mark(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
     let account = need_str(args, "account")?.to_string();

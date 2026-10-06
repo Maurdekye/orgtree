@@ -27,7 +27,9 @@ pub struct AccountInfo {
     pub ord: i64,
 }
 
+#[logged]
 impl AccountInfo {
+    #[nolog]
     pub fn display(&self) -> String {
         match &self.email {
             Some(e) if !e.is_empty() => e.clone(),
@@ -40,9 +42,11 @@ impl AccountInfo {
             }
         }
     }
+    #[nolog]
     pub fn limited(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
         self.marks.values().map(|(u, _)| *u).filter(|u| *u > now).max()
     }
+    #[nolog]
     pub fn is_apikey(&self) -> bool {
         self.kind == "apikey"
     }
@@ -56,10 +60,13 @@ pub struct Inner {
 #[derive(Clone)]
 pub struct AccountsView(pub Arc<Inner>);
 
+#[logged]
 impl AccountsView {
+    #[nolog]
     pub fn get(&self, id: &str) -> Option<&AccountInfo> {
         self.0.by_id.get(id)
     }
+    #[nolog]
     pub fn all(&self) -> Vec<&AccountInfo> {
         let mut v: Vec<&AccountInfo> = self.0.by_id.values().collect();
         v.sort_by_key(|a| (a.provider.clone(), a.ord, a.id.clone()));
@@ -87,7 +94,9 @@ pub struct Accounts {
     snap: ArcSwap<Inner>,
 }
 
+#[logged]
 impl Accounts {
+    #[nolog]
     pub fn view(&self) -> AccountsView {
         AccountsView(self.snap.load_full())
     }
@@ -135,6 +144,7 @@ impl Accounts {
     }
 }
 
+#[logged]
 pub async fn start(engine: &Arc<Engine>) {
     if let Err(e) = engine.accounts.reload(engine).await {
         tracing::warn!(error = %e, "could not load accounts");
@@ -143,6 +153,7 @@ pub async fn start(engine: &Arc<Engine>) {
 }
 
 /// Push the registry list to every window (`accounts` app value).
+#[logged]
 pub fn publish(engine: &Engine) {
     let view = engine.accounts.view();
     let now = Utc::now();

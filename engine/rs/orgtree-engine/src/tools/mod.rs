@@ -19,6 +19,7 @@ use crate::runtime::{AgentMsg, Caller};
 
 
 /// One JSON-RPC message from the CLI → the response it gets.
+#[logged]
 pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> Value {
     let id = msg.get("id").cloned();
     let method = msg["method"].as_str().unwrap_or("");
@@ -45,6 +46,7 @@ pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> V
     }
 }
 
+#[logged]
 async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -78,11 +80,13 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
 }
 
 /// A tool's answer: text for the agent, and optionally a card for its chip.
+#[derive(Debug, serde::Serialize)]
 pub struct Done {
     pub text: String,
     pub card: Option<Value>,
 }
 
+#[logged]
 impl Done {
     pub fn text(s: impl Into<String>) -> Result<Done> {
         Ok(Done { text: s.into(), card: None })
@@ -92,6 +96,7 @@ impl Done {
     }
 }
 
+#[logged]
 async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
     match name {
         "orgtree_message" => mailtools::message(engine, caller, args, false).await,
@@ -120,6 +125,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
 // ------------------------------------------------------------ shared helpers
 
 /// The caller's own row, read fresh.
+#[derive(Debug, serde::Serialize)]
 pub struct Me {
     pub id: i64,
     pub org_id: i64,
@@ -129,6 +135,7 @@ pub struct Me {
     pub visibility: String,
 }
 
+#[logged]
 pub async fn me(client: &Client, caller: &Caller) -> Result<Me> {
     let r = client
         .query_one(
@@ -141,6 +148,7 @@ pub async fn me(client: &Client, caller: &Caller) -> Result<Me> {
 }
 
 /// An agent of the caller's org by name (any state but deleted).
+#[derive(Debug, serde::Serialize)]
 pub struct Target {
     pub id: i64,
     pub name: String,
@@ -148,6 +156,7 @@ pub struct Target {
     pub parent_id: Option<i64>,
 }
 
+#[logged]
 pub async fn target(client: &Client, org_id: i64, name: &str) -> Result<Target> {
     let name = name.trim().trim_start_matches('@');
     let r = client
@@ -163,6 +172,7 @@ pub async fn target(client: &Client, org_id: i64, name: &str) -> Result<Target> 
 }
 
 /// Is `node` strictly below `ancestor`?
+#[logged]
 pub async fn is_descendant(client: &Client, ancestor: i64, node: i64) -> Result<bool> {
     let r = client
         .query_one(
@@ -178,6 +188,7 @@ pub async fn is_descendant(client: &Client, ancestor: i64, node: i64) -> Result<
 }
 
 /// Refuse unless `t` is strictly below the caller.
+#[logged]
 pub async fn downward(client: &Client, me: &Me, t: &Target, verb: &str) -> Result<()> {
     if t.id == me.id {
         crate::refuse!(Forbidden, "you cannot {verb} yourself");
@@ -189,6 +200,7 @@ pub async fn downward(client: &Client, me: &Me, t: &Target, verb: &str) -> Resul
 }
 
 /// The agent ids the caller may see (`None` = everyone).
+#[logged]
 pub async fn visible(client: &Client, me: &Me) -> Result<Option<std::collections::HashSet<i64>>> {
     let mut set = std::collections::HashSet::new();
     set.insert(me.id);
@@ -235,10 +247,12 @@ pub async fn visible(client: &Client, me: &Me) -> Result<Option<std::collections
     Ok(Some(set))
 }
 
+#[logged]
 pub fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
+#[logged]
 pub fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     match arg_str(args, key) {
         Some(s) => Ok(s),

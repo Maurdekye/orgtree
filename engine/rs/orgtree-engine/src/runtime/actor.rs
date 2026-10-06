@@ -23,11 +23,11 @@ use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
-use crate::runtime::{freeze, AgentHandle, AgentMsg, Caller};
+use crate::runtime::{freeze, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
 use crate::util::{gist, iso, now_iso};
 
 /// What `/chat` needs from a running actor.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct LiveView {
     pub busy: bool,
     pub turn_activity: bool,
@@ -44,7 +44,8 @@ const KEEP_ALIVE: Duration = Duration::from_secs(600);
 const ACTOR_IDLE_EXIT: Duration = Duration::from_secs(60);
 const MCP_WAIT: Duration = Duration::from_secs(30);
 
-pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedReceiver<AgentMsg>) {
+#[logged]
+pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedReceiver<Envelope>) {
     tokio::spawn(async move {
         let id = handle.id;
         match Actor::new(engine.clone(), handle.clone()).await {
@@ -56,6 +57,7 @@ pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedR
 }
 
 /// Everything about the agent a turn needs, read fresh before each spawn.
+#[derive(Clone)]
 struct Ctx {
     org_name: String,
     org_slug: String,
@@ -83,7 +85,32 @@ struct Ctx {
     fallback: bool,
 }
 
+impl std::fmt::Debug for Ctx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ctx")
+            .field("name", &self.name)
+            .field("org", &self.org_slug)
+            .field("tier", &self.tier)
+            .field("model", &self.model)
+            .field("provider", &self.provider)
+            .field("account", &self.account)
+            .field("api_key", &self.api_key.as_ref().map(|_| "*****"))
+            .field("state", &self.state)
+            .field("halted", &self.halted)
+            .field("frozen", &self.frozen)
+            .field("killswitch", &self.killswitch)
+            .field("session_id", &self.session_id)
+            .field("generation", &self.generation)
+            .field("effort", &self.effort)
+            .field("fallback", &self.fallback)
+            .field("scratch", &self.scratch)
+            .field("effective", &self.effective)
+            .finish()
+    }
+}
+
 /// The launch of a CLI process for an agent, before anything is written.
+#[derive(Debug)]
 struct Plan {
     identity: String,
     settings: Value,
@@ -112,10 +139,13 @@ struct Turn {
     draft: String,
     thinking: String,
     compact: bool,
+    /// the request this turn's CLI stream is logged under
+    span: tracing::Span,
     /// cards `orgtree_*` tools attached to their chips, by tool_use_id
     cards: HashMap<String, Value>,
 }
 
+#[logged]
 impl Turn {
     fn new(id: i64, compact: bool) -> Turn {
         Turn {
@@ -133,6 +163,7 @@ impl Turn {
             thinking: String::new(),
             compact,
             cards: HashMap::new(),
+            span: tracing::Span::none(),
         }
     }
 }
@@ -142,6 +173,7 @@ struct Fingerprint {
     parts: Vec<(&'static str, String)>,
 }
 
+#[logged]
 impl Fingerprint {
     fn changed(&self, other: &Fingerprint) -> Vec<String> {
         self.parts
@@ -153,6 +185,7 @@ impl Fingerprint {
     }
 }
 
+#[logged]
 fn hash(s: &str) -> String {
     hex::encode(&Sha256::digest(s.as_bytes())[..12])
 }
@@ -173,7 +206,11 @@ struct Actor {
     id: i64,
     org_id: i64,
     name: String,
-    tx: mpsc::UnboundedSender<AgentMsg>,
+    tx: AgentTx,
+    /// `agent:<id>/<name>`: this agent as a log client
+    client: String,
+    /// the request stray CLI output is logged under (outside any turn)
+    span: tracing::Span,
     proc: Option<ClaudeProc>,
     proc_print: Option<Fingerprint>,
     proc_effort: Option<String>,
@@ -205,6 +242,7 @@ struct Actor {
     provider: String,
 }
 
+#[logged]
 impl Actor {
     async fn new(engine: Arc<Engine>, handle: Arc<AgentHandle>) -> Result<Actor> {
         let org = engine.orgs.by_id(handle.org_id).ok_or_else(|| anyhow!("organization not open"))?;
@@ -218,7 +256,11 @@ impl Actor {
         let convo = ConvoWriter::load(&client, handle.id).await?;
         drop(client);
         let tier: String = row.get(2);
+        let name: String = row.get(0);
+        let client = crate::trace::agent_client(handle.id, &name);
         Ok(Actor {
+            span: crate::trace::request(&client),
+            client,
             tx: handle.tx.clone(),
             id: handle.id,
             org_id: handle.org_id,
@@ -226,7 +268,7 @@ impl Actor {
             engine,
             handle,
             org,
-            name: row.get(0),
+            name,
             proc: None,
             proc_print: None,
             proc_effort: None,
@@ -253,21 +295,34 @@ impl Actor {
         })
     }
 
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<AgentMsg>) {
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Envelope>) {
         self.publish();
         loop {
             let deadline = self.next_deadline();
             tokio::select! {
                 msg = rx.recv() => {
-                    let Some(msg) = msg else { break };
-                    if let Err(e) = self.handle_msg(msg).await {
+                    let Some(env) = msg else { break };
+                    let res = match env.msg {
+                        // the CLI's stream runs under its turn's request
+                        AgentMsg::Claude(v) => {
+                            let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
+                            tracing::Instrument::instrument(self.on_claude(v), span).await
+                        }
+                        // every other message is a request of its own, caused by its sender's
+                        other => {
+                            let span = crate::trace::request_from(&self.client, env.cause.as_deref());
+                            tracing::Instrument::instrument(self.handle_msg(other), span).await
+                        }
+                    };
+                    if let Err(e) = res {
                         tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "agent actor error");
                         self.last_error = Some(format!("{e:#}"));
                         self.publish();
                     }
                 }
                 _ = sleep_until(deadline) => {
-                    if let Err(e) = self.on_timer().await {
+                    let span = crate::trace::request(&self.client);
+                    if let Err(e) = tracing::Instrument::instrument(self.on_timer(), span).await {
                         tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "agent timer error");
                     }
                 }
@@ -286,10 +341,12 @@ impl Actor {
         }
     }
 
+    #[nolog]
     fn dormant(&self) -> bool {
         self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none()
     }
 
+    #[nolog]
     fn next_deadline(&self) -> tokio::time::Instant {
         let now = Instant::now();
         let mut d = now + Duration::from_secs(30);
@@ -312,6 +369,7 @@ impl Actor {
         tokio::time::Instant::from_std(d.max(now))
     }
 
+    #[nolog]
     async fn on_timer(&mut self) -> Result<()> {
         if let Some(k) = self.keep_until {
             if Instant::now() >= k && self.turn.is_none() {
@@ -528,10 +586,10 @@ impl Actor {
         self.waiting_since = Some(Utc::now());
         let rx = self.engine.sched.want(self.org_id, self.id);
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        crate::trace::spawn(async move {
             if let Ok(slot) = rx.await {
                 // if the actor is gone the slot drops here and is freed
-                let _ = tx.send(AgentMsg::Slot(slot));
+                let _ = tx.post(AgentMsg::Slot(slot));
             }
         });
         self.publish();
@@ -946,8 +1004,9 @@ impl Actor {
         self.proc_print = None;
     }
 
-    fn begin_turn(&mut self, turn: Turn) {
+    fn begin_turn(&mut self, mut turn: Turn) {
         self.unpark();
+        turn.span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
         self.turn = Some(turn);
         self.keep_until = None;
         self.org.turn_delta(&self.engine, 1);
@@ -1112,6 +1171,7 @@ impl Actor {
         Ok(json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": text } }))
     }
 
+    #[nolog]
     fn stream(&self, kind: &str, extra: Value) {
         let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
         if let (Some(f), Some(e)) = (frame.as_object_mut(), extra.as_object()) {
@@ -1123,11 +1183,13 @@ impl Actor {
     }
 
     /// A durable row with text landed: tell watching desks, move the epoch.
+    #[nolog]
     fn text_landed(&mut self) {
         self.text_frames += 1;
         self.stream("text", json!({}));
     }
 
+    #[nolog]
     async fn on_claude(&mut self, v: Value) -> Result<()> {
         if let Some(t) = self.turn.as_mut() {
             t.last_event = Instant::now();
@@ -1199,6 +1261,7 @@ impl Actor {
         self.publish();
     }
 
+    #[nolog]
     fn on_stream_event(&mut self, ev: &Value) {
         match ev["type"].as_str() {
             Some("content_block_start") => {
@@ -1255,6 +1318,7 @@ impl Actor {
         }
     }
 
+    #[nolog]
     fn set_activity(&mut self, phase: &str, tool: Option<String>) {
         let next = Some((phase.to_string(), tool));
         if self.activity != next {
@@ -1735,6 +1799,7 @@ impl Actor {
 
     // ------------------------------------------------------------ publish
 
+    #[nolog]
     fn live_view(&self) -> LiveView {
         let mut transient = Vec::new();
         if let Some(t) = &self.turn {
@@ -1758,6 +1823,7 @@ impl Actor {
         }
     }
 
+    #[nolog]
     fn runtime_value(&self) -> Value {
         let busy = self.turn.is_some();
         let compacting = self.turn.as_ref().map(|t| t.compact).unwrap_or(false);
@@ -1809,12 +1875,14 @@ impl Actor {
         })
     }
 
+    #[nolog]
     fn publish(&self) {
         let v = self.runtime_value();
         self.handle.view.store(Arc::new(v.clone()));
         self.org.feed.runtime(self.id, v);
     }
 
+    #[nolog]
     fn publish_idle(&self) {
         let mut v = Map::new();
         for (k, val) in crate::domain::tree::idle_runtime() {
@@ -1874,6 +1942,7 @@ impl Actor {
 }
 
 /// A claimed mail row (`to_jsonb(ot.mail)`) as the agent reads it.
+#[logged]
 fn mail_of(m: &Value) -> Mail {
     Mail {
         uid: m["uid"].as_str().unwrap_or("").to_string(),
@@ -1889,6 +1958,7 @@ fn mail_of(m: &Value) -> Mail {
 }
 
 /// The desk row for mail an agent was given: one mail segment.
+#[logged]
 fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
     let rows: Vec<Value> = raw
         .iter()
@@ -1919,6 +1989,7 @@ fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
     row
 }
 
+#[logged]
 fn images_for(mails: &[Mail]) -> Vec<Value> {
     use base64::Engine as _;
     let mut out = Vec::new();
@@ -1949,6 +2020,7 @@ fn images_for(mails: &[Mail]) -> Vec<Value> {
 }
 
 /// An Edit/Write chip's diff from the CLI's structured patch.
+#[logged]
 fn patch_of(v: &Value) -> Option<Value> {
     let patch = v.pointer("/tool_use_result/structuredPatch").and_then(Value::as_array)?;
     let mut plus = 0;

@@ -24,7 +24,7 @@ bytes = "1"
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4", "with-uuid-1"] }
 deadpool-postgres = "0.14"
 postgres-types = { version = "0.2", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -46,6 +46,8 @@ percent-encoding = "2"
 dirs = "5"
 rust_decimal = { version = "1", features = ["db-tokio-postgres", "serde-with-float"] }
 toml = "0.8"
+flate2 = "1"
+orgtree-logged = { path = "../orgtree-logged" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

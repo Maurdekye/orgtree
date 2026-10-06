@@ -44,6 +44,7 @@ fn age(at: Option<DateTime<Utc>>) -> String {
     }
 }
 
+#[logged]
 async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> {
     let client = engine.db.get().await?;
     let rs = client
@@ -104,6 +105,7 @@ fn line(r: &Row, busy: bool) -> String {
     s
 }
 
+#[logged]
 pub async fn chart(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let archived = args["include_archived"].as_bool().unwrap_or(false);
     let charters = args["include_standing_charter"].as_bool().unwrap_or(true);
@@ -184,6 +186,7 @@ pub async fn chart(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     Done::text(out)
 }
 
+#[logged]
 pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let archived = args["include_archived"].as_bool().unwrap_or(false);
     let mut names: Vec<String> = args["nodes"]
@@ -231,6 +234,7 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     Done::json(&json!({ "agents": out }))
 }
 
+#[logged]
 pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
     let mut out = Vec::new();
     for t in catalog::TIERS.iter().filter(|t| !t.legacy) {
@@ -246,6 +250,7 @@ pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
     Done::json(&json!({ "tiers": out, "seat_floor": catalog::SEAT_FLOOR }))
 }
 
+#[logged]
 pub async fn list_orgs(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
     let orgs: Vec<Value> = engine
         .orgs
@@ -257,6 +262,7 @@ pub async fn list_orgs(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
     Done::json(&json!({ "orgs": orgs }))
 }
 
+#[logged]
 pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let last = args["last"].as_i64().unwrap_or(20).clamp(1, 80);
@@ -288,6 +294,7 @@ pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value
     Done::text(out)
 }
 
+#[logged]
 pub async fn read_scratch(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let client = engine.db.get().await?;

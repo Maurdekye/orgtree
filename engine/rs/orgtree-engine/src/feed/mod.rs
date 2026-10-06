@@ -47,9 +47,12 @@ pub enum Key {
     Audiences,
 }
 
+/// A feed message and the request that sent it.
+type Env = (Msg, Option<String>);
+
 #[derive(Clone)]
 pub struct OrgFeed {
-    tx: mpsc::UnboundedSender<Msg>,
+    tx: mpsc::UnboundedSender<Env>,
 }
 
 enum Msg {
@@ -67,44 +70,46 @@ enum Msg {
     LiveAgents(oneshot::Sender<Vec<(i64, String, Option<i64>)>>),
 }
 
+#[logged]
 impl OrgFeed {
     pub fn invalidate(&self, keys: impl IntoIterator<Item = Key>) {
         let keys: Vec<Key> = keys.into_iter().collect();
         if !keys.is_empty() {
-            let _ = self.tx.send(Msg::Invalidate(keys));
+            let _ = self.tx.send((Msg::Invalidate(keys), crate::trace::current_rq()));
         }
     }
+    #[nolog]
     pub fn runtime(&self, agent: i64, value: Value) {
-        let _ = self.tx.send(Msg::Runtime { agent, value });
+        let _ = self.tx.send((Msg::Runtime { agent, value }, None));
     }
     pub async fn snapshot(&self) -> Option<Value> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Msg::Snapshot(tx)).ok()?;
+        self.tx.send((Msg::Snapshot(tx), crate::trace::current_rq())).ok()?;
         rx.await.ok()
     }
     pub async fn changes(&self, after: u64, org_uuid: String, incarnation: String) -> Option<Value> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Msg::Changes { after, org_uuid, incarnation, reply: tx }).ok()?;
+        self.tx.send((Msg::Changes { after, org_uuid, incarnation, reply: tx }, crate::trace::current_rq())).ok()?;
         rx.await.ok()
     }
     pub async fn select(&self, req: Value) -> Option<Value> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send(Msg::Select { req, reply: tx }).ok()?;
+        self.tx.send((Msg::Select { req, reply: tx }, crate::trace::current_rq())).ok()?;
         rx.await.ok()
     }
     pub fn socket_open(&self, id: SocketId, out: Out) {
-        let _ = self.tx.send(Msg::SocketOpen { id, out });
+        let _ = self.tx.send((Msg::SocketOpen { id, out }, crate::trace::current_rq()));
     }
     pub fn socket_close(&self, id: SocketId) {
-        let _ = self.tx.send(Msg::SocketClose { id });
+        let _ = self.tx.send((Msg::SocketClose { id }, crate::trace::current_rq()));
     }
     pub fn socket_msg(&self, id: SocketId, msg: Value) {
-        let _ = self.tx.send(Msg::SocketMsg { id, msg });
+        let _ = self.tx.send((Msg::SocketMsg { id, msg }, crate::trace::current_rq()));
     }
     /// (id, name, parent) of every live agent, from the feed's own model.
     pub async fn live_agents(&self) -> Vec<(i64, String, Option<i64>)> {
         let (tx, rx) = oneshot::channel();
-        if self.tx.send(Msg::LiveAgents(tx)).is_err() {
+        if self.tx.send((Msg::LiveAgents(tx), crate::trace::current_rq())).is_err() {
             return Vec::new();
         }
         rx.await.unwrap_or_default()
@@ -156,6 +161,7 @@ struct Batch {
 
 const RING: usize = 512;
 
+#[logged]
 pub fn spawn(engine: Arc<Engine>, org_id: i64, org_uuid: String) -> OrgFeed {
     let (tx, rx) = mpsc::unbounded_channel();
     let feed = OrgFeed { tx: tx.clone() };
@@ -210,8 +216,8 @@ struct Actor {
     pending: HashSet<Key>,
     inflight: bool,
     loaded: bool,
-    waiting_load: Vec<Msg>,
-    tx: mpsc::UnboundedSender<Msg>,
+    waiting_load: Vec<Env>,
+    tx: mpsc::UnboundedSender<Env>,
 }
 
 fn rec(entity: &str, id: &str, body: &Value, set: Option<&str>) -> Value {
@@ -225,29 +231,42 @@ fn rec(entity: &str, id: &str, body: &Value, set: Option<&str>) -> Value {
     Value::Object(o)
 }
 
+#[logged]
 impl Actor {
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Msg>) {
-        while let Some(msg) = rx.recv().await {
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Env>) {
+        while let Some((msg, cause)) = rx.recv().await {
             // Reads that need the first load wait for it; writes queue anyway.
             if !self.loaded {
                 match msg {
                     Msg::Snapshot(_) | Msg::Changes { .. } | Msg::Select { .. } | Msg::SocketOpen { .. }
                     | Msg::SocketMsg { .. } | Msg::LiveAgents(_) => {
-                        self.waiting_load.push(msg);
+                        self.waiting_load.push((msg, cause));
                         continue;
                     }
                     _ => {}
                 }
             }
-            self.handle(msg);
+            self.handle_env(msg, cause);
             if self.loaded && !self.waiting_load.is_empty() {
-                for m in std::mem::take(&mut self.waiting_load) {
-                    self.handle(m);
+                for (m, c) in std::mem::take(&mut self.waiting_load) {
+                    self.handle_env(m, c);
                 }
             }
         }
     }
 
+    /// Each message is its own request (the runtime overlay's stream excepted).
+    #[nolog]
+    fn handle_env(&mut self, msg: Msg, cause: Option<String>) {
+        if matches!(msg, Msg::Runtime { .. } | Msg::FlushRuntime) {
+            return self.handle(msg);
+        }
+        let span = crate::trace::request_from("engine", cause.as_deref());
+        let _g = span.enter();
+        self.handle(msg);
+    }
+
+    #[nolog]
     fn handle(&mut self, msg: Msg) {
         match msg {
             Msg::Invalidate(keys) => {
@@ -271,7 +290,7 @@ impl Actor {
                     let tx = self.tx.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(40)).await;
-                        let _ = tx.send(Msg::FlushRuntime);
+                        let _ = tx.send((Msg::FlushRuntime, None));
                     });
                 }
             }
@@ -309,6 +328,7 @@ impl Actor {
         }
     }
 
+    #[nolog]
     fn mark_subs_dirty(&mut self, k: &Key) {
         for s in self.sockets.values_mut() {
             for sub in s.subs.values_mut() {
@@ -342,7 +362,7 @@ impl Actor {
         let tx = self.tx.clone();
         let live_ids: Vec<i64> = self.live_raw.keys().copied().collect();
         let org_row = self.org_row.clone();
-        tokio::spawn(async move {
+        crate::trace::spawn(async move {
             let computed = match read(&engine, org_id, keys, live_ids, org_row).await {
                 Ok(c) => c,
                 Err(e) => {
@@ -350,7 +370,7 @@ impl Actor {
                     Computed { failed: Some(e.to_string()), ..Default::default() }
                 }
             };
-            let _ = tx.send(Msg::Computed(Box::new(computed)));
+            let _ = tx.send((Msg::Computed(Box::new(computed)), crate::trace::current_rq()));
         });
     }
 
@@ -541,6 +561,7 @@ impl Actor {
         self.publish(upserts, tombstones, sub_changes);
     }
 
+    #[nolog]
     fn put_shared(&mut self, entity: &str, id: &str, body: Value, upserts: &mut Vec<(String, String, Arc<Value>)>) {
         let key = (entity.to_string(), id.to_string());
         if self.shared.get(&key).map(|b| **b == body).unwrap_or(false) {
@@ -707,6 +728,7 @@ impl Actor {
                 "from": after, "to": self.rev, "upserts": ups, "tombstones": tombs })
     }
 
+    #[nolog]
     fn runtime_frame(&self, full: bool, only: Option<&HashSet<i64>>) -> Value {
         let mut agents = Map::new();
         let seq = self.rt_seq.max(1);
@@ -727,6 +749,7 @@ impl Actor {
         })
     }
 
+    #[nolog]
     fn flush_runtime(&mut self) {
         if self.rt_dirty.is_empty() {
             return;
@@ -773,13 +796,13 @@ impl Actor {
                     .iter()
                     .filter_map(|a| self.live_body.get(a).map(|b| (*a, (**b).clone())))
                     .collect();
-                tokio::spawn(async move {
+                crate::trace::spawn(async move {
                     let res = read_sub(&engine, org_id, &org_row, &audiences, agents, windows, live).await;
                     let (records, error) = match res {
                         Ok(r) => (r, None),
                         Err(e) => (Vec::new(), Some(e.to_string())),
                     };
-                    let _ = tx.send(Msg::SubComputed { sock: id, sub: n, records, error });
+                    let _ = tx.send((Msg::SubComputed { sock: id, sub: n, records, error }, crate::trace::current_rq()));
                 });
             }
             Some("unsubscribe") => {
@@ -860,7 +883,7 @@ impl Actor {
         let search = req.get("search").cloned().filter(|s| s.is_object());
         let engine = self.engine.clone();
         let org_id = self.org_id;
-        tokio::spawn(async move {
+        crate::trace::spawn(async move {
             let mut missing = Vec::new();
             let mut matches = Vec::new();
             if let Ok(client) = engine.db.get().await {
@@ -915,6 +938,7 @@ fn same_window(a: &Window, b: &Window) -> bool {
     }
 }
 
+#[logged]
 fn parse_window(w: &Value) -> Option<Window> {
     match w["kind"].as_str()? {
         "archived_all" => Some(Window::ArchivedAll),
@@ -930,6 +954,7 @@ fn parse_window(w: &Value) -> Option<Window> {
 }
 
 /// The batched read behind one round of invalidations.
+#[logged]
 async fn read(engine: &Engine, org_id: i64, keys: Vec<Key>, live_ids: Vec<i64>, org_row: Value) -> Result<Computed> {
     let client = engine.db.get().await?;
     let mut c = Computed::default();
@@ -998,6 +1023,7 @@ async fn read(engine: &Engine, org_id: i64, keys: Vec<Key>, live_ids: Vec<i64>, 
 }
 
 /// A subscription's first answer.
+#[logged]
 async fn read_sub(
     engine: &Engine,
     org_id: i64,

@@ -6,6 +6,9 @@
 
 #![allow(dead_code)]
 
+#[macro_use]
+extern crate orgtree_logged;
+
 mod accounts;
 mod appfeed;
 mod bridge;
@@ -25,6 +28,7 @@ mod providers;
 mod runtime;
 mod settings;
 mod tools;
+mod trace;
 mod util;
 mod winproc;
 
@@ -56,22 +60,6 @@ fn main() -> ExitCode {
     }
 }
 
-fn init_logging(cfg: &Config) -> tracing_appender::non_blocking::WorkerGuard {
-    use tracing_subscriber::prelude::*;
-    let dir = cfg.diagnostics_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    let appender = tracing_appender::rolling::never(&dir, "engine.log");
-    let (writer, guard) = tracing_appender::non_blocking(appender);
-    let filter = tracing_subscriber::EnvFilter::try_from_env("ORGTREE_LOG")
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,tokio_postgres=warn,hyper=warn,tower_http=warn"));
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(writer).with_ansi(false))
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr).with_ansi(false))
-        .init();
-    guard
-}
-
 fn serve() -> ExitCode {
     let cfg = match Config::from_env() {
         Ok(c) => c,
@@ -80,8 +68,9 @@ fn serve() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let _guard = init_logging(&cfg);
-    tracing::info!(pid = std::process::id(), root = %cfg.data_root_id, "engine starting");
+    let (_guards, log_file) = trace::init(&cfg);
+    tracing::info!(pid = std::process::id(), root = %cfg.data_root_id, log = %log_file.display(),
+                   version = env!("CARGO_PKG_VERSION"), "engine starting");
     winproc::install_root_job();
     let lock = match launch::RootLock::acquire(&cfg.data_root) {
         Ok(Some(lock)) => lock,
@@ -101,7 +90,7 @@ fn serve() -> ExitCode {
         .thread_name("engine")
         .build()
         .expect("tokio runtime");
-    let code = match rt.block_on(run(cfg)) {
+    let code = match rt.block_on(tracing::Instrument::instrument(run(cfg), trace::request("engine"))) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             tracing::error!(error = %format!("{e:#}"), "engine stopped with an error");
@@ -113,6 +102,7 @@ fn serve() -> ExitCode {
     code
 }
 
+#[logged]
 async fn run(cfg: Config) -> Result<()> {
     let root_id = cfg.data_root_id.clone();
     let progress = move |phase: &str| launch::progress(phase, &root_id);
@@ -126,6 +116,7 @@ async fn run(cfg: Config) -> Result<()> {
     result
 }
 
+#[logged]
 async fn run_with_cluster(
     cfg: Config,
     cluster: &pg::Cluster,
@@ -198,7 +189,7 @@ async fn run_with_cluster(
     progress("engine-ready");
     launch::ready(port, &cfg.data_root_id);
     tracing::info!(port, "engine ready");
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(async move { shutdown.cancelled().await })
         .await?;
     tracing::info!("engine stopping");

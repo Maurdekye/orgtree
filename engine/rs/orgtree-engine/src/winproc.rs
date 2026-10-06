@@ -148,6 +148,7 @@ mod imp_other {
 pub use imp_other::*;
 
 /// Configure a tokio command so it never opens a console window.
+#[logged]
 pub fn no_window(cmd: &mut tokio::process::Command) {
     #[cfg(windows)]
     {
@@ -158,12 +159,14 @@ pub fn no_window(cmd: &mut tokio::process::Command) {
 
 /// Wrap a freshly spawned child in its own subtree job.
 #[cfg(windows)]
+#[logged]
 pub fn child_job(child: &tokio::process::Child) -> Option<ChildJob> {
     let h = child.raw_handle()?;
     ChildJob::for_process(h as _)
 }
 
 #[cfg(not(windows))]
+#[logged]
 pub fn child_job(_child: &tokio::process::Child) -> Option<ChildJob> {
     None
 }

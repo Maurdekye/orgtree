@@ -19,6 +19,7 @@ pub type Out = mpsc::Sender<Arc<str>>;
 
 static NEXT_SOCKET: AtomicU64 = AtomicU64::new(1);
 
+#[logged]
 pub fn next_socket_id() -> SocketId {
     NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
 }
@@ -37,6 +38,7 @@ pub struct Rooms {
     watching: papaya::HashMap<SocketId, Arc<Vec<i64>>>,
 }
 
+#[logged]
 impl Rooms {
     pub fn join_org(&self, m: Member) {
         self.org.rcu(|cur| {
@@ -86,6 +88,7 @@ impl Rooms {
         }
     }
 
+    #[nolog]
     pub fn emit_org(&self, frame: &serde_json::Value) {
         let members = self.org.load();
         if members.is_empty() {
@@ -97,6 +100,7 @@ impl Rooms {
         }
     }
 
+    #[nolog]
     pub fn emit_agent(&self, agent: i64, frame: &serde_json::Value) {
         let Some(room) = self.agents.pin().get(&agent).cloned() else { return };
         let members = room.load();
@@ -109,14 +113,17 @@ impl Rooms {
         }
     }
 
+    #[nolog]
     pub fn watched(&self, agent: i64) -> bool {
         self.agents.pin().get(&agent).map(|r| !r.load().is_empty()).unwrap_or(false)
     }
 
+    #[nolog]
     pub fn socket_count(&self) -> usize {
         self.org.load().len()
     }
 
+    #[nolog]
     pub fn socket_rooms(&self) -> HashMap<SocketId, usize> {
         self.watching.pin().iter().map(|(k, v)| (*k, v.len())).collect()
     }

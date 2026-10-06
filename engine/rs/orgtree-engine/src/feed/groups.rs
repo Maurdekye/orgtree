@@ -17,6 +17,7 @@ pub const GROUPS: &[&str] = &[
 ];
 
 /// Org setting defaults (also what `/api/defaults` starts from).
+#[logged]
 pub fn setting_defaults() -> Value {
     json!({
         "max_top_grant": 1000,
@@ -43,6 +44,7 @@ pub fn setting_defaults() -> Value {
 }
 
 /// The org's settings with every default filled in.
+#[logged]
 pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value>) -> Value {
     let mut out = setting_defaults();
     let obj = out.as_object_mut().unwrap();
@@ -57,6 +59,7 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
     out
 }
 
+#[logged]
 pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) -> Result<Value> {
     let org_id = org["id"].as_i64().unwrap_or(0);
     let slug = org["slug"].as_str().unwrap_or("");
