@@ -307,11 +307,11 @@ toast saying this engine does not support it.
 | B2 | Prompt-cache forecast badge on cards and desk (ready / not ready / unknown, expiry countdown, changed parts, send warnings) | Kept (§5). Cache keep-alive pings that kept an idle agent's cache warm are not kept |
 | B3 | MCP tool-count badge and "waiting for MCP tools" state | Kept. Orgtree's own tools are always ready (served by the engine); external MCP servers granted to an agent (from your `~/.claude.json` registry) are tracked per process: the engine reads each server's connection state from the CLI (init report and `mcp_status` queries), shows the waiting state while any is still connecting, and, with "wait for MCP tools" on, holds a fresh process's first prompt until they connect or fail (bounded wait) |
 | B4 | Warm-process indicators; every live agent keeps a parked CLI from boot | Process indicator shows whether a CLI is currently running. CLIs start on demand and stay up 10 minutes after a turn (max 64 idle). Desk start/stop control: start pre-launches the CLI, stop closes it |
-| B5 | Codex "luna" reserve-pool routing (prefer reserve first, reserve card, `gpt-reserve`) | Removed; luna runs on its model directly. The "prefer reserve" switch is inert |
+| B5 | Codex "luna" reserve-pool routing (prefer reserve first, reserve card, `gpt-reserve`) | Removed; luna runs on its model directly. The "prefer reserve" switch is not shown (decision 31) |
 | B6 | Remote control (hand a session to claude.ai / mobile) | Removed; the control is refused |
 | B7 | Org inbox card and network hub chips on the canvas | Kept (see D2) |
 | B8 | "Primed restart" header chip | Removed (never shown) |
-| B9 | Fable lock and Fable limit/filter policies | Removed; settings inert |
+| B9 | Fable lock and Fable limit/filter policies | Removed; their settings and the lock are not shown (decision 31) |
 | B10 | Hire with automatic credit cascade (cascade hire / cascade allocate settings) | Kept: a hire, allocation or model upgrade that needs more than the superior holds raises each ancestor's grant just enough (whole credits) up the chain to you, within the top-level grant cap; off = refused. The chain's rows are locked top-down in one short transaction, so cascades in different subtrees never wait on each other |
 | B11 | Account fallback (opt-in per org with per-agent override: a usage-limited agent switches to another signed-in account of the same provider with capacity, and keeps it) | Kept, same rules; "continue on another account" stays as the manual action |
 | B12 | Everything else on cards: tiers, credits, occupancy, cost, status, frozen countdown and resume, halt, killswitch, waiting-for-slot banner, watchdog satellites, ask cards, documents, mail sparks, serving account | Kept |
@@ -370,7 +370,7 @@ toast saying this engine does not support it.
 |---|---|---|
 | H1 | Providers page, enable/disable, install/sign-in detection, model tiers and versions, legacy models toggle, conditional Gemini tiers | Kept |
 | H2 | Codex CLI version-drift report | Removed |
-| H3 | API-key accounts (add with a key, metered spend shown in Usage), per-provider "use API-key accounts as fallback" and "use subscriptions for inference" switches | Kept. Only the legacy `claude setup-token` key rows (`/api/accounts/readout`, no longer reachable from the UI) are not carried over |
+| H3 | API-key accounts (add with a key, metered spend shown in Usage), per-provider "use API-key accounts as fallback" and "use subscriptions for inference" switches | Kept. The API-key fallback switch stays; the per-provider "use subscriptions" switch became an active checkbox on every account, the native sign-in included (decision 41). Only the legacy `claude setup-token` key rows (`/api/accounts/readout`, no longer reachable from the UI) are not carried over |
 | H4 | Account registry (add managed profile, import, remove, sign in, identity check, tint), limit marks list and clear | Kept |
 | H5 | Usage window: Claude bars per account, Codex rate limits, Antigravity usage, OpenRouter credits, usage glow | Kept |
 | H6 | OpenRouter key, catalog search, favorites as tiers, harness choice | Kept |
@@ -379,12 +379,12 @@ toast saying this engine does not support it.
 
 | # | Today | After the rewrite |
 |---|---|---|
-| I1 | Org settings: folders, grants, compact threshold, default tools/visibility/account/permission mode/effort, auto-resume | Kept |
-| I2 | Org settings: auto cheap compact (before a known-cold turn) | Kept (§5) |
+| I1 | Org settings: folders, grants, compact threshold, default tools/visibility/account/permission mode/effort, auto-resume | Kept. The compact threshold is handed to the CLI: Claude Code compacts at it (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) and Codex at that share of its context window (`model_auto_compact_token_limit`); a running CLI keeps the value it started with. Antigravity has no such setting |
+| I2 | Org settings: auto cheap compact (before a known-cold turn) | Kept: before a turn whose prompt cache is known to be cold (expired, or the prompt prefix changed) and whose context is above the setting's occupancy, the agent continues on a fresh session seeded with a summary of the old one. An unknown forecast never resets |
 | I2b | Org settings: account fallback default, org-inbox multi-holder, network hubs and autoconnect | Kept |
 | I2c | Org settings: cheap-compact before auto-resume, headless | Inert |
 | I3 | Runtime: max concurrent turns, turn time limits | Kept |
-| I4 | Runtime: "keep agents warm" | Repurposed: on = keep CLIs alive between turns (B4); off = close after each turn |
+| I4 | Runtime: "keep agents warm" | Repurposed: on = keep CLIs alive for 10 minutes between turns (B4); off = close after each turn. Its hint says so |
 | I5 | Runtime: wait for MCP tools | Kept (see B3) |
 | I5b | Runtime: git periodic fetch, working checkups, idle docket reminders, blocked docket reminders, include account selection when requesting staffing | Inert |
 | I6 | Charters (presets, user folder, external template folders), org.md, hire defaults, app defaults | Kept |

@@ -78,6 +78,17 @@ All entries are dated 2026-10-06 unless stated otherwise.
     cleanly. UI changes that follow from the featureset differences stay on the main rewrite
     branch (clarifies an earlier "keep frontend UI work separate").
 31. **Settings for dropped features are omitted entirely** from the UI — not kept, not greyed out.
+    Re-checked at the user's request on 2026-10-07: the Luna "prefer reserve" switch (App settings
+    › Runtime, the hire form and the agent's ⚙) and the Fable weekly-limit, content-filter and
+    autopsy policies and lock (Org settings › Policies, Default org settings) were still shown and
+    are now gone.
+41. **Every account has its own active checkbox** (user 2026-10-07; refines decision 25): each
+    provider's native subscription (the CLI's own sign-in, shown as `default`) has an
+    active/inactive checkbox, and so does every secondary account (managed, imported or API key).
+    They replace the per-provider "use signed-in subscription accounts" switch, which turned off
+    every subscription account of a provider at once. An inactive account serves no new turn: a
+    running turn finishes, its agents' mail waits until the account is active again or they move
+    to another account, and hiring and account fallback skip it.
 
 ## Verification during the build
 

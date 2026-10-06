@@ -34,6 +34,9 @@ plan and this file. Read both before you change anything. All entries below: 202
   changed. [verified: `src/pg.rs`; PLAN §3, §8]
 - Engine log: one file per start, `<data>\diagnostics\logs\<start time>.log`, kept 30 days.
   [verified: `src/trace.rs`; decided: user, DECISIONS 34–36]
+- Accounts: every account has its own active checkbox in App settings › Providers, the
+  native sign-in included; an inactive account serves no new turn and its agents' mail waits.
+  [decided: user 2026-10-07, DECISIONS 41]
 
 **Where and how to work** [decided: coordinator 2026-10-06, from the rust-engine session's terms;
 user, DECISIONS 39]
@@ -84,6 +87,9 @@ user, DECISIONS 39]
 **Verification during the prototype** [decided: user, DECISIONS 8, 33]
 - **No unit-test suites and no review rounds** while the prototype is built; brief smoke tests
   are allowed; the user tests it. Hardening with tests and review comes later.
+- **Electron probes:** pass URLs and options through the environment, not the command line: with
+  an `http://` argument `electron.exe` exits −1 before the script runs (measured 2026-10-07).
+  Clear `ELECTRON_RUN_AS_NODE` first; tool shells inherit it from VS Code.
 - So none of the 3.x test machinery below applies to 4.0.0 work: the P03 run lock,
   `test-baseline.mjs`, Python import provenance, `run-python-verification.py`,
   `source-audits.py`.
