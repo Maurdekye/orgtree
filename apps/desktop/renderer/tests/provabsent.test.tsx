@@ -22,6 +22,7 @@
 
 import { flush, inAct, installFetch, FakeServer, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -357,13 +358,13 @@ const ACCOUNTS: AccountsPayload = {
 
 function acctFetch(payload: ProvidersPayload) {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = /\/providers$/.test(path) ? payload
       : /\/accounts$/.test(path) ? ACCOUNTS : {}
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
 }
 
 async function accounts(payload: ProvidersPayload): Promise<string> {
@@ -398,14 +399,14 @@ const CODEX_ABSENT_USAGE: AccountUsage = {
 
 async function usageModal(payload: ProvidersPayload): Promise<string> {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = /\/providers$/.test(path) ? payload
       : path === '/api/usage' ? CLAUDE_USAGE.accounts[0]
         : /\/codex\/usage$/.test(path) ? CODEX_ABSENT_USAGE : {}
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
   const view = await mountView(<UsageModal close={noop} />, (el) => el)
   await inAct(async () => { await flush(10) })
   const text = view.el.textContent ?? ''

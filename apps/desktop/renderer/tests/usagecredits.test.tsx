@@ -4,6 +4,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { UsageModal } from '../src/App'
 import { UsageBars, creditsText } from '../src/canvas/accounts'
@@ -84,14 +85,14 @@ test('a balance still shows when the windows could not be read', async (t) => {
 
 test('the usage modal puts the credit line on the account that has credits', async () => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX : null
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
   try {
     const view = await mountView(<UsageModal close={() => {}} toast={() => {}} />, (el) => el)
     await inAct(async () => { await flush(8) })

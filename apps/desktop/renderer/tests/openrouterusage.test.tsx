@@ -2,6 +2,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { UsageModal, usagePeak } from '../src/App'
 import type { AccountUsage, UsageAllPayload, UsagePeek } from '../src/types'
@@ -40,7 +41,7 @@ const ORR_CAPPED: AccountUsage = {
 
 const stubFetch = (orr: AccountUsage) => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX
@@ -48,7 +49,7 @@ const stubFetch = (orr: AccountUsage) => {
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
   return () => { delete g.fetch }
 }
 

@@ -6,6 +6,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -137,12 +138,12 @@ test('StandingMarks component: renders null when absent and wraps entries in .st
 
 test('UsageModal: stacked Fable and pooled limit notes group inside .standing-marks', async () => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = mockFetch({
+  g.fetch = legacyAppBackend((mockFetch({
     '/api/usage': HOST_CLAUDE,
     '/api/providers': PROVIDERS,
     '/api/accounts': REGISTRY,
     '/api/accounts/claude-4/usage': MULTI_MARK_USAGE,
-  })
+  })) as typeof fetch)
   try {
     const view = await mountView(
       <UsageModal close={() => {}} toast={() => {}} />, (el) => el)

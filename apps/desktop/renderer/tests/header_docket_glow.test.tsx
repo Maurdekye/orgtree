@@ -3,6 +3,7 @@
 import './harness'
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import React from 'react'
 import App, { AskBell } from '../src/App'
@@ -59,8 +60,8 @@ async function setupApp(t: { after: (fn: () => void | Promise<void>) => void }, 
     return json({})
   }) as unknown as typeof fetch
 
-  g.fetch = stub
-  ;(window as unknown as Record<string, unknown>).fetch = stub
+  g.fetch = legacyAppBackend(stub)
+  ;(window as unknown as Record<string, unknown>).fetch = legacyAppBackend(stub)
   g.history ??= window.history
   g.location ??= window.location
 

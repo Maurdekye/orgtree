@@ -16,6 +16,7 @@
 // Run:  node apps/desktop/renderer/tests/run.mjs shellidentity
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { identityOrg, identityView, ownsNotifications, readIdentity, sameIdentity, useWindowIdentity } from '../src/shell/identity'
 import { nativeWindows, startupMode, windowIdentity } from '../src/desktop'
@@ -173,11 +174,11 @@ async function notifyProbe(owner: boolean) {
   })
   // started before the component mounts, as main.tsx does
   const stopBus = startBus()
-  globalThis.fetch = async (url: unknown) => {
+  globalThis.fetch = legacyAppBackend((async (url: unknown) => {
     reads.push(String(url))
     return { ok: true, headers: new Headers(),
       json: async () => ({ notices: NOTICES, total: NOTICES.length, truncated: false }) } as Response
-  }
+  }) as typeof fetch)
   function View({ own }: { own: boolean }) {
     useNativeNotifications((n) => opened.push(n), own)
     return <div>w</div>
@@ -243,7 +244,7 @@ test('a pass still in flight when the duty MOVES finishes without writing anythi
     setPendingAttention: async (ids: unknown) => { taskbar.push(ids) },
     onEvent: () => () => {},
   })
-  globalThis.fetch = (() => new Promise<Response>((resolve) => { release = resolve })) as unknown as typeof fetch
+  globalThis.fetch = legacyAppBackend((() => new Promise<Response>((resolve) => { release = resolve })) as unknown as typeof fetch)
   function View({ own }: { own: boolean }) {
     useNativeNotifications(() => {}, own)
     return <div>w</div>

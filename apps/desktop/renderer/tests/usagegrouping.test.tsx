@@ -17,6 +17,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { UsageModal } from '../src/App'
 import { groupByProvider, USAGE_PROVIDER_ORDER } from '../src/usagegroups'
@@ -220,7 +221,7 @@ async function openModal() {
 
 test('§2a interleaved accounts render grouped: every Claude, then every Codex, then every Antigravity', async () => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = mockFetch(ROUTES)
+  g.fetch = legacyAppBackend((mockFetch(ROUTES)) as typeof fetch)
   try {
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el), [
@@ -239,12 +240,12 @@ test('§2b within each provider the host lane leads and the registry order is ke
   // the same accounts, handed over in a DIFFERENT registry order: claude-9
   // now precedes claude-4. The groups must not change, and the order inside
   // the Claude group must follow the registry rather than the account id.
-  g.fetch = mockFetch({ ...ROUTES, '/api/accounts': { primary: 'claude-1', accounts: [
+  g.fetch = legacyAppBackend((mockFetch({ ...ROUTES, '/api/accounts': { primary: 'claude-1', accounts: [
     row('claude-9', 'claude', 'c9@example.test'),
     row('openai-5', 'openai', 'o5@example.test'),
     row('claude-4', 'claude', 'c4@example.test'),
     row('openai-1', 'openai', 'o1@example.test'),
-  ] } })
+  ] } })) as typeof fetch)
   try {
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el), [
@@ -257,7 +258,7 @@ test('§2b within each provider the host lane leads and the registry order is ke
 
 test('§2c grouping moves cards and changes nothing a card says', async () => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = mockFetch(ROUTES)
+  g.fetch = legacyAppBackend((mockFetch(ROUTES)) as typeof fetch)
   try {
     const view = await openModal()
     const text = (sel: string) =>
@@ -289,10 +290,10 @@ test('§2c grouping moves cards and changes nothing a card says', async () => {
 test('§2d reset information survives the move, on the card it belongs to', async () => {
   const g = globalThis as unknown as Record<string, unknown>
   const resets = new Date(Date.now() + 3 * 3600_000 + 10 * 60_000).toISOString()
-  g.fetch = mockFetch({ ...ROUTES,
+  g.fetch = legacyAppBackend((mockFetch({ ...ROUTES,
     '/api/accounts/openai-1/usage': { ...usageFor('openai-1', 'openai', 51),
       limits: [{ kind: 'weekly_all', group: 'weekly', percent: 51,
-        severity: 'normal', resets_at: resets, is_active: false, model: null }] } })
+        severity: 'normal', resets_at: resets, is_active: false, model: null }] } })) as typeof fetch)
   try {
     const view = await openModal()
     const card = view.el.querySelector('[data-account="openai-1"]')!
@@ -312,14 +313,14 @@ test('§2e a provider with no ruled position lands after the three, whole', asyn
   // provider down. It lands after OpenRouter because OpenRouter's lane appears
   // first — first appearance is the tiebreak between two unruled providers,
   // and it is what keeps the four host lanes in the order they always had.
-  g.fetch = mockFetch({ ...ROUTES, '/api/accounts': { primary: 'claude-1', accounts: [
+  g.fetch = legacyAppBackend((mockFetch({ ...ROUTES, '/api/accounts': { primary: 'claude-1', accounts: [
     row('xenon-1', 'xenon', 'x1@example.test'),
     row('claude-4', 'claude', 'c4@example.test'),
     row('xenon-2', 'xenon', 'x2@example.test'),
     row('openai-1', 'openai', 'o1@example.test'),
   ] },
     '/api/accounts/xenon-1/usage': usageFor('xenon-1', 'xenon', 61),
-    '/api/accounts/xenon-2/usage': usageFor('xenon-2', 'xenon', 62) })
+    '/api/accounts/xenon-2/usage': usageFor('xenon-2', 'xenon', 62) })) as typeof fetch)
   try {
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el), [
@@ -334,9 +335,9 @@ test('§2e a provider with no ruled position lands after the three, whole', asyn
 
 test('§2f a single account per provider is grouped the same way, and one provider alone is untouched', async () => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = mockFetch({ ...ROUTES, '/api/accounts': { primary: 'claude-1', accounts: [
+  g.fetch = legacyAppBackend((mockFetch({ ...ROUTES, '/api/accounts': { primary: 'claude-1', accounts: [
     row('claude-4', 'claude', 'c4@example.test'),
-  ] } })
+  ] } })) as typeof fetch)
   try {
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el), [
@@ -356,7 +357,7 @@ test('§2h the cards became one keyed list without two of them sharing a key', a
   // change in a future version": it renders both TODAY, so a card count can
   // never catch it, and the warning is the only observable evidence.
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = mockFetch(ROUTES)
+  g.fetch = legacyAppBackend((mockFetch(ROUTES)) as typeof fetch)
   const complaints: string[] = []
   const realError = console.error
   console.error = (...args: unknown[]) => { complaints.push(String(args[0])) }
@@ -373,7 +374,7 @@ test('§2g an unreadable registry still says so, below the grouped host lanes', 
   // ⚠ the notice is NOT an account card, so the regrouping must neither sort
   // it nor swallow it — that line is the whole fix for an earlier defect
   // (usageaccounts.test.tsx) where accounts went missing in silence.
-  g.fetch = mockFetch({ ...ROUTES, '/api/accounts': new Error('registry down') })
+  g.fetch = legacyAppBackend((mockFetch({ ...ROUTES, '/api/accounts': new Error('registry down') })) as typeof fetch)
   try {
     const view = await openModal()
     assert.deepEqual(cardOrder(view.el),

@@ -28,6 +28,7 @@
 // Run:  node apps/desktop/renderer/tests/run.mjs heldreveal
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import App from '../src/App'
 import { forgetModalPins, forgetModalOpenCache } from '../src/canvas/modalpin'
@@ -107,7 +108,7 @@ test('a click delivered before App exists still reveals the exact document', asy
   // native released its hold to whatever was listening, and what was listening
   // was the bus and nothing else.
   const stopBus = startBus()
-  globalThis.fetch = server() as typeof globalThis.fetch
+  globalThis.fetch = legacyAppBackend(server() as typeof globalThis.fetch)
 
   fan.emit({ type: 'notification-click', data: NOTICE })
   assert.equal(heldEventStats().waiting, 1,
@@ -150,7 +151,7 @@ test('and with the bus removed from the path, the same reveal never happens', as
     syncNotifications: async () => {},
     onEvent: fan.onEvent,
   })
-  globalThis.fetch = server() as typeof globalThis.fetch
+  globalThis.fetch = legacyAppBackend(server() as typeof globalThis.fetch)
 
   // no startBus(): the event is announced to a document with no listener at all
   fan.emit({ type: 'notification-click', data: NOTICE })

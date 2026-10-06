@@ -3,6 +3,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { UsageModal, usagePeak } from '../src/App'
 import { UsageBars } from '../src/canvas/accounts'
@@ -46,7 +47,7 @@ const ANTIGRAVITY: AccountUsage = {
 
 const stubFetch = (agy: AccountUsage) => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX
@@ -54,7 +55,7 @@ const stubFetch = (agy: AccountUsage) => {
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
   return () => { delete g.fetch }
 }
 

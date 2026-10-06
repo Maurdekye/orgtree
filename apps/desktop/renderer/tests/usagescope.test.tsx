@@ -24,6 +24,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned } from '../src/canvas/modalpin'
 import App from '../src/App'
@@ -62,7 +63,7 @@ async function app(t: { after: (fn: () => void | Promise<void>) => void }) {
     if (path === '/api/providers') return json({ providers: [] })
     return json({})
   }) as unknown as typeof fetch
-  g.fetch = stub; (window as unknown as Record<string, unknown>).fetch = stub
+  g.fetch = legacyAppBackend(stub); (window as unknown as Record<string, unknown>).fetch = legacyAppBackend(stub)
   // App navigates with the bare global `history`; jsdom puts it on `window`,
   // and in this bundle `globalThis` is not `window`.
   g.history ??= window.history

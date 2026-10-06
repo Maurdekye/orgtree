@@ -2,6 +2,7 @@
 
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { UsageModal, usagePeak } from '../src/App'
 import type { AccountUsage, UsageAllPayload, UsagePeek } from '../src/types'
@@ -25,14 +26,14 @@ const CODEX: AccountUsage = {
 
 test('usage modal renders Claude and Codex limit bars together', async () => {
   const g = globalThis as unknown as Record<string, unknown>
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = path === '/api/usage' ? CLAUDE.accounts[0]
       : /\/codex\/usage$/.test(path) ? CODEX : null
     if (!body) return Promise.reject(new Error(`unexpected fetch: ${path}`))
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body) })
-  }
+  }) as typeof fetch)
   try {
     const view = await mountView(
       <UsageModal close={() => {}} />, (el) => el)
@@ -56,7 +57,7 @@ test('each provider refresh is gated and reports its update time', async () => {
   let codexRequests = 0
   const codexQueries: string[] = []
   let settleCodex: ((value: AccountUsage) => void) | null = null
-  g.fetch = (url: string) => {
+  g.fetch = legacyAppBackend(((url: string) => {
     const parsed = new URL(String(url), 'http://localhost')
     const path = parsed.pathname
     if (path === '/api/providers') return Promise.resolve({ ok: true, status: 200,
@@ -76,7 +77,7 @@ test('each provider refresh is gated and reports its update time', async () => {
       }) })
     }
     return Promise.reject(new Error(`unexpected fetch: ${path}`))
-  }
+  }) as typeof fetch)
   try {
     const view = await mountView(<UsageModal close={() => {}} />, (el) => el)
     await inAct(async () => { await flush(4) })

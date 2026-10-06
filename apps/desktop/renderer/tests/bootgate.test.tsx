@@ -18,6 +18,7 @@
 // Run:  cd apps/desktop/renderer && node tests/run.mjs bootgate
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import App from '../src/App'
 import { afterBootGate, BOOT_DEFER_MAX_MS, openBootGate, resetBootGate } from '../src/bootgate'
@@ -83,7 +84,7 @@ async function openWindow(treeAnswer: 'ok' | 'fail') {
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
     status, headers: { 'Content-Type': 'application/json' },
   })
-  globals.fetch = async (input: unknown) => {
+  globals.fetch = legacyAppBackend((async (input: unknown) => {
     const path = new URL(String(input), window.location.origin).pathname
     asked.push(path)
     if (path === '/api/orgs') return json([{ slug: org, name: org, live: 1, seats: 1 }])
@@ -98,7 +99,7 @@ async function openWindow(treeAnswer: 'ok' | 'fail') {
     if (path === '/api/host') return json({ build: null })
     if (path.endsWith('/usage/peek')) return json({ ok: false })
     return json({ ok: true })
-  }
+  }) as typeof fetch)
   globals.WebSocket = Socket
   globals.history = window.history
   globals.CustomEvent = window.CustomEvent

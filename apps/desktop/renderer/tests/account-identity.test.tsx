@@ -1,5 +1,6 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { DraftScopeModal, HireDefaultsTab, NodeConfig } from '../src/canvas/modals'
@@ -32,12 +33,12 @@ async function choose(el: HTMLSelectElement, value: string) {
   await inAct(async () => { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })) })
 }
 function mockFetch(extra: Record<string, unknown> = {}) {
-  globalThis.fetch = (async (url: string) => {
+  globalThis.fetch = legacyAppBackend((async (url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const payload = extra[path] ?? (path === '/api/accounts' ? { accounts: rows }
       : { servers: [], turns: [], warnings: [] })
     return { ok: true, status: 200, headers: new Headers(), json: async () => payload }
-  }) as typeof fetch
+  }) as typeof fetch)
 }
 
 test('New Hire uses immutable IDs and emails, and recomputes single/multiple accounts on provider changes', async () => {

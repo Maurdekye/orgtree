@@ -16,6 +16,7 @@
  */
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { DraftScopeModal, HireDefaultsTab, NodeConfig } from '../src/canvas/modals'
@@ -50,7 +51,7 @@ const options = (el: HTMLSelectElement) => [...el.options].map(o => [o.value, o.
  *  prop and skip the fetch. */
 function mockFetch(accounts: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const posted: { path: string; body: Record<string, unknown> }[] = []
-  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  globalThis.fetch = legacyAppBackend((async (url: string, init?: RequestInit) => {
     const path = new URL(String(url), 'http://localhost').pathname
     if (init?.method && init.method !== 'GET') {
       posted.push({ path, body: init.body ? JSON.parse(String(init.body)) : {} })
@@ -61,7 +62,7 @@ function mockFetch(accounts: Record<string, unknown>, extra: Record<string, unkn
           standing: { state: 'unobserved' }, session_boundary: false, cache_namespace_changed: false }
         : { servers: [], turns: [], warnings: [] })
     return { ok: true, status: 200, headers: new Headers(), json: async () => payload }
-  }) as typeof fetch
+  }) as typeof fetch)
   return posted
 }
 

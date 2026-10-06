@@ -1,4 +1,4 @@
-/** Existing notification controls model the switched-off engine. Capability
+/** Legacy HTTP fixture controls model the switched-off engine. Capability
  * probing is answered explicitly, outside their counted legacy requests. */
 export const legacyAppBackend = (fetcher: typeof fetch): typeof fetch =>
   (input, init) => String(input) === '/api/app/records'

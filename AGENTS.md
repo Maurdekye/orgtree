@@ -656,6 +656,13 @@ rulings go here and on their ticket.
 
 ### Tests
 
+- **Renderer app-feed fixtures:** legacy HTTP mocks must explicitly return 501 for
+  /api/app/records via legacyAppBackend; a generic 200 is not an unsupported engine.
+  Capable fixtures send an app socket baseline and runtime frames, including values
+  arriving after an empty baseline. [verified 2026-10-06: appfeed-fixture.ts,
+  appvalues.test.tsx, packages/contracts/app-feed-connection.ts]
+
+
 - **Python:** `python tools/run-python-verification.py tests/test_X.py [...]` gives each module
   a fresh interpreter in isolated mode and a fresh `ORGTREE_DATA`, with a 300 s default
   timeout per module (`--timeout`). Compare `failed_tests` names between base and tip. A

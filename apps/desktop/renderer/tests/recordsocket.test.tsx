@@ -1,6 +1,7 @@
 import './harness'
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import App from '../src/App'
 import { resetConvos } from '../src/convo'
@@ -66,7 +67,7 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     type: 'agent_runtime', org_uuid: 'identity', incarnation, epoch, seq, full: true,
     agents: { '123': { epoch, seq, mcp_tool_count: count } },
   })
-  globals.fetch = async (input: unknown) => {
+  globals.fetch = legacyAppBackend((async (input: unknown) => {
     const url = new URL(String(input), window.location.origin)
     const path = url.pathname; reads.push(url.pathname + url.search)
     if (path === '/api/orgs') return json([{ slug: org, name: org, live: 1, seats: 1 }])
@@ -105,7 +106,7 @@ for (const enabled of [false, true]) test(`org record feed flag ${enabled}: sock
     if (path.endsWith('/documents')) return json({ documents: [], total: 0 })
     if (path.endsWith('/inbox')) return json({ pending: [], delivered: [], sent: [] })
     return json({ ok: true })
-  }
+  }) as typeof fetch)
   globals.WebSocket = Socket; globals.history = window.history; globals.CustomEvent = window.CustomEvent
   localStorage.clear(); resetConvos(); resetLocalReads(); resetPrimedAsks()
   window.history.replaceState(null, '', `/o/${org}`)

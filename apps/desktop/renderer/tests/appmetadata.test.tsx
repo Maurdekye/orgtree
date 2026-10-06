@@ -1,5 +1,6 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import App from '../src/App'
 import { DeskChat } from '../src/canvas/desk'
@@ -35,7 +36,7 @@ test('App fetch initializes live desk metadata and App disposal clears it', asyn
   const json = (value: unknown) => new Response(JSON.stringify(value), {
     headers: { 'Content-Type': 'application/json' },
   })
-  globals.fetch = async (input: unknown) => {
+  globals.fetch = legacyAppBackend((async (input: unknown) => {
     const path = new URL(String(input), window.location.origin).pathname
     if (path === '/api/orgs') return json([{ slug: org, name: org, live: 1, seats: 1 }])
     if (path === `/api/orgs/${org}`) { treeReads++; return json(tree) }
@@ -46,7 +47,7 @@ test('App fetch initializes live desk metadata and App disposal clears it', asyn
     if (path.endsWith('/documents')) return json({ documents: [], total: 0 })
     if (path.endsWith('/inbox')) return json({ pending: [], delivered: [], sent: [] })
     return json({})
-  }
+  }) as typeof fetch)
   globals.WebSocket = Socket
   globals.history = window.history
   globals.CustomEvent = window.CustomEvent
