@@ -787,9 +787,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
-          hint={'An agent’s CLI stays running for 10 minutes after its turn (at most 64 idle at once, '
-            + 'the longest idle closed first), so a quick follow-up starts at once. CLIs start when a turn '
-            + 'needs them, not at startup. Off: close each CLI when its turn ends.'} />
+          hint={'Every live agent’s CLI starts with Orgtree and on hire, and stays ready between turns '
+            + '(at most 64 idle at once, the longest idle closed first; warming pauses when the machine is '
+            + 'low on memory). Off: close each CLI when its turn ends.'} />
         <OpenRouterHarnessSetting toast={toast} />
       </SetGroup>
       <SetGroup title="Turns">
