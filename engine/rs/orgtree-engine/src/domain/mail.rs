@@ -5,11 +5,11 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::domain::UserError;
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::refuse;
 use crate::util::{gist, uid};
 
@@ -126,13 +126,11 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
                 ],
             )
             .await?;
-        let mut keys = vec![Key::UserMail];
+        let mut ch = vec![Change::UserMail, Change::Spark { from: sender_name.clone(), to: "@user".into() }];
         if let Some(a) = sender_agent {
-            keys.push(Key::Mailbox(a));
+            ch.push(Change::Mailbox(a));
         }
-        org.invalidate(keys);
-        org.emit(json!({ "type": "mail", "from": sender_name, "to": "@user" }));
-        engine.app.org_changed(org_id);
+        changes::notify(engine, &org, ch);
         return Ok(Sent { uid: mail_uid, to: "user".into(), recipient_state: "live".into(), delivery: "delivered to your inbox".into(), deferred: false });
     }
     // an agent
@@ -167,15 +165,14 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
             ],
         )
         .await?;
-    let mut keys = vec![Key::Agent(target_id), Key::Mailbox(target_id)];
+    let mut ch = vec![Change::Mailbox(target_id), Change::Spark { from: sender_name.clone(), to: to.clone() }];
     if let Some(a) = sender_agent {
-        keys.push(Key::Mailbox(a));
+        ch.push(Change::Mailbox(a));
     }
     if matches!(out.from, From::User) {
-        keys.push(Key::UserMail);
+        ch.push(Change::UserMail);
     }
-    org.invalidate(keys);
-    org.emit(json!({ "type": "mail", "from": sender_name, "to": to }));
+    changes::notify(engine, &org, ch);
     let (delivery, deferred) = if state != "live" {
         (
             format!("{to} is retired: the message is stored and is delivered if and when {to} is rehired. Nothing schedules a rehire, so send it to a live agent if it matters now."),

@@ -16,7 +16,7 @@ use tokio::time::sleep_until;
 
 use crate::domain::scope;
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::Change;
 use crate::orgs::OrgHandle;
 use crate::providers::catalog;
 use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
@@ -443,7 +443,7 @@ impl Actor {
                     .execute("UPDATE ot.agents SET halt = NULL, row_version = row_version + 1 WHERE id = $1", &[&self.id])
                     .await?;
                 drop(client);
-                self.org.invalidate([Key::Agent(self.id)]);
+                self.changed(vec![Change::Agent(self.id)]);
                 let _ = reply.send(json!({ "unhalted": true, "status": "idle" }));
                 self.on_wake().await?;
             }
@@ -622,7 +622,7 @@ impl Actor {
                         .await;
                 }
                 self.publish();
-                self.org.invalidate([Key::Agent(self.id)]);
+                self.changed(vec![Change::Agent(self.id)]);
             }
         }
         Ok(())
@@ -1079,7 +1079,7 @@ impl Actor {
         self.convo.append(&client, row).await?;
         drop(client);
         self.publish();
-        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+        self.changed(vec![Change::Mailbox(self.id)]);
         self.stream("text", json!({}));
         Ok(true)
     }
@@ -1135,7 +1135,7 @@ impl Actor {
                 .execute("UPDATE ot.agents SET inflight_at = NULL, row_version = row_version + 1 WHERE id = $1", &[&self.id])
                 .await;
         }
-        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+        self.changed(vec![Change::Mailbox(self.id)]);
     }
 
     /// Mid-turn mail after a tool call (the PostToolUse hook).
@@ -1166,9 +1166,14 @@ impl Actor {
         committed["seq"] = json!(seq);
         committed["row_id"] = json!(format!("r{seq}"));
         committed["event_id"] = json!(format!("e{seq}"));
-        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+        self.changed(vec![Change::Mailbox(self.id)]);
         self.stream("steered", json!({ "committed_row": committed }));
         Ok(json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": text } }))
+    }
+
+    /// Announce what this actor changed (see `changes`).
+    fn changed(&self, ch: Vec<Change>) {
+        crate::changes::notify(&self.engine, &self.org, ch);
     }
 
     #[nolog]
@@ -1690,11 +1695,17 @@ impl Actor {
         }
         self.update_forecast().await;
         self.publish();
-        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id), Key::Group("cost"), Key::History(self.id)]);
-        self.org.emit(json!({ "type": "node_event", "node": self.name, "event": "turn_done" }));
+        let mut ch = vec![
+            Change::Mailbox(self.id),
+            Change::History(self.id),
+            Change::Credits,
+            Change::Pulse { node: self.name.clone(), event: "turn_done", extra: None },
+        ];
+        if freeze_rec.is_some() {
+            ch.push(Change::Pulse { node: self.name.clone(), event: "frozen", extra: None });
+        }
+        self.changed(ch);
         if let Some(rec) = &freeze_rec {
-            self.org.emit(json!({ "type": "node_event", "node": self.name, "event": "frozen" }));
-            self.engine.app.org_changed(self.org_id);
             freeze::schedule(&self.engine, self.org_id, self.id, rec);
             return Ok(());
         }
@@ -1751,8 +1762,10 @@ impl Actor {
         drop(client);
         self.activity = None;
         self.publish();
-        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
-        self.org.emit(json!({ "type": "node_event", "node": self.name, "event": "turn_done" }));
+        self.changed(vec![
+            Change::Mailbox(self.id),
+            Change::Pulse { node: self.name.clone(), event: "turn_done", extra: None },
+        ]);
         Ok(json!({ "halted": true, "settled": true, "status": "halted" }))
     }
 

@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::domain::ops::{self, Actor};
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::runtime::AgentMsg;
@@ -71,9 +71,8 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     drop(client);
     let _ = std::fs::create_dir_all(e.cfg.workspace_dir(&slug));
     let _ = std::fs::create_dir_all(e.cfg.scratch_root(&slug));
-    crate::orgs::open(&e, id, uuid.to_string(), slug.clone(), name);
-    e.app.registry_changed();
-    e.app.org_changed(id);
+    let o = crate::orgs::open(&e, id, uuid.to_string(), slug.clone(), name);
+    changes::notify(&e, &o, vec![Change::Registry, Change::Org]);
     Ok(Json(json!({ "slug": slug })))
 }
 
@@ -101,7 +100,7 @@ pub async fn delete(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> A
         }
     }
     e.orgs.remove(&slug);
-    e.app.registry_changed();
+    changes::notify(&e, &o, vec![Change::Registry]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -206,8 +205,7 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
             }
         }
     }
-    o.invalidate([Key::Org]);
-    e.app.org_changed(o.id);
+    changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
     let watchdogs: Vec<Value> = paused
         .iter()
         .map(|r| json!({ "id": r.get::<_, String>(0), "name": r.get::<_, String>(1), "owner": r.get::<_, String>(2) }))
@@ -244,7 +242,6 @@ pub async fn killswitch_release(State(e): State<Arc<Engine>>, Path(slug): Path<S
     for id in waiting {
         crate::runtime::wake(&e, o.id, id);
     }
-    o.invalidate([Key::Org]);
-    e.app.org_changed(o.id);
+    changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
     Ok(Json(json!({ "released": released > 0, "status": if released > 0 { "released" } else { "not latched" } })))
 }

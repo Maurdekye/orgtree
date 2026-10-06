@@ -9,7 +9,7 @@ use serde_json::{json, Map, Value};
 use crate::domain::mail::{self, From, Outgoing, Sent};
 use crate::domain::tree::ts;
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::util::uid;
 
 /// An `org_inbox` row → `OrgInboxEntry`.
@@ -119,9 +119,8 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             .collect();
     }
     drop(client);
-    src.invalidate([Key::Group("org_inbox")]);
-    dst.invalidate([Key::Group("org_inbox")]);
-    engine.app.org_changed(dst.id);
+    changes::notify(engine, &src, vec![Change::OrgInbox]);
+    changes::notify(engine, &dst, vec![Change::OrgInbox]);
     for h in &holders {
         let mut m = Outgoing::new(From::Extern(src_peer.clone()), h, &out.body);
         m.kind = out.kind.clone();

@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 use crate::domain::mail::{self, From, Outgoing};
 use crate::domain::scope;
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::orgs::OrgHandle;
@@ -263,7 +263,7 @@ pub async fn retract(
     if n == 0 {
         return Err(ApiError::conflict("that message was already delivered (or is not yours to retract)"));
     }
-    org.invalidate([Key::Agent(a.id), Key::Mailbox(a.id), Key::UserMail]);
+    changes::notify(&e, &org, vec![Change::Mailbox(a.id), Change::UserMail]);
     Ok(Json(json!({ "retracted": mid })))
 }
 
@@ -345,7 +345,7 @@ pub async fn unstick(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Stri
     if !thawed && r.get::<_, bool>(1) {
         let client = e.db.get().await?;
         client.execute("UPDATE ot.agents SET limit_locked = false, row_version = row_version + 1 WHERE id = $1", &[&a.id]).await?;
-        org.invalidate([Key::Agent(a.id)]);
+        changes::notify(&e, &org, vec![Change::Agent(a.id)]);
         runtime::wake(&e, org.id, a.id);
     }
     Ok(Json(json!({ "released": released, "status": if released.is_empty() { "nothing to release" } else { "released" } })))
@@ -481,9 +481,10 @@ pub async fn set_scope(
         .map(|r| r.get(0))
         .collect();
     drop(client);
-    let mut keys: Vec<Key> = subtree.iter().map(|id| Key::Agent(*id)).collect();
-    keys.push(Key::Events);
-    org.invalidate(keys);
+    let mut ch: Vec<Change> = subtree.iter().map(|id| Change::Agent(*id)).collect();
+    ch.push(Change::Events);
+    ch.push(Change::History(a.id));
+    changes::notify(&e, &org, ch);
     let mut out = json!({ "ok": true, "cascaded": cascaded });
     let structural = b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false);
     if structural {

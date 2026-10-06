@@ -12,7 +12,7 @@ use serde_json::{json, Map, Value};
 use crate::domain::scope;
 use crate::engine::Engine;
 use crate::feed::groups::{effective_settings, setting_defaults};
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::runtime::AgentMsg;
@@ -119,8 +119,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         )
         .await?;
     drop(client);
-    o.invalidate([Key::Org]);
-    e.app.org_changed(o.id);
+    changes::notify(&e, &o, vec![Change::Org, Change::Events]);
     if patch.contains_key("dirs") || patch.contains_key("permission_mode") {
         reconfigure_org(&e, o.id).await?;
     }
@@ -187,7 +186,7 @@ pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(b): Json<Map<Strin
     e.settings.merge(&mut client, Value::Object(top)).await?;
     drop(client);
     for o in e.orgs.all() {
-        o.invalidate([Key::Org]);
+        changes::notify(&e, &o, vec![Change::Org]);
     }
     Ok(Json(defaults_payload(&e)))
 }
@@ -341,7 +340,7 @@ async fn provider_switch(e: Arc<Engine>, provider: String, key: &'static str, en
     drop(client);
     crate::providers::publish(&e);
     for o in e.orgs.all() {
-        o.invalidate([Key::Group("tiers")]);
+        changes::notify(&e, &o, vec![Change::Tiers]);
     }
     Ok(Json(crate::providers::payload(&e)))
 }

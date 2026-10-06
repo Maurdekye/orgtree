@@ -12,7 +12,7 @@ use crate::domain::scope;
 use crate::domain::tree::{agent_body, TreeCtx};
 use crate::engine::Engine;
 use crate::feed::compute;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::nodes::agent;
 use crate::http::orgs::org;
@@ -44,8 +44,7 @@ pub async fn mark_read(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
         )
         .await?;
     drop(client);
-    o.invalidate([Key::UserMail]);
-    e.app.org_changed(o.id);
+    changes::notify(&e, &o, vec![Change::UserMail]);
     Ok(Json(json!({ "read": n })))
 }
 
@@ -60,8 +59,7 @@ pub async fn clear(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Ap
         )
         .await?;
     drop(client);
-    o.invalidate([Key::UserMail]);
-    e.app.org_changed(o.id);
+    changes::notify(&e, &o, vec![Change::UserMail]);
     Ok(Json(json!({ "ok": true })))
 }
 

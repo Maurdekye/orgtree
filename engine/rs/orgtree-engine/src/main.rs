@@ -12,6 +12,7 @@ extern crate orgtree_logged;
 mod accounts;
 mod appfeed;
 mod bridge;
+mod changes;
 mod config;
 mod domain;
 mod engine;

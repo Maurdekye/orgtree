@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use super::{arg_str, me, need_str, Done};
 use crate::domain::mail::{self, From, Outgoing};
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::runtime::Caller;
 use crate::util::{gist, iso};
 
@@ -96,9 +96,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
         None => Some("user".into()),
     };
     drop(client);
-    if let Some(org) = engine.orgs.by_id(me.org_id) {
-        org.invalidate([Key::Agent(me.id), Key::Events]);
-    }
+    changes::notify_id(engine, me.org_id, vec![Change::Agent(me.id), Change::Events, Change::History(me.id)]);
     let mut told = String::new();
     if status == "done" || status == "blocked" {
         if let Some(sup) = superior {

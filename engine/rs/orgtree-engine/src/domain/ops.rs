@@ -14,7 +14,6 @@ use tokio_postgres::Transaction;
 
 use crate::domain::scope;
 use crate::engine::Engine;
-use crate::feed::Key;
 use crate::orgs::OrgHandle;
 use crate::providers::catalog;
 use crate::refuse;
@@ -45,7 +44,7 @@ struct Effects {
     wake: Vec<i64>,
     events: bool,
     registry: bool,
-    pulses: Vec<Value>,
+    pulses: Vec<crate::changes::Change>,
 }
 
 /// A locked agent row.
@@ -385,23 +384,21 @@ async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) 
             h.send(AgentMsg::Reconfigured);
         }
     }
-    let mut keys: Vec<Key> = fx.agents.iter().map(|id| Key::Agent(*id)).collect();
-    keys.push(Key::Group("cost"));
-    keys.push(Key::Group("audit"));
+    use crate::changes::Change;
+    let mut ch: Vec<Change> = fx.agents.iter().map(|id| Change::Agent(*id)).collect();
+    ch.extend(fx.agents.iter().map(|id| Change::History(*id)));
+    ch.push(Change::Credits);
+    ch.push(Change::Audiences);
     if fx.events {
-        keys.push(Key::Events);
+        ch.push(Change::Events);
     }
-    keys.push(Key::Audiences);
-    org.invalidate(keys);
-    for p in fx.pulses {
-        org.emit(p);
+    if fx.registry {
+        ch.push(Change::Registry);
     }
+    ch.extend(fx.pulses);
+    crate::changes::notify(engine, org, ch);
     for id in &fx.wake {
         crate::runtime::wake(engine, org.id, *id);
-    }
-    engine.app.org_changed(org.id);
-    if fx.registry {
-        engine.app.registry_changed();
     }
 }
 
@@ -817,7 +814,11 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);
     fx.events = true;
-    fx.pulses.push(json!({ "type": "node_event", "node": new, "event": "renamed", "was": n.name }));
+    fx.pulses.push(crate::changes::Change::Pulse {
+        node: new.clone(),
+        event: "renamed",
+        extra: Some(json!({ "was": n.name })),
+    });
     Ok(json!({ "renamed": true, "was": n.name, "node": new }))
 }
 

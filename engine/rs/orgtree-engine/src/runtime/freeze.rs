@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use crate::domain::mail;
 use crate::engine::Engine;
-use crate::feed::Key;
+use crate::changes::{self, Change};
 use crate::runtime::AgentMsg;
 use crate::util::parse_ts;
 
@@ -69,10 +69,7 @@ pub async fn thaw(engine: &Arc<Engine>, org_id: i64, agent_id: i64, only_due: bo
     if row.is_none() {
         return Ok(false);
     }
-    if let Some(org) = engine.orgs.by_id(org_id) {
-        org.invalidate([Key::Agent(agent_id)]);
-    }
-    engine.app.org_changed(org_id);
+    changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::History(agent_id)]);
     mail::system_wake(engine, org_id, agent_id, "Your usage limit has reset. Continue where you left off.").await?;
     Ok(true)
 }
@@ -155,10 +152,7 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     if let Some(h) = engine.agents.get(agent_id) {
         h.send(AgentMsg::Reconfigured);
     }
-    if let Some(org) = engine.orgs.by_id(org_id) {
-        org.invalidate([Key::Agent(agent_id), Key::Group("audit"), Key::Events]);
-    }
-    engine.app.org_changed(org_id);
+    changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::Credits, Change::Events, Change::History(agent_id)]);
     mail::system_wake(
         engine,
         org_id,
