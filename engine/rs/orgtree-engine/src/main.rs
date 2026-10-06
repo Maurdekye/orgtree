@@ -194,6 +194,7 @@ async fn run_with_cluster(
     mailhub::start(&engine).await;
     net::start(&engine);
     runtime::recover(&engine).await;
+    runtime::warm_all(&engine);
     if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") {
         runtime::watchdogs::start(&engine).await;
     }

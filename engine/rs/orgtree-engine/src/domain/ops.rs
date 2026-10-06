@@ -42,6 +42,8 @@ struct Effects {
     stop: Vec<i64>,
     reconfigure: Vec<i64>,
     wake: Vec<i64>,
+    /// agents whose CLI warming starts after commit (hires)
+    warm: Vec<i64>,
     events: bool,
     registry: bool,
     pulses: Vec<crate::changes::Change>,
@@ -435,6 +437,9 @@ async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) 
     for id in &fx.wake {
         crate::runtime::wake(engine, org.id, *id);
     }
+    for id in &fx.warm {
+        crate::runtime::warm(engine, org.id, *id);
+    }
 }
 
 // ------------------------------------------------------------ hire
@@ -585,6 +590,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         fx.agents.insert(p.id);
     }
     fx.events = true;
+    fx.warm.push(id);
     let _ = std::fs::create_dir_all(&scratch);
     Ok(json!({ "node": name, "cascaded": raised }))
 }
@@ -656,6 +662,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     fx.events = true;
     fx.wake.push(n.id);
+    fx.warm.push(n.id);
     let woke = crate::runtime::watchdogs::resume_owned(tx, n.id).await?;
     let mut warnings = Vec::new();
     if !woke.is_empty() {
@@ -968,11 +975,14 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     let mut warnings = Vec::new();
     if from != to {
         // a new provider starts a fresh session; the old transcript stays in the folder
+        // the next turn starts with a summary of the conversation (the CLIs
+        // cannot resume each other's sessions)
+        let why = format!("moved from {} to {}", catalog::provider_label(from), catalog::provider_label(to));
         tx.execute(
             "UPDATE ot.agents SET tier = $2, seat = $3::float8::numeric, provider = $4, session_id = NULL,
-                    account = $5,
+                    account = $5, extra = jsonb_set(extra, '{handoff_due}', to_jsonb($6::text)),
                     occupancy = NULL, row_version = row_version + 1 WHERE id = $1",
-            &[&n.id, &tier, &seat, &to, &account],
+            &[&n.id, &tier, &seat, &to, &account, &why],
         )
         .await?;
         tx.execute(
@@ -982,7 +992,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         .await?;
         stamp_harness(engine, tx, n.id, &tier, true).await?;
         warnings.push(format!(
-            "{} moved from {} to {}: it starts a fresh session (its previous conversation stays in its folder)",
+            "{} moved from {} to {}: it continues on a fresh session that starts with a summary of its conversation (the whole conversation is saved in its folder)",
             n.name,
             catalog::provider_label(from),
             catalog::provider_label(to)

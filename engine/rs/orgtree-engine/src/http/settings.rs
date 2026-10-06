@@ -275,6 +275,7 @@ pub async fn get_runtime(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>>
 pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
     let mut rt = Map::new();
     let mut verbose = None;
+    let mut warming = None;
     for (k, v) in &b {
         match k.as_str() {
             "verbose_logging" => {
@@ -283,7 +284,9 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
                 verbose = Some(on);
             }
             "enabled" | "warming_enabled" => {
-                rt.insert("warming_enabled".into(), json!(v.as_bool().unwrap_or(true)));
+                let on = v.as_bool().unwrap_or(true);
+                rt.insert("warming_enabled".into(), json!(on));
+                warming = Some(on);
             }
             "wait_for_mcp_tools_enabled" => {
                 rt.insert(k.clone(), json!(v.as_bool().unwrap_or(false)));
@@ -317,6 +320,11 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     drop(client);
     if let Some(on) = verbose {
         crate::trace::apply_verbose(on);
+    }
+    match warming {
+        Some(true) => crate::runtime::warm_all(&e),
+        Some(false) => crate::runtime::cool_all(&e),
+        None => {}
     }
     Ok(Json(runtime_payload(&e).await))
 }

@@ -192,6 +192,72 @@ pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, 
     Ok(out)
 }
 
+/// Save the agent's desk history (its newest rows, oldest first) as Markdown
+/// in `dir`, for a session that could not carry the conversation over.
+#[logged]
+pub async fn save_history(client: &Client, agent_id: i64, dir: &std::path::Path) -> Result<std::path::PathBuf> {
+    let rows = client
+        .query("SELECT body FROM ot.convo WHERE agent_id = $1 ORDER BY seq DESC LIMIT 5000", &[&agent_id])
+        .await?;
+    let mut out = String::from("# Earlier conversation\n\nYour desk history before you moved to a fresh session, oldest first.\n\n");
+    for r in rows.iter().rev() {
+        let b: Value = r.get(0);
+        let ts = b["ts"].as_str().unwrap_or("");
+        let text = b["text"].as_str().unwrap_or("");
+        match b["role"].as_str().unwrap_or("") {
+            "user" => {
+                let from = b.pointer("/segments/0/rows/0/from").and_then(Value::as_str).unwrap_or("mail");
+                out.push_str(&format!("## From {from} · {ts}\n\n{text}\n\n"));
+            }
+            "assistant" => {
+                out.push_str(&format!("## You · {ts}\n\n"));
+                if !text.is_empty() {
+                    out.push_str(text);
+                    out.push_str("\n\n");
+                }
+                for t in b["tools"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+                    out.push_str(&format!("- tool: {} {}\n", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or("")));
+                }
+                if b["tools"].as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                    out.push('\n');
+                }
+            }
+            _ if !text.is_empty() => out.push_str(&format!("_{text}_ ({ts})\n\n")),
+            _ => {}
+        }
+    }
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(format!("earlier-conversation-{}.md", chrono::Utc::now().format("%Y%m%d-%H%M%S")));
+    std::fs::write(&path, out)?;
+    Ok(path)
+}
+
+/// What a fresh session starts with when the agent's earlier session could
+/// not be carried over: its last status, its recent conversation, and where
+/// the whole earlier conversation is saved.
+#[logged]
+pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Option<&std::path::Path>) -> Result<String> {
+    let mut note = format!(
+        "[Orgtree] You now run on a fresh session ({why}), so your earlier conversation is not in your context. \
+         Here is what you were working on.\n\n"
+    );
+    let status: Option<Value> = client
+        .query_opt("SELECT last_status FROM ot.agents WHERE id = $1", &[&agent_id])
+        .await?
+        .and_then(|r| r.get(0));
+    if let Some(s) = status.as_ref().and_then(|s| s.get("summary")).and_then(Value::as_str) {
+        note.push_str(&format!("Your last status: {s}\n\n"));
+    }
+    note.push_str(&digest(client, agent_id, 60).await?);
+    if let Some(p) = saved {
+        note.push_str(&format!(
+            "\nYour whole earlier conversation is saved at {}; read it when you need more than this summary.\n",
+            p.display()
+        ));
+    }
+    Ok(note)
+}
+
 /// Shorten a tool result for display; the agent saw it whole.
 #[logged]
 pub fn clip(text: &str, max: usize) -> (String, bool) {

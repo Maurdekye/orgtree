@@ -93,6 +93,9 @@ struct Ctx {
     /// "reset a session before a known-cold turn" (agent override, else the
     /// org's): the context occupancy above which it applies
     cold_reset: Option<f64>,
+    /// the earlier session could not be carried over: why (the next turn
+    /// starts with a handoff note)
+    handoff_due: Option<String>,
 }
 
 /// How an OpenRouter seat reaches the gateway (the key never prints).
@@ -628,6 +631,10 @@ impl Actor {
                     t.cards.insert(tool_use_id, card);
                 }
             }
+            AgentMsg::Warm(reply) => {
+                let warm = self.warm().await;
+                let _ = reply.send(warm);
+            }
             AgentMsg::CloseIdle => {
                 if self.turn.is_none() && self.proc.is_some() {
                     self.keep_until = None;
@@ -647,6 +654,33 @@ impl Actor {
                 .map(|r| r.get(0))
                 .unwrap_or_default(),
             Err(_) => String::new(),
+        }
+    }
+
+    /// Warming: start the CLI before the agent's next turn and park it. Quiet
+    /// when the agent cannot run now (halted, frozen, its provider or account
+    /// off): its next turn says why, as before.
+    async fn warm(&mut self) -> bool {
+        if self.proc.is_some() || self.turn.is_some() || self.stopping {
+            return self.proc.is_some();
+        }
+        let ctx = match self.load_ctx().await {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
+            return false;
+        }
+        match self.ensure_proc(&ctx).await {
+            Ok(()) => {
+                self.park();
+                self.publish();
+                true
+            }
+            Err(e) => {
+                tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "not warmed");
+                false
+            }
         }
     }
 
@@ -759,7 +793,7 @@ impl Actor {
                         p.team_charter, o.name, o.slug, o.settings, o.killswitch IS NOT NULL,
                         (SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
                           WHERE ac.id = a.account AND ac.kind = 'apikey'),
-                        a.extra->>'harness'
+                        a.extra->>'harness', a.extra->>'handoff_due'
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    LEFT JOIN ot.agents p ON p.id = a.parent_id
                   WHERE a.id = $1",
@@ -846,6 +880,7 @@ impl Actor {
             harness,
             compact_at,
             cold_reset,
+            handoff_due: r.get(21),
         })
     }
 
@@ -979,6 +1014,45 @@ impl Actor {
                 catalog::provider_label(&ctx.provider)
             )),
         }
+    }
+
+    /// The earlier session is gone: the next turn starts with a handoff note.
+    async fn flag_handoff(&self, why: &str) {
+        if let Ok(client) = self.engine.db.get().await {
+            let _ = client
+                .execute(
+                    "UPDATE ot.agents SET extra = jsonb_set(extra, '{handoff_due}', to_jsonb($2::text))
+                      WHERE id = $1 AND NOT (extra ? 'handoff_due')
+                        AND EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id = $1)",
+                    &[&self.id, &why],
+                )
+                .await;
+        }
+    }
+
+    /// A due handoff (a provider switch, a session that could not be
+    /// resumed): save the desk history to the agent's folder and return the
+    /// note this turn starts with.
+    async fn take_handoff(&mut self, ctx: &Ctx) -> Result<Option<String>> {
+        let client = self.engine.db.get().await?;
+        let why: Option<String> = client
+            .query_one("SELECT extra->>'handoff_due' FROM ot.agents WHERE id = $1", &[&self.id])
+            .await?
+            .get(0);
+        let Some(why) = why.or_else(|| ctx.handoff_due.clone()) else { return Ok(None) };
+        let saved = match convo::save_history(&client, self.id, &ctx.scratch).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the earlier conversation could not be saved");
+                None
+            }
+        };
+        let note = convo::handoff_note(&client, self.id, &why, saved.as_deref()).await?;
+        client
+            .execute("UPDATE ot.agents SET extra = extra - 'handoff_due' WHERE id = $1", &[&self.id])
+            .await?;
+        tracing::info!(agent = %self.name, why = %why, "handoff note for a fresh session");
+        Ok(Some(note))
     }
 
     /// "Reset a session before a known-cold turn" (cheap compact; Org
@@ -1166,6 +1240,9 @@ impl Actor {
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         let session_id = proc.session_id.clone();
+        if ctx.session_id.is_some() && resume.as_deref() != Some(session_id.as_str()) {
+            self.flag_handoff("its previous session could not be resumed").await;
+        }
         if resume.as_deref() != Some(session_id.as_str()) {
             // a new session: its cost counter starts at zero
             self.cost_seen = 0.0;
@@ -1275,6 +1352,17 @@ impl Actor {
             .session_id
             .clone()
             .filter(|_| ctx.session_provider.as_deref() == Some(ctx.provider.as_str()));
+        // the thread may live under another account's Codex home
+        if let Some(tid) = &resume {
+            let mut others: Vec<std::path::PathBuf> =
+                view.all().into_iter().filter(|a| a.provider == catalog::OPENAI).filter_map(|a| a.config_dir.clone()).map(Into::into).collect();
+            if let Ok(entries) = std::fs::read_dir(self.engine.cfg.path("profiles")) {
+                others.extend(entries.flatten().map(|e| e.path()).filter(|p| p.join("sessions").is_dir()));
+            }
+            let home = codex_home.clone();
+            let tid = tid.clone();
+            let _ = tokio::task::spawn_blocking(move || codexrt::ensure_rollout(&tid, home.as_deref(), &others)).await;
+        }
         let spec = CodexSpec {
             exe,
             cwd: ctx.scratch.clone(),
@@ -1301,6 +1389,9 @@ impl Actor {
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = CodexProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         let session_id = proc.session_id.clone();
+        if resume.is_some() && resume.as_deref() != Some(session_id.as_str()) {
+            self.flag_handoff("its previous Codex thread could not be resumed").await;
+        }
         if resume.as_deref() != Some(session_id.as_str()) {
             self.codex_total = None;
             let client = self.engine.db.get().await?;
@@ -1479,7 +1570,9 @@ impl Actor {
             self.parked = true;
             self.engine.sched.parked(self.id);
         }
-        self.keep_until = Some(Instant::now() + KEEP_ALIVE);
+        // warming on (as in 3.x): a parked CLI stays until the idle cap or a
+        // stop; off: a CLI started by hand stays 10 minutes
+        self.keep_until = if self.engine.settings.keep_warm() { None } else { Some(Instant::now() + KEEP_ALIVE) };
     }
 
     fn unpark(&mut self) {
@@ -1572,9 +1665,16 @@ impl Actor {
             self.return_mail(turn_id, true).await;
             return Err(e);
         }
+        let handoff = match self.take_handoff(&ctx).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the handoff note could not be built");
+                None
+            }
+        };
         let context = self.turn_context(&ctx).await;
         let text = prompt::turn_text(&mails, &context);
-        let text = match reset_note {
+        let text = match reset_note.or(handoff) {
             Some(note) => format!("{note}\n\n{text}"),
             None => text,
         };

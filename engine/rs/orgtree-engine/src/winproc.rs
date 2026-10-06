@@ -147,6 +147,26 @@ mod imp_other {
 #[cfg(not(windows))]
 pub use imp_other::*;
 
+/// Bytes the machine can still commit (Windows: what `GlobalMemoryStatusEx`
+/// reports as available page file); None where it cannot be read.
+#[logged]
+pub fn free_commit_bytes() -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut st: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+        st.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+        if unsafe { GlobalMemoryStatusEx(&mut st) } != 0 {
+            return Some(st.ullAvailPageFile);
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 /// Configure a tokio command so it never opens a console window.
 #[logged]
 pub fn no_window(cmd: &mut tokio::process::Command) {

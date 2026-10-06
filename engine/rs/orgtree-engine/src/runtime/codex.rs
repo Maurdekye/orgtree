@@ -418,6 +418,65 @@ pub fn dynamic_tools() -> Vec<Value> {
         .collect()
 }
 
+/// The Codex home a launch without `CODEX_HOME` uses.
+#[logged]
+pub fn default_home() -> std::path::PathBuf {
+    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join(".codex")
+}
+
+/// A thread's rollout file under `home/sessions` (its path below `sessions`).
+#[logged]
+fn find_rollout(home: &std::path::Path, thread: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let root = home.join("sessions");
+    let suffix = format!("{thread}.jsonl");
+    let mut stack = vec![(root.clone(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let path = e.path();
+            if path.is_dir() {
+                if depth < 4 {
+                    stack.push((path, depth + 1));
+                }
+            } else if path.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(&suffix)).unwrap_or(false) {
+                let rel = path.strip_prefix(&root).map(|p| p.to_path_buf()).unwrap_or_default();
+                return Some((path, rel));
+            }
+        }
+    }
+    None
+}
+
+/// Make sure `thread/resume` under `home` finds the thread: when its rollout
+/// lives under another Codex home (the agent moved to another account),
+/// copy it over. False when it exists nowhere.
+#[logged]
+pub fn ensure_rollout(thread: &str, home: Option<&str>, others: &[std::path::PathBuf]) -> bool {
+    let target = home.map(std::path::PathBuf::from).unwrap_or_else(default_home);
+    if find_rollout(&target, thread).is_some() {
+        return true;
+    }
+    let mut homes = vec![default_home()];
+    for o in others {
+        if !homes.contains(o) {
+            homes.push(o.clone());
+        }
+    }
+    for h in homes.iter().filter(|h| **h != target) {
+        if let Some((from, rel)) = find_rollout(h, thread) {
+            let to = target.join("sessions").join(rel);
+            if let Some(parent) = to.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::copy(&from, &to).is_ok() {
+                tracing::info!(from = %from.display(), to = %to.display(), "carried a Codex thread to another account");
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// `-c` overrides attaching granted MCP servers (bare-key names, command or url).
 #[logged]
 pub fn mcp_overrides(servers: &serde_json::Map<String, Value>) -> (Vec<String>, Vec<String>) {

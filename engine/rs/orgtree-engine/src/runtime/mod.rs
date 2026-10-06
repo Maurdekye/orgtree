@@ -68,6 +68,9 @@ pub enum AgentMsg {
     /// an `orgtree_*` tool's card (mail, file, document, docket item) for
     /// the chip of this tool_use id
     ToolCard(String, Value),
+    /// warming: start the CLI ahead of the next turn (quietly; replies
+    /// whether a CLI is running afterwards)
+    Warm(oneshot::Sender<bool>),
 }
 
 /// A message to an agent's actor and the request that sent it (the actor
@@ -157,6 +160,100 @@ pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandl
 #[logged]
 pub fn wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
     actor(engine, org_id, agent_id).send(AgentMsg::Wake);
+}
+
+/// Warming stops starting CLIs below this much free commit memory: a machine
+/// out of commit memory takes the engine down with it.
+const WARM_MIN_FREE: u64 = 6 * 1024 * 1024 * 1024;
+/// CLIs started at once while warming
+const WARM_AT_ONCE: usize = 3;
+
+#[logged]
+fn warming_allowed(engine: &Engine) -> bool {
+    engine.settings.keep_warm() && std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1")
+}
+
+#[logged]
+fn memory_for_warming() -> bool {
+    crate::winproc::free_commit_bytes().map(|b| b >= WARM_MIN_FREE).unwrap_or(true)
+}
+
+/// Warm one agent's CLI (a new hire, a rehire): when warming is on.
+#[logged]
+pub fn warm(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
+    if !warming_allowed(engine) || !memory_for_warming() {
+        return;
+    }
+    let (tx, _rx) = oneshot::channel();
+    actor(engine, org_id, agent_id).send(AgentMsg::Warm(tx));
+}
+
+/// Warming (App settings › Runtime › keep agent processes warm, as in 3.x):
+/// every live agent that could take a turn gets its CLI started, the most
+/// recently active first, a few at a time, up to the idle cap, and only
+/// while the machine has commit memory to spare. Runs at engine start and
+/// when warming is turned on.
+#[logged]
+pub fn warm_all(engine: &Arc<Engine>) {
+    if !warming_allowed(engine) {
+        return;
+    }
+    let engine = engine.clone();
+    tokio::spawn(async move {
+        let rows: anyhow::Result<Vec<(i64, i64)>> = async {
+            let client = engine.db.get().await?;
+            let rows = client
+                .query(
+                    "SELECT a.org_id, a.id FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
+                      WHERE a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL
+                        AND o.killswitch IS NULL AND o.state <> 'trashed'
+                      ORDER BY (SELECT max(t.started_at) FROM ot.turns t WHERE t.agent_id = a.id) DESC NULLS LAST, a.id
+                      LIMIT $1",
+                    &[&(sched::MAX_PARKED as i64)],
+                )
+                .await?;
+            Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, i64>(1))).collect())
+        }
+        .await;
+        let rows = match rows {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "warming: the agents could not be read");
+                return;
+            }
+        };
+        let mut warmed = 0usize;
+        for chunk in rows.chunks(WARM_AT_ONCE) {
+            if engine.shutdown.is_cancelled() || !warming_allowed(&engine) {
+                return;
+            }
+            if !memory_for_warming() {
+                tracing::warn!(warmed, "warming stopped: the machine is low on commit memory");
+                return;
+            }
+            let mut waits = Vec::new();
+            for (org_id, agent_id) in chunk {
+                let (tx, rx) = oneshot::channel();
+                if actor(&engine, *org_id, *agent_id).send(AgentMsg::Warm(tx)) {
+                    waits.push(rx);
+                }
+            }
+            for w in waits {
+                if let Ok(Ok(true)) = tokio::time::timeout(std::time::Duration::from_secs(90), w).await {
+                    warmed += 1;
+                }
+            }
+        }
+        tracing::info!(warmed, candidates = rows.len(), "warming done");
+    });
+}
+
+/// Warming turned off: close every parked CLI (running turns keep theirs).
+#[logged]
+pub fn cool_all(engine: &Engine) {
+    for (_, h) in engine.agents.map.pin().iter() {
+        h.send(AgentMsg::CloseIdle);
+    }
 }
 
 /// Agents running a turn right now, per org.
