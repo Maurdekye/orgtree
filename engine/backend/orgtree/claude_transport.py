@@ -231,9 +231,10 @@ class Rotation:
             for console in child.children(recursive=False):
                 if getattr(console, 'name', lambda: '')().lower() == 'conhost.exe':
                     replacement.add((console.pid, console.create_time()))
+            self.drained_descendants(before | replacement)
             check()
             host.authorize(run)
-            baseline = self.drained_descendants(before | replacement)
+            baseline = self.descendants()
             if baseline - before - replacement:
                 raise RuntimeError('unknown child appeared during Claude transport rotation')
             self.child, self.servers = child, copy.deepcopy(servers)
@@ -275,9 +276,11 @@ class Rotation:
                 self.child.wait(timeout=2)
             except psutil.TimeoutExpired:
                 return False
-        check()
         if self.drained_descendants(self.process_baseline) - self.process_baseline:
             return False  # recheck after the potentially slow drain and exit
+        check()
+        if self.descendants() - self.process_baseline:
+            return False
         with self.lock:
             if self.tainted or self.tool_ids or self.background or self.background_unknown:
                 return False

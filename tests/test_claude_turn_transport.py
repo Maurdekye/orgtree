@@ -233,6 +233,35 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(self.rotation.run, self.two)
         self.assertIn((777, 2), self.rotation.process_baseline)
 
+    def test_new_transport_console_host_is_allowed(self):
+        prior_send = self.rotation.send
+        def send(line):
+            prior_send(line)
+            self.child.children = lambda recursive: [SimpleNamespace(
+                pid=777, create_time=lambda: 2, name=lambda: 'conhost.exe')]
+        self.rotation.send = send
+        self.begin(self.one)
+        self.assertEqual(self.rotation.run, self.one)
+        self.assertIn((777, 2), self.rotation.process_baseline)
+
+    def test_cleanup_worker_must_exit_and_is_not_adopted(self):
+        self.child.children = lambda recursive: [SimpleNamespace(pid=777, create_time=lambda: 1)]
+        def wait(timeout):
+            self.child.children = lambda recursive: []
+        self.child.wait = wait
+        self.assertEqual(self.rotation.drained_descendants(set()), set())
+        self.assertFalse(self.rotation.process_baseline)
+
+    def test_cancel_during_child_exit_still_prevents_parking(self):
+        self.begin(self.one)
+        cancelled = []
+        self.child.wait = lambda timeout: cancelled.append(True)
+        def check():
+            if cancelled:
+                raise RuntimeError('cancelled during exit')
+        with self.assertRaisesRegex(RuntimeError, 'cancelled during exit'):
+            self.end(check=check)
+
     def admission(self, run, ack=True):
         # Execute the production admission block, not a test copy. It includes
         # the former cold-only guard and the current handoff/fallback branch.

@@ -23,8 +23,10 @@ background tasks must be empty, and no extra descendant process may have survive
 its tool result. The engine removes the drained Orgtree child, verifies its exit,
 and parks only the main CLI. Late tool activity taints the process and prevents
 reuse. Descendants are checked again after removal, before reuse from the parked
-state, and after replacement: only the authenticated replacement child may join
-the prior known process set. A new shell cannot become part of the next baseline.
+state, and after replacement: only the authenticated replacement child and its
+own Windows console host may join the prior known process set. Transient CLI
+cleanup workers have two seconds to exit; their identities are never adopted.
+A new surviving shell cannot become part of the next baseline.
 Administrative holds and request cancellation are checked at both ends of
 the handoff. An unsupported control, missing acknowledgement, unknown process
 state, changed tool list, or failed quiescence check discards the process and uses
