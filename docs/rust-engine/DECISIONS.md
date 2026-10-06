@@ -84,6 +84,29 @@ All entries are dated 2026-10-06 unless stated otherwise.
 33. **Brief smoke tests are allowed**; beyond that the user judges for themselves how well the app
     works once it launches.
 
+## Diagnostics
+
+34. **Dense, verbose per-method invocation logging** (user 2026-10-06):
+    - Every method defined in the engine is logged when it is invoked, with its full input and its
+      full output, each capped at 5 KB. The only exceptions are extremely hot calls (run thousands
+      of times per request), such as per-token streaming, per-record feed rebuilding and tiny
+      helpers.
+    - Every line carries a request id prefix, a client id prefix (`user`, `desktop`,
+      `agent:<id>/<name>` or `engine`) and a method invocation id prefix: one id per stack frame,
+      shared between that method's call line and its return line.
+    - Log lines have sub-millisecond timestamps.
+    - Each engine start writes its own log file, named with the start time.
+    - Log files are kept for 30 days.
+    - The style is borrowed from the galaxy-star backend (nick-pc): `LEVEL [time] RQ… EX… message`
+      lines, `module.fn(args)` call lines and `module.fn(...) -> value` return lines (`!!` for an
+      error), REQUEST/HEADERS/RESPONSE lines per HTTP request, `*****` for sensitive fields,
+      multiline messages split into prefixed lines, and daily/size rollover to gzip archives.
+    - A line over 5 KB is brought under the cap like this. First, values (arguments, or the members
+      of a return value) are shortened largest-first to their first 100 characters followed by
+      `[rest omitted: x.y kb]`, until the line fits. If every value is shortened and the line is
+      still too long, values are replaced largest-first by `[omitted: x.y kb]` alone. The line is
+      truncated only as a last resort.
+
 ## Release
 
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is
