@@ -539,7 +539,13 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
   const props = entry.last.props
   return <MovableSurface kind={`desk:${deskIdentity(props.slug, props.node)}`} title={`${props.node.id} · desk`}
     org={props.slug} anchor={slot?.anchor ?? null}
-    sourceBox={props.temporaryPlacement?.sourceBox} exactSourceBox={!!props.temporaryPlacement}
+    sourceBox={props.temporaryPlacement?.sourceBox ?? (() => {
+      // Slots and bare desks use display:contents. Measure the visible frame,
+      // including a pin's title bar, before the shared desk moves documents.
+      const frame = slot?.anchor.closest('.pinwin') ?? slot?.anchor.querySelector('.desk-body')
+      const rect = frame?.getBoundingClientRect()
+      return rect ? {x: rect.x, y: rect.y, w: rect.width, h: rect.height} : null
+    })} exactSourceBox
     onDetached={(v) => {
       entry.detached = v
       if (v) props.temporaryPlacement?.onPopout()
