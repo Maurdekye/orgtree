@@ -1,5 +1,8 @@
 # Known failures — the shared test baseline
 
+> **Legacy for Orgtree 4.0.0 (2026-10-06):** this baseline covers the 3.x Python engine and its
+> suites. 4.0.0 prototype work runs no unit-test suites ([DECISIONS 8, 33](rust-engine/DECISIONS.md)).
+
 **The suite is not green on `main`. Some tests fail on an untouched checkout, on
 this machine, for reasons that have nothing to do with your change.** Until you
 know which ones, "the suite is red" tells you nothing, and you cannot honestly

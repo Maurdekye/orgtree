@@ -1,5 +1,8 @@
 # Verification recipes
 
+> **Legacy for Orgtree 4.0.0 (2026-10-06):** these recipes verify the 3.x engine and desktop.
+> 4.0.0 prototype work runs no unit-test suites ([DECISIONS 8, 33](rust-engine/DECISIONS.md)).
+
 This document is the handoff entry point for W12. The machine-readable source is
 [`verification-recipes.json`](verification-recipes.json); it records the symbolic
 candidate reference, owner, runner, command, controls, and every intentionally skipped or

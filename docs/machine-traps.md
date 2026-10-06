@@ -1,5 +1,10 @@
 # Machine traps and safe commands
 
+> **Orgtree 4.0.0 (2026-10-06):** the shell traps in the table still apply to everyone. The
+> *Test slot and queue* section (the P03 run lock) and the `PYTHONPATH` / import-provenance row
+> are for the 3.x Python engine and its test suites; 4.0.0 prototype work runs no unit-test suites
+> ([DECISIONS 8, 33](rust-engine/DECISIONS.md)). See [AGENTS.md](../AGENTS.md#orgtree-400-rust-engine-read-this-first).
+
 Use an explicit working directory for every command. Work in your own worktree
 under the repository's `.worktrees` folder; dependencies resolve upward. Never
 junction, symlink, or copy `node_modules`. Scope searches to tracked directories:

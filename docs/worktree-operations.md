@@ -1,5 +1,10 @@
 # Safe worktree operations
 
+> **Orgtree 4.0.0 (2026-10-06):** the no-link rules below still apply. For 4.0.0 work, base your
+> worktree on the **local** branch `rust-engine` (not `origin/...`; it is never pushed), for example
+> `git worktree add -b <you>/<topic> .worktrees/<you>-<topic> rust-engine`, and never edit
+> `.worktrees/rust-engine`. See [AGENTS.md](../AGENTS.md#orgtree-400-rust-engine-read-this-first).
+
 ## The rule
 
 **Create your worktree under the repository root.** Then there is nothing else
