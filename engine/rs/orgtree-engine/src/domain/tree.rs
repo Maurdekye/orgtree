@@ -244,6 +244,11 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     } else {
         o.insert("last_error".into(), Value::Null);
     }
+    // a secondary account wears its card whether or not a turn is running
+    o.insert(
+        "serving_account".into(),
+        crate::accounts::serving_card(ctx.accounts, raw.get("account").and_then(Value::as_str), ctx.now).unwrap_or(Value::Null),
+    );
     // runtime defaults: the overlay replaces these while an actor runs
     for (k, v) in idle_runtime() {
         o.entry(k).or_insert(v);
@@ -285,7 +290,6 @@ pub fn idle_runtime() -> Vec<(String, Value)> {
         ("bg_tasks".into(), json!(0)),
         ("activity".into(), json!({ "phase": "idle" })),
         ("cache_forecast".into(), Value::Null),
-        ("serving_account".into(), Value::Null),
         ("ran_as_label".into(), Value::Null),
     ]
 }

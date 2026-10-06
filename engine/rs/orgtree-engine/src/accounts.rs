@@ -25,6 +25,8 @@ pub struct AccountInfo {
     /// pool → limited until
     pub marks: HashMap<String, (DateTime<Utc>, String)>,
     pub ord: i64,
+    /// the row points at the provider's own sign-in (decided at load)
+    pub ambient: bool,
 }
 
 #[logged]
@@ -127,6 +129,7 @@ impl Accounts {
                     auth: r.get(6),
                     config_dir: r.get(7),
                     enabled: r.get(8),
+                    ambient: ambient_dir(&r.get::<_, String>(1), r.get::<_, Option<String>>(7).as_deref()),
                     origin_org: r.get(9),
                     marks: HashMap::new(),
                     ord: r.get::<_, i32>(10) as i64,
@@ -183,14 +186,38 @@ pub fn default_home(provider: &str) -> Option<std::path::PathBuf> {
     }
 }
 
+/// Whether a config folder is the provider's own home (the host sign-in).
 #[logged]
-pub fn is_ambient(a: &AccountInfo) -> bool {
-    let (Some(dir), Some(home)) = (a.config_dir.as_deref(), default_home(&a.provider)) else { return false };
+pub fn ambient_dir(provider: &str, config_dir: Option<&str>) -> bool {
+    let (Some(dir), Some(home)) = (config_dir, default_home(provider)) else { return false };
     let canon = |p: &std::path::Path| std::fs::canonicalize(p).ok();
     match (canon(std::path::Path::new(dir)), canon(&home)) {
         (Some(x), Some(y)) => x == y,
         _ => false,
     }
+}
+
+#[logged]
+pub fn is_ambient(a: &AccountInfo) -> bool {
+    a.ambient
+}
+
+/// The account card an agent on a secondary account wears on its card and
+/// desk header (user ruling 2026-10-02: "an account card only shows up when
+/// an agent is on a secondary account"); None on the provider's own sign-in.
+/// Registry metadata only, never a credential.
+#[nolog]
+pub fn serving_card(view: &AccountsView, account: Option<&str>, now: DateTime<Utc>) -> Option<Value> {
+    let a = view.get(account?)?;
+    if a.ambient {
+        return None;
+    }
+    Some(json!({
+        "id": a.id, "display": a.id, "provider": a.provider,
+        "label": if a.label.is_empty() { Value::Null } else { json!(a.label) },
+        "email": a.email, "auth": a.auth,
+        "state": if a.limited(now).is_some() { "limited" } else { "ready" },
+    }))
 }
 
 /// Whether an account may serve turns (App settings › Providers): the
