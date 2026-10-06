@@ -31,6 +31,7 @@ test('acknowledged local move starts catch-up without the coalesce delay or dupl
   r.tick(20);assert.deepEqual(r.reads,[])
   r.answer(new Response(JSON.stringify({ok:true}),{status:200}))
   assert.deepEqual(await result,{ok:true})
+  r.tick(0)
   assert.deepEqual(r.reads,[20])
   r.tick(120);assert.deepEqual(r.reads,[20])
 })
@@ -40,6 +41,7 @@ test('move acknowledgment flushes an older pending bump once',async t => {
   bumpLive();r.tick(30)
   const done=runOp('o',{op:'move',node:'a',new_parent:'b'})
   r.answer(new Response('{}',{status:200}));await done
+  r.tick(0)
   assert.deepEqual(r.reads,[30]);r.tick(120);assert.deepEqual(r.reads,[30])
 })
 
@@ -47,6 +49,7 @@ test('later event still refreshes after a fast move',async t => {
   const r=rig(t)
   const done=runOp('o',{op:'move',node:'a',new_parent:null})
   r.answer(new Response('{}',{status:200}));await done
+  r.tick(0)
   bumpLive();r.tick(119);assert.deepEqual(r.reads,[0])
   r.tick(1);assert.deepEqual(r.reads,[0,120])
 })

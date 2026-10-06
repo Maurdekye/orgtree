@@ -31,18 +31,23 @@ export const onLiveBump = (fn: Fn): (() => void) => {
 
 let timer: ReturnType<typeof setTimeout> | null = null
 
-/** Deliver a pending bump now, cancelling its delayed duplicate.
+const deliverLive = (): void => {
+  timer = null
+  for (const fn of [...subs]) fn()
+}
+
+/** Deliver a pending bump next task, cancelling its delayed duplicate.
  * A confirmed local move uses this after its response is parsed. Other
  * events still coalesce; a later event schedules a fresh refresh. */
 export const flushLive = (): void => {
   if (timer === null) return
   clearTimeout(timer)
-  timer = null
-  for (const fn of [...subs]) fn()
+  // Keep subscriber work outside the mutation promise, as on the normal bus.
+  timer = setTimeout(deliverLive, 0)
 }
 
 /** Wake every subscribed surface. Bursts share one refresh after 120 ms. */
 export const bumpLive = (): void => {
   if (timer) return
-  timer = setTimeout(flushLive, 120)
+  timer = setTimeout(deliverLive, 120)
 }

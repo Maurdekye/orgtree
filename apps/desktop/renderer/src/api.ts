@@ -356,7 +356,7 @@ export const getNodeDetail = (slug: string, id: string): Promise<NodeDetail> =>
 export const deleteOrg = (slug: string): Promise<{ ok: boolean }> =>
   req(`/api/orgs/${slug}`, { method: 'DELETE' })
 export const runOp = (slug: string, body: OpRequest): Promise<OpResult> =>
-  req(`/api/orgs/${slug}/ops`, {
+  req<OpResult>(`/api/orgs/${slug}/ops`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
