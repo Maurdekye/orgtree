@@ -74,7 +74,7 @@ function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
         # Bound ambiguity to possible installed host/desktop images or a command
         # naming this installation. Unreadable unrelated Windows images are not
         # ours. Known descendants remain tracked by PID/creation date separately.
-        $candidate=($null -eq $name -or -not $name.Value -or $name.Value -in @('python.exe','pythonw.exe','Orgtree.exe'))
+        $candidate=($null -eq $name -or -not $name.Value -or $name.Value -in @('python.exe','pythonw.exe','Orgtree.exe','orgtree-engine.exe'))
         if ($null -ne $command -and $command.Value -and
             $command.Value.IndexOf($InstallDir+'\',[StringComparison]::OrdinalIgnoreCase) -ge 0) { $candidate=$true }
         if ($candidate) {
@@ -82,8 +82,20 @@ function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
         }
     }
 }
+# Orgtree 4: the Rust engine's own `host` mode is the boot supervisor when
+# the build carries the binary; otherwise the Python service host. Python /
+# Host name the task's Command and (quoted) Arguments either way.
+function Get-BootPathForms([string]$InstallDir) {
+    $engine = Join-Path $InstallDir 'resources\engine'
+    $native = @{ Python=(Join-Path $engine 'orgtree-engine.exe'); Host='host'; Engine=$engine; Files=@((Join-Path $engine 'orgtree-engine.exe')) }
+    $legacy = @{ Python=(Join-Path $engine 'runtime\python.exe'); Host=(Join-Path $engine 'service_host.py'); Engine=$engine
+                 Files=@((Join-Path $engine 'runtime\python.exe'), (Join-Path $engine 'service_host.py')) }
+    return @($native, $legacy)
+}
 function Get-BootPaths([string]$InstallDir) {
-    return @{ Python=(Join-Path $InstallDir 'resources\engine\runtime\python.exe'); Host=(Join-Path $InstallDir 'resources\engine\service_host.py'); Engine=(Join-Path $InstallDir 'resources\engine') }
+    $forms = Get-BootPathForms $InstallDir
+    if ([IO.File]::Exists($forms[0].Python)) { return $forms[0] }
+    return $forms[1]
 }
 function Assert-BootRecord($Record, [string]$InstallDir) {
     if ($null -eq $Record -or (Get-BootCanonicalPath $Record.InstallDir) -ine $InstallDir) { throw 'Boot ownership does not match this installation path.' }
@@ -105,19 +117,25 @@ function Assert-OwnedBootTask($Task, $Record, [string]$InstallDir) {
     $xml = Read-BootXml $Task.Xml
     $ns = [Xml.XmlNamespaceManager]::new($xml.NameTable)
     $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
-    $paths = Get-BootPaths $InstallDir
-    $expected = @{
-        '/t:Task/t:RegistrationInfo/t:Description'=(Get-BootMarker $Record)
-        '/t:Task/t:Principals/t:Principal/t:UserId'=$Record.OperatorSid
-        '/t:Task/t:Principals/t:Principal/t:LogonType'='S4U'
-        '/t:Task/t:Actions/t:Exec/t:Command'=$paths.Python
-        '/t:Task/t:Actions/t:Exec/t:Arguments'=('"'+$paths.Host+'"')
-        '/t:Task/t:Actions/t:Exec/t:WorkingDirectory'=$paths.Engine
+    $matched = $false
+    $lastKey = ''
+    foreach ($paths in (Get-BootPathForms $InstallDir)) {
+        $expected = @{
+            '/t:Task/t:RegistrationInfo/t:Description'=(Get-BootMarker $Record)
+            '/t:Task/t:Principals/t:Principal/t:UserId'=$Record.OperatorSid
+            '/t:Task/t:Principals/t:Principal/t:LogonType'='S4U'
+            '/t:Task/t:Actions/t:Exec/t:Command'=$paths.Python
+            '/t:Task/t:Actions/t:Exec/t:Arguments'=('"'+$paths.Host+'"')
+            '/t:Task/t:Actions/t:Exec/t:WorkingDirectory'=$paths.Engine
+        }
+        $ok = $true
+        foreach ($pair in $expected.GetEnumerator()) {
+            $nodes = $xml.SelectNodes($pair.Key, $ns)
+            if ($nodes.Count -ne 1 -or $nodes[0].InnerText -cne $pair.Value) { $ok = $false; $lastKey = $pair.Key; break }
+        }
+        if ($ok) { $matched = $true; break }
     }
-    foreach ($pair in $expected.GetEnumerator()) {
-        $nodes = $xml.SelectNodes($pair.Key, $ns)
-        if ($nodes.Count -ne 1 -or $nodes[0].InnerText -cne $pair.Value) { throw "Refusing foreign or changed boot task ($($pair.Key))." }
-    }
+    if (-not $matched) { throw "Refusing foreign or changed boot task ($lastKey)." }
     # Task Scheduler omits the serialized LeastPrivilege default. Verify the
     # actual COM principal too, rather than accepting a missing security value.
     $runLevel=$xml.SelectNodes('/t:Task/t:Principals/t:Principal/t:RunLevel',$ns)
@@ -261,7 +279,7 @@ function Invoke-BootLifecycle {
         'Register' {
             Stop-OwnedBootTask $folder $record $InstallDir
             $paths = Get-BootPaths $InstallDir
-            foreach ($path in @($paths.Python,$paths.Host)) { if (-not [IO.File]::Exists($path)) { throw "Missing installed engine file: $path" } }
+            foreach ($path in $paths.Files) { if (-not [IO.File]::Exists($path)) { throw "Missing installed engine file: $path" } }
             $task = Find-BootTask $folder
             # DONT_ADD_PRINCIPAL_ACE preserves the explicit read/execute-only operator ACL.
             $flags = 18 # TASK_CREATE | TASK_DONT_ADD_PRINCIPAL_ACE: never overwrite a collision.
