@@ -18,7 +18,7 @@ import {
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
-  setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
@@ -825,7 +825,17 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <DefaultsForm toast={toast} onDone={close} />
     </SettingsTabPanel>
     <SettingsTabPanel id="developer" idBase="app-settings" active={tab === 'developer'}>
-      <SetGroup title="Debug"><EngineDebugToggle /></SetGroup>
+      <SetGroup title="Debug">
+        <EngineDebugToggle />
+        {runtime?.verbose_logging !== undefined &&
+          <SetToggle label="verbose engine logging" checked={runtime.verbose_logging}
+            disabled={busy || runtime.verbose_logging_pinned === true}
+            onChange={v => changeRuntime(setVerboseLogging, v)}
+            hint={runtime.verbose_logging_pinned
+              ? 'Fixed for this run by ORGTREE_LOG_VERBOSE.'
+              : 'Writes every engine method call and return, and each request’s headers, to the engine log. '
+                + 'Off: requests, responses, warnings and errors only. Takes effect at once.'} />}
+      </SetGroup>
     </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }

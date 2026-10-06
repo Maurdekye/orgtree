@@ -1621,6 +1621,10 @@ export interface RuntimeSettingsPayload {
   /** Stored turn limits in seconds, 0 = off (defaults 86400 and 600). */
   turn_timeout_s?: number
   turn_idle_s?: number
+  /** Verbose engine logging (every method call and return, request
+   *  headers); live. Pinned when ORGTREE_LOG_VERBOSE set it for this run. */
+  verbose_logging?: boolean
+  verbose_logging_pinned?: boolean
   turn_slots?: { limit: number; held: number; waiting: number
     waiting_by_org: Record<string, number> }
 }

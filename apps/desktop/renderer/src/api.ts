@@ -899,6 +899,14 @@ export const setWorkingCheckupsEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ working_checkups_enabled: enabled }),
   })
+export const setVerboseLogging = (
+  enabled: boolean,
+): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ verbose_logging: enabled }),
+  })
 export const setWaitForMcpToolsEnabled = (
   enabled: boolean,
 ): Promise<RuntimeSettingsPayload> =>
