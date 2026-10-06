@@ -374,7 +374,13 @@ pub async fn antigravity(engine: &Engine, force: bool) -> Value {
     };
     out["account"] = json!("google/primary");
     out["provider"] = json!("google");
-    out["label"] = json!("signed-in account");
+    match out["email"].as_str().map(str::to_string) {
+        Some(email) => {
+            out["label"] = json!(email);
+            crate::providers::set_agy_email(engine, &email);
+        }
+        None => out["label"] = json!("signed-in account"),
+    }
     out["observed_at"] = json!(iso(Utc::now()));
     crate::account_marks::profile_usage(engine, "google", None, observed, &out).await;
     engine.usage.put("agy", &out);
@@ -401,9 +407,12 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
     }
     let dir = engine.cfg.path("diagnostics").join("agy-probe");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // a fresh log per probe: it names the account the CLI signed in as
+    let log = dir.join("usage-probe.log");
+    let _ = std::fs::remove_file(&log);
     let mut cmd = tokio::process::Command::new(exe);
     cmd.arg("--log-file")
-        .arg(dir.join("usage-probe.log"))
+        .arg(&log)
         .args(["--print", "/usage", "--output-format", "json", "--print-timeout", "20s"])
         .current_dir(&dir)
         .stdin(std::process::Stdio::null())
@@ -461,7 +470,25 @@ async fn agy_usage(engine: &Engine, exe: &Path) -> Result<Value, String> {
         out["tier"] = json!(t);
         out["plan"] = json!(t);
     }
+    if let Some(email) = std::fs::read_to_string(&log).ok().and_then(|t| agy_log_email(&t)) {
+        out["email"] = json!(email);
+    }
     Ok(out)
+}
+
+/// The account an Antigravity CLI run signed in as, from its own log (as 3.x
+/// read it): "authenticated successfully as <email>", or the auth result line.
+#[logged]
+fn agy_log_email(log: &str) -> Option<String> {
+    static RES: std::sync::LazyLock<[regex::Regex; 2]> = std::sync::LazyLock::new(|| {
+        [
+            regex::Regex::new(r"authenticated successfully as (\S+@\S+)").unwrap(),
+            regex::Regex::new(r"(?i)applyAuthResult:\s*email=([^,\s]+)").unwrap(),
+        ]
+    });
+    RES.iter()
+        .find_map(|re| re.captures(log).map(|c| c[1].trim_end_matches(['.', ',', ';', ')']).to_string()))
+        .filter(|e| e.contains('@'))
 }
 
 // ------------------------------------------------------------ OpenRouter
@@ -680,4 +707,140 @@ async fn publish_due(engine: &Engine, last: &mut std::collections::HashMap<&'sta
         engine.app.set_value("registered_usage", Value::Object(map));
         last.insert("registered", Instant::now());
     }
+}
+
+// ------------------------------------------------------------ the turn's usage board
+
+/// a reading older than this is a memory, not a measurement (3.x MAX_EVIDENCE_AGE)
+const BOARD_FRESH: Duration = Duration::from_secs(900);
+
+#[nolog]
+fn countdown(secs: i64) -> String {
+    let s = secs.max(0);
+    let (d, h, m) = (s / 86_400, (s % 86_400) / 3600, (s % 3600) / 60);
+    if d > 0 {
+        format!("{d}d{h}h")
+    } else if h > 0 {
+        format!("{h}h{m}m")
+    } else {
+        format!("{m}m")
+    }
+}
+
+/// The PROVIDER USAGE block a turn starts with (as in 3.x): every account's
+/// cached usage windows, the agent's own account starred, and which account
+/// its turns draw on. Cache-only: it never fetches. Returns the text and a
+/// key of what changed materially (the readings' ages left out), so an
+/// unchanged board can be sent as one line.
+#[logged]
+pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: &str) -> (String, String) {
+    let now = Utc::now();
+    let view = engine.accounts.view();
+    let pin = engine.usage.cache.pin();
+    let own = account.and_then(|a| view.get(a)).filter(|a| !crate::accounts::is_ambient(a)).map(|a| a.id.clone());
+    let selected_lane = match (provider, &own) {
+        (_, Some(id)) => id.clone(),
+        ("openai", None) => "openai/primary".into(),
+        ("google", None) => "google/primary".into(),
+        ("openrouter", None) => "openrouter".into(),
+        _ => "claude/primary".into(),
+    };
+    // (lane name, cache key, email)
+    let mut lanes: Vec<(String, String, Option<String>)> = vec![("claude/primary".into(), claude_key(None), None)];
+    let registered = view.all();
+    for a in registered.iter().filter(|a| a.provider == "claude" && !a.is_apikey() && !crate::accounts::is_ambient(a)) {
+        lanes.push((a.id.clone(), claude_key(a.config_dir.as_deref()), a.email.clone()));
+    }
+    lanes.push(("openai/primary".into(), codex_key(None), None));
+    for a in registered.iter().filter(|a| a.provider == "openai" && !a.is_apikey() && !crate::accounts::is_ambient(a)) {
+        lanes.push((a.id.clone(), codex_key(a.config_dir.as_deref()), a.email.clone()));
+    }
+    lanes.push(("google/primary".into(), "agy".into(), None));
+    if crate::providers::openrouter_key_set(engine) {
+        lanes.push(("openrouter".into(), "openrouter".into(), None));
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut key_lines: Vec<String> = Vec::new();
+    let mut roster: Vec<String> = Vec::new();
+    for (lane, key, email) in &lanes {
+        let star = if *lane == selected_lane { "*" } else { "" };
+        let Some(c) = pin.get(key) else {
+            if star == "*" {
+                lines.push(format!("{lane}{star} | usage | - | - | - | - | not read yet"));
+                key_lines.push(format!("{lane}|none"));
+            }
+            continue;
+        };
+        let email = email.clone().or_else(|| c.data["email"].as_str().map(str::to_string));
+        roster.push(match &email {
+            Some(e) => format!("{lane} ({e})"),
+            None => lane.clone(),
+        });
+        let age = c.at.elapsed();
+        let observed = format!(
+            "{} ({}, {})",
+            iso(now - chrono::Duration::from_std(age).unwrap_or_default()),
+            countdown(age.as_secs() as i64),
+            if age < BOARD_FRESH { "fresh" } else { "stale" }
+        );
+        let marked = view.get(lane).and_then(|a| a.limited(now)).is_some();
+        if !c.data["available"].as_bool().unwrap_or(false) {
+            let why = c.data["error"].as_str().map(|e| gist(e, 60)).unwrap_or_else(|| "no reading".into());
+            lines.push(format!("{lane}{star} | usage | - | - | - | {observed} | unavailable ({why})"));
+            key_lines.push(format!("{lane}|unavailable"));
+            continue;
+        }
+        for l in c.data["limits"].as_array().cloned().unwrap_or_default() {
+            // the provider's own window name where it gives one
+            let window = match (l["label"].as_str().filter(|s| !s.trim().is_empty()), l["kind"].as_str().unwrap_or("usage")) {
+                (Some(label), _) => gist(label, 48),
+                (None, "session") => "session".to_string(),
+                (None, "weekly_all") => "weekly".to_string(),
+                (None, k) => k.replace('_', " "),
+            };
+            let pct = l["percent"].as_f64();
+            let used = pct.map(|p| format!("{}%", p.round() as i64)).unwrap_or_else(|| "-".into());
+            let amount = if pct.is_none() { l["label"].as_str().map(|s| gist(s, 60)).unwrap_or_else(|| "-".into()) } else { "-".into() };
+            let reset = match l["resets_at"].as_str().and_then(crate::util::parse_ts) {
+                Some(t) => format!("{} (in {})", iso(t), countdown((t - now).num_seconds())),
+                None => "-".into(),
+            };
+            // a window with a percentage is spent at 100%; one without (a prepaid
+            // balance) says so itself
+            let spent = match pct {
+                Some(p) => p >= 100.0,
+                None => l["is_active"].as_bool().unwrap_or(false),
+            };
+            let state = if spent {
+                "limited"
+            } else if marked {
+                "limited (marked)"
+            } else {
+                "ok"
+            };
+            lines.push(format!("{lane}{star} | {window} | {used} | {amount} | {reset} | {observed} | {state}"));
+            // the material part: a 5% band and the reset hour, never the reading's age
+            let band = pct.map(|p| ((p / 5.0).floor() * 5.0) as i64).map(|b| b.to_string()).unwrap_or_else(|| "-".into());
+            let hour = l["resets_at"].as_str().map(|r| r.chars().take(13).collect::<String>()).unwrap_or_default();
+            key_lines.push(format!("{lane}|{window}|{band}|{hour}|{state}"));
+        }
+    }
+    for a in registered.iter().filter(|a| a.is_apikey()) {
+        roster.push(format!("{} (API key, metered)", a.id));
+    }
+    let header = format!("[PROVIDER USAGE — current as of {}; dynamic/cache-only]", iso(now));
+    let mut text = header;
+    if !roster.is_empty() {
+        text.push_str(&format!("\n[ACCOUNTS] {}", roster.join(" · ")));
+    }
+    text.push_str("\naccount | window | used | amount | reset (countdown) | observed (age,freshness) | state");
+    for l in &lines {
+        text.push('\n');
+        text.push_str(l);
+    }
+    text.push_str("\n* your account for this turn; - = not authoritatively reported.");
+    text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above."));
+    text.push_str("\n[END PROVIDER USAGE]");
+    let key = format!("{selected_lane}\n{}\n{}", roster.join("|"), key_lines.join("\n"));
+    (text, key)
 }

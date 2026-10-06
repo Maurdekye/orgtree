@@ -381,6 +381,8 @@ struct Actor {
     cost_seen: f64,
     /// Antigravity: the private folder its steer hook reads mid-turn mail from
     agy_steer_dir: Option<PathBuf>,
+    /// the usage board last sent in full: (session, material key, its number)
+    board_sent: Option<(Option<String>, String, u32)>,
     provider: String,
     /// Codex: the thread's latest cumulative token counts
     codex_total: Option<Value>,
@@ -442,6 +444,7 @@ impl Actor {
             rate_limit: None,
             cost_seen: row.get(1),
             agy_steer_dir: None,
+            board_sent: None,
             provider: catalog::provider_of(&tier).to_string(),
             codex_total: None,
         })
@@ -1888,7 +1891,21 @@ impl Actor {
 
     /// Fast-changing facts for the turn's opening message (kept out of the
     /// system prompt so the provider's cache survives hires and status changes).
-    async fn turn_context(&self, ctx: &Ctx) -> String {
+    /// The PROVIDER USAGE block for this turn: in full (numbered) when it
+    /// changed or the session is new, else one line pointing at the last one.
+    fn usage_block(&mut self, ctx: &Ctx) -> String {
+        let (text, key) = crate::usage::turn_board(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.tier);
+        if let Some((session, last, seq)) = &self.board_sent {
+            if *session == ctx.session_id && *last == key {
+                return format!("[PROVIDER USAGE #{seq} — unchanged since #{seq} earlier in this conversation; read the numbers there]");
+            }
+        }
+        let seq = self.board_sent.as_ref().map(|(_, _, n)| n + 1).unwrap_or(1);
+        self.board_sent = Some((ctx.session_id.clone(), key, seq));
+        text.replacen("[PROVIDER USAGE", &format!("[PROVIDER USAGE #{seq}"), 1)
+    }
+
+    async fn turn_context(&mut self, ctx: &Ctx) -> String {
         let mut s = format!("[Orgtree] {} · you are {}", now_iso(), ctx.name);
         let Ok(client) = self.engine.db.get().await else { return s };
         if let Ok(rows) = client
@@ -1911,6 +1928,9 @@ impl Actor {
                 s.push_str(&list.join(", "));
             }
         }
+        drop(client);
+        s.push_str("\n\n");
+        s.push_str(&self.usage_block(ctx));
         s
     }
 

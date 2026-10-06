@@ -232,19 +232,41 @@ pub async fn discover(engine: &Engine) {
             CliStatus { installed: true, version: version_of(&p).await, path: Some(p), source: src, connected, email, kind };
     }
     if let Some((p, src)) = locate_agy() {
+        // the email comes from the usage probe's own CLI log (set_agy_email)
+        let prev = engine.providers.state.load().agy.clone();
         st.agy = CliStatus {
             installed: true,
             version: version_of(&p).await,
             path: Some(p),
             source: src,
             connected: true,
-            email: None,
-            kind: None,
+            email: prev.email,
+            kind: prev.kind,
         };
     }
     st.openrouter = openrouter_favorites(engine);
     let prev_models = engine.providers.state.load().agy_models.clone();
     st.agy_models = prev_models;
+    engine.providers.state.store(Arc::new(st));
+    publish(engine);
+}
+
+/// Whether an OpenRouter key is stored (the lane shows on the usage board).
+#[nolog]
+pub fn openrouter_key_set(engine: &Engine) -> bool {
+    engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// The Antigravity sign-in's email, as its usage probe's log names it.
+#[logged]
+pub fn set_agy_email(engine: &Engine, email: &str) {
+    let cur = engine.providers.state.load_full();
+    if cur.agy.email.as_deref() == Some(email) {
+        return;
+    }
+    let mut st = (*cur).clone();
+    st.agy.email = Some(email.to_string());
+    st.agy.kind = Some("oauth".into());
     engine.providers.state.store(Arc::new(st));
     publish(engine);
 }
