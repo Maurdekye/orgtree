@@ -3,6 +3,7 @@
 
 pub mod mail;
 pub mod notices;
+pub mod ops;
 pub mod orginbox;
 pub mod scope;
 pub mod tree;

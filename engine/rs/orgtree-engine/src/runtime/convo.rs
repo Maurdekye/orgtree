@@ -145,6 +145,53 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
     })
 }
 
+/// A plain-text digest of an agent's recent conversation (what it was asked,
+/// what it said, the tools it used): seeds a fresh session.
+#[logged]
+pub async fn digest(client: &impl tokio_postgres::GenericClient, agent_id: i64, last: i64) -> Result<String> {
+    let rows = client
+        .query("SELECT body FROM ot.convo WHERE agent_id = $1 ORDER BY seq DESC LIMIT $2", &[&agent_id, &last])
+        .await?;
+    let mut parts: Vec<String> = Vec::new();
+    for r in rows.iter().rev() {
+        let b: Value = r.get(0);
+        let role = b["role"].as_str().unwrap_or("");
+        let text = crate::util::gist(b["text"].as_str().unwrap_or(""), 1200);
+        match role {
+            "user" => {
+                let from = b
+                    .pointer("/segments/0/rows/0/from")
+                    .and_then(Value::as_str)
+                    .unwrap_or("mail");
+                parts.push(format!("[{from}] {text}"));
+            }
+            "assistant" => {
+                let tools: Vec<String> = b["tools"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|t| format!("{} {}", t["name"].as_str().unwrap_or(""), t["arg"].as_str().unwrap_or("")))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !text.is_empty() {
+                    parts.push(format!("[you] {text}"));
+                }
+                if !tools.is_empty() {
+                    parts.push(format!("[your tools] {}", crate::util::gist(&tools.join("; "), 600)));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = String::from("Recent conversation (oldest first):\n");
+    for p in parts {
+        out.push_str(&p);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
 /// Shorten a tool result for display; the agent saw it whole.
 #[logged]
 pub fn clip(text: &str, max: usize) -> (String, bool) {

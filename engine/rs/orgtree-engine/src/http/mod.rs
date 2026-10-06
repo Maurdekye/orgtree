@@ -4,6 +4,7 @@
 pub mod desktop;
 pub mod error;
 pub mod nodes;
+pub mod orgops;
 pub mod orgs;
 pub mod tree;
 
@@ -35,8 +36,13 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/app/records", get(orgs::app_records))
         .route("/api/app/ws", get(crate::appfeed::app_ws))
         // organizations
-        .route("/api/orgs", get(orgs::list))
-        .route("/api/orgs/{slug}", get(orgs::tree))
+        .route("/api/orgs", get(orgs::list).post(orgops::create))
+        .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
+        .route("/api/orgs/{slug}/retry", post(orgops::retry))
+        .route("/api/orgs/{slug}/ops", post(orgops::run_op))
+        .route("/api/orgs/{slug}/dissolve-all", post(orgops::dissolve_all))
+        .route("/api/orgs/{slug}/killswitch", post(orgops::killswitch))
+        .route("/api/orgs/{slug}/killswitch/release", post(orgops::killswitch_release))
         .route("/api/orgs/{slug}/ws", get(crate::feed::socket::org_ws))
         .route("/api/orgs/{slug}/records", get(orgs::records))
         .route("/api/orgs/{slug}/changes", get(orgs::changes))
@@ -61,6 +67,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/continue-on", post(nodes::continue_on))
         .route("/api/orgs/{slug}/nodes/{nid}/remote-control", post(nodes::remote_control))
         .route("/api/orgs/{slug}/nodes/{nid}/scope", post(nodes::set_scope))
+        .route("/api/orgs/{slug}/nodes/{nid}/reorder", post(orgops::reorder))
+        .route("/api/orgs/{slug}/nodes/{nid}/account", post(orgops::account))
         .route(
             "/api/orgs/{slug}/nodes/{nid}/upload",
             post(nodes::upload).layer(axum::extract::DefaultBodyLimit::max(2 << 30)),
