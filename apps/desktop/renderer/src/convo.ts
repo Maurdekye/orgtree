@@ -29,6 +29,7 @@ import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useContext, useEffect, useSyncExternalStore } from 'react'
 import { OrgRecordContext } from './recordsession'
 import { onAgentPanelEvent } from './recordevents'
+import { watchNode } from './streamrooms'
 
 /** Only the newest CHAT_WINDOW rows are fetched and rendered; scrolling to the
  *  top pages another window in. The cost that bites is DOM size — every row
@@ -653,6 +654,8 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null)
     e.eventDriven = eventDriven
     if (eventDriven && e.poll) { clearTimeout(e.poll); e.poll = null }
     e.subs.add(cb)
+    // the engine streams this node's tokens only to windows in its room
+    const unwatch = watchNode(slug, nid)
     beat(k, slug, nid)          // someone is watching -> keep it fresh
     // an event marked this node stale while nobody was looking — settle the
     // deferred refetch now, immediately, not on the next heartbeat tick
@@ -660,6 +663,7 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null)
     // the thinking clock parks while unwatched (see startClock) — resume it
     if (e.thinkT0) startClock(k, e)
     return () => {
+      unwatch()
       e.subs.delete(cb)
       if (!e.subs.size) {
         if (e.poll) { clearTimeout(e.poll); e.poll = null }

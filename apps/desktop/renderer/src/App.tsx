@@ -132,6 +132,7 @@ import type {
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
 import { EngineDebugPanel, setEngineDebugOn, useEngineDebug } from './canvas/enginedebug'
+import { bindRoomSocket } from './streamrooms'
 
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
@@ -1061,9 +1062,12 @@ export default function App() {
       resetSync(syncRef.current)
       if (!recordController.current) refreshTree(slug)
       const opened = (socket: WebSocket) => {
-        connection = recordSocket.current.open(message => {
+        const send = (message: unknown) => {
           if (!dead && socket === currentSocket && socket.readyState === 1) socket.send(JSON.stringify(message))
-        })
+        }
+        connection = recordSocket.current.open(send)
+        // rejoin this window's transcript rooms on every (re)connect
+        bindRoomSocket(slug, send)
       }
       const socket: WebSocket = openWs(slug, ev => {
         if (!dead && socket === currentSocket) {
@@ -1074,6 +1078,7 @@ export default function App() {
         if (socket !== currentSocket) return
         if (connection !== null) recordSocket.current.close(connection)
         connection = null
+        bindRoomSocket(slug, null)
         if (!dead) timer = setTimeout(connect, 1500)
       }, () => {
         if (dead || socket !== currentSocket) return
@@ -1168,7 +1173,7 @@ export default function App() {
       bumpLive()
     }
     connect()
-    return () => { dead = true; clearTimeout(timer!); wsRef.current?.close() }
+    return () => { dead = true; clearTimeout(timer!); bindRoomSocket(slug, null); wsRef.current?.close() }
   }, [slug, refreshTree])
 
   // op fires only from the active-org canvas — slug is set there (hence !)
