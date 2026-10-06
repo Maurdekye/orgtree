@@ -100,7 +100,7 @@ test('each full gate names exactly one suite', () => {
 test('the full profile refuses an untrustworthy baseline but tolerates the code having moved on', () => {
   for (const check of fullChecks()) {
     assert.ok(check.command.includes('--require-usable'), `${check.gate} would trust a baseline from another machine`)
-    assert.equal(check.command[check.command.indexOf('--max-age-days') + 1], '7', `${check.gate} sets no age ceiling`)
+    assert.equal(check.command[check.command.indexOf('--max-age-days') + 1], '14', `${check.gate} sets no age ceiling`)
     // --require-fresh refuses on ANY drift, including the code having moved past
     // the recorded commit — which is the normal state of a release candidate, so
     // a gate carrying it would refuse every run. Measured 2026-09-17: a baseline
