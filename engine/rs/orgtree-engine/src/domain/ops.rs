@@ -1098,17 +1098,11 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
     let Some(session) = n.session.clone() else {
         refuse!(Conflict, "{} has no conversation to compact yet", n.name);
     };
-    let digest = crate::runtime::convo::digest(tx, n.id, 40).await?;
-    let status: Option<Value> = tx.query_one("SELECT last_status FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
-    let mut text = String::from(
-        "[Orgtree] Your context was compacted: you now run on a fresh session. Here is what you were working on.\n\n",
-    );
-    if let Some(s) = status.as_ref().and_then(|s| s.get("summary")).and_then(Value::as_str) {
-        text.push_str(&format!("Your last status: {s}\n\n"));
-    }
-    text.push_str(&digest);
+    // the next turn starts with the handoff (last status, recent conversation)
+    // and the whole conversation is saved in the agent's folder (sign-off I2)
     tx.execute(
         "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true, compacted_unrun = true,
+                extra = jsonb_set(extra, '{handoff_due}', to_jsonb('your context was compacted (cheap compact)'::text)),
                 row_version = row_version + 1 WHERE id = $1",
         &[&n.id],
     )
@@ -1116,13 +1110,6 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
     tx.execute(
         "UPDATE ot.agent_sessions SET ended_at = now(), end_reason = 'cheap compact' WHERE agent_id = $1 AND session_id = $2",
         &[&n.id, &session],
-    )
-    .await?;
-    let uid = crate::util::uid("m");
-    tx.execute(
-        "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, state)
-         VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', true, $5, 'pending')",
-        &[&uid, &org.id, &n.id, &n.name, &text],
     )
     .await?;
     event(tx, org.id, "cheap_compact", actor, Some(n.id), json!({ "node": n.name, "old_session": session })).await?;

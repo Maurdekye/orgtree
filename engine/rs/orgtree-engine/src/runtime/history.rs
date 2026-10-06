@@ -1,12 +1,18 @@
-//! The recent history of an agent imported from 3.x (ledger C5): the first
-//! time its desk is read, its Claude sessions' own transcripts
-//! (`<config>/projects/<cwd>/<session>.jsonl`) are turned into desk rows once.
+//! The history of an agent imported from 3.x (ledger C5, sign-off: "retain as
+//! much conversation history across the upgrade as possible for all
+//! providers"): the first time its desk is read, every session it had is
+//! turned into desk rows once — a Claude session from the CLI's own
+//! transcript (`<config>/projects/<cwd>/<session>.jsonl`), and any session
+//! (Codex threads and Antigravity conversations included) from 3.x's own
+//! transcript store (`transcript-records.sqlite3`, read-only), which kept
+//! every provider's records in the Claude transcript shape.
 //!
 //! The rows go in below the actor's range (seq ≤ 0, ver 0): the actor stays
 //! the only writer of seq ≥ 1, so the two never collide, and the imported
 //! rows sort before everything this engine recorded. Only transcript entries
 //! older than the agent's first turn here are taken (the same file can carry
-//! those turns too). Codex and Antigravity agents keep an empty history.
+//! those turns too). Agents imported by an earlier build (Claude only, fewer
+//! rows) are imported again, once, replacing their earlier imported rows.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
@@ -20,20 +26,23 @@ use crate::engine::Engine;
 use crate::runtime::convo;
 
 /// the newest rows kept from the old transcripts
-const KEEP_ROWS: usize = 600;
+const KEEP_ROWS: usize = 5000;
 /// only the tail of a huge transcript is read
-const TAIL_BYTES: u64 = 64 * 1024 * 1024;
+const TAIL_BYTES: u64 = 256 * 1024 * 1024;
+/// the newest records read from one source of 3.x's transcript store
+const STORE_RECORDS: i64 = 100_000;
 
 /// Fill an imported agent's history once (a no-op for every other agent and
 /// every later call).
 #[logged]
 pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
     let client = engine.db.get().await?;
-    // claim it: only one reader ever imports, and never twice
+    // claim it: only one reader ever imports, and never twice (v2: every
+    // provider, more rows; an agent imported by an earlier build is redone)
     let Some(r) = client
         .query_opt(
-            "UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) || '{\"history_imported\": true}'::jsonb
-              WHERE id = $1 AND extra ? 'imported_from' AND NOT coalesce((extra->>'history_imported')::boolean, false)
+            "UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) || '{\"history_imported\": true, \"history_v2\": true}'::jsonb
+              WHERE id = $1 AND extra ? 'imported_from' AND NOT coalesce((extra->>'history_v2')::boolean, false)
              RETURNING session_id, provider, account, scratch_dir, name, org_id",
             &[&agent_id],
         )
@@ -46,17 +55,15 @@ pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
     let scratch: Option<String> = r.get(3);
     let name: String = r.get(4);
     let org_id: i64 = r.get(5);
+    let _ = provider;
     let mut sessions: Vec<String> = client
-        .query(
-            "SELECT session_id FROM ot.agent_sessions WHERE agent_id = $1 AND provider IN ('claude', 'openrouter') ORDER BY started_at, id",
-            &[&agent_id],
-        )
+        .query("SELECT session_id FROM ot.agent_sessions WHERE agent_id = $1 ORDER BY started_at, id", &[&agent_id])
         .await?
         .iter()
         .map(|r| r.get(0))
         .collect();
     if let Some(s) = r.get::<_, Option<String>>(0) {
-        if provider.as_deref().map(|p| p == "claude" || p == "openrouter").unwrap_or(true) && !sessions.contains(&s) {
+        if !sessions.contains(&s) {
             sessions.push(s);
         }
     }
@@ -82,14 +89,22 @@ pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
         }
     }
     let cwd = scratch.map(PathBuf::from).or_else(|| engine.orgs.by_id(org_id).map(|o| engine.cfg.scratch_root(&o.slug).join(&name)));
+    let store = engine.cfg.path("transcript-records.sqlite3");
     let parsed = tokio::task::spawn_blocking(move || {
-        let mut files = Vec::new();
+        let mut entries: Vec<Value> = Vec::new();
         for s in &sessions {
             if let Some(f) = find(cwd.as_deref(), s, &roots) {
-                files.push(f);
+                entries.extend(lines_of(&f));
             }
         }
-        rows_of(&files, cutoff)
+        // every provider's sessions as 3.x kept them (the CLI files may be gone)
+        if store.is_file() {
+            match store_records(&store, &sessions) {
+                Ok(mut more) => entries.append(&mut more),
+                Err(e) => tracing::warn!(error = %format!("{e:#}"), "3.x's transcript store could not be read"),
+            }
+        }
+        rows_of(entries, cutoff)
     })
     .await;
     let (rows, images) = match parsed {
@@ -100,7 +115,7 @@ pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
         }
     };
     if rows.is_empty() {
-        tracing::info!(agent = agent_id, "no earlier Claude transcript was found for this imported agent");
+        tracing::info!(agent = agent_id, "no earlier transcript was found for this imported agent");
         return Ok(());
     }
     let n = rows.len() as i64;
@@ -124,8 +139,49 @@ pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
 #[logged]
 async fn release(engine: &Engine, agent_id: i64) {
     if let Ok(client) = engine.db.get().await {
-        let _ = client.execute("UPDATE ot.agents SET extra = extra - 'history_imported' WHERE id = $1", &[&agent_id]).await;
+        let _ = client.execute("UPDATE ot.agents SET extra = extra - 'history_v2' WHERE id = $1", &[&agent_id]).await;
     }
+}
+
+/// The records 3.x's transcript store kept for these sessions (read-only):
+/// a session's own source (its key names the session) and, for Codex and
+/// Antigravity, the journal 3.x wrote in the Claude transcript shape.
+#[logged]
+fn store_records(path: &Path, sessions: &[String]) -> Result<Vec<Value>> {
+    use rusqlite::{Connection, OpenFlags};
+    let uri = format!("file:{}?mode=ro", path.to_string_lossy().replace('\\', "/"));
+    let con = Connection::open_with_flags(&uri, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+    con.busy_timeout(std::time::Duration::from_secs(5))?;
+    let mut sources: Vec<String> = Vec::new();
+    for s in sessions {
+        let quoted = format!("%\"{s}\"%");
+        let mut q = con.prepare("SELECT source FROM transcript_sources WHERE source LIKE ?1")?;
+        for src in q.query_map([&quoted], |r| r.get::<_, String>(0))?.flatten() {
+            if !sources.contains(&src) {
+                sources.push(src);
+            }
+        }
+        if let Ok(mut q) = con.prepare("SELECT source FROM transcript_journal_ids WHERE sid = ?1") {
+            for src in q.query_map([s], |r| r.get::<_, String>(0))?.flatten() {
+                if !sources.contains(&src) {
+                    sources.push(src);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for src in sources {
+        let mut q = con.prepare(
+            "SELECT body FROM (SELECT epoch, position, body FROM transcript_records WHERE source = ?1
+                                ORDER BY epoch DESC, position DESC LIMIT ?2) ORDER BY epoch, position",
+        )?;
+        for body in q.query_map(rusqlite::params![src, STORE_RECORDS], |r| r.get::<_, String>(0))?.flatten() {
+            if let Ok(v) = serde_json::from_str::<Value>(&body) {
+                out.push(v);
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[logged]
@@ -133,6 +189,8 @@ async fn insert(engine: &Engine, agent_id: i64, rows: Vec<Value>) -> Result<()> 
     let n = rows.len() as i64;
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    // an earlier build's import of this agent is replaced
+    tx.execute("DELETE FROM ot.convo WHERE agent_id = $1 AND seq <= 0", &[&agent_id]).await?;
     for (i, mut row) in rows.into_iter().enumerate() {
         let seq = i as i64 - n;
         if let Some(o) = row.as_object_mut() {
@@ -201,22 +259,20 @@ fn lines_of(path: &Path) -> Vec<Value> {
 /// the newest imported tool images kept (each tool result's images together)
 const KEEP_IMAGE_RESULTS: usize = 100;
 
-/// Desk rows from the transcripts, oldest first, the newest `KEEP_ROWS`;
-/// and the images their tool results carried.
+/// Desk rows from the transcripts' entries, oldest first, the newest
+/// `KEEP_ROWS`; and the images their tool results carried.
 #[logged]
-fn rows_of(files: &[PathBuf], cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(String, Vec<(String, Vec<u8>)>)>) {
+fn rows_of(all: Vec<Value>, cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(String, Vec<(String, Vec<u8>)>)>) {
     let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
     let mut entries: Vec<Value> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    for f in files {
-        for e in lines_of(f) {
-            if let Some(u) = e["uuid"].as_str() {
-                if !seen.insert(u.to_string()) {
-                    continue;
-                }
+    for e in all {
+        if let Some(u) = e["uuid"].as_str() {
+            if !seen.insert(u.to_string()) {
+                continue;
             }
-            entries.push(e);
         }
+        entries.push(e);
     }
     let when = |e: &Value| e["timestamp"].as_str().and_then(crate::util::parse_ts);
     entries.retain(|e| match (cutoff, when(e)) {

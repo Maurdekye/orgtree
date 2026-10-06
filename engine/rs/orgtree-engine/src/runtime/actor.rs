@@ -1116,16 +1116,21 @@ impl Actor {
         if window <= 0 || (used as f64) < occ * window as f64 {
             return Ok(None);
         }
-        let digest = convo::digest(&**client, self.id, 40).await?;
-        let status: Option<Value> = r.get(2);
-        let mut note = String::from(
-            "[Orgtree] Your context was compacted before this turn (the prompt cache had expired): you now run on a \
-             fresh session. Here is what you were working on.\n\n",
-        );
-        if let Some(s) = status.as_ref().and_then(|s| s.get("summary")).and_then(Value::as_str) {
-            note.push_str(&format!("Your last status: {s}\n\n"));
-        }
-        note.push_str(&digest);
+        // the whole conversation stays readable in the agent's folder (sign-off I2)
+        let saved = match convo::save_history(&client, self.id, &ctx.scratch).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the earlier conversation could not be saved");
+                None
+            }
+        };
+        let note = convo::handoff_note(
+            &client,
+            self.id,
+            "the prompt cache had expired, so your context was compacted before this turn",
+            saved.as_deref(),
+        )
+        .await?;
         client
             .execute(
                 "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true, row_version = row_version + 1
