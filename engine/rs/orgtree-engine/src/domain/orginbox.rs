@@ -66,7 +66,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         crate::refuse!(BadRequest, "@org:{slug} is this organization; write to the agent directly");
     }
     let client = engine.db.get().await?;
-    let by = out.from.name();
+    let by = match &out.from {
+        From::User => "user".to_string(),
+        f => f.name(),
+    };
     if let From::Agent { id, name, .. } = &out.from {
         let ok: bool = client
             .query_one(
@@ -119,7 +122,8 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             .collect();
     }
     drop(client);
-    changes::notify(engine, &src, vec![Change::OrgInbox]);
+    // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
+    changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
     for h in &holders {
         let mut m = Outgoing::new(From::Extern(src_peer.clone()), h, &out.body);

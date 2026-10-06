@@ -39,6 +39,7 @@ impl From {
     pub fn spark(&self) -> String {
         match self {
             From::Watchdog { uid, .. } => format!("dog:{uid}"),
+            From::Extern(_) => "org_inbox".into(),
             other => other.name(),
         }
     }
