@@ -1027,6 +1027,18 @@ impl Actor {
         Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print }
     }
 
+    /// Resolve only a login this launcher actually uses. OpenRouter routes bill
+    /// their own key; Antigravity currently uses only its ambient sign-in.
+    fn serving_account_of(&self, ctx: &Ctx) -> Option<String> {
+        if ctx.provider == catalog::OPENROUTER { return None; }
+        let view = self.engine.accounts.view();
+        let account = view.get(ctx.account.as_deref()?)?;
+        if account.provider != ctx.provider || (ctx.provider == catalog::GOOGLE && !account.ambient) {
+            return None;
+        }
+        Some(account.id.clone())
+    }
+
     fn config_dir_of(&self, account: Option<&str>) -> Option<String> {
         let acc = account?;
         let view = self.engine.accounts.view();
@@ -1855,7 +1867,7 @@ impl Actor {
         }
         let mut turn = Turn::new(turn_id, false);
         turn.admitted_at = admitted_at;
-        turn.serving_account = ctx.account.clone();
+        turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
         turn.codex_turn = codex_turn;
         turn.usage_base = self.codex_total.clone();
@@ -3183,7 +3195,7 @@ impl Actor {
         drop(client);
         let mut turn = Turn::new(turn_id, compact);
         turn.admitted_at = admitted_at;
-        turn.serving_account = ctx.account.clone();
+        turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
         turn.activity = true;
         self.begin_turn(turn);

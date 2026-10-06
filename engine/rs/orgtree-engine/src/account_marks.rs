@@ -14,20 +14,36 @@ fn usage_allows(provider: &str, pool: &str, win: Option<&str>, usage: &Value) ->
     let supported = pool == "default"
         || (provider == "openai" && pool == "openai-plan")
         || (provider == "claude" && pool == "pooled");
-    if !supported { return false; }
-    let Some(bars) = usage["limits"].as_array().filter(|b| !b.is_empty()) else { return false };
+    if !supported {
+        return false;
+    }
+    let Some(bars) = usage["limits"].as_array().filter(|b| !b.is_empty()) else {
+        return false;
+    };
     // Conservatively require every reported window to have room, even when the
     // mark names one window: a still-full shared window is not a recovered pool.
-    if !bars.iter().all(|b| b["percent"].as_f64().is_some_and(|p| p.is_finite() && p >= 0.0 && p < 100.0)
-        && b["is_active"] != true) { return false; }
+    if !bars.iter().all(|b| {
+        b["percent"]
+            .as_f64()
+            .is_some_and(|p| p.is_finite() && p >= 0.0 && p < 100.0)
+            && b["is_active"] != true
+    }) {
+        return false;
+    }
     if matches!(provider, "claude" | "openai") && !bars.iter().any(|b| b["kind"] == "weekly_all") {
         return false;
     }
-    if provider == "claude" && !bars.iter().any(|b| b["kind"] == "session") { return false; }
+    if provider == "claude" && !bars.iter().any(|b| b["kind"] == "session") {
+        return false;
+    }
     match win {
         None => true,
         Some(w) => {
-            let kind = match w { "five_hour" => "session", "seven_day" => "weekly_all", _ => w };
+            let kind = match w {
+                "five_hour" => "session",
+                "seven_day" => "weekly_all",
+                _ => w,
+            };
             bars.iter().any(|b| b["kind"] == kind || b["group"] == w)
         }
     }
@@ -36,26 +52,59 @@ fn usage_allows(provider: &str, pool: &str, win: Option<&str>, usage: &Value) ->
 /// True limit signals are sticky for a turn; an earlier turn's signal is not evidence.
 #[logged]
 pub fn limit_signal(value: &Value) -> bool {
-    value["status"] == "rejected" || !value["rateLimitReachedType"].is_null()
-        || ["primary", "secondary"].iter()
-            .any(|w| value[*w]["usedPercent"].as_f64().is_some_and(|p| p >= 100.0))
+    value["status"] == "rejected"
+        || !value["rateLimitReachedType"].is_null()
+        || ["primary", "secondary"].iter().any(|w| {
+            value[*w]["usedPercent"]
+                .as_f64()
+                .is_some_and(|p| p >= 100.0)
+        })
 }
 
 /// Associate a provider's native/profile probe only with registry rows for that login.
 #[logged]
-pub async fn profile_usage(engine: &Engine, provider: &str, profile: Option<&str>, observed: DateTime<Utc>, value: &Value) {
-    let accounts: Vec<String> = engine.accounts.view().all().into_iter()
-        .filter(|a| a.provider == provider && !a.is_apikey()
-            && (a.config_dir.as_deref() == profile || (profile.is_none() && a.ambient)))
-        .map(|a| a.id.clone()).collect();
-    for account in accounts { usage(engine, &account, provider, observed, value).await; }
+pub async fn profile_usage(
+    engine: &Engine,
+    provider: &str,
+    profile: Option<&str>,
+    observed: DateTime<Utc>,
+    value: &Value,
+) {
+    let accounts: Vec<String> = engine
+        .accounts
+        .view()
+        .all()
+        .into_iter()
+        .filter(|a| {
+            a.provider == provider
+                && !a.is_apikey()
+                && (a.config_dir.as_deref() == profile || (profile.is_none() && a.ambient))
+        })
+        .map(|a| a.id.clone())
+        .collect();
+    for account in accounts {
+        usage(engine, &account, provider, observed, value).await;
+    }
 }
 
 /// Called only after a provider request, never on cache hits or stale fallback.
 /// Use request start, not completion, so a concurrent new refusal always wins.
 #[logged]
-pub async fn usage(engine: &Engine, account: &str, provider: &str, observed: DateTime<Utc>, value: &Value) {
-    if observed > Utc::now() || (Utc::now() - observed).num_seconds() > 30 { return; }
+pub async fn usage(
+    engine: &Engine,
+    account: &str,
+    provider: &str,
+    observed: DateTime<Utc>,
+    value: &Value,
+) {
+    if observed > Utc::now()
+        || Utc::now() - observed > chrono::Duration::seconds(30)
+        || value["available"] != true
+        || !value["error"].is_null()
+        || value["reauth_required"] == true
+    {
+        return;
+    }
     let result: anyhow::Result<u64> = async {
         let client = engine.db.get().await?;
         let rows = client.query(
