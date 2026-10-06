@@ -154,6 +154,8 @@ struct Turn {
     started: Instant,
     admitted_at: DateTime<Utc>,
     serving_account: Option<String>,
+    serving_provider: String,
+    limit_signal: bool,
     last_event: Instant,
     /// API message id → (convo seq, the row as built so far)
     rows: HashMap<String, (i64, Value)>,
@@ -197,6 +199,8 @@ impl Turn {
             started: Instant::now(),
             admitted_at: Utc::now(),
             serving_account: None,
+            serving_provider: String::new(),
+            limit_signal: false,
             last_event: Instant::now(),
             rows: HashMap::new(),
             tools: HashMap::new(),
@@ -1852,6 +1856,7 @@ impl Actor {
         let mut turn = Turn::new(turn_id, false);
         turn.admitted_at = admitted_at;
         turn.serving_account = ctx.account.clone();
+        turn.serving_provider = ctx.provider.clone();
         turn.codex_turn = codex_turn;
         turn.usage_base = self.codex_total.clone();
         self.begin_turn(turn);
@@ -2001,6 +2006,9 @@ impl Actor {
             },
             Some("rate_limit_event") => {
                 self.rate_limit = v.get("rate_limit_info").cloned();
+                if let Some(turn) = self.turn.as_mut() {
+                    turn.limit_signal |= crate::account_marks::limit_signal(&v["rate_limit_info"]);
+                }
             }
             Some("stream_event") if !sub => self.on_stream_event(&v["event"]),
             Some("assistant") if !sub => self.on_assistant(&v).await?,
@@ -2027,7 +2035,12 @@ impl Actor {
                     t.usage = tu;
                 }
             }
-            "account/rateLimits/updated" => self.rate_limit = Some(p["rateLimits"].clone()),
+            "account/rateLimits/updated" => {
+                self.rate_limit = Some(p["rateLimits"].clone());
+                if let Some(turn) = self.turn.as_mut() {
+                    turn.limit_signal |= crate::account_marks::limit_signal(&p["rateLimits"]);
+                }
+            },
             "item/agentMessage/delta" => {
                 let text = p["delta"].as_str().unwrap_or("");
                 if let Some(t) = self.turn.as_mut() {
@@ -2945,10 +2958,7 @@ impl Actor {
         }
         // the CLI holds the prompt once it produced anything: settle the mail
         // as delivered; a turn that never started gives its mail back
-        let usage_signal = self.rate_limit.as_ref().is_some_and(|r|
-            r["status"] == "rejected" || !r["rateLimitReachedType"].is_null()
-            || ["primary", "secondary"].iter().any(|w| r[*w]["usedPercent"].as_f64().is_some_and(|p| p >= 100.0)));
-        let succeeded = error.is_none() && limit.is_none() && !usage_signal
+        let succeeded = error.is_none() && limit.is_none() && !turn.limit_signal
             && !turn.interrupted && !turn.killed && !turn.compact && !res.is_null();
         let requeue = error.is_some() && !turn.activity;
         let client = self.engine.db.get().await?;
@@ -3041,7 +3051,7 @@ impl Actor {
         self.idle_since = Instant::now();
         if succeeded {
             if let Some(account) = turn.serving_account.as_deref() {
-                crate::account_marks::success(&self.engine, account, turn.admitted_at).await;
+                crate::account_marks::success(&self.engine, account, &turn.serving_provider, turn.admitted_at).await;
             }
         }
         if limit.is_some() {
@@ -3174,6 +3184,7 @@ impl Actor {
         let mut turn = Turn::new(turn_id, compact);
         turn.admitted_at = admitted_at;
         turn.serving_account = ctx.account.clone();
+        turn.serving_provider = ctx.provider.clone();
         turn.activity = true;
         self.begin_turn(turn);
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));

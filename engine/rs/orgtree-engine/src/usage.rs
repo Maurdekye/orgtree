@@ -115,13 +115,7 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
         None => {
             let observed = Utc::now();
             let value = fetch_claude(engine, &key, &dir).await;
-            let accounts: Vec<String> = engine.accounts.view().all().into_iter()
-                .filter(|a| a.provider == "claude" && !a.is_apikey()
-                    && (a.config_dir.as_deref() == config_dir || (config_dir.is_none() && a.ambient)))
-                .map(|a| a.id.clone()).collect();
-            for account in accounts {
-                crate::account_marks::usage(engine, &account, "claude", observed, &value).await;
-            }
+            crate::account_marks::profile_usage(engine, "claude", config_dir, observed, &value).await;
             value
         },
     };
@@ -275,7 +269,7 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
     out["label"] = json!(email.clone().unwrap_or_else(|| "signed-in account".into()));
     out["email"] = json!(email);
     out["observed_at"] = json!(iso(Utc::now()));
-    crate::account_marks::usage(engine, account, "openai", observed, &out).await;
+    crate::account_marks::profile_usage(engine, "openai", home, observed, &out).await;
     engine.usage.put(&key, &out);
     out
 }
@@ -370,6 +364,7 @@ pub async fn antigravity(engine: &Engine, force: bool) -> Value {
         Some(p) => Some(p),
         None => tokio::task::spawn_blocking(crate::providers::locate_agy).await.ok().flatten().map(|(p, _)| p),
     };
+    let observed = Utc::now();
     let mut out = match exe {
         None => json!({ "available": false, "error": "the Antigravity CLI is not installed", "reauth_evidence": "not_connected" }),
         Some(exe) => match agy_usage(engine, &exe).await {
@@ -381,6 +376,7 @@ pub async fn antigravity(engine: &Engine, force: bool) -> Value {
     out["provider"] = json!("google");
     out["label"] = json!("signed-in account");
     out["observed_at"] = json!(iso(Utc::now()));
+    crate::account_marks::profile_usage(engine, "google", None, observed, &out).await;
     engine.usage.put("agy", &out);
     out
 }
