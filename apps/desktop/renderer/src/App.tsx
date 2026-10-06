@@ -2353,14 +2353,6 @@ function AutonomyTab({ tree, toast }: {
           V1 org-key rows that used to sit above it went with the path they
           belonged to. API-key accounts are ordinary accounts now and live in
           App settings › Providers, not in one org's autonomy tab. */}
-      <label className="checkline"
-        title="no user is present: questions, credit requests and user audiences auto-deny; mail to you is stored with a no-reply note">
-        <input type="checkbox" checked={!!tree.headless}
-          onChange={(e) => save({ headless: e.target.checked },
-            e.target.checked ? 'headless ON — nobody is watching now'
-              : 'headless off')} />
-        headless — this org runs with no user present
-      </label>
       {/* usage-limit freezes moved here from the header (user 2026-09-10
           header cleanup): the auto toggle keeps its exact old semantics —
           resume every frozen agent one minute after the reported reset —
@@ -2395,8 +2387,6 @@ function AutonomyTab({ tree, toast }: {
             </div>
           : <div className="dim hub-hint">no agents are frozen right now</div>
       })()}
-      {tree.headless && <div className="dim hub-hint">the overseer renders
-        grey with an empty eye while headless is on</div>}
       <div className="dim" style={{ fontSize: '11.5px' }}>
         autonomy changes apply immediately
       </div>
@@ -2906,9 +2896,6 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const accOcc = val<number | string>('accOcc',
     Math.round(((acc?.occ ?? 0.5) as number) * 100))
   const setAccOcc = set('accOcc', accOcc)
-  // pre-resume cheap compact (2026-08-17): rides the AUTO limit resume only
-  const arCompact = val('arCompact', !!tree.auto_resume_compact)
-  const setArCompact = set('arCompact', arCompact)
   // ── the Hire defaults tab (user 2026-09-11, was the eye's ⚙ modal).
   // ⚠ EVERY KEY HERE IS PREFIXED `hire.`, and that prefix is load-bearing:
   // `hireEdited` below asks whether ANY of them is in the buffer, so a field
@@ -3155,15 +3142,6 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                   <span className="dim">%</span>
                 </SetRow>
               )}
-              {/* 2026-08-17: a usage-limit freeze outlives the cache TTL by
-                  construction, so the auto-resume wake can swap the session
-                  first and skip the cold reload. The manual ▶ never compacts. */}
-              <SetToggle
-                label="cheap-compact limit-frozen agents before auto-resume"
-                checked={arCompact} onChange={setArCompact}
-                title="applies only to the automatic resume after a usage-limit freeze (auto-resume toggle); pressing ▶ yourself resumes sessions as they are"
-                hint={'applies to the automatic resume only — pressing ▶ '
-                  + 'yourself resumes the session as it is'} />
             </SetGroup>
             {/* §4.6 cost-bubbling toggles (user spec, both ON by default) */}
             <SetGroup title="Credit cost bubbling">
@@ -3230,7 +3208,6 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                   cascade_hire: cascadeHire,
                   cascade_alloc: cascadeAlloc,
                   org_inbox_multi_holder: multiHolder,
-                  auto_resume_compact: arCompact,
                   auto_cheap_compact: { enabled: accOn,
                     occ: (+accOcc || 50) / 100 },
                   // Hire defaults' ADMIN half, unchanged from the ⚙ panel:

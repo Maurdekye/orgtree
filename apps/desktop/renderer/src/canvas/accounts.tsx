@@ -15,10 +15,9 @@ import type {
 } from '../types'
 import {
   getProviders, peekProviders, getRuntimeSettings,
-  setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
-  setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
@@ -802,14 +801,8 @@ export function AccountsPanel({ toast, close, initialTab }: {
             .catch((e: Error) => { setError(e.message); toast([e.message]) })
             .finally(() => setBusy(false))
         }} />
-        <SetToggle label="check on working agents after 20 minutes" checked={runtime?.working_checkups_enabled !== false}
-          disabled={!runtime || busy} onChange={v => changeRuntime(setWorkingCheckupsEnabled, v)} />
         <SetToggle label="wait until the MCP tool surface is ready" checked={runtime?.wait_for_mcp_tools_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWaitForMcpToolsEnabled, v)} />
-        <SetToggle label="remind idle agents about unfinished docket items" checked={runtime?.idle_docket_reminders_enabled === true}
-          disabled={!runtime || busy} onChange={v => changeRuntime(setIdleDocketRemindersEnabled, v)} />
-        <SetToggle label="also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
-          disabled={!runtime || busy} onChange={v => changeRuntime(setBlockedDocketRemindersEnabled, v)} />
       </SetGroup>
       <ShowLegacyModelsToggle />
     </SettingsTabPanel>

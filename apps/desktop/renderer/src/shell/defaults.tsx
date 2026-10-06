@@ -118,11 +118,6 @@ export function DefaultsForm({ toast, onDone }: {
             onChange={(e) => set('auto_resume', e.target.checked)} />
           auto-resume usage-limit-frozen agents after the reset time
         </label>
-        <label className="checkline">
-          <input type="checkbox" checked={!!d.auto_resume_compact}
-            onChange={(e) => set('auto_resume_compact', e.target.checked)} />
-          cheap-compact limit-frozen agents before auto-resume wakes them
-        </label>
         <div className="hint">
           These defaults apply only when creating an organization; existing
           organizations keep their own settings.
@@ -141,7 +136,6 @@ export function DefaultsForm({ toast, onDone }: {
               cascade_hire: d.cascade_hire !== false,
               cascade_alloc: d.cascade_alloc !== false,
               auto_resume: !!d.auto_resume,
-              auto_resume_compact: !!d.auto_resume_compact,
             }).then(() => {
               toast(['default org settings saved'])
               close()
