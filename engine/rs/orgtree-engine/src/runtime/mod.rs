@@ -5,6 +5,7 @@
 //! through the snapshot it publishes.
 
 pub mod actor;
+pub mod agy;
 pub mod claude;
 pub mod codex;
 pub mod convo;
@@ -52,6 +53,8 @@ pub enum AgentMsg {
     Claude(Value),
     /// a JSON-RPC notification/response from the Codex app-server
     Codex(Value),
+    /// a stream-json event from the Antigravity CLI
+    Agy(Value),
     /// the PostToolUse hook: return waiting mail as additional context
     Hook { input: Value, reply: oneshot::Sender<Value> },
     ProcExited,
@@ -82,7 +85,7 @@ pub trait Post {
 impl Post for AgentTx {
     fn post(&self, msg: AgentMsg) -> bool {
         // the CLI's stream lines run under their turn's request
-        let cause = if matches!(msg, AgentMsg::Claude(_)) { None } else { crate::trace::current_rq() };
+        let cause = if matches!(msg, AgentMsg::Claude(_) | AgentMsg::Codex(_) | AgentMsg::Agy(_)) { None } else { crate::trace::current_rq() };
         self.send(Envelope { msg, cause }).is_ok()
     }
 }

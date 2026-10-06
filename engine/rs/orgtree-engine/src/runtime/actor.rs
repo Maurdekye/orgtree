@@ -21,6 +21,7 @@ use crate::orgs::OrgHandle;
 use crate::providers::catalog;
 use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
 use crate::runtime::codex::{self as codexrt, CodexProc, CodexSpec};
+use crate::runtime::agy::{self as agyrt, AgyProc, AgySpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
@@ -154,6 +155,8 @@ struct Turn {
     codex_error: Option<String>,
     /// approvals declined during the turn
     denials: Vec<Value>,
+    /// Antigravity: response text so far, by step
+    agy_text: HashMap<i64, String>,
 }
 
 #[logged]
@@ -180,6 +183,7 @@ impl Turn {
             codex_row: None,
             codex_error: None,
             denials: Vec::new(),
+            agy_text: HashMap::new(),
         }
     }
 }
@@ -188,6 +192,7 @@ impl Turn {
 enum Proc {
     Claude(ClaudeProc),
     Codex(CodexProc),
+    Agy(AgyProc),
 }
 
 #[logged]
@@ -197,6 +202,7 @@ impl Proc {
         match self {
             Proc::Claude(p) => p.alive(),
             Proc::Codex(p) => p.alive(),
+            Proc::Agy(p) => p.alive(),
         }
     }
 
@@ -206,6 +212,7 @@ impl Proc {
             (Proc::Claude(p), _) => p.interrupt(),
             (Proc::Codex(p), Some(t)) => p.interrupt(t),
             (Proc::Codex(_), None) => false,
+            (Proc::Agy(p), _) => p.interrupt(),
         }
     }
 
@@ -213,7 +220,7 @@ impl Proc {
     fn set_effort(&self, level: &str) -> bool {
         match self {
             Proc::Claude(p) => p.set_effort(level),
-            Proc::Codex(_) => false,
+            Proc::Codex(_) | Proc::Agy(_) => false,
         }
     }
 
@@ -221,6 +228,7 @@ impl Proc {
         match self {
             Proc::Claude(p) => p.close().await,
             Proc::Codex(p) => p.close().await,
+            Proc::Agy(p) => p.close().await,
         }
     }
 
@@ -228,12 +236,18 @@ impl Proc {
         match self {
             Proc::Claude(p) => p.kill().await,
             Proc::Codex(p) => p.kill().await,
+            Proc::Agy(p) => p.kill().await,
         }
     }
 
     #[nolog]
     fn is_codex(&self) -> bool {
         matches!(self, Proc::Codex(_))
+    }
+
+    #[nolog]
+    fn is_agy(&self) -> bool {
+        matches!(self, Proc::Agy(_))
     }
 }
 
@@ -384,6 +398,10 @@ impl Actor {
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_codex(v), span).await
                         }
+                        AgentMsg::Agy(v) => {
+                            let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
+                            tracing::Instrument::instrument(self.on_agy(v), span).await
+                        }
                         // every other message is a request of its own, caused by its sender's
                         other => {
                             let span = crate::trace::request_from(&self.client, env.cause.as_deref());
@@ -482,6 +500,7 @@ impl Actor {
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
             AgentMsg::Claude(v) => self.on_claude(v).await?,
             AgentMsg::Codex(v) => self.on_codex(v).await?,
+            AgentMsg::Agy(v) => self.on_agy(v).await?,
             AgentMsg::Hook { input, reply } => {
                 let out = match self.on_hook(&input).await {
                     Ok(v) => v,
@@ -887,6 +906,9 @@ impl Actor {
         if ctx.provider == catalog::OPENAI {
             return self.ensure_codex(ctx).await;
         }
+        if ctx.provider == catalog::GOOGLE {
+            return self.ensure_agy(ctx).await;
+        }
         if ctx.provider != catalog::CLAUDE {
             return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
         }
@@ -1121,6 +1143,75 @@ impl Actor {
         Ok(())
     }
 
+    /// Start (or keep) the agent's Antigravity process on its conversation.
+    async fn ensure_agy(&mut self, ctx: &Ctx) -> Result<()> {
+        if !self.engine.settings.provider_enabled(catalog::GOOGLE) {
+            return Err(anyhow!("Antigravity is turned off in App settings"));
+        }
+        let plan = self.plan(ctx);
+        let reuse = match self.proc.as_mut() {
+            Some(p) => {
+                p.is_agy()
+                    && self.proc_print.as_ref() == Some(&plan.print)
+                    && self.proc_effort.as_deref() == Some(ctx.effort.as_str())
+                    && !self.reconfigured
+                    && p.alive()
+            }
+            None => false,
+        };
+        if reuse {
+            return Ok(());
+        }
+        self.close_proc().await;
+        self.reconfigured = false;
+        if !self.engine.settings.subscription_inference(catalog::GOOGLE) {
+            return Err(anyhow!("subscriptions are turned off for inference (App settings › Providers)"));
+        }
+        let exe = match self.engine.providers.agy_path() {
+            Some(p) => p,
+            None => tokio::task::spawn_blocking(crate::providers::locate_agy)
+                .await
+                .ok()
+                .flatten()
+                .map(|(p, _)| p)
+                .ok_or_else(|| anyhow!("the Antigravity CLI is not installed on this machine"))?,
+        };
+        std::fs::create_dir_all(&ctx.scratch)?;
+        let tools = &ctx.effective["tools"];
+        let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
+        let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
+        let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
+        let granted: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
+        let conversation = ctx
+            .session_id
+            .clone()
+            .filter(|_| ctx.session_provider.as_deref() == Some(catalog::GOOGLE));
+        let spec = AgySpec {
+            exe,
+            cwd: ctx.scratch.clone(),
+            model: ctx.model.clone(),
+            effort: Some(ctx.effort.clone()).filter(|e| !e.is_empty()),
+            conversation,
+            identity: plan.identity.clone(),
+            servers: granted,
+            bash: on("bash"),
+            edit: on("edit") && pm != "plan",
+            web: on("web"),
+            subagents: on("subagents"),
+            env: vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())],
+            turn_timeout_s: self.engine.settings.turn_timeout_s(),
+        };
+        let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        let proc = AgyProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        self.proc = Some(Proc::Agy(proc));
+        self.proc_print = Some(plan.print);
+        self.proc_effort = Some(ctx.effort.clone());
+        self.provider = ctx.provider.clone();
+        self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
+        self.publish();
+        Ok(())
+    }
+
     /// Mail that arrived during a Codex turn goes straight in (`turn/steer`);
     /// if the turn does not take it, it waits for the next turn.
     async fn steer_codex(&mut self) -> Result<()> {
@@ -1299,6 +1390,7 @@ impl Actor {
         let mut codex_turn: Option<String> = None;
         let sent = match self.proc.as_ref() {
             Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
+            Some(Proc::Agy(p)) => p.send_user(&text),
             Some(Proc::Codex(p)) => match p.start_turn(&text, codex_images(&mails)).await {
                 Ok(t) => {
                     codex_turn = Some(t);
@@ -1561,6 +1653,210 @@ impl Actor {
                     _ => None,
                 };
                 self.end_turn(error, json!({ "codex": true })).await?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// One Antigravity stream-json event.
+    #[nolog]
+    async fn on_agy(&mut self, v: Value) -> Result<()> {
+        if let Some(t) = self.turn.as_mut() {
+            t.last_event = Instant::now();
+        }
+        match v["event"].as_str() {
+            Some("init") => {
+                let cid = v["conversation_id"].as_str().unwrap_or("").to_string();
+                let served = v.pointer("/init/model").and_then(Value::as_str).unwrap_or("").to_string();
+                self.init = json!({ "model": served, "cwd": v.pointer("/init/cwd"),
+                                    "tools": v.pointer("/init/tools").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0) });
+                let pinned = match &self.proc {
+                    Some(Proc::Agy(p)) => p.model.clone(),
+                    _ => String::new(),
+                };
+                if !served.is_empty() && !pinned.is_empty() && served != pinned {
+                    // the model pin is asserted, not assumed
+                    self.kill_proc().await;
+                    self.end_turn(Some(format!("model pin refused: the session is serving {served}, not {pinned}")), json!({ "agy": true }))
+                        .await?;
+                    return Ok(());
+                }
+                if !cid.is_empty() {
+                    let client = self.engine.db.get().await?;
+                    let generation: i32 = client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&self.id]).await?.get(0);
+                    let changed = client
+                        .execute(
+                            "UPDATE ot.agents SET session_id = $2, provider = $3 WHERE id = $1 AND session_id IS DISTINCT FROM $2",
+                            &[&self.id, &cid, &catalog::GOOGLE],
+                        )
+                        .await?;
+                    if changed > 0 {
+                        client
+                            .execute(
+                                "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
+                                &[&self.id, &generation, &catalog::GOOGLE, &cid],
+                            )
+                            .await?;
+                    }
+                }
+                self.publish();
+            }
+            Some("step_update") => self.on_agy_step(&v["step_update"]).await?,
+            Some("result") => {
+                let r = &v["result"];
+                let interrupted = self.turn.as_ref().map(|t| t.interrupted).unwrap_or(false);
+                let error = match r["status"].as_str().unwrap_or("SUCCESS") {
+                    "SUCCESS" => None,
+                    "CANCELED" | "CANCELLED" if interrupted => None,
+                    other => Some(
+                        r["error"]
+                            .as_str()
+                            .map(|e| gist(e, 600))
+                            .or_else(|| r.pointer("/error/message").and_then(Value::as_str).map(|e| gist(e, 600)))
+                            .unwrap_or_else(|| format!("the Antigravity turn ended {}", other.to_lowercase())),
+                    ),
+                };
+                // a response that arrived only in the result still becomes a row
+                let text = r["response"].as_str().unwrap_or("").to_string();
+                let wrote = self.turn.as_ref().map(|t| t.rows.keys().any(|k| k.starts_with("agy-resp-"))).unwrap_or(true);
+                if !wrote && !text.trim().is_empty() {
+                    let row = json!({ "role": "assistant", "text": text, "tools": [], "ts": now_iso(), "assistant_id": "agy-result" });
+                    let client = self.engine.db.get().await?;
+                    self.convo.append(&client, row).await?;
+                    drop(client);
+                    self.text_landed();
+                }
+                self.end_turn(error, json!({ "agy": true })).await?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// An Antigravity step: response text, a tool call, or the user's input echoed.
+    async fn on_agy_step(&mut self, step: &Value) -> Result<()> {
+        if self.turn.is_none() {
+            return Ok(());
+        }
+        let kind = step["step_type"].as_str().unwrap_or("");
+        let state = step["state"].as_str().unwrap_or("");
+        let idx = step["step_index"].as_i64().unwrap_or(-1);
+        if let Some(t) = self.turn.as_mut() {
+            t.activity = true;
+        }
+        match kind {
+            "agent_response" => {
+                if let Some(d) = step["text_delta"].as_str().filter(|d| !d.is_empty()) {
+                    if let Some(t) = self.turn.as_mut() {
+                        if t.draft.len() < 64_000 {
+                            t.draft.push_str(d);
+                        }
+                        t.agy_text.entry(idx).or_default().push_str(d);
+                    }
+                    self.stream("delta", json!({ "text": d }));
+                    self.set_activity("writing", None);
+                }
+                if state != "DONE" {
+                    return Ok(());
+                }
+                let u = &step["usage"];
+                let n = |k: &str| u[k].as_i64().unwrap_or(0);
+                let (inp, cached, out) = (n("input_tokens"), n("cache_read_tokens"), n("output_tokens") + n("thinking_tokens"));
+                let model = match &self.proc {
+                    Some(Proc::Agy(p)) => p.model.clone(),
+                    _ => String::new(),
+                };
+                let text = {
+                    let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                    let acc = &mut t.usage;
+                    if !acc.is_object() {
+                        *acc = json!({ "input": 0, "cached": 0, "output": 0, "cost": 0.0, "last_prompt": 0 });
+                    }
+                    if u.is_object() {
+                        acc["input"] = json!(acc["input"].as_i64().unwrap_or(0) + inp);
+                        acc["cached"] = json!(acc["cached"].as_i64().unwrap_or(0) + cached);
+                        acc["output"] = json!(acc["output"].as_i64().unwrap_or(0) + out);
+                        acc["cost"] = json!(acc["cost"].as_f64().unwrap_or(0.0) + agyrt::request_cost(&model, inp, cached, out));
+                        acc["last_prompt"] = json!(inp + cached);
+                    }
+                    t.draft.clear();
+                    t.agy_text.remove(&idx).unwrap_or_default()
+                };
+                if text.trim().is_empty() {
+                    return Ok(());
+                }
+                let key = format!("agy-resp-{idx}");
+                let row = json!({ "role": "assistant", "text": text, "tools": [], "ts": now_iso(), "assistant_id": key });
+                let client = self.engine.db.get().await?;
+                let seq = self.convo.append(&client, row.clone()).await?;
+                drop(client);
+                if let Some(t) = self.turn.as_mut() {
+                    t.rows.insert(key.clone(), (seq, row));
+                    t.codex_row = Some(key);
+                }
+                self.text_landed();
+            }
+            "tool" => {
+                let id = format!("agy-step-{idx}");
+                let name = step["tool_name"].as_str().unwrap_or("tool").to_string();
+                let info = &step["tool_info"];
+                let client = self.engine.db.get().await?;
+                let known = self.turn.as_ref().map(|t| t.tools.contains_key(&id)).unwrap_or(false);
+                if !known {
+                    crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
+                    let Some(key) = self.codex_row(&client, &id).await? else { return Ok(()) };
+                    let update = {
+                        let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                        let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                        let input = if info["parameters"].is_object() { info["parameters"].clone() } else { json!({}) };
+                        if let Some(tools) = row["tools"].as_array_mut() {
+                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) }));
+                        }
+                        t.tools.insert(id.clone(), key.clone());
+                        (*seq, row.clone())
+                    };
+                    self.convo.update(&client, update.0, update.1).await?;
+                    self.set_activity("tool", Some(name.clone()));
+                    self.stream("tool", json!({ "id": id }));
+                }
+                if state == "DONE" || state == "ERROR" {
+                    let err = info.pointer("/error/message").and_then(Value::as_str).map(str::to_string);
+                    let result = ["result", "output", "response"]
+                        .iter()
+                        .find_map(|k| info.get(*k).filter(|v| !v.is_null()))
+                        .map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))
+                        .or_else(|| err.clone())
+                        .unwrap_or_else(|| state.to_lowercase());
+                    let update = {
+                        let Some(t) = self.turn.as_mut() else { return Ok(()) };
+                        if let Some(e) = &err {
+                            if e.starts_with(agyrt::HOOK_DENIED) {
+                                t.denials.push(json!({ "tool": name, "arg": convo::tool_arg(&name, &info["parameters"]) }));
+                            }
+                        }
+                        let Some(key) = t.tools.get(&id).cloned() else { return Ok(()) };
+                        let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
+                        let (clipped, truncated) = convo::clip(&result, 4000);
+                        if let Some(chips) = row["tools"].as_array_mut() {
+                            for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
+                                chip["result"] = json!(clipped);
+                                chip["result_lines"] = json!(result.lines().count());
+                                if truncated {
+                                    chip["truncated"] = json!(true);
+                                }
+                                if state == "ERROR" {
+                                    chip["error"] = json!(gist(&result, 500));
+                                }
+                            }
+                        }
+                        (*seq, row.clone())
+                    };
+                    self.convo.update(&client, update.0, update.1).await?;
+                    self.set_activity("thinking", None);
+                    self.stream("tool", json!({}));
+                }
+                drop(client);
             }
             _ => {}
         }
@@ -2084,11 +2380,15 @@ impl Actor {
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
         let codex = res["codex"].as_bool().unwrap_or(false);
+        let agy = res["agy"].as_bool().unwrap_or(false);
         if error.is_none() && codex {
             error = turn.codex_error.clone().filter(|_| !turn.interrupted);
         }
         let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
-        let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if codex {
+        let (input, cache_read, cache_write, output, ttl, occupancy, cost) = if agy {
+            let u = &turn.usage;
+            (n(u, "input"), n(u, "cached"), 0, n(u, "output"), 300, n(u, "last_prompt") as i32, u["cost"].as_f64().unwrap_or(0.0))
+        } else if codex {
             // Codex counts tokens for the whole thread: this turn is the difference
             let total = &turn.usage["total"];
             let last = &turn.usage["last"];
@@ -2197,7 +2497,7 @@ impl Actor {
                   WHERE id = $1",
                 &[
                     &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
-                    &turn.killed, &error, &turn.model, &(if codex { "priced" } else { "cli" }),
+                    &turn.killed, &error, &turn.model, &(if codex || agy { "priced" } else { "cli" }),
                 ],
             )
             .await?;
@@ -2498,7 +2798,11 @@ impl Actor {
     }
 
     fn forecast_for(&self, ctx: &Ctx) -> Value {
-        let lane = if ctx.provider == catalog::OPENAI { "codex" } else { "claude" };
+        let lane = match ctx.provider.as_str() {
+            p if p == catalog::OPENAI => "codex",
+            p if p == catalog::GOOGLE => "antigravity",
+            _ => "claude",
+        };
         let generation = format!("{}", ctx.generation);
         let receipt_at = self.receipt.map(|(t, _)| iso(t));
         let Some(sent) = &self.sent_print else {

@@ -170,3 +170,29 @@ pub fn child_job(child: &tokio::process::Child) -> Option<ChildJob> {
 pub fn child_job(_child: &tokio::process::Child) -> Option<ChildJob> {
     None
 }
+
+/// The volume's 8.3 alias for `path`: None when there is none, or when it
+/// does not open the same file (8dot3 creation is per volume and often off).
+#[cfg(windows)]
+pub fn short_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut buf = vec![0u16; 4096];
+    let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if n == 0 || n >= buf.len() {
+        return None;
+    }
+    let short = std::path::PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]));
+    if short == path {
+        return None;
+    }
+    let a = std::fs::canonicalize(&short).ok()?;
+    let b = std::fs::canonicalize(path).ok()?;
+    (a == b).then_some(short)
+}
+
+#[cfg(not(windows))]
+pub fn short_path(_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    None
+}

@@ -52,6 +52,7 @@ fn main() -> ExitCode {
         None | Some("serve") => serve(),
         Some("host") => host::run(),
         Some("mcp-bridge") => bridge::run(&args[2..]),
+        Some("agy-hook") => bridge::hook(&args[2..]),
         Some("--version") | Some("version") => {
             println!("orgtree-engine {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
