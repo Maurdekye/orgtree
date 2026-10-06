@@ -23,14 +23,16 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
-/// A line longer than this is brought under it (see `fit`).
-pub const LINE_CAP: usize = 5 * 1024;
+/// A line longer than this is brought under it (see `fit`; decision 36).
+pub const LINE_CAP: usize = 8 * 1024;
 /// Room kept for the line's prefix (level, time, request, client, frame, caller).
 const PREFIX_ROOM: usize = 256;
 /// What the message part of a line may use.
 const BUDGET: usize = LINE_CAP - PREFIX_ROOM;
-/// How much of a shortened value stays visible.
-pub const PREVIEW: usize = 100;
+/// How much of a shortened argument stays visible.
+pub const ARG_PREVIEW: usize = 160;
+/// How much of a shortened return value (or body member) stays visible.
+pub const RET_PREVIEW: usize = 240;
 /// Console mirror: lines cut to this (the file keeps them whole).
 pub const CONSOLE_CAP: usize = 500;
 pub const RETENTION_DAYS: u64 = 30;
@@ -214,7 +216,7 @@ impl Args {
             .map(|(label, v)| Slot { lead: format!("{label}="), text: v.text, orig: v.orig })
             .collect();
         let fixed = path.len() + 2 + slots.len().saturating_sub(1) * 2;
-        fit_slots(&mut slots, fixed);
+        fit_slots(&mut slots, fixed, ARG_PREVIEW);
         let mut out = String::with_capacity(LINE_CAP);
         out.push_str(path);
         out.push('(');
@@ -244,9 +246,9 @@ fn line_len(fixed: usize, slots: &[Slot]) -> usize {
 }
 
 /// Bring a line under `LINE_CAP`: first shorten values largest-first to a
-/// preview with `[rest omitted: x.y kb]`; if that is not enough, replace
-/// values largest-first by `[omitted: x.y kb]` (decision 34).
-fn fit_slots(slots: &mut [Slot], fixed: usize) {
+/// `preview` with `[rest omitted: x.y kb]`; if that is not enough, replace
+/// values largest-first by `[omitted: x.y kb]` (decisions 34 and 36).
+fn fit_slots(slots: &mut [Slot], fixed: usize, preview: usize) {
     let mut total = line_len(fixed, slots);
     if total <= BUDGET && slots.iter().all(|s| s.orig == s.text.len()) {
         return;
@@ -260,7 +262,7 @@ fn fit_slots(slots: &mut [Slot], fixed: usize) {
         if total <= BUDGET && !partial {
             continue;
         }
-        let head = cut(&s.text, PREVIEW).to_string();
+        let head = cut(&s.text, preview).to_string();
         if head.len() >= s.orig {
             continue;
         }
@@ -421,14 +423,14 @@ impl Shown {
         match self.parts {
             None => {
                 let mut slots = [Slot { lead: String::new(), text: self.text, orig: self.orig }];
-                fit_slots(&mut slots, lead.len());
+                fit_slots(&mut slots, lead.len(), RET_PREVIEW);
                 finish(format!("{lead}{}", slots[0].text))
             }
             Some(p) => {
                 let mut slots: Vec<Slot> =
                     p.items.into_iter().map(|(l, t, n)| Slot { lead: l, text: t, orig: n }).collect();
                 let fixed = lead.len() + p.open.len() + p.close.len() + slots.len().saturating_sub(1);
-                fit_slots(&mut slots, fixed);
+                fit_slots(&mut slots, fixed, RET_PREVIEW);
                 let mut out = String::with_capacity(LINE_CAP);
                 out.push_str(lead);
                 out.push_str(&p.open);

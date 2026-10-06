@@ -88,7 +88,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 34. **Dense, verbose per-method invocation logging** (user 2026-10-06):
     - Every method defined in the engine is logged when it is invoked, with its full input and its
-      full output, each capped at 5 KB. The only exceptions are extremely hot calls (run thousands
+      full output, each capped at 8 KB (decision 36). The only exceptions are extremely hot calls (run thousands
       of times per request), such as per-token streaming, per-record feed rebuilding and tiny
       helpers.
     - Every line carries a request id prefix, a client id prefix (`user`, `desktop`,
@@ -101,8 +101,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
       lines, `module.fn(args)` call lines and `module.fn(...) -> value` return lines (`!!` for an
       error), REQUEST/HEADERS/RESPONSE lines per HTTP request, `*****` for sensitive fields,
       multiline messages split into prefixed lines, and daily/size rollover to gzip archives.
-    - A line over 5 KB is brought under the cap like this. First, values (arguments, or the members
-      of a return value) are shortened largest-first to their first 100 characters followed by
+    - A line over the cap is brought under it like this. First, values (arguments, or the members
+      of a return value) are shortened largest-first to their first 160 characters (arguments)
+      or 240 characters (return values; decision 36) followed by
       `[rest omitted: x.y kb]`, until the line fits. If every value is shortened and the line is
       still too long, values are replaced largest-first by `[omitted: x.y kb]` alone. The line is
       truncated only as a last resort.
@@ -116,6 +117,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
       applied at once, rather than a compile-time flag; with it off, a logged method costs one
       atomic load. Packaged builds are compiled with `ORGTREE_RELEASE_BUILD` set, and
       `ORGTREE_LOG_VERBOSE=0|1` fixes the switch for one run.
+36. **Log line limits** (user 2026-10-06; replaces decision 34's 5 KB cap and 100-character
+    preview): a line is capped at 8 KB; a shortened argument keeps its first 160 characters and
+    a shortened return value its first 240; the console mirror cuts lines at 500 characters (the
+    file keeps them whole).
 
 ## Release
 
