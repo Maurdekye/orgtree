@@ -105,6 +105,15 @@ E:), the worktree rules (own worktree, no `node_modules` links, no bare `git sta
 before you mutate", the evidence rules, and the product rulings except where PLAN §10 or
 DECISIONS changes them.
 
+**Desk geometry and ordering (2026-10-06).** Explicit desk pop-outs measure the visible
+desk frame, then map its CSS rectangle through the owner's native content origin and browser
+zoom. Windows cross-display mapping goes through physical pixels; content bounds exclude
+invisible frame allowances. Lifecycle restores still use saved standalone placement.
+Forced Chromium DPR does not change Windows frame DPI: compare `GetDpiForWindow` before
+claiming native DPI coverage. Rust sibling ties use the numeric database id (wire `ord`),
+not creation time. [verified: `main/windows.ts`, renderer `canvas/deskhosts.tsx`,
+`windowlayout.ts`, `treeorder.ts`; Rust `domain/tree.rs`, `domain/ops.rs`]
+
 ## Keep this file current
 
 **When you find an engine gotcha or a design invariant, or a new decision or ruling is
