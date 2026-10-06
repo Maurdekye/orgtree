@@ -136,5 +136,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     org takes only work that survives that (small committed steps, no long-running jobs), stops any
     task that restarts keep breaking, and hands changes in as branches off `rust-engine` that the
     rust-engine session reviews and merges. No subagents are added (decision 6 otherwise stands).
+40. **Read-only copies of live data are allowed for rehearsals** (user 2026-10-06): an agent may copy
+    files from the live data folder or dump databases from the live PostgreSQL cluster, read-only,
+    to rehearse imports and upgrades on the copy. Nothing in the live folder or cluster is ever
+    changed. The copies hold secrets (network identities, account details): they stay in the agent's
+    own scratch area, are never committed or sent anywhere, and are deleted when no longer needed.
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is
     published.**
