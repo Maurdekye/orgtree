@@ -19,7 +19,7 @@ function rig(t: import('node:test').TestContext) {
   })
   feed.receive({type:'record_snapshot',cursor:{org_uuid:'o',incarnation:'i',rev:1},records:[]})
   const off = onLiveBump(() => { void feed.reconnect() })
-  t.after(() => { off();feed.dispose();globalThis.fetch=previous;t.mock.timers.reset() })
+  t.after(() => { t.mock.timers.tick(120);off();feed.dispose();globalThis.fetch=previous;t.mock.timers.reset() })
   return {reads, feed, answer: (r:Response) => answer(r), tick: (ms:number) => {
     clock += ms;t.mock.timers.tick(ms)
   }}
