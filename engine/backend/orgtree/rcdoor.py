@@ -351,12 +351,23 @@ def _reservation_body(tx: Any) -> Any:
         succ_arg if a.get("action") == "release" else None))
     org._require_live(node)
 
+    # Visibility only, so the PROJECTED archive row is enough (it carries
+    # every field `_work_can_read` reads) and is cached per call. `_work_get_for`
+    # here materialised the whole archived docket (~10 MB on the operator's
+    # org) for every row naming a closed item, inside the transaction: the
+    # 15.9 s reservation hold of 2026-10-06 (item
+    # 3-2-0-engine-transactions-stay-open-for-10-17-s).
+    readable: dict[tuple[str, str], bool] = {}
+
+    def _can_read(n: str, item: str) -> bool:
+        key = (n, item)
+        if key not in readable:
+            it = org._work_pointer_target(item)
+            readable[key] = it is not None and org._work_can_read(n, it)
+        return readable[key]
+
     def _item_visible(item: str) -> bool:
-        try:
-            org._work_get_for(node, item)
-            return True
-        except LedgerError:
-            return False
+        return _can_read(node, item)
 
     def _live_node(n: str) -> bool:
         try:
@@ -367,11 +378,7 @@ def _reservation_body(tx: Any) -> Any:
     def _successor_allowed(n: str, item: str) -> bool:
         if not item:
             return False
-        try:
-            org._work_get_for(n, item)
-            return True
-        except LedgerError:
-            return False
+        return _can_read(n, item)
 
     try:
         result = reservations.execute(

@@ -217,5 +217,53 @@ class OverlappingReservations(unittest.TestCase):
         self.assertEqual(len(self._rows()), reservations.MAX_RESERVATIONS, 'a refusal commits nothing')
 
 
+class ArchivedItemVisibility(unittest.TestCase):
+    """Item 3-2-0-engine-transactions-stay-open-for-10-17-s: a reservation
+    naming a CLOSED (archived) docket item made the real door body
+    (`rcdoor._reservation_body`) call `_work_get_for` -> `_work_find`, which
+    materialises the whole archived docket (~10 MB on the operator's org)
+    once per row, inside the transaction. The visibility check now reads the
+    projected row; the same agents still see the same rows."""
+
+    def setUp(self) -> None:
+        self.slug = 'pg3cresvarch'
+        org = store.create_org(self.slug)
+        org.hire(ledger.USER, None, 'haiku', 6, 'boss')
+        for name in ('x', 'y', 'z'):
+            org.hire('boss', 'boss', 'haiku', 0, name, add_dirs=[], tools=TOOLS,
+                     org_visibility='self', charter='a test agent')
+        it = org.work_create('x', 'archived thing', 'a problem. a fix.',
+                             owner='x', participants=['y'])
+        self.item = it.get('slug') or it['item']['slug']
+        org.d['reservations'] = [{
+            'id': 'r1', 'owner': 'x', 'resource': 'landing:main', 'item': self.item,
+            'state': 'released', 'paths': [], 'created_ts': 1.0, 'expires_ts': 2.0}]
+        store.save_org(org)
+        org = store.load_org(self.slug)
+        found, _ = org._work_get_for('x', self.item)
+        org.d['work_items'].remove(found)
+        org.d.setdefault('work_items_archive', []).append(found)
+        store.save_org(org)
+
+    def body(self, actor: str):
+        org = store.load_org(self.slug)
+        tx = types.SimpleNamespace(
+            org=org, node=actor, args={'action': 'list'},
+            spec=rcdoor.reservation_rows(), call=types.SimpleNamespace(org=self.slug),
+            after=types.SimpleNamespace(then=[], drive=[]))
+        return rcdoor._reservation_body(tx)
+
+    def test_an_archived_item_is_checked_without_materialising_the_archive(self) -> None:
+        def refuse(*a, **k):
+            raise AssertionError('the whole-record lookup ran inside the reservation tx')
+        orig = ledger.Org._work_find
+        ledger.Org._work_find = refuse
+        try:
+            seen = {a: self.body(a)['count'] for a in ('y', 'z')}
+        finally:
+            ledger.Org._work_find = orig
+        self.assertEqual(seen, {'y': 1, 'z': 0})
+
+
 if __name__ == '__main__':
     unittest.main()
