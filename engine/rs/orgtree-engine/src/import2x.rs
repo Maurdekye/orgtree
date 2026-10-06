@@ -360,7 +360,7 @@ async fn copy_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str) 
     insert_asks(&doc, tx, org_id, &ids).await?;
     insert_docket(src, tx, org_id, &ids).await?;
     insert_rest(src, tx, org_id, &ids).await?;
-    tracing::info!(org = %slug, agents = n, "2.x organization copied");
+    tracing::info!(org = %slug, agents = n, "organization copied");
     Ok(n)
 }
 
