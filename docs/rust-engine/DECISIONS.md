@@ -79,6 +79,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     branch (clarifies an earlier "keep frontend UI work separate").
 31. **Settings for dropped features are omitted entirely** from the UI — not kept, not greyed out.
 
+## Verification during the build
+
+33. **Brief smoke tests are allowed**; beyond that the user judges for themselves how well the app
+    works once it launches.
+
 ## Release
 
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is

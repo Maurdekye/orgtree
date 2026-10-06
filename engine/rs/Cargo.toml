@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["orgtree-engine"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[profile.dev]
+# Keep debug builds usable for interactive testing: optimise dependencies,
+# keep our own crate fast to rebuild.
+opt-level = 0
+debug = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = 0
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 1
+panic = "unwind"

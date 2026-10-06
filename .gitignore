@@ -36,3 +36,6 @@ acl-fixtures-*/
 # `.probe-attention/` arrived within an hour of each other from two worktrees,
 # which is the signal that the next one should not need another line here.
 .probe-*/
+
+# Rust engine build output
+engine/rs/target/
