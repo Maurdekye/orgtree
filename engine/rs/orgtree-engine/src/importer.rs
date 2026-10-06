@@ -26,14 +26,24 @@ pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progres
     if dst.query_opt("SELECT 1 FROM ot.meta WHERE key = $1", &[&MARKER]).await?.is_some() {
         return Ok(());
     }
-    let has_app = {
+    let (has_app, has_v30) = {
         let (c, conn) = cluster.connect_config("postgres").connect(NoTls).await?;
         let t = tokio::spawn(conn);
         let r = c.query_opt("SELECT 1 FROM pg_database WHERE datname = 'orgtree_app'", &[]).await?.is_some();
+        let v30 = c.query_opt("SELECT 1 FROM pg_database WHERE datname = 'orgtree'", &[]).await?.is_some();
         drop(c);
         t.abort();
-        r
+        (r, v30)
     };
+    // 2.x data folder (SQLite): only when no 3.x database exists at all
+    if !has_app && !has_v30 {
+        let failed = crate::import2x::run(cfg, &mut dst, progress).await?;
+        if failed > 0 {
+            // leave the marker unset: the next start retries the failed orgs
+            import_app_settings(cfg, &dst).await?;
+            return Ok(());
+        }
+    }
     if has_app {
         progress("database-import");
         let (app, conn) = cluster.connect_config("orgtree_app").connect(NoTls).await?;

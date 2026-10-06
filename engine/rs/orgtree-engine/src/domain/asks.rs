@@ -42,7 +42,7 @@ impl Parts {
 
 /// Compose the card (what `AskInfo` shows) from the parts.
 #[logged]
-fn compose(uid: &str, rev: i32, p: &Parts) -> (String, Value) {
+pub(crate) fn compose(uid: &str, rev: i32, p: &Parts) -> (String, Value) {
     let has_q = !p.questions.is_empty();
     let items: Vec<Value> = p.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();
     let kinds = has_q as u8 + p.credit.is_some() as u8 + (!items.is_empty()) as u8;

@@ -21,6 +21,7 @@ mod events;
 mod feed;
 mod host;
 mod http;
+mod import2x;
 mod importer;
 mod launch;
 mod mailhub;
