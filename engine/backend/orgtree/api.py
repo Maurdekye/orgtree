@@ -208,6 +208,24 @@ _PROFILE_RESERVED_FIELDS = frozenset({"seq", "route", "handler_ms", "total_ms",
 # `org_load_ms` were already allowed and, before this, were populated by one
 # route (`history_page`) and by no write at all.
 _PROFILE_ALLOWED_FIELDS = frozenset({
+    'record_host_wait_ms',
+    'record_executor_wait_ms',
+    'record_worker_ms',
+    'record_capability_ms',
+    'record_publish_ms',
+    'record_serialize_ms',
+    'record_assembly_ms',
+    'record_gate_wait_ms',
+    'record_context_ms',
+    'record_forecast_ms',
+    'record_worker_cpu_ms',
+    'record_capability_cpu_ms',
+    'record_publish_cpu_ms',
+    'record_serialize_cpu_ms',
+    'record_assembly_cpu_ms',
+    'record_gate_wait_cpu_ms',
+    'record_context_cpu_ms',
+    'record_forecast_cpu_ms',
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
     "org_save_ms", "mutate_ms",
@@ -245,7 +263,15 @@ _PROFILE_ALLOWED_FIELDS = frozenset({
 #: those milliseconds a second time and drive `unattributed_ms` negative on
 #: every ordinary write — an attribution bug this record is supposed to expose,
 #: manufactured by the record itself.
+# Record worker includes assembly (itself including gate/context) and forecast.
+# Only the outer worker is subtracted; nested diagnostics must not double count.
 _PROFILE_WALL_STAGE_FIELDS = frozenset({
+    'record_host_wait_ms',
+    'record_executor_wait_ms',
+    'record_worker_ms',
+    'record_capability_ms',
+    'record_publish_ms',
+    'record_serialize_ms',
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
     "org_save_ms", "mutate_ms",

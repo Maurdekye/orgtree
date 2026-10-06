@@ -68,6 +68,7 @@ was; with it off the var holds `None` and every entry point here is one
 from __future__ import annotations
 
 import contextlib
+import asyncio
 import threading
 import time
 from contextvars import ContextVar, Token
@@ -388,3 +389,28 @@ class TimedRLock:
         held = self._held
         held.depth = 1
         held.since = None
+
+
+async def record_worker(field, fn, *args, **kwargs):
+    """Request worker queue and execution separately; no CPU clock across await.
+
+    Context propagation is asyncio.to_thread's normal contract. The event-loop
+    resumption delay stays unattributed rather than being called worker time.
+    """
+    if current() is None:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    queued = time.perf_counter()
+    def run():
+        add('record_executor_wait_ms', (time.perf_counter() - queued) * 1000)
+        with stage(field):
+            return fn(*args, **kwargs)
+    return await asyncio.to_thread(run)
+
+
+@contextlib.contextmanager
+def record_gate(gate):
+    """Measure admission only, preserving the gate's exception/exit contract."""
+    with contextlib.ExitStack() as stack:
+        with stage('record_gate_wait_ms'):
+            value = stack.enter_context(gate)
+        yield value

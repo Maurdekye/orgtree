@@ -13,7 +13,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Response
 
-from . import orgdb, foreground_store, store
+from . import orgdb, foreground_store, store, profiling
 from .orgdb import record_host as H, record_reads as Q, record_selection as S
 
 
@@ -117,14 +117,15 @@ def catalog_changed(models):
 
 def _response(frame):
     # JSON's escaped representation also carries retained lone surrogates.
-    return Response(json.dumps(frame, ensure_ascii=True, allow_nan=False,
-                               separators=(',', ':')), media_type='application/json',
-                    headers={'Cache-Control':'no-store'})
+    with profiling.stage('record_serialize_ms'):
+        return Response(json.dumps(frame, ensure_ascii=True, allow_nan=False,
+                                   separators=(',', ':')), media_type='application/json',
+                        headers={'Cache-Control':'no-store'})
 
 
 async def _read(slug, **kwargs):
     try:
-        if not await asyncio.to_thread(capable, slug):
+        if not await profiling.record_worker('record_capability_ms', capable, slug):
             raise HTTPException(501, 'record feed is unavailable for this org')
         return _response(await host(slug).http(**kwargs))
     except foreground_store.OrgNotFound as exc:

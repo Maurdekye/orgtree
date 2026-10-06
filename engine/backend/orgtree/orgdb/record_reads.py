@@ -46,7 +46,7 @@ def snapshot(slug: str) -> Iterator[Snapshot]:
     from . import agents, enabled
     if not enabled():
         raise NotImplementedError('records require org database storage')
-    with agents.snapshot(slug) as (raw,stamp):
+    with agents.snapshot(slug, profile_gate=True) as (raw,stamp):
         floor, now = raw.execute('SELECT floor,extract(epoch FROM clock_timestamp()) '
                                  'FROM orgtree.org_revision').fetchone()
         yield Snapshot(raw,slug,{**stamp,'floor':floor},float(now))

@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
+from .. import profiling
 from . import record_reads as Q, record_tree as tree, record_panels as panels
 from . import record_mail_runtime as mail_runtime
 from .record_registry import Registry, Selection, Snapshot
@@ -128,7 +129,7 @@ class OrgHost:
         return tuple(selections)
 
     def _worker(self, kind, after, requests, selections, *, previous=None, previous_mail=frozenset()):
-        with Q.snapshot(self.slug) as state:
+        with profiling.stage('record_assembly_ms'), Q.snapshot(self.slug) as state:
             plan = BodyPass(self.registry, state)
             if kind == 'batch':
                 frame = read_snapshot(plan, state, after, requests, defer_bodies=True)
@@ -196,17 +197,20 @@ class OrgHost:
             else:
                 frame = plan.emit(frame)
         # No database transaction is held during filesystem/process-spec work.
-        return frame, replace(inputs, forecasts=forecasts(bodies, contexts))
+        with profiling.stage('record_forecast_ms'):
+            return frame, replace(inputs, forecasts=forecasts(bodies, contexts))
 
     async def _read(self, kind, after=None, requests=None, extra=()):
+        waiting = time.perf_counter()
         async with self._read_lock:
+            profiling.add('record_host_wait_ms', (time.perf_counter() - waiting) * 1000)
             while not self.closed:
                 fence = self.fence
                 selections = self._selections(requests if kind == 'batch' else None, extra)
                 retained = (self.input_cursor, frozenset(self.overlay._bodies) if self.overlay else frozenset())
                 forecast_overlay = self.overlay
                 generations = dict(getattr(self.overlay, '_fgen', {}))
-                frame, inputs = await asyncio.to_thread(self.worker, kind, after,
+                frame, inputs = await profiling.record_worker('record_worker_ms', self.worker, kind, after,
                     requests if kind == 'batch' else extra, selections,
                     **({'previous': retained,
                         'previous_mail': frozenset(getattr(self.overlay, '_mail', {}))}
@@ -276,15 +280,16 @@ class OrgHost:
         frame, inputs = await self._read(kind, after, extra=selections)
         if frame['type'] == 'record_reset':
             return frame
-        changed = self._adopt(inputs)
-        # HTTP declarations can outlive the socket subscription while _read
-        # awaits its worker. Keep only currently subscribed mailbox overlays.
-        changed.update(self._trim_mail())
-        self._partial(changed)
-        # No await between input adoption, current-memory sampling and copy
-        # stamp: a worker cannot mint a late stamp around an old live value.
-        self._partial(self.overlay.transition())
-        return {**frame, 'runtime': self.overlay.full()}
+        with profiling.stage('record_publish_ms'):
+            changed = self._adopt(inputs)
+            # HTTP declarations can outlive the socket subscription while _read
+            # awaits its worker. Keep only currently subscribed mailbox overlays.
+            changed.update(self._trim_mail())
+            self._partial(changed)
+            # No await between input adoption, current-memory sampling and copy
+            # stamp: a worker cannot mint a late stamp around an old live value.
+            self._partial(self.overlay.transition())
+            return {**frame, 'runtime': self.overlay.full()}
 
     async def join(self, token, send, send_pages=None):
         if token in self.sends or token in self.joining or self.closed:

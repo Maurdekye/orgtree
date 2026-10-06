@@ -221,7 +221,7 @@ def stamp(raw, org_id, seq):
 
 
 @contextmanager
-def snapshot(slug):
+def snapshot(slug, *, profile_gate=False):
     from ..foreground_store import OrgNotFound   # noqa: PLC0415
     slug = store._safe_slug(slug)
     found = registry.lookup(slug)
@@ -230,7 +230,9 @@ def snapshot(slug):
     org_id, database, _, uuid = found
     raw = registry.checkout(slug, database, uuid)
     try:
-        with store._snap_gate(slug):
+        from .. import profiling
+        gate = store._snap_gate(slug)
+        with profiling.record_gate(gate) if profile_gate else gate:
             seq = store.org_seq(slug)
             raw.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
             state = stamp(raw, org_id, seq)

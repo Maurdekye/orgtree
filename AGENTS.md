@@ -94,6 +94,13 @@ the HTTP caller's cursor. Emitted bodies are independent copies. Membership, ord
 scope expansion and frames stay unchanged. [decided: drag-opus 2026-10-05;
 verified: `orgdb/record_pass.py`, `orgdb/record_host.py`, `orgdb/record_tree.py`]
 
+Record HTTP timings use the existing slow-request threshold and numeric allowlist.
+`record_worker_ms` includes `record_assembly_ms` (including read-gate wait and
+context build) plus forecast; only outer stages reduce unattributed time. Host-lock
+and executor-queue waits are separate, and async waits have no thread-CPU reading.
+No payload contents are logged. [verified 2026-10-06: `profiling.py`, `record_api.py`,
+`orgdb/record_host.py`; decided: coordinator 2026-10-06]
+
 ## What Orgtree is, and where it stands
 
 - **The product.** A Windows desktop app for running a persistent team of coding agents.

@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 
+from .. import profiling
 from . import record_tree as tree
 
 
@@ -42,7 +43,8 @@ class BodyPass:
             raise ValueError('record pass already built')
         agent = self.registry.entities.get('agent')
         if agent is not None and agent.bodies is tree.bodies:
-            tree.prepare_context(self.state, frozenset(self.wanted.get('agent', ())))
+            with profiling.stage('record_context_ms'):
+                tree.prepare_context(self.state, frozenset(self.wanted.get('agent', ())))
         self.built = {}
         for entity, ids in sorted(self.wanted.items()):
             rows = self.registry.bodies(self.state, entity, frozenset(ids))
