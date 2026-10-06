@@ -112,7 +112,18 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
             v["error"] = json!(format!("the usage service asked us to wait ({} s more)", until.saturating_duration_since(Instant::now()).as_secs()));
             v
         }
-        None => fetch_claude(engine, &key, &dir).await,
+        None => {
+            let observed = Utc::now();
+            let value = fetch_claude(engine, &key, &dir).await;
+            let accounts: Vec<String> = engine.accounts.view().all().into_iter()
+                .filter(|a| a.provider == "claude" && !a.is_apikey()
+                    && (a.config_dir.as_deref() == config_dir || (config_dir.is_none() && a.ambient)))
+                .map(|a| a.id.clone()).collect();
+            for account in accounts {
+                crate::account_marks::usage(engine, &account, "claude", observed, &value).await;
+            }
+            value
+        },
     };
     out["email"] = json!(email);
     if out["available"].as_bool().unwrap_or(false) {
@@ -243,6 +254,7 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
         Some(p) => Some(p),
         None => tokio::task::spawn_blocking(crate::providers::locate_codex).await.ok().flatten().map(|(p, _)| p),
     };
+    let observed = Utc::now();
     let mut out = match exe {
         None => json!({ "available": false, "error": "the Codex CLI is not installed", "reauth_evidence": "not_connected" }),
         Some(exe) => match crate::runtime::codex::probe(&exe, home).await {
@@ -263,6 +275,7 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
     out["label"] = json!(email.clone().unwrap_or_else(|| "signed-in account".into()));
     out["email"] = json!(email);
     out["observed_at"] = json!(iso(Utc::now()));
+    crate::account_marks::usage(engine, account, "openai", observed, &out).await;
     engine.usage.put(&key, &out);
     out
 }
@@ -322,7 +335,7 @@ fn codex_limits(raw: &Value) -> Value {
                 _ => "codex_window",
             };
             limits.push(json!({
-                "kind": kind, "group": id, "percent": pct, "severity": severity(pct),
+                "kind": kind, "group": id, "percent": w["usedPercent"].as_f64(), "severity": severity(pct),
                 "resets_at": w["resetsAt"].as_i64().and_then(epoch_iso), "is_active": reached || pct >= 100.0,
                 "model": name, "label": format!("{}{}", name.map(|n| format!("{n} · ")).unwrap_or_default(), duration_label(mins)),
             }));
@@ -586,7 +599,8 @@ pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force
             _ => json!({ "available": false }),
         }
     };
-    let row = crate::accounts::row(a, Vec::new(), chrono::Utc::now());
+    let view = engine.accounts.view();
+    let row = crate::accounts::row(view.get(&a.id).unwrap_or(a), Vec::new(), chrono::Utc::now());
     u["account"] = json!(a.id);
     u["label"] = json!(a.display());
     u["provider"] = json!(a.provider);

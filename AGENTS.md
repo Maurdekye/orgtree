@@ -38,6 +38,12 @@ plan and this file. Read both before you change anything. All entries below: 202
   native sign-in included; an inactive account serves no new turn and its agents' mail waits.
   [decided: user 2026-10-07, DECISIONS 41]
 
+- Limit marks: fresh successful provider probes may clear an older mark for the
+  same account/pool; cached, failed, missing or incomplete readings cannot. A
+  successful turn uses its captured admission account/time, never a later rebind.
+  Neither path resumes frozen agents. Unknown imported pools stay manual.
+  [verified from source: 2026-10-07, `src/account_marks.rs`, `src/runtime/actor.rs`]
+
 **Where and how to work** [decided: coordinator 2026-10-06, from the rust-engine session's terms;
 user, DECISIONS 39]
 - `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything

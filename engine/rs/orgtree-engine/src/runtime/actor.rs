@@ -152,6 +152,8 @@ struct Plan {
 struct Turn {
     id: i64,
     started: Instant,
+    admitted_at: DateTime<Utc>,
+    serving_account: Option<String>,
     last_event: Instant,
     /// API message id → (convo seq, the row as built so far)
     rows: HashMap<String, (i64, Value)>,
@@ -193,6 +195,8 @@ impl Turn {
         Turn {
             id,
             started: Instant::now(),
+            admitted_at: Utc::now(),
+            serving_account: None,
             last_event: Instant::now(),
             rows: HashMap::new(),
             tools: HashMap::new(),
@@ -1762,6 +1766,7 @@ impl Actor {
 
     /// Claim waiting mail, make sure the CLI runs, send the opening message.
     async fn start_turn(&mut self) -> Result<bool> {
+        let admitted_at = Utc::now();
         let mut ctx = self.load_ctx().await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
             return Ok(false);
@@ -1845,6 +1850,8 @@ impl Actor {
             return Err(anyhow!("the {} process did not accept the turn", catalog::provider_label(&ctx.provider)));
         }
         let mut turn = Turn::new(turn_id, false);
+        turn.admitted_at = admitted_at;
+        turn.serving_account = ctx.account.clone();
         turn.codex_turn = codex_turn;
         turn.usage_base = self.codex_total.clone();
         self.begin_turn(turn);
@@ -2938,6 +2945,11 @@ impl Actor {
         }
         // the CLI holds the prompt once it produced anything: settle the mail
         // as delivered; a turn that never started gives its mail back
+        let usage_signal = self.rate_limit.as_ref().is_some_and(|r|
+            r["status"] == "rejected" || !r["rateLimitReachedType"].is_null()
+            || ["primary", "secondary"].iter().any(|w| r[*w]["usedPercent"].as_f64().is_some_and(|p| p >= 100.0)));
+        let succeeded = error.is_none() && limit.is_none() && !usage_signal
+            && !turn.interrupted && !turn.killed && !turn.compact && !res.is_null();
         let requeue = error.is_some() && !turn.activity;
         let client = self.engine.db.get().await?;
         if requeue {
@@ -2955,8 +2967,9 @@ impl Actor {
                 )
                 .await?;
         }
-        let account_now: Option<String> =
-            client.query_one("SELECT account FROM ot.agents WHERE id = $1", &[&self.id]).await?.get(0);
+        // Account captured at admission: a rebind during the turn cannot move
+        // this turn's spend, refusal, or successful recovery to another account.
+        let account_now = turn.serving_account.clone();
         client
             .execute(
                 "UPDATE ot.turns SET ended_at = now(), cost_usd = $2::float8::numeric, toks = $3, input_tokens = $4,
@@ -3026,6 +3039,11 @@ impl Actor {
         self.slot = None;
         self.activity = None;
         self.idle_since = Instant::now();
+        if succeeded {
+            if let Some(account) = turn.serving_account.as_deref() {
+                crate::account_marks::success(&self.engine, account, turn.admitted_at).await;
+            }
+        }
         if limit.is_some() {
             // the account changes or the agent sleeps: either way this process is done
             self.close_proc().await;
@@ -3118,6 +3136,7 @@ impl Actor {
 
     /// A slash command as its own turn (`/compact` compacts the session).
     async fn command(&mut self, text: &str) -> Result<Value> {
+        let admitted_at = Utc::now();
         if self.turn.is_some() {
             return Ok(json!({ "started": false, "reason": "a turn is running; wait for it or interrupt it" }));
         }
@@ -3153,6 +3172,8 @@ impl Actor {
             .get(0);
         drop(client);
         let mut turn = Turn::new(turn_id, compact);
+        turn.admitted_at = admitted_at;
+        turn.serving_account = ctx.account.clone();
         turn.activity = true;
         self.begin_turn(turn);
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));

@@ -10,6 +10,7 @@
 #[macro_use]
 extern crate orgtree_logged;
 
+mod account_marks;
 mod accounts;
 mod appfeed;
 mod bridge;
