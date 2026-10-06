@@ -4,6 +4,7 @@
 pub mod asks;
 pub mod desktop;
 pub mod docs;
+pub mod dogs;
 pub mod error;
 pub mod mailbox;
 pub mod nodes;
@@ -47,6 +48,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/asks/{aid}/answer", post(asks::answer))
         .route("/api/orgs/{slug}/credit-requests", post(asks::credit))
         .route("/api/orgs/{slug}/nodes/{nid}/batch", post(asks::batch))
+        .route("/api/orgs/{slug}/watchdogs", post(dogs::watchdog))
+        .route("/api/orgs/{slug}/audiences", get(dogs::audiences_get).post(dogs::audiences_post))
         .route("/api/orgs/{slug}/documents", get(docs::list))
         .route("/api/orgs/{slug}/documents/{did}", get(docs::get).delete(docs::dismiss))
         .route("/api/orgs/{slug}/documents/{did}/mockup", get(docs::mockup))

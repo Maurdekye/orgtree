@@ -120,6 +120,8 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
             ask_tool(engine, caller, name, args).await
         }
         "orgtree_present" | "orgtree_send_file" => doc_tool(engine, caller, name, args).await,
+        "orgtree_watchdog" => dog_tool(engine, caller, args).await,
+        "orgtree_audience" => audience_tool(engine, caller, args).await,
         "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
         "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
         "orgtree_retire" => treetools::run(engine, caller, args, "retire").await,
@@ -316,4 +318,71 @@ async fn doc_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         docs::send_file(engine, &org, &p, args).await?
     };
     Ok(Done { text, card: Some(card) })
+}
+
+/// orgtree_watchdog.
+#[logged]
+async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    use crate::runtime::watchdogs;
+    let action = args["action"].as_str().unwrap_or("");
+    let v = match action {
+        "create" => watchdogs::create(engine, caller.org_id, caller.agent_id, args).await?,
+        "list" => watchdogs::list(engine, caller.agent_id).await?,
+        "pause" | "resume" | "remove" | "supersede" => {
+            let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+                crate::refuse!(BadRequest, "{action} needs the watchdog id (see list)");
+            };
+            watchdogs::act(engine, caller.org_id, Some(caller.agent_id), id, action, args["reason"].as_str()).await?
+        }
+        other => crate::refuse!(BadRequest, "action must be create, list, pause, resume, remove or supersede (not {other:?})"),
+    };
+    Done::json(&v)
+}
+
+/// orgtree_audience.
+#[logged]
+async fn audience_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    use crate::domain::audiences;
+    use crate::domain::ops::Actor;
+    let Some(org) = engine.orgs.by_id(caller.org_id) else {
+        crate::refuse!(NotFound, "organization not open");
+    };
+    let me = Actor::Agent { id: caller.agent_id, name: caller.name.clone() };
+    let s = |k: &str| args[k].as_str().map(str::trim).filter(|v| !v.is_empty());
+    let reason = s("reason").unwrap_or("");
+    let v = match args["action"].as_str().unwrap_or("") {
+        "request" => {
+            let Some(t) = s("target") else {
+                crate::refuse!(BadRequest, "request needs a target: an agent, user, or extern");
+            };
+            audiences::request(engine, &org, (caller.agent_id, caller.name.as_str()), t, reason).await?
+        }
+        "grant" => {
+            let target = s("target");
+            let grantee = match s("from").or(s("grantee")) {
+                Some(g) => g,
+                None if target.map(|t| audiences::party(Some(t)) == audiences::EXTERN).unwrap_or(false) => caller.name.as_str(),
+                None => crate::refuse!(BadRequest, "grant needs from: the agent that receives the audience"),
+            };
+            audiences::grant(engine, &org, &me, grantee, target, reason).await?
+        }
+        "deny" => {
+            let Some(r) = s("from") else {
+                crate::refuse!(BadRequest, "deny needs from: the agent whose request you decline");
+            };
+            audiences::deny(engine, &org, &me, r, s("target")).await?
+        }
+        "revoke" => {
+            let Some(g) = s("grantee").or(s("from")) else {
+                crate::refuse!(BadRequest, "revoke needs grantee: who holds the audience");
+            };
+            audiences::revoke(engine, &org, &me, g, s("target")).await?
+        }
+        "forward" => crate::refuse!(
+            Unprocessable,
+            "requests no longer climb the chain: each goes straight to whom it names, who grants or denies it"
+        ),
+        other => crate::refuse!(BadRequest, "action must be request, grant, deny or revoke (not {other:?})"),
+    };
+    Done::json(&v)
 }

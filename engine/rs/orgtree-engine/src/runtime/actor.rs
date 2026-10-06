@@ -1010,6 +1010,7 @@ impl Actor {
         self.turn = Some(turn);
         self.keep_until = None;
         self.org.turn_delta(&self.engine, 1);
+        crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_started");
     }
 
     fn take_turn(&mut self) -> Option<Turn> {
@@ -1381,6 +1382,7 @@ impl Actor {
                     Some("tool_use") | Some("server_tool_use") => {
                         let id = block["id"].as_str().unwrap_or("").to_string();
                         let name = block["name"].as_str().unwrap_or("tool").to_string();
+                        crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
                         let input = block["input"].clone();
                         let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) });
                         if name == "TodoWrite" {
@@ -1541,6 +1543,7 @@ impl Actor {
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
         let Some(turn) = self.take_turn() else { return Ok(()) };
+        crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
         let usage = if res.get("usage").map(|u| u.is_object()).unwrap_or(false) { res["usage"].clone() } else { turn.usage.clone() };
         let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
         let input = n(&usage, "input_tokens");

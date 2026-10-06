@@ -19,6 +19,8 @@ pub enum From {
     System,
     Agent { id: i64, name: String, generation: i32 },
     Extern(String),
+    /// a watchdog mailing its owner (the mail is from the dog's name)
+    Watchdog { uid: String, name: String },
 }
 
 #[logged]
@@ -29,6 +31,15 @@ impl From {
             From::System => "@system".into(),
             From::Agent { name, .. } => name.clone(),
             From::Extern(a) => a.clone(),
+            From::Watchdog { name, .. } => name.clone(),
+        }
+    }
+
+    /// Where a mail spark starts on the canvas.
+    pub fn spark(&self) -> String {
+        match self {
+            From::Watchdog { uid, .. } => format!("dog:{uid}"),
+            other => other.name(),
         }
     }
 }
@@ -165,7 +176,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
             ],
         )
         .await?;
-    let mut ch = vec![Change::Mailbox(target_id), Change::Spark { from: sender_name.clone(), to: to.clone() }];
+    let mut ch = vec![Change::Mailbox(target_id), Change::Spark { from: out.from.spark(), to: to.clone() }];
     if let Some(a) = sender_agent {
         ch.push(Change::Mailbox(a));
     }

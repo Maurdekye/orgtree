@@ -33,6 +33,7 @@ pub struct Engine {
     pub accounts: crate::accounts::Accounts,
     pub providers: crate::providers::Providers,
     pub hub: crate::mailhub::MailHub,
+    pub dogs: crate::runtime::watchdogs::Registry,
 }
 
 pub type EngineRef = Arc<Engine>;

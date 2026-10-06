@@ -11,6 +11,7 @@ pub mod convo;
 pub mod freeze;
 pub mod prompt;
 pub mod sched;
+pub mod watchdogs;
 
 use std::collections::HashMap;
 use std::sync::Arc;

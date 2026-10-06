@@ -207,7 +207,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             let rows = client
                 .query(
                     "SELECT to_jsonb(w), a.name FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
-                      WHERE w.org_id = $1 AND (w.state IN ('armed','paused')
+                      WHERE w.org_id = $1 AND (w.state IN ('armed','paused','exited')
                          OR (w.spent_at IS NOT NULL AND w.spent_at > now() - interval '15 seconds'))
                       ORDER BY w.id",
                     &[&org_id],

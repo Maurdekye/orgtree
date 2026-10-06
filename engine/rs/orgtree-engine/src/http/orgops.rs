@@ -90,7 +90,11 @@ pub async fn delete(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> A
         .iter()
         .map(|r| r.get(0))
         .collect();
+    let dogs = client.query("SELECT uid FROM ot.watchdogs WHERE org_id = $1 AND state = 'armed'", &[&o.id]).await?;
     drop(client);
+    for d in &dogs {
+        crate::runtime::watchdogs::disarm(&e, &d.get::<_, String>(0));
+    }
     for id in live {
         if let Some(h) = e.agents.get(id) {
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -205,6 +209,9 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
             }
         }
     }
+    for r in &paused {
+        crate::runtime::watchdogs::disarm(&e, &r.get::<_, String>(0));
+    }
     changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
     let watchdogs: Vec<Value> = paused
         .iter()
@@ -221,13 +228,19 @@ pub async fn killswitch_release(State(e): State<Arc<Engine>>, Path(slug): Path<S
     let released = client
         .execute("UPDATE ot.orgs SET killswitch = NULL, row_version = row_version + 1 WHERE id = $1 AND killswitch IS NOT NULL", &[&o.id])
         .await?;
-    client
-        .execute(
+    let rearmed: Vec<String> = client
+        .query(
             "UPDATE ot.watchdogs SET state = 'armed', memo = memo - 'paused_by'
-              WHERE org_id = $1 AND state = 'paused' AND memo->>'paused_by' = 'killswitch'",
+              WHERE org_id = $1 AND state = 'paused' AND memo->>'paused_by' = 'killswitch' RETURNING uid",
             &[&o.id],
         )
-        .await?;
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    for d in &rearmed {
+        crate::runtime::watchdogs::arm(&e, d);
+    }
     let waiting: Vec<i64> = client
         .query(
             "SELECT DISTINCT m.recipient_agent_id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id

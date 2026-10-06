@@ -45,6 +45,9 @@ struct Effects {
     events: bool,
     registry: bool,
     pulses: Vec<crate::changes::Change>,
+    /// watchdogs to stop / start after commit
+    dogs_off: Vec<String>,
+    dogs_on: Vec<String>,
 }
 
 /// A locked agent row.
@@ -388,6 +391,12 @@ async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) 
             h.send(AgentMsg::Reconfigured);
         }
     }
+    for d in &fx.dogs_off {
+        crate::runtime::watchdogs::disarm(engine, d);
+    }
+    for d in &fx.dogs_on {
+        crate::runtime::watchdogs::arm(engine, d);
+    }
     use crate::changes::Change;
     let mut ch: Vec<Change> = fx.agents.iter().map(|id| Change::Agent(*id)).collect();
     ch.extend(fx.agents.iter().map(|id| Change::History(*id)));
@@ -398,6 +407,9 @@ async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) 
     }
     if fx.registry {
         ch.push(Change::Registry);
+    }
+    if !fx.dogs_off.is_empty() || !fx.dogs_on.is_empty() {
+        ch.push(Change::Watchdogs);
     }
     ch.extend(fx.pulses);
     crate::changes::notify(engine, org, ch);
@@ -618,7 +630,17 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     fx.events = true;
     fx.wake.push(n.id);
-    Ok(json!({ "node": n.name, "cascaded": raised }))
+    let woke = crate::runtime::watchdogs::resume_owned(tx, n.id).await?;
+    let mut warnings = Vec::new();
+    if !woke.is_empty() {
+        warnings.push(format!(
+            "{} watchdog(s) paused by the archive are armed again: {}",
+            woke.len(),
+            woke.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    fx.dogs_on.extend(woke.into_iter().map(|(id, _)| id));
+    Ok(json!({ "node": n.name, "cascaded": raised, "warnings": warnings }))
 }
 
 #[logged]
@@ -651,6 +673,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         )
         .await?;
     let kids: Vec<i64> = rows.iter().map(|r| r.get::<_, i64>(0)).filter(|id| *id != n.id).collect();
+    fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &ids).await?);
     let mut clawed = 0.0;
     if rescind {
         if let Some(pid) = n.parent {
@@ -696,6 +719,7 @@ async fn dissolve(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req
         )
         .await?;
     let done: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
+    fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &done).await?);
     event(tx, org.id, "dissolve", actor, Some(n.id), json!({ "node": n.name, "nodes": done.len() })).await?;
     fx.agents.extend(done.iter().copied());
     if let Some(p) = n.parent {
@@ -725,8 +749,13 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         &[&ids],
     )
     .await?;
-    tx.execute("UPDATE ot.watchdogs SET state = 'removed' WHERE owner_agent_id = ANY($1) AND state IN ('armed', 'paused')", &[&ids])
+    let gone = tx
+        .query(
+            "UPDATE ot.watchdogs SET state = 'removed' WHERE owner_agent_id = ANY($1) AND state IN ('armed', 'paused', 'exited') RETURNING uid",
+            &[&ids],
+        )
         .await?;
+    fx.dogs_off.extend(gone.iter().map(|r| r.get::<_, String>(0)));
     event(tx, org.id, "delete", actor, Some(n.id), json!({ "node": n.name, "nodes": ids.len() })).await?;
     fx.agents.extend(ids.iter().copied());
     if let Some(p) = n.parent {
@@ -819,6 +848,15 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     // names are how audiences address agents
     tx.execute("UPDATE ot.audiences SET grantee = $3 WHERE org_id = $1 AND grantee = $2", &[&org.id, &n.name, &new]).await?;
     tx.execute("UPDATE ot.audiences SET grantor = $3 WHERE org_id = $1 AND grantor = $2", &[&org.id, &n.name, &new]).await?;
+    tx.execute(
+        "UPDATE ot.audience_requests SET requester = CASE WHEN requester = $2 THEN $3 ELSE requester END,
+                target = CASE WHEN target = $2 THEN $3 ELSE target END, holder = CASE WHEN holder = $2 THEN $3 ELSE holder END
+          WHERE org_id = $1 AND status = 'pending' AND (requester = $2 OR target = $2 OR holder = $2)",
+        &[&org.id, &n.name, &new],
+    )
+    .await?;
+    tx.execute("UPDATE ot.watchdogs SET target = $3 WHERE org_id = $1 AND kind = 'activity' AND target = $2", &[&org.id, &n.name, &new])
+        .await?;
     event(tx, org.id, "rename", actor, Some(n.id), json!({ "was": n.name, "node": new })).await?;
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);

@@ -27,6 +27,8 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_withdraw_ask",
         "orgtree_present",
         "orgtree_send_file",
+        "orgtree_watchdog",
+        "orgtree_audience",
         "orgtree_request_credits",
         "orgtree_request_scope",
         "orgtree_hire",
@@ -350,23 +352,55 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_audience",
-            "Audiences: request one (to write to someone outside your chain), grant, deny or revoke.",
+            "Audiences let an agent write outside its chain of command. request: ask `target` (an agent, 'user', or \
+             'extern' = the org inbox) for an audience; the request goes straight to that agent (or the user; an \
+             org-inbox request to your top-level agent) for a yes or no, and the answer arrives as mail. grant: give \
+             `from` an audience with you (a report, or anyone whose request waits on you), or via `target` with a \
+             live peer, your direct superior, 'user' (if you are top-level) or 'extern' (outside @org:/@net: mail \
+             reaches holders only; a top-level agent may grant it to itself). deny: decline a request waiting on \
+             you (`from` = requester). revoke: rescind one you granted (`grantee`); an org-inbox holder may revoke \
+             itself and a top-level agent any user or org-inbox grant in its subtree.",
             json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
-                    "target": { "type": "string" }, "grantee": { "type": "string" }, "reason": { "type": "string" } }),
+                    "target": { "type": "string", "description": "request: whom you seek; grant/revoke: the grantor when not you" },
+                    "from": { "type": "string", "description": "grant: who receives it; deny: the requester" },
+                    "grantee": { "type": "string", "description": "revoke: who holds it" },
+                    "reason": { "type": "string" } }),
             &["action"],
         ),
         tool(
             "orgtree_watchdog",
-            "Watchdogs wake you when something happens (a file changes, a command's output matches, a process \
-             exits) or goes quiet. On Windows command targets run in cmd.exe unless shell is 'bash'.",
+            "Keep a WATCHDOG: a free, persistent watcher that mails you (waking you) when its target produces a \
+             matching event. It survives orgtree restarts, so use it instead of polling for 'tell me when X happens'. \
+             Kinds: file (poll a path; new matching content fires; downtime events recovered), command (run each \
+             interval; matching output fires), process (pid:N or port:N; fires when it goes DOWN), stream (a \
+             persistent command such as a tail; each matching line fires at once; downtime output lost), activity \
+             (target = your name or any descendant's; events: turn_started, turn_done, tool_call NAME). \
+             fire_mode='event' is the default. fire_mode='silence' requires quiet_period_s: fires after that many \
+             seconds without a matching event; every match and every fire resets the timer. command/stream dogs run \
+             with your authority (need bash) but NOT IN YOUR SHELL: on Windows the target runs in cmd.exe with the \
+             engine's PATH (grep, sed, awk, $(...), $VAR and /tmp do not work; `find` is FIND.EXE) — write cmd \
+             (findstr, dir /b, %VAR%, %TEMP%) or pass shell:\"bash\" (`bash -lc`, refused if bash is missing). \
+             Create SMOKE-RUNS the target once and returns its output in `smoke` — read it. `list` shows checks_run, \
+             last_check, last_output and health. A dog also mails you when its target goes quiet (a file stops \
+             growing, a command cannot run, a pid already fired). notice:true fires passively (no turn). once:true \
+             fires exactly once and removes itself — use it whenever the condition can happen only once and ALWAYS \
+             when the pattern is a DEADLINE rather than an EDGE. Free; max 8 per agent. Actions: create, list, pause, \
+             resume, remove, supersede (cancels an obsolete one-shot wait; needs reason). Superiors may manage their \
+             subtree's dogs.",
             json!({
-                "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
-                "name": { "type": "string" },
+                "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "supersede"] },
+                "name": { "type": "string", "description": "create: a short name, e.g. build-watch" },
                 "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity"] },
-                "fire_mode": { "type": "string", "enum": ["event", "silence"] }, "quiet_period_s": { "type": "integer" },
-                "target": { "type": "string" }, "pattern": { "type": "string" }, "interval_s": { "type": "integer" },
-                "once": { "type": "boolean" }, "shell": { "type": "string", "enum": ["native", "bash"] },
-                "id": { "type": "string" }, "reason": { "type": "string" },
+                "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
+                "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
+                "target": { "type": "string", "description": "the path, command line, pid:N / port:N, or (activity) agent name" },
+                "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
+                "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
+                "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
+                "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
+                "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
+                "id": { "type": "string", "description": "pause/resume/remove/supersede: the watchdog id" },
+                "reason": { "type": "string", "description": "supersede (or optional remove): why" },
             }),
             &["action"],
         ),

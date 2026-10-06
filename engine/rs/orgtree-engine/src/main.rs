@@ -165,6 +165,7 @@ async fn run_with_cluster(
         accounts: accounts::Accounts::default(),
         providers: providers::Providers::default(),
         hub: mailhub::MailHub::default(),
+        dogs: runtime::watchdogs::Registry::default(),
     });
 
     progress("engine-load-orgs");
@@ -175,6 +176,9 @@ async fn run_with_cluster(
     runtime::sched::start(&engine, sched_inbox);
     mailhub::start(&engine).await;
     runtime::recover(&engine).await;
+    if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") {
+        runtime::watchdogs::start(&engine).await;
+    }
 
     if let Some(pid) = cfg.parent_pid {
         let eng = engine.clone();
