@@ -204,22 +204,26 @@ pub fn clip(text: &str, max: usize) -> (String, bool) {
 
 /// The short argument a tool chip shows beside the tool name.
 #[logged]
-pub fn tool_arg(name: &str, input: &Value) -> String {
-    let pick = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
-    let s = match name {
-        "Bash" | "PowerShell" | "exec_command" => pick("command"),
-        "apply_patch" | "view_image" => pick("path"),
-        "web_search" => pick("query"),
-        "Read" | "Edit" | "Write" | "NotebookEdit" => pick("file_path").or_else(|| pick("notebook_path")),
-        "Glob" | "Grep" => pick("pattern"),
-        "WebFetch" => pick("url"),
-        "WebSearch" => pick("query"),
-        "Task" | "Agent" => pick("description"),
-        "TodoWrite" => Some("todos".into()),
-        _ => None,
-    };
-    let s = s.unwrap_or_else(|| input.to_string().chars().take(300).collect());
-    crate::util::gist(&s, 300)
+pub fn tool_arg(_name: &str, input: &Value) -> String {
+    // the most identifying argument IS the line (`Bash ls /e/…`): the first
+    // of these that is a non-empty string, else any string, whitespace
+    // collapsed and at most 90 characters — never the input dumped as JSON
+    let Some(o) = input.as_object() else { return String::new() };
+    let flat = |s: &str| -> String { s.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect() };
+    for k in ["command", "file_path", "path", "pattern", "query", "url", "description", "prompt", "name", "text", "to", "body"] {
+        match o.get(k) {
+            Some(Value::String(s)) if !s.trim().is_empty() => return flat(s),
+            // Codex passes a command as its argument list
+            Some(Value::Array(a)) if k == "command" => {
+                let joined = a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ");
+                if !joined.trim().is_empty() {
+                    return flat(&joined);
+                }
+            }
+            _ => {}
+        }
+    }
+    o.values().filter_map(Value::as_str).find(|s| !s.trim().is_empty()).map(flat).unwrap_or_default()
 }
 
 /// Text of a tool_result's content (string, or text blocks); counts images.
