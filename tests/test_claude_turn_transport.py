@@ -201,6 +201,7 @@ class TransportTests(unittest.TestCase):
         discarded = []
         wp = SimpleNamespace(rotation=self.rotation)
         pool = SimpleNamespace(warm_decision=lambda: (True, True), eligible=lambda *_: (True, ''),
+                               _journal=lambda *a, **k: None,
                                identity_snapshot=lambda *a, **k: ('stable', {}),
                                claim_snapshot=lambda *a: (wp, 'warm-hit'),
                                discard=lambda *a: discarded.append(a))
