@@ -328,13 +328,13 @@ async fn dog_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result
     let v = match action {
         "create" => watchdogs::create(engine, caller.org_id, caller.agent_id, args).await?,
         "list" => watchdogs::list(engine, caller.agent_id).await?,
-        "pause" | "resume" | "remove" | "supersede" => {
+        "pause" | "resume" | "remove" => {
             let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
                 crate::refuse!(BadRequest, "{action} needs the watchdog id (see list)");
             };
             watchdogs::act(engine, caller.org_id, Some(caller.agent_id), id, action, args["reason"].as_str()).await?
         }
-        other => crate::refuse!(BadRequest, "action must be create, list, pause, resume, remove or supersede (not {other:?})"),
+        other => crate::refuse!(BadRequest, "action must be create, list, pause, resume or remove (not {other:?})"),
     };
     Done::json(&v)
 }

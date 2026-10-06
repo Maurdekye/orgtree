@@ -1390,7 +1390,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     Ok(out)
 }
 
-/// pause / resume / remove / supersede, by the owner, a superior, or the user (`actor: None`).
+/// pause / resume / remove, by the owner, a superior, or the user (`actor: None`).
 #[logged]
 pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, action: &str, reason: Option<&str>) -> Result<Value> {
     let Some(dog) = load(engine, id).await? else { refuse!(NotFound, "no watchdog {id}") };
@@ -1439,21 +1439,7 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                 .await?;
             "removed"
         }
-        "supersede" => {
-            let Some(why) = reason else { refuse!(BadRequest, "supersede requires a reason explaining why this wait is obsolete") };
-            if !dog.once {
-                refuse!(Conflict, "only a one-shot watchdog can be superseded; remove a persistent watchdog");
-            }
-            client
-                .execute(
-                    "UPDATE ot.watchdogs SET state = 'spent', spent_at = now(),
-                            memo = memo || jsonb_build_object('reason', $2::text, 'superseded', true) WHERE uid = $1",
-                    &[&id, &why],
-                )
-                .await?;
-            "superseded"
-        }
-        other => refuse!(BadRequest, "action must be pause|resume|remove|supersede, not {other}"),
+        other => refuse!(BadRequest, "action must be pause|resume|remove, not {other}"),
     };
     let by = match actor {
         Some(a) => client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&a]).await?.get::<_, String>(0),

@@ -385,10 +385,9 @@ fn all() -> Vec<Value> {
              growing, a command cannot run, a pid already fired). notice:true fires passively (no turn). once:true \
              fires exactly once and removes itself — use it whenever the condition can happen only once and ALWAYS \
              when the pattern is a DEADLINE rather than an EDGE. Free; max 8 per agent. Actions: create, list, pause, \
-             resume, remove, supersede (cancels an obsolete one-shot wait; needs reason). Superiors may manage their \
-             subtree's dogs.",
+             resume, remove (reason optional). Superiors may manage their subtree's dogs.",
             json!({
-                "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "supersede"] },
+                "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
                 "name": { "type": "string", "description": "create: a short name, e.g. build-watch" },
                 "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity"] },
                 "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
@@ -399,8 +398,8 @@ fn all() -> Vec<Value> {
                 "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
                 "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
                 "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
-                "id": { "type": "string", "description": "pause/resume/remove/supersede: the watchdog id" },
-                "reason": { "type": "string", "description": "supersede (or optional remove): why" },
+                "id": { "type": "string", "description": "pause/resume/remove: the watchdog id" },
+                "reason": { "type": "string", "description": "remove: why (optional)" },
             }),
             &["action"],
         ),
