@@ -2,6 +2,8 @@
 //! turns run first-come-first-served within an org and round-robin across
 //! orgs. One task runs the queue; agents ask it for a slot over a channel and
 //! give the slot back by dropping it. Lowering N never stops a running turn.
+//! The same task keeps the machine-wide cap on idle ("parked") CLI processes:
+//! past the cap, the one parked longest is asked to close.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,7 +29,12 @@ enum Msg {
     Released,
     Limit(usize),
     Stats(oneshot::Sender<SchedStats>),
+    Parked(i64),
+    Unparked(i64),
 }
+
+/// Idle CLI processes kept alive at most, machine-wide.
+pub const MAX_PARKED: usize = 64;
 
 #[derive(Clone, Debug, Default)]
 pub struct SchedStats {
@@ -77,6 +84,15 @@ impl Scheduler {
         let _ = self.tx.send(Msg::Cancel { agent });
     }
 
+    /// This agent's CLI is idle and alive (a parked process).
+    pub fn parked(&self, agent: i64) {
+        let _ = self.tx.send(Msg::Parked(agent));
+    }
+
+    pub fn unparked(&self, agent: i64) {
+        let _ = self.tx.send(Msg::Unparked(agent));
+    }
+
     pub fn set_limit(&self, n: usize) {
         self.limit.store(n.max(1), Ordering::SeqCst);
         let _ = self.tx.send(Msg::Limit(n.max(1)));
@@ -97,6 +113,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
     tokio::spawn(async move {
         let mut queues: HashMap<i64, VecDeque<(i64, oneshot::Sender<Slot>)>> = HashMap::new();
         let mut rotation: VecDeque<i64> = VecDeque::new();
+        let mut parked: VecDeque<i64> = VecDeque::new();
         let sched = &engine.sched;
         while let Some(msg) = rx.recv().await {
             match msg {
@@ -114,6 +131,21 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                     }
                 }
                 Msg::Released | Msg::Limit(_) => {}
+                Msg::Parked(agent) => {
+                    parked.retain(|a| *a != agent);
+                    parked.push_back(agent);
+                    while parked.len() > MAX_PARKED {
+                        let Some(oldest) = parked.pop_front() else { break };
+                        if let Some(h) = engine.agents.get(oldest) {
+                            h.send(crate::runtime::AgentMsg::CloseIdle);
+                        }
+                    }
+                    continue;
+                }
+                Msg::Unparked(agent) => {
+                    parked.retain(|a| *a != agent);
+                    continue;
+                }
                 Msg::Stats(reply) => {
                     let waiting_by_org: HashMap<i64, usize> =
                         queues.iter().map(|(o, q)| (*o, q.len())).filter(|(_, n)| *n > 0).collect();

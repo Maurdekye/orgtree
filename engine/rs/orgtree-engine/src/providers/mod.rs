@@ -40,6 +40,14 @@ pub struct State {
 #[derive(Default)]
 pub struct Providers {
     pub state: ArcSwap<State>,
+    /// `~/.claude.json` mcpServers, re-read when the file changes
+    mcp: ArcSwap<McpRegistry>,
+}
+
+#[derive(Default)]
+pub struct McpRegistry {
+    pub stamp: Option<(std::time::SystemTime, u64)>,
+    pub servers: Vec<(String, Value)>,
 }
 
 impl Providers {
@@ -54,6 +62,26 @@ impl Providers {
     }
     pub fn agy_path(&self) -> Option<PathBuf> {
         self.state.load().agy.path.clone()
+    }
+
+    /// The user's MCP server registry (`mcpServers` in `~/.claude.json`):
+    /// what an agent's `tools.mcp` grants name. Cached until the file changes.
+    pub fn mcp_registry(&self) -> Arc<McpRegistry> {
+        let path = home().join(".claude.json");
+        let stamp = std::fs::metadata(&path).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
+        let cur = self.mcp.load_full();
+        if cur.stamp.is_some() && cur.stamp == stamp {
+            return cur;
+        }
+        let servers = std::fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .and_then(|v| v.get("mcpServers").and_then(Value::as_object).cloned())
+            .map(|m| m.into_iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+        let next = Arc::new(McpRegistry { stamp, servers });
+        self.mcp.store(next.clone());
+        next
     }
 }
 

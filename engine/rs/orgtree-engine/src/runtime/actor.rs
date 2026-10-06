@@ -1,0 +1,1978 @@
+//! One agent's actor: its turns, its CLI process, its live state. Everything
+//! about a running agent is owned here and changed only by messages on its
+//! channel; the rest of the engine reads the snapshot it publishes.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
+use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
+use tokio::sync::mpsc;
+use tokio::time::sleep_until;
+
+use crate::domain::scope;
+use crate::engine::Engine;
+use crate::feed::Key;
+use crate::orgs::OrgHandle;
+use crate::providers::catalog;
+use crate::runtime::claude::{self, ClaudeProc, SpawnSpec};
+use crate::runtime::convo::{self, ConvoWriter};
+use crate::runtime::prompt::{self, Mail};
+use crate::runtime::sched::Slot;
+use crate::runtime::{freeze, AgentHandle, AgentMsg, Caller};
+use crate::util::{gist, iso, now_iso};
+
+/// What `/chat` needs from a running actor.
+#[derive(Clone, Default)]
+pub struct LiveView {
+    pub busy: bool,
+    pub turn_activity: bool,
+    pub draft_epoch: String,
+    pub init: Value,
+    pub last_error: Option<String>,
+    pub transient: Vec<Value>,
+    pub mcp_waiting: bool,
+    pub mcp_state: Option<String>,
+    pub mcp_reason: Option<String>,
+}
+
+const KEEP_ALIVE: Duration = Duration::from_secs(600);
+const ACTOR_IDLE_EXIT: Duration = Duration::from_secs(60);
+const MCP_WAIT: Duration = Duration::from_secs(30);
+
+pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedReceiver<AgentMsg>) {
+    tokio::spawn(async move {
+        let id = handle.id;
+        match Actor::new(engine.clone(), handle.clone()).await {
+            Ok(actor) => actor.run(rx).await,
+            Err(e) => tracing::warn!(agent = id, error = %format!("{e:#}"), "agent actor could not start"),
+        }
+        engine.agents.remove_if(id, &handle);
+    });
+}
+
+/// Everything about the agent a turn needs, read fresh before each spawn.
+struct Ctx {
+    org_name: String,
+    org_slug: String,
+    killswitch: bool,
+    name: String,
+    title: String,
+    tier: String,
+    model: String,
+    provider: String,
+    account: Option<String>,
+    api_key: Option<String>,
+    effective: Value,
+    charter: Option<String>,
+    team_charter: Option<String>,
+    org_md: Option<String>,
+    session_id: Option<String>,
+    session_provider: Option<String>,
+    generation: i32,
+    state: String,
+    halted: bool,
+    frozen: bool,
+    top_level: bool,
+    scratch: PathBuf,
+    effort: String,
+    fallback: bool,
+}
+
+/// The launch of a CLI process for an agent, before anything is written.
+struct Plan {
+    identity: String,
+    settings: Value,
+    mcp: Value,
+    disallowed: Vec<String>,
+    allowed: Vec<String>,
+    add_dirs: Vec<String>,
+    external: Vec<String>,
+    print: Fingerprint,
+}
+
+struct Turn {
+    id: i64,
+    started: Instant,
+    last_event: Instant,
+    /// API message id → (convo seq, the row as built so far)
+    rows: HashMap<String, (i64, Value)>,
+    /// tool_use_id → API message id
+    tools: HashMap<String, String>,
+    interrupted: bool,
+    killed: bool,
+    /// the CLI produced something for this turn (so it holds the prompt)
+    activity: bool,
+    usage: Value,
+    model: Option<String>,
+    draft: String,
+    thinking: String,
+    compact: bool,
+    /// cards `orgtree_*` tools attached to their chips, by tool_use_id
+    cards: HashMap<String, Value>,
+}
+
+impl Turn {
+    fn new(id: i64, compact: bool) -> Turn {
+        Turn {
+            id,
+            started: Instant::now(),
+            last_event: Instant::now(),
+            rows: HashMap::new(),
+            tools: HashMap::new(),
+            interrupted: false,
+            killed: false,
+            activity: false,
+            usage: Value::Null,
+            model: None,
+            draft: String::new(),
+            thinking: String::new(),
+            compact,
+            cards: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+struct Fingerprint {
+    parts: Vec<(&'static str, String)>,
+}
+
+impl Fingerprint {
+    fn changed(&self, other: &Fingerprint) -> Vec<String> {
+        self.parts
+            .iter()
+            .zip(other.parts.iter())
+            .filter(|(a, b)| a.1 != b.1)
+            .map(|(a, _)| a.0.to_string())
+            .collect()
+    }
+}
+
+fn hash(s: &str) -> String {
+    hex::encode(&Sha256::digest(s.as_bytes())[..12])
+}
+
+#[derive(Default)]
+struct McpState {
+    waiting: bool,
+    state: Option<String>,
+    reason: Option<String>,
+    count: Option<i64>,
+    last_turn_count: Option<i64>,
+}
+
+struct Actor {
+    engine: Arc<Engine>,
+    handle: Arc<AgentHandle>,
+    org: Arc<OrgHandle>,
+    id: i64,
+    org_id: i64,
+    name: String,
+    tx: mpsc::UnboundedSender<AgentMsg>,
+    proc: Option<ClaudeProc>,
+    proc_print: Option<Fingerprint>,
+    proc_effort: Option<String>,
+    parked: bool,
+    slot: Option<Slot>,
+    waiting_since: Option<DateTime<Utc>>,
+    turn: Option<Turn>,
+    convo: ConvoWriter,
+    init: Value,
+    last_error: Option<String>,
+    idle_since: Instant,
+    keep_until: Option<Instant>,
+    /// this actor's incarnation, the first half of `draft_epoch`
+    born: String,
+    /// `text` frames emitted (streamed text became durable), second half
+    text_frames: u64,
+    stopping: bool,
+    mcp: McpState,
+    forecast: Value,
+    /// the fingerprint the last completed turn ran with
+    sent_print: Option<Fingerprint>,
+    /// (when, ttl seconds) of the last turn that read or wrote the cache
+    receipt: Option<(DateTime<Utc>, i64)>,
+    reconfigured: bool,
+    activity: Option<(String, Option<String>)>,
+    rate_limit: Option<Value>,
+    /// the CLI's running session cost at the last result (its counter is cumulative)
+    cost_seen: f64,
+    provider: String,
+}
+
+impl Actor {
+    async fn new(engine: Arc<Engine>, handle: Arc<AgentHandle>) -> Result<Actor> {
+        let org = engine.orgs.by_id(handle.org_id).ok_or_else(|| anyhow!("organization not open"))?;
+        let client = engine.db.get().await?;
+        let row = client
+            .query_one(
+                "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier FROM ot.agents WHERE id = $1",
+                &[&handle.id],
+            )
+            .await?;
+        let convo = ConvoWriter::load(&client, handle.id).await?;
+        drop(client);
+        let tier: String = row.get(2);
+        Ok(Actor {
+            tx: handle.tx.clone(),
+            id: handle.id,
+            org_id: handle.org_id,
+            born: format!("{}.{}", engine.boot.id, crate::util::random_hex(3)),
+            engine,
+            handle,
+            org,
+            name: row.get(0),
+            proc: None,
+            proc_print: None,
+            proc_effort: None,
+            parked: false,
+            slot: None,
+            waiting_since: None,
+            turn: None,
+            convo,
+            init: Value::Null,
+            last_error: None,
+            idle_since: Instant::now(),
+            keep_until: None,
+            text_frames: 0,
+            stopping: false,
+            mcp: McpState::default(),
+            forecast: Value::Null,
+            sent_print: None,
+            receipt: None,
+            reconfigured: false,
+            activity: None,
+            rate_limit: None,
+            cost_seen: row.get(1),
+            provider: catalog::provider_of(&tier).to_string(),
+        })
+    }
+
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<AgentMsg>) {
+        self.publish();
+        loop {
+            let deadline = self.next_deadline();
+            tokio::select! {
+                msg = rx.recv() => {
+                    let Some(msg) = msg else { break };
+                    if let Err(e) = self.handle_msg(msg).await {
+                        tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "agent actor error");
+                        self.last_error = Some(format!("{e:#}"));
+                        self.publish();
+                    }
+                }
+                _ = sleep_until(deadline) => {
+                    if let Err(e) = self.on_timer().await {
+                        tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "agent timer error");
+                    }
+                }
+            }
+            if self.stopping {
+                break;
+            }
+            if self.dormant() && self.idle_since.elapsed() > ACTOR_IDLE_EXIT {
+                break;
+            }
+        }
+        rx.close();
+        self.close_proc().await;
+        if !self.stopping {
+            self.publish_idle();
+        }
+    }
+
+    fn dormant(&self) -> bool {
+        self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none()
+    }
+
+    fn next_deadline(&self) -> tokio::time::Instant {
+        let now = Instant::now();
+        let mut d = now + Duration::from_secs(30);
+        if let Some(k) = self.keep_until {
+            d = d.min(k);
+        }
+        if let Some(t) = &self.turn {
+            let idle_limit = self.engine.settings.turn_idle_s().min(86_400 * 365);
+            if idle_limit > 0 {
+                d = d.min(t.last_event + Duration::from_secs(idle_limit));
+            }
+            let total = self.engine.settings.turn_timeout_s().min(86_400 * 365);
+            if total > 0 {
+                d = d.min(t.started + Duration::from_secs(total));
+            }
+        }
+        if self.dormant() {
+            d = d.min(self.idle_since + ACTOR_IDLE_EXIT + Duration::from_millis(50));
+        }
+        tokio::time::Instant::from_std(d.max(now))
+    }
+
+    async fn on_timer(&mut self) -> Result<()> {
+        if let Some(k) = self.keep_until {
+            if Instant::now() >= k && self.turn.is_none() {
+                self.keep_until = None;
+                self.close_proc().await;
+                self.publish();
+            }
+        }
+        let expired = self.turn.as_ref().and_then(|t| {
+            let idle_limit = self.engine.settings.turn_idle_s();
+            let total = self.engine.settings.turn_timeout_s();
+            if idle_limit > 0 && t.last_event.elapsed() >= Duration::from_secs(idle_limit) {
+                Some("the turn produced nothing for too long and was stopped")
+            } else if total > 0 && t.started.elapsed() >= Duration::from_secs(total) {
+                Some("the turn ran past its time limit and was stopped")
+            } else {
+                None
+            }
+        });
+        if let Some(why) = expired {
+            tracing::warn!(agent = %self.name, why, "ending turn");
+            if let Some(t) = self.turn.as_mut() {
+                t.killed = true;
+            }
+            self.kill_proc().await;
+            self.end_turn(Some(why.to_string()), Value::Null).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_msg(&mut self, msg: AgentMsg) -> Result<()> {
+        match msg {
+            AgentMsg::Wake => self.on_wake().await?,
+            AgentMsg::Slot(slot) => self.on_slot(slot).await?,
+            AgentMsg::Claude(v) => self.on_claude(v).await?,
+            AgentMsg::Codex(_) => {}
+            AgentMsg::Hook { input, reply } => {
+                let out = match self.on_hook(&input).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mail hook failed");
+                        json!({})
+                    }
+                };
+                let _ = reply.send(out);
+            }
+            AgentMsg::ProcExited => self.on_exit().await?,
+            AgentMsg::Interrupt(reply) => {
+                let r = if self.turn.is_some() {
+                    if let Some(t) = self.turn.as_mut() {
+                        t.interrupted = true;
+                    }
+                    let sent = self.proc.as_ref().map(|p| p.interrupt()).unwrap_or(false);
+                    if sent {
+                        json!({ "interrupted": true })
+                    } else {
+                        json!({ "interrupted": false, "reason": "the process could not be reached" })
+                    }
+                } else {
+                    json!({ "interrupted": false, "reason": "no turn is running" })
+                };
+                let _ = reply.send(r);
+            }
+            AgentMsg::Halt(reply) => {
+                let r = self.halt().await?;
+                let _ = reply.send(r);
+            }
+            AgentMsg::Unhalt(reply) => {
+                let client = self.engine.db.get().await?;
+                client
+                    .execute("UPDATE ot.agents SET halt = NULL, row_version = row_version + 1 WHERE id = $1", &[&self.id])
+                    .await?;
+                drop(client);
+                self.org.invalidate([Key::Agent(self.id)]);
+                let _ = reply.send(json!({ "unhalted": true, "status": "idle" }));
+                self.on_wake().await?;
+            }
+            AgentMsg::Command(text, reply) => {
+                let r = match self.command(&text).await {
+                    Ok(v) => v,
+                    Err(e) => json!({ "started": false, "reason": format!("{e:#}") }),
+                };
+                let _ = reply.send(r);
+            }
+            AgentMsg::Effort(level, reply) => {
+                let live = catalog::tier(&self.tier().await).map(|t| t.live_effort).unwrap_or(false);
+                let r = match (&self.proc, &self.turn) {
+                    (Some(p), Some(_)) if live => {
+                        if self.proc_effort.as_deref() == Some(level.as_str()) {
+                            json!({ "effort_delivery": "unchanged" })
+                        } else if p.set_effort(&level) {
+                            self.proc_effort = Some(level.clone());
+                            json!({ "effort_delivery": "sent" })
+                        } else {
+                            json!({ "effort_delivery": "next_turn" })
+                        }
+                    }
+                    (Some(p), None) if live => {
+                        if p.set_effort(&level) {
+                            self.proc_effort = Some(level.clone());
+                        }
+                        json!({ "effort_delivery": "next_turn" })
+                    }
+                    _ => json!({ "effort_delivery": "next_turn" }),
+                };
+                let _ = reply.send(r);
+                self.update_forecast().await;
+                self.publish();
+            }
+            AgentMsg::Process { action, reply } => {
+                let r = self.process_control(&action).await;
+                self.publish();
+                let _ = reply.send(r);
+            }
+            AgentMsg::Reconfigured => {
+                self.reconfigured = self.proc.is_some();
+                self.update_forecast().await;
+                self.publish();
+            }
+            AgentMsg::Live(reply) => {
+                let _ = reply.send(self.live_view());
+            }
+            AgentMsg::Stop(reply) => {
+                // engine shutdown or retirement: a running turn's mail stays
+                // claimed and inflight_at stays set, so the next start resumes it
+                self.stopping = true;
+                if self.waiting_since.take().is_some() {
+                    self.engine.sched.cancel(self.id);
+                }
+                self.kill_proc().await;
+                let _ = self.take_turn();
+                self.slot = None;
+                self.publish_idle();
+                let _ = reply.send(());
+            }
+            AgentMsg::ToolCard(tool_use_id, card) => {
+                if let Some(t) = self.turn.as_mut() {
+                    t.cards.insert(tool_use_id, card);
+                }
+            }
+            AgentMsg::CloseIdle => {
+                if self.turn.is_none() && self.proc.is_some() {
+                    self.keep_until = None;
+                    self.close_proc().await;
+                    self.publish();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn tier(&self) -> String {
+        match self.engine.db.get().await {
+            Ok(c) => c
+                .query_one("SELECT tier FROM ot.agents WHERE id = $1", &[&self.id])
+                .await
+                .map(|r| r.get(0))
+                .unwrap_or_default(),
+            Err(_) => String::new(),
+        }
+    }
+
+    async fn process_control(&mut self, action: &str) -> Value {
+        let had = self.proc.is_some();
+        if action == "stop" {
+            if self.turn.is_some() {
+                return json!({ "ok": false, "action": "stop", "paused": false, "proc_warm": false, "proc_live": true,
+                               "error": "a turn is running; interrupt it first" });
+            }
+            self.keep_until = None;
+            self.close_proc().await;
+            return json!({ "ok": true, "action": "stop", "already": !had, "paused": false, "proc_warm": false,
+                           "proc_live": false, "killed": had });
+        }
+        if !had {
+            let started = match self.load_ctx().await {
+                Ok(ctx) => self.ensure_proc(&ctx).await,
+                Err(e) => Err(e),
+            };
+            if let Err(e) = started {
+                self.last_error = Some(format!("{e:#}"));
+                return json!({ "ok": false, "action": "start", "paused": false, "proc_warm": false,
+                               "proc_live": false, "error": format!("{e:#}") });
+            }
+            self.park();
+        }
+        json!({ "ok": true, "action": "start", "already": had, "paused": false,
+                "proc_warm": self.proc.is_some() && self.turn.is_none(), "proc_live": self.proc.is_some() })
+    }
+
+    // ------------------------------------------------------------ turns
+
+    async fn on_wake(&mut self) -> Result<()> {
+        self.idle_since = Instant::now();
+        if self.stopping || self.turn.is_some() || self.waiting_since.is_some() || self.slot.is_some() {
+            // mail for a running turn is handed over at the next tool boundary
+            return Ok(());
+        }
+        let client = self.engine.db.get().await?;
+        let row = client
+            .query_one(
+                "SELECT a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, o.killswitch IS NOT NULL,
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice)
+                   FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
+                &[&self.id],
+            )
+            .await?;
+        drop(client);
+        let state: String = row.get(0);
+        let (halted, frozen, killswitch, waking): (bool, bool, bool, bool) = (row.get(1), row.get(2), row.get(3), row.get(4));
+        if state != "live" || halted || frozen || killswitch || !waking {
+            return Ok(());
+        }
+        self.waiting_since = Some(Utc::now());
+        let rx = self.engine.sched.want(self.org_id, self.id);
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            if let Ok(slot) = rx.await {
+                // if the actor is gone the slot drops here and is freed
+                let _ = tx.send(AgentMsg::Slot(slot));
+            }
+        });
+        self.publish();
+        Ok(())
+    }
+
+    async fn on_slot(&mut self, slot: Slot) -> Result<()> {
+        if self.waiting_since.take().is_none() || self.turn.is_some() || self.stopping {
+            drop(slot);
+            self.publish();
+            return Ok(());
+        }
+        self.slot = Some(slot);
+        match self.start_turn().await {
+            Ok(true) => {}
+            Ok(false) => {
+                self.slot = None;
+                self.publish();
+            }
+            Err(e) => {
+                self.slot = None;
+                self.last_error = Some(format!("{e:#}"));
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "turn could not start");
+                if let Ok(client) = self.engine.db.get().await {
+                    let _ = client
+                        .execute(
+                            "UPDATE ot.agents SET last_error = $2, row_version = row_version + 1 WHERE id = $1",
+                            &[&self.id, &self.last_error],
+                        )
+                        .await;
+                }
+                self.publish();
+                self.org.invalidate([Key::Agent(self.id)]);
+            }
+        }
+        Ok(())
+    }
+
+    async fn load_ctx(&self) -> Result<Ctx> {
+        let client = self.engine.db.get().await?;
+        let r = client
+            .query_one(
+                "SELECT a.name, a.title, a.tier, a.account, a.scope, a.charter, a.session_id, a.provider, a.generation,
+                        a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, a.parent_id, a.scratch_dir,
+                        p.team_charter, o.name, o.slug, o.settings, o.killswitch IS NOT NULL,
+                        (SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
+                          WHERE ac.id = a.account AND ac.kind = 'apikey')
+                   FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
+                   LEFT JOIN ot.agents p ON p.id = a.parent_id
+                  WHERE a.id = $1",
+                &[&self.id],
+            )
+            .await?;
+        let chain = client
+            .query(
+                "WITH RECURSIVE chain(id, parent_id, scope, depth) AS (
+                   SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1
+                   UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
+                    WHERE c.depth < 1024)
+                 SELECT scope FROM chain ORDER BY depth DESC",
+                &[&self.id],
+            )
+            .await?;
+        drop(client);
+        let org_settings: Value = r.get(17);
+        let settings = crate::feed::groups::effective_settings(&org_settings, &self.engine.settings.defaults());
+        let mut eff = scope::org_ceiling(&settings["dirs"]);
+        for s in &chain {
+            eff = scope::clamp(&s.get::<_, Value>(0), &eff);
+        }
+        let configured = scope::normalize(&r.get::<_, Value>(4));
+        let tier: String = r.get(2);
+        let model = catalog::model_for(&tier, configured.get("model_version").and_then(Value::as_str));
+        let effort = configured
+            .get("effort")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| settings.get("default_effort").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string))
+            .unwrap_or_else(|| catalog::DEFAULT_EFFORT.to_string());
+        let fallback = configured
+            .get("account_fallback")
+            .and_then(Value::as_bool)
+            .unwrap_or_else(|| settings["account_fallback_default"].as_bool().unwrap_or(false));
+        let slug: String = r.get(16);
+        let name: String = r.get(0);
+        let scratch = r
+            .get::<_, Option<String>>(13)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.engine.cfg.scratch_root(&slug).join(&name));
+        let org_md = std::fs::read_to_string(self.engine.cfg.workspace_dir(&slug).join("org.md")).ok();
+        Ok(Ctx {
+            name,
+            title: r.get(1),
+            provider: catalog::provider_of(&tier).to_string(),
+            tier,
+            model,
+            account: r.get(3),
+            api_key: r.get(19),
+            effective: eff,
+            charter: r.get(5),
+            session_id: r.get(6),
+            session_provider: r.get(7),
+            generation: r.get(8),
+            state: r.get(9),
+            halted: r.get(10),
+            frozen: r.get(11),
+            top_level: r.get::<_, Option<i64>>(12).is_none(),
+            scratch,
+            team_charter: r.get(14),
+            org_name: r.get(15),
+            org_slug: slug,
+            killswitch: r.get(18),
+            org_md,
+            effort,
+            fallback,
+        })
+    }
+
+    /// Everything a launch needs, computed without side effects (the cache
+    /// forecast compares these without starting anything).
+    fn plan(&self, ctx: &Ctx) -> Plan {
+        let identity = prompt::identity(&prompt::Identity {
+            name: &ctx.name,
+            title: &ctx.title,
+            org_name: &ctx.org_name,
+            org_slug: &ctx.org_slug,
+            scratch: &ctx.scratch.to_string_lossy(),
+            charter: ctx.charter.as_deref(),
+            team_charter: ctx.team_charter.as_deref(),
+            org_md: ctx.org_md.as_deref(),
+            top_level: ctx.top_level,
+        });
+        let tools = &ctx.effective["tools"];
+        let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
+        let mut disallowed: Vec<String> = vec!["AskUserQuestion".into(), "EnterPlanMode".into(), "ExitPlanMode".into()];
+        if !on("bash") {
+            disallowed.extend(["Bash".into(), "PowerShell".into(), "BashOutput".into(), "KillShell".into()]);
+        }
+        if !on("web") {
+            disallowed.extend(["WebSearch".into(), "WebFetch".into()]);
+        }
+        if !on("edit") {
+            disallowed.extend(["Edit".into(), "Write".into(), "NotebookEdit".into(), "MultiEdit".into()]);
+        }
+        if !on("subagents") {
+            disallowed.extend(["Task".into(), "Agent".into()]);
+        }
+        let mut servers = Map::new();
+        // the agent's own tools are never deferred behind tool search
+        servers.insert("orgtree".into(), json!({ "type": "sdk", "name": "orgtree", "alwaysLoad": true }));
+        let granted: Vec<String> = tools["mcp"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let mut external = Vec::new();
+        if !granted.is_empty() {
+            let registry = self.engine.providers.mcp_registry();
+            for (name, cfg) in registry.servers.iter() {
+                if name != "orgtree" && granted.iter().any(|g| g == "*" || g == name) {
+                    servers.insert(name.clone(), cfg.clone());
+                    external.push(name.clone());
+                }
+            }
+        }
+        let mcp = json!({ "mcpServers": servers });
+        let mut allowed: Vec<String> = servers.keys().map(|k| format!("mcp__{k}")).collect();
+        if on("bash") {
+            allowed.extend(["Bash".into(), "PowerShell".into()]);
+        }
+        if on("web") {
+            allowed.extend(["WebSearch".into(), "WebFetch".into()]);
+        }
+        let mut add_dirs: Vec<String> = Vec::new();
+        let mut deny: Vec<String> = Vec::new();
+        for d in ctx.effective["add_dirs"].as_array().cloned().unwrap_or_default() {
+            let Some(p) = d["path"].as_str() else { continue };
+            add_dirs.push(p.to_string());
+            if d["mode"] == "ro" {
+                let fp = p.replace('\\', "/");
+                for t in ["Edit", "Write", "NotebookEdit", "MultiEdit"] {
+                    deny.push(format!("{t}(//{}/**)", fp.trim_start_matches('/')));
+                }
+            }
+        }
+        let settings = if deny.is_empty() { json!({}) } else { json!({ "permissions": { "deny": deny } }) };
+        let tools_print = format!("{}|{}|{}", disallowed.join(","), allowed.join(","), mcp);
+        let dirs_print = format!("{}|{}", add_dirs.join(";"), settings);
+        let print = Fingerprint {
+            parts: vec![
+                ("system_prompt", hash(&identity)),
+                ("tools", hash(&tools_print)),
+                ("model", ctx.model.clone()),
+                ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
+                ("folders", hash(&dirs_print)),
+                ("account", ctx.account.clone().unwrap_or_default()),
+            ],
+        };
+        Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print }
+    }
+
+    fn config_dir_of(&self, account: Option<&str>) -> Option<String> {
+        let acc = account?;
+        let view = self.engine.accounts.view();
+        let a = view.get(acc)?;
+        if a.is_apikey() {
+            None
+        } else {
+            a.config_dir.clone()
+        }
+    }
+
+    async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
+        if ctx.provider != catalog::CLAUDE {
+            return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
+        }
+        if !self.engine.settings.provider_enabled(catalog::CLAUDE) {
+            return Err(anyhow!("Claude is turned off in App settings"));
+        }
+        let plan = self.plan(ctx);
+        let reuse = match self.proc.as_mut() {
+            Some(p) => self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
+            None => false,
+        };
+        if reuse {
+            return Ok(());
+        }
+        self.close_proc().await;
+        self.reconfigured = false;
+        let view = self.engine.accounts.view();
+        let account = ctx.account.as_deref().and_then(|a| view.get(a).cloned());
+        let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
+        if !apikey && !self.engine.settings.subscription_inference(catalog::CLAUDE) {
+            return Err(anyhow!(
+                "subscriptions are turned off for inference (App settings › Providers); give this agent an API-key account"
+            ));
+        }
+        // discovery runs in the background after start; do not race it
+        let exe = match self.engine.providers.claude_path() {
+            Some(p) => p,
+            None => tokio::task::spawn_blocking(crate::providers::locate_claude)
+                .await
+                .ok()
+                .flatten()
+                .map(|(p, _)| p)
+                .ok_or_else(|| anyhow!("Claude Code is not installed on this machine"))?,
+        };
+        std::fs::create_dir_all(&ctx.scratch)?;
+        let (identity_file, settings_file, mcp_file) =
+            claude::write_launch_files(&ctx.scratch, &plan.identity, &plan.settings, &plan.mcp)?;
+        let mut env: Vec<(String, String)> = vec![
+            ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
+            ("ORGTREE_AGENT".into(), ctx.name.clone()),
+            ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
+        ];
+        let mut env_remove: Vec<String> = vec![
+            "ORGTREE_V2_TOKEN".into(),
+            "ORGTREE_DATA".into(),
+            "ELECTRON_RUN_AS_NODE".into(),
+            "ANTHROPIC_API_KEY".into(),
+            "ANTHROPIC_AUTH_TOKEN".into(),
+            "ANTHROPIC_BASE_URL".into(),
+            "CLAUDE_CONFIG_DIR".into(),
+            "CLAUDECODE".into(),
+            "CLAUDE_CODE_ENTRYPOINT".into(),
+        ];
+        let config_dir = self.config_dir_of(ctx.account.as_deref());
+        if apikey {
+            let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
+            env.push(("ANTHROPIC_API_KEY".into(), key));
+            env_remove.retain(|k| k != "ANTHROPIC_API_KEY");
+        }
+        if let Some(dir) = &config_dir {
+            env.push(("CLAUDE_CONFIG_DIR".into(), dir.clone()));
+            env_remove.retain(|k| k != "CLAUDE_CONFIG_DIR");
+        }
+        // resume the session where this CLI will look for it
+        let mut resume = ctx
+            .session_id
+            .clone()
+            .filter(|_| ctx.session_provider.as_deref().map(|p| p == catalog::CLAUDE).unwrap_or(true));
+        if let Some(sid) = resume.clone() {
+            let others: Vec<String> = view.all().into_iter().filter_map(|a| a.config_dir.clone()).collect();
+            if !claude::ensure_session(&ctx.scratch, &sid, config_dir.as_deref(), &others) {
+                tracing::warn!(agent = %ctx.name, session = %sid, "session transcript not found; starting a new session");
+                resume = None;
+            }
+        }
+        let effort =
+            catalog::tier(&ctx.tier).filter(|t| t.provider == catalog::CLAUDE && t.live_effort).map(|_| ctx.effort.clone());
+        let spec = SpawnSpec {
+            exe,
+            cwd: ctx.scratch.clone(),
+            model: ctx.model.clone(),
+            permission_mode: ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits").to_string(),
+            effort: effort.clone(),
+            identity_file,
+            settings_file,
+            mcp_file,
+            disallowed: plan.disallowed.clone(),
+            allowed: plan.allowed.clone(),
+            add_dirs: plan.add_dirs.iter().filter(|d| std::path::Path::new(d).exists()).cloned().collect(),
+            resume: resume.clone(),
+            new_session: uuid::Uuid::new_v4().to_string(),
+            env,
+            env_remove,
+        };
+        let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        let proc = ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        if resume.as_deref() != Some(proc.session_id.as_str()) {
+            // a new session: its cost counter starts at zero
+            self.cost_seen = 0.0;
+            let client = self.engine.db.get().await?;
+            client
+                .execute(
+                    "UPDATE ot.agents SET session_id = $2, provider = $3,
+                            extra = jsonb_set(extra, '{cost_seen}', '0'::jsonb) WHERE id = $1",
+                    &[&self.id, &proc.session_id, &ctx.provider],
+                )
+                .await?;
+            client
+                .execute(
+                    "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
+                    &[&self.id, &ctx.generation, &ctx.provider, &proc.session_id],
+                )
+                .await?;
+        }
+        self.proc = Some(proc);
+        self.proc_print = Some(plan.print);
+        self.proc_effort = effort;
+        self.provider = ctx.provider.clone();
+        self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
+        if !plan.external.is_empty() {
+            self.mcp.waiting = true;
+            self.mcp.state = Some("connecting".into());
+            self.mcp.reason = Some(format!("connecting to {}", plan.external.join(", ")));
+        }
+        self.publish();
+        if !plan.external.is_empty() && self.engine.settings.wait_for_mcp_tools() {
+            self.wait_for_mcp(&plan.external).await;
+        }
+        Ok(())
+    }
+
+    /// Hold a fresh process's first prompt until its MCP servers connect or
+    /// fail (bounded).
+    async fn wait_for_mcp(&mut self, servers: &[String]) {
+        let deadline = Instant::now() + MCP_WAIT;
+        loop {
+            let Some(p) = &self.proc else { return };
+            let status = p.mcp_status().await;
+            let pending: Vec<String> = status
+                .as_ref()
+                .and_then(|s| {
+                    s.pointer("/response/mcpServers").or_else(|| s.get("mcpServers")).and_then(Value::as_array).cloned()
+                })
+                .map(|a| {
+                    a.iter()
+                        .filter(|s| s["status"].as_str() == Some("pending"))
+                        .filter_map(|s| s["name"].as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_else(|| servers.to_vec());
+            if pending.is_empty() {
+                self.mcp.waiting = false;
+                self.mcp.state = Some("ready".into());
+                self.mcp.reason = None;
+                self.publish();
+                return;
+            }
+            if Instant::now() >= deadline {
+                self.mcp.waiting = false;
+                self.mcp.state = Some("timeout".into());
+                self.mcp.reason = Some(format!("{} did not connect in time", pending.join(", ")));
+                self.publish();
+                return;
+            }
+            self.mcp.reason = Some(format!("waiting for {}", pending.join(", ")));
+            self.publish();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
+    fn park(&mut self) {
+        if !self.parked && self.proc.is_some() && self.turn.is_none() {
+            self.parked = true;
+            self.engine.sched.parked(self.id);
+        }
+        self.keep_until = Some(Instant::now() + KEEP_ALIVE);
+    }
+
+    fn unpark(&mut self) {
+        if self.parked {
+            self.parked = false;
+            self.engine.sched.unparked(self.id);
+        }
+    }
+
+    async fn close_proc(&mut self) {
+        self.unpark();
+        if let Some(mut p) = self.proc.take() {
+            p.close().await;
+        }
+        self.proc_print = None;
+    }
+
+    async fn kill_proc(&mut self) {
+        self.unpark();
+        if let Some(mut p) = self.proc.take() {
+            p.kill().await;
+        }
+        self.proc_print = None;
+    }
+
+    fn begin_turn(&mut self, turn: Turn) {
+        self.unpark();
+        self.turn = Some(turn);
+        self.keep_until = None;
+        self.org.turn_delta(&self.engine, 1);
+    }
+
+    fn take_turn(&mut self) -> Option<Turn> {
+        let t = self.turn.take();
+        if t.is_some() {
+            self.org.turn_delta(&self.engine, -1);
+        }
+        t
+    }
+
+    /// Claim waiting mail, make sure the CLI runs, send the opening message.
+    async fn start_turn(&mut self) -> Result<bool> {
+        let ctx = self.load_ctx().await?;
+        if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
+            return Ok(false);
+        }
+        let mut client = self.engine.db.get().await?;
+        let tx = client.transaction().await?;
+        let turn_id: i64 = tx
+            .query_one(
+                "INSERT INTO ot.turns (agent_id, started_at, account, api_key, model) VALUES ($1, now(), $2, $3, $4) RETURNING id",
+                &[&self.id, &ctx.account, &ctx.api_key.is_some(), &ctx.model],
+            )
+            .await?
+            .get(0);
+        let claimed = tx
+            .query(
+                "UPDATE ot.mail SET state = 'delivering', turn_id = $2
+                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                                ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED)
+                  RETURNING id, to_jsonb(ot.mail.*)",
+                &[&self.id, &turn_id],
+            )
+            .await?;
+        let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
+        rows.sort_by_key(|(id, _)| *id);
+        if !rows.iter().any(|(_, m)| !m["notice"].as_bool().unwrap_or(false)) {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        tx.execute("UPDATE ot.agents SET inflight_at = now(), row_version = row_version + 1 WHERE id = $1", &[&self.id])
+            .await?;
+        tx.commit().await?;
+        drop(client);
+        let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
+        if let Err(e) = self.ensure_proc(&ctx).await {
+            self.return_mail(turn_id, true).await;
+            return Err(e);
+        }
+        let context = self.turn_context(&ctx).await;
+        let text = prompt::turn_text(&mails, &context);
+        let images = images_for(&mails);
+        let sent = self.proc.as_ref().map(|p| p.send_user(&text, images)).unwrap_or(false);
+        if !sent {
+            self.return_mail(turn_id, true).await;
+            self.close_proc().await;
+            return Err(anyhow!("the Claude process did not accept the turn"));
+        }
+        self.begin_turn(Turn::new(turn_id, false));
+        self.last_error = None;
+        self.activity = Some(("thinking".into(), None));
+        self.sent_print = self.proc_print.clone();
+        let client = self.engine.db.get().await?;
+        client.execute("UPDATE ot.turns SET sent_at = now() WHERE id = $1", &[&turn_id]).await?;
+        let row = mail_row(&raw, None);
+        self.convo.append(&client, row).await?;
+        drop(client);
+        self.publish();
+        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+        self.stream("text", json!({}));
+        Ok(true)
+    }
+
+    /// Fast-changing facts for the turn's opening message (kept out of the
+    /// system prompt so the provider's cache survives hires and status changes).
+    async fn turn_context(&self, ctx: &Ctx) -> String {
+        let mut s = format!("[Orgtree] {} · you are {}", now_iso(), ctx.name);
+        let Ok(client) = self.engine.db.get().await else { return s };
+        if let Ok(rows) = client
+            .query(
+                "SELECT name, last_status->>'status' FROM ot.agents WHERE parent_id = $1 AND state = 'live'
+                  ORDER BY sibling_order, id LIMIT 50",
+                &[&self.id],
+            )
+            .await
+        {
+            if !rows.is_empty() {
+                let list: Vec<String> = rows
+                    .iter()
+                    .map(|r| match r.get::<_, Option<String>>(1) {
+                        Some(st) => format!("{} ({st})", r.get::<_, String>(0)),
+                        None => r.get::<_, String>(0),
+                    })
+                    .collect();
+                s.push_str("\nYour reports: ");
+                s.push_str(&list.join(", "));
+            }
+        }
+        s
+    }
+
+    /// Give a failed turn's mail back (`requeue`) or settle it as delivered.
+    async fn return_mail(&self, turn_id: i64, requeue: bool) {
+        if let Ok(client) = self.engine.db.get().await {
+            if requeue {
+                let _ = client
+                    .execute(
+                        "UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE turn_id = $1 AND state = 'delivering'",
+                        &[&turn_id],
+                    )
+                    .await;
+                let _ = client.execute("DELETE FROM ot.turns WHERE id = $1 AND sent_at IS NULL", &[&turn_id]).await;
+            } else {
+                let _ = client
+                    .execute(
+                        "UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering'",
+                        &[&turn_id],
+                    )
+                    .await;
+            }
+            let _ = client
+                .execute("UPDATE ot.agents SET inflight_at = NULL, row_version = row_version + 1 WHERE id = $1", &[&self.id])
+                .await;
+        }
+        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+    }
+
+    /// Mid-turn mail after a tool call (the PostToolUse hook).
+    async fn on_hook(&mut self, _input: &Value) -> Result<Value> {
+        let Some(turn_id) = self.turn.as_ref().map(|t| t.id) else { return Ok(json!({})) };
+        let client = self.engine.db.get().await?;
+        let claimed = client
+            .query(
+                "UPDATE ot.mail SET state = 'delivering', turn_id = $2
+                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                                ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED)
+                  RETURNING id, to_jsonb(ot.mail.*)",
+                &[&self.id, &turn_id],
+            )
+            .await?;
+        if claimed.is_empty() {
+            return Ok(json!({}));
+        }
+        let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
+        rows.sort_by_key(|(id, _)| *id);
+        let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
+        let text = prompt::steer_text(&mails);
+        let row = mail_row(&raw, Some("Delivered after a tool call."));
+        let seq = self.convo.append(&client, row.clone()).await?;
+        drop(client);
+        let mut committed = row;
+        committed["seq"] = json!(seq);
+        committed["row_id"] = json!(format!("r{seq}"));
+        committed["event_id"] = json!(format!("e{seq}"));
+        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+        self.stream("steered", json!({ "committed_row": committed }));
+        Ok(json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": text } }))
+    }
+
+    fn stream(&self, kind: &str, extra: Value) {
+        let mut frame = json!({ "type": "node_stream", "node": self.name, "kind": kind, "text": "" });
+        if let (Some(f), Some(e)) = (frame.as_object_mut(), extra.as_object()) {
+            for (k, v) in e {
+                f.insert(k.clone(), v.clone());
+            }
+        }
+        self.org.emit_agent(self.id, frame);
+    }
+
+    /// A durable row with text landed: tell watching desks, move the epoch.
+    fn text_landed(&mut self) {
+        self.text_frames += 1;
+        self.stream("text", json!({}));
+    }
+
+    async fn on_claude(&mut self, v: Value) -> Result<()> {
+        if let Some(t) = self.turn.as_mut() {
+            t.last_event = Instant::now();
+        }
+        let sub = v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false);
+        match v["type"].as_str() {
+            Some("system") => match v["subtype"].as_str() {
+                Some("init") => self.on_init(&v),
+                Some("compact_boundary") => {
+                    let client = self.engine.db.get().await?;
+                    let pre = v.pointer("/compact_metadata/pre_tokens").cloned().unwrap_or(Value::Null);
+                    let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact",
+                                      "pre_tokens": pre });
+                    self.convo.append(&client, row).await?;
+                    drop(client);
+                    self.text_landed();
+                }
+                _ => {}
+            },
+            Some("rate_limit_event") => {
+                self.rate_limit = v.get("rate_limit_info").cloned();
+            }
+            Some("stream_event") if !sub => self.on_stream_event(&v["event"]),
+            Some("assistant") if !sub => self.on_assistant(&v).await?,
+            Some("user") if !sub => self.on_tool_results(&v).await?,
+            Some("result") => self.on_result(&v).await?,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn on_init(&mut self, v: &Value) {
+        self.init = json!({
+            "model": v["model"], "permissionMode": v["permissionMode"], "cwd": v["cwd"],
+            "tools": v["tools"].as_array().map(|a| a.len()).unwrap_or(0),
+            "mcp_servers": v["mcp_servers"],
+        });
+        self.mcp.count = v["tools"]
+            .as_array()
+            .map(|a| a.iter().filter(|t| t.as_str().map(|s| s.starts_with("mcp__")).unwrap_or(false)).count() as i64);
+        let with_status = |want: &str| -> Vec<String> {
+            v["mcp_servers"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter(|s| s["status"].as_str() == Some(want))
+                        .filter_map(|s| s["name"].as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let pending = with_status("pending");
+        let failed = with_status("failed");
+        self.mcp.waiting = !pending.is_empty();
+        self.mcp.state = Some(if !pending.is_empty() {
+            "connecting".into()
+        } else if !failed.is_empty() {
+            "degraded".into()
+        } else {
+            "ready".into()
+        });
+        self.mcp.reason = if !pending.is_empty() {
+            Some(format!("waiting for {}", pending.join(", ")))
+        } else if !failed.is_empty() {
+            Some(format!("{} failed to connect", failed.join(", ")))
+        } else {
+            None
+        };
+        self.publish();
+    }
+
+    fn on_stream_event(&mut self, ev: &Value) {
+        match ev["type"].as_str() {
+            Some("content_block_start") => {
+                let block = &ev["content_block"];
+                match block["type"].as_str() {
+                    Some("thinking") | Some("redacted_thinking") => {
+                        if let Some(t) = self.turn.as_mut() {
+                            t.thinking.clear();
+                        }
+                        self.stream("thinking_start", json!({}));
+                        self.set_activity("thinking", None);
+                    }
+                    Some("tool_use") | Some("server_tool_use") => {
+                        let name = block["name"].as_str().unwrap_or("tool").to_string();
+                        self.set_activity("tool", Some(name));
+                    }
+                    Some("text") => {
+                        if let Some(t) = self.turn.as_mut() {
+                            t.draft.clear();
+                        }
+                        self.set_activity("writing", None);
+                    }
+                    _ => {}
+                }
+            }
+            Some("content_block_delta") => {
+                let d = &ev["delta"];
+                match d["type"].as_str() {
+                    Some("text_delta") => {
+                        let text = d["text"].as_str().unwrap_or("");
+                        if let Some(t) = self.turn.as_mut() {
+                            if t.draft.len() < 64_000 {
+                                t.draft.push_str(text);
+                            }
+                        }
+                        self.stream("delta", json!({ "text": text }));
+                    }
+                    Some("thinking_delta") => {
+                        let text = d["thinking"].as_str().unwrap_or("");
+                        if let Some(t) = self.turn.as_mut() {
+                            if t.thinking.len() < 16_000 {
+                                t.thinking.push_str(text);
+                            }
+                        }
+                        self.stream("thinking", json!({ "text": text }));
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        if let Some(t) = self.turn.as_mut() {
+            t.activity = true;
+        }
+    }
+
+    fn set_activity(&mut self, phase: &str, tool: Option<String>) {
+        let next = Some((phase.to_string(), tool));
+        if self.activity != next {
+            self.activity = next;
+            self.publish();
+        }
+    }
+
+    async fn on_assistant(&mut self, v: &Value) -> Result<()> {
+        let msg = &v["message"];
+        let mid = msg["id"].as_str().unwrap_or("").to_string();
+        let mut wrote_text = false;
+        let mut wrote_tool = None;
+        let mut wrote_thought = false;
+        let (seq, row) = {
+            let Some(turn) = self.turn.as_mut() else { return Ok(()) };
+            turn.activity = true;
+            if let Some(u) = msg.get("usage").filter(|u| u.is_object()) {
+                turn.usage = u.clone();
+            }
+            if let Some(m) = msg["model"].as_str() {
+                turn.model = Some(m.to_string());
+            }
+            let (seq, mut row) = turn.rows.get(&mid).cloned().unwrap_or((
+                0,
+                json!({ "role": "assistant", "text": "", "tools": [], "ts": now_iso(),
+                        "assistant_id": mid, "native_event_id": v["uuid"] }),
+            ));
+            for block in msg["content"].as_array().cloned().unwrap_or_default() {
+                match block["type"].as_str() {
+                    Some("text") => {
+                        let cur = row["text"].as_str().unwrap_or("").to_string();
+                        let add = block["text"].as_str().unwrap_or("");
+                        row["text"] = json!(if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") });
+                        turn.draft.clear();
+                        wrote_text = true;
+                    }
+                    Some("thinking") => {
+                        let cur = row.get("thinking").and_then(Value::as_str).unwrap_or("").to_string();
+                        let add = block["thinking"].as_str().unwrap_or("");
+                        if add.is_empty() {
+                            row["thinking_sealed"] = json!(true);
+                        } else {
+                            let joined = if cur.is_empty() { add.to_string() } else { format!("{cur}\n\n{add}") };
+                            row["thinking"] = json!(convo::clip(&joined, 20_000).0);
+                        }
+                        turn.thinking.clear();
+                        wrote_thought = true;
+                    }
+                    Some("redacted_thinking") => {
+                        row["thinking_sealed"] = json!(true);
+                        turn.thinking.clear();
+                        wrote_thought = true;
+                    }
+                    Some("tool_use") | Some("server_tool_use") => {
+                        let id = block["id"].as_str().unwrap_or("").to_string();
+                        let name = block["name"].as_str().unwrap_or("tool").to_string();
+                        let input = block["input"].clone();
+                        let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) });
+                        if name == "TodoWrite" {
+                            chip["todos"] = input["todos"].clone();
+                        }
+                        if let Some(tools) = row["tools"].as_array_mut() {
+                            tools.push(chip);
+                        }
+                        turn.tools.insert(id.clone(), mid.clone());
+                        wrote_tool = Some(id);
+                    }
+                    _ => {}
+                }
+            }
+            (seq, row)
+        };
+        let client = self.engine.db.get().await?;
+        let seq = if seq == 0 {
+            self.convo.append(&client, row.clone()).await?
+        } else {
+            self.convo.update(&client, seq, row.clone()).await?;
+            seq
+        };
+        drop(client);
+        if let Some(turn) = self.turn.as_mut() {
+            turn.rows.insert(mid, (seq, row));
+        }
+        if wrote_text {
+            self.text_landed();
+        }
+        if let Some(id) = wrote_tool {
+            self.stream("tool", json!({ "id": id }));
+        } else if wrote_thought && !wrote_text {
+            self.stream("thought", json!({}));
+        }
+        Ok(())
+    }
+
+    async fn on_tool_results(&mut self, v: &Value) -> Result<()> {
+        let updates: Vec<(i64, Value)> = {
+            let Some(turn) = self.turn.as_mut() else { return Ok(()) };
+            turn.activity = true;
+            let blocks = v.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mut touched: Vec<String> = Vec::new();
+            for b in blocks {
+                if b["type"] != "tool_result" {
+                    continue;
+                }
+                let tid = b["tool_use_id"].as_str().unwrap_or("").to_string();
+                let Some(mid) = turn.tools.get(&tid).cloned() else { continue };
+                let Some((_, row)) = turn.rows.get_mut(&mid) else { continue };
+                let (text, images) = convo::tool_result_text(&b["content"]);
+                let (clipped, truncated) = convo::clip(&text, 4000);
+                if let Some(chips) = row["tools"].as_array_mut() {
+                    for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(tid.as_str())) {
+                        chip["result"] = json!(clipped);
+                        chip["result_lines"] = json!(text.lines().count());
+                        if truncated {
+                            chip["truncated"] = json!(true);
+                        }
+                        if images > 0 {
+                            chip["images"] = json!(images);
+                        }
+                        if b["is_error"].as_bool().unwrap_or(false) {
+                            chip["error"] = json!(gist(&text, 500));
+                        }
+                        if let Some(diff) = patch_of(v) {
+                            chip["diff"] = diff;
+                        }
+                        if let Some(extra) = turn.cards.remove(&tid) {
+                            if let (Some(c), Some(e)) = (chip.as_object_mut(), extra.as_object()) {
+                                for (k, val) in e {
+                                    c.insert(k.clone(), val.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                touched.push(mid);
+            }
+            touched.sort();
+            touched.dedup();
+            touched.iter().filter_map(|m| turn.rows.get(m).map(|(s, r)| (*s, r.clone()))).collect()
+        };
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let client = self.engine.db.get().await?;
+        for (seq, row) in updates {
+            if seq > 0 {
+                self.convo.update(&client, seq, row).await?;
+            }
+        }
+        drop(client);
+        self.set_activity("thinking", None);
+        self.stream("tool", json!({}));
+        Ok(())
+    }
+
+    async fn on_result(&mut self, v: &Value) -> Result<()> {
+        let is_error =
+            v["is_error"].as_bool().unwrap_or(false) || v["subtype"].as_str().map(|s| s != "success").unwrap_or(false);
+        let interrupted = self.turn.as_ref().map(|t| t.interrupted).unwrap_or(false);
+        let error = if is_error && !interrupted {
+            let text = v["result"].as_str().unwrap_or("");
+            Some(if text.is_empty() {
+                let errs =
+                    v["errors"].as_array().map(|a| a.iter().filter_map(|e| e.as_str()).collect::<Vec<_>>().join("; "));
+                errs.filter(|s| !s.is_empty()).unwrap_or_else(|| v["subtype"].as_str().unwrap_or("error").to_string())
+            } else {
+                gist(text, 600)
+            })
+        } else {
+            None
+        };
+        self.end_turn(error, v.clone()).await
+    }
+
+    async fn on_exit(&mut self) -> Result<()> {
+        self.proc = None;
+        self.proc_print = None;
+        self.unpark();
+        if self.turn.is_some() {
+            let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
+            let msg = if quiet { None } else { Some("the Claude process exited during the turn".to_string()) };
+            self.end_turn(msg, Value::Null).await?;
+        }
+        self.publish();
+        Ok(())
+    }
+
+    /// The usage limit this failure reports, if it is one: when it lifts.
+    fn limit_of(&self, error: &str) -> Option<DateTime<Utc>> {
+        let lower = error.to_lowercase();
+        let rejected = self.rate_limit.as_ref().map(|r| r["status"] == "rejected").unwrap_or(false);
+        let worded = lower.contains("usage limit")
+            || lower.contains("hit your limit")
+            || lower.contains("limit reached")
+            || lower.contains("rate limit")
+            || lower.contains("resets");
+        if !rejected && !worded {
+            return None;
+        }
+        let from_info = self
+            .rate_limit
+            .as_ref()
+            .and_then(|r| r["resetsAt"].as_i64())
+            .and_then(|t| DateTime::from_timestamp(t, 0))
+            .filter(|t| *t > Utc::now());
+        let from_text = error
+            .split('|')
+            .nth(1)
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .and_then(|t| DateTime::from_timestamp(t, 0));
+        Some(from_info.or(from_text).unwrap_or_else(|| Utc::now() + chrono::Duration::hours(1)))
+    }
+
+    /// Close the turn: mail settled, ledger written, slot freed.
+    async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
+        let Some(turn) = self.take_turn() else { return Ok(()) };
+        let usage = if res.get("usage").map(|u| u.is_object()).unwrap_or(false) { res["usage"].clone() } else { turn.usage.clone() };
+        let n = |u: &Value, k: &str| u.get(k).and_then(Value::as_i64).unwrap_or(0);
+        let input = n(&usage, "input_tokens");
+        let cache_read = n(&usage, "cache_read_input_tokens");
+        let cache_write = n(&usage, "cache_creation_input_tokens");
+        let output = n(&usage, "output_tokens");
+        let ttl: i32 =
+            if usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_i64).unwrap_or(0) > 0 { 3600 } else { 300 };
+        // the last model call's input is how full the context is
+        let occupancy = (n(&turn.usage, "input_tokens")
+            + n(&turn.usage, "cache_read_input_tokens")
+            + n(&turn.usage, "cache_creation_input_tokens")) as i32;
+        // the CLI's cost counter runs for the whole session
+        let total = res.get("total_cost_usd").and_then(Value::as_f64);
+        let cost = match total {
+            Some(t) if t >= self.cost_seen => t - self.cost_seen,
+            Some(t) => t,
+            None => 0.0,
+        };
+        if let Some(t) = total {
+            self.cost_seen = t;
+        }
+        let ms = res.get("duration_ms").and_then(Value::as_i64).unwrap_or(turn.started.elapsed().as_millis() as i64);
+        let denials: Vec<Value> = res
+            .get("permission_denials")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .map(|d| {
+                        let tool = d["tool_name"].as_str().unwrap_or("").to_string();
+                        json!({ "tool": tool, "arg": convo::tool_arg(&tool, &d["tool_input"]) })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let session = res.get("session_id").and_then(Value::as_str).map(str::to_string);
+        // a usage limit freezes the agent (or moves it to another account)
+        let limit = error.as_deref().and_then(|e| self.limit_of(e));
+        let mut freeze_rec: Option<Value> = None;
+        let mut moved_to: Option<String> = None;
+        if let Some(until) = limit {
+            let ctx = self.load_ctx().await?;
+            if ctx.fallback {
+                moved_to = freeze::pick_fallback(&self.engine, &ctx.provider, ctx.account.as_deref());
+            }
+            if moved_to.is_none() {
+                freeze_rec = Some(json!({
+                    "at": now_iso(), "until": iso(until), "error": gist(error.as_deref().unwrap_or(""), 300),
+                    "limit": true, "provenance": "observed", "account": ctx.account,
+                }));
+            }
+            error = None;
+        }
+        // the CLI holds the prompt once it produced anything: settle the mail
+        // as delivered; a turn that never started gives its mail back
+        let requeue = error.is_some() && !turn.activity;
+        let client = self.engine.db.get().await?;
+        if requeue {
+            client
+                .execute(
+                    "UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE turn_id = $1 AND state = 'delivering'",
+                    &[&turn.id],
+                )
+                .await?;
+        } else {
+            client
+                .execute(
+                    "UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering'",
+                    &[&turn.id],
+                )
+                .await?;
+        }
+        let account_now: Option<String> =
+            client.query_one("SELECT account FROM ot.agents WHERE id = $1", &[&self.id]).await?.get(0);
+        client
+            .execute(
+                "UPDATE ot.turns SET ended_at = now(), cost_usd = $2::float8::numeric, toks = $3, input_tokens = $4,
+                        cache_read = $5, cache_write = $6, cache_ttl_s = $7, ms = $8, denials = $9, killed = $10,
+                        error = $11, model = coalesce($12, model), cost_source = 'cli'
+                  WHERE id = $1",
+                &[
+                    &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
+                    &turn.killed, &error, &turn.model,
+                ],
+            )
+            .await?;
+        let window = catalog::tier(&self.tier_of(&client).await).and_then(|t| t.context).map(|c| c as i32);
+        let measured = occupancy > 0 && !turn.compact;
+        client
+            .execute(
+                "UPDATE ot.agents SET cost_usd = cost_usd + $2::float8::numeric,
+                        occupancy = CASE WHEN $3 THEN $4 ELSE occupancy END,
+                        occupancy_est = CASE WHEN $3 THEN false WHEN $9 THEN true ELSE occupancy_est END,
+                        compacted_unrun = CASE WHEN $9 THEN true WHEN $3 THEN false ELSE compacted_unrun END,
+                        context_window = coalesce(context_window, $5),
+                        session_id = coalesce($6, session_id), inflight_at = NULL, last_denials = $7,
+                        last_error = $8,
+                        frozen = coalesce($10, frozen), limit_locked = ($10::jsonb IS NOT NULL) OR limit_locked,
+                        extra = jsonb_set(extra, '{cost_seen}', to_jsonb($11::float8)),
+                        row_version = row_version + 1
+                  WHERE id = $1",
+                &[
+                    &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &turn.compact,
+                    &freeze_rec, &self.cost_seen,
+                ],
+            )
+            .await?;
+        if let Some(acc) = &account_now {
+            if cost > 0.0 {
+                let _ = client
+                    .execute(
+                        "INSERT INTO ot.account_spend (account, usd_total, turns) VALUES ($1, $2::float8::numeric, 1)
+                         ON CONFLICT (account) DO UPDATE SET usd_total = ot.account_spend.usd_total + EXCLUDED.usd_total,
+                                turns = ot.account_spend.turns + 1, updated_at = now()",
+                        &[acc, &cost],
+                    )
+                    .await;
+            }
+            if let Some(until) = limit {
+                let win = self.rate_limit.as_ref().and_then(|r| r["rateLimitType"].as_str().map(str::to_string));
+                let _ = client
+                    .execute(
+                        "INSERT INTO ot.account_marks (account, pool, until, provenance, win) VALUES ($1, 'default', $2, 'observed', $3)
+                         ON CONFLICT (account, pool) DO UPDATE SET until = EXCLUDED.until, win = EXCLUDED.win, at = now()",
+                        &[acc, &until, &win],
+                    )
+                    .await;
+            }
+        }
+        if let Some(e) = &error {
+            let row = json!({ "role": "system", "text": format!("The turn ended with an error: {e}"), "ts": now_iso(), "kind": "error" });
+            let _ = self.convo.append(&client, row).await;
+        }
+        drop(client);
+        if cache_read > 0 || cache_write > 0 {
+            self.receipt = Some((Utc::now(), ttl as i64));
+        }
+        self.last_error = error.clone();
+        self.mcp.last_turn_count = self.mcp.count;
+        self.slot = None;
+        self.activity = None;
+        self.idle_since = Instant::now();
+        if limit.is_some() {
+            // the account changes or the agent sleeps: either way this process is done
+            self.close_proc().await;
+            let _ = self.engine.accounts.reload(&self.engine).await;
+            crate::accounts::publish(&self.engine);
+        } else if self.engine.settings.keep_warm() && self.proc.is_some() {
+            self.park();
+        } else {
+            self.close_proc().await;
+        }
+        self.update_forecast().await;
+        self.publish();
+        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id), Key::Group("cost"), Key::History(self.id)]);
+        self.org.emit(json!({ "type": "node_event", "node": self.name, "event": "turn_done" }));
+        if let Some(rec) = &freeze_rec {
+            self.org.emit(json!({ "type": "node_event", "node": self.name, "event": "frozen" }));
+            self.engine.app.org_changed(self.org_id);
+            freeze::schedule(&self.engine, self.org_id, self.id, rec);
+            return Ok(());
+        }
+        if let Some(acc) = moved_to {
+            let engine = self.engine.clone();
+            let (org_id, id) = (self.org_id, self.id);
+            // continue_on messages this actor; run it off the actor's own loop
+            tokio::spawn(async move {
+                if let Err(e) = freeze::continue_on(&engine, org_id, id, &acc, "account fallback").await {
+                    tracing::warn!(agent = id, error = %format!("{e:#}"), "account fallback failed");
+                }
+            });
+            return Ok(());
+        }
+        if error.is_none() {
+            // more mail may have arrived during the turn
+            self.on_wake().await?;
+        }
+        Ok(())
+    }
+
+    async fn tier_of(&self, client: &tokio_postgres::Client) -> String {
+        client
+            .query_one("SELECT tier FROM ot.agents WHERE id = $1", &[&self.id])
+            .await
+            .map(|r| r.get(0))
+            .unwrap_or_default()
+    }
+
+    async fn halt(&mut self) -> Result<Value> {
+        let at = now_iso();
+        if self.waiting_since.take().is_some() {
+            self.engine.sched.cancel(self.id);
+        }
+        if let Some(t) = self.turn.as_mut() {
+            t.interrupted = true;
+            t.killed = true;
+        }
+        self.kill_proc().await;
+        if let Some(t) = self.take_turn() {
+            self.return_mail(t.id, !t.activity).await;
+            if let Ok(client) = self.engine.db.get().await {
+                let _ = client.execute("UPDATE ot.turns SET ended_at = now(), killed = true WHERE id = $1", &[&t.id]).await;
+            }
+            self.slot = None;
+        }
+        let client = self.engine.db.get().await?;
+        client
+            .execute(
+                "UPDATE ot.agents SET halt = $2, inflight_at = NULL, row_version = row_version + 1 WHERE id = $1",
+                &[&self.id, &json!({ "phase": "halted", "requested_at": at, "at": at, "by": "@user" })],
+            )
+            .await?;
+        drop(client);
+        self.activity = None;
+        self.publish();
+        self.org.invalidate([Key::Agent(self.id), Key::Mailbox(self.id)]);
+        self.org.emit(json!({ "type": "node_event", "node": self.name, "event": "turn_done" }));
+        Ok(json!({ "halted": true, "settled": true, "status": "halted" }))
+    }
+
+    /// A slash command as its own turn (`/compact` compacts the session).
+    async fn command(&mut self, text: &str) -> Result<Value> {
+        if self.turn.is_some() {
+            return Ok(json!({ "started": false, "reason": "a turn is running; wait for it or interrupt it" }));
+        }
+        let compact = text.trim() == "/compact" || text.trim().starts_with("/compact ");
+        let ctx = self.load_ctx().await?;
+        if ctx.state != "live" || ctx.halted || ctx.killswitch {
+            return Ok(json!({ "started": false, "reason": "this agent is not running (retired, halted or stopped)" }));
+        }
+        if compact && ctx.session_id.is_none() {
+            return Ok(json!({ "started": false, "reason": "this agent has no conversation to compact yet" }));
+        }
+        self.ensure_proc(&ctx).await?;
+        let sent = self.proc.as_ref().map(|p| p.send_user(text, Vec::new())).unwrap_or(false);
+        if !sent {
+            return Ok(json!({ "started": false, "reason": "the process could not be reached" }));
+        }
+        let client = self.engine.db.get().await?;
+        let turn_id: i64 = client
+            .query_one(
+                "INSERT INTO ot.turns (agent_id, started_at, sent_at, account, model) VALUES ($1, now(), now(), $2, $3) RETURNING id",
+                &[&self.id, &ctx.account, &ctx.model],
+            )
+            .await?
+            .get(0);
+        drop(client);
+        let mut turn = Turn::new(turn_id, compact);
+        turn.activity = true;
+        self.begin_turn(turn);
+        self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));
+        if !compact {
+            let client = self.engine.db.get().await?;
+            let row = json!({ "role": "user", "text": text, "ts": now_iso(), "command": true });
+            self.convo.append(&client, row).await?;
+        }
+        self.publish();
+        self.stream("text", json!({}));
+        Ok(json!({ "started": true }))
+    }
+
+    // ------------------------------------------------------------ publish
+
+    fn live_view(&self) -> LiveView {
+        let mut transient = Vec::new();
+        if let Some(t) = &self.turn {
+            if !t.draft.is_empty() {
+                transient.push(json!({ "event_id": format!("draft-{}", t.id), "role": "assistant", "kind": "draft", "text": t.draft }));
+            }
+            if !t.thinking.is_empty() {
+                transient.push(json!({ "event_id": format!("think-{}", t.id), "role": "assistant", "kind": "thinking", "text": t.thinking }));
+            }
+        }
+        LiveView {
+            busy: self.turn.is_some(),
+            turn_activity: self.turn.as_ref().map(|t| t.activity).unwrap_or(false),
+            draft_epoch: format!("{}:{}", self.born, self.text_frames),
+            init: self.init.clone(),
+            last_error: self.last_error.clone(),
+            transient,
+            mcp_waiting: self.mcp.waiting,
+            mcp_state: self.mcp.state.clone(),
+            mcp_reason: self.mcp.reason.clone(),
+        }
+    }
+
+    fn runtime_value(&self) -> Value {
+        let busy = self.turn.is_some();
+        let compacting = self.turn.as_ref().map(|t| t.compact).unwrap_or(false);
+        let (phase, tool) = match (&self.activity, busy) {
+            (Some((p, t)), true) => (p.clone(), t.clone()),
+            (_, true) => ("thinking".to_string(), None),
+            _ => ("idle".to_string(), None),
+        };
+        let mut activity = json!({ "phase": phase });
+        if let Some(t) = tool {
+            activity["tool"] = json!(t);
+        }
+        let queued_for_slot = self.waiting_since.map(|since| {
+            json!({ "since": since.timestamp(),
+                    "limit": self.engine.sched.limit.load(std::sync::atomic::Ordering::SeqCst),
+                    "waiting": self.engine.sched.waiting.load(std::sync::atomic::Ordering::SeqCst) })
+        });
+        let live = self.proc.is_some();
+        json!({
+            "busy": busy,
+            "waiting": self.waiting_since.is_some(),
+            "queued_for_slot": queued_for_slot,
+            "responding": busy,
+            "phase": if compacting { json!("compacting") } else if busy { json!("responding") } else { Value::Null },
+            "ran_as": Value::Null,
+            "codex_route": Value::Null,
+            "queued": 0,
+            "proc_warm": live && !busy,
+            "proc_live": live,
+            "proc_relaunch": self.reconfigured && live,
+            "proc_relaunch_reason": if self.reconfigured && live { json!("settings changed; the next turn starts a fresh process") } else { Value::Null },
+            "proc_paused": false,
+            "proc_control_enabled": !busy,
+            "proc_control_action": if live { "stop" } else { "start" },
+            "proc_control_reason": if busy { json!("a turn is running") } else { Value::Null },
+            "mcp_tool_count": self.mcp.count,
+            "last_turn_mcp_tool_count": self.mcp.last_turn_count,
+            "mcp_tool_count_provider": self.provider,
+            "mcp_tool_count_source": if self.mcp.count.is_some() { json!("init") } else { Value::Null },
+            "mcp_tool_count_reason": Value::Null,
+            "mcp_readiness_waiting": self.mcp.waiting,
+            "mcp_readiness_state": self.mcp.state,
+            "mcp_readiness_reason": self.mcp.reason,
+            "tasks": 0,
+            "bg_tasks": 0,
+            "last_error": self.last_error,
+            "activity": activity,
+            "cache_forecast": self.forecast,
+        })
+    }
+
+    fn publish(&self) {
+        let v = self.runtime_value();
+        self.handle.view.store(Arc::new(v.clone()));
+        self.org.feed.runtime(self.id, v);
+    }
+
+    fn publish_idle(&self) {
+        let mut v = Map::new();
+        for (k, val) in crate::domain::tree::idle_runtime() {
+            v.insert(k, val);
+        }
+        v.insert("cache_forecast".into(), self.forecast.clone());
+        v.insert("last_error".into(), json!(self.last_error));
+        let v = Value::Object(v);
+        self.handle.view.store(Arc::new(v.clone()));
+        self.org.feed.runtime(self.id, v);
+    }
+
+    /// Will the next turn hit the provider's prompt cache?
+    async fn update_forecast(&mut self) {
+        self.forecast = match self.load_ctx().await {
+            Ok(ctx) => self.forecast_for(&ctx),
+            Err(_) => Value::Null,
+        };
+    }
+
+    fn forecast_for(&self, ctx: &Ctx) -> Value {
+        let generation = format!("{}", ctx.generation);
+        let receipt_at = self.receipt.map(|(t, _)| iso(t));
+        let Some(sent) = &self.sent_print else {
+            return json!({ "generation": generation, "state": "uncertain", "readiness": "unknown",
+                           "readiness_cause": "no_completed_fingerprint", "reason": "no turn has completed since the engine started",
+                           "source": "no_completed_fingerprint", "lane": "claude", "last_receipt_at": receipt_at,
+                           "ttl_seconds": null, "expires_at": null });
+        };
+        let now_print = self.plan(ctx).print;
+        let changed = now_print.changed(sent);
+        if !changed.is_empty() {
+            return json!({ "generation": generation, "state": "known_incompatible", "readiness": "not_ready",
+                           "readiness_cause": "prefix_changed", "reason": "the prompt prefix changed since the last turn",
+                           "source": "authoritative_receipt", "lane": "claude", "changed_inputs": changed,
+                           "last_receipt_at": receipt_at, "ttl_seconds": null, "expires_at": null,
+                           "precompact_action": "not_applicable" });
+        }
+        let Some((at, ttl)) = self.receipt else {
+            return json!({ "generation": generation, "state": "uncertain", "readiness": "not_ready",
+                           "readiness_cause": "no_positive_receipt", "reason": "the last turn reported no cache use",
+                           "source": "no_positive_receipt", "lane": "claude", "last_receipt_at": null,
+                           "ttl_seconds": null, "expires_at": null });
+        };
+        let expires = at + chrono::Duration::seconds(ttl);
+        if Utc::now() >= expires {
+            return json!({ "generation": generation, "state": "expired_known_entry", "readiness": "not_ready",
+                           "readiness_cause": "receipt_expired", "reason": "the cache entry has expired",
+                           "source": "authoritative_receipt", "lane": "claude", "last_receipt_at": iso(at),
+                           "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": "miss_expected" });
+        }
+        json!({ "generation": generation, "state": "compatible_observed", "readiness": "ready",
+                "readiness_cause": "receipt_valid", "reason": "the cache entry was observed and has not expired",
+                "source": "authoritative_receipt", "lane": "claude", "last_receipt_at": iso(at), "ttl_seconds": ttl,
+                "expires_at": iso(expires), "precompact_action": "not_applicable" })
+    }
+}
+
+/// A claimed mail row (`to_jsonb(ot.mail)`) as the agent reads it.
+fn mail_of(m: &Value) -> Mail {
+    Mail {
+        uid: m["uid"].as_str().unwrap_or("").to_string(),
+        sender: m["sender"].as_str().unwrap_or("").to_string(),
+        kind: m["kind"].as_str().unwrap_or("message").to_string(),
+        body: m["body"].as_str().unwrap_or("").to_string(),
+        at: m["created_at"].as_str().and_then(crate::util::parse_ts).unwrap_or_else(Utc::now),
+        attachments: m.get("attachments").cloned().unwrap_or(json!([])),
+        notice: m["notice"].as_bool().unwrap_or(false),
+        urgent: m["urgent"].as_bool().unwrap_or(false),
+        reply_to: m.get("reply_to").cloned().unwrap_or(Value::Null),
+    }
+}
+
+/// The desk row for mail an agent was given: one mail segment.
+fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
+    let rows: Vec<Value> = raw
+        .iter()
+        .map(|m| {
+            let mut e = crate::feed::compute::mail_entry(m);
+            if let Some(o) = e.as_object_mut() {
+                o.remove("delivering");
+                o.remove("notice");
+                if m["notice"].as_bool().unwrap_or(false) && o.get("kind").and_then(Value::as_str) == Some("message") {
+                    o.insert("kind".into(), json!("notice"));
+                }
+            }
+            e
+        })
+        .collect();
+    let text = raw.iter().map(|m| m["body"].as_str().unwrap_or("")).collect::<Vec<_>>().join("\n\n");
+    let mut row = json!({
+        "role": "user",
+        "text": text,
+        "ts": now_iso(),
+        "segments": [{ "kind": "mail", "rows": rows }],
+        "mail_ids": raw.iter().map(|m| m["uid"].clone()).collect::<Vec<_>>(),
+    });
+    if let Some(r) = receipt {
+        row["steered"] = json!(true);
+        row["receipt"] = json!(r);
+    }
+    row
+}
+
+fn images_for(mails: &[Mail]) -> Vec<Value> {
+    use base64::Engine as _;
+    let mut out = Vec::new();
+    for m in mails {
+        for a in m.attachments.as_array().cloned().unwrap_or_default() {
+            let Some(path) = a.get("path").and_then(Value::as_str) else { continue };
+            let lower = path.to_lowercase();
+            let media = if lower.ends_with(".png") {
+                "image/png"
+            } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+                "image/jpeg"
+            } else if lower.ends_with(".gif") {
+                "image/gif"
+            } else if lower.ends_with(".webp") {
+                "image/webp"
+            } else {
+                continue;
+            };
+            if let Ok(bytes) = std::fs::read(path) {
+                if bytes.len() < 5 * 1024 * 1024 {
+                    out.push(json!({ "type": "image", "source": { "type": "base64", "media_type": media,
+                        "data": base64::engine::general_purpose::STANDARD.encode(bytes) } }));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// An Edit/Write chip's diff from the CLI's structured patch.
+fn patch_of(v: &Value) -> Option<Value> {
+    let patch = v.pointer("/tool_use_result/structuredPatch").and_then(Value::as_array)?;
+    let mut plus = 0;
+    let mut minus = 0;
+    let mut lines = Vec::new();
+    let mut truncated = false;
+    for h in patch {
+        for l in h["lines"].as_array().cloned().unwrap_or_default() {
+            let s = l.as_str().unwrap_or("");
+            if s.starts_with('+') {
+                plus += 1;
+            } else if s.starts_with('-') {
+                minus += 1;
+            }
+            if lines.len() < 200 {
+                lines.push(json!(s));
+            } else {
+                truncated = true;
+            }
+        }
+    }
+    let mut d = json!({ "plus": plus, "minus": minus, "lines": lines });
+    if truncated {
+        d["truncated"] = json!(true);
+    }
+    Some(d)
+}

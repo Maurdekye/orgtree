@@ -1,6 +1,7 @@
 //! The directory of open organizations: slug/id → handle (its feed and
 //! rooms). Lock-free maps; handles are immutable apart from their name.
 
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -16,9 +17,16 @@ pub struct OrgHandle {
     pub name: ArcSwap<String>,
     pub feed: OrgFeed,
     pub rooms: Rooms,
+    /// agents running a turn right now
+    pub working: AtomicI64,
 }
 
 impl OrgHandle {
+    /// A turn started (+1) or ended (-1); the app feed shows the count.
+    pub fn turn_delta(&self, engine: &Engine, d: i64) {
+        let n = (self.working.fetch_add(d, Ordering::SeqCst) + d).max(0);
+        engine.app.working(self.id, n);
+    }
     pub fn invalidate(&self, keys: impl IntoIterator<Item = Key>) {
         self.feed.invalidate(keys);
     }
@@ -65,7 +73,7 @@ impl OrgDirectory {
 
 pub fn open(engine: &Arc<Engine>, id: i64, uuid: String, slug: String, name: String) -> Arc<OrgHandle> {
     let feed = feed::spawn(engine.clone(), id, uuid.clone());
-    let h = Arc::new(OrgHandle { id, uuid, slug, name: ArcSwap::from_pointee(name), feed, rooms: Rooms::default() });
+    let h = Arc::new(OrgHandle { id, uuid, slug, name: ArcSwap::from_pointee(name), feed, rooms: Rooms::default(), working: AtomicI64::new(0) });
     engine.orgs.insert(h.clone());
     h
 }

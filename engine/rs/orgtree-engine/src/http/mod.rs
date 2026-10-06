@@ -3,6 +3,7 @@
 
 pub mod desktop;
 pub mod error;
+pub mod nodes;
 pub mod orgs;
 pub mod tree;
 
@@ -12,7 +13,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 
 use crate::engine::Engine;
@@ -44,6 +45,27 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/work-items-foreground", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-items-archive-page", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-item-references", get(orgs::compatibility))
+        .route("/api/orgs/{slug}/resume", post(nodes::resume))
+        // one agent's desk
+        .route("/api/orgs/{slug}/nodes/{nid}/chat", get(nodes::chat))
+        .route("/api/orgs/{slug}/nodes/{nid}/message", post(nodes::message))
+        .route("/api/orgs/{slug}/nodes/{nid}/mail/{mid}", delete(nodes::retract))
+        .route("/api/orgs/{slug}/nodes/{nid}/inbox", get(nodes::inbox))
+        .route("/api/orgs/{slug}/nodes/{nid}/interrupt", post(nodes::interrupt))
+        .route("/api/orgs/{slug}/nodes/{nid}/halt", post(nodes::halt))
+        .route("/api/orgs/{slug}/nodes/{nid}/unhalt", post(nodes::unhalt))
+        .route("/api/orgs/{slug}/nodes/{nid}/compact", post(nodes::compact))
+        .route("/api/orgs/{slug}/nodes/{nid}/process", post(nodes::process))
+        .route("/api/orgs/{slug}/nodes/{nid}/unstick", post(nodes::unstick))
+        .route("/api/orgs/{slug}/nodes/{nid}/continue-on", post(nodes::continue_on))
+        .route("/api/orgs/{slug}/nodes/{nid}/remote-control", post(nodes::remote_control))
+        .route("/api/orgs/{slug}/nodes/{nid}/scope", post(nodes::set_scope))
+        .route(
+            "/api/orgs/{slug}/nodes/{nid}/upload",
+            post(nodes::upload).layer(axum::extract::DefaultBodyLimit::max(2 << 30)),
+        )
+        .route("/api/orgs/{slug}/nodes/{nid}/file", get(nodes::file))
+        .route("/api/orgs/{slug}/nodes/{nid}/scratch", get(nodes::scratch))
         .fallback(api_not_found);
 
     Router::new()

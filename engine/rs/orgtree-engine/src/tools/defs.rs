@@ -1,0 +1,358 @@
+//! Tool cards: names, one-paragraph descriptions and argument schemas. The
+//! names and argument names are the ones agents already know.
+
+use serde_json::{json, Value};
+
+/// Tools this build serves (the rest are listed once they land).
+pub fn implemented() -> &'static [&'static str] {
+    &[
+        "orgtree_message",
+        "orgtree_send_notice",
+        "orgtree_status",
+        "orgtree_inbox",
+        "orgtree_chart",
+        "orgtree_state_inspect",
+        "orgtree_list_tiers",
+        "orgtree_list_orgs",
+        "orgtree_read_transcript",
+        "orgtree_read_scratch",
+        "orgtree_interrupt",
+        "orgtree_halt",
+        "orgtree_unhalt",
+        "orgtree_unstick",
+        "orgtree_continue_on",
+        "orgtree_account_mark",
+    ]
+}
+
+pub fn list() -> Vec<Value> {
+    let on = implemented();
+    all().into_iter().filter(|t| t["name"].as_str().map(|n| on.contains(&n)).unwrap_or(false)).collect()
+}
+
+fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+    json!({
+        "name": name,
+        "description": description,
+        "inputSchema": { "type": "object", "properties": properties, "required": required },
+        // an agent's own hands are never deferred behind tool search
+        "_meta": { "anthropic/alwaysLoad": true },
+    })
+}
+
+const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
+const VIS: &[&str] = &["self", "team", "subtree", "full"];
+const PM: &[&str] = &["default", "acceptEdits", "bypassPermissions"];
+const EFFORT: &[&str] = &["low", "medium", "high", "xhigh", "max", ""];
+
+fn scope_props() -> Value {
+    json!({
+        "add_dirs": { "type": "array", "items": { "type": "object", "properties": {
+            "path": { "type": "string" }, "mode": { "type": "string", "enum": ["rw", "ro"] } }, "required": ["path"] },
+            "description": "folders it may use (within yours)" },
+        "tools": { "type": "object", "properties": {
+            "bash": { "type": "boolean" }, "web": { "type": "boolean" }, "edit": { "type": "boolean" },
+            "subagents": { "type": "boolean" }, "mcp": { "type": "array", "items": { "type": "string" } } } },
+        "org_visibility": { "type": "string", "enum": VIS },
+        "permission_mode": { "type": "string", "enum": PM },
+        "effort": { "type": "string", "enum": EFFORT },
+        "account": { "type": "string", "description": "provider account id (default: inherited)" },
+        "account_fallback": { "type": "boolean", "description": "move to another account of the same provider when this one hits its usage limit" },
+        "clear_account_fallback": { "type": "boolean" },
+        "team_charter": { "type": "string", "description": "standing instructions for its whole team" },
+    })
+}
+
+fn merge(mut a: Value, b: Value) -> Value {
+    if let (Some(ao), Some(bo)) = (a.as_object_mut(), b.as_object()) {
+        for (k, v) in bo {
+            ao.insert(k.clone(), v.clone());
+        }
+    }
+    a
+}
+
+fn all() -> Vec<Value> {
+    vec![
+        tool(
+            "orgtree_message",
+            "Send mail. You may write to your superior, your reports and their reports (writing to a non-child \
+             descendant grants it an audience to reply), your peers, anyone who granted you an audience, 'user' \
+             (top-level agents and holders of a user audience), another org's inbox '@org:<slug>', or a hub peer \
+             '@net:<slug>'. The recipient is woken (notice: true stores it without waking). Replies arrive in your \
+             later turns; never wait for them.",
+            json!({
+                "to": { "type": "string", "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'" },
+                "body": { "type": "string" },
+                "kind": { "type": "string", "enum": KINDS },
+                "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
+                "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
+                                 "description": "files to send, relative to your working folder or absolute" },
+                "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
+                "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
+            }),
+            &["to", "body"],
+        ),
+        tool(
+            "orgtree_send_notice",
+            "Same as orgtree_message with notice: true — stored for the recipient's next turn, wakes nobody.",
+            json!({ "to": { "type": "string" }, "body": { "type": "string" } }),
+            &["to", "body"],
+        ),
+        tool(
+            "orgtree_status",
+            "Report your status. Required when you finish ('done') or get stuck ('blocked'): your superior gets \
+             your summary as a notice. A status wakes nobody; to make your superior act, send a message.",
+            json!({
+                "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
+                "summary": { "type": "string", "description": "one or two sentences" },
+            }),
+            &["status", "summary"],
+        ),
+        tool(
+            "orgtree_inbox",
+            "Your own mail. list: waiting and recent messages (ids, senders, previews). fetch: the full text of up \
+             to 20 ids. Waiting mail is also delivered to you automatically.",
+            json!({
+                "action": { "type": "string", "enum": ["list", "fetch"] },
+                "limit": { "type": "integer", "description": "list: how many (default 30, max 200)" },
+                "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: ids from list" },
+            }),
+            &["action"],
+        ),
+        tool(
+            "orgtree_chart",
+            "The org as you may see it (your visibility), with each agent's tier, credits, last reported status and \
+             its age. Retired agents are counted unless include_archived is set (check them before hiring: \
+             rehiring restores their context).",
+            json!({
+                "include_archived": { "type": "boolean" },
+                "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
+            }),
+            &[],
+        ),
+        tool(
+            "orgtree_state_inspect",
+            "Structured state of agents within your visibility (no prompts, transcripts or mail).",
+            json!({
+                "node": { "type": "string" },
+                "nodes": { "type": "array", "items": { "type": "string" } },
+                "include_archived": { "type": "boolean" },
+            }),
+            &[],
+        ),
+        tool("orgtree_list_tiers", "Model tiers you can hire on, with seat prices in credits.", json!({}), &[]),
+        tool("orgtree_list_orgs", "Other organizations on this machine (for '@org:<slug>' mail).", json!({}), &[]),
+        tool(
+            "orgtree_read_transcript",
+            "Read the recent conversation of yourself or an agent below you.",
+            json!({
+                "node": { "type": "string" },
+                "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 20)" },
+            }),
+            &["node"],
+        ),
+        tool(
+            "orgtree_read_scratch",
+            "Browse or read the working folder of yourself or an agent below you (omit path to list it).",
+            json!({ "node": { "type": "string" }, "path": { "type": "string" } }),
+            &["node"],
+        ),
+        tool(
+            "orgtree_interrupt",
+            "Stop a report's (or their reports') current turn without retiring it; waiting mail starts its next turn.",
+            json!({ "node": { "type": "string" } }),
+            &["node"],
+        ),
+        tool(
+            "orgtree_halt",
+            "Halt agents below you until orgtree_unhalt: the process is stopped and nothing wakes them; their mail waits.",
+            json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
+            &[],
+        ),
+        tool(
+            "orgtree_unhalt",
+            "Release halted agents below you; waiting mail starts their next turn.",
+            json!({ "node": { "type": "string" }, "nodes": { "type": "array", "items": { "type": "string" } } }),
+            &[],
+        ),
+        tool(
+            "orgtree_unstick",
+            "Release a frozen agent below you (usage-limit freeze) and let it continue.",
+            json!({ "node": { "type": "string" } }),
+            &["node"],
+        ),
+        tool(
+            "orgtree_continue_on",
+            "Move a frozen agent below you to another account of the same provider and release its freeze.",
+            json!({ "node": { "type": "string" }, "account": { "type": "string" } }),
+            &["node", "account"],
+        ),
+        tool(
+            "orgtree_account_mark",
+            "Read (inspect) or clear an account's usage-limit marks. Clearing adds no capacity and resumes nobody.",
+            json!({
+                "action": { "type": "string", "enum": ["inspect", "clear"] },
+                "account": { "type": "string" },
+                "pool": { "type": "string", "description": "clear: the mark's pool" },
+                "reason": { "type": "string", "description": "clear: why (kept in the audit)" },
+            }),
+            &["action", "account"],
+        ),
+        // ---- arriving with build step 5
+        tool(
+            "orgtree_ask",
+            "Ask the user one question (or up to 4 as tabs) on a card. End your turn after asking; the answer \
+             arrives as mail.",
+            json!({
+                "question": { "type": "string" }, "header": { "type": "string" },
+                "options": { "type": "array", "items": { "type": "object" } }, "multi": { "type": "boolean" },
+                "work_item": { "type": "string" }, "questions": { "type": "array", "items": { "type": "object" } },
+            }),
+            &[],
+        ),
+        tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[]),
+        tool(
+            "orgtree_present",
+            "Present a document (markdown or html) to the user: a card on your seat opens the reader.",
+            json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
+                    "replaces": { "type": "string" } }),
+            &["title"],
+        ),
+        tool(
+            "orgtree_send_file",
+            "Send a file to the user as a download card (images show inline).",
+            json!({ "path": { "type": "string" }, "note": { "type": "string" } }),
+            &["path"],
+        ),
+        tool(
+            "orgtree_hire",
+            "Hire a report (or with hire_type 'superior', insert a superior over target). Write its charter in full.",
+            merge(
+                json!({
+                    "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
+                    "charter": { "type": "string" }, "parent": { "type": "string" }, "target": { "type": "string" },
+                    "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
+                    "kickoff": { "type": "string", "description": "first message to send it" },
+                    "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
+                }),
+                scope_props(),
+            ),
+            &["name", "tier", "grant", "charter"],
+        ),
+        tool(
+            "orgtree_rehire",
+            "Bring a retired agent back with its context.",
+            merge(
+                json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
+                        "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
+                        "charter": { "type": "string" }, "kickoff": { "type": "string" },
+                        "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" } }),
+                scope_props(),
+            ),
+            &["node"],
+        ),
+        tool("orgtree_retire", "Retire an agent below you (it can be rehired later).", json!({ "node": { "type": "string" } }), &["node"]),
+        tool("orgtree_dissolve", "Retire an agent below you together with its whole team.", json!({ "node": { "type": "string" } }), &["node"]),
+        tool(
+            "orgtree_retool",
+            "Change an agent's scope (folders, tools, visibility, permission mode, effort, account) or charter.",
+            merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" } }), scope_props()),
+            &["node"],
+        ),
+        tool(
+            "orgtree_switch_model",
+            "Move an agent below you to another tier (applied at its next turn boundary).",
+            json!({ "node": { "type": "string" }, "tier": { "type": "string" } }),
+            &["node", "tier"],
+        ),
+        tool(
+            "orgtree_move",
+            "Move an agent below you under another parent within your subtree.",
+            json!({ "node": { "type": "string" }, "new_parent": { "type": "string" },
+                    "moves": { "type": "array", "items": { "type": "object" } } }),
+            &[],
+        ),
+        tool("orgtree_rename", "Rename an agent below you.", json!({ "node": { "type": "string" }, "name": { "type": "string" } }), &["node", "name"]),
+        tool(
+            "orgtree_reallocate",
+            "Give credits to (positive delta) or take unused credits from (negative) a report.",
+            json!({ "node": { "type": "string" }, "delta": { "type": "integer" } }),
+            &["node", "delta"],
+        ),
+        tool("orgtree_cheap_compact", "Restart an agent below you on a fresh session with a summary of the old one.", json!({ "node": { "type": "string" } }), &["node"]),
+        tool(
+            "orgtree_request_credits",
+            "Ask the user for a larger credit grant.",
+            json!({ "new_limit": { "type": "integer" }, "reason": { "type": "string" } }),
+            &["new_limit", "reason"],
+        ),
+        tool(
+            "orgtree_request_scope",
+            "Ask the user for more folders, tools or permissions.",
+            json!({ "items": { "type": "array", "items": { "type": "object" } }, "reason": { "type": "string" } }),
+            &["items", "reason"],
+        ),
+        tool(
+            "orgtree_audience",
+            "Audiences: request one (to write to someone outside your chain), grant, deny or revoke.",
+            json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
+                    "target": { "type": "string" }, "grantee": { "type": "string" }, "reason": { "type": "string" } }),
+            &["action"],
+        ),
+        tool(
+            "orgtree_watchdog",
+            "Watchdogs wake you when something happens (a file changes, a command's output matches, a process \
+             exits) or goes quiet. On Windows command targets run in cmd.exe unless shell is 'bash'.",
+            json!({
+                "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
+                "name": { "type": "string" },
+                "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity"] },
+                "fire_mode": { "type": "string", "enum": ["event", "silence"] }, "quiet_period_s": { "type": "integer" },
+                "target": { "type": "string" }, "pattern": { "type": "string" }, "interval_s": { "type": "integer" },
+                "once": { "type": "boolean" }, "shell": { "type": "string", "enum": ["native", "bash"] },
+                "id": { "type": "string" }, "reason": { "type": "string" },
+            }),
+            &["action"],
+        ),
+        tool(
+            "orgtree_work",
+            "The work docket: list, get, create, update, assign, archive and move items.",
+            json!({
+                "action": { "type": "string", "enum": ["list", "get", "create", "update", "assign", "handoff", "participants",
+                                                      "evidence", "archive", "supersede", "move", "delete"] },
+                "slug": { "type": "string" }, "title": { "type": "string" }, "objective": { "type": "string" },
+                "kind": { "type": "string" }, "owner": { "type": "string" }, "reviewer": { "type": "string" },
+                "status": { "type": "string" }, "blocked_reason": { "type": "string" }, "dropped_reason": { "type": "string" },
+                "attention": { "type": "boolean" }, "attention_reason": { "type": "string" },
+                "done_so_far": { "type": "array", "items": { "type": "string" } },
+                "working_on_next": { "type": "array", "items": { "type": "string" } },
+                "participants": { "type": "array", "items": { "type": "string" } },
+                "dependencies": { "type": "array", "items": { "type": "string" } }, "parent": { "type": "string" },
+                "note": { "type": "string" }, "ref": { "type": "string" }, "include_archived": { "type": "boolean" },
+                "expected_rev": { "type": "integer" },
+            }),
+            &["action"],
+        ),
+        tool(
+            "orgtree_staff",
+            "Create or update a docket item and hire (or rehire) its owner in one call.",
+            merge(
+                json!({ "action": { "type": "string", "enum": ["create", "update"] }, "slug": { "type": "string" },
+                        "title": { "type": "string" }, "objective": { "type": "string" },
+                        "staff_mode": { "type": "string", "enum": ["hire", "rehire"] }, "node": { "type": "string" },
+                        "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
+                        "charter": { "type": "string" }, "kickoff": { "type": "string" } }),
+                scope_props(),
+            ),
+            &[],
+        ),
+        tool("orgtree_swap", "Swap the seats of two agents below you.", json!({ "a": { "type": "string" }, "b": { "type": "string" } }), &["a", "b"]),
+        tool(
+            "orgtree_self_subjugate",
+            "Place yourself under a peer (target), with your team.",
+            json!({ "target": { "type": "string" } }),
+            &["target"],
+        ),
+    ]
+}

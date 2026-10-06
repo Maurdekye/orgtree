@@ -1,6 +1,7 @@
 //! Business rules: everything that decides what an action means, kept free
 //! of HTTP and of provider specifics.
 
+pub mod mail;
 pub mod notices;
 pub mod orginbox;
 pub mod scope;

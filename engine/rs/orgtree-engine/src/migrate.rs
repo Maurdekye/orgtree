@@ -5,7 +5,10 @@ use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use tokio_postgres::Client;
 
-const MIGRATIONS: &[(&str, &str)] = &[("0001_init", include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_init", include_str!("../migrations/0001_init.sql")),
+    ("0002_turn_sent", include_str!("../migrations/0002_turn_sent.sql")),
+];
 
 fn checksum(sql: &str) -> String {
     // line endings normalised so a CRLF checkout hashes like an LF one
