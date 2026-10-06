@@ -21832,7 +21832,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     wp_turn.rotation.begin(
                         turn_context.current(), turn_runtime.current(), servers,
                         lambda: _check_warm_turn(slug, nid))
-                except Exception:
+                except Exception as exc:
+                    warmpool._journal('turn-transport-failed', slug=slug, nid=nid,
+                                      stage=getattr(wp_turn.rotation, 'stage', 'unknown'),
+                                      error=type(exc).__name__)
                     warmpool.discard(wp_turn, 'turn-transport-unavailable')
                     wp_turn = None
                     _adm_reason = 'turn-transport-unavailable'

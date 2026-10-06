@@ -68,6 +68,7 @@ def child_ready(post: Callable[..., tuple[str, str]], org: str, node: str,
 class Rotation:
     def __init__(self, proc: Any, send: Callable[[str], Any]) -> None:
         self.proc, self.send = proc, send
+        self.stage = 'idle'
         self.lock = threading.Lock()
         self.waiters: dict[str, tuple[threading.Event, dict[str, Any]]] = {}
         self.prefix = 'orgtree-transport-' + uuid.uuid4().hex + '-'
@@ -165,12 +166,14 @@ class Rotation:
     def begin(self, run: turn_context.Run, host: Any,
               servers: dict[str, Any], check: Callable[[], None]) -> None:
         """An old claim must be durably closed before the new child is born."""
+        self.stage = 'quiescence'
         check()
         with self.lock:
             if (not self.finished or self.tainted or self.tool_ids
                     or self.background or self.background_unknown):
                 raise RuntimeError('Claude has unfinished work from its previous run')
         if self.run is not None:
+            self.stage = 'prior-run-fence'
             try:
                 host.authorize(self.run)
             except turn_requests.StaleRun:
@@ -186,12 +189,15 @@ class Rotation:
         with _lock:
             _pending[nonce] = pending
         try:
+            self.stage = 'replace-child'
             self.request({'subtype': 'mcp_set_servers', 'servers': chosen})
+            self.stage = 'authenticate-child'
             if not pending.ready.wait(TIMEOUT):
                 raise RuntimeError('new MCP transport did not authenticate')
             if self.tools_digest is not None and self.tools_digest != pending.tools_digest:
                 raise RuntimeError('MCP tool catalogue changed between turns')
             # Confirm this acknowledgement came from our own living child.
+            self.stage = 'verify-child'
             import psutil
             child = psutil.Process(pending.pid)
             if self.proc.pid not in {p.pid for p in child.parents()}:
@@ -213,6 +219,7 @@ class Rotation:
                     raise RuntimeError('late work arrived during Claude transport rotation')
                 self.process_baseline = baseline
                 self.run, self.finished = run, False
+                self.stage = 'serving'
         finally:
             with _lock:
                 _pending.pop(nonce, None)
@@ -220,6 +227,7 @@ class Rotation:
     def end(self, *, result_ok: bool, tasks: int, bg_tasks: int,
             check: Callable[[], None]) -> bool:
         """Drain and remove the immutable old child before parking the CLI."""
+        self.stage = 'drain-child'
         check()
         if self.descendants() - self.process_baseline:
             return False  # an untracked shell/child outlived its tool result
