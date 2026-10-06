@@ -1,4 +1,4 @@
-import { BrowserWindow, shell, type Session } from 'electron'
+import { BrowserWindow, screen, shell, type Session } from 'electron'
 import { attachEditMenu } from './editmenu'
 import { externalHttpUrl, isHoldingUrl, scopedHeaders, trustedUiUrl } from './policy'
 
@@ -143,15 +143,33 @@ export function parsePopoutFeatures(features?: string): { minWidth?: number; min
   }
 }
 
-/** Only an explicit temporary-desk placement overrides native initial bounds.
+/** An explicit desk placement overrides native initial bounds.
  * Windows can add several DIPs to window.open's requested frameless size at
- * fractional DPI. Applying the outer bounds after creation removes that drift. */
-export function exactPopoutBounds(features?: string): Electron.Rectangle | null {
+ * fractional DPI. Apply content bounds so invisible frame allowances cannot
+ * shrink the visible desk. */
+export function exactPopoutBounds(features?: string,
+  owner?: Pick<BrowserWindow, 'getContentBounds' | 'webContents'>): Electron.Rectangle | null {
   const values = new Map((features ?? '').split(',').map(part => {
     const [key, value] = part.trim().split('=')
     return [key?.toLowerCase(), value] as const
   }))
   if (values.get('orgtreeexactrect') !== '1') return null
+  if (values.has('orgtreeclientx')) {
+    if (!owner) return null
+    const coords = ['orgtreeclientx', 'orgtreeclienty', 'orgtreeclientwidth', 'orgtreeclientheight']
+      .map(key => values.has(key) && values.get(key) !== '' ? Number(values.get(key)) : NaN)
+    const [x, y, width, height] = coords
+    const zoom = owner.webContents.getZoomFactor()
+    if (!coords.every(n => Number.isFinite(n) && Math.abs(n) <= 2147483647)
+      || width <= 0 || height <= 0 || !Number.isFinite(zoom) || zoom <= 0) return null
+    // Electron uses DIP bounds across displays. CSS pixels must be scaled
+    // by browser zoom, not devicePixelRatio (which also includes display DPI).
+    const origin = owner.getContentBounds()
+    const rect = {x: Math.round(origin.x + x * zoom), y: Math.round(origin.y + y * zoom),
+      width: Math.round(width * zoom), height: Math.round(height * zoom)}
+    return Object.values(rect).every(n => Number.isSafeInteger(n) && Math.abs(n) <= 2147483647)
+      && rect.width > 0 && rect.height > 0 ? rect : null
+  }
   const read = (key: string) => {
     const value = values.get(key)
     return value && /^-?\d+$/.test(value) ? Number(value) : NaN
@@ -161,19 +179,30 @@ export function exactPopoutBounds(features?: string): Electron.Rectangle | null 
     && rect.width > 0 && rect.height > 0 ? rect : null
 }
 
-export function setExactPopoutBounds(window: Pick<BrowserWindow, 'setBounds' | 'getBounds'>, rect: Electron.Rectangle): void {
+export function setExactPopoutBounds(window: Pick<BrowserWindow, 'setContentBounds' | 'getContentBounds'>, rect: Electron.Rectangle): void {
   let requested = { ...rect }
   // Windows may add an invisible frame allowance even to setBounds at a
   // fractional scale. Measure that allowance instead of guessing its size.
   // This is only the initial placement; never constrain subsequent gestures.
   for (let attempt = 0; attempt < 3; attempt++) {
-    window.setBounds(requested)
-    const actual = window.getBounds()
+    window.setContentBounds(requested)
+    const actual = window.getContentBounds()
     if (actual.x === rect.x && actual.y === rect.y && actual.width === rect.width && actual.height === rect.height) return
     requested = { x: requested.x + rect.x - actual.x, y: requested.y + rect.y - actual.y,
       width: Math.max(1, requested.width + rect.width - actual.width),
       height: Math.max(1, requested.height + rect.height - actual.height) }
   }
+}
+
+/** An owner can span monitors with different DIP scales. Convert through
+ * physical screen pixels when the new window belongs to another display. */
+export function popoutDisplayBounds(owner: BrowserWindow, rect: Electron.Rectangle,
+  displays: Pick<Electron.Screen, 'dipToScreenRect' | 'screenToDipRect' | 'getDisplayMatching'>): Electron.Rectangle {
+  const physical = displays.dipToScreenRect(owner, rect)
+  const target = displays.screenToDipRect(null, physical)
+  // Avoid another rounding pass on the same display.
+  return displays.getDisplayMatching(owner.getContentBounds()).id === displays.getDisplayMatching(target).id
+    ? rect : target
 }
 
 export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url), trackPopout?: TrackPopout): void {
@@ -231,7 +260,9 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     // bar. That header must therefore carry the drag region — see .popout-mount
     // in styles.css, without which the window cannot be moved at all.
     const minDims = parsePopoutFeatures(details.features)
-    const exact = exactPopoutBounds(details.features)
+    const requested = exactPopoutBounds(details.features, window)
+    const exact = requested && process.platform === 'win32' && screen
+      ? popoutDisplayBounds(window, requested, screen) : requested
     if (exact) exactPlacements.set(details.frameName, exact)
     else exactPlacements.delete(details.frameName)
     return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, frame: false,
