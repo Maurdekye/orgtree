@@ -187,6 +187,7 @@ async fn run_with_cluster(
     orgs::load_all(&engine).await?;
     appfeed::start(&engine, app_inbox);
     accounts::start(&engine).await;
+    openrouter::import_legacy(&engine).await;
     providers::start(&engine);
     usage::start(&engine);
     runtime::sched::start(&engine, sched_inbox);
@@ -208,6 +209,7 @@ async fn run_with_cluster(
     let app = http::router(engine.clone());
     let listener = tokio::net::TcpListener::from_std(listener)?;
     let shutdown = engine.shutdown.clone();
+    tokio::spawn(runtime::convo::repair_old_args(engine.clone()));
     progress("engine-ready");
     launch::ready(port, &cfg.data_root_id);
     tracing::info!(port, "engine ready");

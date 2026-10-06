@@ -99,6 +99,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/accounts/usage/{account}", get(accounts::usage_one))
         .route("/api/accounts/{id}", delete(accounts::remove))
         .route("/api/accounts/{id}/identity", get(accounts::identity))
+        .route("/api/accounts/{id}/enabled", axum::routing::put(accounts::set_enabled))
         .route("/api/accounts/{id}/usage", get(accounts::usage_registered))
         .route("/api/accounts/{id}/marks", get(accounts::marks))
         .route("/api/accounts/{id}/marks/clear", post(accounts::clear_marks))

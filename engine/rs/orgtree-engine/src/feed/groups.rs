@@ -16,6 +16,15 @@ pub const GROUPS: &[&str] = &[
     "org_inbox", "net", "work_summary",
 ];
 
+/// The compaction threshold as a fraction (0.5–0.95). Saved as a percent
+/// (50–95); an imported 3.x value is already a fraction.
+#[logged]
+pub fn compact_frac(v: &Value) -> f64 {
+    let x = v.as_f64().filter(|x| x.is_finite() && *x > 0.0).unwrap_or(80.0);
+    let frac = if x > 1.0 { x / 100.0 } else { x };
+    frac.clamp(0.5, 0.95)
+}
+
 /// Org setting defaults (also what `/api/defaults` starts from).
 #[logged]
 pub fn setting_defaults() -> Value {
@@ -74,7 +83,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "dirs": settings["dirs"],
                 "max_top_grant": settings["max_top_grant"],
                 "default_top_grant": settings["default_top_grant"],
-                "compact_at": settings["compact_at"],
+                "compact_at": compact_frac(&settings["compact_at"]),
                 "default_tools": settings["default_tools"],
                 "default_visibility": settings["default_visibility"],
                 "default_account": settings["default_account"],

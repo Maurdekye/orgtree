@@ -84,7 +84,12 @@ fn eligible_accounts(engine: &Engine, provider: &str) -> Vec<Value> {
     let mut out: Vec<Value> = view
         .all()
         .into_iter()
-        .filter(|a| a.provider == provider && a.enabled && a.auth != "signed_out" && a.limited(now).is_none())
+        .filter(|a| {
+            a.provider == provider
+                && crate::accounts::active(engine, provider, Some(a))
+                && a.auth != "signed_out"
+                && a.limited(now).is_none()
+        })
         .map(|a| json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email }))
         .collect();
     out.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));

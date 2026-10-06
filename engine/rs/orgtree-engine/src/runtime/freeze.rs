@@ -113,7 +113,11 @@ pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>) -> 
     let subs = engine.settings.subscription_inference(provider);
     let keys = engine.settings.apikey_fallback(provider);
     let candidates = view.continue_candidates(provider, current);
-    let sub = candidates.iter().find(|id| subs && view.get(id).map(|a| !a.is_apikey()).unwrap_or(false));
+    // the provider's own sign-in only while its checkbox is on (rows are
+    // already filtered on their own)
+    let sub = candidates.iter().find(|id| {
+        view.get(id).map(|a| !a.is_apikey() && (subs || !crate::accounts::is_ambient(a))).unwrap_or(false)
+    });
     let key = candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false));
     sub.or(key).cloned()
 }

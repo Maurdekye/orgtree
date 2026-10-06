@@ -193,6 +193,77 @@ pub fn is_ambient(a: &AccountInfo) -> bool {
     }
 }
 
+/// Whether an account may serve turns (App settings › Providers): the
+/// provider's own sign-in (`None`, or a row pointing at it) follows that
+/// provider's native-subscription checkbox; every other account its own.
+#[logged]
+pub fn active(engine: &Engine, provider: &str, account: Option<&AccountInfo>) -> bool {
+    match account {
+        Some(a) if !is_ambient(a) => a.enabled,
+        _ => engine.settings.subscription_inference(provider),
+    }
+}
+
+/// Which agents an activation may unblock.
+#[derive(Debug, Clone)]
+pub enum Waiting {
+    /// every agent of the provider (the provider was turned on)
+    Provider(String),
+    /// agents on the provider's own sign-in
+    Native(String),
+    /// agents on one registry account
+    Account(String),
+}
+
+/// After an account (or provider) becomes active: wake the live agents on it
+/// that have mail waiting, so held work starts without another message.
+#[logged]
+pub async fn wake_waiting(engine: &Arc<Engine>, which: Waiting) {
+    let Ok(client) = engine.db.get().await else { return };
+    let pending = "EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending')";
+    let rows = match &which {
+        Waiting::Provider(p) => {
+            client
+                .query(&format!("SELECT a.org_id, a.id FROM ot.agents a WHERE a.state = 'live' AND a.provider = $1 AND {pending}"), &[p])
+                .await
+        }
+        Waiting::Native(p) => {
+            // its own sign-in: no account, or one that is not a separate login
+            let others: Vec<String> = engine
+                .accounts
+                .view()
+                .all()
+                .into_iter()
+                .filter(|a| a.provider == *p && !is_ambient(a))
+                .map(|a| a.id.clone())
+                .collect();
+            client
+                .query(
+                    &format!(
+                        "SELECT a.org_id, a.id FROM ot.agents a WHERE a.state = 'live' AND a.provider = $1
+                            AND (a.account IS NULL OR NOT (a.account = ANY($2))) AND {pending}"
+                    ),
+                    &[p, &others],
+                )
+                .await
+        }
+        Waiting::Account(id) => {
+            client
+                .query(&format!("SELECT a.org_id, a.id FROM ot.agents a WHERE a.state = 'live' AND a.account = $1 AND {pending}"), &[id])
+                .await
+        }
+    };
+    drop(client);
+    match rows {
+        Ok(rows) => {
+            for r in rows {
+                crate::runtime::wake(engine, r.get(0), r.get(1));
+            }
+        }
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "could not wake the agents waiting on an account"),
+    }
+}
+
 /// One registry row as the account surfaces read it.
 #[logged]
 pub fn row(a: &AccountInfo, bound: Vec<Value>, now: DateTime<Utc>) -> Value {

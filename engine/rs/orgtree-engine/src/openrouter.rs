@@ -66,6 +66,76 @@ pub async fn set_key(engine: &Engine, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// 3.x kept the key and the favorites in `<data>/openrouter/state.json`,
+/// which the first-start import never read. Carry them over once, on any
+/// start (installs imported before this existed included): the key only when
+/// none is stored yet, and favorites this build does not know yet. Not
+/// logged: it holds the key.
+pub async fn import_legacy(engine: &Engine) {
+    const MARK: &str = "openrouter_state_v1";
+    let done = async {
+        let client = engine.db.get().await.ok()?;
+        client.query_opt("SELECT 1 FROM ot.meta WHERE key = $1", &[&MARK]).await.ok()
+    }
+    .await;
+    match done {
+        Some(None) => {}
+        // done before, or the database cannot be read now (the next start retries)
+        _ => return,
+    }
+    let path = engine.cfg.path("openrouter").join("state.json");
+    let doc: Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(Value::Null);
+    let mut carried = json!({ "at": iso(chrono::Utc::now()), "found": !doc.is_null(), "key": false, "favorites": 0 });
+    let legacy_key = doc["key"].as_str().map(str::trim).filter(|k| !k.is_empty());
+    if let Some(k) = legacy_key {
+        if key(engine).await.is_none() {
+            match set_key(engine, k).await {
+                Ok(()) => carried["key"] = json!(true),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "the 3.x OpenRouter key could not be carried over");
+                    return;
+                }
+            }
+        }
+    }
+    let mut favs = favorites_doc(engine);
+    let mut known = Map::new();
+    for f in doc["favorites"].as_array().cloned().unwrap_or_default() {
+        let Some(id) = f["id"].as_str().filter(|s| !s.is_empty()) else { continue };
+        let tier = f["tier"].as_str().map(str::to_string).unwrap_or_else(|| tier_name(id));
+        let prompt = f["prompt"].as_f64().unwrap_or(0.0);
+        let rec = json!({
+            "tier": tier, "seat": f["seat"].as_f64().unwrap_or_else(|| seat_for(prompt)), "model": id,
+            "label": f["label"], "name": f["name"], "vendor": f["vendor"], "color": f["color"], "letter": f["letter"],
+            "prompt": prompt, "completion": f["completion"].as_f64().unwrap_or(0.0),
+            "cache_read": f["cache_read"].as_f64().unwrap_or(0.0), "context": f["context"], "tools": f["tools"],
+            "image": f["image"], "reasoning": f["reasoning"],
+        });
+        known.insert(tier, rec.clone());
+        if !favs.iter().any(|x| x["model"].as_str() == Some(id)) {
+            favs.push(rec);
+            carried["favorites"] = json!(carried["favorites"].as_i64().unwrap_or(0) + 1);
+        }
+    }
+    let Ok(mut client) = engine.db.get().await else { return };
+    if !known.is_empty() {
+        if let Err(e) = engine.settings.merge(&mut client, json!({ "openrouter": { "favorites": favs, "known": known } })).await {
+            tracing::warn!(error = %format!("{e:#}"), "the 3.x OpenRouter favorites could not be carried over");
+            return;
+        }
+    }
+    let _ = client
+        .execute("INSERT INTO ot.meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING", &[&MARK, &carried])
+        .await;
+    drop(client);
+    tracing::info!(found = carried["found"].as_bool().unwrap_or(false), key = carried["key"].as_bool().unwrap_or(false),
+                   favorites = carried["favorites"].as_i64().unwrap_or(0), "3.x OpenRouter settings checked");
+    if carried["key"] == json!(true) || carried["favorites"].as_i64().unwrap_or(0) > 0 {
+        crate::providers::publish(engine);
+        publish(engine).await;
+    }
+}
+
 #[logged]
 pub async fn clear_key(engine: &Engine) -> Result<()> {
     let mut client = engine.db.get().await?;

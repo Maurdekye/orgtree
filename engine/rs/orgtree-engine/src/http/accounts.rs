@@ -191,6 +191,37 @@ pub async fn remove(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> Api
     Ok(Json(json!({ "removed": id })))
 }
 
+#[derive(Deserialize, Debug)]
+pub struct EnabledBody {
+    enabled: bool,
+}
+
+/// `PUT /api/accounts/{id}/enabled`: make a secondary account active or
+/// inactive. An inactive account serves no new turn (a running turn
+/// finishes); its agents' mail waits until it is active again or they move.
+#[logged]
+pub async fn set_enabled(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<EnabledBody>) -> ApiResult<Json<Value>> {
+    let client = e.db.get().await?;
+    let n = client
+        .execute("UPDATE ot.accounts SET enabled = $2 WHERE id = $1 AND id <> $3", &[&id, &b.enabled, &crate::openrouter::ACCOUNT_ID])
+        .await?;
+    drop(client);
+    if n == 0 {
+        return Err(ApiError::not_found(format!("no account {id}")));
+    }
+    refreshed(&e).await;
+    crate::providers::publish(&e);
+    for o in e.orgs.all() {
+        crate::changes::notify(&e, &o, vec![crate::changes::Change::Tiers]);
+    }
+    if b.enabled {
+        crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Account(id.clone())).await;
+    }
+    let view = e.accounts.view();
+    let row = view.get(&id).map(|a| crate::accounts::row(a, Vec::new(), chrono::Utc::now())).unwrap_or(Value::Null);
+    Ok(Json(json!({ "account": row })))
+}
+
 /// `GET /api/accounts/{id}/identity`: look again at who the account is signed in as.
 #[logged]
 pub async fn identity(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {

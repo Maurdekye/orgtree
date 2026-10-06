@@ -226,6 +226,83 @@ pub fn tool_arg(_name: &str, input: &Value) -> String {
     o.values().filter_map(Value::as_str).find(|s| !s.trim().is_empty()).map(flat).unwrap_or_default()
 }
 
+/// A chip argument written by alpha.0/alpha.1 (the input dumped as JSON, cut
+/// at 300 characters) as the one-line argument `tool_arg` gives today; None
+/// when the argument is not such a dump.
+#[logged]
+pub fn repair_arg(name: &str, arg: &str) -> Option<String> {
+    let t = arg.trim();
+    if !t.starts_with('{') {
+        return None;
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(t) {
+        return Some(tool_arg(name, &v));
+    }
+    // cut short: the string pairs that survived, in order
+    static PAIR: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#""([A-Za-z_][A-Za-z0-9_]*)":"((?:[^"\\]|\\.)*)""#).unwrap());
+    let mut o = serde_json::Map::new();
+    for c in PAIR.captures_iter(t) {
+        let v: String = serde_json::from_str(&format!("\"{}\"", &c[2])).unwrap_or_else(|_| c[2].to_string());
+        o.entry(c[1].to_string()).or_insert(Value::String(v));
+    }
+    Some(tool_arg(name, &Value::Object(o)))
+}
+
+/// Once, in the background: rewrite the chip arguments alpha.0/alpha.1 wrote
+/// as JSON dumps (desk rows keep their text; only the argument changes).
+#[logged]
+pub async fn repair_old_args(engine: std::sync::Arc<crate::engine::Engine>) {
+    const MARK: &str = "convo_tool_args_v1";
+    let run = async {
+        let client = engine.db.get().await?;
+        if client.query_opt("SELECT 1 FROM ot.meta WHERE key = $1", &[&MARK]).await?.is_some() {
+            return anyhow::Ok(0usize);
+        }
+        let rows = client
+            .query(
+                r#"SELECT agent_id, seq, body FROM ot.convo
+                    WHERE body @? '$.tools[*].arg ? (@ starts with "{")'"#,
+                &[],
+            )
+            .await?;
+        let mut fixed = 0usize;
+        for r in &rows {
+            let (agent_id, seq): (i64, i64) = (r.get(0), r.get(1));
+            let mut body: Value = r.get(2);
+            let mut changed = false;
+            if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
+                for t in tools.iter_mut() {
+                    let name = t["name"].as_str().unwrap_or("").to_string();
+                    let Some(arg) = t["arg"].as_str().map(str::to_string) else { continue };
+                    if let Some(new) = repair_arg(&name, &arg) {
+                        t["arg"] = Value::String(new);
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                client
+                    .execute("UPDATE ot.convo SET body = $3 WHERE agent_id = $1 AND seq = $2", &[&agent_id, &seq, &body])
+                    .await?;
+                fixed += 1;
+            }
+        }
+        client
+            .execute(
+                "INSERT INTO ot.meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
+                &[&MARK, &json!({ "rows": fixed })],
+            )
+            .await?;
+        Ok(fixed)
+    };
+    match run.await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(rows = n, "old tool-chip arguments rewritten as one line"),
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "old tool-chip arguments could not be rewritten (retried next start)"),
+    }
+}
+
 /// Text of a tool_result's content (string, or text blocks); counts images.
 #[logged]
 pub fn tool_result_text(content: &Value) -> (String, usize) {

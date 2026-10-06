@@ -111,7 +111,7 @@ pub fn ask_card(raw: &Value, node_name: &str) -> Value {
 }
 
 /// Effective cheap-compact setting for a node: its own override, else the org's.
-fn cheap_compact(scope: &Value, org: &Value) -> (bool, Option<f64>) {
+pub(crate) fn cheap_compact(scope: &Value, org: &Value) -> (bool, Option<f64>) {
     let node = scope.get("auto_cheap_compact").filter(|v| v.is_object() && !v.as_object().unwrap().is_empty());
     let cfg = node.or_else(|| org.get("auto_cheap_compact")).cloned().unwrap_or(Value::Null);
     let on = cfg.get("enabled").and_then(Value::as_bool).unwrap_or(false);

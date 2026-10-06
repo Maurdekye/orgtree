@@ -354,7 +354,7 @@ pub fn payload(engine: &Engine) -> Value {
     }
     let map = |key: &str, default: bool| {
         let mut m = serde_json::Map::new();
-        for p in [catalog::CLAUDE, catalog::OPENAI] {
+        for p in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE] {
             let v = settings.get(key).and_then(|x| x.get(p)).and_then(Value::as_bool).unwrap_or(default);
             m.insert(p.to_string(), json!(v));
         }

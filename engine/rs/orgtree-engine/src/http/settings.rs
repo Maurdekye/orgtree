@@ -152,8 +152,9 @@ fn defaults_payload(engine: &Engine) -> Value {
         for (k, v) in engine.settings.defaults() {
             o.insert(k, v);
         }
-        o.insert("fable_limit_policy".into(), json!("wait"));
-        o.insert("fable_filter_policy".into(), json!("off"));
+        // the defaults form reads the threshold as a fraction
+        let frac = crate::feed::groups::compact_frac(&o.get("compact_at").cloned().unwrap_or(Value::Null));
+        o.insert("compact_at".into(), json!(frac));
     }
     out
 }
@@ -353,6 +354,13 @@ async fn provider_switch(e: Arc<Engine>, provider: String, key: &'static str, en
     crate::providers::publish(&e);
     for o in e.orgs.all() {
         changes::notify(&e, &o, vec![Change::Tiers]);
+    }
+    if enabled {
+        match key {
+            "providers" => crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Provider(provider.clone())).await,
+            "subscription_inference" => crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Native(provider.clone())).await,
+            _ => {}
+        }
     }
     Ok(Json(crate::providers::payload(&e)))
 }

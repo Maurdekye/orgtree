@@ -87,6 +87,12 @@ struct Ctx {
     fallback: bool,
     /// an OpenRouter seat's harness: claude-code or codex-cli
     harness: Option<String>,
+    /// the org's compaction threshold, a fraction of the context window:
+    /// the CLI compacts the session when its context passes it
+    compact_at: f64,
+    /// "reset a session before a known-cold turn" (agent override, else the
+    /// org's): the context occupancy above which it applies
+    cold_reset: Option<f64>,
 }
 
 /// How an OpenRouter seat reaches the gateway (the key never prints).
@@ -803,6 +809,8 @@ impl Actor {
             .get("account_fallback")
             .and_then(Value::as_bool)
             .unwrap_or_else(|| settings["account_fallback_default"].as_bool().unwrap_or(false));
+        let compact_at = crate::feed::groups::compact_frac(&settings["compact_at"]);
+        let cold_reset = crate::domain::tree::cheap_compact(&configured, &settings).1;
         let slug: String = r.get(16);
         let name: String = r.get(0);
         let scratch = r
@@ -836,6 +844,8 @@ impl Actor {
             effort,
             fallback,
             harness,
+            compact_at,
+            cold_reset,
         })
     }
 
@@ -947,8 +957,91 @@ impl Actor {
         }
     }
 
+    /// An inactive account (App settings › Providers) serves no new turn:
+    /// the agent's mail waits, and a running turn finishes.
+    fn account_gate(&self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
+        // an OpenRouter seat bills the stored key, not an account
+        if route.is_some() {
+            return Ok(());
+        }
+        let view = self.engine.accounts.view();
+        let acc = ctx.account.as_deref().and_then(|a| view.get(a));
+        if crate::accounts::active(&self.engine, &ctx.provider, acc) {
+            return Ok(());
+        }
+        match acc {
+            Some(a) if !crate::accounts::is_ambient(a) => Err(anyhow!(
+                "the account {} is inactive (App settings › Providers); activate it or move this agent to another account",
+                a.id
+            )),
+            _ => Err(anyhow!(
+                "the signed-in {} subscription is inactive (App settings › Providers); activate it or move this agent to another account",
+                catalog::provider_label(&ctx.provider)
+            )),
+        }
+    }
+
+    /// "Reset a session before a known-cold turn" (cheap compact; Org
+    /// settings › Policies, or the agent's ⚙): when the prompt cache is known
+    /// to be cold and the context is fuller than the setting's occupancy, the
+    /// turn starts a fresh session seeded with a digest instead of re-reading
+    /// the whole old one at full price. An unknown forecast never resets.
+    /// Returns the note the turn's prompt starts with.
+    async fn cold_reset(&mut self, ctx: &mut Ctx) -> Result<Option<String>> {
+        let Some(occ) = ctx.cold_reset else { return Ok(None) };
+        let Some(session) = ctx.session_id.clone() else { return Ok(None) };
+        let state = self.forecast_for(ctx)["state"].as_str().unwrap_or("").to_string();
+        if state != "expired_known_entry" && state != "known_incompatible" {
+            return Ok(None);
+        }
+        let client = self.engine.db.get().await?;
+        let r = client
+            .query_one("SELECT occupancy, context_window, last_status FROM ot.agents WHERE id = $1", &[&self.id])
+            .await?;
+        let used: Option<i32> = r.get(0);
+        let window: Option<i32> = r.get::<_, Option<i32>>(1).or_else(|| catalog::tier(&ctx.tier).and_then(|t| t.context).map(|c| c as i32));
+        let (Some(used), Some(window)) = (used, window) else { return Ok(None) };
+        if window <= 0 || (used as f64) < occ * window as f64 {
+            return Ok(None);
+        }
+        let digest = convo::digest(&**client, self.id, 40).await?;
+        let status: Option<Value> = r.get(2);
+        let mut note = String::from(
+            "[Orgtree] Your context was compacted before this turn (the prompt cache had expired): you now run on a \
+             fresh session. Here is what you were working on.\n\n",
+        );
+        if let Some(s) = status.as_ref().and_then(|s| s.get("summary")).and_then(Value::as_str) {
+            note.push_str(&format!("Your last status: {s}\n\n"));
+        }
+        note.push_str(&digest);
+        client
+            .execute(
+                "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true, row_version = row_version + 1
+                  WHERE id = $1",
+                &[&self.id],
+            )
+            .await?;
+        client
+            .execute(
+                "UPDATE ot.agent_sessions SET ended_at = now(), end_reason = 'cheap compact (cold cache)'
+                  WHERE agent_id = $1 AND session_id = $2",
+                &[&self.id, &session],
+            )
+            .await?;
+        let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(),
+                          "text": "Context compacted before this turn: the prompt cache had expired, so the agent continues on a fresh session with a summary" });
+        self.convo.append(&client, row).await?;
+        drop(client);
+        tracing::info!(agent = %self.name, used, window, "cheap compact before a cold-cache turn");
+        ctx.session_id = None;
+        self.close_proc().await;
+        self.reconfigured = true;
+        Ok(Some(note))
+    }
+
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
         let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
+        self.account_gate(ctx, route.as_ref())?;
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
             return self.ensure_codex(ctx, route.as_ref()).await;
         }
@@ -977,11 +1070,6 @@ impl Actor {
         // an OpenRouter seat bills the stored key: no account, no subscription
         let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
         let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
-        if route.is_none() && !apikey && !self.engine.settings.subscription_inference(catalog::CLAUDE) {
-            return Err(anyhow!(
-                "subscriptions are turned off for inference (App settings › Providers); give this agent an API-key account"
-            ));
-        }
         // discovery runs in the background after start; do not race it
         let exe = match self.engine.providers.claude_path() {
             Some(p) => p,
@@ -999,6 +1087,8 @@ impl Actor {
             ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
             ("ORGTREE_AGENT".into(), ctx.name.clone()),
             ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
+            // the org's compaction threshold (Org settings › Basic)
+            ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
         ];
         let mut env_remove: Vec<String> = vec![
             "ORGTREE_V2_TOKEN".into(),
@@ -1129,11 +1219,6 @@ impl Actor {
         let view = self.engine.accounts.view();
         let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
         let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
-        if route.is_none() && !apikey && !self.engine.settings.subscription_inference(catalog::OPENAI) {
-            return Err(anyhow!(
-                "subscriptions are turned off for inference (App settings › Providers); give this agent an API-key account"
-            ));
-        }
         let exe = match self.engine.providers.codex_path() {
             Some(p) => p,
             None => tokio::task::spawn_blocking(crate::providers::locate_codex)
@@ -1177,6 +1262,14 @@ impl Actor {
             let mut gateway = crate::openrouter::codex_overrides(&ctx.model);
             gateway.append(&mut config);
             config = gateway;
+        }
+        // the org's compaction threshold (Org settings › Basic), in tokens
+        let window = catalog::tier(&ctx.tier).and_then(|t| t.context).map(|c| c as f64).or_else(|| {
+            crate::openrouter::favorite(&self.engine, &ctx.tier).and_then(|f| f["context"].as_f64()).filter(|c| *c > 0.0)
+        });
+        if let Some(w) = window {
+            config.push("-c".into());
+            config.push(format!("model_auto_compact_token_limit={}", (w * ctx.compact_at) as i64));
         }
         let resume = ctx
             .session_id
@@ -1251,9 +1344,6 @@ impl Actor {
         }
         self.close_proc().await;
         self.reconfigured = false;
-        if !self.engine.settings.subscription_inference(catalog::GOOGLE) {
-            return Err(anyhow!("subscriptions are turned off for inference (App settings › Providers)"));
-        }
         let exe = match self.engine.providers.agy_path() {
             Some(p) => p,
             None => tokio::task::spawn_blocking(crate::providers::locate_agy)
@@ -1434,7 +1524,7 @@ impl Actor {
 
     /// Claim waiting mail, make sure the CLI runs, send the opening message.
     async fn start_turn(&mut self) -> Result<bool> {
-        let ctx = self.load_ctx().await?;
+        let mut ctx = self.load_ctx().await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
             return Ok(false);
         }
@@ -1462,18 +1552,32 @@ impl Actor {
             tx.rollback().await?;
             return Ok(false);
         }
-        tx.execute("UPDATE ot.agents SET inflight_at = now(), row_version = row_version + 1 WHERE id = $1", &[&self.id])
-            .await?;
+        tx.execute(
+            "UPDATE ot.agents SET inflight_at = now(), last_error = NULL, row_version = row_version + 1 WHERE id = $1",
+            &[&self.id],
+        )
+        .await?;
         tx.commit().await?;
         drop(client);
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
+        let reset_note = match self.cold_reset(&mut ctx).await {
+            Ok(note) => note,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the cold-cache reset failed; resuming the session");
+                None
+            }
+        };
         if let Err(e) = self.ensure_proc(&ctx).await {
             self.return_mail(turn_id, true).await;
             return Err(e);
         }
         let context = self.turn_context(&ctx).await;
         let text = prompt::turn_text(&mails, &context);
+        let text = match reset_note {
+            Some(note) => format!("{note}\n\n{text}"),
+            None => text,
+        };
         let mut codex_turn: Option<String> = None;
         let sent = match self.proc.as_ref() {
             Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
