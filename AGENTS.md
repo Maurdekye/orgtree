@@ -48,10 +48,12 @@ plan and this file. Read both before you change anything. All entries below: 202
 user, DECISIONS 39]
 - `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything
   based on it. Make your own worktree from it, e.g.
-  `git worktree add -b <you>/<topic> .worktrees/<you>-<topic> rust-engine`. **Never edit
-  `.worktrees/rust-engine`**: that is the rust-engine session's own checkout.
+  `git worktree add -b <you>/<topic> .worktrees/<you>-<topic> rust-engine`.
+  `.worktrees/rust-engine` is the branch's own checkout; since the rust-engine session was retired
+  (2026-10-07) it belongs to the coordinator, who merges there. [decided: user, DECISIONS 45]
 - **Hand-in:** rebase on the current `rust-engine`, then send the coordinator your branch name and
-  commit list; the coordinator passes it to the rust-engine session, which reviews and merges.
+  commit list; the coordinator reviews and merges it. Where 4.0 stands (open bugs, open user
+  decisions, how alphas were built): [`docs/rust-engine/HANDOFF.md`](docs/rust-engine/HANDOFF.md).
   Bugs in 4.0.0 go the same way (agent, action, expected, actual, UTC time); check PLAN §10
   first, since many differences are deliberate.
 - **Three kinds of change never share a commit:** the engine (`engine/rs/**`); desktop changes the

@@ -102,6 +102,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
 44. **The orgtree org finishes the interrupted 3.2.0 work that still applies to 4.0** (user 2026-10-07):
     it inventories the tickets that were open when the rewrite began, classifies them against 4.0, and
     hands the relevant ones in as branches off `rust-engine` for review and merge (decision 39 terms).
+45. **The orgtree org takes over Orgtree 4 development** (user 2026-10-07: "hand off your work to the
+    orgtree org, they'll take further development from here; orgtree is stable enough to continue work
+    there moving forward"). The rust-engine session is retired. The org's coordinator owns the
+    `rust-engine` branch and its checkout `.worktrees/rust-engine`, and reviews and merges hand-ins
+    (this replaces the rust-engine session's role in decision 39). Who builds and delivers alpha
+    installers (decisions 37-38) is for the user to say. Where things stand: `HANDOFF.md`.
 
 ## Verification during the build
 
