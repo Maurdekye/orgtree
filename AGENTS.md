@@ -103,6 +103,13 @@ No payload contents are logged. [verified 2026-10-06: `profiling.py`, `record_ap
 
 ## What Orgtree is, and where it stands
 
+Claude warm reuse rotates the Orgtree MCP child at a quiescent turn boundary:
+one child keeps one immutable run claim; the parked CLI carries no turn token.
+New-child authentication and an unchanged tool-list digest precede the prompt;
+old callbacks retain their origin, and uncertainty falls back cold. See
+[`claude-warm-turns.md`](docs/claude-warm-turns.md). [decided: drag-opus and
+coordinator 2026-10-06; verified: `claude_transport.py`, `supervisor.py`]
+
 - **The product.** A Windows desktop app for running a persistent team of coding agents.
   The user sits at the top of an org chart (the canvas); agents work beneath, each with a
   desk (live conversation and tool activity), mail and notices, a shared docket of tickets,

@@ -354,6 +354,9 @@ class WarmProc:
         self.err_tail: collections.deque[str] = collections.deque(maxlen=200)
         self._lk = threading.Lock()
         from . import supervisor as sup
+        from .claude_transport import Rotation
+        self.rotation = Rotation(proc, lambda line: sup._stdin_send(proc, line, wait=1.0))
+        proc._orgtree_turn_rotation = self.rotation
         mcp_recovery.attach(proc, lambda line: sup._stdin_send(proc, line, wait=1.0),
                             lambda: poke(slug),
                             lambda: sup.transcript_path(sid, transcript_root))
@@ -367,6 +370,8 @@ class WarmProc:
         try:
             for line in self.proc.stdout:      # pyright: ignore[reportOptionalIterable]
                 line = line.rstrip("\n")
+                if self.rotation.observe(line):
+                    continue
                 if mcp_recovery.observe_line(self.proc, line):
                     continue  # local health replies never prove prompt consumption
                 with self._lk:
@@ -2206,6 +2211,9 @@ def _spawn_for(org: Any, nid: str, why: str) -> WarmProcess | None:
         env_id = sup.identity_in_env(env)
         env["ORGTREE_ORG"], env["ORGTREE_NODE"] = slug, nid
         env.update(agentauth.child_env(slug, nid))
+        # Only the replaceable MCP child may carry a durable run credential.
+        env.pop('ORGTREE_TURN_TOKEN', None)
+        env.pop('ORGTREE_TRANSPORT_READY', None)
         env["ORGTREE_PORT"] = os.environ.get("ORGTREE_PORT", "7360")
         env["PYTHONPATH"] = (sup.BACKEND_DIR + os.pathsep
                              + env.get("PYTHONPATH", ""))

@@ -313,7 +313,9 @@ class Health(unittest.TestCase):
         import queue
         wp.lines = queue.Queue()
         with patch.object(warmpool, '_on_proc_exit'):
-            wp._pump_out()
+        from orgtree.claude_transport import Rotation
+        wp.rotation = Rotation(wp.proc, lambda line: None)
+        wp._pump_out()
         self.assertEqual(wp.lines.get_nowait(), result)
         self.assertIsNone(wp.lines.get_nowait())
         self.assertTrue(wp.lines.empty())

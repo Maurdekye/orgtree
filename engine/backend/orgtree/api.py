@@ -12292,6 +12292,13 @@ def _agent_call_in_run(body: AgentCall, request: Request) -> dict[str, Any]:
     if _blocked == "killswitch":
         raise HTTPException(409, "the org killswitch is latched — tools cannot "
                                  "execute until the user releases it")
+    if body.tool == 'orgtree_transport_ready':
+        from . import claude_transport
+        from .orgdb import turn_context
+        try:
+            return claude_transport.acknowledge(turn_context.current(), body.args)
+        except ValueError as exc:
+            raise HTTPException(403, str(exc)) from exc
     try:
         a = _norm_args(body.args)
     except LedgerError as e:

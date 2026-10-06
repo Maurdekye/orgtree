@@ -2535,6 +2535,8 @@ def main() -> None:
             # tools/call is a frame no client can match to a request
             continue
         if method == "initialize":
+            from .claude_transport import child_ready
+            child_ready(_post, ORG, NODE, available_tools())
             reply(id_, {
                 "protocolVersion": params.get("protocolVersion",
                                               "2024-11-05"),

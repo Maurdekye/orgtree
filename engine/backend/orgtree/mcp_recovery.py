@@ -216,6 +216,9 @@ def attach(proc: Any, send: Callable[[str], None],
         while not monitor.stopped.wait(5.0):
             if proc.poll() is not None:
                 return
+            rotation = getattr(proc, '_orgtree_turn_rotation', None)
+            if rotation is not None and rotation.run is not None and rotation.finished:
+                continue  # parked durable CLI deliberately has no MCP child
             try:
                 if tail is not None:
                     tail.read(monitor)
@@ -252,6 +255,9 @@ def stop(proc: Any) -> None:
 def reserve(slug: str, nid: str, sid: str, proc: Any,
             now: float | None = None) -> dict[str, Any] | None:
     """Called only at a safe boundary. One request per generation, bounded retry."""
+    rotation = getattr(proc, '_orgtree_turn_rotation', None)
+    if rotation is not None and rotation.run is not None and rotation.finished:
+        return None
     monitor = getattr(proc, "_orgtree_mcp_monitor", None)
     if not isinstance(monitor, Monitor):
         return None

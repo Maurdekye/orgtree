@@ -1290,6 +1290,18 @@ def _turn_transport_env(env: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def _check_warm_turn(slug: str, nid: str) -> None:
+    """Recheck cancellation as well as administrative holds at handoff."""
+    from .orgdb import turn_context, turn_runtime
+    halt.check(slug, nid)
+    run = turn_context.current()
+    if run is not None:
+        host = turn_runtime.current()
+        if host is None:
+            raise RuntimeError('a bound run has no turn host')
+        host.authorize(run)
+
+
 def _turn_callback(callback: Any, *, publication: bool = False) -> Any:
     """Capture this run for a provider callback, even on another thread.
 
@@ -12521,11 +12533,11 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     chosen["orgtree"] = {
         "command": sys.executable,
         "args": ["-m", "orgtree.mcptool"],
-    "env": _turn_transport_env({**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
+    "env": {**agentauth.node_env(slug, nid, org.node(nid)), "ORGTREE_ORG": slug, "ORGTREE_NODE": nid,
                 "ORGTREE_PORT": os.environ.get("ORGTREE_PORT", "7360"),
                 "PYTHONPATH": BACKEND_DIR,
                 deployment.PROFILE_ENV:
-                    deployment.current_policy().name}),
+                    deployment.current_policy().name},
     }
     # Do not force `alwaysLoad` here. In CLI 2.1.220 it blocks construction of
     # the first request until each MCP server connects (up to its timeout).
@@ -21786,8 +21798,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # could label a row with an arm it was not served under.
             warm_on, warm_lbl = warmpool.warm_decision()
             from .orgdb import turn_context   # noqa: PLC0415
-            if turn_context.current() is not None:
-                warm_on = False  # its immutable MCP credential belongs to the old run
+            # A durable Claude run rotates only its MCP child, never the
+            # credential inside an existing child. Failure falls back cold.
             # S1: does this turn begin as a cheap-compaction successor whose
             # prompt carries the breadcrumbs splice? Captured here so the
             # boundary below only pays the retirement write for the one turn
@@ -21812,6 +21824,18 @@ def _run_one_turn_recorded(slug: str, nid: str,
             if turn_hash is not None:
                 wp_turn, _adm_reason = warmpool.claim_snapshot(
                     slug, nid, turn_hash, turn_components)
+            if wp_turn is not None and turn_context.current() is not None:
+                from .orgdb import turn_runtime
+                try:
+                    warm_cmd = _build_cmd(org, nid, write_ident=False)
+                    servers = json.loads(warm_cmd[warm_cmd.index('--mcp-config') + 1])['mcpServers']
+                    wp_turn.rotation.begin(
+                        turn_context.current(), turn_runtime.current(), servers,
+                        lambda: _check_warm_turn(slug, nid))
+                except Exception:
+                    warmpool.discard(wp_turn, 'turn-transport-unavailable')
+                    wp_turn = None
+                    _adm_reason = 'turn-transport-unavailable'
             _spawn_t0 = time.monotonic()
             if wp_turn is not None:
                 proc = wp_turn.proc
@@ -23244,7 +23268,16 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 and _bg_count() == 0 and wp_turn.alive()):
                             with _state_lock:
                                 _q_idle = not st["queue"]
-                            if _q_idle and warmpool.park_back(
+                            _transport_idle = True
+                            if _q_idle and turn_context.current() is not None:
+                                try:
+                                    _transport_idle = wp_turn.rotation.end(
+                                        result_ok=not ev.get('is_error', False),
+                                        tasks=len(run_tasks), bg_tasks=_bg_count(),
+                                        check=lambda: _check_warm_turn(slug, nid))
+                                except Exception:
+                                    _transport_idle = False
+                            if _q_idle and _transport_idle and warmpool.park_back(
                                     wp_turn, raw_cost_high,
                                     int((res.get("usage") or {})
                                         .get("output_tokens") or 0)):
