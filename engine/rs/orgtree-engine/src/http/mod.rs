@@ -7,6 +7,7 @@ pub mod desktop;
 pub mod docs;
 pub mod dogs;
 pub mod docket;
+pub mod history;
 pub mod orginbox;
 pub mod reports;
 pub mod error;
@@ -75,6 +76,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/inbox/clear", post(mailbox::clear))
         .route("/api/orgs/{slug}/mail/{box}/{id}", get(mailbox::mail_by_id))
         .route("/api/orgs/{slug}/events", get(mailbox::events))
+        .route("/api/orgs/{slug}/history", get(history::sources))
+        .route("/api/orgs/{slug}/history/{section}", get(history::page))
         .route("/api/orgs/{slug}/nodes/{nid}/history", get(mailbox::history))
         .route("/api/orgs/{slug}/nodes/{nid}/detail", get(mailbox::detail))
         .route("/api/orgs/{slug}/defaults", post(settings::save_org_defaults))
