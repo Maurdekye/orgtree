@@ -17,6 +17,7 @@ mod changes;
 mod config;
 mod domain;
 mod engine;
+mod events;
 mod feed;
 mod host;
 mod http;

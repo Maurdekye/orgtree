@@ -731,13 +731,40 @@ fn reply_to(it: &Item) -> Value {
 /// A docket note to an agent (`wake` false: a notice).
 #[logged]
 async fn tell(engine: &Arc<Engine>, org_id: i64, it: &Item, to: &str, body: String, kind: &str, wake: bool) {
+    tell_ev(engine, org_id, it, to, body, kind, wake, None).await
+}
+
+/// A docket note carrying a typed card for the desk.
+#[allow(clippy::too_many_arguments)]
+#[logged]
+async fn tell_ev(engine: &Arc<Engine>, org_id: i64, it: &Item, to: &str, body: String, kind: &str, wake: bool, ev: Option<Value>) {
     let mut out = Outgoing::new(From::System, to, &body);
     out.kind = kind.into();
     out.notice = !wake;
     out.reply_to = Some(reply_to(it));
+    out.ev = ev;
     if let Err(e) = mail::send(engine, org_id, out).await {
         tracing::warn!(to, error = %format!("{e:#}"), "docket note failed");
     }
+}
+
+/// The sender id a card names for `who`.
+fn who_id(who: &Who) -> String {
+    match who {
+        Who::User => crate::events::USER.to_string(),
+        Who::Agent { name, .. } => name.clone(),
+    }
+}
+
+fn assigned_ev(org: &OrgHandle, who: &Who, it: &Item, previous: Option<&str>) -> Option<Value> {
+    crate::events::docket_assigned(
+        &org.slug, &it.slug, &it.title, &it.status, &it.objective, &it.done, &it.next,
+        it.owner_name().unwrap_or(""), previous, &who_id(who),
+    )
+}
+
+fn participant_ev(org: &OrgHandle, who: &Who, it: &Item) -> Value {
+    crate::events::participant_added(&org.slug, &it.slug, &it.title, &who_id(who), it.owner_name().unwrap_or(""), &it.objective)
 }
 
 fn assignment_text(who: &Who, it: &Item) -> String {
@@ -871,12 +898,12 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     let mut notified = Value::Null;
     if let Some(o) = &owner_name {
         if Some(o.as_str()) != who.name() {
-            tell(engine, org.id, &it, o, assignment_text(who, &it), "request", true).await;
+            tell_ev(engine, org.id, &it, o, assignment_text(who, &it), "request", true, assigned_ev(org, who, &it, None)).await;
             notified = json!(o);
         }
     }
     for p in &participants {
-        tell(
+        tell_ev(
             engine,
             org.id,
             &it,
@@ -885,6 +912,7 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
                 who.label(), it.slug, it.title, owner_name.as_deref().unwrap_or("nobody yet")),
             "status",
             false,
+            Some(participant_ev(org, who, &it)),
         )
         .await;
     }
@@ -1209,7 +1237,7 @@ pub async fn assign(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug:
     drop(client);
     changed(engine, org);
     if Some(owner.as_str()) != who.name() {
-        tell(engine, org.id, &it, &owner, assignment_text(who, &it), "request", true).await;
+        tell_ev(engine, org.id, &it, &owner, assignment_text(who, &it), "request", true, assigned_ev(org, who, &it, prev.as_deref())).await;
     }
     if let Some(p) = prev.as_deref().filter(|p| Some(*p) != who.name()) {
         tell(engine, org.id, &it, p, format!("{} reassigned docket item {} — \"{}\" to {owner}; you no longer hold it.", who.label(), it.slug, it.title), "status", false).await;
@@ -1286,8 +1314,8 @@ pub async fn participants(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who,
     drop(client);
     changed(engine, org);
     for p in &added {
-        tell(engine, org.id, &it, p, format!("{} added you as a participant on docket item {} — \"{}\". You may update its state and add evidence; the owner is {}.",
-            who.label(), it.slug, it.title, it.owner_name().unwrap_or("nobody")), "status", false).await;
+        tell_ev(engine, org.id, &it, p, format!("{} added you as a participant on docket item {} — \"{}\". You may update its state and add evidence; the owner is {}.",
+            who.label(), it.slug, it.title, it.owner_name().unwrap_or("nobody")), "status", false, Some(participant_ev(org, who, &it))).await;
     }
     Ok(json!({ "item": it.slug, "participants": it.participants, "rev": it.rev }))
 }
@@ -1625,7 +1653,14 @@ pub async fn dismiss(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, set
     drop(client);
     changed(engine, org);
     if let Some(o) = it.owner_name() {
-        tell(
+        let pending: i64 = {
+            let client = engine.db.get().await?;
+            client
+                .query_one("SELECT count(*) FROM ot.asks WHERE org_id = $1 AND status = 'open' AND $2 = ANY(work_items)", &[&org.id, &it.slug])
+                .await?
+                .get(0)
+        };
+        tell_ev(
             engine,
             org.id,
             &it,
@@ -1639,6 +1674,7 @@ pub async fn dismiss(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, set
             ),
             "status",
             false,
+            Some(crate::events::attention_dismissed(&org.slug, &it.slug, &it.title, &reason, pending)),
         )
         .await;
     }
@@ -1678,6 +1714,7 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
     out.notice = notice;
     out.attachments = attachments;
     out.reply_to = Some(reply_to(&it));
+    out.ev = Some(crate::events::reply_docket(&org.slug, &it.slug, &it.title, text, role, it.owner_name()));
     let sent = mail::send(engine, org.id, out).await?;
     // the user answered: a standing manual flag has been seen
     if it.attention.is_some() {

@@ -926,7 +926,9 @@ async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) 
     let once: bool = row.get(0);
     let fired: i32 = row.get(1);
     let body = fire_body(dog, events, prefix, once, fired);
-    deliver(engine, dog, body).await;
+    let lines: Vec<String> = events.iter().take(40).cloned().collect();
+    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once));
+    deliver(engine, dog, body, ev).await;
     if once {
         disarm(engine, &dog.uid);
     }
@@ -944,7 +946,8 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     drop(client);
     let mut body = fire_body(dog, events, " STREAM EXITED —", false, fired);
     body.push_str("The stream is not restarted; resume the watchdog to start it again.\n");
-    deliver(engine, dog, body).await;
+    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, "STREAM EXITED —", events, false));
+    deliver(engine, dog, body, ev).await;
     Ok(())
 }
 
@@ -964,12 +967,17 @@ fn fire_body(dog: &Dog, events: &[String], prefix: &str, once: bool, fired: i32)
     body
 }
 
+fn org_slug(engine: &Engine, dog: &Dog) -> Option<String> {
+    engine.orgs.by_id(dog.org_id).map(|o| o.slug.clone())
+}
+
 /// Mail from the dog to its owner (a notice dog's mail starts no turn).
 #[logged]
-async fn deliver(engine: &Arc<Engine>, dog: &Dog, body: String) {
+async fn deliver(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option<Value>) {
     let mut out = Outgoing::new(From::Watchdog { uid: dog.uid.clone(), name: dog.name.clone() }, &dog.owner_name, &body);
     out.kind = "watchdog".into();
     out.notice = dog.notice();
+    out.ev = ev;
     if let Err(e) = mail::send(engine, dog.org_id, out).await {
         tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "watchdog mail failed");
     }
@@ -1037,16 +1045,24 @@ fn subject_lost(dog: &Dog) -> Option<Lost> {
 #[logged]
 async fn alert(engine: &Arc<Engine>, dog: &Dog, lost: &Lost) -> Result<()> {
     let age = (Utc::now() - dog.created_at).num_seconds();
-    let mut body = format!("Watchdog \"{}\" went quiet: {}.\n", dog.name, lost.headline);
-    body.push_str(&format!("  watching   : {} · {}\n", dog.kind, dog.target));
-    body.push_str(&format!("  armed      : {} ago\n", hours(age)));
-    body.push_str(&format!("  checks run : {}\n", dog.run_i64("checks_run")));
-    body.push_str(&format!("  last fired : {}\n", dog.last_fired.map(iso).unwrap_or_else(|| "never".into())));
+    let mut facts = vec![
+        format!("watching   : {} · {}", dog.kind, dog.target),
+        format!("armed      : {} ago", hours(age)),
+        format!("checks run : {}", dog.run_i64("checks_run")),
+        format!("last fired : {}", dog.last_fired.map(iso).unwrap_or_else(|| "never".into())),
+    ];
     if let Some(o) = dog.run["last_output"].as_str().filter(|o| !o.is_empty()) {
-        body.push_str(&format!("  last output: {}\n", gist(o, 200)));
+        facts.push(format!("last output: {}", gist(o, 200)));
+    }
+    let mut body = format!("Watchdog \"{}\" went quiet: {}.\n", dog.name, lost.headline);
+    for f in &facts {
+        body.push_str("  ");
+        body.push_str(f);
+        body.push('\n');
     }
     body.push_str(lost.advice);
     body.push('\n');
+    let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_quiet(&o, &dog.uid, &dog.name, &dog.owner_name, &lost.headline, &facts, lost.advice));
     let client = engine.db.get().await?;
     client
         .execute(
@@ -1059,7 +1075,7 @@ async fn alert(engine: &Arc<Engine>, dog: &Dog, lost: &Lost) -> Result<()> {
         )
         .await?;
     drop(client);
-    deliver(engine, dog, body).await;
+    deliver(engine, dog, body, ev).await;
     Ok(())
 }
 

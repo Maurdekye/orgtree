@@ -131,7 +131,15 @@ pub fn mail_entry(m: &Value) -> Value {
         o.insert("urgent_reason".into(), m["urgent_reason"].clone());
     }
     if let Some(ev) = m.get("ev").filter(|v| !v.is_null()) {
-        o.insert("ev".into(), ev.clone());
+        let mut ev = ev.clone();
+        // the 2.x engine stored these leaves without the body the row already holds
+        let variant = ev["variant"].as_str().unwrap_or("");
+        if (variant.starts_with("ordinary.") || variant == "reply.mail" || variant == "reply.document") && ev.get("body").is_none() {
+            if let Some(obj) = ev.as_object_mut() {
+                obj.insert("body".into(), m["body"].clone());
+            }
+        }
+        o.insert("ev".into(), ev);
     }
     if let Some(rt) = m.get("reply_to").filter(|v| !v.is_null()) {
         o.insert("reply_to".into(), rt.clone());

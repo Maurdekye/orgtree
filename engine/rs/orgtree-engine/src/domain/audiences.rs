@@ -91,12 +91,13 @@ async fn holds(client: &tokio_postgres::Client, org_id: i64, grantee: &str, gran
         .is_some())
 }
 
-/// A note from the system to an agent (a notice unless it should act on it).
+/// A note from the system to an agent (a notice unless it should act on it), with its card.
 #[logged]
-async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, wake: bool) {
+async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, wake: bool, ev: Option<Value>) {
     let mut out = Outgoing::new(From::System, to, &body);
     out.kind = "system".into();
     out.notice = !wake;
+    out.ev = ev;
     if let Err(e) = mail::send(engine, org_id, out).await {
         tracing::warn!(to, error = %format!("{e:#}"), "audience note failed");
     }
@@ -171,6 +172,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
                 if target == EXTERN { " target=extern" } else { "" }
             ),
             true,
+            Some(crate::events::audience_requested(&org.slug, my_name, &target, reason)),
         )
         .await;
     }
@@ -276,12 +278,22 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
         .await?;
     drop(client);
     if fresh {
+        let generation: i64 = {
+            let client = engine.db.get().await?;
+            client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&gid]).await?.get::<_, i32>(0) as i64
+        };
+        let outcome = match grantor.as_str() {
+            USER => "user_audience",
+            EXTERN => "org_inbox",
+            _ => "audience_with",
+        };
+        let ev = crate::events::audience_changed(&org.slug, &grantee, generation, outcome, &by, &grantor, None);
         let body = match grantor.as_str() {
             USER => "You now hold an audience with the user: you may write to the user (to=user), ask the user, and present documents.".to_string(),
             EXTERN => "You now hold the org inbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
             g => format!("{g} granted you an audience: you may now write to {g} directly."),
         };
-        tell(engine, org.id, &grantee, body, false).await;
+        tell(engine, org.id, &grantee, body, false, ev).await;
     }
     changes::notify(engine, org, vec![Change::Audiences, Change::Events, Change::Agent(gid), Change::UserMail]);
     Ok(json!({ "ok": true, "grantee": grantee, "grantor": grantor, "granted": fresh }))
@@ -316,8 +328,15 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
         )
         .await?;
     drop(client);
-    tell(engine, org.id, &requester, format!("{} declined your request for an audience with {}.", spoken(&holder), spoken(&sought)), true)
-        .await;
+    tell(
+        engine,
+        org.id,
+        &requester,
+        format!("{} declined your request for an audience with {}.", spoken(&holder), spoken(&sought)),
+        true,
+        Some(crate::events::audience_decided(&org.slug, &requester, &sought, false, &holder)),
+    )
+    .await;
     changes::notify(engine, org, vec![Change::Audiences, Change::Events, Change::UserMail]);
     Ok(json!({ "ok": true, "denied": requester, "target": sought }))
 }
@@ -379,7 +398,16 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
         .map(|r| r.get(0));
     drop(client);
     if gid.is_some() && by != grantee {
-        tell(engine, org.id, &grantee, format!("Your audience with {} was rescinded by {}.", spoken(&grantor), spoken(&by)), false).await;
+        let generation: i64 = {
+            let client = engine.db.get().await?;
+            client
+                .query_opt("SELECT generation FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org.id, &grantee])
+                .await?
+                .map(|r| r.get::<_, i32>(0) as i64)
+                .unwrap_or(1)
+        };
+        let ev = crate::events::audience_changed(&org.slug, &grantee, generation, "rescinded", &by, &grantor, None);
+        tell(engine, org.id, &grantee, format!("Your audience with {} was rescinded by {}.", spoken(&grantor), spoken(&by)), false, ev).await;
     }
     let mut ch = vec![Change::Audiences, Change::Events];
     if let Some(g) = gid {
