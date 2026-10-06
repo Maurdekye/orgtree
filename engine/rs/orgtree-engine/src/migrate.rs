@@ -9,6 +9,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_init", include_str!("../migrations/0001_init.sql")),
     ("0002_turn_sent", include_str!("../migrations/0002_turn_sent.sql")),
     ("0003_net", include_str!("../migrations/0003_net.sql")),
+    ("0004_tool_images", include_str!("../migrations/0004_tool_images.sql")),
+    ("0005_no_done_status", include_str!("../migrations/0005_no_done_status.sql")),
 ];
 
 #[logged]

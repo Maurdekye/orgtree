@@ -92,7 +92,7 @@ pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
         rows_of(&files, cutoff)
     })
     .await;
-    let rows = match parsed {
+    let (rows, images) = match parsed {
         Ok(r) => r,
         Err(e) => {
             release(engine, agent_id).await;
@@ -107,6 +107,14 @@ pub async fn ensure(engine: &Engine, agent_id: i64) -> Result<()> {
     if let Err(e) = insert(engine, agent_id, rows).await {
         release(engine, agent_id).await;
         return Err(e);
+    }
+    // the pictures its tools returned, for the chips that show them
+    if let Ok(client) = engine.db.get().await {
+        for (tid, list) in images {
+            if let Err(e) = convo::store_images(&client, agent_id, &tid, list).await {
+                tracing::warn!(agent = agent_id, error = %format!("{e:#}"), "an imported tool image could not be kept");
+            }
+        }
     }
     tracing::info!(agent = agent_id, rows = n, "imported the agent's earlier conversation");
     Ok(())
@@ -190,9 +198,14 @@ fn lines_of(path: &Path) -> Vec<Value> {
         .collect()
 }
 
-/// Desk rows from the transcripts, oldest first, the newest `KEEP_ROWS`.
+/// the newest imported tool images kept (each tool result's images together)
+const KEEP_IMAGE_RESULTS: usize = 100;
+
+/// Desk rows from the transcripts, oldest first, the newest `KEEP_ROWS`;
+/// and the images their tool results carried.
 #[logged]
-fn rows_of(files: &[PathBuf], cutoff: Option<DateTime<Utc>>) -> Vec<Value> {
+fn rows_of(files: &[PathBuf], cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(String, Vec<(String, Vec<u8>)>)>) {
+    let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
     let mut entries: Vec<Value> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for f in files {
@@ -285,7 +298,11 @@ fn rows_of(files: &[PathBuf], cutoff: Option<DateTime<Utc>>) -> Vec<Value> {
                         Some("tool_result") => {
                             let tid = b["tool_use_id"].as_str().unwrap_or("");
                             let Some(&idx) = by_tool.get(tid) else { continue };
-                            let (out, images) = convo::tool_result_text(&b["content"]);
+                            let (out, n_images) = convo::tool_result_text(&b["content"]);
+                            if n_images > 0 {
+                                images.push((tid.to_string(), convo::image_blocks(&b["content"])));
+                            }
+                            let images = n_images;
                             let (clipped, truncated) = convo::clip(&out, 4000);
                             if let Some(chips) = rows[idx]["tools"].as_array_mut() {
                                 for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(tid)) {
@@ -333,5 +350,14 @@ fn rows_of(files: &[PathBuf], cutoff: Option<DateTime<Utc>>) -> Vec<Value> {
             || r.get("thinking").is_some()
     });
     let skip = rows.len().saturating_sub(KEEP_ROWS);
-    rows.into_iter().skip(skip).collect()
+    let rows: Vec<Value> = rows.into_iter().skip(skip).collect();
+    // only images whose chip is still shown
+    let shown: std::collections::HashSet<String> = rows
+        .iter()
+        .flat_map(|r| r["tools"].as_array().cloned().unwrap_or_default())
+        .filter_map(|t| t["id"].as_str().map(str::to_string))
+        .collect();
+    images.retain(|(tid, _)| shown.contains(tid));
+    let drop_n = images.len().saturating_sub(KEEP_IMAGE_RESULTS);
+    (rows, images.into_iter().skip(drop_n).collect())
 }

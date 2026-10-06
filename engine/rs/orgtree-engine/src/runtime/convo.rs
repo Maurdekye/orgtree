@@ -251,3 +251,53 @@ pub fn tool_result_text(content: &Value) -> (String, usize) {
         _ => (String::new(), 0),
     }
 }
+
+/// the newest tool images kept per agent
+const IMAGES_KEPT: i64 = 300;
+/// a single image larger than this is not kept
+const IMAGE_MAX: usize = 8 * 1024 * 1024;
+
+/// The images in a tool result's content: (media type, bytes), in order.
+#[logged]
+pub fn image_blocks(content: &Value) -> Vec<(String, Vec<u8>)> {
+    use base64::Engine as _;
+    content
+        .as_array()
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|b| b["type"] == "image")
+                .filter_map(|b| {
+                    let src = &b["source"];
+                    let media = src["media_type"].as_str().unwrap_or("image/png").to_string();
+                    let data = base64::engine::general_purpose::STANDARD.decode(src["data"].as_str()?).ok()?;
+                    (data.len() <= IMAGE_MAX).then_some((media, data))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Keep a tool's images for its chip (`/toolimg/{tool}?idx=N`).
+#[logged]
+pub async fn store_images(client: &Client, agent_id: i64, tool_id: &str, images: Vec<(String, Vec<u8>)>) -> Result<()> {
+    if images.is_empty() || tool_id.is_empty() {
+        return Ok(());
+    }
+    for (i, (media, data)) in images.into_iter().enumerate() {
+        client
+            .execute(
+                "INSERT INTO ot.tool_images (agent_id, tool_id, idx, media, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+                &[&agent_id, &tool_id, &(i as i32), &media, &data],
+            )
+            .await?;
+    }
+    client
+        .execute(
+            "DELETE FROM ot.tool_images WHERE agent_id = $1 AND at < (
+                SELECT at FROM ot.tool_images WHERE agent_id = $1 ORDER BY at DESC OFFSET $2 LIMIT 1)",
+            &[&agent_id, &IMAGES_KEPT],
+        )
+        .await?;
+    Ok(())
+}

@@ -173,6 +173,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
             post(nodes::upload).layer(axum::extract::DefaultBodyLimit::max(2 << 30)),
         )
         .route("/api/orgs/{slug}/nodes/{nid}/file", get(nodes::file))
+        .route("/api/orgs/{slug}/nodes/{nid}/toolimg/{tool}", get(nodes::toolimg))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch", get(nodes::scratch))
         .fallback(api_not_found);
 
@@ -241,6 +242,7 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
         || path.ends_with("/upload")
         || path.ends_with("/file")
+        || path.contains("/toolimg/")
         || headers.contains_key(axum::http::header::UPGRADE)
         || headers
             .get(axum::http::header::CONTENT_TYPE)

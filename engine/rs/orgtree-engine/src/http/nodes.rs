@@ -766,3 +766,38 @@ pub async fn inbox(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String
     }
     Ok(Json(Value::Object(out)))
 }
+
+#[derive(serde::Deserialize, Debug, Default)]
+pub struct ToolImgQuery {
+    #[serde(default)]
+    idx: i32,
+}
+
+/// `GET …/nodes/{nid}/toolimg/{tool_id}?idx=N`: an image a tool returned.
+#[logged]
+pub async fn toolimg(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid, tool)): Path<(String, String, String)>,
+    Query(q): Query<ToolImgQuery>,
+) -> ApiResult<axum::response::Response> {
+    use axum::response::IntoResponse;
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let client = e.db.get().await?;
+    let Some(r) = client
+        .query_opt("SELECT media, data FROM ot.tool_images WHERE agent_id = $1 AND tool_id = $2 AND idx = $3", &[&a.id, &tool, &q.idx])
+        .await?
+    else {
+        return Err(ApiError::not_found("that image is not kept"));
+    };
+    let media: String = r.get(0);
+    let data: Vec<u8> = r.get(1);
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, media),
+            (axum::http::header::CACHE_CONTROL, "private, max-age=31536000, immutable".to_string()),
+        ],
+        data,
+    )
+        .into_response())
+}

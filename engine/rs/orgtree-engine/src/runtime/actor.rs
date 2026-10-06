@@ -2332,6 +2332,7 @@ impl Actor {
     }
 
     async fn on_tool_results(&mut self, v: &Value) -> Result<()> {
+        let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
         let updates: Vec<(i64, Value)> = {
             let Some(turn) = self.turn.as_mut() else { return Ok(()) };
             turn.activity = true;
@@ -2344,7 +2345,11 @@ impl Actor {
                 let tid = b["tool_use_id"].as_str().unwrap_or("").to_string();
                 let Some(mid) = turn.tools.get(&tid).cloned() else { continue };
                 let Some((_, row)) = turn.rows.get_mut(&mid) else { continue };
-                let (text, images) = convo::tool_result_text(&b["content"]);
+                let (text, n_images) = convo::tool_result_text(&b["content"]);
+                if n_images > 0 {
+                    images.push((tid.clone(), convo::image_blocks(&b["content"])));
+                }
+                let images = n_images;
                 let (clipped, truncated) = convo::clip(&text, 4000);
                 if let Some(chips) = row["tools"].as_array_mut() {
                     for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(tid.as_str())) {
@@ -2385,6 +2390,9 @@ impl Actor {
             if seq > 0 {
                 self.convo.update(&client, seq, row).await?;
             }
+        }
+        for (tid, list) in images {
+            convo::store_images(&client, self.id, &tid, list).await?;
         }
         drop(client);
         self.set_activity("thinking", None);
