@@ -181,6 +181,9 @@ class Rotation:
             else:
                 raise RuntimeError('previous Claude run is still authorized')
         host.authorize(run)
+        before = self.descendants()
+        if self.run is not None and before - self.process_baseline:
+            raise RuntimeError('unknown child appeared while Claude was parked')
         nonce = uuid.uuid4().hex
         pending = Pending(run)
         chosen = copy.deepcopy(servers)
@@ -202,10 +205,12 @@ class Rotation:
             child = psutil.Process(pending.pid)
             if self.proc.pid not in {p.pid for p in child.parents()}:
                 raise RuntimeError('MCP transport is not a child of this Claude CLI')
-            child.create_time()  # psutil retains identity for later is_running()
-            baseline = self.descendants()
+            identity = (pending.pid, child.create_time())
             check()
             host.authorize(run)
+            baseline = self.descendants()
+            if baseline - before - {identity}:
+                raise RuntimeError('unknown child appeared during Claude transport rotation')
             self.child, self.servers = child, copy.deepcopy(servers)
             self.tools_digest = pending.tools_digest
             monitor = getattr(self.proc, '_orgtree_mcp_monitor', None)
@@ -246,6 +251,8 @@ class Rotation:
             except psutil.TimeoutExpired:
                 return False
         check()
+        if self.descendants() - self.process_baseline:
+            return False  # recheck after the potentially slow drain and exit
         with self.lock:
             if self.tainted or self.tool_ids or self.background or self.background_unknown:
                 return False

@@ -106,7 +106,9 @@ No payload contents are logged. [verified 2026-10-06: `profiling.py`, `record_ap
 Claude warm reuse rotates the Orgtree MCP child at a quiescent turn boundary:
 one child keeps one immutable run claim; the parked CLI carries no turn token.
 New-child authentication and an unchanged tool-list digest precede the prompt;
-old callbacks retain their origin, and uncertainty falls back cold. See
+old callbacks retain their origin, and uncertainty falls back cold. Descendant
+inventories must be rechecked after drain and across parked reuse/replacement;
+new shells must never enter the successor baseline. [decided: review2-sol 2026-10-06] See
 [`claude-warm-turns.md`](docs/claude-warm-turns.md). [decided: drag-opus and
 coordinator 2026-10-06; verified: `claude_transport.py`, `supervisor.py`]
 

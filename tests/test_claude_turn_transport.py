@@ -191,6 +191,48 @@ class TransportTests(unittest.TestCase):
         self.child.children = lambda recursive: [SimpleNamespace(pid=777, create_time=lambda: 2)]
         self.assertFalse(self.end())
 
+    def test_child_started_during_removal_prevents_park(self):
+        self.begin(self.one)
+        prior_send = self.rotation.send
+        def send(line):
+            if 'orgtree' not in json.loads(line)['request']['servers']:
+                self.child.children = lambda recursive: [SimpleNamespace(pid=777, create_time=lambda: 2)]
+            prior_send(line)
+        self.rotation.send = send
+        self.assertFalse(self.end())
+
+    def test_child_started_while_parked_prevents_reuse(self):
+        self.begin(self.one)
+        self.assertTrue(self.end())
+        self.host.closed.add(self.one.request_id)
+        self.child.children = lambda recursive: [SimpleNamespace(pid=777, create_time=lambda: 2)]
+        with self.assertRaisesRegex(RuntimeError, 'while Claude was parked'):
+            self.begin(self.two)
+        self.assertEqual(len(self.tokens), 1)
+
+    def test_child_started_during_replacement_is_not_absorbed_into_baseline(self):
+        self.begin(self.one)
+        self.assertTrue(self.end())
+        self.host.closed.add(self.one.request_id)
+        prior_send = self.rotation.send
+        def send(line):
+            prior_send(line)
+            self.child.children = lambda recursive: [SimpleNamespace(pid=777, create_time=lambda: 2)]
+        self.rotation.send = send
+        with self.assertRaisesRegex(RuntimeError, 'during Claude transport rotation'):
+            self.begin(self.two)
+        self.assertEqual(self.rotation.run, self.one)
+
+    def test_known_other_mcp_child_is_preserved_across_rotation(self):
+        other = SimpleNamespace(pid=777, create_time=lambda: 2)
+        self.child.children = lambda recursive: [other]
+        self.begin(self.one)
+        self.assertTrue(self.end())
+        self.host.closed.add(self.one.request_id)
+        self.begin(self.two)
+        self.assertEqual(self.rotation.run, self.two)
+        self.assertIn((777, 2), self.rotation.process_baseline)
+
     def admission(self, run, ack=True):
         # Execute the production admission block, not a test copy. It includes
         # the former cold-only guard and the current handoff/fallback branch.

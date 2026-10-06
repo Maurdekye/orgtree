@@ -22,7 +22,10 @@ At the result boundary, all tool calls must have returned, foreground tasks and
 background tasks must be empty, and no extra descendant process may have survived
 its tool result. The engine removes the drained Orgtree child, verifies its exit,
 and parks only the main CLI. Late tool activity taints the process and prevents
-reuse. Administrative holds and request cancellation are checked at both ends of
+reuse. Descendants are checked again after removal, before reuse from the parked
+state, and after replacement: only the authenticated replacement child may join
+the prior known process set. A new shell cannot become part of the next baseline.
+Administrative holds and request cancellation are checked at both ends of
 the handoff. An unsupported control, missing acknowledgement, unknown process
 state, changed tool list, or failed quiescence check discards the process and uses
 the ordinary cold path. The per-turn queue does not feed another request into the
