@@ -93,7 +93,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "fable_filter_model": settings["fable_filter_model"],
                 "fable_lock": Value::Null,
                 "killswitch": org.get("killswitch").cloned().unwrap_or(Value::Null),
-                "headless": settings["headless"],
+                // headless is inert in Orgtree 4 (ledger I2c): never claimed
+                "headless": false,
                 "primed_restart": Value::Null,
                 "capabilities": { "record_changes_v1": true },
             })
