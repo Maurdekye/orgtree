@@ -2,7 +2,7 @@ import type { EventReplyWire } from './eventReply'
 import type { ReplyTarget } from './generated/events'
 import { forgetNodeDetail, hydrateTree } from './archived'
 import type { NodeDetail } from './archived'
-import { bumpLive } from './livebus'
+import { bumpLive, flushLive } from './livebus'
 import { backendRestart } from './windowlife'
 import { desktop } from './desktop'
 import { applyWorkDelta } from './workdelta'
@@ -360,6 +360,11 @@ export const runOp = (slug: string, body: OpRequest): Promise<OpResult> =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  }).then((result: OpResult) => {
+    // req already queued the mutation refresh. Start this move's catch-up
+    // at acknowledgment instead of adding the normal 120 ms bus delay.
+    if (body.op === 'move') flushLive()
+    return result
   })
 
 export const getChat = (slug: string, nid: string, last?: number, before?: string, after?: string): Promise<ChatPayload> =>

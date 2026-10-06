@@ -486,6 +486,12 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   projected node so row and circular previews match confirmation. [verified-from-source
   2026-10-06: `orgdb/native_move.py`, `orgdb/agents.py`, renderer `recordprojection.ts`,
   `canvas/shared.ts`]
+- **Local move refresh:** after a successful move response is parsed, flush its
+  pending livebus bump immediately and cancel the delayed duplicate. Other mutations
+  and later events retain 120 ms coalescing. Initial loading and record/runtime
+  ordering are unchanged. [verified-from-source 2026-10-06: renderer `api.ts`,
+  `livebus.ts`, `move-refresh.test.ts`; recorded-decision: move-latency item]
+
 - **Circular layout order:** in the circular org chart, siblings (rings, the agents list and
   the floating jump cards) follow tree order counterclockwise; never sort them by x/y
   position. Only the row layout orders siblings by position. Jump-card adjacency uses

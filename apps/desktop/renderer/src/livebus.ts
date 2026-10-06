@@ -31,13 +31,18 @@ export const onLiveBump = (fn: Fn): (() => void) => {
 
 let timer: ReturnType<typeof setTimeout> | null = null
 
-/** Wake every subscribed surface. Coalesced 120 ms — imperceptible to the
- *  user, but a burst (one op's bump + its own ws echo, a multi-op drag)
- *  rides one refetch per surface instead of one per event. */
+/** Deliver a pending bump now, cancelling its delayed duplicate.
+ * A confirmed local move uses this after its response is parsed. Other
+ * events still coalesce; a later event schedules a fresh refresh. */
+export const flushLive = (): void => {
+  if (timer === null) return
+  clearTimeout(timer)
+  timer = null
+  for (const fn of [...subs]) fn()
+}
+
+/** Wake every subscribed surface. Bursts share one refresh after 120 ms. */
 export const bumpLive = (): void => {
   if (timer) return
-  timer = setTimeout(() => {
-    timer = null
-    for (const fn of [...subs]) fn()
-  }, 120)
+  timer = setTimeout(flushLive, 120)
 }
