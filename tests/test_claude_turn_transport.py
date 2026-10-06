@@ -119,6 +119,15 @@ class TransportTests(unittest.TestCase):
         self.assertTrue(self.end())
         self.assertNotIn('orgtree', self.commands[-1]['servers'])
 
+    def test_background_notifications_cannot_clear_missing_snapshot(self):
+        self.begin(self.one)
+        for subtype in ('task_started', 'task_notification'):
+            self.rotation.observe(json.dumps({'type': 'system', 'subtype': subtype,
+                                              'task_id': 'old-task'}))
+        self.assertFalse(self.end())
+        self.rotation.observe(json.dumps({'type': 'system', 'subtype': 'background_tasks_changed', 'tasks': []}))
+        self.assertTrue(self.end())
+
     def test_missing_authenticated_roundtrip_fails_closed(self):
         self.ack = False
         with patch.object(ct, 'TIMEOUT', .001), self.assertRaises(RuntimeError):

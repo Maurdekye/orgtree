@@ -75,6 +75,7 @@ class Rotation:
         self.finished = True
         self.tool_ids: set[str] = set()
         self.background: set[str] = set()
+        self.background_unknown = False
         self.tainted = False
         self.servers: dict[str, Any] = {}
         self.tools_digest: str | None = None
@@ -110,7 +111,11 @@ class Rotation:
             if self.finished and kind in ('assistant', 'user'):
                 self.tainted = True
             if kind in ('assistant', 'user'):
-                content = (event.get('message') or {}).get('content')
+                message = event.get('message')
+                if not isinstance(message, dict):
+                    self.tainted = True
+                    return False
+                content = message.get('content')
                 if isinstance(content, list):
                     for block in content:
                         if not isinstance(block, dict):
@@ -123,19 +128,20 @@ class Rotation:
                                 self.tainted = True
                         elif block.get('type') == 'tool_result':
                             self.tool_ids.discard(str(block.get('tool_use_id') or ''))
-            if event.get('subtype') == 'background_tasks_changed':
+            if kind == 'system' and event.get('subtype') == 'background_tasks_changed':
                 tasks = event.get('tasks')
                 if not isinstance(tasks, list):
                     self.tainted = True
                 else:
+                    self.background_unknown = False
                     self.background = {str(t.get('task_id') or '?') for t in tasks
                                        if isinstance(t, dict)}
                     if len(self.background) != len(tasks):
                         self.tainted = True
-            if event.get('subtype') == 'task_started':
-                self.background.add(str(event.get('task_id') or '?'))
-            if event.get('subtype') == 'task_notification':
-                self.background.discard(str(event.get('task_id') or ''))
+            if kind == 'system' and event.get('subtype') == 'task_started':
+                # Only the CLI's next full snapshot can establish quiescence;
+                # completion notifications can be delayed and do not clear it.
+                self.background_unknown = True
         return False
 
     def request(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -161,7 +167,8 @@ class Rotation:
         """An old claim must be durably closed before the new child is born."""
         check()
         with self.lock:
-            if not self.finished or self.tainted or self.tool_ids or self.background:
+            if (not self.finished or self.tainted or self.tool_ids
+                    or self.background or self.background_unknown):
                 raise RuntimeError('Claude has unfinished work from its previous run')
         if self.run is not None:
             try:
@@ -202,7 +209,7 @@ class Rotation:
                     monitor.failure = monitor.transport_failure = ''
                     monitor.missing_since = None
             with self.lock:
-                if self.tainted or self.tool_ids or self.background:
+                if self.tainted or self.tool_ids or self.background or self.background_unknown:
                     raise RuntimeError('late work arrived during Claude transport rotation')
                 self.process_baseline = baseline
                 self.run, self.finished = run, False
@@ -218,7 +225,7 @@ class Rotation:
             return False  # an untracked shell/child outlived its tool result
         with self.lock:
             if (not result_ok or tasks or bg_tasks or self.tainted
-                    or self.tool_ids or self.background):
+                    or self.tool_ids or self.background or self.background_unknown):
                 return False
             self.finished = True
         others = {k: v for k, v in self.servers.items() if k != 'orgtree'}
@@ -232,6 +239,6 @@ class Rotation:
                 return False
         check()
         with self.lock:
-            if self.tainted or self.tool_ids or self.background:
+            if self.tainted or self.tool_ids or self.background or self.background_unknown:
                 return False
         return True
