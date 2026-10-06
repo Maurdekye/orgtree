@@ -139,6 +139,43 @@ async fn connection(engine: Arc<Engine>, caller: Caller, conn: tokio::net::windo
     }
 }
 
+/// `agy-steer pre|post`: Antigravity's invocation hook for mid-turn mail (as
+/// in 3.x). It claims the handoff the engine left in this agent's private
+/// steer folder (`ORGTREE_AGY_STEER_DIR`), hands it to the CLI as a user
+/// step (after an invocation also forcing the run to continue), and leaves a
+/// receipt the engine commits the delivery on.
+pub fn steer(args: &[String]) -> ExitCode {
+    use std::io::{Read, Write};
+    let mut raw = Vec::new();
+    let _ = std::io::stdin().read_to_end(&mut raw);
+    let nothing = || {
+        println!("{{}}");
+        ExitCode::SUCCESS
+    };
+    let Some(dir) = std::env::var_os("ORGTREE_AGY_STEER_DIR").map(std::path::PathBuf::from) else { return nothing() };
+    let (pending, claimed) = (dir.join("pending.json"), dir.join("claimed.json"));
+    if std::fs::rename(&pending, &claimed).is_err() {
+        return nothing();
+    }
+    let msg: Value = std::fs::read(&claimed).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+    let (Some(id), Some(text)) = (msg["id"].as_str(), msg["text"].as_str()) else {
+        let _ = std::fs::remove_file(&claimed);
+        return nothing();
+    };
+    let mut out = json!({ "injectSteps": [{ "userMessage": text }] });
+    if args.first().map(String::as_str) == Some("post") {
+        out["terminationBehavior"] = json!("force_continue");
+    }
+    println!("{out}");
+    let _ = std::io::stdout().flush();
+    let tmp = dir.join("emitted.tmp");
+    if std::fs::write(&tmp, json!({ "id": id }).to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join("emitted.json"));
+    }
+    let _ = std::fs::remove_file(&claimed);
+    ExitCode::SUCCESS
+}
+
 /// `agy-hook <deny.json>`: allow or deny the pending tool call on stdin.
 pub fn hook(args: &[String]) -> ExitCode {
     use std::io::Read;

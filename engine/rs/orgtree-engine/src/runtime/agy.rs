@@ -5,7 +5,8 @@
 //! at `orgtree-engine mcp-bridge` over a private named pipe; a narrowed
 //! seat's scope is enforced by a PreToolUse hook (the CLI runs with
 //! `--dangerously-skip-permissions`, because print mode cannot prompt).
-//! Mid-turn mail waits for the next turn; interrupt ends the process tree.
+//! Mid-turn mail reaches a running turn through the CLI's invocation hooks
+//! (`orgtree-engine agy-steer`, as in 3.x); interrupt ends the process tree.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -316,24 +317,74 @@ fn write_workspace(spec: &AgySpec, pipe: &str) -> Result<()> {
     let hooks = agents.join("hooks.json");
     let deny_file = agents.join("orgtree-rights.json");
     let wrapper = agents.join(if cfg!(windows) { "orgtree-rights.cmd" } else { "orgtree-rights.sh" });
+    let mut doc = Map::new();
     if deny.is_empty() {
-        for p in [&hooks, &deny_file, &wrapper] {
+        for p in [&deny_file, &wrapper] {
             let _ = std::fs::remove_file(p);
         }
-        return Ok(());
-    }
-    std::fs::write(&deny_file, serde_json::to_vec_pretty(&deny)?)?;
-    if cfg!(windows) {
-        std::fs::write(&wrapper, format!("@echo off\r\n\"{exe}\" agy-hook \"%~dp0orgtree-rights.json\"\r\n"))?;
     } else {
-        std::fs::write(&wrapper, format!("#!/bin/sh\nexec \"{exe}\" agy-hook \"$(dirname \"$0\")/orgtree-rights.json\"\n"))?;
+        std::fs::write(&deny_file, serde_json::to_vec_pretty(&deny)?)?;
+        if cfg!(windows) {
+            std::fs::write(&wrapper, format!("@echo off\r\n\"{exe}\" agy-hook \"%~dp0orgtree-rights.json\"\r\n"))?;
+        } else {
+            std::fs::write(&wrapper, format!("#!/bin/sh\nexec \"{exe}\" agy-hook \"$(dirname \"$0\")/orgtree-rights.json\"\n"))?;
+        }
+        // resolved before hooks.json is written, so a refusal never leaves an unenforced seat behind
+        let command =
+            hook_command(&std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()))?;
+        doc.insert(
+            "orgtree-rights".into(),
+            json!({ "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": command, "timeout": 20 }] }] }),
+        );
     }
-    // resolved before hooks.json is written, so a refusal never leaves an empty hook file behind
-    let command = hook_command(&std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()))?;
-    let doc = json!({ "orgtree-rights": { "PreToolUse": [{ "matcher": "*",
-                      "hooks": [{ "type": "command", "command": command, "timeout": 20 }] }] } });
-    std::fs::write(&hooks, serde_json::to_vec_pretty(&doc)?)?;
+    // mid-turn mail: the invocation hooks hand a waiting message to the CLI
+    match steering_hooks(&agents, &exe) {
+        Ok(steer) => {
+            doc.insert("orgtree-steering".into(), steer);
+        }
+        Err(e) => tracing::warn!(error = %format!("{e:#}"), "mid-turn mail for this agent waits for its next turn"),
+    }
+    if doc.is_empty() {
+        let _ = std::fs::remove_file(&hooks);
+    } else {
+        std::fs::write(&hooks, serde_json::to_vec_pretty(&Value::Object(doc))?)?;
+    }
     Ok(())
+}
+
+/// The agent's private steer folder (the engine's handoff to the hook).
+#[logged]
+pub fn steer_dir(cwd: &Path) -> PathBuf {
+    cwd.join(".agents").join("steer")
+}
+
+/// PreInvocation and PostInvocation hooks running `orgtree-engine agy-steer`,
+/// with the steer folder cleared of any earlier process's handoff.
+#[logged]
+fn steering_hooks(agents: &Path, exe: &str) -> Result<Value> {
+    let dir = agents.join("steer");
+    std::fs::create_dir_all(&dir)?;
+    for f in ["pending.json", "claimed.json", "emitted.json", "emitted.tmp", "pending.tmp"] {
+        let _ = std::fs::remove_file(dir.join(f));
+    }
+    let mut events = Map::new();
+    for (stage, event) in [("pre", "PreInvocation"), ("post", "PostInvocation")] {
+        let wrapper = agents.join(format!("orgtree-steer-{stage}{}", if cfg!(windows) { ".cmd" } else { ".sh" }));
+        if cfg!(windows) {
+            std::fs::write(&wrapper, format!("@echo off\r\n\"{exe}\" agy-steer {stage}\r\n"))?;
+        } else {
+            std::fs::write(&wrapper, format!("#!/bin/sh\nexec \"{exe}\" agy-steer {stage}\n"))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+        let command =
+            hook_command(&std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()))?;
+        events.insert(event.into(), json!([{ "type": "command", "command": command, "timeout": 20 }]));
+    }
+    Ok(Value::Object(events))
 }
 
 /// Dollars for one model request (Google bills prompt tokens above 200K at

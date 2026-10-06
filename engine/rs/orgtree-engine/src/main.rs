@@ -58,6 +58,7 @@ fn main() -> ExitCode {
         Some("host") => host::run(),
         Some("mcp-bridge") => bridge::run(&args[2..]),
         Some("agy-hook") => bridge::hook(&args[2..]),
+        Some("agy-steer") => bridge::steer(&args[2..]),
         Some("--version") | Some("version") => {
             println!("orgtree-engine {}{}", env!("CARGO_PKG_VERSION"), if trace::RELEASE_BUILD { "" } else { " (dev)" });
             ExitCode::SUCCESS

@@ -182,6 +182,9 @@ struct Turn {
     denials: Vec<Value>,
     /// Antigravity: response text so far, by step
     agy_text: HashMap<i64, String>,
+    /// Antigravity: mid-turn mail handed to the steer hook and not yet
+    /// emitted: (handoff id, mail ids, the claimed mail rows)
+    agy_steer: Option<(String, Vec<i64>, Vec<Value>)>,
 }
 
 #[logged]
@@ -209,6 +212,7 @@ impl Turn {
             codex_error: None,
             denials: Vec::new(),
             agy_text: HashMap::new(),
+            agy_steer: None,
         }
     }
 }
@@ -367,6 +371,8 @@ struct Actor {
     rate_limit: Option<Value>,
     /// the CLI's running session cost at the last result (its counter is cumulative)
     cost_seen: f64,
+    /// Antigravity: the private folder its steer hook reads mid-turn mail from
+    agy_steer_dir: Option<PathBuf>,
     provider: String,
     /// Codex: the thread's latest cumulative token counts
     codex_total: Option<Value>,
@@ -427,6 +433,7 @@ impl Actor {
             activity: None,
             rate_limit: None,
             cost_seen: row.get(1),
+            agy_steer_dir: None,
             provider: catalog::provider_of(&tier).to_string(),
             codex_total: None,
         })
@@ -746,6 +753,10 @@ impl Actor {
         if self.turn.is_some() && !self.stopping && self.proc.as_ref().map(|p| p.is_codex()).unwrap_or(false) {
             // Codex takes mid-turn mail at once (`turn/steer`)
             return self.steer_codex().await;
+        }
+        if self.turn.is_some() && !self.stopping && self.proc.as_ref().map(|p| p.is_agy()).unwrap_or(false) {
+            // Antigravity takes it at the next invocation boundary (its steer hook)
+            return self.steer_agy().await;
         }
         if self.stopping || self.turn.is_some() || self.waiting_since.is_some() || self.slot.is_some() {
             // mail for a running Claude turn is handed over at the next tool boundary
@@ -1493,9 +1504,14 @@ impl Actor {
             edit: on("edit") && pm != "plan",
             web: on("web"),
             subagents: on("subagents"),
-            env: vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())],
+            env: vec![
+                ("ORGTREE_AGENT".into(), ctx.name.clone()),
+                ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
+                ("ORGTREE_AGY_STEER_DIR".into(), agyrt::steer_dir(&ctx.scratch).to_string_lossy().to_string()),
+            ],
             turn_timeout_s: self.engine.settings.turn_timeout_s(),
         };
+        self.agy_steer_dir = Some(agyrt::steer_dir(&ctx.scratch));
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = AgyProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         self.proc = Some(Proc::Agy(proc));
@@ -1550,6 +1566,103 @@ impl Actor {
         committed["event_id"] = json!(format!("e{seq}"));
         self.changed(vec![Change::Mailbox(self.id)]);
         self.stream("steered", json!({ "committed_row": committed }));
+        Ok(())
+    }
+
+    /// Mid-turn mail for a running Antigravity turn: claim it into the turn and
+    /// leave it for the steer hook, which hands it to the CLI at the next
+    /// invocation boundary. One handoff at a time.
+    async fn steer_agy(&mut self) -> Result<()> {
+        let Some(turn_id) = self.turn.as_ref().filter(|t| t.agy_steer.is_none()).map(|t| t.id) else { return Ok(()) };
+        let Some(dir) = self.agy_steer_dir.clone() else { return Ok(()) };
+        let client = self.engine.db.get().await?;
+        let claimed = client
+            .query(
+                "UPDATE ot.mail SET state = 'delivering', turn_id = $2
+                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                                ORDER BY id LIMIT 32 FOR UPDATE SKIP LOCKED)
+                  RETURNING id, to_jsonb(ot.mail.*)",
+                &[&self.id, &turn_id],
+            )
+            .await?;
+        if claimed.is_empty() {
+            return Ok(());
+        }
+        let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
+        rows.sort_by_key(|(id, _)| *id);
+        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+        let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
+        let id = format!("t{turn_id}-m{}", ids[0]);
+        let body = json!({ "id": id, "text": prompt::steer_text(&mails) }).to_string();
+        let tmp = dir.join("pending.tmp");
+        let written = std::fs::create_dir_all(&dir)
+            .and_then(|_| std::fs::write(&tmp, body.as_bytes()))
+            .and_then(|_| std::fs::rename(&tmp, dir.join("pending.json")));
+        if let Err(e) = written {
+            tracing::info!(agent = %self.name, error = %e, "mid-turn mail could not be handed over; it waits for the next turn");
+            client
+                .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE id = ANY($1) AND state = 'delivering'", &[&ids])
+                .await?;
+            return Ok(());
+        }
+        drop(client);
+        if let Some(t) = self.turn.as_mut() {
+            t.agy_steer = Some((id, ids, raw));
+        }
+        Ok(())
+    }
+
+    /// The steer hook emitted this turn's handoff: show the mail on the desk
+    /// as delivered into the running turn. True when it committed.
+    async fn commit_agy_steer(&mut self) -> Result<bool> {
+        let (Some(dir), Some((id, _, _))) = (self.agy_steer_dir.clone(), self.turn.as_ref().and_then(|t| t.agy_steer.clone()))
+        else {
+            return Ok(false);
+        };
+        let receipt = dir.join("emitted.json");
+        let emitted: Option<Value> = std::fs::read(&receipt).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        if emitted.as_ref().and_then(|v| v["id"].as_str()) != Some(id.as_str()) {
+            return Ok(false);
+        }
+        let _ = std::fs::remove_file(&receipt);
+        let Some((_, _, raw)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
+        let client = self.engine.db.get().await?;
+        let row = mail_row(&raw, Some("Delivered into the running turn."));
+        let seq = self.convo.append(&client, row.clone()).await?;
+        drop(client);
+        let mut committed = row;
+        committed["seq"] = json!(seq);
+        committed["row_id"] = json!(format!("r{seq}"));
+        committed["event_id"] = json!(format!("e{seq}"));
+        self.changed(vec![Change::Mailbox(self.id)]);
+        self.stream("steered", json!({ "committed_row": committed }));
+        Ok(true)
+    }
+
+    /// The turn is ending: a handoff the hook emitted is delivered; one it
+    /// never took goes back to waiting for the next turn.
+    async fn settle_agy_steer(&mut self) -> Result<()> {
+        if !self.turn.as_ref().map(|t| t.agy_steer.is_some()).unwrap_or(false) {
+            return Ok(());
+        }
+        if self.commit_agy_steer().await? {
+            return Ok(());
+        }
+        let Some(dir) = self.agy_steer_dir.clone() else { return Ok(()) };
+        if std::fs::remove_file(dir.join("pending.json")).is_err() {
+            // the hook may be emitting it right now
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            if self.commit_agy_steer().await? {
+                return Ok(());
+            }
+        }
+        if let Some((_, ids, _)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) {
+            let client = self.engine.db.get().await?;
+            client
+                .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE id = ANY($1) AND state = 'delivering'", &[&ids])
+                .await?;
+        }
         Ok(())
     }
 
@@ -1982,6 +2095,10 @@ impl Actor {
     async fn on_agy(&mut self, v: Value) -> Result<()> {
         if let Some(t) = self.turn.as_mut() {
             t.last_event = Instant::now();
+        }
+        // a handoff the steer hook emitted is delivered; more mail may wait
+        if self.turn.as_ref().map(|t| t.agy_steer.is_some()).unwrap_or(false) && self.commit_agy_steer().await? {
+            self.steer_agy().await?;
         }
         match v["event"].as_str() {
             Some("init") => {
@@ -2703,6 +2820,11 @@ impl Actor {
 
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
+        if res["agy"].as_bool().unwrap_or(false) {
+            if let Err(e) = self.settle_agy_steer().await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mid-turn mail could not be settled");
+            }
+        }
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
         let codex = res["codex"].as_bool().unwrap_or(false);
