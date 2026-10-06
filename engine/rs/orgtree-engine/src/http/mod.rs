@@ -5,6 +5,7 @@ pub mod asks;
 pub mod desktop;
 pub mod docs;
 pub mod dogs;
+pub mod docket;
 pub mod orginbox;
 pub mod error;
 pub mod mailbox;
@@ -99,6 +100,18 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/work-items-foreground", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-items-archive-page", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-item-references", get(orgs::compatibility))
+        .route("/api/orgs/{slug}/work-item-reference/{wid}", get(orgs::compatibility))
+        .route("/api/orgs/{slug}/work-items-view", get(docket::view))
+        .route("/api/orgs/{slug}/work-items", get(docket::view))
+        .route("/api/orgs/{slug}/work-items/{wid}", get(docket::get))
+        .route("/api/orgs/{slug}/work-items/{wid}/reply", post(docket::reply))
+        .route("/api/orgs/{slug}/work-items/{wid}/dismiss-attention", post(docket::dismiss))
+        .route(
+            "/api/orgs/{slug}/work-items/{wid}/attachments",
+            post(docket::attach).layer(axum::extract::DefaultBodyLimit::max(26 * 1024 * 1024)),
+        )
+        .route("/api/orgs/{slug}/work-items/{wid}/attachments/{aid}", get(docket::attachment).delete(docket::detach))
+        .route("/api/orgs/{slug}/work-items/{wid}/artifacts/{aid}", get(docket::artifact))
         .route("/api/orgs/{slug}/resume", post(nodes::resume))
         // one agent's desk
         .route("/api/orgs/{slug}/nodes/{nid}/chat", get(nodes::chat))

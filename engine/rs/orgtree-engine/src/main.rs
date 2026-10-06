@@ -5,6 +5,7 @@
 //! `orgtree-engine mcp-bridge` — stdio MCP bridge for CLIs that need one
 
 #![allow(dead_code)]
+#![recursion_limit = "256"]
 
 #[macro_use]
 extern crate orgtree_logged;

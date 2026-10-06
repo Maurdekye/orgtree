@@ -3,6 +3,7 @@
 
 pub mod asks;
 pub mod audiences;
+pub mod docket;
 pub mod docs;
 pub mod mail;
 pub mod notices;

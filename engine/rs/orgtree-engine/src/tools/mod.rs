@@ -121,6 +121,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         }
         "orgtree_present" | "orgtree_send_file" => doc_tool(engine, caller, name, args).await,
         "orgtree_watchdog" => dog_tool(engine, caller, args).await,
+        "orgtree_work" => work_tool(engine, caller, args).await,
         "orgtree_audience" => audience_tool(engine, caller, args).await,
         "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
         "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
@@ -383,6 +384,66 @@ async fn audience_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
             "requests no longer climb the chain: each goes straight to whom it names, who grants or denies it"
         ),
         other => crate::refuse!(BadRequest, "action must be request, grant, deny or revoke (not {other:?})"),
+    };
+    Done::json(&v)
+}
+
+/// orgtree_work.
+#[logged]
+async fn work_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    use crate::domain::docket::{self, Who};
+    let Some(org) = engine.orgs.by_id(caller.org_id) else {
+        crate::refuse!(NotFound, "organization not open");
+    };
+    let client = engine.db.get().await?;
+    let m = me(&client, caller).await?;
+    drop(client);
+    let who = Who::Agent { id: m.id, name: m.name.clone(), generation: m.generation };
+    let action = args["action"].as_str().unwrap_or("").trim();
+    let slug = args["slug"].as_str().or(args["id"].as_str()).map(str::trim).filter(|s| !s.is_empty());
+    let need = || -> Result<&str> {
+        match slug {
+            Some(s) => Ok(s),
+            None => crate::refuse!(BadRequest, "{action} needs `slug`: the item's readable name"),
+        }
+    };
+    let list = |k: &str| -> Vec<String> {
+        match &args[k] {
+            Value::Array(a) => a.iter().filter_map(|x| x.as_str()).map(|s| s.trim().trim_start_matches('@').to_string()).filter(|s| !s.is_empty()).collect(),
+            Value::String(s) => s.split(',').map(|x| x.trim().trim_start_matches('@').to_string()).filter(|x| !x.is_empty()).collect(),
+            _ => Vec::new(),
+        }
+    };
+    let v = match action {
+        "list" => docket::agent_list(engine, &org, &who, args).await?,
+        "get" => docket::agent_get(engine, &org, &who, need()?, args).await?,
+        "create" => docket::create(engine, &org, &who, args).await?,
+        "update" => docket::update(engine, &org, &who, args).await?,
+        "accept" => {
+            let mut a = json!({ "slug": need()?, "status": "done", "keep_done": true, "keep_next": true });
+            if let Some(n) = args["note"].as_str() {
+                a["done_append"] = json!([n]);
+            }
+            docket::update(engine, &org, &who, &a).await?
+        }
+        "assign" => {
+            let Some(owner) = args["owner"].as_str().filter(|o| !o.trim().is_empty()) else {
+                crate::refuse!(BadRequest, "assign needs `owner`: you or a subordinate");
+            };
+            docket::assign(engine, &org, &who, need()?, owner).await?
+        }
+        "handoff" => docket::handoff(engine, &org, &who, need()?, args["target"].as_str(), args["reason"].as_str().unwrap_or("")).await?,
+        "participants" => docket::participants(engine, &org, &who, need()?, &list("add"), &list("remove")).await?,
+        "evidence" => docket::evidence(engine, &org, &who, need()?, args).await?,
+        "archive" | "supersede" | "move" => docket::arrange(engine, &org, &who, action, need()?, args).await?,
+        "delete" => docket::delete(engine, &org, &who, need()?).await?,
+        "addendum" | "review" | "verdict" | "candidate_verdict" | "integration_verdict" | "review_verdict" | "review_request"
+        | "review_grant" | "review_grants" | "review_revoke" | "decision" | "receipt" | "rangediff" | "receipts" | "artifact"
+        | "artifact_read" | "grant" | "revoke" | "finding" | "dispose" | "claim" | "verify" | "check" => crate::refuse!(
+            Unprocessable,
+            "`{action}` is not part of the docket any more: acceptance checks, review seats and verdicts, receipts, artifacts, findings, claims and addenda were removed. Record evidence notes, and use the review / approved / done statuses (a reviewer is named with `reviewer` on update)"
+        ),
+        other => crate::refuse!(BadRequest, "unknown docket action {other:?} (list, get, create, update, assign, handoff, participants, evidence, archive, supersede, move, delete)"),
     };
     Done::json(&v)
 }

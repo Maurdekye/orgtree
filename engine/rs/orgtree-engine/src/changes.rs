@@ -57,6 +57,7 @@ pub enum Change {
 /// Fan changes out to the feed, the rooms and the app feed.
 #[logged]
 pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
+    org.docket.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut keys: Vec<Key> = Vec::with_capacity(changes.len() + 2);
     let mut app = false;
     let mut registry = false;

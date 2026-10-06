@@ -29,6 +29,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_send_file",
         "orgtree_watchdog",
         "orgtree_audience",
+        "orgtree_work",
         "orgtree_request_credits",
         "orgtree_request_scope",
         "orgtree_hire",
@@ -405,20 +406,74 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_work",
-            "The work docket: list, get, create, update, assign, archive and move items.",
+            "THE DOCKET: the org's durable record of substantive work, read by the user. Items survive retirement, \
+             compaction and reassignment. An item is identified ONLY by its readable `slug` (fixed at creation). Access: \
+             owner, creator, their superiors, the user, listed participants and the reviewer.\n\n\
+             ACTIONS: `list` — items you may read; include_archived / include_backlogged return those in their own keys, \
+             never inside `items` (`groups` gives every group's size). `get` — one item (compact by default; \
+             projection=full adds history and attachments). `create` — title, REQUIRED objective, kind code|non-code, owner \
+             (you or a subordinate), participants, dependencies, parent, optional first progress lists. `update` — THE \
+             status update: carries done_so_far AND working_on_next (either may be empty, not both) plus optional status, \
+             blocked_reason, dropped_reason, reviewer, attention, reopen. YOUR OWN UPDATE CLAIMS THE ITEM: on someone \
+             else's item pass `owner` = its current holder. To avoid re-sending lists pass expected_rev with \
+             keep_done/keep_next or done_append/next_append. `assign` — changes ownership ONLY, never status. `handoff` — \
+             the owner asks its superior to take the item (ownership unchanged). `participants` — add/remove \
+             collaborators; participants control state and evidence; retitling, re-scoping and assigning stay \
+             owner-level. `evidence` (kind note|link|file|commit|log, ref, note; `items` for a batch; max 50, refused not \
+             truncated). `accept` or status done — complete the item. `archive` (close early), `supersede` (by another \
+             item: `by`), `move` (nest under `parent`), `delete` — permanently removes the record (its name is never \
+             reused); only the user, a superior of the owner or a top-level owner, and refused while it has sub-items or \
+             an open attached question. Prefer archive or dropped.\n\n\
+             DESCRIPTION (`objective`): the FIRST PARAGRAPH states the PROBLEM, then briefly the solution; every later \
+             paragraph carries the specifications, requirements, edge cases and rulings. It is the item's authoritative \
+             standalone scope. Markdown, never truncated; `objective_append` adds to it.\n\n\
+             STATUSES: backlogged (not yet approached or approved; not counted as active), open, in_progress, blocked \
+             (needs blocked_reason; say how you will hear it is unblocked), review (checked by the agent named in \
+             `reviewer`), approved, deploy_ready (complete, awaiting deployment), done, dropped (terminal non-success; \
+             needs dropped_reason; archives at once). Done items archive an hour after their last update.\n\n\
+             USER ATTENTION: `review` is never how you ask the user. A question goes through orgtree_ask with work_item; \
+             attention:true + attention_reason is for something the user must see that is not a question. Omitting \
+             `attention` leaves a standing flag in place: retract your own with attention:false, refine it with \
+             attention_amend. A user dismissal keeps done/review and blocks other statuses; an exact repeat of a dismissed \
+             flag is refused. The user's replies on an item go to its owner; question answers go to the asker.",
             json!({
-                "action": { "type": "string", "enum": ["list", "get", "create", "update", "assign", "handoff", "participants",
-                                                      "evidence", "archive", "supersede", "move", "delete"] },
-                "slug": { "type": "string" }, "title": { "type": "string" }, "objective": { "type": "string" },
-                "kind": { "type": "string" }, "owner": { "type": "string" }, "reviewer": { "type": "string" },
-                "status": { "type": "string" }, "blocked_reason": { "type": "string" }, "dropped_reason": { "type": "string" },
-                "attention": { "type": "boolean" }, "attention_reason": { "type": "string" },
-                "done_so_far": { "type": "array", "items": { "type": "string" } },
-                "working_on_next": { "type": "array", "items": { "type": "string" } },
-                "participants": { "type": "array", "items": { "type": "string" } },
-                "dependencies": { "type": "array", "items": { "type": "string" } }, "parent": { "type": "string" },
-                "note": { "type": "string" }, "ref": { "type": "string" }, "include_archived": { "type": "boolean" },
-                "expected_rev": { "type": "integer" },
+                "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
+                                                      "participants", "evidence", "archive", "supersede", "move", "delete"] },
+                "slug": { "type": "string", "description": "the item's readable name (every action but list/create)" },
+                "include_archived": { "type": "boolean" }, "include_backlogged": { "type": "boolean" },
+                "projection": { "type": "string", "enum": ["summary", "compact", "full"],
+                                "description": "list/get: summary (list default), compact (get default), full" },
+                "fields": { "type": "array", "items": { "type": "string" }, "description": "list/get: return only these fields" },
+                "title": { "type": "string", "description": "create/update: short concrete title (max 200)" },
+                "objective": { "type": "string", "description": "create (REQUIRED) / update: the description and scope" },
+                "objective_append": { "type": "string", "description": "update: text added to the end of the description" },
+                "kind": { "type": "string", "description": "create: code|non-code · evidence: note|link|file|commit|log" },
+                "owner": { "type": "string", "description": "create/assign: the owner (you or a subordinate) · update: the CURRENT owner, to leave it with them" },
+                "reviewer": { "type": "string", "description": "update: the agent that checks the work at review (never the owner)" },
+                "status": { "type": "string", "description": "backlogged|open|in_progress|blocked|review|approved|deploy_ready|done|dropped" },
+                "blocked_reason": { "type": "string", "description": "REQUIRED to enter blocked (max 2000)" },
+                "dropped_reason": { "type": "string", "description": "REQUIRED to end as dropped (max 1500)" },
+                "attention": { "type": "boolean", "description": "update: true raises the flag (needs attention_reason); false takes yours down" },
+                "attention_reason": { "type": "string", "description": "the concrete thing the user must see (max 1500)" },
+                "attention_amend": { "type": "boolean", "description": "update: edit the standing flag's reason without re-raising it" },
+                "reopen": { "type": "boolean", "description": "update: resume a closed or archived item (with the new status)" },
+                "done_so_far": { "type": "array", "items": { "type": "string" }, "description": "what is complete, one entry each (max 500 chars, 40 entries)" },
+                "working_on_next": { "type": "array", "items": { "type": "string" }, "description": "current and next steps, one entry each" },
+                "keep_done": { "type": "boolean" }, "keep_next": { "type": "boolean" },
+                "done_append": { "type": "array", "items": { "type": "string" } },
+                "next_append": { "type": "array", "items": { "type": "string" } },
+                "expected_rev": { "type": "integer", "description": "update: refuse if the item moved since you read it" },
+                "participants": { "type": "array", "items": { "type": "string" }, "description": "create: collaborators" },
+                "add": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to add" },
+                "remove": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to drop" },
+                "dependencies": { "type": "array", "items": { "type": "string" }, "description": "create: items this one depends on" },
+                "parent": { "type": "string", "description": "create/move: the parent item (move with no parent un-nests)" },
+                "by": { "type": "string", "description": "supersede: the item that replaces this one" },
+                "target": { "type": "string", "description": "handoff: who should take it (default your superior)" },
+                "reason": { "type": "string", "description": "handoff: why" },
+                "ref": { "type": "string", "description": "evidence: path/url/sha/log (max 500)" },
+                "note": { "type": "string", "description": "evidence / accept: free text" },
+                "items": { "type": "array", "items": { "type": "object" }, "description": "evidence: a batch of {kind, ref, note}" },
             }),
             &["action"],
         ),
