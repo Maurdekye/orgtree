@@ -23,6 +23,10 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_unstick",
         "orgtree_continue_on",
         "orgtree_account_mark",
+        "orgtree_ask",
+        "orgtree_withdraw_ask",
+        "orgtree_request_credits",
+        "orgtree_request_scope",
         "orgtree_hire",
         "orgtree_rehire",
         "orgtree_retire",
@@ -56,6 +60,15 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
 }
 
 const KINDS: &[&str] = &["message", "question", "request", "decision", "status"];
+
+static OPTIONS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    json!({ "type": "array", "maxItems": 4,
+            "description": "2-4 answer options; omit for a free-response question",
+            "items": { "type": "object", "properties": {
+                "label": { "type": "string", "description": "concise choice (1-5 words)" },
+                "description": { "type": "string", "description": "what picking it means" } },
+                "required": ["label"] } })
+});
 const VIS: &[&str] = &["self", "team", "subtree", "full"];
 const PM: &[&str] = &["default", "acceptEdits", "bypassPermissions"];
 const EFFORT: &[&str] = &["low", "medium", "high", "xhigh", "max", ""];
@@ -220,12 +233,22 @@ fn all() -> Vec<Value> {
         // ---- arriving with build step 5
         tool(
             "orgtree_ask",
-            "Ask the user one question (or up to 4 as tabs) on a card. End your turn after asking; the answer \
-             arrives as mail.",
+            "Ask the user a question (or up to 4 as `questions` tabs) on a card; give 2-4 options or none for a \
+             free answer. You have ONE open request: asking again adds or amends tabs. End your turn after asking; \
+             the answer arrives as mail. Withdraw it when it becomes moot. Without a user audience (and not \
+             top-level) it goes to your superior as mail.",
             json!({
-                "question": { "type": "string" }, "header": { "type": "string" },
-                "options": { "type": "array", "items": { "type": "object" } }, "multi": { "type": "boolean" },
-                "work_item": { "type": "string" }, "questions": { "type": "array", "items": { "type": "object" } },
+                "question": { "type": "string", "description": "the complete question (or use `questions`)" },
+                "header": { "type": "string", "description": "very short label chip (max ~12 chars)" },
+                "options": OPTIONS.clone(),
+                "multi": { "type": "boolean", "description": "several options may be selected" },
+                "work_item": { "type": "string", "description": "docket item slug this is about" },
+                "questions": { "type": "array", "minItems": 1, "maxItems": 4,
+                               "description": "1-4 questions as one tabbed card; overrides the single form",
+                               "items": { "type": "object", "properties": {
+                                   "question": { "type": "string" }, "header": { "type": "string" },
+                                   "options": OPTIONS.clone(), "multi": { "type": "boolean" },
+                                   "work_item": { "type": "string" } }, "required": ["question"] } },
             }),
             &[],
         ),
@@ -311,7 +334,13 @@ fn all() -> Vec<Value> {
         tool(
             "orgtree_request_scope",
             "Ask the user for more folders, tools or permissions.",
-            json!({ "items": { "type": "array", "items": { "type": "object" } }, "reason": { "type": "string" } }),
+            json!({ "items": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "object", "properties": {
+                        "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
+                        "path": { "type": "string", "description": "dir: the absolute folder path" },
+                        "mode": { "type": "string", "description": "dir: ro|rw; permission_mode: the mode" },
+                        "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents"] },
+                        "server": { "type": "string", "description": "mcp: the server name" } }, "required": ["kind"] } },
+                    "reason": { "type": "string" } }),
             &["items", "reason"],
         ),
         tool(

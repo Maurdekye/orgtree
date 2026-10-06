@@ -388,7 +388,27 @@ pub async fn set_scope(
     Json(b): Json<Value>,
 ) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
-    let a = agent(&e, &org, &nid).await?;
+    Ok(Json(apply_user_scope(&e, &org, &nid, &b).await?))
+}
+
+/// The user changes an agent's scope; what the chain above does not hold is
+/// raised on the way up (the user grants it). Also how granted scope
+/// requests apply.
+#[logged]
+pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<Value> {
+    let a = {
+        let client = e.db.get().await?;
+        let r = client
+            .query_opt(
+                "SELECT id, name, state, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
+                &[&org.id, &nid],
+            )
+            .await?;
+        match r {
+            Some(r) => Agent { id: r.get(0), name: r.get(1), state: r.get(2), parent_id: r.get(3) },
+            None => crate::refuse!(NotFound, "no agent named {nid}"),
+        }
+    };
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
     let row = tx
@@ -408,20 +428,20 @@ pub async fn set_scope(
     }
     if let Some(v) = b.get("org_visibility").and_then(Value::as_str) {
         if !scope::VIS_LEVELS.contains(&v) {
-            return Err(ApiError::bad_request(format!("unknown visibility {v}")));
+            crate::refuse!(BadRequest, "unknown visibility {v}");
         }
         obj.insert("org_visibility".into(), json!(v));
     }
     if let Some(v) = b.get("permission_mode").and_then(Value::as_str) {
         if !scope::PM_LEVELS.contains(&v) {
-            return Err(ApiError::bad_request(format!("unknown permission mode {v}")));
+            crate::refuse!(BadRequest, "unknown permission mode {v}");
         }
         obj.insert("permission_mode".into(), json!(v));
     }
     if let Some(v) = b.get("effort") {
         let level = v.as_str().unwrap_or("").to_string();
         if !level.is_empty() && !crate::providers::catalog::EFFORTS.contains(&level.as_str()) {
-            return Err(ApiError::bad_request(format!("unknown effort {level}")));
+            crate::refuse!(BadRequest, "unknown effort {level}");
         }
         let old = obj.get("effort").and_then(Value::as_str).unwrap_or("").to_string();
         if level.is_empty() {
@@ -506,7 +526,7 @@ pub async fn set_scope(
             .and_then(|v| v.get("effort_delivery").cloned())
             .unwrap_or_else(|| json!("next_turn"));
     }
-    Ok(Json(out))
+    Ok(out)
 }
 
 /// Raise each ancestor's configured scope to cover `child` (tools, MCP

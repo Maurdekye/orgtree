@@ -1,6 +1,7 @@
 //! HTTP: every `/api/*` route the renderer and the desktop call, the two
 //! push sockets, and the renderer bundle.
 
+pub mod asks;
 pub mod desktop;
 pub mod error;
 pub mod mailbox;
@@ -42,6 +43,9 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
         .route("/api/orgs/{slug}/retry", post(orgops::retry))
         .route("/api/orgs/{slug}/settings", post(settings::save_org))
+        .route("/api/orgs/{slug}/asks/{aid}/answer", post(asks::answer))
+        .route("/api/orgs/{slug}/credit-requests", post(asks::credit))
+        .route("/api/orgs/{slug}/nodes/{nid}/batch", post(asks::batch))
         .route("/api/orgs/{slug}/inbox", get(mailbox::inbox))
         .route("/api/orgs/{slug}/inbox/read", post(mailbox::mark_read))
         .route("/api/orgs/{slug}/inbox/clear", post(mailbox::clear))

@@ -116,6 +116,9 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_unstick" => control::unstick(engine, caller, args).await,
         "orgtree_continue_on" => control::continue_on(engine, caller, args).await,
         "orgtree_account_mark" => control::account_mark(engine, caller, args).await,
+        "orgtree_ask" | "orgtree_request_credits" | "orgtree_request_scope" | "orgtree_withdraw_ask" => {
+            ask_tool(engine, caller, name, args).await
+        }
         "orgtree_hire" => treetools::run(engine, caller, args, "hire").await,
         "orgtree_rehire" => treetools::run(engine, caller, args, "rehire").await,
         "orgtree_retire" => treetools::run(engine, caller, args, "retire").await,
@@ -271,4 +274,29 @@ pub fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
         Some(s) => Ok(s),
         None => crate::refuse!(BadRequest, "`{key}` is required"),
     }
+}
+
+/// orgtree_ask / request_credits / request_scope / withdraw_ask.
+#[logged]
+async fn ask_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value) -> Result<Done> {
+    use crate::domain::asks;
+    let Some(org) = engine.orgs.by_id(caller.org_id) else {
+        crate::refuse!(NotFound, "organization not open");
+    };
+    let a = asks::asker(engine, caller.org_id, caller.agent_id).await?;
+    let text = match name {
+        "orgtree_ask" => asks::ask(engine, &org, &a, args).await?,
+        "orgtree_request_credits" => {
+            let Some(n) = args["new_limit"].as_f64() else {
+                crate::refuse!(BadRequest, "new_limit is the requested new total grant");
+            };
+            asks::request_credits(engine, &org, &a, n, args["reason"].as_str().unwrap_or("")).await?
+        }
+        "orgtree_request_scope" => {
+            let items = args["items"].as_array().cloned().unwrap_or_default();
+            asks::request_scope(engine, &org, &a, &items, args["reason"].as_str().unwrap_or("")).await?
+        }
+        _ => asks::withdraw(engine, &org, a.id).await?,
+    };
+    Done::text(text)
 }
