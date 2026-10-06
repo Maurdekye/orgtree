@@ -745,6 +745,14 @@ Never rewrite pushed history or force-push. [decided: team charter; user 2026-10
   check the Windows event log, `update-log.json` (updater and installer) and
   `Crashpad\reports\` (Electron). The hardware has a history of memory faults: consider that
   only after the ordinary causes. [verified: `engine/enginelog.py`, `engine/stall_watch.py`]
+- Long lock holds: `<data>\diagnostics\slow-transactions.jsonl` has one line per org
+  transaction that waited or held ≥ 1 s (or was org-wide, or failed): caller label, lock
+  plan, `wait_ms`/`hold_ms`, the hold split into `load_ms`/`body_ms`/`commit_ms`/`cpu_ms`,
+  and for holds past 0.5 s the holder's sampled Python `stacks` (names only). `body_ms` is
+  the caller's own code inside the transaction; `cpu_ms` far below `hold_ms` means it
+  waited (database, disk, GIL, sleep). Lines are per process `pid`: split by pid before
+  blaming a build. [verified-from-source 2026-10-06: `orgtree/txlog.py`,
+  `tests/test_txlog_sampling.py`]
 
 ## Releases, builds and updates
 
