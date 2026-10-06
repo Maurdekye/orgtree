@@ -68,11 +68,12 @@ user, DECISIONS 39]
   `impl` block; it logs every call with its arguments and its return value under one invocation id.
   Mark only extremely hot methods (per-token streaming, per-record feed rebuilding, tiny helpers)
   `#[nolog]`. Verbose logging is off by default in packaged builds and on in development builds.
-- **No secrets in what gets logged.** The log masks a value only when its JSON field name is on the
-  masked list (`token`, `key`, `password`, `api_key`, `authorization`…, see `masked()` in
-  `trace.rs`); a value logged through `Debug` is not masked at all. So never put a secret in a
-  `Serialize` type under any other field name, and never give a secret-holding type a `Debug` that
-  prints it; keep secrets out of logged arguments and return values.
+- **Never derive `Serialize` on a struct that holds a secret** (a key, token, password or
+  credential). [decided: rust-engine session, relayed by the coordinator 2026-10-06] Why: logged
+  arguments and return values are serialized into the log, and the log masks a value only when its
+  JSON field name is on the masked list (`token`, `key`, `password`, `api_key`, `authorization`…,
+  see `masked()` in `trace.rs`); a value logged through `Debug` is not masked at all. So also never
+  give a secret-holding type a `Debug` that prints the secret.
 - **Transport:** HTTP for loads and actions, the org and app sockets for pushed updates, with
   rooms so a window receives only what it shows; agents reach the engine over their CLI's own
   pipes, never HTTP. [decided: user, DECISIONS 13–14; PLAN §2, §4]
