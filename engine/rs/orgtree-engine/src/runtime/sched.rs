@@ -50,6 +50,8 @@ pub struct SchedStats {
 pub struct Slot {
     tx: mpsc::UnboundedSender<Msg>,
     held: Arc<AtomicUsize>,
+    org: i64,
+    agent: i64,
 }
 
 impl std::fmt::Debug for Slot {
@@ -60,7 +62,8 @@ impl std::fmt::Debug for Slot {
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        self.held.fetch_sub(1, Ordering::SeqCst);
+        let held = self.held.fetch_sub(1, Ordering::SeqCst) - 1;
+        tracing::info!(org = self.org, agent = self.agent, held, "turn slot released");
         let _ = self.tx.send(Msg::Released);
     }
 }
@@ -188,7 +191,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                 }
                 let Some(org) = rotation.pop_front() else { break };
                 let Some(q) = queues.get_mut(&org) else { continue };
-                let Some((_agent, reply)) = q.pop_front() else {
+                let Some((agent, reply)) = q.pop_front() else {
                     continue;
                 };
                 if !q.is_empty() {
@@ -197,8 +200,9 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                 if reply.is_closed() {
                     continue;
                 }
-                sched.held.fetch_add(1, Ordering::SeqCst);
-                let slot = Slot { tx: sched.tx.clone(), held: sched.held.clone() };
+                let held = sched.held.fetch_add(1, Ordering::SeqCst) + 1;
+                tracing::info!(org, agent, held, limit = sched.limit.load(Ordering::SeqCst), "turn slot granted");
+                let slot = Slot { tx: sched.tx.clone(), held: sched.held.clone(), org, agent };
                 if let Err(slot) = reply.send(slot) {
                     drop(slot);
                 }

@@ -52,14 +52,14 @@ pub enum AgentMsg {
     /// scope/model/account/charter changed: the next turn needs a fresh process
     Reconfigured,
     /// a line from the Claude CLI
-    Claude(Value),
+    Claude(uuid::Uuid, Value),
     /// a JSON-RPC notification/response from the Codex app-server
-    Codex(Value),
+    Codex(uuid::Uuid, Value),
     /// a stream-json event from the Antigravity CLI
-    Agy(Value),
+    Agy(uuid::Uuid, Value),
     /// the PostToolUse hook: return waiting mail as additional context
     Hook { input: Value, reply: oneshot::Sender<Value> },
-    ProcExited,
+    ProcExited { process: uuid::Uuid, reason: String },
     /// the live tail and runtime for a chat read
     Live(oneshot::Sender<actor::LiveView>),
     /// retire/delete/shutdown: end everything and stop
@@ -83,6 +83,30 @@ pub struct Envelope {
 
 pub type AgentTx = mpsc::UnboundedSender<Envelope>;
 
+/// A stream can close before the OS reports the exit. Bound the wait and
+/// distinguish that uncertainty from an actual process exit code.
+#[logged]
+pub async fn exit_status(child: &mut Option<tokio::process::Child>, pid: u32,
+                         process: uuid::Uuid, reason: &str) -> String {
+    let status = match child.as_mut() {
+        Some(child) => wait_exit(child, pid, process, reason, std::time::Duration::from_secs(1)).await,
+        None => "exit status unavailable (process already reaped)".to_string(),
+    };
+    status
+}
+
+#[logged]
+pub async fn wait_exit(child: &mut tokio::process::Child, pid: u32,
+                       process: uuid::Uuid, reason: &str, timeout: std::time::Duration) -> String {
+    let status = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => format!("{status}"),
+        Ok(Err(error)) => format!("exit status unavailable: {error}"),
+        Err(_) => "exit status unavailable: process has not exited".to_string(),
+    };
+    tracing::info!(pid, %process, reason, %status, "CLI exit observation");
+    status
+}
+
 pub trait Post {
     fn post(&self, msg: AgentMsg) -> bool;
 }
@@ -90,7 +114,7 @@ pub trait Post {
 impl Post for AgentTx {
     fn post(&self, msg: AgentMsg) -> bool {
         // the CLI's stream lines run under their turn's request
-        let cause = if matches!(msg, AgentMsg::Claude(_) | AgentMsg::Codex(_) | AgentMsg::Agy(_)) { None } else { crate::trace::current_rq() };
+        let cause = if matches!(msg, AgentMsg::Claude(_, _) | AgentMsg::Codex(_, _) | AgentMsg::Agy(_, _)) { None } else { crate::trace::current_rq() };
         self.send(Envelope { msg, cause }).is_ok()
     }
 }

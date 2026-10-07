@@ -70,6 +70,7 @@ impl std::fmt::Debug for SpawnSpec {
 /// A running Claude process. Dropping it ends the process tree.
 pub struct ClaudeProc {
     pub pid: u32,
+    pub process: uuid::Uuid,
     stdin: mpsc::UnboundedSender<String>,
     waiters: mpsc::UnboundedSender<(String, oneshot::Sender<Value>)>,
     child: Option<Child>,
@@ -146,6 +147,8 @@ impl ClaudeProc {
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
         let job = winproc::child_job(&child);
         let pid = child.id().unwrap_or(0);
+        let process = uuid::Uuid::new_v4();
+        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Claude", "CLI started");
         let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
@@ -178,8 +181,8 @@ impl ClaudeProc {
         ));
         let (wtx, wrx) = mpsc::unbounded_channel();
         let writer = tx.clone();
-        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, writer, wrx), proc_span));
-        let proc = ClaudeProc { pid, stdin: tx, waiters: wtx, child: Some(child), job, session_id };
+        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, writer, wrx), proc_span));
+        let proc = ClaudeProc { pid, process, stdin: tx, waiters: wtx, child: Some(child), job, session_id };
         // Register the in-process MCP server and the mail hook before any turn.
         let init = proc
             .request(
@@ -253,7 +256,7 @@ impl ClaudeProc {
         }
         if let Some(mut c) = self.child.take() {
             let _ = c.start_kill();
-            let _ = tokio::time::timeout(Duration::from_secs(5), c.wait()).await;
+            let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
         }
     }
 
@@ -262,13 +265,19 @@ impl ClaudeProc {
         let (tx, _) = mpsc::unbounded_channel();
         self.stdin = tx;
         if let Some(mut c) = self.child.take() {
-            if tokio::time::timeout(Duration::from_secs(5), c.wait()).await.is_err() {
+            let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
+            if status.starts_with("exit status unavailable") {
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
                 let _ = c.start_kill();
+                let _ = super::wait_exit(&mut c, self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
             }
         }
+    }
+
+    pub async fn exit_status(&mut self, reason: &str) -> String {
+        super::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {
@@ -285,21 +294,24 @@ async fn read_stdout(
     stdout: tokio::process::ChildStdout,
     caller: Caller,
     actor: AgentTx,
+    process: uuid::Uuid,
     writer: mpsc::UnboundedSender<String>,
     mut waiters_rx: mpsc::UnboundedReceiver<(String, oneshot::Sender<Value>)>,
 ) {
     let mut lines = BufReader::with_capacity(1 << 16, stdout).lines();
     // owned only by this task: request id -> its waiter
     let mut waiters: std::collections::HashMap<String, oneshot::Sender<Value>> = std::collections::HashMap::new();
-    loop {
+    let mut waiters_open = true;
+    let reason = loop {
         let line = tokio::select! {
-            w = waiters_rx.recv() => {
-                if let Some((id, tx)) = w { waiters.insert(id, tx); }
+            w = waiters_rx.recv(), if waiters_open => {
+                if let Some((id, tx)) = w { waiters.insert(id, tx); } else { waiters_open = false; }
                 continue;
             }
             l = lines.next_line() => match l {
                 Ok(Some(l)) => l,
-                Ok(None) | Err(_) => break,
+                Ok(None) => break "stdout EOF".to_string(),
+                Err(e) => break format!("stdout read failed: {e}"),
             },
         };
         if line.trim().is_empty() {
@@ -343,13 +355,13 @@ async fn read_stdout(
             }
             Some("control_cancel_request") => {}
             _ => {
-                if !actor.post(AgentMsg::Claude(v)) {
-                    break;
+                if !actor.post(AgentMsg::Claude(process, v)) {
+                    break "actor closed".to_string();
                 }
             }
         }
-    }
-    let _ = actor.post(AgentMsg::ProcExited);
+    };
+    let _ = actor.post(AgentMsg::ProcExited { process, reason });
 }
 
 #[logged]

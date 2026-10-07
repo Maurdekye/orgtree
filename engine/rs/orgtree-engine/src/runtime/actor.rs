@@ -235,6 +235,23 @@ enum Proc {
 #[logged]
 impl Proc {
     #[nolog]
+    fn process(&self) -> uuid::Uuid {
+        match self {
+            Proc::Claude(p) => p.process,
+            Proc::Codex(p) => p.process,
+            Proc::Agy(p) => p.process,
+        }
+    }
+
+    async fn exit_status(&mut self, reason: &str) -> String {
+        match self {
+            Proc::Claude(p) => p.exit_status(reason).await,
+            Proc::Codex(p) => p.exit_status(reason).await,
+            Proc::Agy(p) => p.exit_status(reason).await,
+        }
+    }
+
+    #[nolog]
     fn alive(&mut self) -> bool {
         match self {
             Proc::Claude(p) => p.alive(),
@@ -460,15 +477,18 @@ impl Actor {
                     let Some(env) = msg else { break };
                     let res = match env.msg {
                         // the CLI's stream runs under its turn's request
-                        AgentMsg::Claude(v) => {
+                        AgentMsg::Claude(process, v) => {
+                            if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_claude(v), span).await
                         }
-                        AgentMsg::Codex(v) => {
+                        AgentMsg::Codex(process, v) => {
+                            if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_codex(v), span).await
                         }
-                        AgentMsg::Agy(v) => {
+                        AgentMsg::Agy(process, v) => {
+                            if !self.owns_process(process) { continue; }
                             let span = self.turn.as_ref().map(|t| t.span.clone()).unwrap_or_else(|| self.span.clone());
                             tracing::Instrument::instrument(self.on_agy(v), span).await
                         }
@@ -568,9 +588,15 @@ impl Actor {
         match msg {
             AgentMsg::Wake => self.on_wake().await?,
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
-            AgentMsg::Claude(v) => self.on_claude(v).await?,
-            AgentMsg::Codex(v) => self.on_codex(v).await?,
-            AgentMsg::Agy(v) => self.on_agy(v).await?,
+            AgentMsg::Claude(process, v) => {
+                if self.owns_process(process) { self.on_claude(v).await?; }
+            }
+            AgentMsg::Codex(process, v) => {
+                if self.owns_process(process) { self.on_codex(v).await?; }
+            }
+            AgentMsg::Agy(process, v) => {
+                if self.owns_process(process) { self.on_agy(v).await?; }
+            }
             AgentMsg::Hook { input, reply } => {
                 let out = match self.on_hook(&input).await {
                     Ok(v) => v,
@@ -581,7 +607,7 @@ impl Actor {
                 };
                 let _ = reply.send(out);
             }
-            AgentMsg::ProcExited => self.on_exit().await?,
+            AgentMsg::ProcExited { process, reason } => self.on_exit(process, &reason).await?,
             AgentMsg::Interrupt(reply) => {
                 let r = if self.turn.is_some() {
                     if let Some(t) = self.turn.as_mut() {
@@ -808,6 +834,8 @@ impl Actor {
             return Ok(());
         }
         self.slot = Some(slot);
+        // Admission is complete before slow process replacement/initialization.
+        self.publish();
         match self.start_turn().await {
             Ok(true) => {}
             Ok(false) => {
@@ -1777,6 +1805,8 @@ impl Actor {
 
     fn take_turn(&mut self) -> Option<Turn> {
         let t = self.turn.take();
+        // Cleanup may fail in the database; a finished turn must never retain a slot.
+        self.slot = None;
         if t.is_some() {
             self.org.turn_delta(&self.engine, -1);
         }
@@ -2824,13 +2854,23 @@ impl Actor {
         self.end_turn(error, v.clone()).await
     }
 
-    async fn on_exit(&mut self) -> Result<()> {
+    #[nolog]
+    fn owns_process(&self, process: uuid::Uuid) -> bool {
+        self.proc.as_ref().map(Proc::process) == Some(process)
+    }
+
+    async fn on_exit(&mut self, process: uuid::Uuid, reason: &str) -> Result<()> {
+        if !self.owns_process(process) {
+            tracing::info!(agent = self.id, %process, reason, "ignored exit from replaced CLI");
+            return Ok(());
+        }
+        let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         self.proc = None;
         self.proc_print = None;
         self.unpark();
         if self.turn.is_some() {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
-            let msg = if quiet { None } else { Some(format!("the {} process exited during the turn", catalog::provider_label(&self.provider))) };
+            let msg = if quiet { None } else { Some(format!("the {} process exited during the turn ({status}; {reason})", catalog::provider_label(&self.provider))) };
             self.end_turn(msg, Value::Null).await?;
         }
         self.publish();
@@ -3269,7 +3309,10 @@ impl Actor {
         if let Some(t) = tool {
             activity["tool"] = json!(t);
         }
-        let queued_for_slot = self.waiting_since.map(|since| {
+        let queued_for_slot = self.waiting_since.filter(|_|
+            self.engine.sched.held.load(std::sync::atomic::Ordering::SeqCst)
+                >= self.engine.sched.limit.load(std::sync::atomic::Ordering::SeqCst)
+        ).map(|since| {
             json!({ "since": since.timestamp(),
                     "limit": self.engine.sched.limit.load(std::sync::atomic::Ordering::SeqCst),
                     "waiting": self.engine.sched.waiting.load(std::sync::atomic::Ordering::SeqCst) })

@@ -61,6 +61,7 @@ pub struct AgySpec {
 /// A running `agy` process. Dropping it ends the process tree and its tool pipe.
 pub struct AgyProc {
     pub pid: u32,
+    pub process: uuid::Uuid,
     stdin: mpsc::UnboundedSender<String>,
     child: Option<Child>,
     job: Option<winproc::ChildJob>,
@@ -124,6 +125,8 @@ impl AgyProc {
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
         let job = winproc::child_job(&child);
         let pid = child.id().unwrap_or(0);
+        let process = uuid::Uuid::new_v4();
+        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Agy", "CLI started");
         let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
@@ -155,25 +158,26 @@ impl AgyProc {
             async move {
                 let mut reader = BufReader::with_capacity(1 << 16, stdout);
                 let mut buf = Vec::new();
-                loop {
+                let reason = loop {
                     buf.clear();
                     match reader.read_until(b'\n', &mut buf).await {
-                        Ok(0) | Err(_) => break,
+                        Ok(0) => break "stdout EOF".to_string(),
+                        Err(e) => break format!("stdout read failed: {e}"),
                         Ok(_) => {}
                     }
                     let Ok(v) = serde_json::from_slice::<Value>(&buf) else { continue };
                     if !v.is_object() {
                         continue;
                     }
-                    if !actor.post(AgentMsg::Agy(v)) {
-                        break;
+                    if !actor.post(AgentMsg::Agy(process, v)) {
+                        break "actor closed".to_string();
                     }
-                }
-                let _ = actor.post(AgentMsg::ProcExited);
+                };
+                let _ = actor.post(AgentMsg::ProcExited { process, reason });
             },
             proc_span,
         ));
-        Ok(AgyProc { pid, stdin: tx, child: Some(child), job, pipe, model: spec.model })
+        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model })
     }
 
     /// One prompt; the process answers with a `result` and waits for the next.
@@ -199,7 +203,7 @@ impl AgyProc {
         }
         if let Some(mut c) = self.child.take() {
             let _ = c.start_kill();
-            let _ = tokio::time::timeout(Duration::from_secs(5), c.wait()).await;
+            let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
         }
     }
 
@@ -207,14 +211,20 @@ impl AgyProc {
         let (tx, _) = mpsc::unbounded_channel();
         self.stdin = tx;
         if let Some(mut c) = self.child.take() {
-            if tokio::time::timeout(Duration::from_secs(5), c.wait()).await.is_err() {
+            let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
+            if status.starts_with("exit status unavailable") {
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
                 let _ = c.start_kill();
+                let _ = super::wait_exit(&mut c, self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
             }
         }
         self.pipe.cancel();
+    }
+
+    pub async fn exit_status(&mut self, reason: &str) -> String {
+        super::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {

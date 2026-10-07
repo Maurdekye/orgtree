@@ -62,6 +62,7 @@ impl std::fmt::Debug for CodexSpec {
 /// A running `codex app-server`. Dropping it ends the process tree.
 pub struct CodexProc {
     pub pid: u32,
+    pub process: uuid::Uuid,
     out: mpsc::UnboundedSender<String>,
     waiters: mpsc::UnboundedSender<(i64, oneshot::Sender<Value>)>,
     next: AtomicI64,
@@ -119,6 +120,8 @@ impl CodexProc {
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
         let job = winproc::child_job(&child);
         let pid = child.id().unwrap_or(0);
+        let process = uuid::Uuid::new_v4();
+        tracing::info!(agent = caller.agent_id, pid, %process, provider = "Codex", "CLI started");
         let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
@@ -148,9 +151,10 @@ impl CodexProc {
         ));
         let (wtx, wrx) = mpsc::unbounded_channel();
         let policy = Policy { may_write: spec.may_write, may_shell: spec.may_shell };
-        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, tx.clone(), wrx, policy), proc_span));
+        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, tx.clone(), wrx, policy), proc_span));
         let mut proc = CodexProc {
             pid,
+            process,
             out: tx,
             waiters: wtx,
             next: AtomicI64::new(1),
@@ -274,7 +278,7 @@ impl CodexProc {
         }
         if let Some(mut c) = self.child.take() {
             let _ = c.start_kill();
-            let _ = tokio::time::timeout(Duration::from_secs(5), c.wait()).await;
+            let _ = super::wait_exit(&mut c, self.pid, self.process, "termination requested", Duration::from_secs(5)).await;
         }
     }
 
@@ -283,13 +287,19 @@ impl CodexProc {
         let (tx, _) = mpsc::unbounded_channel();
         self.out = tx;
         if let Some(mut c) = self.child.take() {
-            if tokio::time::timeout(Duration::from_secs(5), c.wait()).await.is_err() {
+            let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
+            if status.starts_with("exit status unavailable") {
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
                 let _ = c.start_kill();
+                let _ = super::wait_exit(&mut c, self.pid, self.process, "close required termination", Duration::from_secs(1)).await;
             }
         }
+    }
+
+    pub async fn exit_status(&mut self, reason: &str) -> String {
+        super::exit_status(&mut self.child, self.pid, self.process, reason).await
     }
 
     pub fn alive(&mut self) -> bool {
@@ -317,6 +327,7 @@ async fn read_stdout(
     stdout: tokio::process::ChildStdout,
     caller: Caller,
     actor: AgentTx,
+    process: uuid::Uuid,
     writer: mpsc::UnboundedSender<String>,
     mut waiters_rx: mpsc::UnboundedReceiver<(i64, oneshot::Sender<Value>)>,
     policy: Policy,
@@ -325,16 +336,18 @@ async fn read_stdout(
     let mut buf: Vec<u8> = Vec::new();
     // owned only by this task: request id → its waiter
     let mut waiters: HashMap<i64, oneshot::Sender<Value>> = HashMap::new();
-    loop {
+    let mut waiters_open = true;
+    let reason = loop {
         let got = tokio::select! {
-            w = waiters_rx.recv() => {
-                if let Some((id, tx)) = w { waiters.insert(id, tx); }
+            w = waiters_rx.recv(), if waiters_open => {
+                if let Some((id, tx)) = w { waiters.insert(id, tx); } else { waiters_open = false; }
                 continue;
             }
             n = reader.read_until(b'\n', &mut buf) => n,
         };
         match got {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break "stdout EOF".to_string(),
+            Err(e) => break format!("stdout read failed: {e}"),
             Ok(_) => {}
         }
         let parsed = serde_json::from_slice::<Value>(&buf);
@@ -359,7 +372,7 @@ async fn read_stdout(
                 let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
                 tokio::spawn(tracing::Instrument::instrument(
                     async move {
-                        let reply = match answer(&engine, &caller, &actor, &method, &params, policy).await {
+                        let reply = match answer(&engine, &caller, &actor, &method, &params, policy, process).await {
                             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
                             Err(e) => json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": e.to_string() } }),
                         };
@@ -369,19 +382,19 @@ async fn read_stdout(
                 ));
             }
             (false, Some(_)) => {
-                if !actor.post(AgentMsg::Codex(v)) {
-                    break;
+                if !actor.post(AgentMsg::Codex(process, v)) {
+                    break "actor closed".to_string();
                 }
             }
             _ => {}
         }
-    }
-    let _ = actor.post(AgentMsg::ProcExited);
+    };
+    let _ = actor.post(AgentMsg::ProcExited { process, reason });
 }
 
 /// A request from the app-server: an `orgtree_*` tool call, or an approval.
 #[logged]
-async fn answer(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: &str, params: &Value, policy: Policy) -> Result<Value> {
+async fn answer(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: &str, params: &Value, policy: Policy, process: uuid::Uuid) -> Result<Value> {
     match method {
         "item/tool/call" => {
             let tool = params["tool"].as_str().unwrap_or("");
@@ -400,7 +413,7 @@ async fn answer(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: 
                 } else {
                     json!({ "tool": "exec_command", "arg": crate::util::gist(params["command"].as_str().unwrap_or(""), 90) })
                 };
-                let _ = actor.post(AgentMsg::Codex(json!({ "method": "orgtree/denied", "params": what })));
+                let _ = actor.post(AgentMsg::Codex(process, json!({ "method": "orgtree/denied", "params": what })));
             }
             if m == "item/permissions/requestApproval" {
                 return Ok(json!({ "permissions": {}, "scope": "turn" }));
