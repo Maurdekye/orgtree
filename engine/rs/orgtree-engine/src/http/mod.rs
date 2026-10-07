@@ -140,7 +140,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/foreground-tree/{*rest}", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-items-foreground", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-items-archive-page", get(orgs::compatibility))
-        .route("/api/orgs/{slug}/work-item-references", get(orgs::compatibility))
+        .route("/api/orgs/{slug}/work-item-references", get(docket::references))
         .route("/api/orgs/{slug}/work-item-reference/{wid}", get(orgs::compatibility))
         .route("/api/orgs/{slug}/work-items-view", get(docket::view))
         .route("/api/orgs/{slug}/staffing-options", get(docket::staffing_options))

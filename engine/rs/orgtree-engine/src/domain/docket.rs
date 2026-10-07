@@ -583,6 +583,34 @@ async fn load(client: &impl GenericClient, org_id: i64, slug: &str, lock: bool) 
     }
 }
 
+/// Resolve only the named docket links, never the full archive. User-only
+/// HTTP callers have the same visibility as user_get; missing/deleted names
+/// are omitted so the renderer can distinguish absence from request failure.
+#[logged]
+pub async fn user_references(engine: &Engine, org: &OrgHandle, names: &[String]) -> Result<Value> {
+    if names.len() > 128 {
+        refuse!(BadRequest, "at most 128 docket references per request");
+    }
+    if names.is_empty() {
+        return Ok(json!({ "references": [] }));
+    }
+    let client = engine.db.get().await?;
+    let rows = client.query(
+        &format!("SELECT {COLS} FROM ot.work_items WHERE org_id = $1 AND slug = ANY($2)
+                  AND NOT coalesce((extra->>'deleted')::boolean, false)"),
+        &[&org.id, &names],
+    ).await?;
+    let ctx = ctx(&**client, org).await?;
+    let mut references = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let row = list_row(&view(&item_of(r), &ctx, None));
+        references.push(json!({ "slug": row["slug"], "title": row["title"], "parent": row["parent"],
+            "archived": row["archived"], "status": row["status"], "rev": row["rev"],
+            "view_revision": row["view_revision"] }));
+    }
+    Ok(json!({ "references": references }))
+}
+
 /// History rows and attachments of one item.
 #[logged]
 async fn detail(client: &impl GenericClient, it: &Item) -> Result<(Vec<Value>, Vec<Value>)> {

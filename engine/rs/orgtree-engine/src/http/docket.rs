@@ -45,6 +45,22 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<(String, 
     Ok(Json(json!({ "item": docket::user_get(&e, &o, &wid).await? })))
 }
 
+#[derive(Deserialize, Debug, Default)]
+pub struct ReferenceQuery {
+    #[serde(default)]
+    names: String,
+}
+
+#[logged]
+pub async fn references(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<ReferenceQuery>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    let names: Vec<String> = q.names.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect();
+    if names.len() > 128 {
+        return Err(ApiError::bad_request("at most 128 docket references per request"));
+    }
+    Ok(Json(docket::user_references(&e, &o, &names).await?))
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ReplyBody {
     #[serde(default)]
