@@ -12,6 +12,7 @@
 // graph.
 import { ALL_TIERS, isOpenRouterTier, TIER_LETTER, tierLabel } from '../canvas/shared'
 import type { OrgListEntry, TreeNode, TreePayload } from '../types'
+import { AutorenewIcon } from '../icons'
 
 /** the cost chip's hover split: how much of the org total was served by
  *  API-key accounts vs subscriptions. Attribution is now per TURN, from the
@@ -100,7 +101,13 @@ export function ActiveAgentSummary({ tree, orgs = [] }: {
   return (
     <span className="chip agents"
       role="img" tabIndex={0} aria-label={title} title={title}>
-      {c.live} live{c.active > 0 ? ` · ${c.active} active` : ''}
+      <span className="org-activity">
+        {c.active > 0 && <span className="working-ct"
+          title={`${c.active} agent${c.active === 1 ? '' : 's'} active — a turn executing now`}>
+          <AutorenewIcon fontSize="inherit" className="cc-spin" />
+        </span>}
+      </span>
+      <span className="org-counts dim" title="active / hired agents">{c.active}/{c.live}</span>
       {c.tiers.map((tier) => (
         <b key={tier} className={'t-' + tier}>
           {TIER_LETTER[tier]}{c.byTier[tier]}

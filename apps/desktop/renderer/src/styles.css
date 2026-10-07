@@ -324,6 +324,11 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   display: inline-flex; align-items: center; gap: 2px;
   color: var(--accent); font-size: 11px; line-height: 1;
 }
+/* The org list and summary strip share this activity mark. Keep its presence
+   while reducing motion, so an executing turn is still distinguishable. */
+@media (prefers-reduced-motion: reduce) {
+  .org-activity .cc-spin { animation: none; }
+}
 /* hide-retired: the retired-list token under a parent card — the one canvas
    surface for retirees the setting hides. World-positioned like the cards
    (transform carries the translate), quiet like the retired pile's grey. */
