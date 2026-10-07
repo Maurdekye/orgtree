@@ -35,6 +35,18 @@ pub const ORG_STATE_CLOSE: &str = "[END ORG STATE]";
 /// The line a turn's mail ends with (3.x's wake text for mail).
 pub const MAIL_PING: &str =
     "(orgtree) You have new mail above — handle it as appropriate, and use orgtree_status when your own task state changes.";
+/// The line a delivery of passive notices only ends with (3.x `send_message`
+/// wake=False after a status report or send_notice, user ruling 2026-10-03:
+/// a status report wakes nobody and asks for no action).
+pub const NOTICE_PING: &str =
+    "(orgtree) A notice arrived in your mail above — informational, no reply expected. Note it and continue your current task.";
+
+/// The closing line for a delivery: the mail ping when anything in it
+/// expects handling, the notice ping when it is all passive notices.
+#[logged]
+pub fn ping_for(mail: &[Mail]) -> &'static str {
+    if !mail.is_empty() && mail.iter().all(|m| m.notice) { NOTICE_PING } else { MAIL_PING }
+}
 
 /// The chart's legend (3.x FR-1): the status words are claims, the bracket is their age.
 const CHART_LEGEND: &str = "\n(After \"·\": what each agent last SAID about itself via orgtree_status, and in brackets HOW OLD \

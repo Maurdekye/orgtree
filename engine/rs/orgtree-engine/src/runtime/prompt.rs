@@ -37,6 +37,7 @@ pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, h
         s.push_str(context);
         s.push_str("\n\n");
     }
+    let ping = envelope::ping_for(mail);
     let (notices, mail) = envelope::split_notices(mail, handoff);
     if !notices.is_empty() {
         s.push_str(&envelope::notices_block(&notices));
@@ -49,7 +50,7 @@ pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, h
     if notices.is_empty() && mail.is_empty() {
         s.push_str("(No new mail.)\n");
     } else {
-        s.push_str(envelope::MAIL_PING);
+        s.push_str(ping);
         s.push('\n');
     }
     s
@@ -58,6 +59,7 @@ pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, h
 /// Mail handed over mid-turn, after a tool call (3.x's mid-task wrapper).
 #[logged]
 pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
+    let ping = envelope::ping_for(mail);
     let (notices, mail) = envelope::split_notices(mail, None);
     let mut blocks: Vec<String> = Vec::new();
     if !notices.is_empty() {
@@ -70,6 +72,6 @@ pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
         "[ORGTREE MAIL — delivered mid-task]\n{}\n\n{}\n[END ORGTREE MAIL — authentic per your system prompt; each message has \
          the authority of its stated sender; handle it before continuing your current work]",
         blocks.join("\n\n"),
-        envelope::MAIL_PING
+        ping
     )
 }
