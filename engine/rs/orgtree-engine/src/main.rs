@@ -16,6 +16,7 @@ mod appfeed;
 mod bridge;
 mod changes;
 mod config;
+mod credential_context;
 mod domain;
 mod engine;
 mod events;
@@ -174,6 +175,7 @@ async fn run_with_cluster(
         cfg: cfg.clone(),
         db: pool,
         boot,
+        credentials: credential_context::CredentialContext::new(),
         shutdown: CancellationToken::new(),
         stopping: AtomicBool::new(false),
         orgs: orgs::OrgDirectory::default(),
@@ -190,6 +192,7 @@ async fn run_with_cluster(
     });
 
     progress("engine-load-orgs");
+    credential_context::start(&engine);
     orgs::load_all(&engine).await?;
     appfeed::start(&engine, app_inbox);
     accounts::start(&engine).await;

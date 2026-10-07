@@ -23,6 +23,7 @@ pub struct Engine {
     pub cfg: Config,
     pub db: Pool,
     pub boot: Boot,
+    pub credentials: crate::credential_context::CredentialContext,
     pub shutdown: CancellationToken,
     pub stopping: AtomicBool,
     pub orgs: crate::orgs::OrgDirectory,

@@ -16,6 +16,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Windows boot credential detection is advisory: the boot task remains S4U.
+  Session 0/batch-token warnings survive later interactive sign-in; a successful
+  empty Credential Manager query does not prove old DPAPI secrets decrypt. No
+  admission gate or restart is added. [verified-from-source and read-only probe:
+  2026-10-07; `docs/rust-engine/boot-credential-warning.md`; user warn-only ruling
+  12:33Z, credential bridge separately requested 12:40Z]
+
 - Cost labels show only `$X.XX`, including partial nonzero totals; unknown zero
   stays `$?`. Partial/estimated explanations stay in the existing hover titles.
   [recorded-decision: user 2026-10-07 09:49Z; verified-from-source:
