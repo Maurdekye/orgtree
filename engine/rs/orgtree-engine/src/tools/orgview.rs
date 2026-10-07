@@ -325,7 +325,7 @@ pub async fn list_orgs(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
 #[logged]
 pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
-    let last = args["last"].as_i64().unwrap_or(20).clamp(1, 80);
+    let last = transcript_last(args)?;
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
     let t = target(&client, me.org_id, node).await?;
@@ -336,25 +336,46 @@ pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value
         tracing::warn!(agent = t.id, error = %format!("{err:#}"), "earlier history could not be imported");
     }
     let page = crate::runtime::convo::read(&client, t.id, last, None, None).await?;
-    let mut out = String::new();
-    for m in page.messages {
-        let role = m["role"].as_str().unwrap_or("?");
-        let ts = m["ts"].as_str().unwrap_or("");
-        let text = m["text"].as_str().unwrap_or("");
-        out.push_str(&format!("[{ts}] {role}: {}\n", gist(text, 1500)));
-        for tool in m["tools"].as_array().cloned().unwrap_or_default() {
-            out.push_str(&format!(
-                "    · {} {}{}\n",
-                tool["name"].as_str().unwrap_or("tool"),
-                tool["arg"].as_str().unwrap_or(""),
-                tool.get("error").and_then(Value::as_str).map(|e| format!(" ⊘ {}", gist(e, 200))).unwrap_or_default()
-            ));
-        }
+    // The same persisted turn/occupancy fields used by chart and node views.
+    // Reading an idle or archived transcript must never start its actor.
+    let state = client.query_one(
+        "SELECT inflight_at IS NOT NULL, occupancy, occupancy_est FROM ot.agents WHERE id = $1",
+        &[&t.id],
+    ).await?;
+    let access = if t.id == me.id { json!({"via":"self"}) } else {
+        json!({"via":"chart", "note":format!("{} is your descendant — the ordinary downward read (§7.6)", t.name)})
+    };
+    Done::json(&transcript_result(node, access, state.get(0), state.get(1), state.get(2), page.messages))
+}
+
+/// Match 3.x's numeric coercion, default and bounded recent-row argument.
+#[logged]
+fn transcript_last(args: &Value) -> Result<i64> {
+    let raw = &args["last"];
+    let number = match raw {
+        Value::Null => return Ok(30),
+        Value::String(s) if s.is_empty() => return Ok(30),
+        Value::String(s) => s.trim().parse::<f64>().ok(),
+        Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        _ => raw.as_f64(),
+    };
+    match number.filter(|n| n.is_finite()) {
+        Some(n) => Ok(n.clamp(1.0, 80.0) as i64),
+        None => crate::refuse!(BadRequest, "last must be a number"),
     }
-    if out.is_empty() {
-        out = format!("{} has no conversation yet.", t.name);
-    }
-    Done::text(out)
+}
+
+/// Text alone is capped; preserve the complete stored tool objects/cards.
+#[logged]
+fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i32>, occupancy_estimated: bool,
+                     messages: Vec<Value>) -> Value {
+    let messages: Vec<Value> = messages.into_iter().map(|m| json!({
+        "role": m["role"],
+        "text": m["text"].as_str().unwrap_or("").chars().take(1200).collect::<String>(),
+        "tools": m.get("tools").cloned().unwrap_or_else(|| json!([])),
+    })).collect();
+    json!({"node":node, "access":access, "busy":busy, "occupancy":occupancy,
+           "occupancy_estimated":occupancy_estimated, "messages":messages})
 }
 
 #[logged]

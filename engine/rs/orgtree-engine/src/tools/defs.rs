@@ -196,7 +196,7 @@ fn all() -> Vec<Value> {
             "Read the recent conversation of yourself or an agent below you.",
             json!({
                 "node": { "type": "string" },
-                "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 20)" },
+                "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
             }),
             &["node"],
         ),
