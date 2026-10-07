@@ -218,6 +218,16 @@ steer delivery is recorded and never replayed. No startup prefix is rewritten.
 [verified from source: `runtime/codex.rs`, legacy `supervisor.py`; measured comparison:
 `docs/rust-engine/codex-sandbox-runner.md`]
 
+**Secondary account removal (2026-10-07, P37).** Rebind live/archived bindings,
+queued account/model intents and org/app hiring defaults in one transaction before
+removing a secondary account. Busy Codex/Antigravity session boundaries refuse
+all changes; busy Claude keeps the running session. Per-account database reference
+guards drain concurrent binders and reject removed identities; IDs are never
+reused. Legacy missing import references remain supported. Session changes use
+4.0's same-agent handoff. Runtime effects happen after commit, never under locks.
+[verified from source: `domain/account_removal.rs`, account-reference migration;
+measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
+
 ## Keep this file current
 
 **When you find an engine gotcha or a design invariant, or a new decision or ruling is
