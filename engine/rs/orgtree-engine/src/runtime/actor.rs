@@ -2730,10 +2730,16 @@ impl Actor {
             }
             _ => {
                 let Some((name, input)) = codex_tool(item) else { return Ok(()) };
-                let input_source = self.proc.as_ref().and_then(|p| match p {
-                    Proc::Codex(p) => Some(p.input_source(&id)),
-                    _ => None,
-                });
+                // Dynamic and MCP events already contain the full arguments.
+                // Only normalized built-ins need the native call as a fallback.
+                let input_source = if matches!(item["type"].as_str(), Some("dynamicToolCall" | "mcpToolCall")) {
+                    None
+                } else {
+                    self.proc.as_ref().and_then(|p| match p {
+                        Proc::Codex(p) => Some(p.input_source(&id)),
+                        _ => None,
+                    })
+                };
                 let client = self.engine.db.get().await?;
                 if !completed {
                     crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
