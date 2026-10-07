@@ -31,7 +31,9 @@ pub struct PageQuery {
 pub async fn notifications(State(e): State<Arc<Engine>>, Query(q): Query<PageQuery>) -> ApiResult<Json<Value>> {
     let client = e.db.get().await?;
     let mut all: Vec<Value> = Vec::new();
-    for o in e.orgs.all() {
+    let mut orgs = e.orgs.all();
+    orgs.sort_by(|a, b| a.slug.cmp(&b.slug));
+    for o in orgs {
         all.extend(crate::domain::notices::for_org(&client, o.id, &o.slug).await?);
     }
     let total = all.len();

@@ -4,18 +4,17 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
-use tokio_postgres::Client;
+use tokio_postgres::{Client, Row};
 
 use crate::util::gist;
 
 #[logged]
 pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Value>> {
     let mut out = Vec::new();
-    let asks = client
-        .query(
-            "SELECT k.uid, a.name, a.generation, k.body FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
-              WHERE k.org_id = $1 AND k.status = 'open' ORDER BY k.id LIMIT 200",
-            &[&org_id],
+    let asks = all_rows(client,
+            "SELECT k.uid, a.name, a.generation, k.body, k.id FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
+              WHERE k.org_id = $1 AND k.status = 'open' AND k.id > $2 ORDER BY k.id LIMIT 200",
+            org_id, 0,
         )
         .await?;
     for r in &asks {
@@ -33,11 +32,10 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "title": format!("{agent} asks"), "body": gist(q, 300),
         }));
     }
-    let mail = client
-        .query(
-            "SELECT uid, sender, body, urgent, urgent_reason, ev FROM ot.mail
-              WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' ORDER BY id DESC LIMIT 200",
-            &[&org_id],
+    let mail = all_rows(client,
+            "SELECT uid, sender, body, urgent, urgent_reason, ev, id FROM ot.mail
+              WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' AND id < $2 ORDER BY id DESC LIMIT 200",
+            org_id, i64::MAX,
         )
         .await?;
     for r in &mail {
@@ -53,11 +51,10 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "body": gist(&reason.unwrap_or(body), 300),
         }));
     }
-    let work = client
-        .query(
-            "SELECT slug, title, manual_attention FROM ot.work_items
-              WHERE org_id = $1 AND archived_at IS NULL AND manual_attention IS NOT NULL LIMIT 200",
-            &[&org_id],
+    let work = all_rows(client,
+            "SELECT slug, title, manual_attention, id FROM ot.work_items
+              WHERE org_id = $1 AND archived_at IS NULL AND manual_attention IS NOT NULL AND id > $2 ORDER BY id LIMIT 200",
+            org_id, 0,
         )
         .await?;
     for r in &work {
@@ -70,10 +67,9 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "body": gist(att.get("reason").and_then(Value::as_str).unwrap_or(""), 300),
         }));
     }
-    let frozen = client
-        .query(
-            "SELECT name, generation, frozen FROM ot.agents WHERE org_id = $1 AND state = 'live' AND frozen IS NOT NULL LIMIT 200",
-            &[&org_id],
+    let frozen = all_rows(client,
+            "SELECT name, generation, frozen, id FROM ot.agents WHERE org_id = $1 AND state = 'live' AND frozen IS NOT NULL AND id > $2 ORDER BY id LIMIT 200",
+            org_id, 0,
         )
         .await?;
     for r in &frozen {
@@ -87,11 +83,10 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "body": gist(fz.get("error").and_then(Value::as_str).unwrap_or("usage limit reached"), 300),
         }));
     }
-    let docs = client
-        .query(
-            "SELECT uid, node_name, title FROM ot.documents
-              WHERE org_id = $1 AND NOT dismissed AND at > now() - interval '1 day' ORDER BY id DESC LIMIT 50",
-            &[&org_id],
+    let docs = all_rows(client,
+            "SELECT uid, node_name, title, id FROM ot.documents
+              WHERE org_id = $1 AND NOT dismissed AND id < $2 ORDER BY id DESC LIMIT 200",
+            org_id, i64::MAX,
         )
         .await?;
     for r in &docs {
@@ -113,4 +108,22 @@ fn mail_kind(urgent: bool, event: &Option<Value>) -> &'static str {
             || (ev["variant"] == "runtime.report_stalled" && ev["cause"] == "terminal")
     });
     if terminal { "terminal-failure" } else if urgent { "urgent-mail" } else { "routine" }
+}
+
+/// Read the complete inventory in bounded keyset pages. The final column is
+/// always its stable row id; a page boundary must never mean "no more notices".
+#[logged]
+async fn all_rows(client: &Client, sql: &str, org_id: i64, mut cursor: i64) -> Result<Vec<Row>> {
+    let mut all = Vec::new();
+    loop {
+        let rows = client.query(sql, &[&org_id, &cursor]).await?;
+        let count = rows.len();
+        if let Some(last) = rows.last() {
+            cursor = last.get(last.len() - 1);
+        }
+        all.extend(rows);
+        if count < 200 {
+            return Ok(all);
+        }
+    }
 }
