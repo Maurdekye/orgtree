@@ -878,6 +878,11 @@ export const setOpenRouterFavorite = (
   })
 export const getRuntimeSettings = (): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime')
+export const setAgentBuildCacheFolder = (folder: string): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_build_cache_folder: folder }),
+  })
 export const setGitPeriodicFetchEnabled = (enabled: boolean): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },

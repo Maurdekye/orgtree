@@ -1606,6 +1606,8 @@ export interface RuntimeSettingsPayload {
   quick_staff_request_accounts?: boolean
   git_periodic_fetch_enabled: boolean
   warming_enabled: boolean
+  /** Empty disables Orgtree's per-agent Cargo target override. */
+  agent_build_cache_folder?: string
   /** Default on: real 20-minute checkups replace disposable cache reads. */
   working_checkups_enabled: boolean
   /** Default off: preserve no-wait startup until the operator opts in. */
