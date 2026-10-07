@@ -56,6 +56,8 @@ export interface CacheForecast {
   /** Safe component labels only; underlying values/hashes remain backend-only. */
   changed_inputs?: string[]
   precompact_action?: 'will_compact' | 'miss_expected' | 'not_applicable'
+  /** Next-turn verdict if this authoritative entry expires without another event. */
+  precompact_on_expiry?: 'will_compact' | 'miss_expected' | 'not_applicable'
   precompact_reason?: string
 }
 

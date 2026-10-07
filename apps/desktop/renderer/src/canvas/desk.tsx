@@ -1449,6 +1449,15 @@ export function CacheForecastWarning({ forecast, midTurn, composerFocused,
   /** measured context / window, or null when unmeasured or estimated */
   contextRatio: number | null
 }) {
+  // Use the badge's shared clock: receipt expiry must warn BEFORE a send,
+  // even if no engine event arrives at the TTL boundary.
+  const expiresAt = forecast && !midTurn ? cacheExpiryAt(forecast) : null
+  const left = useCountdown(expiresAt)
+  if (forecast && left !== null && left <= 0) {
+    forecast = { ...forecast, state: 'expired_known_entry', readiness: 'not_ready',
+      readiness_cause: 'receipt_expired',
+      precompact_action: forecast.precompact_on_expiry ?? 'not_applicable' }
+  }
   // Mid-turn, "confirmed invalid" is `not_ready` WITH cause `prefix_changed` —
   // see the header comment. A grey diagnostic is the absence of a verdict, not
   // a negative one (D-226), and warning on it would be asserting something the
