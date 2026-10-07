@@ -726,22 +726,40 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- watchdogs ----
-    let dogs = src
+    const DOG_SQL: &str = "SELECT public_id, owner, name, kind, target, pattern, interval_s, state, at, fired, last_check, last_fired,
+                    once, shell, fire_mode, quiet_period_s, silence_since";
+    const DOG_FROM: &str = " FROM orgtree.watchdogs WHERE state IN ('armed', 'paused') ORDER BY ord";
+    // the progress columns too; a store without them still imports the dogs
+    let full = src
         .query(
-            "SELECT public_id, owner, name, kind, target, pattern, interval_s, state, at, fired, last_check, last_fired,
-                    once, shell, fire_mode, quiet_period_s, silence_since
-               FROM orgtree.watchdogs WHERE state IN ('armed', 'paused') ORDER BY ord",
+            &format!("{DOG_SQL}, notice, high_water::jsonb, checks_run, last_output, paused_why, last_exit{DOG_FROM}"),
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await;
+    let has_memo = full.is_ok();
+    let dogs = match full {
+        Ok(rows) => rows,
+        Err(_) => src.query(&format!("{DOG_SQL}{DOG_FROM}"), &[]).await.unwrap_or_default(),
+    };
     for w in &dogs {
         let owner: String = w.get::<_, Option<String>>(1).unwrap_or_default();
         let Some(owner_id) = id_by_name.get(&owner).copied() else { continue };
+        let mut legacy = json!({
+            "kind": w.get::<_, Option<String>>(3),
+            "target": w.get::<_, Option<String>>(4),
+        });
+        if has_memo {
+            legacy["notice"] = json!(w.get::<_, Option<bool>>(17));
+            legacy["high_water"] = w.get::<_, Option<Value>>(18).unwrap_or(Value::Null);
+            legacy["checks_run"] = json!(w.get::<_, Option<i64>>(19));
+            legacy["last_output"] = json!(w.get::<_, Option<String>>(20));
+            legacy["paused_why"] = json!(w.get::<_, Option<String>>(21));
+            legacy["last_exit"] = json!(w.get::<_, Option<i64>>(22));
+        }
         tx.execute(
             "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s,
-                                       fire_mode, quiet_period_s, once, state, fired, created_at, last_check, last_fired, silence_since)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT (uid) DO NOTHING",
+                                       fire_mode, quiet_period_s, once, state, fired, created_at, last_check, last_fired, silence_since, memo)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT (uid) DO NOTHING",
             &[
                 &w.get::<_, Option<String>>(0).unwrap_or_else(|| uid("w")),
                 &org_id,
@@ -761,6 +779,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                 &w.get::<_, Option<DateTime<Utc>>>(10),
                 &w.get::<_, Option<DateTime<Utc>>>(11),
                 &w.get::<_, Option<DateTime<Utc>>>(16),
+                &crate::runtime::watchdogs::import_memo(&legacy, &id_by_name),
             ],
         )
         .await?;

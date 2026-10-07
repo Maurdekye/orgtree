@@ -1785,3 +1785,52 @@ pub async fn resume_owned(tx: &tokio_postgres::Transaction<'_>, owner: i64) -> R
         .await?;
     Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
 }
+
+/// The memo of a watchdog imported from a 3.x or 2.x record (`w`, the 3.x
+/// dog dict): its notice flag, pause reason and progress, so a passive dog
+/// stays passive, a file dog resumes at its recorded offset, a dog paused by
+/// an archive is re-armed by the rehire, and an activity dog knows whom it
+/// watches. `ids` maps imported agent names to their new ids.
+#[logged]
+pub fn import_memo(w: &Value, ids: &std::collections::HashMap<String, i64>) -> Value {
+    let num = |v: &Value| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64));
+    let hw = w.get("high_water").filter(|v| v.is_object()).cloned().unwrap_or_else(|| json!({}));
+    let mut run = json!({});
+    if let Some(off) = num(&hw["off"]).filter(|o| *o >= 0) {
+        run["offset"] = json!(off);
+    }
+    for k in ["quiet", "broken"] {
+        if let Some(n) = num(&hw[k]) {
+            run[k] = json!(n);
+        }
+    }
+    if let Some(up) = hw["up"].as_bool() {
+        run["up"] = json!(up);
+    }
+    if let Some(a) = hw["alive_at"].as_str() {
+        run["alive_at"] = json!(a);
+    }
+    if let Some(n) = num(&w["checks_run"]) {
+        run["checks_run"] = json!(n);
+    }
+    if let Some(o) = w["last_output"].as_str() {
+        run["last_output"] = json!(o);
+    }
+    if let Some(c) = num(&w["last_exit"]) {
+        run["last_exit"] = json!(c);
+    }
+    if let Some(a) = w["alerted_why"].as_str() {
+        run["alerted"] = json!(a);
+    }
+    let mut memo = json!({ "notice": w["notice"].as_bool().unwrap_or(false), "run": run });
+    if let Some(p) = w["paused_why"].as_str().filter(|p| !p.is_empty()) {
+        memo["paused_why"] = json!(p);
+    }
+    if w["kind"].as_str() == Some("activity") {
+        let t = w["target"].as_str().unwrap_or("").trim().trim_start_matches('@');
+        if let Some(id) = ids.get(t) {
+            memo["target_id"] = json!(id);
+        }
+    }
+    memo
+}
