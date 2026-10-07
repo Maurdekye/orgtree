@@ -6,7 +6,7 @@ This change implements the user's 2026-10-07 request to show full tool arguments
 
 ## Storage and delivery
 
-Migration `0008_tool_inputs` adds two JSONB columns to `ot.convo`. Ordinary
+Migration `0009_tool_inputs` adds two JSONB columns to `ot.convo`. Ordinary
 conversation reads still select only `body`; the full inputs are never included
 in transcript pages or streams. `ConvoWriter` extracts inputs and writes them
 atomically with the corresponding body/version. Result updates preserve inputs.
