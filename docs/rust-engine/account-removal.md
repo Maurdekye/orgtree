@@ -26,6 +26,12 @@ defaults are migrated too, including stored references in trashed organizations.
 Auth/account/balance freezes are cleared on a live rebound seat; usage-limit
 freezes remain held, as in 3.x's removal path.
 
+The queued-change integration at `2eb8321` supplies the only intent consumer:
+`ops::apply_pending`, reached through `Actor::apply_pending_config`. Removal
+only retargets the existing account keys; `seq`, `by`, `actor_id`, `at` and other
+intent fields remain intact for its ordering and fresh-authority checks. It does
+not generate replacement intents or apply queued changes during removal.
+
 All changes and audit rows commit in one transaction across organizations. Any
 validation or write error rolls everything back. Affected agents and defaults
 are read in pages of 128, with indexes on reference fields. The transaction
@@ -39,8 +45,9 @@ allocator. This prevents a cached identity from selecting a new credential
 with a reused ID. The guard rejects removed identities while preserving legacy
 missing-account placeholders and import ordering; it adds no new policy to
 unknown pre-existing import references. Normal turn admission locks the agent
-and compares the freshly read binding/session/tier before it claims mail: a
-stale context leaves mail pending for the post-removal wake.
+through the shared queued-configuration guard before claiming mail. That guard
+also compares session_id, so an idle session reset cannot admit stale context;
+it keeps the existing pending-intent checks and reconfiguration/re-wake path.
 
 Snapshot refresh, runtime reconfiguration, wakes and feed notifications happen
 after commit without row locks. A notification failure is logged, not reported

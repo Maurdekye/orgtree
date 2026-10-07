@@ -225,6 +225,8 @@ all changes; busy Claude keeps the running session. Per-account database referen
 guards drain concurrent binders and reject removed identities; IDs are never
 reused. Legacy missing import references remain supported. Session changes use
 4.0's same-agent handoff. Runtime effects happen after commit, never under locks.
+Removal preserves the shared queued intents' order and caller metadata; only
+`ops::apply_pending` consumes them. The shared admission guard also checks session_id.
 [verified from source: `domain/account_removal.rs`, account-reference migration;
 measured disposable smoke; detail: `docs/rust-engine/account-removal.md`]
 
