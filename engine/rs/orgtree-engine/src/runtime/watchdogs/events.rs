@@ -1,9 +1,29 @@
 //! Pushed, scoped engine events. No target polling and no cross-org payloads.
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 tokio::task_local! { pub(super) static ALERT_DELIVERY: bool; }
+
+/// Prevent a paid alert turn from feeding any event dog owned by that agent.
+/// Other agents' watchers still observe it. No global lock or task-local lifetime.
+pub(crate) struct AlertTurn { engine: Arc<Engine>, owner: i64, name: Arc<String> }
+#[logged]
+impl Drop for AlertTurn {
+    fn drop(&mut self) {
+        self.engine.dogs.alert_turns.pin().compute(self.owner, |entry|match entry {
+            Some((_,name)) if Arc::ptr_eq(name,&self.name)=>papaya::Operation::Remove,
+            _=>papaya::Operation::Abort(()),
+        });
+    }
+}
+#[logged]
+pub(crate) fn alert_turn(engine: &Arc<Engine>, owner: i64, name: &str, mail: &[Value]) -> Option<AlertTurn> {
+    if !mail.iter().any(|m|m["kind"]=="watchdog"){return None;}
+    let name=Arc::new(name.to_owned());
+    engine.dogs.alert_turns.pin().insert(owner,name.clone());
+    Some(AlertTurn{engine:engine.clone(),owner,name})
+}
 
 #[derive(Clone, Debug)]
 pub enum Scope {
@@ -16,29 +36,35 @@ pub enum Scope {
 }
 
 #[derive(Clone, Debug)]
-pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, members: Option<Arc<Vec<i64>>>, at: DateTime<Utc> }
+pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, members: Option<Arc<Vec<i64>>>, at: DateTime<Utc>, suppressed_owner: Option<i64> }
 
 #[derive(Clone)]
 pub(super) struct Subscription {
     tx: Sender<Event>,
     target: Arc<arc_swap::ArcSwapOption<String>>,
-    overflow: Arc<AtomicBool>,
+    overflow: Arc<arc_swap::ArcSwapOption<Event>>,
 }
 
 #[logged]
 pub fn event(name: &str, scope: Scope, payload: Value) -> Event {
-    Event { name: name.to_owned(), scope, payload, members: None, at: Utc::now() }
+    Event { name: name.to_owned(), scope, payload, members: None, at: Utc::now(), suppressed_owner: None }
 }
 
 /// Only engine producers call this: payloads are deliberately small allow-lists.
 #[logged]
 pub fn emit(engine: &Engine, mut e: Event) {
+    if engine.dogs.events.pin().is_empty(){return;}
     e.at=Utc::now();
+    e.suppressed_owner=match &e.scope {
+        Scope::Agent(_,id) if engine.dogs.alert_turns.pin().contains_key(id)=>Some(*id),
+        Scope::NamedAgent(_,name)=>engine.dogs.alert_turns.pin().iter().find(|(_,n)|n.as_str()==name).map(|(id,_)|*id),
+        _=>None,
+    };
     if ALERT_DELIVERY.try_with(|v|*v).unwrap_or(false){return;}
     for (_, sub) in engine.dogs.events.pin().iter() {
         if sub.target.load_full().as_ref().map(|t| accepts(t, &e.name)).unwrap_or(true) {
             if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = sub.tx.try_send(e.clone()) {
-                sub.overflow.store(true, Ordering::Release);
+                sub.overflow.store(Some(Arc::new(e.clone())));
             }
         }
     }
@@ -52,7 +78,7 @@ pub fn machine(engine: &Engine, name: &str, payload: Value) {
 #[logged]
 pub(super) fn subscribe(engine: &Engine, uid: &str) -> (Subscription, Receiver<Event>) {
     let (tx, rx) = channel(256);
-    let sub = Subscription { tx, target: Arc::new(arc_swap::ArcSwapOption::empty()), overflow: Arc::new(AtomicBool::new(false)) };
+    let sub = Subscription { tx, target: Arc::new(arc_swap::ArcSwapOption::empty()), overflow: Arc::new(arc_swap::ArcSwapOption::empty()) };
     engine.dogs.events.pin().insert(uid.to_owned(), sub.clone());
     (sub, rx)
 }
@@ -109,29 +135,78 @@ async fn identity(engine: &Engine, owner: i64) -> Result<crate::tools::Me> {
     Ok(crate::tools::Me{id:r.get(0),org_id:r.get(1),name:r.get(2),parent_id:r.get(3),generation:r.get(4),visibility:r.get(5)})
 }
 
+/// One permission snapshot for a drained batch, including its pending delivery.
+struct Access {
+    me: crate::tools::Me,
+    org_slug: String,
+    visible: Option<HashSet<i64>>,
+    names: HashMap<String,i64>,
+    ids: HashSet<i64>,
+    live: HashSet<i64>,
+    down: HashSet<i64>,
+    docket: HashSet<String>,
+    credits: Value,
+}
 #[logged]
-async fn visible(engine: &Engine, d: &Dog, e: &Event) -> Result<bool> {
-    if matches!(e.scope, Scope::Machine) { return Ok(true); }
-    let me=identity(engine,d.owner).await?;
-    let c=engine.db.get().await?;
-    let target=match &e.scope {
-        Scope::Machine=>return Ok(true),
-        Scope::Org(org)=>return Ok(*org==me.org_id),
-        Scope::Account(origin)=>return Ok(origin.as_ref().map(|s| engine.orgs.by_id(me.org_id).map(|o| o.slug==*s).unwrap_or(false)).unwrap_or(true)),
-        Scope::Agent(org,id)=> {if *org!=me.org_id{return Ok(false)};*id},
-        Scope::NamedAgent(org,name)=> {
-            if *org!=me.org_id{return Ok(false)};
-            let Some(r)=c.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state<>'deleted'", &[org,name]).await? else{return Ok(false)};r.get(0)
-        },
-        Scope::Docket(org,slug)=> {
-            if *org!=me.org_id{return Ok(false)};
-            return crate::domain::docket::event_readable(&**c,me.id,&me.name,*org,slug).await;
+impl Access {
+    async fn read(engine: &Engine, d: &Dog, events: &[Event]) -> Result<Self> {
+        let me=identity(engine,d.owner).await?;
+        let c=engine.db.get().await?;
+        let visible=crate::tools::visible(&c,&me).await?;
+        let rows=c.query("WITH RECURSIVE down(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$2 AND a.state<>'deleted' AND d.depth<1024) SELECT id,name,state,id IN (SELECT id FROM down) FROM ot.agents WHERE org_id=$2 AND state<>'deleted'", &[&d.owner,&me.org_id]).await?;
+        let mut names=HashMap::new();let mut ids=HashSet::new();let mut live=HashSet::new();let mut down=HashSet::new();
+        for r in rows {let id:i64=r.get(0);names.insert(r.get(1),id);ids.insert(id);if r.get::<_,String>(2)=="live"{live.insert(id);}if r.get::<_,bool>(3){down.insert(id);}}
+        let slugs:Vec<String>=events.iter().filter_map(|e|match &e.scope{Scope::Docket(org,s) if *org==me.org_id=>Some(s.clone()),_=>None}).collect::<HashSet<_>>().into_iter().collect();
+        let mut docket=HashSet::new();
+        if !slugs.is_empty(){
+            let rows=c.query("WITH RECURSIVE down(id,name,depth) AS (SELECT id,name,0 FROM ot.agents WHERE id=$1 AND org_id=$3 UNION ALL SELECT a.id,a.name,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$3 AND d.depth<1024) SELECT slug FROM ot.work_items WHERE org_id=$3 AND slug=ANY($4) AND NOT coalesce((extra->>'deleted')::boolean,false) AND (owner->>'node' IN (SELECT name FROM down) OR created_by->>'node' IN (SELECT name FROM down) OR $2=ANY(participants) OR reviewer->>'node'=$2)", &[&me.id,&me.name,&me.org_id,&slugs]).await?;
+            for r in rows{docket.insert(r.get(0));}
         }
-    };
-    // Scope::Agent always verifies the org, even when visibility is full.
-    let exists: bool=c.query_one("SELECT EXISTS(SELECT 1 FROM ot.agents WHERE id=$1 AND org_id=$2 AND state<>'deleted')", &[&target,&me.org_id]).await?.get(0);
-    if !exists{return Ok(false)};
-    Ok(crate::tools::visible(&c,&me).await?.map(|ids|ids.contains(&target)).unwrap_or(true))
+        let mut credits=json!({});
+        let credit_ids:Vec<i64>=events.iter().filter_map(|e|match e.scope{Scope::Agent(org,id) if org==me.org_id && e.name=="credits.changed" && visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)=>Some(id),_=>None}).collect();
+        if !credit_ids.is_empty(){
+            for r in c.query("SELECT a.id,a.grant_credits::float8,(a.grant_credits-coalesce((SELECT sum(seat+grant_credits) FROM ot.agents c WHERE c.parent_id=a.id AND c.state='live'),0))::float8 FROM ot.agents a WHERE a.org_id=$1 AND a.id=ANY($2)", &[&me.org_id,&credit_ids]).await?{
+                let id:i64=r.get(0);credits[id.to_string()]=json!({"agent_id":id,"grant":r.get::<_,f64>(1),"free":r.get::<_,f64>(2)});
+            }
+        }
+        let org_slug=engine.orgs.by_id(me.org_id).map(|o|o.slug.clone()).unwrap_or_default();
+        Ok(Self{me,org_slug,visible,names,ids,live,down,docket,credits})
+    }
+    fn sees(&self,e:&Event)->bool {
+        if e.suppressed_owner==Some(self.me.id){return false;}
+        let id=match &e.scope {
+            Scope::Machine=>return true,
+            Scope::Org(org)=>return *org==self.me.org_id && (self.me.visibility!="self" || matches!(e.name.as_str(),"agents.active"|"agents.live")),
+            Scope::Account(org)=>return org.as_ref().map(|s|s==&self.org_slug).unwrap_or(true),
+            Scope::Agent(org,id)=>{if *org!=self.me.org_id{return false;}*id},
+            Scope::NamedAgent(org,n)=>{if *org!=self.me.org_id{return false;}let Some(id)=self.names.get(n)else{return false;};*id},
+            Scope::Docket(org,slug)=>return *org==self.me.org_id && self.docket.contains(slug),
+        };
+        self.ids.contains(&id) && self.visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)
+    }
+    fn count(&self,engine:&Engine,active:bool,scope:&str,members:Option<&Vec<i64>>)->i64 {
+        self.ids.iter().filter(|id|**id!=self.me.id && (scope=="org" || self.down.contains(id))
+            && self.visible.as_ref().map(|v|v.contains(id)).unwrap_or(true)
+            && members.map(|m|m.contains(id)).unwrap_or_else(||if active{engine.agents.get(**id).map(|h|h.view.load()["busy"]==true).unwrap_or(false)}else{self.live.contains(id)})).count() as i64
+    }
+}
+
+#[derive(Clone,Default)]
+struct Pending { events:Vec<(Event,u64)>, omitted:u64 }
+#[logged]
+impl Pending {
+    fn add(&mut self,e:Event) {
+        if let Some((old,n))=self.events.iter_mut().find(|(p,_)|p.name==e.name && format!("{:?}",p.scope)==format!("{:?}",e.scope)) {*old=e;*n=n.saturating_add(1);}
+        else if self.events.len()<40{self.events.push((e,1));}
+        else {self.omitted=self.omitted.saturating_add(1);}
+    }
+    fn lines(&self,a:&Access)->Vec<String> {
+        let mut lines:Vec<_>=self.events.iter().filter(|(e,_)|a.sees(e)).map(|(e,n)|format!("{} {} ({} matches)",e.name,e.payload,n)).collect();
+        // Never expose a count of filtered/hidden events. This only counts matches
+        // already authorized when collected; omit it if all retained subjects moved.
+        if self.omitted>0 && !lines.is_empty(){lines.push("Additional authorized matches were coalesced during the fire gap.".into());}
+        lines
+    }
 }
 
 #[logged]
@@ -145,7 +220,7 @@ async fn count(engine: &Engine, owner: i64, active: bool, scope: &str, members: 
     } else {
         c.query("WITH RECURSIVE down(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$2 AND a.state<>'deleted' AND d.depth<1024) SELECT id FROM down", &[&owner,&me.org_id]).await?
     };
-    Ok(rows.iter().filter(|r| {let id:i64=r.get(0);visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)
+    Ok(rows.iter().filter(|r| {let id:i64=r.get(0);id!=owner && visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)
         && members.map(|ids|ids.contains(&id)).unwrap_or_else(|| !active || engine.agents.get(id).map(|h|h.view.load()["busy"]==true).unwrap_or(false))}).count() as i64)
 }
 
@@ -177,61 +252,90 @@ pub fn condition(engine: &Engine, name: &str, opposite: &str, payload: Value) {
 
 #[logged]
 pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mut rx: Receiver<Event>, cancel: &CancellationToken) -> Result<()> {
-    if cancel.is_cancelled(){return Ok(())}
     sub.target.store(Some(Arc::new(d.target.clone())));
     let re=d.regex();
     if re.is_err(){pause(engine,&d,"invalid event pattern; recreate with a valid regex").await?;return Ok(())}
-    let mut pending: Vec<Event>=Vec::new();
+    let mut pending=Pending::default();
+    let mut batch=Vec::new();
+    let mut baseline=None;
+    let mut retry=0u64;
     loop {
-        if sub.overflow.swap(false,Ordering::AcqRel) {
-            pause(engine,&d,"engine-event queue overflowed; events were missed. Narrow the target and resume.").await?;
-            tracing::warn!(watchdog=%d.uid,"event watchdog paused after queue overflow");return Ok(());
+        if cancel.is_cancelled(){return Ok(());}
+        if retry>0 {
+            tokio::select!{_=tokio::time::sleep(Duration::from_secs(retry))=>{},_=cancel.cancelled()=>return Ok(())}
+        }else if baseline.is_some(){
+            let gap=chrono::Duration::seconds(d.interval_s.max(STREAM_FLOOR_S));
+            let wait=if d.silence(){Duration::from_secs(d.due_in().unwrap_or(1).max(0) as u64)}
+                else if !pending.events.is_empty(){d.last_fired.map(|t|(t+gap-Utc::now()).to_std().unwrap_or_default()).unwrap_or_default()}
+                else{Duration::from_secs(86400*365)};
+            tokio::select!{m=rx.recv()=>{let Some(e)=m else{return Ok(())};batch.push(e)},_=tokio::time::sleep(wait)=>{},_=cancel.cancelled()=>return Ok(())};
         }
-        let gap=chrono::Duration::seconds(d.interval_s.max(STREAM_FLOOR_S));
-        let wait=if d.silence(){Duration::from_secs(d.due_in().unwrap_or(1).max(0) as u64)}
-            else if !pending.is_empty(){d.last_fired.map(|t|(t+gap-Utc::now()).to_std().unwrap_or_default()).unwrap_or_default()}
-            else {Duration::from_secs(86400*365)};
-        let next=tokio::select!{m=rx.recv()=>{let Some(e)=m else{return Ok(())};Some(e)},_=tokio::time::sleep(wait)=>None,_=cancel.cancelled()=>return Ok(())};
-        let Some(fresh)=load(engine,&d.uid).await? else{return Ok(())};d=fresh;
-        if d.state!="armed" || !d.owner_live{return Ok(())}
-        if let Some(mut e)=next {
-            if e.at<d.created_at || !accepts(&d.target,&e.name) || !visible(engine,&d,&e).await? {continue;}
-            if matches!(e.name.as_str(),"agents.active"|"agents.live") {
-                let n=match count(engine,d.owner,e.name=="agents.active",d.memo["event_scope"].as_str().unwrap_or("subtree"),e.members.as_deref()).await {
-                    Ok(n)=>n,
-                    Err(_)=>{pause(engine,&d,"event count is unavailable or its scope is no longer permitted; review scope before resuming").await?;return Ok(())}
-                };
-                if !d.run["counts"].is_object(){d.run["counts"]=json!({});}
-                let old=d.run["counts"][&e.name].as_i64().or_else(||if d.target==e.name{d.run["count"].as_i64()}else{None});d.run["counts"][&e.name]=json!(n);
-                e.payload=json!({"count":n,"previous":old,"scope":d.memo["event_scope"].as_str().unwrap_or("subtree")});
-                let crossing=if !d.memo["threshold"].is_null(){let (below,t)=threshold(&d.memo["threshold"])?;old.map(|o|if below{o>=t&&n<t}else{o<t&&n>=t}).unwrap_or(false)}else{old!=Some(n)};
-                if !crossing{save_run(engine,&mut d,false).await?;continue;}
+        // Bounded work per wake, including on a retry. The producer retains the
+        // latest overflow sample; busy targets are coalesced, never auto-paused.
+        while batch.len()<256 {match rx.try_recv(){Ok(e)=>batch.push(e),Err(_)=>break}}
+        if batch.len()<257 {if let Some(e)=sub.overflow.swap(None){batch.push((*e).clone());}}
+        let result:Result<bool>=async {
+            let Some(mut next)=load(engine,&d.uid).await? else{return Ok(true)};
+            if next.state!="armed" || !next.owner_live{return Ok(true)}
+            // A previous fire may have committed before a connection error. Do
+            // not count the same pending batch twice on retry.
+            if next.fired>d.fired {pending=Pending::default();}
+            let mut all=batch.clone();all.extend(pending.events.iter().map(|(e,_)|e.clone()));
+            let access=Access::read(engine,&next,&all).await?;
+            let scope=next.memo["event_scope"].as_str().unwrap_or("subtree").to_owned();
+            if scope=="org" && access.me.visibility!="full" {
+                pause(engine,&next,"org count requires full organization visibility; use event_scope subtree").await?;return Ok(true);
             }
-            if e.name=="credits.changed" {
-                let Scope::Agent(_,id)=e.scope else{continue};
-                let c=engine.db.get().await?;
-                let Some(r)=c.query_opt("SELECT a.grant_credits::float8, (a.grant_credits-coalesce((SELECT sum(seat+grant_credits) FROM ot.agents c WHERE c.parent_id=a.id AND c.state='live'),0))::float8 FROM ot.agents a WHERE a.id=$1", &[&id]).await? else{continue};
-                e.payload=json!({"agent_id":id,"grant":r.get::<_,f64>(0),"free":r.get::<_,f64>(1)});
-                let key=id.to_string();
-                if d.run["credits"][&key]==e.payload{continue;}
-                if !d.run["credits"].is_object(){d.run["credits"]=json!({});}
-                d.run["credits"][&key]=e.payload.clone();
+            let fresh_baseline=baseline.is_none();
+            let now=Utc::now();
+            if fresh_baseline {
+                next.run["counts"]=json!({"agents.active":access.count(engine,true,&scope,None),"agents.live":access.count(engine,false,&scope,None)});
             }
-            let line=format!("{} {}",e.name,e.payload);
-            let hit=matches(&re,&e.payload.to_string());
-            d.run["checks_run"]=json!(d.run_i64("checks_run")+1);
-            d.run["last_output"]=json!(tail(&line,OUT_KEEP));note_life(&mut d.run,true);
-            save_run(engine,&mut d,hit).await?;
-            if hit && !d.silence(){pending.push(e);}
-            if pending.len()>200 {pause(engine,&d,"too many pending engine events; narrow the target or lower interval_s").await?;return Ok(())}
-        }
-        if d.silence(){
-            if d.due_in().map(|s|s<=0).unwrap_or(false){if fire(engine,&d,&[silence_line(&d)]," WENT QUIET —").await?{return Ok(())}d.silence_since=Some(Utc::now());}
-        }else if !pending.is_empty() && d.last_fired.map(|t|Utc::now()>=t+gap).unwrap_or(true){
-            // Recheck access after a cooldown: moved agents or revoked access must not leak.
-            let mut lines=Vec::new();
-            for e in std::mem::take(&mut pending){if visible(engine,&d,&e).await?{lines.push(format!("{} {}",e.name,e.payload));}}
-            if !lines.is_empty(){if fire(engine,&d,&lines,"").await?{return Ok(())}d.last_fired=Some(Utc::now());}
+            let mut staged=pending.clone();let mut hit_any=false;let mut dirty=fresh_baseline;
+            for original in &batch {
+                if original.at<next.created_at || !accepts(&next.target,&original.name) || !access.sees(original){continue;}
+                let mut e=original.clone();
+                if matches!(e.name.as_str(),"agents.active"|"agents.live") {
+                    if e.at<baseline.unwrap_or(now){continue;}
+                    let n=access.count(engine,e.name=="agents.active",&scope,e.members.as_deref());
+                    let old=next.run["counts"][&e.name].as_i64();
+                    next.run["counts"][&e.name]=json!(n);dirty=true;
+                    e.payload=json!({"count":n,"previous":old,"scope":scope});
+                    let crossing=if !next.memo["threshold"].is_null(){let (below,t)=threshold(&next.memo["threshold"])?;old.map(|o|if below{o>=t&&n<t}else{o<t&&n>=t}).unwrap_or(false)}else{old!=Some(n)};
+                    if !crossing{continue;}
+                }
+                if e.name=="credits.changed" {
+                    let Scope::Agent(_,id)=e.scope else{continue};let key=id.to_string();
+                    e.payload=access.credits[&key].clone();if e.payload.is_null() || next.run["credits"][&key]==e.payload{continue;}
+                    if !next.run["credits"].is_object(){next.run["credits"]=json!({});}next.run["credits"][&key]=e.payload.clone();
+                }
+                let hit=matches(&re,&e.payload.to_string());hit_any|=hit;dirty=true;
+                next.run["checks_run"]=json!(next.run_i64("checks_run")+1);
+                next.run["last_output"]=json!(tail(&format!("{} {}",e.name,e.payload),OUT_KEEP));note_life(&mut next.run,true);
+                if hit && !next.silence(){staged.add(e);}
+            }
+            if dirty {save_run(engine,&mut next,hit_any).await?;}
+            // Install progress only after the batch save succeeds. A DB blip
+            // keeps the original batch and threshold baseline for retry.
+            d=next;pending=staged;batch.clear();if fresh_baseline{baseline=Some(now);}
+            engine.dogs.event_health.pin().remove(&d.uid);
+            if d.silence(){
+                if d.due_in().map(|s|s<=0).unwrap_or(false){if fire(engine,&d,&[silence_line(&d)]," WENT QUIET —").await?{return Ok(true)}d.fired+=1;d.silence_since=Some(Utc::now());}
+            }else if !pending.events.is_empty() && d.last_fired.map(|t|Utc::now()>=t+chrono::Duration::seconds(d.interval_s.max(STREAM_FLOOR_S))).unwrap_or(true){
+                let lines=pending.lines(&access);
+                if !lines.is_empty(){if fire(engine,&d,&lines,"").await?{return Ok(true)}d.fired+=1;d.last_fired=Some(Utc::now());}
+                pending=Pending::default();
+            }
+            Ok(false)
+        }.await;
+        match result {
+            Ok(true)=>{engine.dogs.event_health.pin().remove(&d.uid);return Ok(());},
+            Ok(false)=>retry=0,
+            Err(e)=>{
+                retry=if retry==0{1}else{(retry*2).min(30)};
+                engine.dogs.event_health.pin().insert(d.uid.clone(),format!("Event listener retrying after a storage error; queued events retained/coalesced; next retry in {retry}s"));
+                tracing::warn!(watchdog=%d.uid,retry_s=retry,error=%e,"event watchdog storage retry");
+            }
         }
     }
 }
@@ -262,6 +366,7 @@ pub fn operation(org: i64, op: &str, subject: Option<i64>, detail: &Value) -> Ve
 /// Feed adapters expose changes without serializing the feed's private contents.
 #[logged]
 pub fn change(engine: &Engine, org: i64, c: &Change) {
+    if engine.dogs.events.pin().is_empty(){return;}
     let e=match c {
         Change::Agent(id)=>{
 
@@ -355,4 +460,12 @@ async fn credit_baseline(engine: &Engine, owner: i64) -> Result<Value> {
     let mut out=json!({});
     for r in rows {let id:i64=r.get(0);out[id.to_string()]=json!({"agent_id":id,"grant":r.get::<_,f64>(1),"free":r.get::<_,f64>(2)});}
     Ok(out)
+}
+
+/// Receipt metadata only; never echo a watchdog's own mail into the event bus.
+#[logged]
+pub(crate) fn mail_delivered(engine:&Engine,org:i64,agent:i64,rows:Vec<(String,String)>) {
+    for (uid,kind) in rows {if kind!="watchdog" {
+        emit(engine,event("mail.delivered",Scope::Agent(org,agent),json!({"agent_id":agent,"mail_id":uid})));
+    }}
 }

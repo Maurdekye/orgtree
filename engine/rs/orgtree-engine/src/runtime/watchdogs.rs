@@ -66,6 +66,8 @@ pub struct Registry {
     runners: papaya::HashMap<String, CancellationToken>,
     events: papaya::HashMap<String, events::Subscription>,
     conditions: papaya::HashMap<String, Value>,
+    alert_turns: papaya::HashMap<i64, Arc<String>>,
+    event_health: papaya::HashMap<String, String>,
     activity: papaya::HashMap<i64, papaya::HashMap<String, ActivityTx>>,
 }
 
@@ -232,7 +234,16 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
     tokio::spawn(tracing::Instrument::instrument(
         async move {
             // This is the runner's existing initial read, not another identity query.
-            let loaded = load(&engine, &id).await;
+            let loaded = loop {
+                match load(&engine,&id).await {
+                    Ok(value)=>{engine.dogs.event_health.pin().remove(&id);break Ok(value);},
+                    Err(e)=>{
+                        tracing::warn!(watchdog=%id,error=%e,"watchdog initial load retry");
+                        engine.dogs.event_health.pin().insert(id.clone(),"Listener retrying initial storage read".into());
+                        tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=token.cancelled()=>return}
+                    }
+                }
+            };
             let span = match &loaded {
                 Ok(Some(dog)) => crate::trace::request_from(&format!("dog:{}/{}", dog.uid, dog.owner_name), cause.as_deref()),
                 _ => tracing::Span::current(),
@@ -251,12 +262,16 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
                 let left_alone = !token.is_cancelled();
                 token.cancel();
                 // a resume can land while this runner is on its way out
-                if r.is_ok() && left_alone && !engine.is_stopping() {
+                if left_alone && !engine.is_stopping() {
                     if let Ok(Some(d)) = load(&engine, &id).await {
                         let dead_stream = d.kind == "stream" && d.exit.is_some() && !d.silence();
                         if d.state == "armed" && d.owner_live && !dead_stream {
                             arm(&engine, &id);
                         }
+                    } else {
+                        engine.dogs.event_health.pin().insert(id.clone(),"Listener re-arming after storage error".into());
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        arm(&engine,&id);
                     }
                 }
             }, span).await;
@@ -1727,7 +1742,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             put("exit", json!(d.exit));
             put("quiet_period_s", json!(d.quiet_s));
             put("silence_since", json!(d.silence_since.map(iso)));
-            put("health", json!(health(&d)));
+            put("health", json!(engine.dogs.event_health.pin().get(&d.uid).cloned().or_else(||health(&d))));
             v
         })
         .collect();

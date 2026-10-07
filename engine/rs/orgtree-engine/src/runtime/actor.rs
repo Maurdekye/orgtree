@@ -207,6 +207,7 @@ struct Turn {
     /// Exact opening batch, settled when this turn first shows CLI activity.
     /// Never include an Antigravity handoff the hook has not consumed.
     opening_mail: Vec<i64>,
+    alert_turn: Option<crate::runtime::watchdogs::events::AlertTurn>,
     usage: Value,
     model: Option<String>,
     draft: String,
@@ -254,6 +255,7 @@ impl Turn {
             killed: false,
             activity: false,
             opening_mail: Vec::new(),
+            alert_turn: None,
             usage: Value::Null,
             model: None,
             draft: String::new(),
@@ -600,7 +602,8 @@ impl Actor {
     async fn acknowledge_opening(&mut self) -> Result<()> {
         let Some(t) = self.turn.as_ref().filter(|t| t.activity && !t.opening_mail.is_empty()) else { return Ok(()) };
         let client = self.engine.db.get().await?;
-        crate::domain::mail::acknowledge(&client, self.id, t.id, &t.opening_mail).await?;
+        let delivered = crate::domain::mail::acknowledge(&client, self.id, t.id, &t.opening_mail).await?;
+        crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         if let Some(t) = self.turn.as_mut() { t.opening_mail.clear(); }
         self.changed(vec![Change::Mailbox(self.id)]);
         Ok(())
@@ -1791,6 +1794,9 @@ impl Actor {
         rows.sort_by_key(|(id, _)| *id);
         let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.id,&self.name,&raw) {
+            if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
+        }
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
         let steered = match &self.proc {
@@ -1809,7 +1815,8 @@ impl Actor {
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
-        crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        let delivered = crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
         let mut committed = row;
         committed["seq"] = json!(seq);
@@ -1843,6 +1850,9 @@ impl Actor {
         rows.sort_by_key(|(id, _)| *id);
         let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.id,&self.name,&raw) {
+            if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
+        }
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let id = format!("t{turn_id}-m{}", ids[0]);
         let body = json!({ "id": id, "text": prompt::steer_text(&mails, &self.rels_of(&mails).await) }).to_string();
@@ -1883,7 +1893,8 @@ impl Actor {
         let client = self.engine.db.get().await?;
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
-        crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        let delivered = crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
         let mut committed = row;
         committed["seq"] = json!(seq);
@@ -2145,6 +2156,7 @@ impl Actor {
         tx.commit().await?;
         drop(client);
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        let alert_turn = crate::runtime::watchdogs::events::alert_turn(&self.engine,self.id,&self.name,&raw);
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let reset_note = match self.cold_reset(&mut ctx).await {
             Ok(note) => note,
@@ -2197,6 +2209,7 @@ impl Actor {
             }
         }
         let mut turn = Turn::new(turn_id, false);
+        turn.alert_turn = alert_turn;
         turn.opening_mail = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
         turn.admitted_at = admitted_at;
         turn.serving_account = self.serving_account_of(&ctx);
@@ -2309,13 +2322,17 @@ impl Actor {
         let mut rows: Vec<(i64, Value)> = claimed.iter().map(|r| (r.get(0), r.get(1))).collect();
         rows.sort_by_key(|(id, _)| *id);
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
+        if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.id,&self.name,&raw) {
+            if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
+        }
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered after a tool call."));
         let seq = self.convo.append(&client, row.clone()).await?;
         let ids: Vec<i64> = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
-        crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        let delivered = crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
         let mut committed = row;
         committed["seq"] = json!(seq);
@@ -2328,6 +2345,8 @@ impl Actor {
 
     /// Announce what this actor changed (see `changes`).
     fn changed(&self, ch: Vec<Change>) {
+        // Mailbox bookkeeping must not re-publish watchdog alert delivery as mail.changed.
+        let ch=ch.into_iter().map(|c|match c {Change::Mailbox(id)=>Change::MailboxQuiet(id),other=>other}).collect();
         crate::changes::notify(&self.engine, &self.org, ch);
     }
 
@@ -3492,8 +3511,8 @@ impl Actor {
                 )
                 .await?;
         } else {
-            let rows=client.query("UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering' RETURNING uid", &[&turn.id]).await?;
-            for row in rows {crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("mail.delivered",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id,"mail_id":row.get::<_,String>(0)})));}
+            let rows=client.query("UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering' RETURNING uid, kind", &[&turn.id]).await?;
+            for row in rows {if row.get::<_,String>(1)=="watchdog"{continue;} crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("mail.delivered",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id,"mail_id":row.get::<_,String>(0)})));}
         }
         // Account captured at admission: a rebind during the turn cannot move
         // this turn's spend, refusal, or successful recovery to another account.

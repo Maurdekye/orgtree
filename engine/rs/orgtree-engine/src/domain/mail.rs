@@ -19,12 +19,12 @@ pub const UNREAD_STATES: &str = "('pending','delivering')";
 
 /// A positive provider/hook acknowledgement settles only this exact delivery.
 #[logged]
-pub async fn acknowledge(client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<u64> {
-    Ok(client.execute(
+pub async fn acknowledge(client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<Vec<(String,String)>> {
+    Ok(client.query(
         "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now())
-          WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering'",
+          WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering' RETURNING uid,kind",
         &[&agent, &turn, &ids],
-    ).await?)
+    ).await?.iter().map(|r|(r.get(0),r.get(1))).collect())
 }
 
 /// Startup-only repair of old unsettled deliveries. A turn timestamp alone

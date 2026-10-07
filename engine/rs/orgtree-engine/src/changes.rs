@@ -23,6 +23,8 @@ pub enum Change {
     Agent(i64),
     /// an agent's mailbox (and the waiting-mail count on its card)
     Mailbox(i64),
+    /// Receipt bookkeeping, without an engine-event echo of watchdog alerts.
+    MailboxQuiet(i64),
     /// the user's inbox, read log or sent box
     UserMail,
     /// an agent's history (events about it)
@@ -73,7 +75,7 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
                 // live/frozen counts and frozen-agent notices
                 app = true;
             }
-            Change::Mailbox(id) => {
+            Change::Mailbox(id) | Change::MailboxQuiet(id) => {
                 keys.push(Key::Mailbox(id));
                 keys.push(Key::Agent(id));
             }
