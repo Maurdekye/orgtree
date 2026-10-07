@@ -18,17 +18,7 @@ export function HaltControl({ slug, nid, halt, toast }: {
   useEffect(() => { setPhase(halt?.phase) }, [halt?.phase])
   async function act() {
     setPending(true)
-    try {
-      if (phase === 'halted') {
-        const r = await unhaltNode(slug, nid)
-        setPhase(undefined)
-        toast([r.unhalted ? `${nid} unhalted; pending work may resume` : r.status ?? 'Already unhalted'])
-      } else {
-        const r = await haltNode(slug, nid)
-        setPhase(r.halted && r.settled ? 'halted' : 'halting')
-        toast([r.status])
-      }
-    } catch (e) { toast([`error: ${(e as Error).message}`]) }
+    try { setPhase(await toggleAgentHalt(slug, nid, phase, toast)) }
     finally { setPending(false) }
   }
   return <button className={'halt-control' + (phase === 'halted' ? '' : ' danger')}
@@ -38,4 +28,23 @@ export function HaltControl({ slug, nid, halt, toast }: {
       : 'Abruptly end this turn and block every wake until explicit unhalt'}>
     {pending ? 'Please wait…' : phase === 'halted' ? 'Unhalt' : phase === 'halting' ? 'Finish halt' : 'Halt'}
   </button>
+}
+
+/** Shared by the desk button and both agent context menus. */
+export async function toggleAgentHalt(slug: string, nid: string,
+  phase: NonNullable<TreeNode['halt']>['phase'] | undefined,
+  toast: ToastFn): Promise<typeof phase> {
+  try {
+    if (phase === 'halted') {
+      const r = await unhaltNode(slug, nid)
+      toast([r.unhalted ? `${nid} unhalted; pending work may resume` : r.status ?? 'Already unhalted'])
+      return undefined
+    }
+    const r = await haltNode(slug, nid)
+    toast([r.status])
+    return r.halted && r.settled ? 'halted' : 'halting'
+  } catch (e) {
+    toast([`error: ${(e as Error).message}`])
+    return phase
+  }
 }

@@ -88,6 +88,7 @@ export interface AgentMenuHandlers {
   onOpenTemporary?: () => void
   /** Open the existing local hire form; no seat is created until confirmation. */
   onHire?: (tier: string) => void
+  onHalt?: () => void
   /** open the confirm for `kind`; render `AgentRetireConfirm` from it */
   onRetireAsk?: (kind: RetireKind) => void
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
@@ -193,6 +194,16 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   if (s.detached && showWindow) {
     entries.push({ label: 'Show desk window', onSelect: () => showWindow() })
+  }
+  if (canRetire && h.onHalt) {
+    entries.push({
+      label: node.halt?.phase === 'halted' ? 'Unhalt' : 'Halt',
+      title: node.halt?.phase === 'halted' ? 'Allow pending work to resume'
+        : node.halt?.phase === 'halting' ? 'Finish halting the active turn'
+        : 'End this turn and block wakes until explicitly unhalted',
+      danger: node.halt?.phase !== 'halted',
+      onSelect: h.onHalt,
+    })
   }
   const hire = h.onHire
   if (canHire && hire) {

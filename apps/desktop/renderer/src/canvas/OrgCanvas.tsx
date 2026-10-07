@@ -1,3 +1,4 @@
+import { toggleAgentHalt } from './haltcontrol'
 import { useAppRead } from '../appfeed'
 import { adoptPinLayer, canvasBox, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
@@ -3010,6 +3011,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // handles an archived or unavailable seat with its own semantics rather
       // than this menu second-guessing them.
       onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
+      onHalt: () => { void toggleAgentHalt(slug, n.id, n.halt?.phase, toast) },
       onHire: (tier) => spawn(n.id, tier),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)

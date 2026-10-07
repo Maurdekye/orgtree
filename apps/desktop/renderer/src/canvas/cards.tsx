@@ -1,3 +1,4 @@
+import { toggleAgentHalt } from './haltcontrol'
 // canvas/cards.tsx — the canvas's card components: the overseer eye
 // (UserNode) with its switchboard (EyeDesk), the hire chips (SpawnChips),
 // the drag-adjustable CreditBar, the draft/hiring card (DraftNode), and the
@@ -1472,6 +1473,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       // own borrowing slot. Same gate as pin/popout: none of this on mobile.
       onOpenTemporary: !isMobile && onOpenTemporary
         ? () => onOpenTemporary(node.id) : undefined,
+      onHalt: () => { void toggleAgentHalt(slug, node.id, node.halt?.phase, toast) },
       onHire: onSpawn,
       onRetireAsk: setAsking,
       onDismiss,

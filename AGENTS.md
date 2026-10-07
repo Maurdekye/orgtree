@@ -23,6 +23,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   selected value at launch, including Haiku and OpenRouter's Claude harness.
   [verified from source: 2026-10-07; `docs/rust-engine/staffing-effort-parity.md`]
 
+- Agent card and Agents List menus share `canvas/agentmenu.tsx`. The hire-tier
+  submenu uses `hireTierOffer` (also used by HireSheet) and opens the existing
+  local draft form; only confirmation creates a seat. Halt/Unhalt shares
+  `toggleAgentHalt` with the desk control, including the settling halt phase.
+  [verified from source: 2026-10-07]
+
 - Staffing composites use `ops::run_in_tx` and publish deferred `Effects` only
   after the caller commits. Busy model/account switches persist intents and
   apply at settlement; admission locks the agent row before claiming mail.
