@@ -34,6 +34,12 @@ plan and this file. Read both before you change anything. All entries below: 202
   changed. [verified: `src/pg.rs`; PLAN §3, §8]
 - Engine log: one file per start, `<data>\diagnostics\logs\<start time>.log`, kept 30 days.
   [verified: `src/trace.rs`; decided: user, DECISIONS 34–36]
+- Agent log context must cross spawned tasks and channel messages: use `agent:<id>/<name>`
+  for actor work and `dog:<uid>/<owner name>` for watchdog work. Keep actual UI requests as
+  `user`/`desktop`; HTTP has no agent credential path. Reuse identity rows already loaded,
+  and instrument async futures instead of holding an entered span across an await.
+  [verified from source: 2026-10-07, `src/runtime/`; measured log audit and limits:
+  `docs/rust-engine/agent-log-context.md`; user clarification of DECISIONS 34]
 - Accounts: every account has its own active checkbox in App settings › Providers, the
   native sign-in included; an inactive account serves no new turn and its agents' mail waits.
   [decided: user 2026-10-07, DECISIONS 41]
