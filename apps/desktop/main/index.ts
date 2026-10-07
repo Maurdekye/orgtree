@@ -579,10 +579,6 @@ else {
       item.enabled = current.enabled === true
     }
   }
-  const refreshTrayCredentials = () => {
-    const item = trayMenu?.getMenuItemById('engine-credential-warning')
-    if (item) item.visible = !!engine.credentialWarning
-  }
   /** THE ONE WAY A RESTART IS STARTED, and it starts no process of its own:
    *  `Engine.restart` stops, proves the stop, and goes back through the same
    *  `start()` the application boots with.
@@ -610,9 +606,9 @@ else {
     tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) applyWindowIcon(window, image)
     if (!tray) return
-    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); refreshTrayCredentials(); return }
+    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     const prefs = preferences.get()
-    tray.setToolTip(`Orgtree - ${engine.credentialWarning ? 'Windows credentials unavailable - ' : ''}${label()}`)
+    tray.setToolTip(`Orgtree - ${label()}`)
     // Without update support (dev-channel install, unpackaged development)
     // the four update rows would only mislead: their ids are absent, which
     // refreshTrayUpdates already tolerates, and one honest line takes their
@@ -631,11 +627,6 @@ else {
     // running (with its port, and whether it is exposed beyond this
     // computer), stopped, or the start error the hosting panel shows.
     trayMenu = Menu.buildFromTemplate([
-      { id: 'engine-credential-warning', label: 'Git/GitHub access unavailable — sign in and open Orgtree',
-        visible: !!engine.credentialWarning, click: () => {
-          if (engine.credentialWarning) void dialog.showMessageBox({ type: 'warning',
-            message: 'Saved Windows credentials may be unavailable to agents.', detail: engine.credentialWarning })
-        } },
       ...updateRows,
       { type: 'separator' },
       hubMenuItem(),
