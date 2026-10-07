@@ -252,9 +252,9 @@ recorded decision: user inbox styling request 2026-10-07]
 `active/live` count and spinning-arrow styles, but keeps counting its own live
 tree nodes (`busy` means active); per-tier totals and tooltip use that same tree.
 The shared org activity spinner stays visible but static under reduced motion,
-and is absent while idle. Its 14px slot remains reserved and centre-aligned;
-the tabular count cell reserves both sides' maximum digit count from the live
-total, keeping active/idle widths equal. [user follow-up 2026-10-07 09:51Z;
+and is absent while idle. Its 14px slot remains reserved and centre-aligned,
+with a 4px gap before the count. Counts use tabular digits without extra leading
+width; the pill's left and right padding match. [user follow-ups 2026-10-07 09:51Z, 09:57Z;
 verified from source: `shell/treeinfo.tsx`,
 `shell/orgrows.tsx`, `styles.css`; recorded decision: user 2026-10-07 09:44Z]
 
