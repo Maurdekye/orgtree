@@ -45,7 +45,7 @@ pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupt
     let (variant,fields,body)=if interrupted {
         ("context.drive_restart_interrupted",json!({"text":text,"summary":"The engine stopped during the preceding turn."}),text.to_string())
     } else {
-        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),format!("Orgtree {} restarted.",env!("CARGO_PKG_VERSION")))
+        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),format!("[ORGTREE RESTART NOTICE]\nOrgtree {} restarted. Commit: {}. PID: {}. Started at: {}.\nThis is an informational notice; it does not start a turn.",env!("CARGO_PKG_VERSION"),option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"),engine.boot.pid,crate::util::iso(engine.boot.started_at)))
     };
     let ev=crate::events::typed(variant,"@system",build_ref(engine),fields);
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await

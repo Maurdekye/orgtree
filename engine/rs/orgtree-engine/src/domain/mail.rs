@@ -194,8 +194,11 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     }
     if matches!(out.from, From::User) {
         ch.push(Change::UserMail);
-        if let Err(e)=super::runtime_notices::deep_reach(engine,org_id,target_id,&out.body,false).await {
-            tracing::warn!(agent=target_id,error=%format!("{e:#}"),"direct-contact notice could not be sent");
+        let variant=out.ev.as_ref().and_then(|e|e["variant"].as_str()).unwrap_or("");
+        if variant.starts_with("ordinary.") || variant.starts_with("reply.") {
+            if let Err(e)=super::runtime_notices::deep_reach(engine,org_id,target_id,&out.body,false).await {
+                tracing::warn!(agent=target_id,error=%format!("{e:#}"),"direct-contact notice could not be sent");
+            }
         }
     }
     changes::notify(engine, &org, ch);
