@@ -143,7 +143,7 @@ pub async fn asker(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Asker>
 
 /// Add to (or open) the agent's one request. Returns the request's id.
 #[logged]
-async fn amend(engine: &Arc<Engine>, org: &OrgHandle, agent_id: i64, f: impl FnOnce(&mut Parts)) -> Result<String> {
+async fn amend(engine: &Arc<Engine>, org: &OrgHandle, agent_id: i64, f: impl FnOnce(&mut Parts) -> Result<bool>) -> Result<String> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let open = tx
@@ -156,7 +156,21 @@ async fn amend(engine: &Arc<Engine>, org: &OrgHandle, agent_id: i64, f: impl FnO
         Some(r) => (r.get::<_, String>(0), Parts::of(&r.get::<_, Value>(1)), r.get::<_, i32>(2) + 1, true),
         None => (crate::util::uid("q"), Parts::default(), 1, false),
     };
-    f(&mut parts);
+    // Validation happens before any write; a refused merge preserves every tab.
+    if !f(&mut parts)? {
+        return Ok(uid);
+    }
+    if parts.is_empty() {
+        if existing {
+            tx.execute(
+                "UPDATE ot.asks SET status = 'withdrawn', resolved_at = now(), reason = 'request no longer needed', rev = $2 WHERE uid = $1",
+                &[&uid, &rev],
+            ).await?;
+            tx.commit().await?;
+            changes::notify(engine, org, vec![Change::Asks, Change::Agent(agent_id)]);
+        }
+        return Ok(uid);
+    }
     let (kind, body) = compose(&uid, rev, &parts);
     let work: Vec<String> = body["work_items"]
         .as_array()
@@ -224,13 +238,32 @@ fn question_of(v: &Value) -> Result<Value> {
 #[logged]
 pub async fn ask(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, args: &Value) -> Result<String> {
     let mut qs = Vec::new();
-    match args["questions"].as_array() {
-        Some(list) if !list.is_empty() => {
-            for q in list.iter().take(4) {
+    match args.get("questions").filter(|v| !v.is_null()) {
+        Some(value) => {
+            let Some(list) = value.as_array().filter(|a| !a.is_empty()) else {
+                refuse!(BadRequest, "questions must be a non-empty list of question objects (1–4)");
+            };
+            if list.len() > 4 {
+                refuse!(BadRequest, "a batch carries at most 4 questions; split the rest into a follow-up ask");
+            }
+            for q in list {
                 qs.push(question_of(q)?);
             }
         }
-        _ => qs.push(question_of(args)?),
+        None => qs.push(question_of(args)?),
+    }
+    // Attachments are docket reads, even when the question will be routed to
+    // a superior. Validate the whole call before any card or mail is written.
+    let who = crate::domain::docket::Who::Agent { id: a.id, name: a.name.clone(), generation: a.generation };
+    for q in &mut qs {
+        let work = q["work_item"].as_str().map(str::trim).filter(|s| !s.is_empty())
+            .or_else(|| args["work_item"].as_str().map(str::trim).filter(|s| !s.is_empty()));
+        if let Some(work) = work {
+            let item = crate::domain::docket::agent_get(engine, org, &who, work, &json!({ "fields": ["slug"] })).await?;
+            q["work_item"] = item["slug"].clone();
+        } else if let Some(obj) = q.as_object_mut() {
+            obj.remove("work_item");
+        }
     }
     if !a.may_ask_user {
         let questions: Vec<Value> = qs.iter().map(|q| json!({
@@ -249,10 +282,10 @@ pub async fn ask(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, args: &V
                 None => p.questions.push(q),
             }
         }
-        if p.questions.len() > 4 {
-            let n = p.questions.len() - 4;
-            p.questions.drain(..n);
+        if p.questions.len() > 8 {
+            refuse!(BadRequest, "your open batch would grow to {} questions (cap 8); withdraw it or wait for the user's submit", p.questions.len());
         }
+        Ok(true)
     })
     .await?;
     Ok(format!(
@@ -289,19 +322,74 @@ async fn route_to_superior(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
 }
 
 /// `orgtree_request_credits`.
+/// Python's ceil(round(value, 2)): decimal formatting preserves ties-to-even
+/// on the actual binary input (multiplying by 100 first can change a tie).
+#[logged]
+fn credit_total(value: f64) -> Result<f64> {
+    if !value.is_finite() {
+        refuse!(BadRequest, "new_limit must be a finite number (the requested TOTAL grant)");
+    }
+    Ok(format!("{value:.2}").parse::<f64>()?.ceil())
+}
+
+/// Existing grant and conservative whole-credit headroom, as in 3.x.
+/// None means the org has no top-level cap and the chain may grow.
+#[logged]
+async fn credit_room(engine: &Engine, org_id: i64, agent_id: i64) -> Result<(f64, Option<f64>)> {
+    let client = engine.db.get().await?;
+    let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+    let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
+    let rows = client.query(
+        "WITH RECURSIVE up(id, parent_id, depth) AS (
+           SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'
+           UNION ALL SELECT a.id, a.parent_id, u.depth + 1 FROM ot.agents a JOIN up u ON a.id = u.parent_id
+            WHERE u.depth < 1024 AND a.org_id = $2)
+         SELECT a.grant_credits::float8, u.parent_id,
+                (a.grant_credits - coalesce((SELECT sum(c.seat + c.grant_credits) FROM ot.agents c
+                   WHERE c.parent_id = a.id AND c.state = 'live'), 0))::float8
+           FROM up u JOIN ot.agents a ON a.id = u.id ORDER BY u.depth LIMIT 1025",
+        &[&agent_id, &org_id],
+    ).await?;
+    let Some(first) = rows.first() else { refuse!(NotFound, "the requesting agent is not live") };
+    if rows.last().and_then(|r| r.get::<_, Option<i64>>(1)).is_some() {
+        refuse!(Conflict, "the superior chain exceeds the supported depth");
+    }
+    let grant: f64 = first.get(0);
+    let cap = settings["max_top_grant"].as_f64().unwrap_or(0.0).trunc();
+    let room = if first.get::<_, Option<i64>>(1).is_none() {
+        (cap != 0.0).then(|| cap - grant.ceil())
+    } else if settings["cascade_alloc"].as_bool() == Some(false) {
+        Some(rows[1].get::<_, f64>(2).floor())
+    } else if cap == 0.0 {
+        None
+    } else {
+        let free: f64 = rows.iter().skip(1).map(|r| r.get::<_, f64>(2).floor()).sum();
+        let top: f64 = rows.last().expect("nonempty chain").get(0);
+        Some(free + (cap - top.ceil()).max(0.0))
+    };
+    Ok((grant, room))
+}
+
 #[logged]
 pub async fn request_credits(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, new_limit: f64, reason: &str) -> Result<String> {
     if !a.may_ask_user {
         refuse!(Forbidden, "only top-level agents and holders of a user audience ask the user for credits; ask your superior by mail");
     }
+    let new_limit = credit_total(new_limit)?;
+    let (grant, room) = credit_room(engine, org.id, a.id).await?;
+    if new_limit <= grant {
+        amend(engine, org, a.id, |p| Ok(p.credit.take().is_some())).await?;
+        return Ok(format!("Your grant is already {grant}; no credit request remains. Other request tabs are unchanged."));
+    }
     if reason.trim().is_empty() {
         refuse!(BadRequest, "say why you need the credits");
     }
-    let client = engine.db.get().await?;
-    let grant: f64 = client.query_one("SELECT grant_credits::float8 FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
-    drop(client);
+    if room.is_some_and(|n| n <= 0.0) {
+        refuse!(Conflict, "there are ZERO credits available to grant (the superior chain or top-level cap has no headroom). No request was made; free credits or ask the user to raise the cap");
+    }
     let uid = amend(engine, org, a.id, |p| {
         p.credit = Some(json!({ "old": grant, "new": new_limit, "reason": reason.trim() }));
+        Ok(true)
     })
     .await?;
     Ok(format!("Your credit request ({grant} → {new_limit}) is on the user's desk (request {uid}). The decision arrives as mail."))
@@ -309,35 +397,98 @@ pub async fn request_credits(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Ask
 
 /// `orgtree_request_scope`.
 #[logged]
+fn item_key(item: &Value) -> String {
+    match item["kind"].as_str().unwrap_or("") {
+        "dir" => format!("dir:{}", item["path"].as_str().unwrap_or("")),
+        "tool" => format!("tool:{}", item["tool"].as_str().unwrap_or("")),
+        "mcp" => format!("mcp:{}", item["server"].as_str().unwrap_or("")),
+        _ => "permission_mode".into(),
+    }
+}
+
+#[logged]
+async fn held_scope(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Value> {
+    let client = engine.db.get().await?;
+    let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+    let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
+    let rows = client.query(
+        "WITH RECURSIVE up(id, parent_id, scope, depth) AS (
+           SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'
+           UNION ALL SELECT a.id, a.parent_id, a.scope, u.depth + 1 FROM ot.agents a JOIN up u ON a.id = u.parent_id
+            WHERE u.depth < 1024 AND a.org_id = $2)
+         SELECT scope, parent_id FROM up ORDER BY depth DESC LIMIT 1025", &[&agent_id, &org_id],
+    ).await?;
+    let Some(root) = rows.first() else { refuse!(NotFound, "the requesting agent is not live") };
+    if root.get::<_, Option<i64>>(1).is_some() {
+        refuse!(Conflict, "the superior chain exceeds the supported depth");
+    }
+    let mut effective = scope::org_ceiling(&settings["dirs"]);
+    for row in rows {
+        effective = scope::clamp(&row.get::<_, Value>(0), &effective);
+    }
+    Ok(effective)
+}
+
+#[logged]
+fn holds_item(held: &Value, item: &Value) -> bool {
+    match item["kind"].as_str() {
+        Some("dir") => held["add_dirs"].as_array().is_some_and(|dirs| dirs.iter().any(|d| {
+            d["path"] == item["path"] && (d["mode"] == "rw" || d["mode"] == item["mode"])
+        })),
+        Some("tool") => item["tool"].as_str().and_then(|t| held["tools"][t].as_bool()).unwrap_or(false),
+        Some("mcp") => held["tools"]["mcp"].as_array().is_some_and(|servers| {
+            servers.iter().any(|s| s == "*" || s == &item["server"])
+        }),
+        Some("permission_mode") => {
+            let current = held["permission_mode"].as_str().unwrap_or("acceptEdits");
+            let wanted = item["mode"].as_str().unwrap_or("");
+            scope::PM_LEVELS.contains(&current) && scope::PM_LEVELS.contains(&wanted)
+                && scope::pm_rank(current) >= scope::pm_rank(wanted)
+        }
+        _ => false,
+    }
+}
+
+#[logged]
 pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, items: &[Value], reason: &str) -> Result<String> {
+    if reason.trim().is_empty() {
+        refuse!(BadRequest, "a reason is required; say what the access is for");
+    }
     if items.is_empty() {
         refuse!(BadRequest, "name at least one item");
     }
+    if items.len() > 8 {
+        refuse!(BadRequest, "at most 8 items per request");
+    }
     let mut clean = Vec::new();
-    for it in items.iter().take(8) {
+    for it in items {
         let kind = it["kind"].as_str().unwrap_or("");
         let item = match kind {
             "dir" => {
                 let Some(p) = it["path"].as_str().filter(|p| !p.trim().is_empty()) else {
                     refuse!(BadRequest, "a folder item needs its path");
                 };
-                json!({ "kind": "dir", "path": p.trim(), "mode": if it["mode"] == "ro" { "ro" } else { "rw" } })
+                let mode = it["mode"].as_str().filter(|m| !m.is_empty()).unwrap_or("rw").trim();
+                if !["ro", "rw"].contains(&mode) {
+                    refuse!(BadRequest, "folder mode must be ro or rw");
+                }
+                json!({ "kind": "dir", "path": p.trim(), "mode": mode })
             }
             "tool" => {
-                let t = it["tool"].as_str().unwrap_or("");
+                let t = it["tool"].as_str().unwrap_or("").trim();
                 if !["bash", "web", "edit", "subagents"].contains(&t) {
                     refuse!(BadRequest, "a tool item names bash, web, edit or subagents");
                 }
                 json!({ "kind": "tool", "tool": t })
             }
             "mcp" => {
-                let Some(s) = it["server"].as_str().filter(|s| !s.is_empty()) else {
+                let Some(s) = it["server"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
                     refuse!(BadRequest, "an mcp item names its server");
                 };
                 json!({ "kind": "mcp", "server": s })
             }
             "permission_mode" => {
-                let m = it["mode"].as_str().unwrap_or("");
+                let m = it["mode"].as_str().unwrap_or("").trim();
                 if !scope::PM_LEVELS.contains(&m) {
                     refuse!(BadRequest, "permission_mode is one of {}", scope::PM_LEVELS.join(", "));
                 }
@@ -346,6 +497,13 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
             other => refuse!(BadRequest, "unknown item kind {other}"),
         };
         clean.push(item);
+    }
+    let effective = held_scope(engine, org.id, a.id).await?;
+    let before = clean.len();
+    clean.retain(|it| !holds_item(&effective, it));
+    let held = before - clean.len();
+    if clean.is_empty() {
+        return Ok("You already hold everything you asked for; nothing to request.".into());
     }
     if !a.may_ask_user {
         let text = format!(
@@ -370,14 +528,21 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
     let uid = amend(engine, org, a.id, |p| {
         let mut items: Vec<Value> = p.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();
         for c in clean {
-            if !items.iter().any(|x| x == &c) {
-                items.push(c);
+            let key = item_key(&c);
+            match items.iter_mut().find(|x| item_key(x) == key) {
+                Some(old) => *old = c,
+                None => items.push(c),
             }
         }
+        if items.len() > 8 {
+            refuse!(BadRequest, "your pending scope request would exceed 8 items; withdraw the batch or wait for the user's submit");
+        }
         p.scope = Some(json!({ "items": items, "reason": reason.trim() }));
+        Ok(true)
     })
     .await?;
-    Ok(format!("Your scope request is on the user's desk (request {uid}). End your turn; the decision arrives as mail."))
+    let note = if held > 0 { format!(" {held} item(s) you already hold were dropped.") } else { String::new() };
+    Ok(format!("Your scope request is on the user's desk (request {uid}).{note} End your turn; the decision arrives as mail."))
 }
 
 /// `orgtree_withdraw_ask`.
