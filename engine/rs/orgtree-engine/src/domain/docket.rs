@@ -1140,6 +1140,23 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     Ok(out)
 }
 
+/// The retained `accept` alias completes work while preserving its locked lists.
+#[logged]
+pub async fn complete(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug: &str, args: &Value) -> Result<Value> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let it = load(&*tx, org.id, slug, true).await?;
+    let mut a = json!({ "slug": it.slug, "status": "done", "keep_done": true, "keep_next": true,
+        "expected_rev": if args["expected_rev"].is_null() { json!(it.rev) } else { args["expected_rev"].clone() } });
+    if let Some(note) = args["note"].as_str() { a["done_append"] = json!([note]); }
+    let mut post = AfterCommit::default();
+    let out = update_tx(&*tx, org, who, &a, &mut post).await?;
+    tx.commit().await?;
+    drop(client);
+    post.publish(engine, org);
+    Ok(out)
+}
+
 #[logged]
 pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who: &Who, args: &Value, post: &mut AfterCommit) -> Result<Value> {
     let Some(slug) = text_arg(args, "slug") else { refuse!(BadRequest, "name the item (slug)") };

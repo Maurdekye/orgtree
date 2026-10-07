@@ -454,13 +454,7 @@ async fn work_tool(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         "get" => docket::agent_get(engine, &org, &who, need()?, args).await?,
         "create" => docket::create(engine, &org, &who, args).await?,
         "update" => docket::update(engine, &org, &who, args).await?,
-        "accept" => {
-            let mut a = json!({ "slug": need()?, "status": "done", "keep_done": true, "keep_next": true });
-            if let Some(n) = args["note"].as_str() {
-                a["done_append"] = json!([n]);
-            }
-            docket::update(engine, &org, &who, &a).await?
-        }
+        "accept" => docket::complete(engine, &org, &who, need()?, args).await?,
         "assign" => {
             let Some(owner) = args["owner"].as_str().filter(|o| !o.trim().is_empty()) else {
                 crate::refuse!(BadRequest, "assign needs `owner`: you or a subordinate");
