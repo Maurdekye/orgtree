@@ -8,6 +8,13 @@ export function ringArcCentres(ideal: number[], sizes: number[], step: number): 
   for (let i = 1; i < ideal.length; i++)
     offsets.push(offsets[i - 1]! + (sizes[i - 1]! + sizes[i]!) * step / 2)
   const slack = Math.max(0, 2 * Math.PI - sizes.reduce((sum, n) => sum + n, 0) * step)
+  // A completely full ring has only one freedom: rigid rotation. Its exact
+  // projection is the mean offset; avoid iterative interval fitting for the
+  // many contact projections in the spring solver.
+  if (slack < 1e-12) {
+    const rotation = ideal.reduce((sum, angle, i) => sum + angle - offsets[i]!, 0) / ideal.length
+    return offsets.map(offset => offset + rotation)
+  }
   const blocks: { start: number; end: number; sum: number; count: number }[] = []
   for (let i = 0; i < ideal.length; i++) {
     blocks.push({ start: i, end: i + 1, sum: ideal[i]! - offsets[i]!, count: 1 })

@@ -7,12 +7,21 @@ export interface SpringRing {
   parents: number[]
 }
 
+// Status/feed updates rebuild CanvasNodes without changing geometry. Keep only
+// the last numeric topology (no org/node data), so these reads stay O(nodes).
+let cached: { input: SpringRing[]; output: number[][] } | undefined
+
 /** Relax parent/arc-centre springs together across every depth. Contact
  * projection supplies the repulsion: wider subordinate arcs push farther,
  * and their springs carry that displacement back to their superiors.
  * Angles remain unwrapped in tree order, including across the circle seam.
  * This runs only when layout changes, never in the animation frame loop. */
 export function settleRingSprings(rings: SpringRing[]): number[][] {
+  if (cached && rings.length === cached.input.length && rings.every((ring, d) => {
+    const previous = cached!.input[d]!
+    return ring.step === previous.step && ring.angles.length === previous.angles.length
+      && ring.angles.every((angle, i) => angle === previous.angles[i] && ring.parents[i] === previous.parents[i])
+  })) return cached.output.map(angles => [...angles])
   const links = rings.map(ring => {
     const groups: { parent: number; first: number; last: number }[] = []
     ring.parents.forEach((parent, i) => {
@@ -55,5 +64,7 @@ export function settleRingSprings(rings: SpringRing[]): number[][] {
   // and keeps the eye's reports centred at the bottom exactly as before.
   const top = rest[0]
   const rotation = top?.length ? Math.PI / 2 - (top[0]! + top[top.length - 1]!) / 2 : 0
-  return rest.map(angles => angles.map(angle => angle + rotation))
+  const output = rest.map(angles => angles.map(angle => angle + rotation))
+  cached = { input: rings.map(r => ({ step: r.step, angles: [...r.angles], parents: [...r.parents] })), output }
+  return output.map(angles => [...angles])
 }
