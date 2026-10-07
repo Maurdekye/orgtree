@@ -155,6 +155,7 @@ pub(super) async fn smoke(engine: &Engine, owner: i64, target: &str, args: &Valu
     let current=match target {
         "agents.active"|"agents.live"=>{let me=identity(engine,owner).await?;let ids=live_ids(engine,me.org_id).await?;json!({"count":count(engine,owner,target=="agents.active",args["event_scope"].as_str().unwrap_or("subtree"),if target=="agents.live"{Some(&ids)}else{None}).await?})},
         "credentials.isolated"|"credentials.ready"=>json!({"current":if engine.credentials.state.load().warning.is_some(){"credentials.isolated"}else{"credentials.ready"}}),
+        "credentials.bridge.available"|"credentials.bridge.unavailable"=>json!({"current":if engine.credential_bridge.ready(){"credentials.bridge.available"}else{"credentials.bridge.unavailable"}}),
         "engine.started"=>json!({"current":"engine.started","commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}),
         "credits.changed"|"credits.*"=>json!({"credits":credit_baseline(engine,owner).await?}),
         _=>engine.dogs.conditions.pin().get(target).cloned().unwrap_or(Value::Null),

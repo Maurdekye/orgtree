@@ -192,6 +192,10 @@ pub fn publish_availability(engine: &Engine) {
     {
         return;
     }
+    crate::runtime::watchdogs::events::condition(engine,
+        if ready {"credentials.bridge.available"} else {"credentials.bridge.unavailable"},
+        if ready {"credentials.bridge.unavailable"} else {"credentials.bridge.available"},
+        serde_json::json!({"reason":if ready {"signed-in broker registered"} else {"broker disconnected or lease expired"}}));
     if ready {
         tracing::info!("Signed-in desktop git/GitHub credential bridge ready; general Windows vault remains isolated");
     } else {
