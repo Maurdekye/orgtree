@@ -1070,7 +1070,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
     ? (map.get(draft.parent)?.free ?? 0)
     : maxTop
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onCancel() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])

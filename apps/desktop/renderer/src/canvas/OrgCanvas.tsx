@@ -1,4 +1,5 @@
 import { toggleAgentHalt } from './haltcontrol'
+import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } from './draftfocus'
 import { useAppRead } from '../appfeed'
 import { adoptPinLayer, canvasBox, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
@@ -410,6 +411,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
   const [draft, setDraft] = useState<DraftState | null>(null)
+  const draftOrigin = useRef<DraftDeskFocus | null>(null)
+  const draftReturn = useRef<DraftDeskFocus | null>(null)
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+    draftOrigin.current = null
+    draftReturn.current = null
+  }, [slug])
   // Draft forms are intentionally not restored on reopening. Resume the
   // incomplete tutorial at the real token instead of pointing to a lost form.
   useEffect(() => { if (!draft) firstUseCancel(slug) }, [slug, draft])
@@ -2883,6 +2892,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     include: [...new Set([...(restoredModalOrg.current === slug ? [] : savedSelection.include),
       ...restoreDesks.map(([, id]) => id), ...pins.map(pin => pin.id), ...shownRetired,
       configId, lineageId, inboxId, agentDocketId, teamDocketId, tempDeskId, sheetId,
+      draftOrigin.current?.id, draftReturn.current?.id,
       focusId, draft?.parent, draft?.beside?.anchor, draft?.above?.anchor, pendingJump?.id,
     ].filter((id): id is string => !!id && id !== USER && id !== DRAFT))].sort(),
     hideRetired, fronts: retiredFronts(pileFront), browse,
@@ -3156,16 +3166,88 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return [...keep.values()]
   }, [tree.audiences, map, hidden])
 
+  const openDraft = (next: DraftState) => {
+    // Keep the original desk when replacing a draft's tier/placement.
+    if (!draft) {
+      const id = buttonAgentOf(slug) ?? focusRef.current
+      draftOrigin.current = captureDraftDeskFocus(viewportRef.current,
+        id ? mapRef.current.get(id) : undefined)
+    }
+    draftReturn.current = null
+    if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+    setDraft(next)
+    draftTimer.current = setTimeout(() => {
+      draftTimer.current = null
+      centerOn(DRAFT, Math.min(2.05, Math.max(1.7, viewRef.current.z)))
+    }, 60)
+  }
+  const cancelDraft = useCallback(() => {
+    if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+    draftTimer.current = null
+    draftReturn.current = draftOrigin.current
+    draftOrigin.current = null
+    firstUseCancel(slug)
+    setDraft(null)
+  }, [slug])
+  // Removing a draft changes layout. Wait for the restored seat to settle,
+  // then use the normal desk route and restore keyboard focus after mount.
+  useEffect(() => {
+    const saved = draftReturn.current
+    if (draft || !saved) return
+    let frame = 0, aimed = false
+    const started = performance.now()
+    const restore = () => {
+      const node = mapRef.current.get(saved.id)
+      if (draftReturn.current !== saved) return
+      if (!node || node.generation !== saved.generation || performance.now() - started > 10000) {
+        draftReturn.current = null
+        return
+      }
+      const target = targetRef.current.get(saved.id), spring = springs.current.get(saved.id)
+      if (!aimed && target && spring && atRest(spring, target) && !panRef.current) {
+        centerOn(saved.id)
+        aimed = true
+      }
+      if (aimed && !animBusyRef.current && restoreDraftDeskKeyboard(viewportRef.current, saved)) {
+        draftReturn.current = null
+        return
+      }
+      frame = requestAnimationFrame(restore)
+    }
+    frame = requestAnimationFrame(restore)
+    return () => cancelAnimationFrame(frame)
+  }, [draft, centerOn])
+  // A plain click away cancels; panning and the draft's permissions/modal
+  // controls remain usable. All cancellation routes share the same return.
+  useEffect(() => {
+    if (!draft) return
+    const root = viewportRef.current, doc = root?.ownerDocument
+    if (!root || !doc) return
+    let down: { x: number; y: number } | null = null
+    const outside = (event: PointerEvent) => {
+      const el = event.target as Element | null
+      return el && root.contains(el) && !el.closest(
+        '.sq.draft, .overlay, .ctxmenu, .hsof, button, input, textarea, select, a')
+    }
+    const press = (event: PointerEvent) => {
+      down = event.button === 0 && outside(event) ? { x: event.clientX, y: event.clientY } : null
+    }
+    const release = (event: PointerEvent) => {
+      const from = down
+      down = null
+      if (from && outside(event) && Math.hypot(event.clientX - from.x, event.clientY - from.y) < 3)
+        cancelDraft()
+    }
+    doc.addEventListener('pointerdown', press, true)
+    doc.addEventListener('pointerup', release, true)
+    return () => {
+      doc.removeEventListener('pointerdown', press, true)
+      doc.removeEventListener('pointerup', release, true)
+    }
+  }, [draft, cancelDraft])
   const spawn = (parentId: string, tier: string) => {
     if (parentId === USER) firstUseToken(slug)
-    setDraft({ parent: parentId === USER ? null : parentId, tier })
-    // roughly OVERVIEW scale start to finish (user ruling): the form is
-    // authored on a 200px virtual surface (scale .6 into the card), so
-    // z ≈ 1.7 already renders authored px ≈ screen px — no screen-fill dive.
-    // Clamped from ABOVE too: spawning from a desk (chips live there now)
-    // must glide OUT to overview, not render the form at desk fill
-    setTimeout(() => centerOn(
-      DRAFT, Math.min(2.05, Math.max(1.7, viewRef.current.z))), 60)
+    openDraft({ parent: parentId === USER ? null : parentId, tier })
   }
   // F-03: hire a COWORKER — same superior, placed to the chosen side of the
   // anchor. Top-level agents side-hire more top-levels (parent is the user).
@@ -3176,10 +3258,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }
   const spawnBeside = (n: CanvasNode, tier: string, side: 'left' | 'right') => {
     const pin = ringSide(n, side)
-    setDraft({ parent: !n.parent || n.parent === USER ? null : n.parent, tier,
+    openDraft({ parent: !n.parent || n.parent === USER ? null : n.parent, tier,
                beside: { anchor: n.id, side: pin } })
-    setTimeout(() => centerOn(
-      DRAFT, Math.min(2.05, Math.max(1.7, viewRef.current.z))), 60)
   }
   // FR-25: insert a SUPERIOR — hired under the anchor's own superior (the
   // exact parent resolution spawnBeside uses); the hire op carries the anchor
@@ -3187,10 +3267,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // The draft meanwhile WRAPS the anchor in the preview tree (withDraftTree),
   // so the form already sits in the final shape and confirm causes no reflow.
   const spawnAbove = (n: CanvasNode, tier: string) => {
-    setDraft({ parent: !n.parent || n.parent === USER ? null : n.parent, tier,
+    openDraft({ parent: !n.parent || n.parent === USER ? null : n.parent, tier,
                above: { anchor: n.id } })
-    setTimeout(() => centerOn(
-      DRAFT, Math.min(2.05, Math.max(1.7, viewRef.current.z))), 60)
   }
   const confirmDraft = (name: string, grant: number, charter: string,
     scope: DraftScope | null) => {
@@ -3249,6 +3327,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         // (FR-25's splice needs nothing here anymore — it happened inside
         // the hire op itself, atomically; the broadcast refetch already
         // carries the final shape, which the draft was previewing in place)
+        draftOrigin.current = null
+        draftReturn.current = null
+        if (draftTimer.current !== null) clearTimeout(draftTimer.current)
+        draftTimer.current = null
         setDraft(null)
       }).catch((e: Error) => toast([`hire failed: ${e.message}`]))
   }
@@ -3674,7 +3756,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               maxTop={tree.max_top_grant ?? 1000}
               defaultTop={tree.default_top_grant ?? 50} tree={tree}
               zoom={view.z} pxc={pxPerCredit}
-              onConfirm={confirmDraft} onCancel={() => { firstUseCancel(slug); setDraft(null) }}
+              onConfirm={confirmDraft} onCancel={cancelDraft}
               onGrant={setDraftGrant} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space

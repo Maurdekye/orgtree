@@ -16,6 +16,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Draft hire cancellation snapshots only the currently mounted full desk and
+  restores it through the normal focus route after layout settles. The saved
+  agent generation must still match; confirmation clears the snapshot and keeps
+  the existing new-agent focus. Cancel, Escape and plain canvas click-away share
+  this path. [verified from source and isolated renderer smoke: 2026-10-07;
+  `canvas/draftfocus.ts`, `canvas/OrgCanvas.tsx`]
+
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls. Codex choices come from background
   `model/list` discovery; menu reads never spawn a CLI. Claude/OpenRouter keep
