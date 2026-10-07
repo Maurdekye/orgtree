@@ -5,7 +5,7 @@
 //! credit chains are locked top-down so cascades in different subtrees never
 //! wait on each other. Deadlocks and serialization failures are retried.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -199,11 +199,12 @@ async fn caps(engine: &Engine, tx: &Transaction<'_>, org_id: i64) -> Result<OrgC
 }
 
 /// Make `need` credits free under `parent` (the user when `None`): raise
-/// each ancestor's grant just enough, whole credits, up to the user and
-/// within the top-level cap. Returns who was raised.
+/// descendant grants just enough, stopping at the acting agent's allocation.
+/// Plan before writing: a raised child must not be counted twice at its parent.
 #[logged]
 async fn ensure_room(
     tx: &Transaction<'_>,
+    actor: &Actor,
     parent: Option<i64>,
     need: f64,
     cascade: bool,
@@ -215,41 +216,41 @@ async fn ensure_room(
         return Ok(Vec::new());
     }
     let ch = chain(tx, pid).await?;
+    let floor = match actor {
+        Actor::User => None,
+        Actor::Agent { id, name } => {
+            if !ch.iter().any(|n| n.id == *id) {
+                refuse!(Conflict, "insufficient credits: {name} cannot draw from outside its allocation");
+            }
+            Some(*id)
+        }
+    };
     let mut need = need;
-    let mut raised = Vec::new();
+    let mut plan = Vec::new();
     for n in ch.iter().rev() {
         let free = n.grant - hold(tx, n.id).await?;
-        if free + 1e-9 >= need {
-            break;
-        }
-        if !cascade {
-            refuse!(
-                Conflict,
-                "{} has {:.2} credits free and this needs {:.2}; raise its grant first (credit cascade is off)",
-                n.name, free, need
-            );
+        if free + 1e-9 >= need { break; }
+        if floor == Some(n.id) || !cascade {
+            refuse!(Conflict,
+                "insufficient credits: {} has {:.2} credits free and this needs {:.2}; ask its superior to raise its grant",
+                n.name, free, need);
         }
         let d = (need - free).ceil();
         if n.parent.is_none() && n.grant + d > max_top + 1e-9 {
-            refuse!(
-                Conflict,
-                "{} would need a grant of {:.0}, over this organization's top-level cap of {:.0}",
-                n.name,
-                n.grant + d,
-                max_top
-            );
+            refuse!(Conflict, "insufficient credits: {} would need a grant of {:.0}, over the top-level cap of {:.0}",
+                n.name, n.grant + d, max_top);
         }
+        plan.push((n.id, n.name.clone(), d));
+        need = d;
+    }
+    let mut raised = Vec::new();
+    for (id, name, delta) in plan {
         tx.execute(
             "UPDATE ot.agents SET grant_credits = grant_credits + $2::float8::numeric, row_version = row_version + 1 WHERE id = $1",
-            &[&n.id, &d],
-        )
-        .await?;
-        fx.agents.insert(n.id);
-        raised.push(n.name.clone());
-        need = d;
-        if n.parent.is_none() {
-            break;
-        }
+            &[&id, &delta],
+        ).await?;
+        fx.agents.insert(id);
+        raised.push(name);
     }
     Ok(raised)
 }
@@ -625,7 +626,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let grant = grant + anchor_stake;
     let need = seat + grant - anchor_stake;
     let raised = match &parent {
-        Some(p) => ensure_room(tx, Some(p.id), need, caps.cascade_hire, caps.max_top, fx).await?,
+        Some(p) => ensure_room(tx, actor, Some(p.id), need, caps.cascade_hire, caps.max_top, fx).await?,
         None => {
             if grant > caps.max_top + 1e-9 {
                 refuse!(Conflict, "a top-level grant of {grant:.0} is over this organization's cap of {:.0}", caps.max_top);
@@ -776,7 +777,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if grant < 0.0 { refuse!(BadRequest, "a grant cannot be negative"); }
     let grant = grant + anchor_stake;
     let raised = match &parent {
-        Some(p) => ensure_room(tx, Some(p.id), seat + grant - anchor_stake, caps.cascade_hire, caps.max_top, fx).await?,
+        Some(p) => ensure_room(tx, actor, Some(p.id), seat + grant - anchor_stake, caps.cascade_hire, caps.max_top, fx).await?,
         None => {
             if grant > caps.max_top + 1e-9 {
                 refuse!(Conflict, "a top-level grant of {grant:.0} is over this organization's cap of {:.0}", caps.max_top);
@@ -995,8 +996,51 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     Ok(json!({ "node": n.name, "nodes": ids.len() }))
 }
 
+/// The batch stages parent changes in its existing transaction, accumulating
+/// exact 3.x release/acquire deltas before checking or writing any grants.
+#[derive(Debug, Default)]
+struct MoveCredits {
+    deltas: BTreeMap<i64, f64>,
+    check: BTreeSet<i64>,
+}
+
+#[logged]
+async fn finish_move_credits(engine: &Engine, org: &OrgHandle, tx: &Transaction<'_>, credits: MoveCredits, fx: &mut Effects) -> Result<()> {
+    let caps = caps(engine, tx, org.id).await?;
+    let ids: Vec<i64> = credits.deltas.keys().copied().collect();
+    let deltas: Vec<f64> = credits.deltas.values().copied().collect();
+    for id in &credits.check {
+        let n = node_by_id(tx, *id).await?;
+        let grant = n.grant + credits.deltas.get(id).copied().unwrap_or(0.0);
+        let hold: f64 = tx.query_one(
+            "SELECT coalesce(sum(a.seat + a.grant_credits + coalesce(d.delta,0)),0)::float8
+               FROM ot.agents a LEFT JOIN unnest($2::bigint[], $3::float8[]) AS d(id,delta) ON d.id=a.id
+              WHERE a.parent_id=$1 AND a.state='live'", &[id, &ids, &deltas]).await?.get(0);
+        if grant < -1e-9 || grant + 1e-9 < hold {
+            refuse!(Conflict, "insufficient credits: moving would leave {} with grant {:.2} for {:.2} held credits", n.name, grant, hold);
+        }
+        if n.parent.is_none() && grant > caps.max_top + 1e-9 {
+            refuse!(Conflict, "insufficient credits: moving would put {} over the top-level grant cap of {:.0}", n.name, caps.max_top);
+        }
+    }
+    for (id, delta) in credits.deltas {
+        if delta.abs() < 1e-9 { continue; }
+        tx.execute("UPDATE ot.agents SET grant_credits=grant_credits+$2::float8::numeric, row_version=row_version+1 WHERE id=$1", &[&id,&delta]).await?;
+        fx.agents.insert(id);
+    }
+    Ok(())
+}
+
 #[logged]
 async fn move_node(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let mut credits = MoveCredits::default();
+    let out = move_planned(org, tx, actor, req, &mut credits, fx).await?;
+    finish_move_credits(engine, org, tx, credits, fx).await?;
+    Ok(out)
+}
+
+#[logged]
+async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, credits: &mut MoveCredits, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if n.state != "live" {
         refuse!(Conflict, "{} is not live", n.name);
@@ -1023,17 +1067,22 @@ async fn move_node(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<
     if target.as_ref().map(|t| t.id) == n.parent {
         return Ok(json!({ "node": n.name, "unchanged": true }));
     }
-    let caps = caps(engine, tx, org.id).await?;
-    let stake = n.seat + n.grant;
-    let raised = match &target {
-        Some(t) => ensure_room(tx, Some(t.id), stake, caps.cascade_alloc, caps.max_top, fx).await?,
-        None => {
-            if n.grant > caps.max_top + 1e-9 {
-                refuse!(Conflict, "{} holds a grant of {:.0}, over the top-level cap of {:.0}", n.name, n.grant, caps.max_top);
-            }
-            Vec::new()
-        }
-    };
+    let stake = n.seat + n.grant + credits.deltas.get(&n.id).copied().unwrap_or(0.0);
+    let old_chain = match n.parent { Some(id) => chain(tx, id).await?, None => Vec::new() };
+    let new_chain = match &target { Some(t) => chain(tx, t.id).await?, None => Vec::new() };
+    let shared = old_chain.iter().zip(&new_chain).take_while(|(a,b)| a.id == b.id).count();
+    // The LCA keeps exactly the same hold/free. Both sides carry the same
+    // subtree stake, even if an earlier batch leg changed that subtree's grant.
+    for hop in old_chain.iter().skip(shared) {
+        *credits.deltas.entry(hop.id).or_default() -= stake;
+    }
+    let mut raised = Vec::new();
+    for hop in new_chain.iter().skip(shared) {
+        *credits.deltas.entry(hop.id).or_default() += stake;
+        if stake > 1e-9 { raised.push(hop.name.clone()); }
+    }
+    credits.check.insert(n.id);
+    credits.check.extend(old_chain.iter().chain(&new_chain).map(|n| n.id));
     let new_parent = target.as_ref().map(|t| t.id);
     let order: f64 = tx
         .query_one(
@@ -1113,7 +1162,7 @@ async fn reallocate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction
     let mut raised = Vec::new();
     if delta > 0.0 {
         match n.parent {
-            Some(p) => raised = ensure_room(tx, Some(p), delta, caps.cascade_alloc, caps.max_top, fx).await?,
+            Some(p) => raised = ensure_room(tx, actor, Some(p), delta, caps.cascade_alloc, caps.max_top, fx).await?,
             None => {
                 if n.grant + delta > caps.max_top + 1e-9 {
                     refuse!(Conflict, "a top-level grant of {:.0} is over this organization's cap of {:.0}", n.grant + delta, caps.max_top);
@@ -1192,7 +1241,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     }
     let caps = caps(engine, tx, org.id).await?;
     let raised = if seat > n.seat && n.state == "live" {
-        ensure_room(tx, n.parent, seat - n.seat, caps.cascade_alloc, caps.max_top, fx).await?
+        ensure_room(tx, actor, n.parent, seat - n.seat, caps.cascade_alloc, caps.max_top, fx).await?
     } else {
         Vec::new()
     };
@@ -1396,10 +1445,10 @@ async fn swap(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     // the superior of each seat now holds the other agent's seat price
     let mut raised = Vec::new();
     if b.seat > a.seat {
-        raised.extend(ensure_room(tx, a.parent.filter(|p| *p != b.id), b.seat - a.seat, caps.cascade_alloc, caps.max_top, fx).await?);
+        raised.extend(ensure_room(tx, actor, a.parent.filter(|p| *p != b.id), b.seat - a.seat, caps.cascade_alloc, caps.max_top, fx).await?);
     }
     if a.seat > b.seat {
-        raised.extend(ensure_room(tx, b.parent.filter(|p| *p != a.id), a.seat - b.seat, caps.cascade_alloc, caps.max_top, fx).await?);
+        raised.extend(ensure_room(tx, actor, b.parent.filter(|p| *p != a.id), a.seat - b.seat, caps.cascade_alloc, caps.max_top, fx).await?);
     }
     let a_parent = if b.parent == Some(a.id) { Some(b.id) } else { b.parent };
     let b_parent = if a.parent == Some(b.id) { Some(a.id) } else { a.parent };
@@ -1502,11 +1551,13 @@ async fn moves(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
         refuse!(BadRequest, "moves is a list of {{node, new_parent}}");
     }
     let mut done = Vec::new();
+    let mut credits = MoveCredits::default();
     if list.len() > 20 { refuse!(BadRequest, "at most 20 moves per batch (got {})", list.len()); }
     for m in list {
         let one = json!({ "op": "move", "node": m["node"], "new_parent": m["new_parent"] });
-        done.push(move_node(engine, org, tx, actor, &one, fx).await?);
+        done.push(move_planned(org, tx, actor, &one, &mut credits, fx).await?);
     }
+    finish_move_credits(engine, org, tx, credits, fx).await?;
     Ok(json!({ "moved": done.len(), "moves": done }))
 }
 
