@@ -58,7 +58,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -4398,9 +4398,9 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                     {providerName(b.tier)} is off · App settings → Providers
                   </span>
                 ) : <>
-                  <select value={tiers[b.id] ?? ''} onChange={(e) =>
+                  <select title={modelChoiceTitle(tiers[b.id] || b.tier)} value={tiers[b.id] ?? ''} onChange={(e) =>
                     setTiers((t) => ({ ...t, [b.id]: e.target.value }))}>
-                    <option value="">as {tierLabel(b.tier)} · seat {fmtCredits(SEAT(b.tier))}</option>
+                    <option value="" title={modelChoiceTitle(b.tier)}>{modelChoiceLabel(b.tier, SEAT(b.tier))}</option>
                     {[...ALL_TIERS, ...openrouterTierIds()]
                       .filter((t) => t !== b.tier
                         && tierShown(presence, t, b.tier)
@@ -4410,12 +4410,9 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                         && !conditionalTierHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)
-                      // same one formatter as every other tier surface —
-                      // all three declarations (unit C, 2026-09-05)
-                      const tools = tierCapabilityNotes(t)
                       return (
-                        <option key={t} value={t} disabled={!!why}>
-                          as {tierLabel(t)} · seat {fmtCredits(SEAT(t))}{legacyMark(t)}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
+                        <option key={t} value={t} disabled={!!why} title={modelChoiceTitle(t, why)}>
+                          {modelChoiceLabel(t, SEAT(t), why)}
                         </option>
                       )
                     })}

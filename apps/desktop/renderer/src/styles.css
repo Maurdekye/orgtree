@@ -6765,6 +6765,7 @@ label.set-row { cursor: pointer; }
 .settings .set-row select, .settings .set-row input[type="number"],
 .settings .set-row input[type="text"] { font-size: 12.5px; padding: 5px 9px; }
 .settings .set-row input[type="number"] { width: 7em; }
+.settings .set-row select { width: auto; max-width: min(24rem, 45vw); text-overflow: ellipsis; }
 /* a full-width field (a textarea, a folder list, a badge strip) keeps the
    rail but drops the control column — the field IS the control and needs the
    width.

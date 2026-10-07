@@ -247,6 +247,7 @@ export const setOpenRouterTiers = (tiers: ProviderTier[] | null | undefined): vo
       && (o.accent ?? null) === (t.accent ?? null)
       && o.letter === t.letter && o.seat === t.seat && o.name === t.name
       && o.label === t.label && o.model === t.model
+      && o.tools === t.tools && o.image === t.image && o.reasoning === t.reasoning
   })
   if (same) return
   orTiers = next.map((t) => ({ ...t }))
@@ -377,12 +378,19 @@ export const tierToolsNote = (tier: string): string => {
   const t = openrouterTier(tier)
   return toolsNote(t ? t.tools : null)
 }
-/** all three notes for a TIER, the same two rules: '' for a static lane,
- *  three unknowns for an OpenRouter tier the registry does not carry. */
+/** Model choice tooltips show only known catalog declarations. Unknown
+ * values do not add information to a picker (user 2026-10-07). */
 export const tierCapabilityNotes = (tier: string): string => {
   if (!isOpenRouterTier(tier)) return ''
-  return capabilityNotes(openrouterTier(tier))
+  const row = openrouterTier(tier)
+  return (['tools', 'image', 'reasoning'] as const)
+    .filter(k => typeof row?.[k] === 'boolean')
+    .map(k => capabilityNote(k, row![k])).join(' · ')
 }
+export const modelChoiceLabel = (tier: string, seat: number, reason?: string | null): string =>
+  `${tierLabel(tier)} · seat ${fmtCredits(seat)}${reason ? ` — ${reason}` : ''}`
+export const modelChoiceTitle = (tier: string, reason?: string | null): string | undefined =>
+  [reason, legacyMark(tier).trim(), tierCapabilityNotes(tier)].filter(Boolean).join(' · ') || undefined
 /** seat for ANY tier the static tables or the registry know */
 export const anyTierSeat = (tier: string): number =>
   TIER_SEAT[tier] ?? CODEX_TIER_SEAT[tier] ?? ANTIGRAVITY_TIER_SEAT[tier]

@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, legacyMark, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
@@ -1105,16 +1105,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       && !(optInLegacyHidden(t) && t !== node.tier))
   const modelOption = (t: string) => {
     const why = unavailable(t)
-    // the OpenRouter catalog's declarations — tools, image input, the
-    // reasoning parameter — from the ONE formatter (`tierCapabilityNotes`,
-    // '' for every static tier). A switch is a decision about what an agent
-    // will be able to do, so it is made where the decision is made rather
-    // than only back in the catalog picker. Moved from the tools-only note
-    // deliberately (unit C, 2026-09-05).
-    const tools = tierCapabilityNotes(t)
     return (
-      <option key={t} value={t} disabled={!!why}>
-        {tierLabel(t)} · seat {fmtCredits(tierSeat(t))}{legacyMark(t)}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
+      <option key={t} value={t} disabled={!!why} title={modelChoiceTitle(t, why)}>
+        {modelChoiceLabel(t, tierSeat(t), why)}
       </option>
     )
   }
@@ -1188,7 +1181,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           onChange={(e) => setTeamCharter(e.target.value)} /></SetBlock>
         </SettingsTabPanel>
         <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
-        <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="model tier"
+        <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="model tier" title={modelChoiceTitle(model, unavailable(model))}
           value={model} onChange={(e) => {
             const next = e.target.value
             if (providerOf(next) !== providerOf(model)) setAcct(

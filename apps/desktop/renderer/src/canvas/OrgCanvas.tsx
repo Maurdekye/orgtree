@@ -29,8 +29,8 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
-  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
+  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
+  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
@@ -4541,24 +4541,14 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
                 // applied here from the same `codexTierOffer` the canvas
                 // chips read.
                 if (tOffer === 'hide') return null
-                // the OpenRouter catalog's tool declaration, from the ONE
-                // shared formatter ('' for every static tier). The sheet is
-                // where a hire is actually chosen, so the note belongs here
-                // and not only back in the catalog picker. Visible text, and
-                // the tooltip too where the row is not already explaining a
-                // refusal - a disabled row's reason keeps priority.
-                // All three declarations since unit C (2026-09-05).
-                const tools = tierCapabilityNotes(t)
                 return (
                   <button key={t}
                     className={'hs-tier t-' + t + (tier === t ? ' on' : '')}
                     disabled={tOffer !== 'offer'}
-                    title={tOffer === 'offer' ? (tools || undefined) : f.reason}
+                    title={modelChoiceTitle(t, tOffer === 'offer' ? undefined : f.reason)}
                     onClick={() => pickTier(t)}>
                     <span className={'tier t-' + t}>{f.letters[t]}</span>
-                    {tierLabel(t)} · seat {fmtCredits(f.seatOf(t))}
-                    {legacyMark(t) ? <span className="dim hs-legacy">{legacyMark(t)}</span> : null}
-                    {tools ? <span className="dim"> · {tools}</span> : null}
+                    {modelChoiceLabel(t, f.seatOf(t), tOffer === 'offer' ? undefined : f.reason)}
                   </button>
                 )
               })}
