@@ -14,7 +14,7 @@
 //   node tools/rig/rig.mjs fakelog <agent> [--kind k]
 //   node tools/rig/rig.mjs log [--grep regex] [--tail n]
 //   node tools/rig/rig.mjs run <script.mjs> [--fixture f] [--keep]   up, run the script's default export, down
-//   node tools/rig/rig.mjs desktop <script.cjs> [--preset short|tall] [--out dir]
+//   node tools/rig/rig.mjs desktop <script.cjs> [json args] [--preset short|tall|wide|WxH] [--out dir]
 //
 // Every command but build/up/cleanup acts on the newest live run unless --run names one.
 
@@ -115,18 +115,25 @@ async function main() {
       const script = path.resolve(pos[0])
       const info = await up(flags)
       const r = Rig.attach(info.run)
-      const stop = async () => { if (!flags.keep) await r.down(); else await r.down({ keep: true }) }
+      let failed = false
+      const stop = async () => {
+        // a failed script keeps its run's files (its processes still stop) for inspection
+        const keep = !!flags.keep || failed
+        const res = await r.down({ keep })
+        if (keep) console.error(`run kept for inspection: ${res.dir} (rig cleanup removes it)`)
+      }
       process.once('SIGINT', () => { console.error('interrupted: stopping the run'); stop().finally(() => process.exit(130)) })
       try {
         const mod = await import(pathToFileURL(script).href)
         const out = await mod.default(r, { flags, args: pos.slice(1) })
         print(out ?? { ok: true })
-      } finally { await stop() }
+        if (out && out.passed === false) { failed = true; process.exitCode = 1 }
+      } catch (e) { failed = true; throw e } finally { await stop() }
       return
     }
     case 'desktop': {
       const { runDesktop } = await import('./desktop.mjs')
-      return print(await runDesktop(rig(), pos[0], flags))
+      return print(await runDesktop(rig(), pos[0], { preset: flags.preset, out: flags.out, timeout: flags.timeout && Number(flags.timeout), args: json(pos[1]) }))
     }
     default:
       console.error(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').filter(l => l.startsWith('//')).slice(0, 20).join('\n'))

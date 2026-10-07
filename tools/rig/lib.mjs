@@ -439,6 +439,12 @@ export function reap(dir, { keeper = true } = {}) {
     if (k && /keeper\.mjs/i.test(k.CommandLine || '') && (k.CommandLine || '').toLowerCase().includes(lower(dir))) { killTree(run.keeperPid); killed.push(run.keeperPid) }
   }
   for (const p of processesUnder(dir)) { killTree(p.ProcessId); killed.push(p.ProcessId) }
+  // a desktop smoke's electron.exe runs where it is installed: found by its recorded pid
+  const ePid = (() => { try { return Number(fs.readFileSync(path.join(dir, 'electron.pid'), 'utf8')) } catch { return 0 } })()
+  if (ePid && alive(ePid)) {
+    const e = processes(`$_.ProcessId -eq ${ePid}`)[0]
+    if (e && /^electron\.exe$/i.test(e.Name || '')) { killTree(ePid); killed.push(ePid) }
+  }
   // postgres runs from the shared binary cache, not the run: find it by its data folder
   const pidFile = path.join(dir, 'data', 'pg', 'cluster', 'data', 'postmaster.pid')
   if (fs.existsSync(pidFile)) {
