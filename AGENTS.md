@@ -143,6 +143,13 @@ message. [verified from source: `domain/docs.rs`, `domain/orginbox.rs`, `domain/
 
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
+- **Tree/scope parity (2026-10-07):** remove host `CLAUDE_CODE_*` before selected-account
+  environment injection. Omitted hire account uses a compatible org default, otherwise primary,
+  never the parent's binding. Superior insertion authorizes the target (self allowed below top
+  level) and inherits its effective capabilities. Retool refuses grants above its caller and
+  raises intermediate managers for valid deep grants; report those expansions. State inspection
+  uses effective scope and refuses explicitly invisible targets. [verified from source;
+  details and measured limits: `docs/rust-engine/tree-scope-parity.md`]
 - **Open request cards (2026-10-07):** emit `kind: batch` with typed `tabs`, even for
   question-only or single-tab requests, as 3.x did. That selects the existing renderer's
   next-unanswered-tab navigation; multi-select and typing do not advance. Recompose
