@@ -55,13 +55,13 @@ pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedR
         // Read the existing startup row before entering the actor's named request.
         // No second identity query, and no connection is kept by the running actor.
         let loaded: Result<_> = async {
-        let client = engine.db.get().await?;
-        let row = client
-            .query_one(
-                "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt' FROM ot.agents WHERE id = $1",
-                &[&handle.id],
-            )
-            .await?;
+            let client = engine.db.get().await?;
+            let row = client
+                .query_one(
+                    "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt' FROM ot.agents WHERE id = $1",
+                    &[&handle.id],
+                )
+                .await?;
             Ok((client, row))
         }.await;
         match loaded {

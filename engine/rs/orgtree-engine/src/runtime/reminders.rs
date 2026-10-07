@@ -229,8 +229,9 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
                 continue;
             }
         }
+        let span = crate::trace::request_from(&crate::trace::agent_client(a.id, &a.name), crate::trace::current_rq().as_deref());
         let result = if sw.checkups && a.working && !actionable.is_empty() {
-            checkup(engine, org, a, now).await
+            tracing::Instrument::instrument(checkup(engine, org, a, now), span.clone()).await
         } else if sw.idle {
             // 3.x `work_docket_reminder_items` with the blocked option: purely additive
             let items: Vec<&WorkRow> = if !actionable.is_empty() || !sw.blocked || !all_blocked {
@@ -241,11 +242,12 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
             if items.is_empty() {
                 continue;
             }
-            idle_reminder(engine, org, a, &items, now).await
+            tracing::Instrument::instrument(idle_reminder(engine, org, a, &items, now), span.clone()).await
         } else {
             continue;
         };
         if let Err(e) = result {
+            let _entered = span.enter();
             tracing::warn!(org = %org.slug, agent = %a.name, error = %format!("{e:#}"), "reminder failed");
         }
     }

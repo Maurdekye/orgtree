@@ -224,12 +224,13 @@ pub fn warm_all(engine: &Arc<Engine>) {
         return;
     }
     let engine = engine.clone();
-    tokio::spawn(async move {
-        let rows: anyhow::Result<Vec<(i64, i64)>> = async {
+    let span = tracing::Span::current();
+    tokio::spawn(tracing::Instrument::instrument(async move {
+        let rows: anyhow::Result<Vec<(i64, i64, String)>> = async {
             let client = engine.db.get().await?;
             let rows = client
                 .query(
-                    "SELECT a.org_id, a.id FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
+                    "SELECT a.org_id, a.id, a.name FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                       WHERE a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL
                         AND o.killswitch IS NULL AND o.state <> 'trashed'
                       ORDER BY (SELECT max(t.started_at) FROM ot.turns t WHERE t.agent_id = a.id) DESC NULLS LAST, a.id
@@ -237,7 +238,7 @@ pub fn warm_all(engine: &Arc<Engine>) {
                     &[&(sched::MAX_PARKED as i64)],
                 )
                 .await?;
-            Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, i64>(1))).collect())
+            Ok(rows.iter().map(|r| (r.get::<_, i64>(0), r.get::<_, i64>(1), r.get::<_, String>(2))).collect())
         }
         .await;
         let rows = match rows {
@@ -257,7 +258,9 @@ pub fn warm_all(engine: &Arc<Engine>) {
                 return;
             }
             let mut waits = Vec::new();
-            for (org_id, agent_id) in chunk {
+            for (org_id, agent_id, name) in chunk {
+                let span = crate::trace::request_from(&crate::trace::agent_client(*agent_id, name), crate::trace::current_rq().as_deref());
+                let _entered = span.enter();
                 let (tx, rx) = oneshot::channel();
                 if actor(&engine, *org_id, *agent_id).send(AgentMsg::Warm(tx)) {
                     waits.push(rx);
@@ -270,7 +273,7 @@ pub fn warm_all(engine: &Arc<Engine>) {
             }
         }
         tracing::info!(warmed, candidates = rows.len(), "warming done");
-    });
+    }, span));
 }
 
 /// Warming turned off: close every parked CLI (running turns keep theirs).
@@ -318,31 +321,35 @@ pub async fn recover(engine: &Arc<Engine>) {
     let interrupted = client
         .query(
             "UPDATE ot.agents SET inflight_at = NULL WHERE inflight_at IS NOT NULL AND state = 'live'
-             RETURNING id, org_id",
+             RETURNING id, org_id, name",
             &[],
         )
         .await
         .unwrap_or_default();
     for r in &interrupted {
         let (id, org): (i64, i64) = (r.get(0), r.get(1));
-        let _ = crate::domain::mail::system_wake(
+        let name: String = r.get(2);
+        let span = crate::trace::request_from(&crate::trace::agent_client(id, &name), crate::trace::current_rq().as_deref());
+        let _ = tracing::Instrument::instrument(crate::domain::mail::system_wake(
             engine,
             org,
             id,
             "The engine restarted while you were working. Continue where you left off.",
-        )
-        .await;
+        ), span).await;
     }
     freeze::recover(engine).await;
     let waiting = client
         .query(
-            "SELECT DISTINCT m.recipient_agent_id, a.org_id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
+            "SELECT DISTINCT m.recipient_agent_id, a.org_id, a.name FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
               WHERE m.state = 'pending' AND NOT m.notice AND a.state = 'live' AND a.halt IS NULL",
             &[],
         )
         .await
         .unwrap_or_default();
     for r in &waiting {
+        let name: String = r.get(2);
+        let span = crate::trace::request_from(&crate::trace::agent_client(r.get(0), &name), crate::trace::current_rq().as_deref());
+        let _entered = span.enter();
         wake(engine, r.get(1), r.get(0));
     }
 }

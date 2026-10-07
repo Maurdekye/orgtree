@@ -198,25 +198,39 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
     }
     let engine = engine.clone();
     let id = uid.to_string();
+    let origin = tracing::Span::current();
+    let cause = crate::trace::current_rq();
     tokio::spawn(tracing::Instrument::instrument(
         async move {
-            let r = run(&engine, &id, &token).await;
-            if let Err(e) = &r {
-                tracing::warn!(watchdog = %id, error = %format!("{e:#}"), "watchdog runner stopped");
-            }
-            let left_alone = !token.is_cancelled();
-            token.cancel();
-            // a resume can land while this runner is on its way out
-            if r.is_ok() && left_alone && !engine.is_stopping() {
-                if let Ok(Some(d)) = load(&engine, &id).await {
-                    let dead_stream = d.kind == "stream" && d.exit.is_some() && !d.silence();
-                    if d.state == "armed" && d.owner_live && !dead_stream {
-                        arm(&engine, &id);
+            // This is the runner's existing initial read, not another identity query.
+            let loaded = load(&engine, &id).await;
+            let span = match &loaded {
+                Ok(Some(dog)) => crate::trace::request_from(&format!("dog:{}/{}", dog.uid, dog.owner_name), cause.as_deref()),
+                _ => tracing::Span::current(),
+            };
+            tracing::Instrument::instrument(async {
+                let r = match loaded {
+                    Ok(Some(dog)) => run(&engine, dog, &token).await,
+                    Ok(None) => Ok(()),
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = &r {
+                    tracing::warn!(watchdog = %id, error = %format!("{e:#}"), "watchdog runner stopped");
+                }
+                let left_alone = !token.is_cancelled();
+                token.cancel();
+                // a resume can land while this runner is on its way out
+                if r.is_ok() && left_alone && !engine.is_stopping() {
+                    if let Ok(Some(d)) = load(&engine, &id).await {
+                        let dead_stream = d.kind == "stream" && d.exit.is_some() && !d.silence();
+                        if d.state == "armed" && d.owner_live && !dead_stream {
+                            arm(&engine, &id);
+                        }
                     }
                 }
-            }
+            }, span).await;
         },
-        crate::trace::request(&format!("dog:{uid}")),
+        origin,
     ));
 }
 
@@ -239,8 +253,7 @@ pub fn activity(engine: &Engine, agent: i64, line: &str) {
 }
 
 #[logged]
-async fn run(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -> Result<()> {
-    let Some(dog) = load(engine, uid).await? else { return Ok(()) };
+async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Result<()> {
     if dog.state != "armed" {
         return Ok(());
     }
@@ -251,7 +264,7 @@ async fn run(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -> Res
     match dog.kind.as_str() {
         "stream" => run_stream(engine, dog, cancel).await,
         "activity" => run_activity(engine, dog, cancel).await,
-        _ => run_poll(engine, uid, cancel).await,
+        _ => run_poll(engine, &dog.uid, cancel).await,
     }
 }
 
@@ -260,8 +273,9 @@ async fn run(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -> Res
 #[logged]
 async fn run_poll(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -> Result<()> {
     loop {
-        let span = crate::trace::request(&format!("dog:{uid}"));
-        let next = tracing::Instrument::instrument(poll_once(engine, uid), span).await?;
+        let Some(dog) = load(engine, uid).await? else { return Ok(()) };
+        let span = crate::trace::request(&format!("dog:{}/{}", dog.uid, dog.owner_name));
+        let next = tracing::Instrument::instrument(poll_once(engine, dog), span).await?;
         let Some(wait) = next else { return Ok(()) };
         tokio::select! {
             _ = tokio::time::sleep(wait) => {}
@@ -273,8 +287,7 @@ async fn run_poll(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -
 /// One check of a file, command or process dog: how long until the next
 /// one, or `None` when the dog is done.
 #[logged]
-async fn poll_once(engine: &Arc<Engine>, uid: &str) -> Result<Option<Duration>> {
-    let Some(mut dog) = load(engine, uid).await? else { return Ok(None) };
+async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration>> {
     if dog.state != "armed" {
         return Ok(None);
     }
