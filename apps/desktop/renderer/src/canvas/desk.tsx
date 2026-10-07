@@ -2218,7 +2218,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     [work, node.id, showArchivedDocket])
   const docketCount = useMemo(() => work?.assigned_count ?? actionableAssignedCount(work, node.id),
     [work, node.id])
-  const tabCount = (tab: string) => tab === 'inbox' ? chat?.mail_pending ?? 0
+  const tabCount = (tab: string) => tab === 'inbox' ? node.mail_pending ?? 0
     : tab === 'docket' ? docketCount
       : tab === 'presented' ? node.documents_count ?? node.documents?.length ?? 0 : 0
   // the identity facts the docket rows read (which model an owner ran under,
@@ -3843,7 +3843,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           model is unknown navigates without a chip. */}
       {view === 'inbox' && <div className="desk-tabpanel">
         <PanelCorner kind="node-inbox" slug={slug} nid={node.id} />
-        <InboxView slug={slug} nid={node.id} tier={node.tier}
+        <InboxView slug={slug} nid={node.id} tier={node.tier} unreadCount={node.mail_pending}
           toast={toast}
           tierOf={(id) => map.get(id)?.tier}
           hasAgent={(id) => map.has(id)}

@@ -1090,6 +1090,8 @@ export function AudienceFold({ ids, label, alert = false, render, limit = AUDIEN
 interface InboxViewProps {
   slug: string
   nid: string
+  /** Same authoritative total as canvas badges; mailbox rows are windowed. */
+  unreadCount?: number
   /** must RETURN the retract promise (and rethrow on failure) — the optimistic
    *  hide below rolls back on rejection, and a swallowed error would leave the
    *  mail on the server but invisible here until remount */
@@ -1119,7 +1121,7 @@ interface InboxViewProps {
   collapsible?: boolean
 }
 
-export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
+export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, tier, onFocusAgent, toast,
   tierOf, hasAgent, refs, collapsible }: InboxViewProps) {
   const [folder, setFolder] = useState('inbox')
   // G5: was a fetch keyed on the `pulse` prop, which meant it refreshed on turn
@@ -1207,7 +1209,8 @@ export function InboxView({ slug, nid, onRetract, jumpTo, jumpSeq, tier, onFocus
   return (
     <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
       <MailFolders folder={folder} setFolder={setFolder}
-        unread={pending.length} tier={tier} />
+        unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
+          - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier} />
       <div className="mailpane">
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>
@@ -1358,7 +1361,7 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
             following one without closing looks like a click that did nothing.
             The world is untouched; only the handler is wrapped, with one
             argument. */}
-        <InboxView slug={slug} nid={node.id} jumpTo={jumpTo} jumpSeq={jumpSeq}
+        <InboxView slug={slug} nid={node.id} unreadCount={node.mail_pending} jumpTo={jumpTo} jumpSeq={jumpSeq}
           tier={node.tier} toast={toast} collapsible
           tierOf={tierOf} hasAgent={hasAgent}
           refs={refs && {
