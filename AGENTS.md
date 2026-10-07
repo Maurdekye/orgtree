@@ -282,6 +282,14 @@ recorded decision: user inbox styling request 2026-10-07]
   `test-baseline.mjs`, Python import provenance, `run-python-verification.py`,
   `source-audits.py`.
 
+**Custom native icon colors (2026-10-07, verified from source and Electron PNG smoke).**
+Tray/window custom colors tint the neutral accent layer, preserving the `#18232d` iris
+and its mixed edge pixels. Electron's BGRA bitmap is premultiplied by alpha. Keep tint
+changes versioned in the generated taskbar icon filename so old cached artwork is not
+reused. Preset/loading ICO assets stay unchanged; rainbow cycling is renderer-only CSS
+and the native icon retains the selected custom color. [`main/tray-tint.ts`,
+`main/index.ts`, `tools/generate-icon.mjs`, renderer `rainbow.ts`]
+
 **Still valid from the 3.x sections:** [Machine traps](#machine-traps) (shell, CRLF, slow git on
 E:), the worktree rules (own worktree, no `node_modules` links, no bare `git stash`), "commit
 before you mutate", the evidence rules, and the product rulings except where PLAN §10 or

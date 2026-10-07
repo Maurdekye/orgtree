@@ -10,6 +10,7 @@ import { postgresLaunchOptions, writeEnginePaths } from './postgres-runtime'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar, icoFromPng } from './taskbar'
+import { tintTrayBitmap } from './tray-tint'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
@@ -316,11 +317,7 @@ else {
     const { file, custom } = runtimeIconChoice()
     const image = nativeImage.createFromPath(file)
     if (custom && !image.isEmpty()) {
-      const bitmap = image.toBitmap(), size = image.getSize()
-      const rgb = [1,3,5].map(i => parseInt(custom.slice(i,i+2),16))
-      // Electron bitmap bytes are BGRA. Keep the eye silhouette's alpha.
-      for (let i=0;i<bitmap.length;i+=4) { bitmap[i]=rgb[2]!; bitmap[i+1]=rgb[1]!; bitmap[i+2]=rgb[0]! }
-      return nativeImage.createFromBitmap(bitmap,size)
+      return nativeImage.createFromBitmap(tintTrayBitmap(image.toBitmap(), custom), image.getSize())
     }
     return image.isEmpty() ? nativeImage.createFromPath(iconPath) : image
   }
@@ -330,7 +327,9 @@ else {
     const { file, custom } = runtimeIconChoice()
     if (!custom || image.isEmpty()) return fs.existsSync(file) ? file : iconPath
     try {
-      const out = path.join(app.getPath('userData'), 'taskbar-icons', `eye-${custom.slice(1)}.ico`)
+      // Version the file identity so a prior solid-color tint is not reused by
+      // this cache or Explorer after restoring the iris.
+      const out = path.join(app.getPath('userData'), 'taskbar-icons', `eye-iris-${custom.slice(1)}.ico`)
       if (!fs.existsSync(out)) {
         fs.mkdirSync(path.dirname(out), { recursive: true })
         const { width, height } = image.getSize()
