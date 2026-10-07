@@ -856,26 +856,10 @@ fn changed(engine: &Engine, org: &OrgHandle) {
 
 /// Notifications are stored with the mutation; only runtime wakes escape after commit.
 #[derive(Debug, Default)]
-pub(crate) struct AfterCommit {
-    recipients: Vec<(i64, bool)>,
-    participants: Vec<(Who, Item, Vec<String>)>,
-}
+pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)> }
 
 #[logged]
 impl AfterCommit {
-    pub(crate) async fn finish(mut self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) -> Map<String, Value> {
-        let participants = std::mem::take(&mut self.participants);
-        self.publish(engine, org);
-        let mut out = Map::new();
-        for (who, item, names) in participants {
-            for (key, value) in participation_notices(engine, org, &who, &item, &names).await {
-                let entries = out.entry(key).or_insert_with(|| json!([]));
-                entries.as_array_mut().unwrap().extend(value.as_array().unwrap().iter().cloned());
-            }
-        }
-        out
-    }
-
     pub(crate) fn publish(self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) {
         changed(engine, org);
         for (id, wake) in self.recipients {
@@ -904,10 +888,10 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     let mut client = engine.db.get().await?;
     let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     let mut post = AfterCommit::default();
-    let mut out = create_tx(&*tx, org, who, args, &mut post).await?;
+    let out = create_tx(&*tx, org, who, args, &mut post).await?;
     tx.commit().await?;
     drop(client);
-    out.as_object_mut().unwrap().extend(post.finish(engine, org).await);
+    post.publish(engine, org);
     Ok(out)
 }
 
@@ -1019,17 +1003,20 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
             notified = json!(o);
         }
     }
-    post.participants.push((who.clone(), it.clone(), participants));
-    Ok(json!({
+    let notices = participation_notices_tx(tx, post, org, who, &it, &participants).await?;
+    let mut out = json!({
         "created": it.slug, "slug": it.slug, "rev": 1, "owner": it.owner, "notified": notified,
         "status": format!("work item {} created — that name is its only identity; use it in mail, reports and every later update, question and handoff", it.slug),
-    }))
+    });
+    out.as_object_mut().unwrap().extend(notices);
+    Ok(out)
 }
 
 /// Membership stands even when the actor cannot mail a new member. Report
 /// that refusal, and never mint a reply audience for this automatic notice.
 #[logged]
-async fn participation_notices(engine: &Arc<Engine>, org: &OrgHandle, who: &Who, it: &Item, added: &[String]) -> Map<String, Value> {
+async fn participation_notices_tx(tx: &impl GenericClient, post: &mut AfterCommit, org: &OrgHandle,
+                                  who: &Who, it: &Item, added: &[String]) -> Result<Map<String, Value>> {
     let mut noticed = Vec::new();
     let mut deferred = Vec::new();
     let mut refused = Vec::new();
@@ -1037,27 +1024,46 @@ async fn participation_notices(engine: &Arc<Engine>, org: &OrgHandle, who: &Who,
         if Some(p.as_str()) == who.name() {
             continue;
         }
-        let from = match who {
-            Who::User => From::User,
-            Who::Agent { id, name, generation } => From::Agent { id: *id, name: name.clone(), generation: *generation },
+        let target = tx.query_opt("SELECT id, state, halt IS NOT NULL FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
+                                  &[&org.id, p]).await?;
+        let Some(target) = target else {
+            refused.push(json!({ "node": p, "reason": format!("no agent named {p} in this organization; nothing was sent") }));
+            continue;
         };
-        let mut out = Outgoing::new(from, p, &format!(
+        let id: i64 = target.get(0);
+        let state: String = target.get(1);
+        let halted: bool = target.get(2);
+        if state == "unrecoverable" {
+            refused.push(json!({ "node": p, "reason": format!("{p} cannot be reached (its session is lost); nothing was sent") }));
+            continue;
+        }
+        let (from, sender_id, generation) = match who {
+            Who::User => ("@user", None, None),
+            Who::Agent { id: sender_id, name, generation } => {
+                if let Err(error) = mail::authorize(tx, org.id, *sender_id, name, id, p, false).await {
+                    // Database errors must still abort the mutation; only policy refusals are best effort.
+                    if matches!(error.downcast_ref::<super::UserError>(), Some(super::UserError::Forbidden(_) | super::UserError::BadRequest(_))) {
+                        refused.push(json!({ "node": p, "reason": error.to_string() }));
+                        continue;
+                    }
+                    return Err(error);
+                }
+                (name.as_str(), Some(*sender_id), Some(*generation))
+            }
+        };
+        let body = format!(
             "{} added you as a participant on docket item {} — \"{}\". You may update its state and add evidence; the owner is {}.",
             who.label(), it.slug, it.title, it.owner_name().unwrap_or("nobody yet"),
-        ));
-        out.kind = "notice".into();
-        out.notice = true;
-        out.grant_reply_audience = false;
-        out.reply_to = Some(reply_to(it));
-        out.ev = Some(participant_ev(org, who, it));
-        match mail::send(engine, org.id, out).await {
-            Ok(sent) => {
-                noticed.push(p.clone());
-                if sent.deferred {
-                    deferred.push(p.clone());
-                }
-            }
-            Err(error) => refused.push(json!({ "node": p, "reason": error.to_string() })),
+        );
+        tx.execute("INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind,
+                       recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state)
+                    VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, 'notice', true, $8, '[]'::jsonb, $9, $10, 'pending')",
+                   &[&crate::util::uid("m"), &org.id, &from, &sender_id, &generation, &id, p,
+                     &body, &reply_to(it), &participant_ev(org, who, it)]).await?;
+        post.recipients.push((id, false));
+        noticed.push(p.clone());
+        if state != "live" || halted {
+            deferred.push(p.clone());
         }
     }
     let mut out = Map::new();
@@ -1068,7 +1074,7 @@ async fn participation_notices(engine: &Arc<Engine>, org: &OrgHandle, who: &Who,
     if !refused.is_empty() {
         out.insert("notice_refused".into(), json!(refused));
     }
-    out
+    Ok(out)
 }
 
 /// Materialize a complete progress list without interleaving a stale patch.
@@ -1482,40 +1488,63 @@ pub(crate) async fn assign_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
 /// All seat-associated docket work uses the seat transaction, including its notices.
 #[logged]
 pub(crate) async fn staff_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who: &Who,
-                            args: &Value, node: &str, post: &mut AfterCommit) -> Result<String> {
+                            args: &Value, node: &str, post: &mut AfterCommit) -> Result<Value> {
     let action = text_arg(args, "action").unwrap_or(if text_arg(args, "slug").is_some() { "update" } else { "create" });
-    let progress = !args["done_so_far"].is_null() || !args["working_on_next"].is_null();
+    let progress = !args["done_so_far"].is_null() || !args["working_on_next"].is_null()
+        || args["keep_done"] == true || args["keep_next"] == true
+        || !args["done_append"].is_null() || !args["next_append"].is_null();
     if action == "create" {
+        // Validate explicit patches before any internal follow-up can supply a revision.
+        patch_progress(args, "done_so_far", "keep_done", "done_append", &Value::Null)?;
+        patch_progress(args, "working_on_next", "keep_next", "next_append", &Value::Null)?;
         let mut c = args.clone();
         c["owner"] = json!(node);
         if c["status"].is_null() || c["status"] == "backlogged" { c["status"] = json!("open"); }
         if !progress { c["working_on_next"] = json!([format!("staffed: {node} owns this item")]); }
-        let made = create_tx(tx, org, who, &c, post).await?;
+        let mut made = create_tx(tx, org, who, &c, post).await?;
         let slug = made["slug"].as_str().unwrap_or_default().to_string();
         if !args["attention"].is_null() || !args["attention_amend"].is_null() {
             let u = json!({ "slug": slug, "owner": node, "keep_done": true, "keep_next": true,
+                "expected_rev": if args["expected_rev"].is_null() { made["rev"].clone() } else { args["expected_rev"].clone() },
                 "attention": args["attention"], "attention_reason": args["attention_reason"], "attention_amend": args["attention_amend"] });
-            update_tx(tx, org, who, &u, post).await?;
+            let updated = update_tx(tx, org, who, &u, post).await?;
+            made["rev"] = updated["rev"].clone();
         }
-        return Ok(slug);
+        return Ok(made);
     }
     if action != "update" { refuse!(BadRequest, "action is create or update"); }
     let slug = text_arg(args, "slug").ok_or_else(|| anyhow::anyhow!("update needs slug"))?;
     // Check manage rights BEFORE assigning. Reopen/update while the old owner still holds it.
     let (it, _, _) = managed(tx, org, who, slug, "staff").await?;
+    patch_progress(args, "done_so_far", "keep_done", "done_append", &it.done)?;
+    patch_progress(args, "working_on_next", "keep_next", "next_append", &it.next)?;
     let mut u = args.clone();
     u["owner"] = json!(it.owner_name());
     if !progress {
         if it.done.as_array().map_or(true, Vec::is_empty) && it.next.as_array().map_or(true, Vec::is_empty) {
             u["working_on_next"] = json!([format!("staffed: {node} owns this item")]);
-        } else { u["keep_done"] = json!(true); u["keep_next"] = json!(true); }
+        } else {
+            u["keep_done"] = json!(true);
+            u["keep_next"] = json!(true);
+            if u["expected_rev"].is_null() { u["expected_rev"] = json!(it.rev); }
+        }
     }
     if args["status"] == "backlogged" || (args["status"].is_null() && it.status == "backlogged") {
         u["status"] = json!("open");
     }
-    update_tx(tx, org, who, &u, post).await?;
-    assign_tx(tx, org, who, slug, node, true, post).await?;
-    Ok(slug.to_string())
+    let mut updated = update_tx(tx, org, who, &u, post).await?;
+    let assigned = assign_tx(tx, org, who, slug, node, true, post).await?;
+    updated.as_object_mut().unwrap().extend(assigned.as_object().unwrap().clone());
+    updated["slug"] = json!(slug);
+    Ok(updated)
+}
+
+/// Keep best-effort participant outcomes visible through composite tool wrappers.
+#[logged]
+pub(crate) fn copy_notice_metadata(from: &Value, to: &mut Value) {
+    for key in ["noticed", "noticed_deferred", "notice_refused"] {
+        if let Some(value) = from.get(key) { to[key] = value.clone(); }
+    }
 }
 
 /// `handoff`: the owner requests a transfer to its immediate superior.
@@ -1588,10 +1617,11 @@ pub async fn participants(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who,
     it.updated_at = Utc::now();
     save(&*tx, &it).await?;
     history(&*tx, &it, who, "participants", json!({ "now": it.participants, "added": added, "removed": remove })).await?;
+    let mut post = AfterCommit::default();
+    let notices = participation_notices_tx(&*tx, &mut post, org, who, &it, &added).await?;
     tx.commit().await?;
     drop(client);
-    changed(engine, org);
-    let notices = participation_notices(engine, org, who, &it, &added).await;
+    post.publish(engine, org);
     let mut out = json!({ "item": it.slug, "participants": it.participants, "rev": it.rev });
     out.as_object_mut().unwrap().extend(notices);
     Ok(out)

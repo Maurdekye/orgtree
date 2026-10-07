@@ -177,7 +177,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");
     }
     if let From::Agent { id, name, .. } = &out.from {
-        authorize(&client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
+        authorize(&**client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
     }
     client
         .execute(
@@ -259,8 +259,8 @@ async fn reply_event(client: &tokio_postgres::Client, org_id: i64, org: &str, wh
 /// and anyone who granted it an audience. Writing to a non-child descendant
 /// grants that descendant an audience to reply.
 #[logged]
-async fn authorize(
-    client: &tokio_postgres::Client,
+pub(crate) async fn authorize(
+    client: &impl tokio_postgres::GenericClient,
     org_id: i64,
     from_id: i64,
     from_name: &str,

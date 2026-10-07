@@ -369,8 +369,10 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
     }
     req["staff_item"] = args.clone();
     let hired = ops::run(engine, org, Actor::Agent { id: my_id, name: my_name.to_string() }, &req).await?;
-    Ok(json!({ "node": hired["node"], "item": hired["item"], "hire": hired,
-        "status": "Seat and docket committed together; the assignment mail starts the agent." }))
+    let mut out = json!({ "node": hired["node"], "item": hired["item"], "hire": hired,
+        "status": "Seat and docket committed together; the assignment mail starts the agent." });
+    docket::copy_notice_metadata(&hired, &mut out);
+    Ok(out)
 }
 
 /// `GET /api/orgs/{slug}/staffing-options`: the warm availability every

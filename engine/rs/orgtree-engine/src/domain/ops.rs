@@ -451,7 +451,8 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         if let Some(docket) = req.get("staff_item") {
             let mut post = crate::domain::docket::AfterCommit::default();
             let item = crate::domain::docket::staff_tx(&*tx, org, &who, docket, &node, &mut post).await?;
-            out["item"] = json!(item);
+            out["item"] = item["slug"].clone();
+            crate::domain::docket::copy_notice_metadata(&item, &mut out);
             fx.docket = Some(post);
         } else if let Some(item) = str_arg(req, "work_item") {
             let mut post = crate::domain::docket::AfterCommit::default();
