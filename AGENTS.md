@@ -24,6 +24,20 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   restart. [verified-from-source and mounted renderer smoke: 2026-10-07;
   user request 13:49Z, DECISIONS 52]
 
+- Event watchdogs (`kind:event`) receive pushed, allow-listed post-commit events.
+  Catalog: credentials.bridge.available/unavailable, credentials.isolated/ready,
+  engine.started; agent lifecycle/settings/changed, turn started/finished/failed/
+  stalled/limited, mail waiting/delivered/changed, docket created/status/attention/
+  question answered, account sign-in/out and limit reached/reset, hub up/down,
+  credits.changed, documents created/updated, audience requested/granted/denied/
+  revoked, CLI started/ready/cold/evicted, agents.active/live. Use exact dotted
+  names or `prefix.*`; regex sees safe payloads only after visibility checks.
+  Counts use `threshold:"below N"` or `"at least N"` (crossings only), default
+  visible subtree; org totals require full visibility. Recover subscriptions
+  before engine.started; never forward raw feed bodies or alert mail back into
+  the bus. [recorded-decision and verified-from-source: 2026-10-07;
+  `docs/rust-engine/event-watchdogs.md` contains exact names and semantics]
+
 - The Windows credential bridge serves git HTTPS and PATH-resolved gh from
   signed-in Electron main. Only isolated engines inject adapters; native helper
   chains and gh remain usable without a broker. Token-group/PID/SID proof binds the broker;
