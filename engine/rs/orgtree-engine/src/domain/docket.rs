@@ -51,6 +51,7 @@ const LIST_FIELDS: &[&str] = &[
 const SUMMARY_FIELDS: &[&str] = &[
     "slug", "ref", "rev", "title", "kind", "status", "owner", "reviewer", "participants", "parent", "docket_at",
     "effective_attention", "attention_sources", "blocked_reason", "dropped_reason", "superseded_by", "archived",
+    "parent_visible", "superseded_by_visible",
 ];
 const COMPACT_EXTRA: &[&str] = &[
     "objective", "done_so_far", "working_on_next", "dependencies", "manual_attention", "questions", "last_updater",
