@@ -312,6 +312,25 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
     Ok(())
 }
 
+/// Validate a selector before storing it; qualified primary selectors also name a provider.
+#[logged]
+fn validate_account(engine: &Engine, tier: &str, raw: Option<&str>) -> Result<()> {
+    let provider = catalog::provider_of(tier);
+    if let Some(prefix) = raw.and_then(|v| v.strip_suffix("/primary")) {
+        if prefix != provider {
+            refuse!(BadRequest, "{prefix}/primary cannot serve {provider}");
+        }
+    }
+    if let crate::accounts::Choice::Account(id) = crate::accounts::choice(raw) {
+        let view = engine.accounts.view();
+        let Some(a) = view.get(&id) else { refuse!(NotFound, "no account {id}") };
+        if a.provider != provider {
+            refuse!(BadRequest, "{id} is a {} account and {tier} runs on {provider}", a.provider);
+        }
+    }
+    Ok(())
+}
+
 /// The seat price of a tier (catalog or an OpenRouter favorite).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
@@ -391,7 +410,7 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op:
         "cheap_compact" => cheap_compact(engine, org, &tx, actor, req, fx).await?,
         "swap" => swap(engine, org, &tx, actor, req, fx).await?,
         "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
-        "retool" => retool(org, &tx, actor, req, fx).await?,
+        "retool" => retool(engine, org, &tx, actor, req, fx).await?,
         "moves" => moves(engine, org, &tx, actor, req, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
     };
@@ -573,6 +592,12 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         .await?
         .get(0);
     stamp_harness(engine, tx, id, &tier, true).await?;
+    if let Some(h) = str_arg(req, "harness") {
+        if !catalog::is_openrouter(&tier) || !["claude-code", "codex-cli"].contains(&h) {
+            refuse!(BadRequest, "harness is claude-code or codex-cli for an OpenRouter hire");
+        }
+        tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text) WHERE id = $1", &[&id, &h]).await?;
+    }
     if let Some(a) = &anchor {
         tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1", &[&a.id, &id])
             .await?;
@@ -968,6 +993,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     } else {
         Vec::new()
     };
+    validate_account(engine, &n.tier, str_arg(req, "account"))?;
     let picked = crate::accounts::choice(str_arg(req, "account"));
     let clear = picked == crate::accounts::Choice::Primary;
     let account = match picked {
@@ -1047,6 +1073,7 @@ async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req:
 async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     authorize(tx, actor, &n, "change the account of").await?;
+    validate_account(engine, &n.tier, str_arg(req, "account"))?;
     let acc = match crate::accounts::choice(str_arg(req, "account")) {
         crate::accounts::Choice::Account(a) => Some(a),
         _ => None,
@@ -1263,7 +1290,7 @@ async fn moves(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
 /// mode, effort, charter, team charter, account); on itself only the team
 /// charter. What exceeds the caller's own scope is clamped where it is read.
 #[logged]
-async fn retool(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     let own = matches!(actor, Actor::Agent { id, .. } if *id == n.id);
     if own {
@@ -1312,6 +1339,7 @@ async fn retool(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     }
     let charter = str_arg(req, "charter").map(str::to_string);
     let team = str_arg(req, "team_charter").map(str::to_string);
+    validate_account(engine, &n.tier, str_arg(req, "account"))?;
     let picked = crate::accounts::choice(str_arg(req, "account"));
     let clear = picked == crate::accounts::Choice::Primary;
     let account = match picked {
