@@ -3363,7 +3363,9 @@ impl Actor {
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
         let codex = res["codex"].as_bool().unwrap_or(false);
-        let agy = res["agy"].as_bool().unwrap_or(false);
+        // A terminal process error may carry no result object. The admitted
+        // provider still determines the usage shape and quota pool.
+        let agy = turn.serving_provider == catalog::GOOGLE || res["agy"].as_bool().unwrap_or(false);
         if error.is_none() && codex {
             error = turn.codex_error.clone().filter(|_| !turn.interrupted);
         }

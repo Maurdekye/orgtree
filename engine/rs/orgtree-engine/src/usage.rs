@@ -826,7 +826,11 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             countdown(age.as_secs() as i64),
             if age < BOARD_FRESH { "fresh" } else { "stale" }
         );
-        let marked = view.get(lane).and_then(|a| a.limited(now)).is_some();
+        let lane_account = view.get(lane).or_else(|| {
+            if lane == "google/primary" {
+                registered.iter().copied().find(|a| a.provider == "google" && crate::accounts::is_ambient(a))
+            } else { None }
+        });
         if !c.data["available"].as_bool().unwrap_or(false) {
             let why = c.data["error"].as_str().map(|e| gist(e, 60)).unwrap_or_else(|| "no reading".into());
             lines.push(format!("{lane}{star} | usage | - | - | - | {observed} | unavailable ({why})"));
@@ -834,6 +838,13 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
             continue;
         }
         for l in c.data["limits"].as_array().cloned().unwrap_or_default() {
+            let marked = lane_account.and_then(|a| {
+                match (a.provider.as_str(), l["group"].as_str().unwrap_or("")) {
+                    ("google", "3p-5h" | "3p-weekly") => a.limited_for("agy-sonnet", now),
+                    ("google", "gemini-5h" | "gemini-weekly") => a.limited_for("flash", now),
+                    _ => a.limited(now),
+                }
+            }).is_some();
             // the provider's own window name where it gives one
             let window = match (l["label"].as_str().filter(|s| !s.trim().is_empty()), l["kind"].as_str().unwrap_or("usage")) {
                 (Some(label), _) => gist(label, 48),
