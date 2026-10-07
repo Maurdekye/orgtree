@@ -803,7 +803,7 @@ impl Actor {
         let row = client
             .query_one(
                 "SELECT a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, o.killswitch IS NOT NULL,
-                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice)
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice), a.frozen
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
                 &[&self.id],
             )
@@ -811,6 +811,14 @@ impl Actor {
         drop(client);
         let state: String = row.get(0);
         let (halted, frozen, killswitch, waking): (bool, bool, bool, bool) = (row.get(1), row.get(2), row.get(3), row.get(4));
+        if frozen {
+            let rec: Value = row.get(5);
+            let wake = freeze::wake_at(&rec);
+            let auto_resume = freeze::auto_resume_on(&self.engine, self.org_id).await?;
+            tracing::info!(agent = self.id, state = %state, halted, killswitch, waking, auto_resume,
+                reset_due = wake.map(|t| t <= Utc::now()).unwrap_or(false),
+                wake_at = ?wake, "wake blocked: agent is frozen; automatic timer or manual unstick must release it");
+        }
         if state != "live" || halted || frozen || killswitch || !waking {
             return Ok(());
         }

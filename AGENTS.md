@@ -44,6 +44,14 @@ plan and this file. Read both before you change anything. All entries below: 202
   Neither path resumes frozen agents. Unknown imported pools stay manual.
   [verified from source: 2026-10-07, `src/account_marks.rs`, `src/runtime/actor.rs`]
 
+- Freeze reset recovery accepts RFC3339 `until` and legacy numeric `until_ts`
+  (including a version-matched promised wake); old display labels are not clocks.
+  Imports normalize them; existing imported rows need no repair. Limit probes still
+  require org auto-resume, pure connection retries do not. Timers compare the exact
+  freeze before clearing, retry disabled settings/transient errors, and explain
+  blocked wakes even with verbose logging off.
+  [verified from source: 2026-10-07, `src/runtime/freeze.rs`, `src/runtime/actor.rs`]
+
 **Where and how to work** [decided: coordinator 2026-10-06, from the rust-engine session's terms;
 user, DECISIONS 39]
 - `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything

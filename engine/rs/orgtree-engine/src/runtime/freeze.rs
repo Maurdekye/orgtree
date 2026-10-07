@@ -65,57 +65,115 @@ pub fn wake_at(rec: &Value) -> Option<DateTime<Utc>> {
     deadline(rec)?.checked_add_signed(chrono::Duration::seconds(grace))
 }
 
-/// Arrange the automatic wake for a freeze record (if the org auto-resumes).
+/// Arrange a wake for this exact freeze. A replacement owns its own timer.
 #[logged]
 pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, rec: &Value) {
-    let Some(until) = rec["until"].as_str().and_then(parse_ts) else { return };
-    let grace = if rec["connection"].as_bool().unwrap_or(false) { 0 } else { WAKE_GRACE_S };
-    let wake = until + chrono::Duration::seconds(grace);
+    let Some(wake) = wake_at(rec) else {
+        tracing::info!(org = org_id, agent = agent_id, "freeze not scheduled: no valid reset deadline; manual unstick required");
+        return;
+    };
+    if matches!(rec["cause"].as_str(), Some("auth" | "balance")) {
+        tracing::info!(org = org_id, agent = agent_id, "freeze not scheduled: authentication or balance needs manual action");
+        return;
+    }
+    tracing::info!(org = org_id, agent = agent_id, wake = %iso(wake), overdue = wake <= Utc::now(),
+                   "freeze wake scheduled");
+    let expected = rec.clone();
     let engine = engine.clone();
-    tokio::spawn(async move {
-        let wait = (wake - Utc::now()).to_std().unwrap_or(Duration::ZERO);
-        tokio::select! {
-            _ = tokio::time::sleep(wait) => {}
-            _ = engine.shutdown.cancelled() => return,
-        }
-        match auto_resume_on(&engine, org_id).await {
-            Ok(true) => {
-                if let Err(e) = thaw(&engine, org_id, agent_id, true).await {
-                    tracing::warn!(agent = agent_id, error = %format!("{e:#}"), "auto-resume failed");
-                }
+    crate::trace::spawn(async move {
+        let mut wait = (wake - Utc::now()).to_std().unwrap_or(Duration::ZERO);
+        let mut reported_off = false;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = engine.shutdown.cancelled() => return,
             }
-            Ok(false) => {}
-            Err(e) => tracing::warn!(error = %format!("{e:#}"), "auto-resume check failed"),
+            match resume_scheduled(&engine, org_id, agent_id, &expected).await {
+                Ok(true) => return,
+                Ok(false) => {
+                    if !reported_off {
+                        tracing::info!(org = org_id, agent = agent_id,
+                            "freeze reset is due but auto-resume is off; rechecking in 30 seconds");
+                        reported_off = true;
+                    }
+                }
+                Err(e) => tracing::warn!(org = org_id, agent = agent_id, error = %format!("{e:#}"),
+                                        "freeze wake failed; retrying in 30 seconds"),
+            }
+            // A disabled setting or transient database error must not consume
+            // the only timer. No connection is held during this wait.
+            wait = Duration::from_secs(30);
         }
     });
 }
 
 #[logged]
-async fn auto_resume_on(engine: &Engine, org_id: i64) -> Result<bool> {
+pub(super) async fn auto_resume_on(engine: &Engine, org_id: i64) -> Result<bool> {
     let client = engine.db.get().await?;
     let s: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
     let eff = crate::feed::groups::effective_settings(&s, &engine.settings.defaults());
     Ok(eff["auto_resume"].as_bool().unwrap_or(true))
 }
 
-/// Release one agent's freeze and wake it to continue. With `only_due`, a
-/// freeze whose reset is still ahead (a newer freeze) is left alone.
+/// True means this timer is finished; false retains a due freeze behind the
+/// auto-resume setting. As in 3.x, only a pure connection retry bypasses it.
+#[logged]
+async fn resume_scheduled(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expected: &Value) -> Result<bool> {
+    let client = engine.db.get().await?;
+    let row = client.query_opt(
+        "SELECT frozen FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'",
+        &[&agent_id, &org_id],
+    ).await?;
+    drop(client);
+    let current: Option<Value> = row.and_then(|r| r.get(0));
+    if current.as_ref() != Some(expected) {
+        return Ok(true);
+    }
+    let connection = expected["connection"].as_bool().unwrap_or(false)
+        && !expected["limit"].as_bool().unwrap_or(false);
+    if !connection && !auto_resume_on(engine, org_id).await? {
+        return Ok(false);
+    }
+    thaw_matching(engine, org_id, agent_id, Some(expected)).await?;
+    Ok(true)
+}
+
+/// Manual unstick ignores the horizon. Automatic callers check it in Rust,
+/// including legacy records and clock-skew grace, then compare-and-clear.
 #[logged]
 pub async fn thaw(engine: &Arc<Engine>, org_id: i64, agent_id: i64, only_due: bool) -> Result<bool> {
+    if !only_due {
+        return thaw_matching(engine, org_id, agent_id, None).await;
+    }
     let client = engine.db.get().await?;
-    let row = client
-        .query_opt(
-            "UPDATE ot.agents SET frozen = NULL, limit_locked = false, row_version = row_version + 1
-              WHERE id = $1 AND frozen IS NOT NULL AND state = 'live'
-                AND (NOT $2 OR coalesce((frozen->>'until')::timestamptz, now()) <= now())
-              RETURNING name",
-            &[&agent_id, &only_due],
-        )
-        .await?;
+    let row = client.query_opt("SELECT frozen FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live'",
+                               &[&agent_id, &org_id]).await?;
+    drop(client);
+    let rec: Option<Value> = row.and_then(|r| r.get(0));
+    let Some(rec) = rec else { return Ok(false) };
+    if !wake_at(&rec).map(|t| t <= Utc::now()).unwrap_or(false) {
+        return Ok(false);
+    }
+    thaw_matching(engine, org_id, agent_id, Some(&rec)).await
+}
+
+#[logged]
+async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expected: Option<&Value>) -> Result<bool> {
+    let client = engine.db.get().await?;
+    // One short statement. A timer for an older freeze can never erase a new
+    // refusal, nor a manual clear followed by a new freeze.
+    let row = client.query_opt(
+        "UPDATE ot.agents SET frozen = NULL, limit_locked = false, row_version = row_version + 1
+          WHERE id = $1 AND org_id = $2 AND frozen IS NOT NULL AND state = 'live'
+            AND ($3::jsonb IS NULL OR frozen = $3)
+          RETURNING name",
+        &[&agent_id, &org_id, &expected],
+    ).await?;
     drop(client);
     if row.is_none() {
         return Ok(false);
     }
+    tracing::info!(org = org_id, agent = agent_id, automatic = expected.is_some(), "freeze released; waking agent");
     changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::History(agent_id)]);
     mail::system_wake(engine, org_id, agent_id, "Your usage limit has reset. Continue where you left off.").await?;
     Ok(true)
@@ -141,14 +199,31 @@ pub async fn resume_org(engine: &Arc<Engine>, org_id: i64) -> Result<Vec<String>
 /// After a restart: re-arm the automatic wakes.
 #[logged]
 pub async fn recover(engine: &Arc<Engine>) {
-    let Ok(client) = engine.db.get().await else { return };
-    let rows = client
-        .query("SELECT id, org_id, frozen FROM ot.agents WHERE frozen IS NOT NULL AND state = 'live'", &[])
-        .await
-        .unwrap_or_default();
-    for r in rows {
-        schedule(engine, r.get(1), r.get(0), &r.get::<_, Value>(2));
+    let mut after = 0_i64;
+    let mut total = 0_usize;
+    loop {
+        let rows = async {
+            let client = engine.db.get().await?;
+            Ok::<_, anyhow::Error>(client.query(
+                "SELECT id, org_id, frozen FROM ot.agents WHERE frozen IS NOT NULL AND state = 'live'
+                  AND id > $1 ORDER BY id LIMIT 256", &[&after],
+            ).await?)
+        }.await;
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!(error = %format!("{e:#}"), "freeze recovery failed");
+                return;
+            }
+        };
+        if rows.is_empty() { break; }
+        for r in rows {
+            after = r.get(0);
+            total += 1;
+            schedule(engine, r.get(1), after, &r.get::<_, Value>(2));
+        }
     }
+    tracing::info!(frozen_agents = total, "freeze recovery finished");
 }
 
 /// Another account of `provider` this agent could continue on, honoring the
