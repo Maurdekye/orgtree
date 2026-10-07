@@ -545,7 +545,14 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             Vec::new()
         }
     };
-    let sc = hire_scope(&caps, req);
+    let sc = if let Some(a) = &anchor {
+        if a.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
+        authorize(tx, actor, a, "insert a superior above").await?;
+        for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
+            if !req[field].is_null() { refuse!(BadRequest, "superior insertion inherits target scope; omit {field}"); }
+        }
+        a.scope.clone()
+    } else { hire_scope(&caps, req) };
     let account = match crate::accounts::choice(str_arg(req, "account")) {
         crate::accounts::Choice::Account(a) => Some(a),
         crate::accounts::Choice::Primary => None,
@@ -631,7 +638,20 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if n.state == "unrecoverable" {
         refuse!(Conflict, "{} cannot be rehired: its session is lost", n.name);
     }
+    authorize(tx, actor, &n, "rehire").await?;
     let caps = caps(engine, tx, org.id).await?;
+    let anchor = if str_arg(req, "hire_type") == Some("superior") {
+        let target = str_arg(req, "target").ok_or_else(|| anyhow::anyhow!("superior rehire needs target"))?;
+        let a = node_by_name(tx, org.id, target).await?;
+        authorize(tx, actor, &a, "insert a superior above").await?;
+        if a.state != "live" || a.id == n.id || within(tx, n.id, a.id).await? {
+            refuse!(Conflict, "superior insertion needs a live target outside the archived subtree");
+        }
+        for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
+            if !req[field].is_null() { refuse!(BadRequest, "superior insertion inherits target scope; omit {field}"); }
+        }
+        Some(a)
+    } else { None };
     // back under its old superior if that one is live, else the nearest live ancestor
     let mut parent: Option<Node> = None;
     let mut cur = n.parent;
@@ -646,6 +666,14 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if let Some(p) = str_arg(req, "target").or_else(|| str_arg(req, "parent")) {
         parent = if p == "user" { None } else { Some(node_by_name(tx, org.id, p).await?) };
     }
+    if let Some(a) = &anchor {
+        parent = match a.parent { Some(id) => Some(node_by_id(tx, id).await?), None => None };
+    }
+    if let Some(p) = &parent {
+        if p.state != "live" || p.id == n.id || within(tx, n.id, p.id).await? {
+            refuse!(Conflict, "rehire destination must be live and outside the archived subtree");
+        }
+    }
     if let Actor::Agent { id, name } = actor {
         match &parent {
             Some(p) if p.id == *id || within(tx, *id, p.id).await? => {}
@@ -654,9 +682,16 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     let tier = str_arg(req, "tier").map(str::to_string).unwrap_or(n.tier.clone());
     let seat = seat_of(engine, &tier)?;
-    let grant = req["grant"].as_f64().unwrap_or(n.grant).max(0.0);
+    if !engine.settings.provider_enabled(catalog::provider_of(&tier)) {
+        refuse!(Conflict, "provider is disabled for {tier}");
+    }
+    validate_account(engine, &tier, str_arg(req, "account").or(n.account.as_deref()))?;
+    let anchor_stake = anchor.as_ref().map(|a| a.seat + a.grant).unwrap_or(0.0);
+    let grant = req["grant"].as_f64().unwrap_or(n.grant);
+    if grant < 0.0 { refuse!(BadRequest, "a grant cannot be negative"); }
+    let grant = grant + anchor_stake;
     let raised = match &parent {
-        Some(p) => ensure_room(tx, Some(p.id), seat + grant, caps.cascade_hire, caps.max_top, fx).await?,
+        Some(p) => ensure_room(tx, Some(p.id), seat + grant - anchor_stake, caps.cascade_hire, caps.max_top, fx).await?,
         None => {
             if grant > caps.max_top + 1e-9 {
                 refuse!(Conflict, "a top-level grant of {grant:.0} is over this organization's cap of {:.0}", caps.max_top);
@@ -679,6 +714,20 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         &[&n.id, &parent_id, &order, &tier, &seat, &grant],
     )
     .await?;
+    if let Some(a) = &anchor {
+        tx.execute("UPDATE ot.agents SET scope = $2, provider = $3, sibling_order = (SELECT sibling_order FROM ot.agents WHERE id = $4) WHERE id = $1",
+            &[&n.id, &a.scope, &catalog::provider_of(&tier), &a.id]).await?;
+        tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1", &[&a.id, &n.id]).await?;
+        fx.agents.insert(a.id);
+        fx.reconfigure.push(a.id);
+    } else {
+        tx.execute("UPDATE ot.agents SET provider = $2 WHERE id = $1", &[&n.id, &catalog::provider_of(&tier)]).await?;
+    }
+    retool(engine, org, tx, actor, req, fx).await?;
+    let name = if let Some(new) = str_arg(req, "name") {
+        rename(org, tx, actor, &json!({ "node": n.name, "name": new }), fx).await?;
+        new.to_string()
+    } else { n.name.clone() };
     stamp_harness(engine, tx, n.id, &tier, false).await?;
     event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": n.name, "parent": parent.as_ref().map(|p| p.name.clone()),
           "tier": tier, "grant": grant, "cascaded": raised }), fx)
@@ -700,7 +749,15 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         ));
     }
     fx.dogs_on.extend(woke.into_iter().map(|(id, _)| id));
-    Ok(json!({ "node": n.name, "cascaded": raised, "warnings": warnings }))
+    Ok(json!({ "node": name, "cascaded": raised, "warnings": warnings }))
+}
+
+/// Closed seats cannot leave actionable request cards behind.
+#[logged]
+async fn moot_asks(tx: &Transaction<'_>, ids: &[i64], fx: &mut Effects) -> Result<()> {
+    tx.execute("UPDATE ot.asks SET status = 'withdrawn', resolved_at = now(), reason = 'requester is no longer live' WHERE agent_id = ANY($1) AND status = 'open'", &[&ids]).await?;
+    fx.pulses.extend([crate::changes::Change::Asks, crate::changes::Change::Docket]);
+    Ok(())
 }
 
 #[logged]
@@ -733,6 +790,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         )
         .await?;
     let kids: Vec<i64> = rows.iter().map(|r| r.get::<_, i64>(0)).filter(|id| *id != n.id).collect();
+    moot_asks(tx, &ids, fx).await?;
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &ids).await?);
     let mut clawed = 0.0;
     if rescind {
@@ -779,6 +837,7 @@ async fn dissolve(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req
         )
         .await?;
     let done: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
+    moot_asks(tx, &done, fx).await?;
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &done).await?);
     event(tx, org.id, "dissolve", actor, Some(n.id), json!({ "node": n.name, "nodes": done.len() }), fx).await?;
     fx.agents.extend(done.iter().copied());
@@ -809,6 +868,7 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         &[&ids],
     )
     .await?;
+    moot_asks(tx, &ids, fx).await?;
     let gone = tx
         .query(
             "UPDATE ot.watchdogs SET state = 'removed' WHERE owner_agent_id = ANY($1) AND state IN ('armed', 'paused', 'exited') RETURNING uid",
