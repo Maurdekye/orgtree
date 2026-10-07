@@ -109,6 +109,13 @@ All entries are dated 2026-10-06 unless stated otherwise.
     (this replaces the rust-engine session's role in decision 39). Who builds and delivers alpha
     installers (decisions 37-38) is for the user to say. Where things stand: `HANDOFF.md`.
 
+46. **The engine runs at Normal CPU priority everywhere** (user 2026-10-07 00:00Z).
+    The boot task must request Normal, matching desktop-started engines; no launch path raises it.
+47. **Agent Rust build caches can be redirected off C:** (user 2026-10-07 00:00Z).
+    App settings > Runtime has "Agent build cache folder" (empty = off). When set, each agent CLI
+    starts with `CARGO_TARGET_DIR=<folder>/<org slug>/<agent name>`. The user chooses the folder;
+    agents implementing the setting do not change live settings or move existing caches.
+
 ## Verification during the build
 
 33. **Brief smoke tests are allowed**; beyond that the user judges for themselves how well the app

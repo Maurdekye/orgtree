@@ -119,6 +119,14 @@ Move previews assign destination max(live sibling order) + 1, as Rust `move_node
 does; same-parent moves keep their order. [decided: rust-engine session via coordinator,
 2026-10-06; verified: renderer `canvas/shared.ts`, Rust `domain/ops.rs`]
 
+**Engine priority and agent build caches (2026-10-07).** The boot task requests Normal
+CPU priority (Task Scheduler value 5), matching desktop launches. Runtime's "Agent build
+cache folder" sets `CARGO_TARGET_DIR=<folder>/<org slug>/<agent name>` for every new Claude,
+Codex or Antigravity agent CLI (including OpenRouter routes). Empty adds no override; existing
+processes keep their environment until their next start. This does not move old caches, change
+folder grants or edit live settings. [decided: user, DECISIONS 46-47; verified:
+`tools/boot-engine-task.ps1`, Rust `settings.rs`, `http/settings.rs`, `runtime/{claude,codex,agy}.rs`]
+
 ## Keep this file current
 
 **When you find an engine gotcha or a design invariant, or a new decision or ruling is
