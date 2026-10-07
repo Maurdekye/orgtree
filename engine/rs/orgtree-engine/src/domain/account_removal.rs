@@ -19,6 +19,7 @@ struct Outcome {
     agents: BTreeMap<i64, Vec<i64>>,
     live: Vec<(i64, i64)>,
     defaults: BTreeSet<i64>,
+    orgs: BTreeSet<String>,
     app_default: bool,
 }
 
@@ -110,7 +111,7 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
         crate::runtime::wake(engine, *org_id, *id);
     }
     Ok(json!({ "removed": id, "rebound": out.rebound,
-        "orgs": out.defaults, "app_default_rebound": out.app_default }))
+        "orgs": out.orgs, "app_default_rebound": out.app_default }))
 }
 
 #[logged]
@@ -129,17 +130,18 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
     let mut after = 0i64;
     loop {
         let rows = tx.query(
-            "SELECT id, org_id, name, state, tier, account, pending_account, pending_switch, frozen,
-                    inflight_at IS NOT NULL, session_id,
-                    (SELECT provider FROM ot.agent_sessions s WHERE s.agent_id = a.id AND s.session_id = a.session_id ORDER BY s.id DESC LIMIT 1)
-             FROM ot.agents a WHERE id > $2 AND
-                (account = $1 OR pending_account->>'account' = $1 OR pending_switch->>'account' = $1)
-             ORDER BY id LIMIT 128 FOR UPDATE OF a", &[&id, &after]).await?;
+            "SELECT a.id, a.org_id, a.name, a.state, a.tier, a.account, a.pending_account, a.pending_switch, a.frozen,
+                    a.inflight_at IS NOT NULL, a.session_id,
+                    (SELECT provider FROM ot.agent_sessions s WHERE s.agent_id = a.id AND s.session_id = a.session_id ORDER BY s.id DESC LIMIT 1), o.slug
+             FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id > $2 AND
+                (a.account = $1 OR a.pending_account->>'account' = $1 OR a.pending_switch->>'account' = $1)
+             ORDER BY a.id LIMIT 128 FOR UPDATE OF a", &[&id, &after]).await?;
         if rows.is_empty() { break; }
         for r in rows {
             let aid: i64 = r.get(0);
             after = aid;
             let org_id: i64 = r.get(1);
+            let slug: String = r.get(12);
             let name: String = r.get(2);
             let state: String = r.get(3);
             let tier: String = r.get(4);
@@ -183,13 +185,17 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
                 "pending_switch_rebound": ps["account"].as_str() == Some(id)});
             tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'account_removed', '@user', $2, $3)", &[&org_id, &aid, &detail]).await?;
             out.agents.entry(org_id).or_default().push(aid);
-            out.rebound.push(json!({"org_id": org_id, "node": name, "state": state, "session_boundary": boundary}));
+            out.orgs.insert(slug.clone());
+            if bound {
+                out.rebound.push(json!({"org": slug, "node": name, "state": state,
+                    "session_boundary": boundary, "in_flight_turn": live && r.get::<_, bool>(9)}));
+            }
             if live { out.live.push((org_id, aid)); }
         }
     }
     let mut after = 0i64;
     loop {
-        let rows = tx.query("SELECT id FROM ot.orgs WHERE id > $2 AND settings->>'default_account' = $1 ORDER BY id LIMIT 128 FOR UPDATE", &[&id, &after]).await?;
+        let rows = tx.query("SELECT id, slug FROM ot.orgs WHERE id > $2 AND settings->>'default_account' = $1 ORDER BY id LIMIT 128 FOR UPDATE", &[&id, &after]).await?;
         if rows.is_empty() { break; }
         for row in rows {
             let org_id: i64 = row.get(0);
@@ -197,6 +203,7 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
             tx.execute("UPDATE ot.orgs SET settings = jsonb_set(settings, '{default_account}', to_jsonb($2::text)), row_version = row_version + 1 WHERE id = $1", &[&org_id, &primary]).await?;
             tx.execute("INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_default_rebound', '@user', $2)", &[&org_id, &json!({"removed_account":id,"account":primary})]).await?;
             out.defaults.insert(org_id);
+            out.orgs.insert(row.get(1));
         }
     }
     out.app_default = tx.execute(
