@@ -457,6 +457,13 @@ verified from source: `shell/treeinfo.tsx`,
 **Verification during the prototype** [decided: user, DECISIONS 8, 33]
 - **No unit-test suites and no review rounds** while the prototype is built; brief smoke tests
   are allowed; the user tests it. Hardening with tests and review comes later.
+- **Smoke changes through the real path with the test rig**, so a hand-in can say measured rather
+  than inferred: `node tools/rig/rig.mjs up` runs your debug engine on a throwaway data root (rig
+  mode: fake home, fake CLI, no provider probes), with scripted CLI turns, any `orgtree_*` tool as
+  any agent, SQL on the scratch cluster and an offscreen desktop smoke. Prefer it to a bare
+  SAFE_START scratch engine, which still reads the real sign-ins and runs the real usage probes.
+  How-to: [`docs/rust-engine/test-rig.md`](docs/rust-engine/test-rig.md). [verified: 2026-10-07,
+  proofs under `tools/rig/proofs/`]
 - **Electron probes:** pass URLs and options through the environment, not the command line: with
   an `http://` argument `electron.exe` exits −1 before the script runs (measured 2026-10-07).
   Clear `ELECTRON_RUN_AS_NODE` first; tool shells inherit it from VS Code.
