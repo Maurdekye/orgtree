@@ -30,4 +30,44 @@ parity of those separate policies. No provider usage is fabricated or probed.
 
 ## Verification
 
-Scratch matrix and build results will be recorded here before hand-in.
+Measured on 2026-10-07 against alpha.11 source `b6818d4`, in a private
+SAFE_START debug engine and fresh scratch PostgreSQL database. A temporary HTTP
+adapter invoked the production deadline, normalization, recovery and Wake
+functions; it was restored byte-for-byte after the debug build. No adapter is
+committed. SAFE_START deliberately skips automatic startup recovery, so the
+smoke explicitly called the same `freeze::recover` after each start.
+
+| Record | Timing | Auto-resume on | Auto-resume off |
+| --- | --- | --- | --- |
+| Imported `probe`, display `until` plus numeric epoch | Already overdue | Thawed | Held |
+| Imported `probe`, display `until` plus numeric epoch | Future reset | Thawed after real 60-second grace | Held |
+| Native RFC3339 `until` | Already overdue | Thawed | Held |
+| Native RFC3339 `until` | Future reset | Thawed after real 60-second grace | Held |
+
+All eight cases passed. Additional measured controls:
+
+- All eight shapes normalize without changing the reset deadline.
+- An obsolete timer leaves a replacement freeze intact.
+- A pure connection retry resumes with subscription auto-resume off.
+- Nonverbose logs record blocked Wake, disabled auto-resume and recovery.
+- Enabling auto-resume releases existing due timers without another Wake,
+  explicit recovery, or restart.
+- After an actual scratch-engine shutdown/start, recovery thaws all eight
+  persisted overdue records and leaves pending continuation mail for each.
+- Every fixture was halted; zero provider turns ran. The halt and replacement
+  freeze remain effective. The private engine/database were stopped and removed.
+
+The first adapter build needed a type correction (`normalize` takes `Value`).
+The first restart harness incorrectly reused a connection after engine shutdown
+also stopped its database; the restart-only control was corrected to reconnect
+and passed. These were harness failures, not production changes. The matrix
+itself completed before that harness error.
+
+Debug build passed (1m43s). Production-source `cargo check -j 2` passed
+(1m40s), with the temporary adapter removed and target output on E:.
+
+Source-verified, not separately executed: both complete importer pipelines call
+the tested normalizer, and normal non-SAFE_START runtime startup calls recovery.
+Not measured: a paid provider probe or live release behavior. The original
+incident's logs establish the parser failure; they do not establish the org's
+historical auto-resume setting. No new engine fix was necessary for this report.

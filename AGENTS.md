@@ -237,7 +237,8 @@ plan and this file. Read both before you change anything. All entries below: 202
   require org auto-resume, pure connection retries do not. Timers compare the exact
   freeze before clearing, retry disabled settings/transient errors, and explain
   blocked wakes even with verbose logging off.
-  [verified from source: 2026-10-07, `src/runtime/freeze.rs`, `src/runtime/actor.rs`]
+  [verified from source and eight-case scratch timer/restart smoke: 2026-10-07;
+  `docs/rust-engine/freeze-recovery.md` records scope and limits]
 
 - End-of-turn mail: pending waking mail follows through ordinary admission on
   every provider, including error exits with new mail. An unemitted Antigravity
