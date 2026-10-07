@@ -1,9 +1,11 @@
 # Orgtree 4.0.0
 
-Orgtree 4 replaces the Python engine with a new Rust engine, built for faster responses and lower CPU use while many agents work at once. [check: confirm the performance wording against release measurements.] The familiar workspace, desks, inboxes and mail hub remain. Your existing data upgrades automatically from 3.x or directly from 2.x on first start.
+Orgtree 4 replaces the Python engine with a new Rust engine, built for faster responses and lower CPU use while many agents work at once. The familiar workspace, desks, inboxes and mail hub remain. Your existing data upgrades automatically from 3.x or directly from 2.x on first start.
 
 ## New
 
+- **Claude Haiku 5.5.** Haiku agents now run Haiku 5.5 with a 1M-token context, at half a credit per seat. Haiku 4.5 stays available as a version.
+- **Git and GitHub keep working when Orgtree starts before you sign in.** Once you sign in to Windows, agents use your desktop's git and GitHub login without restarting Orgtree. If a login is missing, the agent tells you what to do.
 - **Choose what Enter does.** App settings > Display > Typing lets you choose Send message (Enter sends; Shift+Enter adds a line) or Insert new line (Enter adds a line; Ctrl+Enter sends). The choice applies across message composers.
 - **Adjust credits directly in agent settings.** Drag the grant bar or use its arrow keys, with the available range and credit breakdown visible.
 - **Enable accounts individually.** Each subscription or API-key account has its own active checkbox. Disabling one lets its current turn finish and prevents new turns on it.
