@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { desktop } from './desktop'
 import { getProviders } from './api'
-import { SetGroup, SetRow } from './canvas/settingskit'
+import { SetGroup, SetRow, SetToggle } from './canvas/settingskit'
 import { ContrastSetting } from './contrast'
 import { AgentColorSetting } from './agentcolors'
 import { applyRainbow, stopRainbow, startRainbowSync, watchRainbow, saveRainbow, hueGesture, RAINBOW_OFF } from './rainbow'
@@ -254,13 +254,11 @@ export function ThemeSetting() {
         }} />
       <span>{customColor}</span>
     </SetRow>}
-    {rainbow.revealed && <SetRow label="">
-      <label className="rainbow-theme-option">
-        <input type="checkbox" aria-label="Rainbow mode" checked={rainbow.enabled} disabled={savingRainbow}
-          onChange={e => void updateRainbow({ revealed: true, enabled: e.target.checked, epoch: Date.now() })} />
-        <span aria-hidden="true" className="rainbow-theme-label">Rainbow mode</span>
-      </label>
-    </SetRow>}
+    {rainbow.revealed && <SetToggle label="Rainbow mode"
+      labelContent={<span className="rainbow-theme-label">Rainbow mode</span>}
+      hint="Cycle the accent color through the rainbow."
+      checked={rainbow.enabled} disabled={savingRainbow}
+      onChange={enabled => void updateRainbow({ revealed: true, enabled, epoch: Date.now() })} />}
     {error && <p role="alert">Could not save theme: {error}</p>}
     <ContrastSetting />
     <AgentColorSetting />

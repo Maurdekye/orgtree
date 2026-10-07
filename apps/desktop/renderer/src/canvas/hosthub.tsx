@@ -13,6 +13,7 @@
 // public listener. The settings model matches engine/mailhub_runtime.py.
 
 import { useEffect, useRef, useState } from 'react'
+import { SetToggle } from './settingskit'
 import { req } from '../api'
 import { AutorenewIcon } from '../icons'
 
@@ -127,10 +128,10 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
             onChange={e => { const d = Number(e.target.value); setKeepDays(d); setConfig({ ...config, retention_days: d }) }} /></label>
           <p className="dim">Mail and attachments older than this are deleted hourly — read or not. The standalone hub's own default is 30 days; this installation keeps mail forever unless changed here.</p>
         </>}
-        <label className="checkline"><input aria-label="Serve the relay-only public listener" type="checkbox" checked={config.public_listener}
-          onChange={e => setConfig({ ...config, public_listener: e.target.checked })} />
-          Also serve a relay-only door on port {config.public_listener_port || 7371}</label>
-        <p className="dim">For peers outside your network: it carries mail only — no mail page — and every caller must present its own organization's secret. Tunnel or forward that port, never the main one.</p>
+        <SetToggle label={`Also serve a relay-only door on port ${config.public_listener_port || 7371}`}
+          checked={config.public_listener}
+          onChange={next => setConfig({ ...config, public_listener: next })}
+          hint="For peers outside your network: it carries mail only — no mail page — and every caller must present its own organization's secret. Tunnel or forward that port, never the main one." />
         <div className="row">
           <button type="submit">Save hosting settings</button>
           <button type="button" className="iconbtn" aria-label="Refresh hub status" title="Refresh hub status" onClick={() => { void load() }}><AutorenewIcon fontSize="inherit" /></button>

@@ -8,6 +8,7 @@ import { THEMES } from '../themes'
 import { pickFolder } from '../picker'
 import { ProviderSignIn } from './accounts'
 import { PinFrame } from './modalpin'
+import { SetToggle } from './settingskit'
 import type { LoginProvider } from '../../../../../packages/contracts'
 import type { ToastFn } from '../types'
 
@@ -209,13 +210,11 @@ export type NativeLogin = {
 function ActiveBox({ active, disabled, who, onChange }: {
   active: boolean; disabled: boolean; who: string; onChange: (active: boolean) => void
 }) {
-  return <label className="account-active" title={active
+  return <SetToggle label={`${who} active`} checked={active} disabled={disabled}
+    hint="Allow this account to serve new turns."
+    onChange={onChange} title={active
     ? 'Active: serves turns. Clear it and this account serves no new turns.'
-    : 'Inactive: serves no new turns. Check it to use this account again.'}>
-    <input type="checkbox" aria-label={`${who} active`} checked={active} disabled={disabled}
-      onChange={e => onChange(e.target.checked)} />
-    <span>{active ? 'active' : 'inactive'}</span>
-  </label>
+    : 'Inactive: serves no new turns. Check it to use this account again.'} />
 }
 
 const signInText = (auth: string | undefined) => auth === 'authenticated' ? 'Signed in'
@@ -273,13 +272,13 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
     {native?.installed && !nativeRow &&
       <div className={'account-row native-login' + (nativeActive === false ? ' inactive' : '')}>
         <div className="account-identity">
-          {nativeActive !== undefined && <ActiveBox active={nativeActive} disabled={native.busy}
-            who={`signed-in ${LABELS[provider]} subscription`} onChange={native.onActive} />}
           <span className="account-swatch" aria-hidden="true" style={{ background: COLORS[provider] }} />
           <strong>{accountIdentity('default', native.email)}</strong>
           <span className="dim">signed-in subscription · {native.connected === true ? 'Signed in'
             : native.connected === false ? 'Sign-in required' : 'Sign-in not verified'}</span>
         </div>
+        {nativeActive !== undefined && <ActiveBox active={nativeActive} disabled={native.busy}
+          who={`signed-in ${LABELS[provider]} subscription`} onChange={native.onActive} />}
         {nativeActive === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
       </div>}
     {rows.map(row => {
@@ -289,13 +288,13 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
       const active = row.ambient ? nativeActive : row.enabled !== false
       return <div key={row.id} className={'account-row' + (active === false ? ' inactive' : '')}>
         <div className="account-identity">
-          {active !== undefined && (row.ambient
-            ? <ActiveBox active={active} disabled={!native || native.busy} who={who} onChange={v => native?.onActive(v)} />
-            : <ActiveBox active={active} disabled={busy !== null} who={who} onChange={v => { void setActive(row, v) }} />)}
           <span className="account-swatch" aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
           <strong>{who}</strong>
           <span className="dim">{row.ambient ? 'signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>
         </div>
+        {active !== undefined && (row.ambient
+          ? <ActiveBox active={active} disabled={!native || native.busy} who={who} onChange={v => native?.onActive(v)} />
+          : <ActiveBox active={active} disabled={busy !== null} who={who} onChange={v => { void setActive(row, v) }} />)}
         {active === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
         <div className="account-management">
           {row.bound.length > 0 && <span className="dim" title={row.bound.map(b => `${b.org}/${b.node}`).join(', ')}>{row.bound.length} agent(s)</span>}

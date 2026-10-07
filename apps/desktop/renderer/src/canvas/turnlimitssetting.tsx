@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getRuntimeSettings, req } from '../api'
 import type { RuntimeSettingsPayload } from '../types'
-import { SetGroup, SetRow } from './settingskit'
+import { SetGroup, SetToggle } from './settingskit'
 
 type Key = 'turn_timeout_s' | 'turn_idle_s'
 type Unit = 'minutes' | 'hours'
@@ -42,7 +42,16 @@ function LimitRow({ label, hint, stored, fallback, busy, onSave }: {
     const seconds = nextOff ? 0 : limitSeconds(nextAmount, nextUnit)
     if (seconds !== null && seconds !== stored) onSave(seconds)
   }
-  return <SetRow label={label} hint={hint}>
+  return <SetToggle label={label} hint={hint} checked={!off} disabled={busy}
+    onChange={enabled => {
+      const next = !enabled
+      setOff(next)
+      if (!next && !amount) {
+        const s = splitLimit(fallback)
+        setAmount(s.amount); setUnit(s.unit)
+        commit(false, s.amount, s.unit)
+      } else commit(next, amount, unit)
+    }} action={<>
     <input type="number" min={1} step="any" aria-label={`${label} amount`} value={amount}
       aria-invalid={!valid} disabled={busy || off}
       onChange={e => setAmount(e.target.value)}
@@ -53,17 +62,7 @@ function LimitRow({ label, hint, stored, fallback, busy, onSave }: {
       <option value="minutes">minutes</option>
       <option value="hours">hours</option>
     </select>
-    <label><input type="checkbox" aria-label={`${label} off`} checked={off} disabled={busy}
-      onChange={e => {
-        const next = e.target.checked
-        setOff(next)
-        if (!next && !amount) {
-          const s = splitLimit(fallback)
-          setAmount(s.amount); setUnit(s.unit)
-          commit(false, s.amount, s.unit)
-        } else commit(next, amount, unit)
-      }} /> off</label>
-  </SetRow>
+    </>} />
 }
 
 export function TurnLimitsSetting() {

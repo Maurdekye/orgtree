@@ -434,12 +434,9 @@ function ProviderSwitch({ provider, busy, onChange }: {
     return null
   const enabled = provider.user_enabled !== false
   return (
-    <label className="provider-switch">
-      <input type="checkbox" role="switch" checked={enabled} disabled={busy}
-        aria-label={`${provider.label} enabled for new agents`}
-        onChange={(e) => onChange(provider, e.target.checked)} />
-      <span>{enabled ? 'on' : 'off'}</span>
-    </label>
+    <SetToggle label={`${provider.label} enabled for new agents`} checked={enabled} disabled={busy}
+      hint="Make this provider available when hiring agents."
+      onChange={next => onChange(provider, next)} />
   )
 }
 
@@ -732,9 +729,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
           <span className='set-head-right'>
             <button className="acct-secondary-btn" onClick={() => setAddAccount(p.id as AccountProvider)}>Add secondary account</button>
             {p.status.installed && p.user_enabled !== false && !p.hire_enabled && <span className='acct-preview-tag'>preview</span>}
-            <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
           </span>
         </div>
+        <ProviderSwitch provider={p} busy={busy} onChange={toggleProvider} />
         <div className='acct-provider-status'>
           <span className={'acct-provider-state ' + (!p.status.installed ? 'missing' : p.status.connected === true ? 'connected' : p.status.connected === false ? 'requires-signin' : 'unknown')}>
             {p.status.installed ? (p.status.connected === true ? 'Installed · connected' : p.status.connected === false ? 'Installed · sign-in required' : 'Installed · connection unknown') : 'Not installed'}
@@ -846,20 +843,15 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <SetGroup title="Debug">
         <EngineDebugToggle />
         {runtime?.verbose_logging !== undefined &&
-          <SetRow label="verbose engine logging"
+          <SetToggle label="verbose engine logging"
+            checked={runtime.verbose_logging}
+            disabled={busy || runtime.verbose_logging_pinned === true}
+            onChange={next => changeRuntime(setVerboseLogging, next)}
             hint={runtime.verbose_logging_pinned
               ? 'Fixed for this run by ORGTREE_LOG_VERBOSE.'
               : 'Writes every engine method call and return, and each request’s headers, to the engine log. '
-                + 'Off: requests, responses, warnings and errors only. Takes effect at once.'}>
-            <label className="checkline">
-              <input type="checkbox" role="switch" aria-label="verbose engine logging"
-                checked={runtime.verbose_logging}
-                disabled={busy || runtime.verbose_logging_pinned === true}
-                onChange={e => changeRuntime(setVerboseLogging, e.target.checked)} />
-              <span className={'set-state' + (runtime.verbose_logging ? ' on' : '')}>
-                {runtime.verbose_logging ? 'on' : 'off'}</span>
-            </label>
-            {desktop()?.openLogsFolder && <button disabled={openingLogs} onClick={async () => {
+                + 'Off: requests, responses, warnings and errors only. Takes effect at once.'}
+            action={desktop()?.openLogsFolder && <button disabled={openingLogs} onClick={async () => {
               setOpeningLogs(true)
               try {
                 const result = await desktop()!.openLogsFolder!()
@@ -867,8 +859,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
               } catch (error) {
                 toast([`Could not open logs folder: ${error instanceof Error ? error.message : String(error)}`])
               } finally { setOpeningLogs(false) }
-            }}>{openingLogs ? 'Opening…' : 'Open logs folder'}</button>}
-          </SetRow>}
+            }}>{openingLogs ? 'Opening…' : 'Open logs folder'}</button>} />}
       </SetGroup>
     </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>

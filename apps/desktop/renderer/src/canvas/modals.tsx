@@ -442,21 +442,14 @@ export function HireDefaultsTab({ tree, slug, toast, close,
         note="granted to hires that state no tools of their own">
         <SetBlock label="tools">
           {TOOL_LABELS.map(([k, label]) => (
-            <label className="checkline" key={k}>
-              <input type="checkbox" checked={!!tools[k]}
-                onChange={(e) => setTools({ ...tools, [k]: e.target.checked })} />
-              {label}
-            </label>
+            <SetToggle key={k} label={label} checked={!!tools[k]}
+              onChange={next => setTools({ ...tools, [k]: next })} />
           ))}
         </SetBlock>
         <SetBlock label="MCP servers">
-          <label className="checkline">
-            <input type="checkbox" checked={allMcp}
-              aria-label="all registered MCP servers"
-              onChange={(e) => setTools({
-                ...tools, mcp: e.target.checked ? ['*'] : [...servers] })} />
-            all registered servers (current and future)
-          </label>
+          <SetToggle label="all registered MCP servers"
+            labelContent="all registered servers (current and future)" checked={allMcp}
+            onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
           {allMcp && (
             <McpCurrentServers servers={servers} />
           )}
@@ -678,19 +671,12 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         </div>
         <div className="field-label">tools</div>
         {TOOL_LABELS.map(([k, label]) => (
-          <label className="checkline" key={k}>
-            <input type="checkbox" checked={!!tools[k]}
-              onChange={(e) => setTools({ ...tools, [k]: e.target.checked })} />
-            {label}
-          </label>
+          <SetToggle key={k} label={label} checked={!!tools[k]}
+            onChange={next => setTools({ ...tools, [k]: next })} />
         ))}
         <div className="field-label">MCP servers</div>
-        <label className="checkline">
-          <input type="checkbox" checked={allMcp}
-            onChange={(e) => setTools({
-              ...tools, mcp: e.target.checked ? ['*'] : [...servers] })} />
-          all registered servers (current and future)
-        </label>
+        <SetToggle label="all registered servers (current and future)" checked={allMcp}
+          onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
         {!allMcp && <McpChecklist servers={servers}
           checked={(s) => tools.mcp.includes(s)}
           onToggle={(s, on) => setTools({
@@ -756,11 +742,8 @@ function McpChecklist({ servers, checked, onToggle }: McpChecklistProps) {
         <div className="hint dim">none registered</div>
       )}
       {servers.map((s) => (
-        <label className="checkline" key={s}>
-          <input type="checkbox" checked={checked(s)}
-            onChange={(e) => onToggle(s, e.target.checked)} />
-          <span className="mono">{s}</span>
-        </label>
+        <SetToggle key={s} label={s} labelContent={<span className="mono">{s}</span>}
+          checked={checked(s)} onChange={next => onToggle(s, next)} />
       ))}
     </>
   )

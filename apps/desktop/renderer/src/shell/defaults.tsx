@@ -13,6 +13,7 @@
 // a cycle: App.tsx already imports AccountsPanel.
 import { useEffect, useState } from 'react'
 import { getDefaults, saveDefaults } from '../api'
+import { SetToggle } from '../canvas/settingskit'
 import type { DefaultsPayload, ToastFn } from '../types'
 
 /** The default-org-settings FIELDS, with no window of their own.
@@ -64,21 +65,15 @@ export function DefaultsForm({ toast, onDone }: {
           <option value="max">max</option>
         </select>
         <div className="field-label">credit cost bubbling</div>
-        <label className="checkline">
-          <input type="checkbox" checked={d.cascade_hire !== false}
-            onChange={(e) => set('cascade_hire', e.target.checked)} />
-          hires bubble their cost up the chain
-        </label>
-        <label className="checkline">
-          <input type="checkbox" checked={d.cascade_alloc !== false}
-            onChange={(e) => set('cascade_alloc', e.target.checked)} />
-          allocations &amp; model upgrades bubble their cost up the chain
-        </label>
-        <label className="checkline">
-          <input type="checkbox" checked={!!d.auto_resume}
-            onChange={(e) => set('auto_resume', e.target.checked)} />
-          auto-resume usage-limit-frozen agents after the reset time
-        </label>
+        <SetToggle label="hires bubble their cost up the chain" checked={d.cascade_hire !== false}
+          hint="Raise ancestor grants when a hire needs more credits."
+          onChange={next => set('cascade_hire', next)} />
+        <SetToggle label="allocations & model upgrades bubble their cost up the chain" checked={d.cascade_alloc !== false}
+          hint="Raise ancestor grants when an allocation or model upgrade needs more credits."
+          onChange={next => set('cascade_alloc', next)} />
+        <SetToggle label="auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
+          hint="Resume agents automatically after their usage limit resets."
+          onChange={next => set('auto_resume', next)} />
         <div className="hint">
           These defaults apply only when creating an organization; existing
           organizations keep their own settings.

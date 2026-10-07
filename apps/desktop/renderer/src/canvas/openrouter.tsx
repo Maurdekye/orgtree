@@ -46,7 +46,7 @@ import type {
   OpenRouterSort, ProviderInfo, ProviderTier,
 } from '../types'
 import { capabilityNote, capabilityNotes, fmtCredits, isDarkTierColor, modelLabel, setOpenRouterTiers } from './shared'
-import { SetRow } from './settingskit'
+import { SetRow, SetToggle } from './settingskit'
 import { fmtHm, fmtMonth } from '../timefmt'
 
 type ToastFn = (lines: string[]) => void
@@ -232,10 +232,9 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
         <span className="set-head-right">
           {!off && keySet && !provider?.hire_enabled
             && <span className="acct-preview-tag">preview</span>}
-          {headRight}
         </span>
       </div>
-
+      {headRight}
       {err && <div className="dim acct-prov-note">could not read OpenRouter state: {err}</div>}
       {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
 
@@ -541,12 +540,10 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
               {order === 'asc' ? '↑' : '↓'} {DIR_LABEL[sort][order]}
             </button>
           )}
-          <label className="orr-group" title="show the models under a heading per provider">
-            <input type="checkbox" checked={grouped}
-              onChange={(e) => { setGrouped(e.target.checked); setOffset(0) }} />
-            <span>group by provider</span>
-          </label>
         </div>
+        <SetToggle label="group by provider" checked={grouped}
+          hint="Show models under a heading for each provider."
+          onChange={next => { setGrouped(next); setOffset(0) }} />
         {/* ⚠ an explicit sort DISPLACES the id-over-name relevance ranking.
             Saying so beats letting the rows quietly stop answering what was
             typed — and the way back is one click, not a puzzle. */}

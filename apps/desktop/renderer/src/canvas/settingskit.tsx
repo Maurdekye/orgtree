@@ -25,7 +25,7 @@
 // fetches — while making a tab switch lossless by construction rather than by
 // remembering to hoist the next draft field someone adds.
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 export interface SettingsTab<T extends string> {
@@ -194,35 +194,43 @@ export function SetBlock({ label, hint, children }: {
   )
 }
 
-/** a boolean setting. The whole row is the `<label>`, so the hint and the
- *  state word are click targets too.
+/** a boolean setting. Without an independent action the whole row is the
+ *  `<label>`. With one, the title, hint and state each label the same input;
+ *  the action stays outside those labels and cannot toggle the checkbox.
  *  ⚠ the input keeps an explicit `aria-label`: the row's text content
  *  includes the hint prose and the state word, and letting that become the
  *  control's accessible name is how a two-word switch ends up announced as a
  *  paragraph. The visible on/off word is redundant for a screen reader (the
  *  switch role already carries the state) but is what makes the column
  *  readable at a glance for everyone else. */
-export function SetToggle({ label, hint, checked, disabled, title, onChange }: {
+export function SetToggle({ label, labelContent, hint, checked, disabled, title, onChange, action }: {
   label: string
+  labelContent?: ReactNode
+  /** Independent right-hand control, outside the checkbox's label. */
+  action?: ReactNode
   hint?: ReactNode
   checked: boolean
   disabled?: boolean
   title?: string
   onChange: (next: boolean) => void
 }) {
+  const id = useId()
+  const Row = action ? 'div' : 'label'
+  const Text = action ? 'label' : 'span'
   return (
-    <label className="set-row" title={title}>
+    <Row className="set-row" title={title}>
       <span className="set-lead">
-        <input type="checkbox" role="switch" aria-label={label}
+        <input id={id} type="checkbox" role="switch" aria-label={label}
           checked={checked} disabled={disabled}
           onChange={(e) => onChange(e.target.checked)} />
       </span>
-      <span className="set-label">{label}</span>
+      <Text className="set-label" {...(action ? { htmlFor: id } : {})}>{labelContent ?? label}</Text>
       <span className="set-control">
-        <span className={'set-state' + (checked ? ' on' : '')}>
-          {checked ? 'on' : 'off'}</span>
+        <Text {...(action ? { htmlFor: id } : {})} className={'set-state' + (checked ? ' on' : '')}>
+          {checked ? 'on' : 'off'}</Text>
+        {action}
       </span>
-      {hint && <span className="set-hint">{hint}</span>}
-    </label>
+      {hint && <Text className="set-hint" {...(action ? { htmlFor: id } : {})}>{hint}</Text>}
+    </Row>
   )
 }

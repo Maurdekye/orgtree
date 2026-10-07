@@ -7637,7 +7637,7 @@ html.mobile .popout-button { display: none; }
 
 .connection-row { padding: 10px 0; border-bottom: 1px solid var(--line, #444); }
 .connection-peers { padding-left: 20px; }
-.connection-setup label { display: grid; gap: 4px; margin: 8px 0; }
+.connection-setup label:not(.set-row) { display: grid; gap: 4px; margin: 8px 0; }
 .connection-setup input, .connection-setup textarea { width: 100%; box-sizing: border-box; }
 .connection-setup details { margin-top: 12px; }
 .connection-setup textarea { min-height: 90px; }
@@ -7813,7 +7813,6 @@ main:has(> .orgbar.native-header) > .error {
 .edbg-table th:first-child, .edbg-table td:first-child,
 .edbg-table th:nth-child(2), .edbg-table td:nth-child(2) { text-align: left; }
 .edbg-self td { color: var(--accent, #61afef); }
-:root .rainbow-theme-option { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .rainbow-theme-label {
   /* Two identical spectra make each rightward pass loop without a seam. */
   background-image: linear-gradient(to right,

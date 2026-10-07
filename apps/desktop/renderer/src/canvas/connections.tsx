@@ -13,6 +13,7 @@
 // immediately — hub membership is operational state, not a form draft.
 
 import { useState } from 'react'
+import { SetToggle } from './settingskit'
 import { getOrgNet, probeHub, saveSettings } from '../api'
 import type { NetHub, TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
@@ -90,11 +91,10 @@ export function Connections({ tree, toast, adding, setAdding }: {
       </>}
     </div>
     <p className="dim">The secret IS the address's ownership — losing it loses the address; nobody can restore it. It never reaches an agent. Keep a copy somewhere safe if this organization's address matters to you.</p>
-    <label className="checkline"><input type="checkbox" disabled={busy}
+    <SetToggle label="connect to this computer's mail hub" disabled={busy}
       checked={hubs.some(h => h.id === 'local')}
-      onChange={e => { void apply({ net_autoconnect: e.target.checked }, e.target.checked ? 'Connected to this computer\'s mail hub' : 'Disconnected from this computer\'s mail hub') }} />
-      connect to this computer's mail hub</label>
-    <p className="dim">Being connected means peers can mail this organization (and thereby start its agents). Read and send correspondence in Mail.</p>
+      onChange={next => { void apply({ net_autoconnect: next }, next ? 'Connected to this computer\'s mail hub' : 'Disconnected from this computer\'s mail hub') }}
+      hint="Being connected means peers can mail this organization (and thereby start its agents). Read and send correspondence in Mail." />
     <div className="field-label">This organization's connections</div>
     {!hubs.length && <p className="dim">No connections configured.</p>}
     {hubs.map(h => <section key={h.id} className="connection-row">
@@ -104,11 +104,12 @@ export function Connections({ tree, toast, adding, setAdding }: {
         <span className="dim" style={{ flex: 1 }}>{hubStatusText(h)}{h.id === 'local' && h.hidden ? ' · not seen yet' : ''}</span>
         {h.queued > 0 && <span>{h.queued} queued</span>}
         {h.id !== 'local' && <>
-          <label className="checkline"><input type="checkbox" checked={h.enabled} disabled={busy}
-            onChange={e => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: e.target.checked } : x) }, 'Connection updated') }} />on</label>
           <button title="Remove connection" disabled={busy} onClick={() => remove(h)}><CloseIcon fontSize="inherit" /></button>
         </>}
       </div>
+      {h.id !== 'local' && <SetToggle label="connection enabled" checked={h.enabled} disabled={busy}
+        hint="Connect to this hub to send and receive mail."
+        onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
       <div className="dim mono-sm">{h.address}</div>
       {(h.stuck ?? 0) > 0 && <p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p>}
       {h.roster?.length ? <ul className="connection-peers">{h.roster.map(p => <li key={p.slug}>

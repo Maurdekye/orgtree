@@ -16,6 +16,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- App and Org settings checkboxes use `SetToggle`: checkbox left, label/hint,
+  on/off state right. Its optional `labelContent` preserves decorative text
+  with a plain accessible name; `action` keeps independent right-side controls
+  outside checkbox labels (e.g. Open logs folder). Turn-limit switches mean
+  enabled; off still persists zero seconds. [user 2026-10-07 17:41–17:42Z;
+  typecheck and isolated Appearance/Debug/turn-limit renderer smoke]
+
 - Bare mail recipients preserve 3.x precedence: internal agent, exact local
   org slug, then a unique hub full slug or first name segment. Ambiguity names
   candidates; resolution never bypasses org-inbox authority. Discovery includes
