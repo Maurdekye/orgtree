@@ -519,7 +519,7 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     use crate::changes::Change;
     let mut ch: Vec<Change> = fx.agents.iter().map(|id| Change::Agent(*id)).collect();
     ch.extend(fx.agents.iter().map(|id| Change::History(*id)));
-    if fx.pulses.iter().any(|p| matches!(p,Change::EngineEvent(e) if matches!(e.name.as_str(),"agent.hired"|"agent.rehired"|"agent.retired"|"agent.moved"|"agent.settings.changed"|"credits.changed"))) {
+    if crate::runtime::watchdogs::events::interested(engine,"credits.changed") && fx.pulses.iter().any(|p| matches!(p,Change::EngineEvent(e) if matches!(e.name.as_str(),"agent.hired"|"agent.rehired"|"agent.retired"|"agent.moved"|"agent.settings.changed"|"credits.changed"))) {
         let mut credit_ids=fx.agents.clone();
         if let Ok(c)=engine.db.get().await {
             let ids:Vec<i64>=fx.agents.iter().copied().collect();

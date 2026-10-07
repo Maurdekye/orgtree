@@ -1150,7 +1150,9 @@ fn org_slug(engine: &Engine, dog: &Dog) -> Option<String> {
 async fn deliver(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option<Value>) {
     let mut out = Outgoing::new(From::Watchdog { uid: dog.uid.clone(), name: dog.name.clone() }, &dog.owner_name, &body);
     out.kind = "watchdog".into();
-    out.notice = dog.notice();
+    // SAFE_START may recover event subscriptions to rehearse engine.started,
+    // but their alerts must never start provider turns from a copied database.
+    out.notice = dog.notice() || crate::mailhub::safe_start();
     out.ev = ev;
     if let Err(e) = mail::send(engine, dog.org_id, out).await {
         tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "watchdog mail failed");
