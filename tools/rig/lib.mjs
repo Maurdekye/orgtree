@@ -292,12 +292,13 @@ export class Rig {
 
   one(query) { return this.sql(query)[0] ?? null }
 
-  /** Poll until fn() returns a truthy value; that value is returned. */
+  /** Poll until fn() returns a truthy value (an empty array counts as
+   * nothing yet); that value is returned. */
   async waitFor(fn, { timeout = 60000, every = 500, what = 'condition' } = {}) {
     const end = Date.now() + timeout
     let last
     while (Date.now() < end) {
-      try { last = await fn(); if (last) return last } catch (e) { last = e }
+      try { last = await fn(); if (last && !(Array.isArray(last) && last.length === 0)) return last } catch (e) { last = e }
       await sleep(every)
     }
     throw new Error(`timed out after ${timeout} ms waiting for ${what}${last instanceof Error ? ': ' + last.message : ''}`)
