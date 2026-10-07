@@ -40,12 +40,12 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
             catalog::GOOGLE => st.agy.installed,
             _ => false,
         })
-        .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider, efforts: efforts(t) })
+        .map(|t| Offer { tier: t.tier.to_string(), seat: t.seat, provider: t.provider, efforts: efforts(t, &st) })
         .collect();
     let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
     if key_set && engine.settings.provider_enabled(catalog::OPENROUTER) {
         for (tier, seat, _) in engine.providers.openrouter_tiers() {
-            out.push(Offer { tier, seat, provider: catalog::OPENROUTER, efforts: Vec::new() });
+            out.push(Offer { tier, seat, provider: catalog::OPENROUTER, efforts: catalog::EFFORTS.to_vec() });
         }
     }
     out
@@ -68,11 +68,15 @@ fn host_ready(engine: &Engine, provider: &str) -> bool {
 }
 
 #[logged]
-fn efforts(t: &catalog::Tier) -> Vec<&'static str> {
-    if t.live_effort {
-        catalog::EFFORTS.to_vec()
-    } else {
-        Vec::new()
+fn efforts(t: &catalog::Tier, state: &crate::providers::State) -> Vec<&'static str> {
+    match t.provider {
+        catalog::OPENAI => catalog::EFFORTS.iter().copied().filter(|e| {
+            state.codex_efforts.get(t.model).is_some_and(|levels| levels.iter().any(|v| v == e))
+        }).collect(),
+        catalog::GOOGLE => catalog::EFFORTS.iter().copied()
+            .filter(|e| catalog::antigravity_effort(t.tier, e) == *e).collect(),
+        catalog::CLAUDE | catalog::OPENROUTER => catalog::EFFORTS.to_vec(),
+        _ => Vec::new(),
     }
 }
 
@@ -145,7 +149,7 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
         })
         .collect();
     ctx["models"] = json!(models);
-    ctx["availability"] = json!({ "at": Utc::now().timestamp(), "stale": false, "errors": [] });
+    ctx["availability"] = availability(engine);
     Ok(ctx)
 }
 
@@ -393,6 +397,18 @@ pub fn options(engine: &Engine) -> Value {
                          "accounts": accounts, "default_ok": host }))
         })
         .collect();
+    let mut result = availability(engine);
+    result["tiers"] = json!(tiers);
+    result["loading"] = json!(false);
+    result["generation"] = json!(0);
+    result
+}
+
+#[logged]
+fn availability(engine: &Engine) -> Value {
     let at = Utc::now().timestamp_millis() as f64 / 1000.0;
-    json!({ "tiers": tiers, "at": at, "stale": false, "errors": [], "loading": false, "generation": 0 })
+    let state = engine.providers.state.load();
+    let errors: Vec<String> = state.codex_efforts_error.iter()
+        .filter(|_| engine.settings.provider_enabled(catalog::OPENAI)).cloned().collect();
+    json!({ "at": at, "stale": !errors.is_empty(), "errors": errors })
 }

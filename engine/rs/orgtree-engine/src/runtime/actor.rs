@@ -1446,8 +1446,9 @@ impl Actor {
                 resume = None;
             }
         }
-        let effort =
-            catalog::tier(&ctx.tier).filter(|t| t.provider == catalog::CLAUDE && t.live_effort).map(|_| ctx.effort.clone());
+        // Launch-time effort applies to every Claude harness tier, including
+        // Haiku and OpenRouter; live_effort only controls mid-turn changes.
+        let effort = Some(ctx.effort.clone()).filter(|e| !e.is_empty());
         let spec = SpawnSpec {
             exe,
             cwd: ctx.scratch.clone(),
@@ -1686,7 +1687,7 @@ impl Actor {
             exe,
             cwd: ctx.scratch.clone(),
             model: ctx.model.clone(),
-            effort: Some(ctx.effort.clone()).filter(|e| !e.is_empty()),
+            effort: Some(catalog::antigravity_effort(&ctx.tier, &ctx.effort).to_string()),
             conversation,
             identity: plan.identity.clone(),
             servers: granted,

@@ -3,6 +3,7 @@
 //! Discovery runs in the background and publishes the `providers` value.
 
 pub mod catalog;
+mod codex_models;
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -35,6 +36,8 @@ pub struct State {
     pub openrouter: Vec<(String, f64, String, String, String)>,
     /// models the Antigravity account lists (conditional tiers)
     pub agy_models: Vec<String>,
+    pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
+    pub codex_efforts_error: Option<String>,
 }
 
 #[derive(Default)]
@@ -228,6 +231,14 @@ pub async fn discover(engine: &Engine) {
     }
     if let Some((p, src)) = locate_codex() {
         let (connected, email, kind) = codex_identity(None);
+        if connected {
+            match codex_models::probe(&p).await {
+                Ok(efforts) => st.codex_efforts = efforts,
+                Err(e) => st.codex_efforts_error = Some(format!("Codex model capabilities unavailable: {e}")),
+            }
+        } else {
+            st.codex_efforts_error = Some("Codex model capabilities unavailable: primary login is signed out".into());
+        }
         st.codex =
             CliStatus { installed: true, version: version_of(&p).await, path: Some(p), source: src, connected, email, kind };
     }

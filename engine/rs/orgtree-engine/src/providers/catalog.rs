@@ -73,6 +73,17 @@ pub const SEAT_FLOOR: f64 = 0.10;
 pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 pub const DEFAULT_EFFORT: &str = "high";
 
+/// Match the 3.x Antigravity CLI vocabulary; larger inherited levels clamp
+/// to high. Staffing offers only levels that need no translation.
+#[logged]
+pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
+    match effort {
+        "low" | "high" => effort,
+        "medium" if tier == "flash" => effort,
+        _ => "high",
+    }
+}
+
 pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }

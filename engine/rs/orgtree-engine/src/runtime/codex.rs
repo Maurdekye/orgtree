@@ -75,13 +75,10 @@ pub struct CodexProc {
     cwd: String,
 }
 
-/// Our effort words → Codex's (`max` has no Codex level above `xhigh`).
+/// Preserve the selected level, as 3.x did; staffing filters by model/list.
 #[logged]
 pub fn codex_effort(level: &str) -> String {
-    match level {
-        "max" => "xhigh".into(),
-        other => other.into(),
-    }
+    level.into()
 }
 
 #[logged]
