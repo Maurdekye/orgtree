@@ -28,6 +28,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Preserve the self/downward gate and do not start an actor to read metadata.
   [verified-from-source: 2026-10-07; 3.x `api.py`, Rust `tools/orgview.rs`;
   `docs/rust-engine/read-transcript-parity.md`]
+- Desktop notifications retain the complete pending inventory (keyset batches,
+  no document age-out), classify typed terminal failures separately from routine
+  mail, and use a persisted attention epoch rather than dismissal `set_rev`.
+  Deferred work/ask triggers reconcile effective attention at commit; imports
+  preserve epochs. [verified-from-source and disposable PostgreSQL/Rust smoke:
+  2026-10-07; `docs/rust-engine/desktop-notifications.md`]
 
 - Transcript and mail content must remove actual U+0000 before PostgreSQL
   text/jsonb writes. Use `util::pg_text` / `pg_json` (borrow clean input), or
