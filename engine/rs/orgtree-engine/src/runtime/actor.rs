@@ -3982,6 +3982,7 @@ fn codex_images(mails: &[Mail]) -> Vec<Value> {
 }
 
 /// A Codex tool item as (chip name, argument object).
+#[logged]
 fn codex_tool(item: &Value) -> Option<(String, Value)> {
     let args = |v: &Value| v.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok()).unwrap_or_else(|| v.clone());
     let s = |k: &str| item[k].as_str().unwrap_or("").to_string();
