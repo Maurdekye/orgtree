@@ -23,6 +23,7 @@ pub struct Status {
 
 pub struct CredentialContext {
     pub state: ArcSwap<Status>,
+    probing: std::sync::atomic::AtomicBool,
 }
 
 #[logged]
@@ -30,10 +31,12 @@ impl CredentialContext {
     pub fn new() -> Self {
         let status = probe();
         report(&status);
-        Self { state: ArcSwap::from_pointee(status) }
+        Self { state: ArcSwap::from_pointee(status), probing: std::sync::atomic::AtomicBool::new(false) }
     }
 
-    /// Called before CLI launch/admission and when a session change is seen.
+    /// Session-change refresh only (start probes in `new`). CLI launches read
+    /// the cached state: per-spawn LSA/CredMan probing put dozens of concurrent
+    /// calls on LSASS at every restart (LSASS crash 2026-10-07 19:26Z).
     /// `bridge_lookup.status` is untested|succeeded|failed: only a real git/gh
     /// lookup through the desktop counts, never a ping. Diagnostic only (user
     /// ruling 2026-10-07 16:12Z: no credential UI).
@@ -48,7 +51,11 @@ impl CredentialContext {
     }
 
     pub fn refresh(&self, engine: &crate::engine::Engine) {
+        use std::sync::atomic::Ordering;
+        // One probe in flight; a concurrent caller keeps the cached state.
+        if self.probing.swap(true, Ordering::AcqRel) { return; }
         let next = probe();
+        self.probing.store(false, Ordering::Release);
         if **self.state.load() != next {
             report(&next);
             let isolated=next.warning.is_some();

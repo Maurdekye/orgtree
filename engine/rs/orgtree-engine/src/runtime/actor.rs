@@ -1400,8 +1400,8 @@ impl Actor {
     }
 
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
-        // Warn only: an S4U boot context must not silently look credential-ready.
-        self.engine.credentials.refresh(&self.engine);
+        // The S4U boot warning comes from the cached credential context
+        // (probed at start and on session change), never a probe per spawn.
         let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
         self.account_gate(ctx, route.as_ref())?;
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
