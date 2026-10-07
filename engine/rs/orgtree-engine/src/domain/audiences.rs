@@ -40,7 +40,7 @@ fn spoken(p: &str) -> String {
 
 /// A live agent of this org: (id, parent, name).
 #[logged]
-async fn live(client: &tokio_postgres::Client, org_id: i64, name: &str) -> Result<(i64, Option<i64>)> {
+async fn live(client: &impl tokio_postgres::GenericClient, org_id: i64, name: &str) -> Result<(i64, Option<i64>)> {
     let r = client
         .query_opt("SELECT id, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org_id, &name])
         .await?;
@@ -52,7 +52,7 @@ async fn live(client: &tokio_postgres::Client, org_id: i64, name: &str) -> Resul
 
 /// Is `node` strictly below `root`?
 #[logged]
-async fn descends(client: &tokio_postgres::Client, root: i64, node: i64) -> Result<bool> {
+async fn descends(client: &impl tokio_postgres::GenericClient, root: i64, node: i64) -> Result<bool> {
     Ok(client
         .query_one(
             "WITH RECURSIVE up(id, parent_id, depth) AS (
@@ -67,7 +67,7 @@ async fn descends(client: &tokio_postgres::Client, root: i64, node: i64) -> Resu
 
 /// The top-level agent above (or at) `node`.
 #[logged]
-async fn top_of(client: &tokio_postgres::Client, node: i64) -> Result<String> {
+async fn top_of(client: &impl tokio_postgres::GenericClient, node: i64) -> Result<String> {
     Ok(client
         .query_one(
             "WITH RECURSIVE up(id, parent_id, name, depth) AS (
@@ -81,7 +81,7 @@ async fn top_of(client: &tokio_postgres::Client, node: i64) -> Result<String> {
 }
 
 #[logged]
-async fn holds(client: &tokio_postgres::Client, org_id: i64, grantee: &str, grantor: &str) -> Result<bool> {
+async fn holds(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, grantor: &str) -> Result<bool> {
     Ok(client
         .query_opt(
             "SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL",
@@ -109,11 +109,11 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
     let (my_id, my_name) = me;
     let target = party(Some(target));
     let client = engine.db.get().await?;
-    let (_, my_parent) = live(&client, org.id, my_name).await?;
+    let (_, my_parent) = live(&**client, org.id, my_name).await?;
     if target == my_name {
         refuse!(BadRequest, "you cannot ask yourself for an audience");
     }
-    if holds(&client, org.id, my_name, &target).await? {
+    if holds(&**client, org.id, my_name, &target).await? {
         refuse!(Conflict, "you already hold an audience with {}", spoken(&target));
     }
     let holder = match target.as_str() {
@@ -127,10 +127,10 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
             if my_parent.is_none() {
                 refuse!(Conflict, "you are a top-level agent: grant the org inbox to yourself (orgtree_audience grant target=extern)");
             }
-            top_of(&client, my_id).await?
+            top_of(&**client, my_id).await?
         }
         name => {
-            live(&client, org.id, name).await?;
+            live(&**client, org.id, name).await?;
             name.to_string()
         }
     };
@@ -184,16 +184,28 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
 /// Give `grantee` an audience with `grantor`.
 #[logged]
 pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, target: Option<&str>, reason: &str) -> Result<Value> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let (out, gid) = grant_tx(engine, &*tx, org, actor, grantee, target, reason).await?;
+    tx.commit().await?;
+    drop(client);
+    changes::notify(engine, org, vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail]);
+    if out["answered"] == true { crate::runtime::wake(engine, org.id, gid); }
+    Ok(out)
+}
+
+#[logged]
+pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::GenericClient, org: &Arc<OrgHandle>, actor: &Actor,
+                            grantee: &str, target: Option<&str>, reason: &str) -> Result<(Value, i64)> {
     let grantee = grantee.trim().trim_start_matches('@').to_string();
     if grantee.is_empty() {
         refuse!(BadRequest, "name who receives the audience (from)");
     }
-    let mut client = engine.db.get().await?;
-    let (gid, _) = live(&client, org.id, &grantee).await?;
+    let (gid, _) = live(client, org.id, &grantee).await?;
     let grantor = match actor {
         Actor::User => party(target),
         Actor::Agent { id, name } => {
-            let (_, my_parent) = live(&client, org.id, name).await?;
+            let (_, my_parent) = live(client, org.id, name).await?;
             let grantor = match target.map(str::trim).filter(|t| !t.is_empty()) {
                 None => name.clone(),
                 Some(t) => party(Some(t)),
@@ -205,7 +217,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
                 )
                 .await?
                 .is_some();
-            let below = descends(&client, *id, gid).await?;
+            let below = descends(client, *id, gid).await?;
             match grantor.as_str() {
                 g if g == name.as_str() => {
                     if !(below || asked_me) {
@@ -221,7 +233,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
                     }
                 }
                 EXTERN => {
-                    if my_parent.is_some() && !(holds(&client, org.id, name, EXTERN).await? && below) {
+                    if my_parent.is_some() && !(holds(client, org.id, name, EXTERN).await? && below) {
                         refuse!(Forbidden, "the org inbox is granted by a top-level agent (or passed down by a holder)");
                     }
                     if gid != *id && !below && !asked_me {
@@ -230,7 +242,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
                 }
                 other => {
                     // with a live peer or my own superior, for my report
-                    let (oid, oparent) = live(&client, org.id, other).await?;
+                    let (oid, oparent) = live(client, org.id, other).await?;
                     let peer = oparent == my_parent && oid != *id;
                     let superior = my_parent == Some(oid);
                     if !(peer || superior) {
@@ -248,52 +260,49 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
         refuse!(BadRequest, "an agent needs no audience with itself");
     }
     if grantor != USER && grantor != EXTERN {
-        live(&client, org.id, &grantor).await?;
+        live(client, org.id, &grantor).await?;
     }
     let by = match actor {
         Actor::User => USER.to_string(),
         Actor::Agent { name, .. } => name.clone(),
     };
-    let tx = client.transaction().await?;
-    let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
+    let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
     let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
-    let fresh = tx.query_opt("SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused LIMIT 1",
+    let fresh = client.query_opt("SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused LIMIT 1",
         &[&org.id, &grantee, &grantor]).await?.is_none();
     if grantor == EXTERN && !settings["org_inbox_multi_holder"].as_bool().unwrap_or(false) {
-        tx.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantor = '@extern' AND grantee <> $2 AND revoked_at IS NULL", &[&org.id, &grantee]).await?;
+        client.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantor = '@extern' AND grantee <> $2 AND revoked_at IS NULL", &[&org.id, &grantee]).await?;
     }
     if fresh {
-        tx
+        client
             .execute(
                 "INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, $3, $4)",
                 &[&org.id, &grantee, &grantor, &reason.trim()],
             )
             .await?;
     }
-    let answered = tx
+    let answered = client
         .execute(
             "UPDATE ot.audience_requests SET status = 'granted', resolved_at = now()
               WHERE org_id = $1 AND requester = $2 AND target = $3 AND status = 'pending'",
             &[&org.id, &grantee, &grantor],
         )
         .await?;
-    tx
+    client
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', $2, $3, $4)",
             &[&org.id, &by, &gid, &json!({ "grantee": grantee, "grantor": grantor })],
         )
         .await?;
-    tx.commit().await?;
-    drop(client);
     if answered > 0 {
-        tell(engine,org.id,&grantee,format!("{} granted your requested audience with {}.",spoken(&by),spoken(&grantor)),true,
-            Some(crate::events::audience_decided(&org.slug,&grantee,&grantor,true,&by))).await;
+        let body = format!("{} granted your requested audience with {}.", spoken(&by), spoken(&grantor));
+        let ev = crate::events::audience_decided(&org.slug, &grantee, &grantor, true, &by);
+        client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
+            VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', false, $5, $6, 'pending')",
+            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &body, &ev]).await?;
     }
     if fresh {
-        let generation: i64 = {
-            let client = engine.db.get().await?;
-            client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&gid]).await?.get::<_, i32>(0) as i64
-        };
+        let generation = client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&gid]).await?.get::<_, i32>(0) as i64;
         let outcome = match grantor.as_str() {
             USER => "user_audience",
             EXTERN => "org_inbox",
@@ -305,10 +314,11 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
             EXTERN => "You now hold the org inbox: mail from outside the organization (@org:/@net:) reaches you, and you may write outside.".to_string(),
             g => format!("{g} granted you an audience: you may now write to {g} directly."),
         };
-        tell(engine, org.id, &grantee, body, false, ev).await;
+        client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
+            VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', true, $5, $6, 'pending')",
+            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &body, &ev]).await?;
     }
-    changes::notify(engine, org, vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::UserMail]);
-    Ok(json!({ "ok": true, "grantee": grantee, "grantor": grantor, "granted": fresh }))
+    Ok((json!({ "ok": true, "grantee": grantee, "grantor": grantor, "granted": fresh, "answered": answered > 0 }), gid))
 }
 
 /// Decline a pending request (the agent or user it waits on).
@@ -369,13 +379,13 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
         } else if grantor == EXTERN && grantee == *name {
             true
         } else if grantor == EXTERN || grantor == USER {
-            let (_, my_parent) = live(&client, org.id, name).await?;
+            let (_, my_parent) = live(&**client, org.id, name).await?;
             let gid: Option<i64> = client
                 .query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2", &[&org.id, &grantee])
                 .await?
                 .map(|r| r.get(0));
             my_parent.is_none() && match gid {
-                Some(g) => descends(&client, *id, g).await?,
+                Some(g) => descends(&**client, *id, g).await?,
                 None => false,
             }
         } else {

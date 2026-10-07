@@ -94,6 +94,7 @@ fn scope_props() -> Value {
         "account": { "type": "string", "description": "provider account id (default: inherited)" },
         "account_fallback": { "type": "boolean", "description": "move to another account of the same provider when this one hits its usage limit" },
         "clear_account_fallback": { "type": "boolean" },
+        "audiences": { "type": "array", "items": { "type": "string" }, "description": "hire/rehire/staff: grant these audiences before kickoff" },
         "team_charter": { "type": "string", "description": "standing instructions for its whole team" },
     })
 }

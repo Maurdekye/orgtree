@@ -37,7 +37,7 @@ impl Actor {
 
 /// What an op touched, for the feed and the runtime after commit.
 #[derive(Default, Debug)]
-struct Effects {
+pub(crate) struct Effects {
     agents: HashSet<i64>,
     stop: Vec<i64>,
     reconfigure: Vec<i64>,
@@ -393,9 +393,19 @@ fn retryable(e: &anyhow::Error) -> bool {
 }
 
 #[logged]
-async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op: &str, req: &Value, fx: &mut Effects) -> Result<Value> {
+async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, _op: &str, req: &Value, fx: &mut Effects) -> Result<Value> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
+    let out = run_in_tx(engine, org, &tx, actor, req, fx).await?;
+    tx.commit().await?;
+    Ok(out)
+}
+
+/// Caller owns commit/rollback and publishes Effects only after commit.
+#[logged]
+pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
+                            req: &Value, fx: &mut Effects) -> Result<Value> {
+    let op = req["op"].as_str().unwrap_or("");
     let mut out = match op {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
         "rehire" => rehire(engine, org, &tx, actor, req, fx).await?,
@@ -425,6 +435,19 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op:
                 crate::domain::docket::Who::Agent { id: *id, name: name.clone(), generation }
             }
         };
+        if let Some(audiences) = req.get("audiences").filter(|v| !v.is_null()) {
+            let Some(audiences) = audiences.as_array() else { refuse!(BadRequest, "audiences must be an array") };
+            if audiences.len() > 64 { refuse!(BadRequest, "at most 64 audiences per composite"); }
+            for target in audiences {
+                let Some(target) = target.as_str() else { refuse!(BadRequest, "audience targets must be strings") };
+                let (grant, id) = crate::domain::audiences::grant_tx(engine, tx, org, actor, &node, Some(target), "granted with staffing").await?;
+                fx.agents.insert(id);
+                if grant["answered"] == true { fx.wake.push(id); }
+                fx.pulses.push(crate::changes::Change::Mailbox(id));
+                fx.pulses.push(crate::changes::Change::OrgInbox);
+            }
+            fx.events = true;
+        }
         if let Some(docket) = req.get("staff_item") {
             let mut post = crate::domain::docket::AfterCommit::default();
             let item = crate::domain::docket::staff_tx(&*tx, org, &who, docket, &node, &mut post).await?;
@@ -459,12 +482,11 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op:
             out["kickoff"] = json!(uid);
         }
     }
-    tx.commit().await?;
     Ok(out)
 }
 
 #[logged]
-async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) {
+pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) {
     for path in &fx.scratch { let _ = std::fs::create_dir_all(path); }
     if let Some(post) = fx.docket { post.publish(engine, org); }
     for id in &fx.stop {
