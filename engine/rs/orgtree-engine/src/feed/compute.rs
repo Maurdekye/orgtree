@@ -32,8 +32,8 @@ SELECT a.id, (to_jsonb(a) - 'extra') || jsonb_build_object(
                   FROM ot.turns WHERE agent_id = a.id ORDER BY id DESC LIMIT 8) t),
   'x_docs_count', (SELECT count(*) FROM ot.documents d WHERE d.agent_id = a.id AND NOT d.dismissed),
   'x_docs', (SELECT coalesce(jsonb_agg(jsonb_build_object('id', d.uid, 'title', d.title, 'at', d.at,
-                     'format', d.format, 'bytes', d.bytes) ORDER BY d.id DESC), '[]'::jsonb)
-               FROM (SELECT * FROM ot.documents WHERE agent_id = a.id AND NOT dismissed ORDER BY id DESC LIMIT 20) d),
+                     'format', d.format, 'bytes', d.bytes) ORDER BY d.at DESC, d.id DESC), '[]'::jsonb)
+               FROM (SELECT * FROM ot.documents WHERE agent_id = a.id AND NOT dismissed ORDER BY at DESC, id DESC LIMIT 20) d),
   'x_ask', (SELECT to_jsonb(k) FROM (SELECT * FROM ot.asks WHERE agent_id = a.id
                ORDER BY (status = 'open') DESC, id DESC LIMIT 1) k),
   'x_extra', a.extra
