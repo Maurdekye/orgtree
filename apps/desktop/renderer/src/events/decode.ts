@@ -23,6 +23,13 @@ export function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** Delivery metadata wins; older mail encoded passive delivery in its kind. */
+export function isNoticeRow(row: unknown): boolean {
+  if (!record(row)) return false
+  if (typeof row.notice === 'boolean') return row.notice
+  return row.kind === 'notice' || (record(row.ev) && row.ev.variant === 'ordinary.notice')
+}
+
 function matches(value: unknown, shape: Shape | undefined, budget: { left: number }, depth = 0): boolean {
   if (!shape || --budget.left < 0 || depth > 96) return false
   if (Object.keys(shape).some(k => !keywords.has(k))) return false

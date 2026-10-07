@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { isNoticeRow } from '../events/decode'
 // canvas/shared.ts — the split Canvas's leaf module: the canvas view types,
 // world-space geometry constants and helpers (layout/flatten/springs math),
 // the chat-markdown pipeline (md), and the small shared hooks. Helpers and
@@ -1114,7 +1115,7 @@ export const EXTERN = '@extern'      // the org-inbox audience grantor sentinel
 export const SYSTEM = '@system'
 
 /** 3.x encoded passive mail in kind; 4.0 keeps its kind and sets notice. */
-export const isMailNotice = (m: MailRow): boolean => m.kind === 'notice' || m.notice === true
+export const isMailNotice = (m: MailRow): boolean => isNoticeRow(m)
 
 /** D-173's SHORTER-ROW predicate, in one place because three renderings now
  *  key on it: the row class, the suppressed preview line, and the pile below.

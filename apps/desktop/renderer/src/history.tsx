@@ -3,6 +3,7 @@ import { req } from './api'
 import { DocumentDownload } from './canvas/download'
 import { MockupOpen } from './canvas/docs'
 import { AutorenewIcon } from './icons'
+import { isNoticeRow } from './events/decode'
 
 type Collection = { id: string; label: string; needs_node: boolean }
 type Sources = { collections: Collection[]; nodes: { id: string; state: string; generation: number }[] }
@@ -74,7 +75,8 @@ function HistoryEntry({ row, slug, section }: { row: Record<string, unknown>; sl
   const body = text(row.body) || text(row.text) || text(row.q) || text(row.gist)
   const title = text(row.title) || text(row.kind) || text(row.role) || text(row.op) || text(row.file) || 'Record'
   const actor = text(row.node) || text(row.from) || text(row.actor) || text(row.peer)
-  return <details style={{ borderBottom: '1px solid var(--border, #555)', padding: '10px 0' }}>
+  return <details className={isNoticeRow(row) ? 'event-notice' : undefined}
+    style={{ borderBottom: '1px solid var(--border, #555)', padding: '10px 0' }}>
     <summary style={{ cursor: 'pointer' }}>
       <strong>{title}</strong>{actor && ` · ${actor}`} · {text(row.at) || text(row.ts)}
       {body && <span className="dim"> · {body.slice(0, 120)}</span>}

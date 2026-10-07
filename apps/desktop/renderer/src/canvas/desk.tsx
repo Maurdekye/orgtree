@@ -4197,7 +4197,7 @@ export function HistoryView({ slug, nid, refs }: { slug: string; nid: string; re
           .filter(([k]) => k !== 'gist').map(([k, v]) => `${k}=${v}`).join(' · '))
         const row = {...it, text}
         const decoded = decodeEventRow(row, profile)
-        return <div key={i} {...eventSurface(row, profile)} className={decoded.kind === 'legacy' ? 'hist-row' : 'hist-event ' + eventSurface(row, profile).className}>
+        return <div key={i} {...eventSurface(row, profile)} className={(decoded.kind === 'legacy' ? 'hist-row ' : 'hist-event ') + eventSurface(row, profile).className}>
           {decoded.kind === 'legacy' ? <span className="dim">{fmtFull(it.at)}</span>
             : <header className="event-head"><span className="dim">{fmtFull(it.at)}</span>
               <EventCard part="header" row={row} profile={profile} org={slug}
@@ -4585,6 +4585,7 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
           ghost_id: p.id,
           from: USER,
           kind: p.notice ? 'notice' : 'message',
+          notice: Boolean(p.notice),
           body: p.text,
           at: new Date(p.at).toISOString(),
           attachments: p.attachments,

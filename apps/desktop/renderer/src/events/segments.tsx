@@ -1,7 +1,7 @@
 import { HUMAN_HIDDEN_VARIANTS } from '../generated/events'
 import type { ReactNode } from 'react'
 import type { Event, Segment } from '../generated/events'
-import { decodeEventRow, isAuthoredUser, record } from './decode'
+import { decodeEventRow, isAuthoredUser, isNoticeRow, record } from './decode'
 import type { EventProfile } from './decode'
 import { EventCard, eventSurface } from './card'
 import { eventSummary } from './project'
@@ -89,7 +89,7 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
         return <div key={i} className={'event-segment-' + segment.kind}>{card(row, true)}</div>
       }
       case 'notices': return <div key={i} className="event-notices">{segment.rows.map((row, j) => <div key={j}>
-        {card(row, false, undefined, <time className="event-time">{fmtFull(row.at)}</time>)}</div>)}</div>
+        {card({ ...row, notice: true }, false, undefined, <time className="event-time">{fmtFull(row.at)}</time>)}</div>)}</div>
       case 'mail': return <div key={i} className="event-mail">{segment.rows.map((row, j) =>
         <MailMessage key={row.id ?? j} row={row} profile={profile} slug={slug} nid={nid}
           world={world} onOpen={onOpen} actor={actor}
@@ -109,7 +109,7 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
  *  side column that made every pending card narrower than its settled twin. */
 export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
   replyAvailable, onLocateReply, meta, annotation, foldKey }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; foldKey?: string | readonly string[]; row: {
-    id?: string | null; from: string; kind?: string; body: string; at: string;
+    id?: string | null; from: string; kind?: string; notice?: boolean; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     reply_to?: unknown; ev?: unknown; ev_raw?: unknown; ev_error?: unknown;
     client_op?: string | null; ghost_id?: number | string | null; message_id?: string | null;
@@ -136,10 +136,9 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
     </div></div></ReceivedMailBody>)
     : <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
       world={world} onOpen={onOpen} actor={actor} imgBase={base} foldKey={keys} />
-  const isNotice = row.kind === 'notice'
-    || (decoded.kind === 'known' && decoded.event.variant === 'ordinary.notice')
+  const isNotice = isNoticeRow(row)
   return <section
-        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
+        {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive event-notice' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}>
         <header className="turn-mail-head event-head">{card(row, false, "header")}<time>{fmtFull(row.at)}</time>
           {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped

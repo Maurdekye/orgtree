@@ -1001,6 +1001,7 @@ export interface ChatInit {
 
 // api.py node_chat: the durable pending-mail projection (parity №11)
 export interface PendingMail {
+  notice?: boolean
   event_id?: string
   reply_to?: MailReplyWire
   ev?: unknown

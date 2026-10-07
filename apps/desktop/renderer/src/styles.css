@@ -2949,6 +2949,7 @@ textarea.ask-free-response-input { resize: vertical; }
   border-left: 4px solid var(--accent); padding-left: 6px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.mailrow.urgent.notice { border-left-style: var(--notice-edge-style); }
 .mailrow.urgent:hover { background: color-mix(in srgb, var(--accent) 16%, var(--panel-2)); }
 .mailrow.urgent.on { background: color-mix(in srgb, var(--accent) 21%, var(--bg)); }
 /* the FILLED chip. Every other chip in this list is an outline (.askkind,
@@ -7375,6 +7376,11 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .turn-mail.event-surface { padding: 0; margin: 0; }
 .turn-mail.event-surface > .attach-row { padding: 0 10px 8px; }
 .mailer-read.event-surface { margin: 0; border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0; }
+/* Passive delivery is orthogonal to typed families. Keep this after their
+   solid-border rules, on the owning card only (never the pending wrapper). */
+.event-notice, .event-surface.event-notice, .msg.user.event-surface.event-notice {
+  border-left: 3px var(--notice-edge-style) var(--notice-edge-color);
+}
 .mailer-read > .event-head { padding-left: 0; padding-right: 0; }
 .mailer-read .mailer-body .event-body { padding-left: 0; padding-right: 0; }
 .event-member { margin: 4px 0; min-width: 0; }

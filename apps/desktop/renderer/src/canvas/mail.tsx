@@ -182,7 +182,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   const messageContent = (m: MailRow, standalone = false) => {
     const decoded = decodeEventRow(m, profile)
     return decoded.kind === 'legacy'
-      ? <RefMdBody className="mailer-body md" html={md(m.body, mdBase?.(m) || undefined)}
+      ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
           world={refs?.world} onOpen={refs?.onOpen} />
       : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
           org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
@@ -752,7 +752,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     return <>
       <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} />
       {decoded.kind === 'legacy'
-      ? <RefMdBody className="mailer-body md" html={md(m.body, mdBase?.(m) || undefined)}
+      ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
           world={refs?.world} onOpen={refs?.onOpen} />
       : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
           org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}

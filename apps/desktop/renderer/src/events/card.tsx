@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Event, Family } from '../generated/events'
-import { decodeEventRow } from './decode'
+import { decodeEventRow, isNoticeRow } from './decode'
 import { fieldType, humanValue } from './value'
 import type { HumanValue } from './value'
 import type { EventProfile } from './decode'
@@ -92,10 +92,11 @@ export interface EventCardProps extends ContentProps {
 /** The owning message wrapper receives the family treatment; content never adds a panel. */
 export function eventSurface(row: unknown, profile: EventProfile) {
   const decoded = decodeEventRow(row, profile)
+  const notice = isNoticeRow(row) ? ' event-notice' : ''
   return decoded.kind === 'known'
-    ? { className: 'event-surface event-card event-' + projectEvent(decoded.event).family,
+    ? { className: 'event-surface event-card event-' + projectEvent(decoded.event).family + notice,
         'data-event-variant': decoded.event.variant }
-    : { className: '', 'data-event-variant': undefined }
+    : { className: notice.trim(), 'data-event-variant': undefined }
 }
 /** A single presentation path for mailbox, pending/live and settled transcript rows.
  *  Envelope time, delivery badges, attachments and existing actions stay with callers. */
@@ -105,7 +106,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   if (decoded.kind !== 'known') {
     if (part === 'header') return null
     const text = <Text text={decoded.fallback} {...content} />
-    return <div className="event-fallback">
+    return <div className={'event-fallback' + (!part && isNoticeRow(row) ? ' event-notice' : '')}>
       {headerMeta && <header className="event-head">{headerMeta}</header>}
       {decoded.kind === 'unsupported' && <span className="event-unsupported">Unsupported message format</span>}
       {preview ? <ReceivedMailBody foldKey={keys}>{text}</ReceivedMailBody> : text}
