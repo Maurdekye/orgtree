@@ -16,6 +16,7 @@ import type {
 } from '../types'
 import {
   getProviders, peekProviders, getRuntimeSettings, setEnterKeyBehavior,
+  setAntigravityClaudeEnabled,
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
@@ -787,6 +788,12 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <TurnLimitsSetting />
       <CharterDocumentsSetting />
       <CharterTemplateDirsSetting />
+      <SetGroup title="Antigravity models">
+        <SetToggle label="enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
+          checked={runtime?.antigravity_claude_enabled === true}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setAntigravityClaudeEnabled, v)}
+          hint="Uses your Antigravity account and its Claude and GPT model limits." />
+      </SetGroup>
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}

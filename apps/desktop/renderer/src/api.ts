@@ -900,6 +900,11 @@ export const setOpenRouterFavorite = (
   })
 export const getRuntimeSettings = (): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime')
+export const setAntigravityClaudeEnabled = (antigravity_claude_enabled: boolean): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ antigravity_claude_enabled }),
+  })
 export const setEnterKeyBehavior = (enter_key_behavior: import('./composerkeys').EnterKeyBehavior): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
