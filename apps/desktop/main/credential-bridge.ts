@@ -66,10 +66,10 @@ export class CredentialBridge {
   private async start(): Promise<void> {
     if (this.server) return
     const server = createServer(socket => {
-      if (this.active >= 16) {socket.destroy();return}
+      socket.on('error', () => {})
+      if (this.active >= 16) {socket.end("orgtree-credential-busy\n", () => socket.destroy());return}
       this.active++
       socket.on('close', () => {this.active--})
-      socket.on('error', () => {})
       socket.setTimeout(8000, () => socket.destroy())
       let raw=Buffer.alloc(0), handled=false
       socket.on('data', chunk => {
