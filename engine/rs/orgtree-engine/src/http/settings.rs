@@ -209,7 +209,14 @@ pub const ORGMD_PROMPT_MAX: usize = 16_000;
 pub async fn get_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let path = e.cfg.workspace_dir(&o.slug).join("org.md");
-    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    // 3.x orgmd_get: no file is an empty charter, but a file that exists and
+    // cannot be read is an error — an empty editor would let a save erase it.
+    // Undecodable bytes are replaced, as 3.x read with errors="replace".
+    let content = match std::fs::read(&path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(ApiError::internal(format!("org.md could not be read: {err}"))),
+    };
     let chars = content.chars().count();
     let truncated = chars > ORGMD_EDIT_MAX;
     let shown: String = if truncated { content.chars().take(ORGMD_EDIT_MAX).collect() } else { content };
