@@ -24,7 +24,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 - Verbose UI-open timings use `opentiming.ts` and `/api/diagnostics/ui-open`.
   `frame_ms` means the first animation frame after ready content commits, not
   GPU presentation. Filter hidden/unfocused samples; off creates no timing
-  work or diagnostic requests. [verified from source: 2026-10-07;
+  work or diagnostic requests. Diagnostic POSTs bypass `req` mutation hooks;
+  read the run's rotated `.log.*.gz` segments as well as its active log.
+  [verified from source and packaged logs: 2026-10-07;
   `docs/rust-engine/docket-read-performance.md`]
 
 - Agent unread mail is `pending` plus unacknowledged `delivering`, shared by

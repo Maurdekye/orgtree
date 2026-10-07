@@ -113,3 +113,39 @@ types, one line per completed open, disabled operation, canceled frame and mark
 cleanup. The smoke substitutes frame scheduling for deterministic control;
 its durations are NOT performance measurements. No renderer performance fix
 was inferred from these functional checks.
+
+## Alpha.8 packaged transport check (2026-10-07 12:34Z)
+
+The instrumentation works in the packaged app. The renderer loads from the
+engine origin, so cross-origin response-header exposure is not required.
+A live read returned verbose=true and X-Orgtree-Verbose:1; the served asset
+contains the gate and reporting path. Four earlier events and four successful
+diagnostic POSTs had rotated into `2026-10-07_14-01-26.log.*.gz`. Searching only
+the current plain log falsely suggested no events. Readers/watchdogs must
+include compressed segments belonging to the selected engine run, and match
+the full event format at end of line to exclude tool/mail echoes.
+
+The two alpha.8 runs contained these focused, visible samples at measurement:
+
+| Action | n | Frame p50 ms | Frame p95 ms |
+| --- | ---: | ---: | ---: |
+| Ticket | 2 | 56.0 | 85.4 |
+| Mail panel | 3 | 25.1 | 42.7 |
+| Mail item | 3 | 4.0 | 9.1 |
+| Docket | 1 | 29.7 | 29.7 |
+| Archive | 0 | unavailable | unavailable |
+
+These very small samples use nearest-rank p95 (the observed maximum here),
+not a stable population estimate. No measured sample exceeds 100 ms; archive
+and more repeated opens are still needed. Values can increase as new events
+arrive, so always state the sample count.
+
+A separate instrumentation bug was found: reporting through `req(POST)` ran
+the product mutation hook, invalidating detail caches and broadcasting
+`bumpLive`. Reporting now uses the same authenticated fetch transport and
+restart/verbose header processing, with a five-second timeout, but bypasses
+mutation invalidation. It cannot itself cause extra docket/mail refreshes.
+Renderer typecheck passed. An isolated synthetic API-transport smoke confirms
+real header gating, one diagnostic POST with zero live bumps, a normal mutation
+still bumping, the off header disabling reporting, and no retained marks.
+No engine change or build was needed for this follow-up.
