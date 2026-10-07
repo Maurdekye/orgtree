@@ -22,6 +22,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   the current org (`you`) and `transports`, with hub peers in `orgs` and the
   retained 4.0 `remote` alias. [verified-from-source: 2026-10-07; F03;
   `docs/rust-engine/bare-mail-routing.md`]
+- `orgtree_read_transcript` returns structured node/access, busy, occupancy and
+  estimated-occupancy fields plus message role/text/full stored tools. Cap only
+  text at 1,200 Unicode characters; default `last` is 30, bounded to 1–80.
+  Preserve the self/downward gate and do not start an actor to read metadata.
+  [verified-from-source: 2026-10-07; 3.x `api.py`, Rust `tools/orgview.rs`;
+  `docs/rust-engine/read-transcript-parity.md`]
 
 - No credential banners, annotations, tray/menu warnings or success notices.
   Engine diagnostic fields and log lines remain; agents explain tool failures
