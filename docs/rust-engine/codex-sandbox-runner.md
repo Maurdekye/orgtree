@@ -96,28 +96,41 @@ regression, or distinguish a CLI implementation bug from broken local sandbox
 state. No Orgtree engine correction is justified as the root-cause fix by this
 evidence.
 
-## Proposed Orgtree recovery
+## Implemented Orgtree recovery
 
-Keep the existing per-command approval route, rather than changing sandbox modes
-or automatically replaying commands. The measured workaround is a retry with
-`sandbox_permissions=require_escalated` for a seat with shell and write authority.
+The measured workaround remains a per-command retry with
+`sandbox_permissions=require_escalated` through the existing approval gate.
+The engine neither executes nor replays that retry and does not change sandbox
+modes or the startup instruction prefix.
 
-Prefer a narrowly triggered engine hint over a permanent startup instruction:
+`Actor::hint_codex_runner` recognizes only a completed, failed commandExecution
+item with source unifiedExecStartup, an explicitly null processId, durationMs 0,
+and aggregatedOutput exactly equal to:
 
-1. In `Actor::on_codex_item`, recognize a completed, failed commandExecution
-   whose source is unifiedExecStartup, processId is null, duration is zero and
-   output contains the exact runner pipe-in timeout. Do not match arbitrary
-   command stderr or agent prose.
-2. Once per turn, check current shell/write authority. For an eligible seat,
-   use the existing `CodexProc::steer` path to explain that startup failed and
-   suggest retrying the same command once through the normal escalation request.
-   For plan/edit-disabled/shell-disabled seats, explain the runner failure without
-   recommending an outside-sandbox retry. Existing approval decisions remain
-   authoritative.
-3. Record the diagnostic in the conversation. If steering loses a turn race,
-   retain the diagnostic without restarting the turn or replaying the command.
-   Bound the hint to prevent a retry loop.
+```
+Failed to create unified exec process: timed out after 15000ms connecting runner pipe-in
+```
 
-This would improve recovery while leaving the agent's permission mode and the
-Windows process leash intact. It appends a runtime message rather than changing
-the startup instruction prefix. It is a proposal, not an implemented engine fix.
+The turn latches the diagnostic before awaiting anything, so duplicate items or
+uncertain provider acknowledgements cannot trigger a second steer in that turn.
+The actor reads current effective scope again: only a live, unhalted, unfrozen,
+non-killed seat with shell and edit authority in an allowed permission mode gets
+the suggestion to retry the SAME command once, preserving arguments and cwd.
+Plan, restricted and unavailable-scope cases get an explanation without an
+outside-sandbox escape route. The existing approval decision remains authoritative.
+
+Before steering, the actor appends a system conversation row of kind
+`codex_runner_hint` with retry_allowed and steer_status pending, then releases
+the database client. It uses the existing bounded CodexProc::steer call. The same
+row becomes delivered after an acknowledgement, or unconfirmed on a timeout or
+turn race. An uncertain result is never replayed; the persisted explanation
+remains visible. An initial persistence error prevents steering, and the turn's
+latch still prevents a retry loop.
+
+Measured validation: cargo check passes for the actual engine implementation.
+A brief Rust smoke compiles the exact matcher, hint text and actor method with
+mock scope, database and provider boundaries. It exercises strict negative
+matches, fresh restricted authority, persistence before steering, releasing the
+DB client before the provider call, duplicate suppression and an unconfirmed
+turn-race result. This smoke makes no live database or provider calls; actual
+runtime delivery has not been exercised on a live agent.

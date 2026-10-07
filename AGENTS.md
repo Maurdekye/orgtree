@@ -174,6 +174,10 @@ the observed difference is not necessarily a new-agent launch bug. Preserve the
 shell-and-write approval gate; plan/edit-disabled seats cannot escape their
 sandbox this way. The exact elevated timeout also reproduces outside every Windows
 job on Codex 0.160.0 and 0.159.2; the deeper CLI-versus-local-setup cause remains open.
+The actor now persists a once-per-turn diagnostic for only the exact completed
+startup failure, freshly checks authority and steers an eligible same-command
+retry through the existing gate. Restricted seats get no escape route; uncertain
+steer delivery is recorded and never replayed. No startup prefix is rewritten.
 [verified from source: `runtime/codex.rs`, legacy `supervisor.py`; measured comparison:
 `docs/rust-engine/codex-sandbox-runner.md`]
 
