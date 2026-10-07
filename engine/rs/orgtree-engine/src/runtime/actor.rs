@@ -217,6 +217,8 @@ struct Turn {
     codex_row: Option<String>,
     /// Codex: the last error the server reported (it ends with `turn/completed`)
     codex_error: Option<String>,
+    /// One persisted runner-startup diagnostic and steer attempt per turn.
+    codex_runner_hint: bool,
     /// approvals declined during the turn
     denials: Vec<Value>,
     /// Antigravity: response text so far, by step
@@ -253,6 +255,7 @@ impl Turn {
             usage_base: None,
             codex_row: None,
             codex_error: None,
+            codex_runner_hint: false,
             denials: Vec::new(),
             agy_text: HashMap::new(),
             agy_steer: None,
@@ -2537,6 +2540,9 @@ impl Actor {
         if let Some(t) = self.turn.as_mut() {
             t.activity = true;
         }
+        if let Err(e) = self.hint_codex_runner(item, completed).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "Codex runner diagnostic could not be persisted");
+        }
         match typ {
             "userMessage" | "hookPrompt" | "contextCompaction" | "enteredReviewMode" | "exitedReviewMode" | "functionCallOutput" => {}
             "agentMessage" | "plan" => {
@@ -2649,6 +2655,63 @@ impl Actor {
                 self.stream("tool", json!({}));
             }
         }
+        Ok(())
+    }
+
+    /// A failed shell startup gets one diagnostic; commands are never replayed.
+    async fn hint_codex_runner(&mut self, item: &Value, completed: bool) -> Result<()> {
+        if !codexrt::runner_startup_failed(item, completed) {
+            return Ok(());
+        }
+        let Some(t) = self.turn.as_mut().filter(|t| !t.codex_runner_hint) else { return Ok(()) };
+        // Latch before any await, including failures: no duplicate/repeated steer.
+        t.codex_runner_hint = true;
+        let (turn_id, codex_turn) = (t.id, t.codex_turn.clone());
+
+        let (can_retry, authority_known) = match self.load_ctx().await {
+            Ok(ctx) => {
+                let tools = &ctx.effective["tools"];
+                let permission_mode = ctx.effective["permission_mode"].as_str().unwrap_or("");
+                let allowed = ctx.state == "live" && !ctx.halted && !ctx.frozen && !ctx.killswitch
+                    && tools["bash"].as_bool() == Some(true) && tools["edit"].as_bool() == Some(true)
+                    && matches!(permission_mode, "default" | "acceptEdits" | "bypassPermissions");
+                (allowed, true)
+            }
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "Codex runner retry authority could not be read; no retry suggested");
+                (false, false)
+            }
+        };
+        let text = codexrt::runner_startup_hint(can_retry, authority_known);
+        let mut row = json!({ "role": "system", "kind": "codex_runner_hint", "text": text,
+                              "ts": now_iso(), "turn_id": turn_id, "failed_item_id": item["id"],
+                              "retry_allowed": can_retry, "steer_status": "pending" });
+        let client = self.engine.db.get().await?;
+        let seq = self.convo.append(&client, row.clone()).await?;
+        drop(client);
+        row["seq"] = json!(seq);
+        row["row_id"] = json!(format!("r{seq}"));
+        row["event_id"] = json!(format!("e{seq}"));
+        self.stream("steered", json!({ "committed_row": row }));
+
+        // No database connection or transaction crosses the provider request.
+        let delivered = match (&self.proc, codex_turn.as_deref()) {
+            (Some(Proc::Codex(p)), Some(turn)) => p.steer(turn, text).await,
+            _ => Err(anyhow!("no running Codex turn")),
+        };
+        match delivered {
+            Ok(()) => row["steer_status"] = json!("delivered"),
+            Err(e) => {
+                // A timeout can mean an accepted but unacknowledged steer; never retry it.
+                row["steer_status"] = json!("unconfirmed");
+                row["steer_error"] = json!(gist(&format!("{e:#}"), 500));
+                tracing::info!(agent = %self.name, error = %format!("{e:#}"), "Codex runner hint delivery unconfirmed; diagnostic retained, no replay");
+            }
+        }
+        let client = self.engine.db.get().await?;
+        self.convo.update(&client, seq, row.clone()).await?;
+        drop(client);
+        self.stream("steered", json!({ "committed_row": row }));
         Ok(())
     }
 

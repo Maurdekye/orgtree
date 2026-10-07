@@ -314,6 +314,43 @@ fn thread_id_of(r: &Value) -> Option<String> {
     r.pointer("/thread/id").or_else(|| r.get("threadId")).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
+/// Only the measured pre-shell runner failure, never arbitrary command stderr.
+#[logged]
+pub fn runner_startup_failed(item: &Value, completed: bool) -> bool {
+    completed
+        && item["type"].as_str() == Some("commandExecution")
+        && item["status"].as_str() == Some("failed")
+        && item["source"].as_str() == Some("unifiedExecStartup")
+        && item.get("processId") == Some(&Value::Null)
+        && item["durationMs"].as_u64() == Some(0)
+        && item["aggregatedOutput"].as_str()
+            == Some("Failed to create unified exec process: timed out after 15000ms connecting runner pipe-in")
+}
+
+/// The actor reads effective authority afresh; these messages never run commands.
+#[logged]
+pub fn runner_startup_hint(can_retry: bool, authority_known: bool) -> &'static str {
+    if can_retry {
+        "Orgtree: Codex's Windows sandbox runner failed before the shell process started \
+         (runner pipe-in timeout). Your current Orgtree scope permits shell commands and writes. \
+         Retry the SAME failed command once, preserving its arguments and working directory, \
+         with exec_command sandbox_permissions=\"require_escalated\" and a justification \
+         identifying the runner startup failure. This uses the normal approval gate; your \
+         permission mode has not changed. If that retry fails, report the error and stop \
+         retrying. Orgtree has not replayed the command."
+    } else if authority_known {
+        "Orgtree: Codex's Windows sandbox runner failed before the shell process started \
+         (runner pipe-in timeout). Your current Orgtree scope does not permit an outside-sandbox \
+         command retry. Report this startup failure to your superior; do not retry outside the \
+         sandbox. Orgtree has not replayed the command."
+    } else {
+        "Orgtree: Codex's Windows sandbox runner failed before the shell process started \
+         (runner pipe-in timeout). Orgtree could not confirm your current shell and write \
+         authority, so no outside-sandbox retry is authorized. Report this startup failure \
+         to your superior. Orgtree has not replayed the command."
+    }
+}
+
 /// What the agent's scope lets Codex do on its own.
 #[derive(Clone, Copy, Debug)]
 struct Policy {
