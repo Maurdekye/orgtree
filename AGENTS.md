@@ -51,8 +51,11 @@ plan and this file. Read both before you change anything. All entries below: 202
   only the credit tab, and zero chain/cap headroom refuses. Scope items merge by identity
   (8 maximum), omit capabilities already held after ancestor clamps, and require a reason.
   Question docket links pass the existing agent read gate before card creation or routing.
+  Batch submits require every live component's revision and every explicit decision;
+  grants, resolution and answer mail commit together, with notifications after commit.
   [verified from source: 2026-10-07, `domain/asks.rs`, `domain/scope.rs`; Python baseline
-  `4ddbfb1:engine/backend/orgtree/ledger.py`; parity P18–P20/P29]
+  `4ddbfb1:engine/backend/orgtree/ledger.py`; parity P18–P20/P29/P31–P32;
+  details: `docs/rust-engine/request-parity.md`]
 - Accounts: every account has its own active checkbox in App settings › Providers, the
   native sign-in included; an inactive account serves no new turn and its agents' mail waits.
   [decided: user 2026-10-07, DECISIONS 41]
