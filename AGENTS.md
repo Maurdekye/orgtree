@@ -33,7 +33,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   revoked, CLI started/ready/cold/evicted, agents.active/live. Use exact dotted
   names or `prefix.*`; regex sees safe payloads only after visibility checks.
   Counts use `threshold:"below N"` or `"at least N"` (crossings only), default
-  visible subtree; org totals require full visibility. Recover subscriptions
+  visible strict descendants (never the watcher); org totals require full visibility.
+  Alert-bearing turns suppress their own owner event dogs through settlement.
+  Batch progress, coalesce overflow, retry storage failures with visible health,
+  and refresh count baselines on resume/recovery. Recover subscriptions
   before engine.started; never forward raw feed bodies or alert mail back into
   the bus. [recorded-decision and verified-from-source: 2026-10-07;
   `docs/rust-engine/event-watchdogs.md` contains exact names and semantics]
