@@ -2609,6 +2609,8 @@ export interface WorkItem {
 
 // GET /api/orgs/{slug}/work-items[?archived=1][&backlogged=1]
 export interface WorkItemsPayload {
+  /** Exact actionable owner count on a paged agent docket. */
+  assigned_count?: number
   format?: string
   /** Desktop list transport: heavy authored records are fetched on open. */
   revision?: string

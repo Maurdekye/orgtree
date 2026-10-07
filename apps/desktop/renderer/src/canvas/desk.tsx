@@ -2206,11 +2206,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const [workBump, setWorkBump] = useState(0)
   const [showArchivedDocket, setShowArchivedDocket] = useState(false)
   const [showBacklogDocket, setShowBacklogDocket] = useState(false)
-  const work = useWorkItems(slug, view === 'docket' && showArchivedDocket,
-    view === 'docket' && showBacklogDocket, 15000, workBump).value
+  const [workPageFilter, setWorkPageFilter] = useState<import('../workpages').WorkPageOptions>({})
+  const workFeed = useWorkItems(slug, view === 'docket' && showArchivedDocket,
+    view === 'docket' && showBacklogDocket, 15000, workBump, {...workPageFilter,agent:node.id})
+  const work = workFeed.value
   const myWork = useMemo(() => agentItems(work, node.id, showArchivedDocket),
     [work, node.id, showArchivedDocket])
-  const docketCount = useMemo(() => actionableAssignedCount(work, node.id),
+  const docketCount = useMemo(() => work?.assigned_count ?? actionableAssignedCount(work, node.id),
     [work, node.id])
   const tabCount = (tab: string) => tab === 'inbox' ? chat?.mail_pending ?? 0
     : tab === 'docket' ? docketCount
@@ -3812,7 +3814,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           the DESK TAB, so the desk tab is where it is mounted. */}
       {view === 'docket' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
-        <AgentDocketView slug={slug} nid={node.id}
+        <AgentDocketView slug={slug} nid={node.id} paging={{...workFeed.paging,setFilter:setWorkPageFilter}}
           mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
           showArchived={showArchivedDocket}
           onShowArchived={setShowArchivedDocket}

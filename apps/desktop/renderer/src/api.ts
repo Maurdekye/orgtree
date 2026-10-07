@@ -704,6 +704,13 @@ const workReferenceReader = new WorkReferenceReader(async (org, names) => {
 })
 export const getWorkReferences = (org: string, revision: string, names: string[]) =>
   workReferenceReader.get(org, revision, names)
+export const getWorkPage = (org: string, group: import('./workpages').WorkGroup,
+  options: import('./workpages').WorkPageOptions = {}, offset = 0,
+  cursor?: Pick<import('./workpages').WorkPage, 'revision' | 'at'>): Promise<import('./workpages').WorkPage> => {
+  const q = new URLSearchParams({ group, offset: String(offset), ...options,
+    ...(cursor ? { revision: cursor.revision, at: cursor.at } : {}) })
+  return req(`/api/orgs/${encodeURIComponent(org)}/work-items-page?${q}`)
+}
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,

@@ -16,7 +16,9 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
   const [bump, setBump] = useState(0)
-  const work = useWorkItems(slug, showArchived, showBacklog, 15000, bump).value
+  const [pageFilter, setPageFilter] = useState<import('../workpages').WorkPageOptions>({})
+  const workFeed = useWorkItems(slug, showArchived, showBacklog, 15000, bump, { ...pageFilter, agent: nid })
+  const work = workFeed.value
   const mine = useMemo(() => agentItems(work, nid, showArchived), [work, nid, showArchived])
   const actorIds = useMemo(() => itemActorIds(mine), [mine])
   const facts = useNodeFacts(slug, tree, actorIds)
@@ -30,6 +32,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
       showArchived={showArchived} onShowArchived={setShowArchived}
       onShowBacklog={setShowBacklog}
       references={work?.references} boundedReferences workRevision={work?.revision}
+      paging={{...workFeed.paging, setFilter:setPageFilter}}
       onChanged={() => setBump(n => n + 1)} refs={routes}
       onFocusAgent={id => routes.onOpen(resolveRef({ kind: 'agent', org: slug, id }, refs.world))} />
     <div className="row"><button className="primary" onClick={close}>Close</button></div>

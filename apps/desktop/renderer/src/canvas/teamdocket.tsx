@@ -48,7 +48,9 @@ export function TeamDocketModal({ slug, nid, tree, toast, close, refs }: {
   // EVERY RENDER from the current items and the current tree, so a
   // reassignment, a hire, a retirement or a reparent lands in this view at the
   // next refresh without any cache to invalidate
-  const work = useWorkItems(slug, showArchived, showBacklog, 15000, bump).value
+  const [pageFilter, setPageFilter] = useState<import('../workpages').WorkPageOptions>({})
+  const workFeed = useWorkItems(slug, showArchived, showBacklog, 15000, bump, { ...pageFilter, team: nid })
+  const work = workFeed.value
   const team = useMemo(() => teamItems(work, nid, tree.roots, showArchived),
     [work, nid, tree.roots, showArchived])
   const actorIds = useMemo(() => itemActorIds(team), [team])
@@ -93,6 +95,7 @@ export function TeamDocketModal({ slug, nid, tree, toast, close, refs }: {
       showArchived={showArchived} onShowArchived={setShowArchived}
       onShowBacklog={setShowBacklog}
       references={work?.references} boundedReferences workRevision={work?.revision}
+      paging={{...workFeed.paging, setFilter:setPageFilter}}
       onChanged={() => setBump(n => n + 1)} refs={routes}
       emptyText={unplaced.length ? <>checking whether retired owners belong to this team…</> : <>
         no docket items are assigned to {nid} or to any agent below it —

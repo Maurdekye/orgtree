@@ -940,7 +940,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // clearing in an effect also means there is no frame in which the stale rows
   // are still on screen.
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
-  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump)
+  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode })
   const data = work.value
   const navigation = useRef({ slug, sequence: 0 })
   if (navigation.current.slug !== slug) navigation.current = { slug, sequence: 0 }
@@ -1339,7 +1339,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
               not a label (it disappears the moment anything is typed). */}
           <DocketSearchBox searchId={searchId} query={query} setQuery={setQuery}
             boxRef={searchBox} onKeyDown={onSearchKey} onClear={clearSearch}
-            count={searching ? `${rowCount} of ${searchableCount} match` : ''} />
+            count={searching ? `${work.paging.total} match` : ''} />
           {/* user 2026-09-11: the words became the sliders glyph, and the ×
               that sat beside them is gone. That × was this modal's alone — no
               other centred surface here carries one — and it duplicated what
@@ -1400,6 +1400,9 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           </div>
         </div>
         {work.status.loading && data && <div role="status" className="dim">Loading docket…</div>}
+        {data && <div className="hint" role="status">{work.paging.loaded} of {work.paging.total} tickets loaded
+          {work.paging.more && <button type="button" disabled={work.paging.loadingMore} onClick={work.paging.loadMore}>
+            {work.paging.loadingMore ? 'Loading…' : 'Load more'}</button>}</div>}
         {work.status.failed && <div role="status" className="dim">Could not refresh docket: {work.status.error}</div>}
         <div className="mailpane">
           {!data && !cur
@@ -1420,7 +1423,11 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                 : <div className="dim pad">no work items yet</div>
               : (
                 <div className="mailer">
-                  <div className="mailer-list" ref={rowWindow.ref} onScroll={rowWindow.onScroll}>
+                  <div className="mailer-list" ref={rowWindow.ref} onScroll={e => {
+                    rowWindow.onScroll()
+                    const box = e.currentTarget
+                    if (box.scrollHeight - box.scrollTop - box.clientHeight < 160) work.paging.loadMore()
+                  }}>
                     {rowWindow.before > 0 && <div aria-hidden="true" style={{ height: rowWindow.before }} />}
                     {rowWindow.windows.map((s) => {
                       // ⚠ A SEARCH RENDERS THROUGH BOTH FOLDS, WITHOUT CLEARING
@@ -1676,13 +1683,14 @@ export function actionableAssignedCount(data: {
  *  the work is yours. */
 export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onChanged, showArchived = false, onShowArchived = () => {}, refs,
-  emptyText, onShowBacklog, references, boundedReferences = false, workRevision }: {
+  emptyText, onShowBacklog, references, boundedReferences = false, workRevision, paging }: {
   slug: string
   nid: string
   /** this agent's items, already selected by `agentItems` — null while the
    *  desk's first poll is in flight. The DESK owns the poll, so the header
    *  chip and this tab count the same rows and there is one request, not two. */
   mine: WorkItem[] | null
+  paging?: import('../workpages').WorkPaging
   facts: Map<string, NodeFacts>
   toast: ToastFn
   onFocusAgent?: (agentId: string) => void
@@ -1825,6 +1833,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
     folded: Boolean(section.heading && !searching && collapsedCategories.has(section.key)),
   })), [sections, searching, collapsed, collapsedCategories])
   const rowWindow = useDocketWindow(windowSections, selId)
+  useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }) }, [query, sortMode, paging?.setFilter])
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       if (!query) return
@@ -1837,9 +1846,12 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   const ageTick = Math.floor(Date.now() / 60_000)
   return (
     <div className="msgs docket-modal docket-agent">
+      {paging && <div className="hint" role="status">{paging.loaded} of {paging.total} tickets loaded
+        {paging.more && <button type="button" disabled={paging.loadingMore} onClick={paging.loadMore}>
+          {paging.loadingMore ? 'Loading…' : 'Load more'}</button>}</div>}
       <DocketSearchBox searchId={searchId} query={query} setQuery={setQuery}
         boxRef={searchBox} onKeyDown={onSearchKey} onClear={clearSearch}
-        count={searching ? `${rowCount} of ${searchableCount} match` : ''} />
+        count={searching ? (paging ? `${paging.total} match` : `${rowCount} of ${searchableCount} match`) : ''} />
       <div className="docket-filterbar">
       <label className="checkline docket-showarchived">
         <input type="checkbox" checked={showArchived}
@@ -1878,7 +1890,11 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
             </div>
           : (
             <div className="mailer">
-              <div className="mailer-list" ref={rowWindow.ref} onScroll={rowWindow.onScroll}>
+              <div className="mailer-list" ref={rowWindow.ref} onScroll={e => {
+                rowWindow.onScroll()
+                const box=e.currentTarget
+                if (box.scrollHeight-box.scrollTop-box.clientHeight < 160) paging?.loadMore()
+              }}>
                 {rowWindow.before > 0 && <div aria-hidden="true" style={{ height: rowWindow.before }} />}
                 {rowWindow.windows.map(section => {
                   const categoryFolded = Boolean(section.heading && !searching && collapsedCategories.has(section.key))

@@ -114,7 +114,7 @@ export function AttentionQueue({
   // other exists. `usePolled` also wakes on the livebus, so a mutation made
   // HERE lands in well under a poll interval.
   const [bump, setBump] = useState(0)
-  const workFeed = useWorkItems(slug, false, false, 5000, bump)
+  const workFeed = useWorkItems(slug, false, false, 5000, bump, {attention:'1'})
   const boxFeed = useRecordInbox(slug, bump)
   const work = workFeed.value
   const box = boxFeed.value
@@ -385,7 +385,12 @@ export function AttentionQueue({
           role="status">{gapPhrase}</div>}
       <div className="mailer attn-mailer">
         <div className="mailer-list attn-mlist" role="listbox" aria-label="Needs attention"
-          tabIndex={0} ref={listRef} onKeyDown={onListKey}>
+          tabIndex={0} ref={listRef} onKeyDown={onListKey} onScroll={e => {
+            const box=e.currentTarget
+            if (box.scrollHeight-box.scrollTop-box.clientHeight < 160) workFeed.paging.loadMore()
+          }}>
+          {workFeed.paging.more && <button type="button" onClick={workFeed.paging.loadMore} disabled={workFeed.paging.loadingMore}>
+            Load more tickets ({workFeed.paging.loaded} of {workFeed.paging.total})</button>}
           {/* ⚠ THE CONFIDENT SENTENCE IS GATED ON `complete`. Everything else
               gets a statement about what could not be read, because an empty
               list the panel cannot vouch for must never be drawn as reassurance. */}
