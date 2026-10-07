@@ -155,3 +155,55 @@ pub fn org_ceiling(org_dirs: &Value) -> Value {
         "org_visibility": "full",
     })
 }
+
+/// Refuse a capability grant above the caller, rather than storing a dormant
+/// privilege that could become effective after a move. Only supplied axes count.
+#[logged]
+pub fn require_grant(wanted: &Value, ceiling: &Value) -> anyhow::Result<()> {
+    let normal = normalize(wanted);
+    let bounded = clamp(&normal, ceiling);
+    for key in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
+        if wanted.get(key).is_some() && normal[key] != bounded[key] {
+            crate::refuse!(Forbidden, "{key} exceeds your own capability; nobody grants above themselves");
+        }
+    }
+    Ok(())
+}
+
+/// Raise only explicitly granted axes, retaining unrelated existing grants.
+#[logged]
+pub fn raise(current: &Value, wanted: &Value) -> Value {
+    let mut out = normalize(current);
+    let want = normalize(wanted);
+    if wanted.get("tools").is_some() {
+        for k in ["bash", "web", "edit", "subagents"] {
+            if want["tools"][k] == true { out["tools"][k] = json!(true); }
+        }
+        let mut mcp = out["tools"]["mcp"].as_array().cloned().unwrap_or_default();
+        for m in want["tools"]["mcp"].as_array().into_iter().flatten() {
+            if !mcp.contains(m) { mcp.push(m.clone()); }
+        }
+        if mcp.contains(&json!("*")) { mcp = vec![json!("*")]; }
+        out["tools"]["mcp"] = json!(mcp);
+        out["tools"] = normalize_tools(&out["tools"]);
+    }
+    if wanted.get("add_dirs").is_some() {
+        let mut dirs = out["add_dirs"].as_array().cloned().unwrap_or_default();
+        for d in want["add_dirs"].as_array().into_iter().flatten() {
+            let p = d["path"].as_str().unwrap_or("");
+            let covered = dirs.iter().any(|x| path_within(p, x["path"].as_str().unwrap_or("")) && (d["mode"] == "ro" || x["mode"] == "rw"));
+            if !covered {
+                dirs.retain(|x| !(path_within(x["path"].as_str().unwrap_or(""), p) && (x["mode"] == "ro" || d["mode"] == "rw")));
+                dirs.push(d.clone());
+            }
+        }
+        out["add_dirs"] = json!(dirs);
+    }
+    if wanted.get("permission_mode").is_some() && pm_rank(want["permission_mode"].as_str().unwrap_or("")) > pm_rank(out["permission_mode"].as_str().unwrap_or("")) {
+        out["permission_mode"] = want["permission_mode"].clone();
+    }
+    if wanted.get("org_visibility").is_some() && vis_rank(want["org_visibility"].as_str().unwrap_or("")) > vis_rank(out["org_visibility"].as_str().unwrap_or("")) {
+        out["org_visibility"] = want["org_visibility"].clone();
+    }
+    out
+}
