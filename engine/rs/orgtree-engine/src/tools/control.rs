@@ -43,41 +43,65 @@ pub async fn interrupt(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> R
     Done::json(&json!({ "node": t.name, "result": r }))
 }
 
+/// Halt or unhalt one agent or a batch (3.x api.py orgtree_halt). Authority
+/// for EVERY target is checked first and any refusal refuses the whole call
+/// before anything changes. Then every target's actor is told at once, so the
+/// processes are cut in parallel and the settle waits overlap instead of
+/// queueing behind each other (30 s each, bounded). A single `node` keeps the
+/// single-node shape and a failure is a tool error; a batch reports each
+/// node's outcome in its own slot.
 #[logged]
 pub async fn halt(engine: &Arc<Engine>, caller: &Caller, args: &Value, on: bool) -> Result<Done> {
-    let mut names: Vec<String> = args["nodes"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
-    if let Some(n) = arg_str(args, "node") {
-        names.push(n.to_string());
-    }
+    let verb = if on { "halt" } else { "unhalt" };
+    let names: Vec<String> = match &args["nodes"] {
+        Value::Null => arg_str(args, "node").map(str::to_string).into_iter().collect(),
+        Value::Array(a) => {
+            let mut v: Vec<String> = Vec::new();
+            for x in a.iter().filter_map(Value::as_str).filter(|s| !s.is_empty()) {
+                if !v.iter().any(|y| y == x) {
+                    v.push(x.to_string());
+                }
+            }
+            v
+        }
+        _ => crate::refuse!(BadRequest, "nodes must be a list of node ids"),
+    };
     if names.is_empty() {
         crate::refuse!(BadRequest, "name the agent (node) or agents (nodes)");
     }
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
-    let mut results = Vec::new();
-    for n in names {
-        let t = match target(&client, me.org_id, &n).await {
-            Ok(t) => t,
-            Err(e) => {
-                results.push(json!({ "node": n, "error": e.to_string() }));
-                continue;
-            }
-        };
-        if let Err(e) = downward(&client, &me, &t, if on { "halt" } else { "unhalt" }).await {
-            results.push(json!({ "node": t.name, "error": e.to_string() }));
-            continue;
+    let mut targets = Vec::with_capacity(names.len());
+    for n in &names {
+        let t = target(&client, me.org_id, n).await?;
+        downward(&client, &me, &t, verb).await?;
+        if !targets.iter().any(|x: &super::Target| x.id == t.id) {
+            targets.push(t);
         }
-        let r = if on {
-            ask_actor(engine, me.org_id, t.id, AgentMsg::Halt).await
-        } else {
-            ask_actor(engine, me.org_id, t.id, AgentMsg::Unhalt).await
-        };
-        results.push(json!({ "node": t.name, "result": r }));
     }
-    Done::json(&json!({ "results": results }))
+    drop(client);
+    let org_id = me.org_id;
+    let results = futures::future::join_all(targets.iter().map(|t| async move {
+        if on {
+            ask_actor(engine, org_id, t.id, AgentMsg::Halt).await
+        } else {
+            ask_actor(engine, org_id, t.id, AgentMsg::Unhalt).await
+        }
+    }))
+    .await;
+    if names.len() == 1 {
+        let (t, mut r) = (&targets[0], results.into_iter().next().unwrap_or(Value::Null));
+        if let Some(e) = r.get("error").and_then(Value::as_str) {
+            crate::refuse!(Conflict, "could not {verb} {}: {e}", t.name);
+        }
+        if let Some(o) = r.as_object_mut() {
+            o.insert("node".into(), json!(t.name));
+        }
+        return Done::json(&r);
+    }
+    let nodes: serde_json::Map<String, Value> =
+        targets.iter().zip(results).map(|(t, r)| (t.name.clone(), r)).collect();
+    Done::json(&json!({ "batch": targets.len(), "nodes": nodes }))
 }
 
 #[logged]
