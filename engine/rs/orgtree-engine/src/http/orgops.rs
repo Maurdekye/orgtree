@@ -124,6 +124,9 @@ pub async fn retry(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Ap
 #[logged]
 pub async fn run_op(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<Value>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    if matches!(b["op"].as_str(), Some("halt" | "unhalt")) {
+        return Ok(Json(super::nodes::halt_batch(&e, &o, &b, b["op"] == "halt").await?));
+    }
     Ok(Json(ops::run(&e, &o, Actor::User, &b).await?))
 }
 

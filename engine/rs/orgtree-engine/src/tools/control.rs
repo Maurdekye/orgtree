@@ -80,28 +80,36 @@ pub async fn halt(engine: &Arc<Engine>, caller: &Caller, args: &Value, on: bool)
         }
     }
     drop(client);
-    let org_id = me.org_id;
-    let results = futures::future::join_all(targets.iter().map(|t| async move {
+    let targets: Vec<(i64, String)> = targets.into_iter().map(|t| (t.id, t.name)).collect();
+    Done::json(&halt_targets(engine, me.org_id, &targets, on, names.len() == 1).await?)
+}
+
+/// Shared F05 executor. Callers must validate every target before entering;
+/// actor stop/settle waits overlap and batch failures remain per-node results.
+#[logged]
+pub(crate) async fn halt_targets(engine: &Arc<Engine>, org_id: i64, targets: &[(i64, String)], on: bool, single: bool) -> Result<Value> {
+    let verb = if on { "halt" } else { "unhalt" };
+    let results = futures::future::join_all(targets.iter().map(|(id, _)| async move {
         if on {
-            ask_actor(engine, org_id, t.id, AgentMsg::Halt).await
+            ask_actor(engine, org_id, *id, AgentMsg::Halt).await
         } else {
-            ask_actor(engine, org_id, t.id, AgentMsg::Unhalt).await
+            ask_actor(engine, org_id, *id, AgentMsg::Unhalt).await
         }
     }))
     .await;
-    if names.len() == 1 {
+    if single {
         let (t, mut r) = (&targets[0], results.into_iter().next().unwrap_or(Value::Null));
         if let Some(e) = r.get("error").and_then(Value::as_str) {
-            crate::refuse!(Conflict, "could not {verb} {}: {e}", t.name);
+            crate::refuse!(Conflict, "could not {verb} {}: {e}", t.1);
         }
         if let Some(o) = r.as_object_mut() {
-            o.insert("node".into(), json!(t.name));
+            o.insert("node".into(), json!(t.1));
         }
-        return Done::json(&r);
+        return Ok(r);
     }
     let nodes: serde_json::Map<String, Value> =
-        targets.iter().zip(results).map(|(t, r)| (t.name.clone(), r)).collect();
-    Done::json(&json!({ "batch": targets.len(), "nodes": nodes }))
+        targets.iter().zip(results).map(|(t, r)| (t.1.clone(), r)).collect();
+    Ok(json!({ "batch": targets.len(), "nodes": nodes }))
 }
 
 #[logged]

@@ -2,7 +2,7 @@
 //! reached over each CLI's own control channel (Claude Code `mcp_message`).
 //! A call names no identity: the process it came from is the caller.
 
-mod control;
+pub(crate) mod control;
 pub mod defs;
 mod mailtools;
 mod orgview;

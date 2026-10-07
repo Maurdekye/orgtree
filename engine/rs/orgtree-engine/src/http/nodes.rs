@@ -277,6 +277,29 @@ pub async fn retract(
 
 // ------------------------------------------------------------ turn controls
 
+/// User batch control: resolve and validate the entire set before asking any
+/// actor, then overlap all stop/settle waits (the same admission order as F05).
+#[logged]
+pub async fn halt_batch(engine: &Arc<Engine>, org: &OrgHandle, args: &Value, on: bool) -> ApiResult<Value> {
+    let Some(values) = args["nodes"].as_array().filter(|v| !v.is_empty()) else {
+        return Err(ApiError::bad_request("nodes must be a nonempty list of agent names"));
+    };
+    let mut targets: Vec<Agent> = Vec::new();
+    for value in values {
+        let Some(name) = value.as_str().filter(|name| !name.is_empty()) else {
+            return Err(ApiError::bad_request("every node must be an agent name"));
+        };
+        if targets.iter().any(|a| a.name == name) { continue; }
+        let a = agent(engine, org, name).await?;
+        if a.state != "live" {
+            return Err(ApiError::conflict(format!("{} is not live", a.name)));
+        }
+        targets.push(a);
+    }
+    let targets: Vec<(i64, String)> = targets.into_iter().map(|a| (a.id, a.name)).collect();
+    Ok(crate::tools::control::halt_targets(engine, org.id, &targets, on, false).await?)
+}
+
 #[logged]
 pub async fn interrupt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
