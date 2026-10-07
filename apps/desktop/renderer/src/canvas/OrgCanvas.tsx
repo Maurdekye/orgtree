@@ -1088,12 +1088,25 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // or drag margin the shell puts around the canvas is followed rather than
   // restated here.
   const [slotBox, setSlotBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  // ⚠ A VALUE, NOT AN UPDATER (rig finding F1, 2026-10-07). While this
+  // update waits at a lower priority, React re-applies it on every
+  // higher-priority render from the stale base state; an updater re-run that
+  // way returns a NEW object each time, so everything keyed on
+  // `viewportSize` saw a fresh identity on every commit and the zoom HUD's
+  // layout effect below re-ran and re-scheduled until React gave up
+  // ("Maximum update depth exceeded"). A value is re-applied as the same
+  // object, and nothing is scheduled when the size did not change.
+  const viewportSizeRef = useRef(viewportSize)
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const measure = () => {
       const rect = el.getBoundingClientRect()
-      setViewportSize(prev => prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height })
+      const cur = viewportSizeRef.current
+      if (cur.w !== rect.width || cur.h !== rect.height) {
+        viewportSizeRef.current = { w: rect.width, h: rect.height }
+        setViewportSize(viewportSizeRef.current)
+      }
       const box = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }
       setSlotBox(prev => prev && prev.x === box.x && prev.y === box.y && prev.w === box.w
         && prev.h === box.h ? prev : box)
@@ -1822,6 +1835,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
 
   const zoomHudRef = useRef<HTMLDivElement>(null)
   const [zoomHudRect, setZoomHudRect] = useState<EJRect | null>(null)
+  // the rect last handed to state: an unchanged measure schedules nothing,
+  // so a re-run of this layout effect can never feed a nested update loop
+  const zoomHudLast = useRef<string>('null')
   useLayoutEffect(() => {
     const hud = zoomHudRef.current, vp = viewportRef.current
     if (!hud || !vp) return
@@ -1829,7 +1845,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       const h = hud.getBoundingClientRect(), v = vp.getBoundingClientRect()
       const next = h.width && h.height
         ? { x0: h.left - v.left, y0: h.top - v.top, x1: h.right - v.left, y1: h.bottom - v.top } : null
-      setZoomHudRect(old => JSON.stringify(old) === JSON.stringify(next) ? old : next)
+      const key = JSON.stringify(next)
+      if (key === zoomHudLast.current) return
+      zoomHudLast.current = key
+      setZoomHudRect(next)
     }
     measure()
     const observer = new ResizeObserver(measure)
