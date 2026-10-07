@@ -95,10 +95,14 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
             &[&me.org_id, &me.name, &me.id, &json!({ "status": status, "summary": summary })],
         )
         .await?;
+    // 3.x: a top-level agent's report goes nowhere — the user already gets
+    // its own reply mail, and a second [DONE] digest was pure duplication
+    // (user ruling); its status chip is the record
     let superior: Option<String> = match me.parent_id {
         Some(p) => client.query_opt("SELECT name FROM ot.agents WHERE id = $1", &[&p]).await?.map(|r| r.get(0)),
-        None => Some("user".into()),
+        None => None,
     };
+    let top_level = me.parent_id.is_none();
     drop(client);
     changes::notify_id(engine, me.org_id, vec![Change::Agent(me.id), Change::Events, Change::History(me.id)]);
     let mut told = String::new();
@@ -113,12 +117,10 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
             out.notice = true;
             out.ev = Some(crate::events::status_report(&caller.org_slug, &me.name, me.generation as i64, status, &summary));
             if mail::send(engine, me.org_id, out).await.is_ok() {
-                told = if sup == "user" {
-                    " The user gets it in their inbox.".to_string()
-                } else {
-                    format!(" {sup} gets it as a notice at its next turn.")
-                };
+                told = format!(" {sup} gets it as a notice at its next turn.");
             }
+        } else if top_level {
+            told = " Status chip only — report your actual results to the user via orgtree_message.".to_string();
         }
     }
     let shown = if status == "done" { "done (you are idle now)" } else { status };
