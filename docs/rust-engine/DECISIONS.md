@@ -205,3 +205,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
     own scratch area, are never committed or sent anywhere, and are deleted when no longer needed.
 32. **Migration from 2.x is not needed for the first build, but must ship before the release is
     published.**
+
+50. **Credit cascades stop at the acting agent's allocation** (user 2026-10-07 08:25Z):
+    "cascades should still work, just only up to what the hiring agent has allocated, not more".
+    Hire, rehire, reallocate, model/seat changes and every other credit cascade may raise
+    descendant grants using the caller's allocation, but never the caller's own grant or
+    anything above it. An unaffordable call refuses with "insufficient credits" and commits
+    nothing. User actions retain the top-level cap. Single and batch moves transfer the
+    existing subtree stake between reporting paths below their common ancestor; a batch
+    validates its final net grants before committing. Details: `credit-cascade-boundary.md`.

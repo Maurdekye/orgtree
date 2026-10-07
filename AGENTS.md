@@ -24,6 +24,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [verified from source and disposable-DB/renderer smoke: 2026-10-07;
   `docs/rust-engine/unread-mail.md`]
 
+- Credit cascades plan before writing and stop at the acting agent's allocation.
+  Moves transfer the existing subtree stake below the common ancestor; batches
+  validate final net grants in one transaction. [user ruling and source verified:
+  2026-10-07; docs/rust-engine/credit-cascade-boundary.md]
+
 - Draft hire cancellation snapshots only the currently mounted full desk and
   restores it through the normal focus route after layout settles. The saved
   agent generation must still match; confirmation clears the snapshot and keeps
