@@ -128,6 +128,8 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
                         updates.push(body);
                     }
                 }
+                restore_mail_notices(client, agent_id, &mut messages).await?;
+                restore_mail_notices(client, agent_id, &mut updates).await?;
                 return Ok(Page { messages, updates, incremental: true, has_older: false, before: None, after: cursor });
             }
         }
@@ -155,14 +157,59 @@ pub async fn read(client: &Client, agent_id: i64, last: i64, before: Option<i64>
     let mut rows: Vec<(i64, Value)> = rows.into_iter().take(last as usize).map(|r| (r.get(0), r.get(1))).collect();
     rows.reverse();
     let before = if has_older { rows.first().map(|(s, _)| s.to_string()) } else { None };
+    let mut messages: Vec<Value> = rows.into_iter().map(|(_, b)| b).collect();
+    restore_mail_notices(client, agent_id, &mut messages).await?;
     Ok(Page {
-        messages: rows.into_iter().map(|(_, b)| b).collect(),
+        messages,
         updates: Vec::new(),
         incremental: false,
         has_older,
         before,
         after: cursor,
     })
+}
+
+/// Older transcript rows dropped `notice`. Recover only missing flags from
+/// their original mail, scoped to this recipient and this already bounded page.
+/// No transcript rewrite, event-kind inference, or query per message.
+#[logged]
+async fn restore_mail_notices(client: &Client, agent_id: i64, messages: &mut [Value]) -> Result<()> {
+    let mut ids = std::collections::BTreeSet::new();
+    for message in messages.iter() {
+        for segment in message["segments"].as_array().into_iter().flatten() {
+            if segment["kind"] != "mail" { continue; }
+            for row in segment["rows"].as_array().into_iter().flatten() {
+                if row["notice"].as_bool().is_none() {
+                    if let Some(id) = row["id"].as_str() { ids.insert(id.to_owned()); }
+                }
+            }
+        }
+    }
+    let ids: Vec<String> = ids.into_iter().collect();
+    let mut notices = std::collections::HashMap::<String, bool>::new();
+    for chunk in ids.chunks(1000) {
+        let chunk = chunk.to_vec();
+        for row in client.query(
+            "SELECT uid, notice FROM ot.mail WHERE recipient_agent_id = $1 AND uid = ANY($2::text[])",
+            &[&agent_id, &chunk],
+        ).await? {
+            notices.insert(row.get(0), row.get(1));
+        }
+    }
+    for message in messages {
+        let Some(segments) = message.get_mut("segments").and_then(Value::as_array_mut) else { continue };
+        for segment in segments {
+            if segment["kind"] != "mail" { continue; }
+            let Some(rows) = segment.get_mut("rows").and_then(Value::as_array_mut) else { continue };
+            for row in rows {
+                if row["notice"].as_bool().is_some() { continue; }
+                if let Some(notice) = row["id"].as_str().and_then(|id| notices.get(id)) {
+                    row["notice"] = json!(notice);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A plain-text digest of an agent's recent conversation (what it was asked,

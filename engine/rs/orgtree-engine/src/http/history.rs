@@ -91,19 +91,19 @@ pub async fn page(
             agent,
         ),
         "node-mail" => (
-            "SELECT id, jsonb_build_object('kind', kind, 'from', sender, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
+            "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'from', sender, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
                FROM ot.mail WHERE (recipient_agent_id = $1 OR sender_agent_id = $1) AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.mail WHERE recipient_agent_id = $1 OR sender_agent_id = $1",
             agent,
         ),
         "user-mail" => (
-            "SELECT id, jsonb_build_object('kind', kind, 'from', sender, 'body', body, 'at', created_at, 'state', state)
+            "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'from', sender, 'body', body, 'at', created_at, 'state', state)
                FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user' AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.mail WHERE org_id = $1 AND recipient_kind = 'user'",
             o.id,
         ),
         "user-sent" => (
-            "SELECT id, jsonb_build_object('kind', kind, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
+            "SELECT id, jsonb_build_object('kind', kind, 'notice', notice, 'node', recipient_name, 'body', body, 'at', created_at, 'state', state)
                FROM ot.mail WHERE org_id = $1 AND sender = '@user' AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.mail WHERE org_id = $1 AND sender = '@user'",
             o.id,

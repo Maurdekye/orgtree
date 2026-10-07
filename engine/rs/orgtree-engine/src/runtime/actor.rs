@@ -3908,10 +3908,8 @@ fn mail_row(raw: &[Value], receipt: Option<&str>) -> Value {
             let mut e = crate::feed::compute::mail_entry(m);
             if let Some(o) = e.as_object_mut() {
                 o.remove("delivering");
-                o.remove("notice");
-                if m["notice"].as_bool().unwrap_or(false) && o.get("kind").and_then(Value::as_str) == Some("message") {
-                    o.insert("kind".into(), json!("notice"));
-                }
+                // Passive delivery is independent of the typed message kind.
+                o.insert("notice".into(), json!(m["notice"].as_bool().unwrap_or(false)));
             }
             e
         })
