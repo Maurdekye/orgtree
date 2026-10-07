@@ -23,6 +23,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   this path. [verified from source and isolated renderer smoke: 2026-10-07;
   `canvas/draftfocus.ts`, `canvas/OrgCanvas.tsx`]
 
+- Tool arguments live in `ot.convo.tool_inputs`, apart from the normal `body`
+  projection. Tool chips carry only `input_seq`; expansion reads one agent/row/tool
+  through the guarded API. Codex original call arguments come from its own rollout
+  on demand and are retained separately; never expose unrelated transcript records.
+  [verified from source: 2026-10-07; `docs/rust-engine/tool-inputs.md`]
+
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls. Codex choices come from background
   `model/list` discovery; menu reads never spawn a CLI. Claude/OpenRouter keep
