@@ -46,6 +46,8 @@ struct Effects {
     warm: Vec<i64>,
     events: bool,
     mailboxes: Vec<i64>,
+    docket: Option<crate::domain::docket::AfterCommit>,
+    scratch: Vec<String>,
     registry: bool,
     pulses: Vec<crate::changes::Change>,
     /// watchdogs to stop / start after commit
@@ -394,7 +396,7 @@ fn retryable(e: &anyhow::Error) -> bool {
 async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op: &str, req: &Value, fx: &mut Effects) -> Result<Value> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
-    let out = match op {
+    let mut out = match op {
         "hire" => hire(engine, org, &tx, actor, req, fx).await?,
         "rehire" => rehire(engine, org, &tx, actor, req, fx).await?,
         "retire" => retire(org, &tx, actor, req, fx, false).await?,
@@ -414,12 +416,57 @@ async fn run_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, op:
         "moves" => moves(engine, org, &tx, actor, req, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
     };
+    if op == "hire" || op == "rehire" {
+        let node = out["node"].as_str().unwrap_or_default().to_string();
+        let who = match actor {
+            Actor::User => crate::domain::docket::Who::User,
+            Actor::Agent { id, name } => {
+                let generation: i32 = tx.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[id]).await?.get(0);
+                crate::domain::docket::Who::Agent { id: *id, name: name.clone(), generation }
+            }
+        };
+        if let Some(docket) = req.get("staff_item") {
+            let mut post = crate::domain::docket::AfterCommit::default();
+            let item = crate::domain::docket::staff_tx(&*tx, org, &who, docket, &node, &mut post).await?;
+            out["item"] = json!(item);
+            fx.docket = Some(post);
+        } else if let Some(item) = str_arg(req, "work_item") {
+            let mut post = crate::domain::docket::AfterCommit::default();
+            crate::domain::docket::assign_tx(&*tx, org, &who, item, &node, true, &mut post).await?;
+            out["item"] = json!(item);
+            fx.docket = Some(post);
+        }
+        if let Some(kick) = str_arg(req, "kickoff") {
+            let kind = str_arg(req, "kickoff_kind").unwrap_or("request");
+            if !["message", "question", "request", "decision", "status"].contains(&kind) {
+                refuse!(BadRequest, "unknown kickoff_kind {kind}");
+            }
+            let target = node_by_name(&tx, org.id, &node).await?;
+            let (sender, generation) = match &who {
+                crate::domain::docket::Who::User => (None, None),
+                crate::domain::docket::Who::Agent { id, generation, .. } => (Some(*id), Some(*generation)),
+            };
+            let uid = crate::util::uid("m");
+            let target_generation: i32 = tx.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&target.id]).await?.get(0);
+            let reason = if req.get("staff_item").is_some() { "staff" } else { op };
+            let ev = crate::events::typed("lifecycle.kickoff", &actor.label(), crate::events::node_ref(&org.slug, &node, target_generation as i64),
+                json!({ "body": kick, "hired_by": actor.label(), "reason": reason, "tier": target.tier, "grant": target.grant }));
+            tx.execute("INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, state, ev)
+                VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, false, $9, 'pending', $10)",
+                &[&uid, &org.id, &actor.label(), &sender, &generation, &target.id, &node, &kind, &kick, &ev]).await?;
+            fx.pulses.push(crate::changes::Change::Mailbox(target.id));
+            fx.wake.push(target.id);
+            out["kickoff"] = json!(uid);
+        }
+    }
     tx.commit().await?;
     Ok(out)
 }
 
 #[logged]
 async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) {
+    for path in &fx.scratch { let _ = std::fs::create_dir_all(path); }
+    if let Some(post) = fx.docket { post.publish(engine, org); }
     for id in &fx.stop {
         if let Some(h) = engine.agents.get(*id) {
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -625,7 +672,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     }
     fx.events = true;
     fx.warm.push(id);
-    let _ = std::fs::create_dir_all(&scratch);
+    fx.scratch.push(scratch);
     Ok(json!({ "node": name, "cascaded": raised }))
 }
 
@@ -1032,12 +1079,38 @@ async fn reallocate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction
 }
 
 #[logged]
+async fn busy(tx: &Transaction<'_>, id: i64) -> Result<bool> {
+    Ok(tx.query_one("SELECT inflight_at IS NOT NULL OR EXISTS (SELECT 1 FROM ot.turns WHERE agent_id = $1 AND ended_at IS NULL) FROM ot.agents WHERE id = $1", &[&id]).await?.get(0))
+}
+
+/// The agent row is locked by the caller. row_version is the durable request
+/// order, so equal wall-clock timestamps never reorder two configuration intents.
+#[logged]
+async fn queue_config(tx: &Transaction<'_>, n: &Node, actor: &Actor, mut intent: Value, model: bool) -> Result<Option<Value>> {
+    let column = if model { "pending_switch" } else { "pending_account" };
+    let row = tx.query_one(&format!("SELECT {column}, row_version FROM ot.agents WHERE id = $1"), &[&n.id]).await?;
+    let previous: Option<Value> = row.get(0);
+    let seq: i64 = row.get::<_, i64>(1) + 1;
+    intent["seq"] = json!(seq);
+    intent["at"] = json!(chrono::Utc::now().to_rfc3339());
+    intent["by"] = json!(actor.label());
+    intent["actor_id"] = match actor { Actor::User => Value::Null, Actor::Agent { id, .. } => json!(id) };
+    tx.execute(&format!("UPDATE ot.agents SET {column} = $2, row_version = $3 WHERE id = $1"), &[&n.id, &intent, &seq]).await?;
+    Ok(previous)
+}
+
+#[logged]
 async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     authorize(tx, actor, &n, "switch the model of").await?;
     let tier = str_arg(req, "tier").unwrap_or("").to_string();
     if tier == n.tier {
-        tx.execute("UPDATE ot.agents SET pending_switch = NULL WHERE id = $1", &[&n.id]).await?;
+        let previous: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+        tx.execute("UPDATE ot.agents SET pending_switch = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?;
+        if let Some(previous) = previous {
+            event(tx, org.id, "switch_cancelled", actor, Some(n.id), json!({ "node": n.name, "target": previous["tier"], "by": actor.label() }), fx).await?;
+            fx.events = true;
+        }
         fx.agents.insert(n.id);
         return Ok(json!({ "node": n.name, "tier": tier, "unchanged": true }));
     }
@@ -1047,13 +1120,21 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     if !engine.settings.provider_enabled(to) {
         refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(to));
     }
+    validate_account(engine, &tier, str_arg(req, "account"))?;
+    if busy(tx, n.id).await? {
+        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "account": req["account"] }), true).await?;
+        event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
+        fx.agents.insert(n.id);
+        fx.events = true;
+        return Ok(json!({ "node": n.name, "queued": true, "pending_switch": tier, "replaced": replaced }));
+    }
     let caps = caps(engine, tx, org.id).await?;
     let raised = if seat > n.seat && n.state == "live" {
         ensure_room(tx, n.parent, seat - n.seat, caps.cascade_alloc, caps.max_top, fx).await?
     } else {
         Vec::new()
     };
-    validate_account(engine, &n.tier, str_arg(req, "account"))?;
+    validate_account(engine, &tier, str_arg(req, "account"))?;
     let picked = crate::accounts::choice(str_arg(req, "account"));
     let clear = picked == crate::accounts::Choice::Primary;
     let account = match picked {
@@ -1133,11 +1214,30 @@ async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req:
 async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     authorize(tx, actor, &n, "change the account of").await?;
-    validate_account(engine, &n.tier, str_arg(req, "account"))?;
+    let pending: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+    let target_tier = pending.as_ref().and_then(|p| p["tier"].as_str()).unwrap_or(&n.tier);
+    validate_account(engine, target_tier, str_arg(req, "account"))?;
     let acc = match crate::accounts::choice(str_arg(req, "account")) {
         crate::accounts::Choice::Account(a) => Some(a),
         _ => None,
     };
+    if busy(tx, n.id).await? {
+        if acc == n.account {
+            tx.execute("UPDATE ot.agents SET pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?;
+            event(tx, org.id, "account_queue_cancelled", actor, Some(n.id), json!({ "node": n.name, "account": acc }), fx).await?;
+            fx.agents.insert(n.id); fx.events = true;
+            return Ok(json!({ "node": n.name, "queued": false, "cancelled": true }));
+        }
+        let replaced = queue_config(tx, &n, actor, json!({ "account": acc.clone().unwrap_or_else(|| "primary".into()) }), false).await?;
+        event(tx, org.id, "account_queued", actor, Some(n.id), json!({ "node": n.name, "account": acc, "by": actor.label() }), fx).await?;
+        fx.agents.insert(n.id); fx.events = true;
+        return Ok(json!({ "node": n.name, "queued": true, "pending_account": acc, "replaced": replaced }));
+    }
+    let frozen: Option<Value> = tx.query_one("SELECT frozen FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+    let auth = frozen.as_ref().is_some_and(|f| matches!(f["cause"].as_str(), Some("auth" | "balance")) || f["untrusted"] == true);
+    if frozen.as_ref().is_some_and(|f| f["limit"] == true) && !auth {
+        refuse!(Conflict, "usage-limit freeze requires continue-on or unstick; an account rebind cannot release it");
+    }
     let view = engine.accounts.view();
     let info = match &acc {
         Some(a) => match view.get(a) {
@@ -1152,7 +1252,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
         },
         None => None,
     };
-    tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id, &acc])
+    tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL, frozen = CASE WHEN $3 THEN NULL ELSE frozen END, row_version = row_version + 1 WHERE id = $1", &[&n.id, &acc, &auth])
         .await?;
     event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": acc }), fx).await?;
     fx.agents.insert(n.id);
@@ -1399,17 +1499,13 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     let charter = str_arg(req, "charter").map(str::to_string);
     let team = str_arg(req, "team_charter").map(str::to_string);
-    validate_account(engine, &n.tier, str_arg(req, "account"))?;
-    let picked = crate::accounts::choice(str_arg(req, "account"));
-    let clear = picked == crate::accounts::Choice::Primary;
-    let account = match picked {
-        crate::accounts::Choice::Account(a) => Some(a),
-        _ => None,
-    };
+    let account_result = if str_arg(req, "account").is_some() {
+        Some(account(engine, org, tx, actor, req, fx).await?)
+    } else { None };
     tx.execute(
         "UPDATE ot.agents SET scope = $2, charter = coalesce($3, charter), team_charter = coalesce($4, team_charter),
-                account = CASE WHEN $6 THEN NULL ELSE coalesce($5, account) END, row_version = row_version + 1 WHERE id = $1",
-        &[&n.id, &sc, &charter, &team, &account, &clear],
+                row_version = row_version + 1 WHERE id = $1",
+        &[&n.id, &sc, &charter, &team],
     )
     .await?;
     event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req }), fx).await?;
@@ -1419,5 +1515,65 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     fx.reconfigure.push(n.id);
     fx.reconfigure.extend(below);
     fx.events = true;
-    Ok(json!({ "node": n.name }))
+    let mut out = account_result.unwrap_or_else(|| json!({}));
+    out["node"] = json!(n.name);
+    Ok(out)
+}
+
+/// Consume pending intents only after a turn has settled. An operation failure
+/// rolls back to the savepoint; dropping the request and its explanation commit
+/// together, leaving the former configuration intact.
+#[logged]
+pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id: i64) -> Result<bool> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let n = node_by_id(&tx, id).await?;
+    if n.state != "live" || busy(&tx, id).await? { return Ok(false); }
+    let row = tx.query_one("SELECT pending_switch, pending_account FROM ot.agents WHERE id = $1", &[&id]).await?;
+    let mut sw: Option<Value> = row.get(0);
+    let ap: Option<Value> = row.get(1);
+    if sw.is_none() && ap.is_none() { return Ok(false); }
+    let mut fx = Effects::default();
+    // Newer account intent wins; an older account still composes with a model
+    // request that did not choose its own account. Legacy stamps break only
+    // legacy ties; all new intents have a monotonic per-row sequence.
+    if let (Some(model), Some(account)) = (sw.as_mut(), ap.as_ref()) {
+        let newer = match (account["seq"].as_i64(), model["seq"].as_i64()) {
+            (Some(a), Some(b)) => a > b, (Some(_), None) => true, (None, Some(_)) => false,
+            _ => account["at"].as_str().unwrap_or("") > model["at"].as_str().unwrap_or(""),
+        };
+        let want = account["account"].as_str().unwrap_or("primary");
+        if newer || model["account"].as_str().map_or(true, str::is_empty) {
+            match validate_account(engine, model["tier"].as_str().unwrap_or(""), Some(want)) {
+                Ok(()) => model["account"] = json!(want),
+                Err(e) => event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": e.to_string() }), &mut fx).await?,
+            }
+        } else {
+            event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": "superseded by a later model/account choice" }), &mut fx).await?;
+        }
+    }
+    let intent = sw.as_ref().or(ap.as_ref()).unwrap();
+    let actor = match intent["actor_id"].as_i64() {
+        Some(id) => Actor::Agent { id, name: intent["by"].as_str().unwrap_or("agent").to_string() },
+        None => Actor::User,
+    };
+    // Clear before applying: account validation must not see an obsolete target.
+    tx.execute("UPDATE ot.agents SET pending_switch = NULL, pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&id]).await?;
+    tx.batch_execute("SAVEPOINT apply_pending_config").await?;
+    let mut req = intent.clone();
+    req["node"] = json!(n.name);
+    let result = if sw.is_some() { switch_model(engine, org, &tx, &actor, &req, &mut fx).await }
+                 else { account(engine, org, &tx, &actor, &req, &mut fx).await };
+    if let Err(e) = result {
+        tx.batch_execute("ROLLBACK TO SAVEPOINT apply_pending_config").await?;
+        fx = Effects::default();
+        event(&tx, org.id, if sw.is_some() { "switch_dropped" } else { "account_queue_dropped" }, &actor, Some(id),
+            json!({ "node": n.name, "target": intent["tier"], "account": intent["account"], "kept": n.tier, "reason": format!("{e:#}") }), &mut fx).await?;
+        tracing::warn!(agent = id, error = %format!("{e:#}"), "queued configuration dropped at turn boundary");
+    }
+    fx.agents.insert(id); fx.events = true;
+    tx.commit().await?;
+    drop(client);
+    apply_effects(engine, org, fx).await;
+    Ok(true)
 }

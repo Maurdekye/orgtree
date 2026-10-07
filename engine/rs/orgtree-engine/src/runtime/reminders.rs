@@ -89,6 +89,7 @@ pub fn switches(engine: &Engine) -> Switches {
 
 #[logged]
 pub fn start(engine: &Arc<Engine>) {
+    start_recovery(engine);
     let engine = engine.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(SWEEP_S));
@@ -324,4 +325,22 @@ async fn send(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, ev: Val
     out.ev = Some(ev);
     mail::send(engine, org_id, out).await?;
     Ok(())
+}
+
+/// Recovery is independent of optional reminder switches, as in the 3.x keeper.
+#[logged]
+fn start_recovery(engine: &Arc<Engine>) {
+    let engine = engine.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(20));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! { _ = engine.shutdown.cancelled() => break, _ = tick.tick() => {} }
+            for org in engine.orgs.all() {
+                if let Err(e) = crate::domain::docket::recover_abandoned(&engine, &org).await {
+                    tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "abandoned docket recovery failed; retry next pass");
+                }
+            }
+        }
+    });
 }

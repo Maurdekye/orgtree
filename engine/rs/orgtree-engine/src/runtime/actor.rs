@@ -840,6 +840,7 @@ impl Actor {
             // mail for a running Claude turn is handed over at the next tool boundary
             return Ok(());
         }
+        self.apply_pending_config().await?;
         let client = self.engine.db.get().await?;
         let row = client
             .query_one(
@@ -3324,6 +3325,7 @@ impl Actor {
                 tracing::warn!(agent = self.id, error = %format!("{e:#}"), "typed turn outcome could not be sent");
             }
         }
+        self.apply_pending_config().await?;
         self.last_error = error.clone();
         self.mcp.last_turn_count = self.mcp.count;
         self.slot = None;
@@ -3380,6 +3382,13 @@ impl Actor {
             // All lanes share normal halt/freeze/killswitch and slot admission.
             // Confirmed boundary mail is no longer pending, so is not replayed.
             self.on_wake().await?;
+        }
+        Ok(())
+    }
+
+    async fn apply_pending_config(&mut self) -> Result<()> {
+        if crate::domain::ops::apply_pending(&self.engine, &self.org, self.id).await? {
+            self.reconfigured = self.proc.is_some();
         }
         Ok(())
     }

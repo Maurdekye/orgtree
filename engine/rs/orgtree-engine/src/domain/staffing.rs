@@ -263,11 +263,9 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
         if let Some(a) = account {
             req["account"] = json!(a);
         }
+        req["staff_item"] = json!({ "action": "update", "slug": item_slug, "status": "open" });
         let hired = ops::run(engine, org, Actor::User, &req).await?;
         let node = hired["node"].as_str().unwrap_or(&name).to_string();
-        docket::update(engine, org, &Who::User, &json!({ "slug": item_slug, "status": "open",
-            "done_so_far": item["done_so_far"], "working_on_next": if item["working_on_next"].as_array().map(|a| a.is_empty()).unwrap_or(true) { json!(["Start the ticket."]) } else { item["working_on_next"].clone() } })).await?;
-        docket::assign(engine, org, &Who::User, &item_slug, &node).await?;
         let mut message = format!(
             "Staffed {node} {}{}; ticket moved to Open.",
             if top { "at top level".to_string() } else { format!("under {}", assignee.clone().unwrap_or_default()) },
@@ -315,7 +313,7 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
 pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i32), args: &Value) -> Result<Value> {
     let (my_id, my_name, my_gen) = me;
     let who = Who::Agent { id: my_id, name: my_name.to_string(), generation: my_gen };
-    let action = args["action"].as_str().unwrap_or("create");
+    let action = args["action"].as_str().unwrap_or(if args["slug"].as_str().is_some() { "update" } else { "create" });
     let s = |k: &str| args[k].as_str().map(str::trim).filter(|v| !v.is_empty());
     // the docket half is checked before anybody is hired
     match action {
@@ -345,7 +343,7 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
     if let Some(p) = req.as_object_mut() {
         // the item's own fields are not the seat's (`parent` is the parent WORK ITEM, `title` the item's)
         for k in ["parent", "status", "title", "objective", "kind", "participants", "dependencies", "done_so_far",
-                  "working_on_next", "slug", "action", "acceptance", "kickoff", "kickoff_kind"] {
+                  "working_on_next", "slug", "action", "acceptance"] {
             p.remove(k);
         }
     }
@@ -369,53 +367,10 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
             req["parent"] = json!(s("target").unwrap_or(my_name));
         }
     }
+    req["staff_item"] = args.clone();
     let hired = ops::run(engine, org, Actor::Agent { id: my_id, name: my_name.to_string() }, &req).await?;
-    let node = hired["node"].as_str().map(str::to_string).or_else(|| s("node").map(str::to_string)).unwrap_or_default();
-    // the item, owned by the seat
-    let progress = !args["done_so_far"].is_null() || !args["working_on_next"].is_null();
-    let item = if action == "create" {
-        let mut c = json!({ "title": s("title"), "objective": args["objective"], "kind": s("kind").unwrap_or("code"),
-                            "status": s("status").unwrap_or("open"), "owner": node, "participants": args["participants"],
-                            "dependencies": args["dependencies"], "parent": args["parent"] });
-        if progress {
-            c["done_so_far"] = args["done_so_far"].clone();
-            c["working_on_next"] = args["working_on_next"].clone();
-        } else {
-            c["working_on_next"] = json!([format!("staffed: {node} owns this item")]);
-        }
-        let made = docket::create(engine, org, &who, &c).await?;
-        made["slug"].as_str().unwrap_or("").to_string()
-    } else {
-        let slug = s("slug").unwrap_or("").to_string();
-        docket::assign(engine, org, &who, &slug, &node).await?;
-        if progress || s("status").is_some() {
-            let mut u = json!({ "slug": slug, "owner": node });
-            if progress {
-                u["done_so_far"] = if args["done_so_far"].is_null() { json!([]) } else { args["done_so_far"].clone() };
-                u["working_on_next"] = if args["working_on_next"].is_null() { json!([]) } else { args["working_on_next"].clone() };
-            } else {
-                u["keep_done"] = json!(true);
-                u["keep_next"] = json!(true);
-            }
-            if let Some(st) = s("status") {
-                u["status"] = json!(st);
-            }
-            docket::update(engine, org, &who, &u).await?;
-        }
-        slug
-    };
-    let mut out = json!({ "node": node, "item": item, "hire": hired,
-                          "status": format!("{node} owns docket item {item}; the assignment mail starts it") });
-    if let Some(k) = s("kickoff") {
-        let mut m = Outgoing::new(From::Agent { id: my_id, name: my_name.to_string(), generation: my_gen }, &node, k);
-        m.kind = s("kickoff_kind").unwrap_or("request").to_string();
-        m.ev = Some(mail::kickoff_event(engine, org.id, &org.slug, &node, my_name, "staff", k).await?);
-        match mail::send(engine, org.id, m).await {
-            Ok(sent) => out["kickoff"] = json!(sent.uid),
-            Err(e) => out["kickoff_error"] = json!(format!("{e:#}")),
-        }
-    }
-    Ok(out)
+    Ok(json!({ "node": hired["node"], "item": hired["item"], "hire": hired,
+        "status": "Seat and docket committed together; the assignment mail starts the agent." }))
 }
 
 /// `GET /api/orgs/{slug}/staffing-options`: the warm availability every

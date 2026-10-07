@@ -492,7 +492,7 @@ fn all() -> Vec<Value> {
              holds the item and gets the user's replies). The assignment mail starts the agent; `kickoff` is optional. \
              Pass `node` to rehire an archived agent or omit it to hire. ⚠ `parent` here is the parent WORK ITEM; place \
              the seat with `target`/`hire_type`. For an already-live agent use orgtree_work assign; to give an existing \
-             item to a new hire without touching its status use orgtree_hire `work_item`. Progress is optional here: \
+             item to a new hire use orgtree_hire `work_item` (staffed backlog opens). Progress is optional here: \
              omit done_so_far and working_on_next to keep the stored lists (a 'staffed' line is written on a new item).",
             merge(
                 json!({ "action": { "type": "string", "enum": ["create", "update"] }, "slug": { "type": "string" },

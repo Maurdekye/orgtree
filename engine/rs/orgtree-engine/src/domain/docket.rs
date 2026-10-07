@@ -788,9 +788,49 @@ fn changed(engine: &Engine, org: &OrgHandle) {
     changes::notify(engine, org, vec![Change::Docket, Change::Events]);
 }
 
+/// Notifications are stored with the mutation; only runtime wakes escape after commit.
+#[derive(Debug, Default)]
+pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)> }
+
+#[logged]
+impl AfterCommit {
+    pub(crate) fn publish(self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) {
+        changed(engine, org);
+        for (id, wake) in self.recipients {
+            changes::notify(engine, org, vec![Change::Mailbox(id)]);
+            if wake { crate::runtime::wake(engine, org.id, id); }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[logged]
+async fn tell_tx(tx: &impl GenericClient, post: &mut AfterCommit, org_id: i64, it: &Item,
+                 to: &str, body: String, kind: &str, wake: bool, ev: Option<Value>) -> Result<()> {
+    let Some(row) = tx.query_opt("SELECT id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org_id, &to]).await? else { return Ok(()) };
+    let id: i64 = row.get(0);
+    tx.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state)
+        VALUES ($1, $2, '@system', 'agent', $3, $4, $5, $6, $7, '[]'::jsonb, $8, $9, 'pending')",
+        &[&crate::util::uid("m"), &org_id, &id, &to, &kind, &(!wake), &body, &reply_to(it), &ev]).await?;
+    post.recipients.push((id, wake));
+    Ok(())
+}
+
 /// `orgtree_work create` (and the docket half of `orgtree_staff`).
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args: &Value) -> Result<Value> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let mut post = AfterCommit::default();
+    let out = create_tx(&*tx, org, who, args, &mut post).await?;
+    tx.commit().await?;
+    drop(client);
+    post.publish(engine, org);
+    Ok(out)
+}
+
+#[logged]
+pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who: &Who, args: &Value, post: &mut AfterCommit) -> Result<Value> {
     let Some(title) = text_arg(args, "title") else { refuse!(BadRequest, "a work item needs a title") };
     let title = bounded("title", title, TITLE_MAX)?;
     let Some(objective) = text_arg(args, "objective").or(text_arg(args, "description")) else {
@@ -820,8 +860,6 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     if (done.is_some() || next.is_some()) && done.as_ref().map(|d| d.is_empty()).unwrap_or(true) && next.as_ref().map(|n| n.is_empty()).unwrap_or(true) {
         refuse!(BadRequest, "a docket update needs at least one entry in done_so_far or working_on_next");
     }
-    let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
     let active: i64 = tx
         .query_one(
             "SELECT count(*) FROM ot.work_items WHERE org_id = $1 AND archived_at IS NULL AND NOT coalesce((extra->>'deleted')::boolean, false)",
@@ -839,9 +877,9 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     let mut owner: Option<Value> = None;
     let mut owner_id: Option<i64> = None;
     if let Some(o) = &owner_name {
-        let (oid, gen) = live_agent(&*tx, org.id, o).await?;
+        let (oid, gen) = live_agent(tx, org.id, o).await?;
         if let Who::Agent { id, .. } = who {
-            if oid != *id && !below(&*tx, *id).await?.contains(&oid) {
+            if oid != *id && !below(tx, *id).await?.contains(&oid) {
                 refuse!(Forbidden, "you may own an item yourself or assign it to a subordinate — {o} is neither");
             }
         }
@@ -851,19 +889,19 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     let mut participants: Vec<String> = Vec::new();
     for p in names(&args["participants"]) {
         if Some(&p) != owner_name.as_ref() && !participants.contains(&p) {
-            live_agent(&*tx, org.id, &p).await?;
+            live_agent(tx, org.id, &p).await?;
             participants.push(p);
         }
     }
     let mut deps: Vec<String> = Vec::new();
     for d in names(&args["dependencies"]) {
-        load(&*tx, org.id, &d, false).await?;
+        load(tx, org.id, &d, false).await?;
         if !deps.contains(&d) {
             deps.push(d);
         }
     }
     let parent = match text_arg(args, "parent") {
-        Some(p) => Some(load(&*tx, org.id, p, false).await?.slug),
+        Some(p) => Some(load(tx, org.id, p, false).await?.slug),
         None => None,
     };
     let base = slugify(&title, SLUG_MAX);
@@ -891,20 +929,17 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
         )
         .await?;
     let it = item_of(&row);
-    history(&*tx, &it, who, "create", json!({ "title": title, "status": status, "owner": owner_name })).await?;
-    tx.commit().await?;
-    drop(client);
-    changed(engine, org);
+    history(tx, &it, who, "create", json!({ "title": title, "status": status, "owner": owner_name })).await?;
     let mut notified = Value::Null;
     if let Some(o) = &owner_name {
         if Some(o.as_str()) != who.name() {
-            tell_ev(engine, org.id, &it, o, assignment_text(who, &it), "request", true, assigned_ev(org, who, &it, None)).await;
+            tell_tx(tx, post, org.id, &it, o, assignment_text(who, &it), "request", true, assigned_ev(org, who, &it, None)).await?;
             notified = json!(o);
         }
     }
     for p in &participants {
-        tell_ev(
-            engine,
+        tell_tx(
+            tx, post,
             org.id,
             &it,
             p,
@@ -914,7 +949,7 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
             false,
             Some(participant_ev(org, who, &it)),
         )
-        .await;
+        .await?;
     }
     Ok(json!({
         "created": it.slug, "slug": it.slug, "rev": 1, "owner": it.owner, "notified": notified,
@@ -925,13 +960,23 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
 /// `orgtree_work update`: progress, status, attention, scope.
 #[logged]
 pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args: &Value) -> Result<Value> {
-    let Some(slug) = text_arg(args, "slug") else { refuse!(BadRequest, "name the item (slug)") };
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
-    let mut it = load(&*tx, org.id, slug, true).await?;
-    let ctx = ctx(&*tx, org).await?;
+    let mut post = AfterCommit::default();
+    let out = update_tx(&*tx, org, who, args, &mut post).await?;
+    tx.commit().await?;
+    drop(client);
+    post.publish(engine, org);
+    Ok(out)
+}
+
+#[logged]
+pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who: &Who, args: &Value, post: &mut AfterCommit) -> Result<Value> {
+    let Some(slug) = text_arg(args, "slug") else { refuse!(BadRequest, "name the item (slug)") };
+    let mut it = load(tx, org.id, slug, true).await?;
+    let ctx = ctx(tx, org).await?;
     let under = match who.id() {
-        Some(id) => below(&*tx, id).await?,
+        Some(id) => below(tx, id).await?,
         None => HashSet::new(),
     };
     let lv = level(who, &it, &ctx, &under);
@@ -1094,7 +1139,7 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
         it.status = s.clone();
     }
     if let Some(r) = &reviewer {
-        let (rid, gen) = live_agent(&*tx, org.id, r).await?;
+        let (rid, gen) = live_agent(tx, org.id, r).await?;
         if Some(r.as_str()) == it.owner_name() {
             refuse!(BadRequest, "the reviewer checks the owner's work — name someone other than the owner");
         }
@@ -1164,9 +1209,9 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     if !matches!(who, Who::User) {
         it.last_updater = Some(who.actor());
     }
-    save(&*tx, &it).await?;
+    save(tx, &it).await?;
     history(
-        &*tx,
+        tx,
         &it,
         who,
         if reopen { "reopen" } else { "update" },
@@ -1174,12 +1219,9 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
                 "attention": attention, "claimed_from": claim.clone().filter(|c| !c.is_empty()) }),
     )
     .await?;
-    sweep(&*tx, org.id).await?;
-    tx.commit().await?;
-    drop(client);
-    changed(engine, org);
+    sweep(tx, org.id).await?;
     if let Some(prev) = claim.filter(|p| !p.is_empty()) {
-        tell(engine, org.id, &it, &prev, format!("{} took over docket item {} — \"{}\" with its own update; it owns the item now.", who.label(), it.slug, it.title), "status", false).await;
+        tell_tx(tx, post, org.id, &it, &prev, format!("{} took over docket item {} — \"{}\" with its own update; it owns the item now.", who.label(), it.slug, it.title), "status", false, None).await?;
     }
     if it.status == "review" && from_status != "review" {
         if let Some(r) = it.reviewer_name() {
@@ -1188,7 +1230,7 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
                 json!({ "reviewer": r, "requested_by": who_id(who), "owner": it.owner_name().unwrap_or(""),
                         "objective": it.objective, "done_so_far": it.done, "acceptance": [], "revision": it.rev,
                         "candidate": null, "base": null, "objective_notice": null, "relayed": false }));
-            tell_ev(engine, org.id, &it, r, format!("[DOCKET REVIEW REQUEST · {} \"{}\"]\nYou are named as REVIEWER. {} keeps ownership. Read the full scope with orgtree_work get slug={}; then use update with owner set to its current holder and status=approved, done, or in_progress with your findings.\nRequested by {}.\nDescription: {}", it.slug, it.title, it.owner_name().unwrap_or("its owner"), it.slug, who.label(), it.objective), "request", true, Some(ev)).await;
+            tell_tx(tx, post, org.id, &it, r, format!("[DOCKET REVIEW REQUEST · {} \"{}\"]\nYou are named as REVIEWER. {} keeps ownership. Read the full scope with orgtree_work get slug={}; then use update with owner set to its current holder and status=approved, done, or in_progress with your findings.\nRequested by {}.\nDescription: {}", it.slug, it.title, it.owner_name().unwrap_or("its owner"), it.slug, who.label(), it.objective), "request", true, Some(ev)).await?;
         }
     }
     // Reviewer status transitions retain the old review outcome cards. The
@@ -1207,7 +1249,7 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
                     crate::events::work_item_ref(&org.slug, &it.slug, &it.title),
                     json!({ "reviewer": who_id(who), "owner": owner, "note": note, "relayed": false }));
                 let outcome = if it.status == "in_progress" { "CHANGES REQUESTED" } else { "REVIEW PASSED" };
-                tell_ev(engine, org.id, &it, owner, format!("[DOCKET REVIEW · {} \"{}\"]\n{outcome} by {}. The item is now {}.\n{}", it.slug, it.title, who.label(), it.status, note.unwrap_or_default()), "request", true, Some(ev)).await;
+                tell_tx(tx, post, org.id, &it, owner, format!("[DOCKET REVIEW · {} \"{}\"]\n{outcome} by {}. The item is now {}.\n{}", it.slug, it.title, who.label(), it.status, note.unwrap_or_default()), "request", true, Some(ev)).await?;
             }
         }
     }
@@ -1237,11 +1279,21 @@ async fn managed(tx: &impl GenericClient, org: &OrgHandle, who: &Who, slug: &str
 /// `assign`: ownership only — the status never moves.
 #[logged]
 pub async fn assign(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug: &str, owner: &str) -> Result<Value> {
-    let owner = owner.trim().trim_start_matches('@').to_string();
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
-    let (mut it, _ctx, under) = managed(&*tx, org, who, slug, "assign").await?;
-    let (oid, gen) = live_agent(&*tx, org.id, &owner).await?;
+    let mut post = AfterCommit::default();
+    let out = assign_tx(&*tx, org, who, slug, owner, false, &mut post).await?;
+    tx.commit().await?;
+    drop(client);
+    post.publish(engine, org);
+    Ok(out)
+}
+
+#[logged]
+pub(crate) async fn assign_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who: &Who, slug: &str, owner: &str, staffed: bool, post: &mut AfterCommit) -> Result<Value> {
+    let owner = owner.trim().trim_start_matches('@').to_string();
+    let (mut it, _ctx, under) = managed(tx, org, who, slug, "assign").await?;
+    let (oid, gen) = live_agent(tx, org.id, &owner).await?;
     if let Who::Agent { id, .. } = who {
         if oid != *id && !under.contains(&oid) {
             refuse!(Forbidden, "you may assign an item to yourself or a subordinate — {owner} is neither");
@@ -1254,20 +1306,61 @@ pub async fn assign(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug:
     it.owner = Some(json!({ "node": owner, "generation": gen }));
     it.owner_id = Some(oid);
     it.participants.retain(|p| p != &owner);
+    if staffed && it.status == "backlogged" {
+        it.status = "open".into();
+        it.status_at = Some(Utc::now());
+        it.docket_at = Some(Utc::now());
+    }
     it.rev += 1;
     it.updated_at = Utc::now();
-    save(&*tx, &it).await?;
-    history(&*tx, &it, who, "assign", json!({ "from": prev, "to": owner })).await?;
-    tx.commit().await?;
-    drop(client);
-    changed(engine, org);
+    save(tx, &it).await?;
+    history(tx, &it, who, "assign", json!({ "from": prev, "to": owner })).await?;
     if Some(owner.as_str()) != who.name() {
-        tell_ev(engine, org.id, &it, &owner, assignment_text(who, &it), "request", true, assigned_ev(org, who, &it, prev.as_deref())).await;
+        tell_tx(tx, post, org.id, &it, &owner, assignment_text(who, &it), "request", true, assigned_ev(org, who, &it, prev.as_deref())).await?;
     }
     if let Some(p) = prev.as_deref().filter(|p| Some(*p) != who.name()) {
-        tell(engine, org.id, &it, p, format!("{} reassigned docket item {} — \"{}\" to {owner}; you no longer hold it.", who.label(), it.slug, it.title), "status", false).await;
+        tell_tx(tx, post, org.id, &it, p, format!("{} reassigned docket item {} — \"{}\" to {owner}; you no longer hold it.", who.label(), it.slug, it.title), "status", false, None).await?;
     }
     Ok(json!({ "assigned": it.slug, "owner": owner, "status": it.status, "rev": it.rev }))
+}
+
+/// All seat-associated docket work uses the seat transaction, including its notices.
+#[logged]
+pub(crate) async fn staff_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who: &Who,
+                            args: &Value, node: &str, post: &mut AfterCommit) -> Result<String> {
+    let action = text_arg(args, "action").unwrap_or(if text_arg(args, "slug").is_some() { "update" } else { "create" });
+    let progress = !args["done_so_far"].is_null() || !args["working_on_next"].is_null();
+    if action == "create" {
+        let mut c = args.clone();
+        c["owner"] = json!(node);
+        if c["status"].is_null() || c["status"] == "backlogged" { c["status"] = json!("open"); }
+        if !progress { c["working_on_next"] = json!([format!("staffed: {node} owns this item")]); }
+        let made = create_tx(tx, org, who, &c, post).await?;
+        let slug = made["slug"].as_str().unwrap_or_default().to_string();
+        if !args["attention"].is_null() || !args["attention_amend"].is_null() {
+            let u = json!({ "slug": slug, "owner": node, "keep_done": true, "keep_next": true,
+                "attention": args["attention"], "attention_reason": args["attention_reason"], "attention_amend": args["attention_amend"] });
+            update_tx(tx, org, who, &u, post).await?;
+        }
+        return Ok(slug);
+    }
+    if action != "update" { refuse!(BadRequest, "action is create or update"); }
+    let slug = text_arg(args, "slug").ok_or_else(|| anyhow::anyhow!("update needs slug"))?;
+    // Check manage rights BEFORE assigning. Reopen/update while the old owner still holds it.
+    let (it, _, _) = managed(tx, org, who, slug, "staff").await?;
+    let mut u = args.clone();
+    u["owner"] = json!(it.owner_name());
+    if !progress {
+        if it.done.as_array().map_or(true, Vec::is_empty) && it.next.as_array().map_or(true, Vec::is_empty) {
+            u["working_on_next"] = json!([format!("staffed: {node} owns this item")]);
+        } else { u["keep_done"] = json!(true); u["keep_next"] = json!(true); }
+    }
+    if args["status"] == "backlogged" || (args["status"].is_null() && it.status == "backlogged") {
+        u["status"] = json!("open");
+    }
+    update_tx(tx, org, who, &u, post).await?;
+    assign_tx(tx, org, who, slug, node, true, post).await?;
+    Ok(slug.to_string())
 }
 
 /// `handoff`: the owner asks its superior (or `target`) to take the item.
@@ -1725,7 +1818,7 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
         },
     };
     let state: Option<String> = client
-        .query_opt("SELECT state FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org.id, &target])
+        .query_opt("SELECT state, born, generation FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org.id, &target])
         .await?
         .map(|r| r.get(0));
     let Some(state) = state else { refuse!(NotFound, "{target} no longer exists; nothing was sent") };
@@ -1864,4 +1957,64 @@ pub async fn owned_summary(client: &impl GenericClient, agent_id: i64) -> Result
         .iter()
         .map(|r| json!({ "slug": r.get::<_, String>(0), "title": r.get::<_, String>(1), "status": r.get::<_, String>(2) }))
         .collect())
+}
+
+/// Recover at most eight stale items. Selection reads policy columns only; full
+/// records are loaded only for those rows, in the same transaction as assignment.
+#[logged]
+pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>) -> Result<()> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let rows = tx.query(
+        "SELECT w.slug FROM ot.work_items w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
+         WHERE w.org_id = $1 AND w.status NOT IN ('done', 'dropped', 'superseded')
+           AND NOT coalesce((w.extra->>'deleted')::boolean, false)
+           AND greatest(w.docket_at, w.updated_at) < now() - interval '30 minutes'
+           AND coalesce(w.owner->>'node', w.owner #>> '{}', '') NOT IN ('', 'user', '@user', 'SYSTEM')
+           AND (a.id IS NULL OR a.state <> 'live' OR w.owner->'deleted' = 'true'::jsonb
+             OR (coalesce(w.owner->>'born', '') <> '' AND w.owner->>'born' IS DISTINCT FROM a.born)
+             OR a.generation < CASE WHEN w.owner->>'generation' ~ '^[0-9]{1,9}$' THEN (w.owner->>'generation')::integer ELSE 0 END)
+         ORDER BY w.created_at, w.id LIMIT 8 FOR UPDATE OF w SKIP LOCKED", &[&org.id]).await?;
+    if rows.is_empty() { return Ok(()); }
+    let Some(target) = tx.query_opt("SELECT id, name, generation FROM ot.agents WHERE org_id = $1 AND state = 'live' AND parent_id IS NULL ORDER BY name LIMIT 1 FOR SHARE", &[&org.id]).await? else { return Ok(()) };
+    let id: i64 = target.get(0);
+    let name: String = target.get(1);
+    let generation: i32 = target.get(2);
+    let mut post = AfterCommit::default();
+    for row in rows {
+        let slug: String = row.get(0);
+        let mut it = load(&*tx, org.id, &slug, false).await?;
+        // A compacted live identity is never abandoned. The immutable row id
+        // distinguishes a later hire reusing a deleted agent's name.
+        let previous = it.owner_name().map(str::to_string).or_else(|| it.owner.as_ref().and_then(Value::as_str).map(str::to_string));
+        let owner = if let Some(oid) = it.owner_id {
+            tx.query_opt("SELECT state, born, generation FROM ot.agents WHERE org_id = $1 AND id = $2 FOR SHARE", &[&org.id, &oid]).await?
+        } else {
+            tx.query_opt("SELECT state, born, generation FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' FOR SHARE", &[&org.id, &previous]).await?
+        };
+        let reference = it.owner.as_ref().unwrap_or(&Value::Null);
+        let same = owner.as_ref().is_some_and(|r| {
+            r.get::<_, String>(0) == "live" && reference["deleted"] != true
+                && reference["born"].as_str().filter(|v| !v.is_empty()).map_or(true, |born| r.get::<_, Option<String>>(1).as_deref() == Some(born))
+                && r.get::<_, i32>(2) as i64 >= reference["generation"].as_i64().unwrap_or(0)
+        });
+        if same { continue; }
+        let state = owner.as_ref().map(|r| r.get::<_, String>(0)).unwrap_or_else(|| "missing".into());
+        it.owner = Some(json!({ "node": name, "generation": generation }));
+        it.owner_id = Some(id);
+        it.participants.retain(|p| p != &name);
+        it.rev += 1;
+        it.updated_at = Utc::now();
+        save(&*tx, &it).await?;
+        tx.execute("INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, to_jsonb('@system'::text), 'abandoned-owner', $2)",
+            &[&it.id, &json!({ "from": previous, "to": name, "previous_owner_state": state })]).await?;
+        let ev = crate::events::docket_assigned(&org.slug, &it.slug, &it.title, &it.status, &it.objective, &it.done, &it.next, &name, previous.as_deref(), "@system");
+        let text = format!("[ABANDONED DOCKET RECOVERY] {} — \"{}\" had no live owner for over 30 minutes. You now own it. Read it with orgtree_work get and continue it.\n\n{}", it.slug, it.title, gist(&it.objective, 4000));
+        tell_tx(&*tx, &mut post, org.id, &it, &name, text, "request", true, ev).await?;
+        tracing::info!(org = %org.slug, item = %it.slug, owner = %name, previous_owner_state = %state, "abandoned docket ownership recovered");
+    }
+    tx.commit().await?;
+    drop(client);
+    post.publish(engine, org);
+    Ok(())
 }

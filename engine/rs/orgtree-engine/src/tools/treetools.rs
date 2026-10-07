@@ -7,7 +7,6 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 use super::{arg_str, me, Done};
-use crate::domain::mail::{self, From, Outgoing};
 use crate::domain::ops::{self, Actor};
 use crate::engine::Engine;
 use crate::runtime::Caller;
@@ -48,33 +47,6 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
         _ => {}
     }
     let actor = Actor::Agent { id: me.id, name: me.name.clone() };
-    let op_name = req["op"].as_str().unwrap_or(op).to_string();
     let out = ops::run(engine, &org, actor, &req).await?;
-    // a hire or rehire may open with a first message
-    let mut told = String::new();
-    if op_name == "hire" || op_name == "rehire" {
-        if let (Some(kick), Some(node)) = (arg_str(args, "kickoff"), out["node"].as_str()) {
-            let mut m = Outgoing::new(From::Agent { id: me.id, name: me.name.clone(), generation: me.generation }, node, kick);
-            if let Some(k) = arg_str(args, "kickoff_kind") {
-                m.kind = k.to_string();
-            }
-            m.ev = Some(mail::kickoff_event(engine, org.id, &org.slug, node, &me.name, &op_name, kick).await?);
-            match mail::send(engine, org.id, m).await {
-                Ok(s) => told = format!(" Kickoff sent ({}).", s.uid),
-                Err(e) => told = format!(" The kickoff could not be sent: {e}"),
-            }
-        }
-    }
-    if op_name == "hire" || op_name == "rehire" {
-        if let (Some(item), Some(node)) = (arg_str(args, "work_item"), out["node"].as_str()) {
-            let who = crate::domain::docket::Who::Agent { id: me.id, name: me.name.clone(), generation: me.generation };
-            match crate::domain::docket::assign(engine, &org, &who, item, node).await {
-                Ok(_) => told.push_str(&format!(" {node} now owns docket item {item} (its status is unchanged).")),
-                Err(e) => told.push_str(&format!(" The docket item {item} could not be assigned: {e}")),
-            }
-        }
-    }
-    let mut text = serde_json::to_string_pretty(&out).unwrap_or_default();
-    text.push_str(&told);
-    Ok(Done { text, card: None })
+    Ok(Done { text: serde_json::to_string_pretty(&out).unwrap_or_default(), card: None })
 }
