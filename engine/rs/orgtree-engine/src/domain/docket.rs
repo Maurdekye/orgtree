@@ -352,7 +352,10 @@ fn fnv(bytes: &[u8]) -> String {
 
 /// The `WorkItem` the docket renders. `detail` adds history and attachments.
 /// The caller's context filters every linked item's metadata by read rights.
-#[logged]
+// Hot per-item projection: logging it repeats the whole shared context for
+// every row. The enclosing list/detail request remains logged (decision 34;
+// user exemption 2026-10-07).
+#[nolog]
 pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value {
     let sources = attention_sources(it, ctx);
     let is_archived = archived(it, ctx);
