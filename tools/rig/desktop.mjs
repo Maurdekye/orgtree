@@ -18,7 +18,8 @@ export async function runDesktop(rig, script, { preset = 'short', out, timeout =
     ...cleanEnv(),
     RIG_DESKTOP_URL: rig.url, RIG_DESKTOP_TOKEN: rig.token, RIG_DESKTOP_ORG: org ?? '',
     RIG_DESKTOP_SCRIPT: path.resolve(script), RIG_DESKTOP_OUT: outDir, RIG_DESKTOP_PRESET: String(preset),
-    RIG_DESKTOP_PROFILE: path.join(rig.dir, 'electron-profile'), RIG_DESKTOP_TIMEOUT_MS: String(timeout),
+    // a fresh profile per invocation: no HTTP cache or localStorage carried from one script to the next
+    RIG_DESKTOP_PROFILE: path.join(rig.dir, 'electron-profiles', `${stamp}-${process.pid}-${Math.random().toString(16).slice(2, 6)}`), RIG_DESKTOP_TIMEOUT_MS: String(timeout),
     RIG_DESKTOP_ARGS: JSON.stringify(args ?? {}),
   }
   const child = spawn(electronExe(electron), [path.join(RIG_DIR, 'desktop', 'main.cjs')], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
