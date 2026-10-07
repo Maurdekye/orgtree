@@ -107,6 +107,14 @@ plan and this file. Read both before you change anything. All entries below: 202
   Resize must not re-enable it; retain 3.x's row anchors, paging and context-menu hold.
   [decided: user 2026-10-07; verified-from-source: renderer `canvas/desk.tsx`]
 
+- Failed transcript first loads and earlier pages retry every five seconds through
+  the shared conversation store. Retain the failed cursor/window and existing rows;
+  share in-flight cursor requests and synchronously capture each reader's row anchor
+  before retrying. The last visible desk unsubscribing cancels retries; hidden retained
+  hosts do not subscribe, while detached desks remain visible.
+  [recorded-decision: user 2026-10-07 08:19Z; verified-from-source and mounted mock smoke:
+  renderer `convo.ts`, `canvas/desk.tsx`]
+
 - Limit marks: fresh successful provider probes may clear an older mark for the
   same account/pool; cached, failed, missing or incomplete readings cannot. A
   successful turn uses its captured admission account/time, never a later rebind.
