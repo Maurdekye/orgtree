@@ -52,6 +52,7 @@ function stalledPage(slug: string, nid: string, reason: string): void {
 }
 const BUSY_POLL_MS = 2500      // heartbeat while the payload says busy
 const IDLE_POLL_MS = 7000      // heartbeat otherwise — slower, never off
+const HISTORY_RETRY_MS = 5000
 const NUDGE_MS = 200           // burst coalescing for the post-event refetch
 /** How long an unsettled fetch may hold the refresh gate before a later tick
  *  is allowed past it. Comfortably above the request ceiling api.ts imposes,
@@ -195,20 +196,9 @@ export interface Convo {
   thinkSecs: number | null
   win: number
   loadingOlder: boolean
-  /** THE LAST REQUEST FOR EARLIER MESSAGES FAILED, and nothing will ask again
-   *  on its own (user observation 2026-09-12: "loading earlier messages itself
-   *  appears to fail").
-   *
-   *  This is not cosmetic, it is the difference between a retryable state and
-   *  a dead end. The desk only asks for a page from its `onScroll` handler —
-   *  and a reader who has reached the top of the loaded window is AT
-   *  scrollTop 0, where wheeling produces no further scroll events at all.
-   *  `fillViewport`, the other caller, asks only while the rendered rows are
-   *  shorter than two screens, which a paged-in history never is. So a failed
-   *  page left the reader at the top of a transcript that plainly has more
-   *  above it, with nothing on screen to say anything went wrong and no
-   *  gesture that could ask again. */
+  /** Last history request failed; visible desks retry it every five seconds. */
   olderError: boolean
+  retryingHistory: boolean
   paged?: boolean
   /** a fetch has completed at least once — the first load always sticks */
   loaded: boolean
@@ -216,11 +206,16 @@ export interface Convo {
 
 const BLANK: Convo = {
   chat: null, live: [], pending: [], draft: '', thinking: '',
-  thinkSecs: null, win: CHAT_WINDOW, loadingOlder: false, olderError: false,
+  thinkSecs: null, win: CHAT_WINDOW, loadingOlder: false, olderError: false, retryingHistory: false,
   loaded: false,
 }
 
+type HistoryRetry = { kind: 'initial' | 'refresh' } | { kind: 'page'; before: string; rows: number }
+  | { kind: 'growth'; win: number }
+
 interface Entry {
+  historyRetry?: HistoryRetry
+  historyTimer?: ReturnType<typeof setTimeout>
   eventDriven?: boolean
   refreshAgain?: boolean
   assistantRows: Map<string, ChatMessage>
@@ -262,6 +257,8 @@ interface Entry {
   ownerVersion: number
   s: Convo
   subs: Set<() => void>
+  beforeOlder: Set<() => void>
+  historyFetches: Map<string, Promise<ChatPayload>>
   thinkT0: number          // 0 = not thinking (the single is-thinking truth)
   clock: ReturnType<typeof setInterval> | null
   /** The live scaffolding is SUPERSEDED but not yet replaced. Set when the
@@ -426,6 +423,7 @@ export function renameConvo(slug: string, from: string, to: string): void {
   const oldKey = key(slug, from), newKey = key(slug, to)
   const old = M.get(oldKey)
   if (!old) return
+  cancelHistoryRetry(old)
   removeInactive(old)
   // Existing callbacks capture this Entry, so moving it is safe without a
   // name-based alias. Cancel callbacks that only captured the old key; a new
@@ -452,6 +450,7 @@ export function renameConvo(slug: string, from: string, to: string): void {
       return
     }
     if (replaced.poll) { clearTimeout(replaced.poll); replaced.poll = null }
+    cancelHistoryRetry(replaced)
     if (replaced.nudge) { clearTimeout(replaced.nudge); replaced.nudge = null }
     cancelLive(replaced)
     stopClock(replaced)
@@ -469,6 +468,7 @@ export function dropConvo(slug: string, nid: string): void {
   const target = key(slug, nid)
   const old = M.get(target)
   if (!old) return
+  cancelHistoryRetry(old)
   removeInactive(old)
   if (old.poll) { clearTimeout(old.poll); old.poll = null }
   if (old.nudge) { clearTimeout(old.nudge); old.nudge = null }
@@ -482,7 +482,7 @@ export function dropConvo(slug: string, nid: string): void {
 function entry(k: string): Entry {
   let e = M.get(k)
   if (!e) {
-    e = { assistantRows: new Map(), assistantGaps: new Map(), assistantNative: new Set(), committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
+    e = { assistantRows: new Map(), assistantGaps: new Map(), assistantNative: new Set(), committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), beforeOlder: new Set(), historyFetches: new Map(), thinkT0: 0, clock: null, nudge: null,
           textSeen: 0, epochBoot: null,
           live: null, liveRaf: null, liveTimer: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
@@ -510,6 +510,56 @@ function patchEntry(e: Entry, p: Partial<Convo>, ownerVersion = e.ownerVersion):
 
 function patch(k: string, p: Partial<Convo>): void {
   patchEntry(entry(k), p)
+}
+
+/** A live-tail gap fill and a reader's older-page request can meet at the same
+ * cursor. Share that request too, rather than fetching the same page twice. */
+function fetchHistory(e: Entry, slug: string, nid: string, rows: number, before: string): Promise<ChatPayload> {
+  const page = `${e.ownerVersion}:${before}`
+  const pending = e.historyFetches.get(page)
+  if (pending) return pending
+  const request = getChat(slug, nid, rows, before).finally(() => {
+    if (e.historyFetches.get(page) === request) e.historyFetches.delete(page)
+  })
+  e.historyFetches.set(page, request)
+  return request
+}
+
+function cancelHistoryRetry(e: Entry): void {
+  if (e.historyTimer !== undefined) clearTimeout(e.historyTimer)
+  e.historyTimer = undefined
+  e.historyRetry = undefined
+  patchEntry(e, { retryingHistory: false, olderError: false })
+}
+
+/** One retry owner per conversation, only while at least one desk is shown.
+ * Keep the failed cursor/window: a retry must not expand a different page. */
+function retryHistory(e: Entry, slug: string, nid: string, retry: HistoryRetry): void {
+  if (!e.subs.size) return
+  if (e.historyTimer !== undefined) clearTimeout(e.historyTimer)
+  e.historyRetry = retry
+  patchEntry(e, { olderError: true, retryingHistory: true })
+  const version = e.ownerVersion
+  e.historyTimer = setTimeout(() => {
+    e.historyTimer = undefined
+    if (M.get(e.ownerKey) !== e || e.ownerVersion !== version || !e.subs.size
+      || e.historyRetry !== retry) return
+    if (retry.kind === 'page') {
+      if (!loadOlder(slug, nid, retry.rows) && e.historyRetry === retry) retryHistory(e, slug, nid, retry)
+    } else {
+      if (e.inflight) { retryHistory(e, slug, nid, retry); return }
+      if (retry.kind === 'growth') {
+        e.beforeOlder.forEach(prepare => prepare())
+        e.growingOlder = retry.win
+        patchEntry(e, { loadingOlder: true })
+      }
+      if (retry.kind === 'refresh') {
+        e.beforeOlder.forEach(prepare => prepare())
+        patchEntry(e, { loadingOlder: true })
+      }
+      void refreshConvo(slug, nid)
+    }
+  }, HISTORY_RETRY_MS)
 }
 
 // ------------------------------------------------------------- live text
@@ -621,6 +671,7 @@ function liveField<K extends keyof Convo>(e: Entry, field: K): Convo[K] {
 export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): void {
   const e = M.get(key(slug, nid))
   if (!e) return
+  if (e.historyRetry?.kind !== 'initial') cancelHistoryRetry(e)
   if (e.s.loadingOlder || e.pageInFlight) {
     // mid-flight: record the intent instead of dropping it (perf-review
     // round 3 — a dropped intent left the expanded window polling
@@ -645,15 +696,18 @@ export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): v
 }
 
 // ------------------------------------------------------------------ the hook
-export function useConvo(slug: string, nid: string, ownerWindow?: Window | null): Convo {
+export function useConvo(slug: string, nid: string, ownerWindow?: Window | null,
+                         beforeOlder?: () => void, visible = true): Convo {
   const k = key(slug, nid)
   const recordContext = useContext(OrgRecordContext)
   const eventDriven = recordContext?.slug === slug
   const sub = useCallback((cb: () => void) => {
+    if (!visible) return () => {}
     const e = entry(k)
     e.eventDriven = eventDriven
     if (eventDriven && e.poll) { clearTimeout(e.poll); e.poll = null }
     e.subs.add(cb)
+    if (beforeOlder) e.beforeOlder.add(beforeOlder)
     // the engine streams this node's tokens only to windows in its room
     const unwatch = watchNode(slug, nid)
     beat(k, slug, nid)          // someone is watching -> keep it fresh
@@ -665,7 +719,16 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null)
     return () => {
       unwatch()
       e.subs.delete(cb)
+      if (beforeOlder) e.beforeOlder.delete(beforeOlder)
       if (!e.subs.size) {
+        cancelHistoryRetry(e)
+        // A page belonging to a closed visit must not land in a reopened desk.
+        e.pageSerial++
+        e.pageInFlight = false
+        e.growingOlder = undefined
+        e.pendingCollapse = false
+        e.pendingKeep = undefined
+        e.s = { ...e.s, loadingOlder: false }
         if (e.poll) { clearTimeout(e.poll); e.poll = null }
         // nobody is rendering thinkSecs — stop patching it at 1 Hz. thinkT0
         // stays set, so a resubscribe resumes with the true elapsed time.
@@ -687,9 +750,9 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null)
       }
       retainConvo(e)
     }
-  }, [k, slug, nid, eventDriven])
+  }, [k, slug, nid, eventDriven, beforeOlder, visible])
   useEffect(() => {
-    if (!eventDriven) return
+    if (!eventDriven || !visible) return
     const focus = () => { void refreshConvo(slug, nid) }
     const owner = ownerWindow ?? window
     owner.addEventListener('focus', focus)
@@ -697,7 +760,7 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null)
       if (event.org === slug && event.node === nid) void refreshConvo(slug, nid)
     })
     return () => { off(); owner.removeEventListener('focus', focus) }
-  }, [slug, nid, eventDriven, ownerWindow])
+  }, [slug, nid, eventDriven, ownerWindow, visible])
   const snap = useCallback(() => entry(k).s, [k])
   return useSyncExternalStore(sub, snap, snap)
 }
@@ -809,6 +872,9 @@ export function refreshConvo(slug: string, nid: string,
                               opts: { force?: boolean } = {}): Promise<void> {
   const k = key(slug, nid)
   const e = entry(k)
+  // Heartbeats and stream events must not bypass a history retry's five-second
+  // delay. Cursor-page retries can still receive unrelated live-tail updates.
+  if (e.historyTimer !== undefined && e.historyRetry?.kind !== 'page') return Promise.resolve()
   const ownerVersion = e.ownerVersion
   // ⚠ `inflight` is a LATCH, and a latch needs a way out that does not depend
   // on the thing it is waiting for. It is cleared only by the fetch settling,
@@ -821,8 +887,9 @@ export function refreshConvo(slug: string, nid: string,
   // is the real fix; this is the belt to that pair of braces, because "the
   // request always settles" is exactly the assumption that just failed.
   const now = Date.now()
-  if (e.inflight && (!opts.force || e.eventDriven) && now - e.inflightAt < STALL_MS) {
-    if (e.eventDriven) e.refreshAgain = true
+  const historyFetch = !e.s.loaded || e.growingOlder !== undefined || e.historyRetry?.kind === 'refresh'
+  if (e.inflight && (historyFetch || ((!opts.force || e.eventDriven) && now - e.inflightAt < STALL_MS))) {
+    if (e.eventDriven || historyFetch) e.refreshAgain = true
     return Promise.resolve()
   }
   e.inflight = true
@@ -836,6 +903,7 @@ export function refreshConvo(slug: string, nid: string,
   // can issue faster than the backend answers, starving the view forever.
   const stillFreshest = (): boolean => ownsRequest() && requestSerial >= e.installed
   const askedWin = e.s.win
+  let fetchedHistory = false
   // Is this response the answer to a pending viewport growth? Only if it was
   // asked with the grown window (see Entry.growingOlder). Consumed on use.
   const takeGrowth = (): boolean => {
@@ -874,7 +942,8 @@ export function refreshConvo(slug: string, nid: string,
           throw new Error('Transcript pagination did not advance')
         }
         visited.add(cursor)
-        const page = await getChat(slug, nid, e.s.win, cursor)
+        fetchedHistory = true
+        const page = await fetchHistory(e, slug, nid, e.s.win, cursor)
         if (!stillFreshest()) return
         if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
         if (!olderPageProgress(c, page) || (page.has_older && (!page.before || page.before === cursor))) {
@@ -914,7 +983,8 @@ export function refreshConvo(slug: string, nid: string,
         break
       }
       proofVisited.add(proofCursor)
-      const page = await getChat(slug, nid, e.s.win, proofCursor)
+      fetchedHistory = true
+      const page = await fetchHistory(e, slug, nid, e.s.win, proofCursor)
       if (!stillFreshest()) return
       if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
       if (!olderPageProgress(c, page) || (page.has_older && (!page.before || page.before === proofCursor))) {
@@ -1117,6 +1187,9 @@ export function refreshConvo(slug: string, nid: string,
     if (c.incremental && !e.s.paged && c.messages.length > e.s.win) {
       c = { ...c, messages: c.messages.slice(-e.s.win), before: tailBefore, has_older: true }
     }
+    if (changedConversation || e.historyRetry?.kind === 'initial' || e.historyRetry?.kind === 'refresh'
+      || (grew && !stalledGrowth)) cancelHistoryRetry(e)
+    if (stalledGrowth) retryHistory(e, slug, nid, { kind: 'growth', win: askedWin })
     patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
@@ -1124,14 +1197,10 @@ export function refreshConvo(slug: string, nid: string,
     if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).catch(() => {
     if (!stillFreshest()) return
-    // …and if this refresh WAS the older-rows request (the viewport path
-    // widens `win` and rides an ordinary refresh rather than making its own
-    // call), its failure is a failed page and has to say so. Without this the
-    // automatic path failed silently and offered nothing (desk-review, third
-    // pass). It differs from the cursor path in one way worth keeping in
-    // mind: fillViewport re-asks on the next render, so this is an honest
-    // indication that also self-heals, not the only way back.
     const grew = takeGrowth()
+    if (grew) retryHistory(e, slug, nid, { kind: 'growth', win: askedWin })
+    else if (!e.s.loaded) retryHistory(e, slug, nid, { kind: 'initial' })
+    else if (fetchedHistory || e.historyRetry?.kind === 'refresh') retryHistory(e, slug, nid, { kind: 'refresh' })
     patchEntry(e, { loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), ...(grew ? { olderError: true } : {}) }, ownerVersion)
     if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).finally(() => {
@@ -1154,18 +1223,21 @@ export function refreshConvo(slug: string, nid: string,
 export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewport = false): boolean {
   const k = key(slug, nid)
   const e = entry(k)
-  if (e.s.loadingOlder || e.pageInFlight || e.s.win >= MAX_WINDOW) return false
-  if (e.s.chat?.has_older === false) return false
-  const before = e.s.chat?.before
+  if (e.s.loadingOlder || e.pageInFlight || (e.s.win >= MAX_WINDOW && !e.historyRetry)) return false
+  if (e.s.chat?.has_older === false) { cancelHistoryRetry(e); return false }
+  const before = e.historyRetry?.kind === 'page' ? e.historyRetry.before : e.s.chat?.before
   if (before && !viewport) {
     const version = e.ownerVersion
     const conversation = e.s.chat?.conversation_id
     const pageSerial = ++e.pageSerial
+    e.beforeOlder.forEach(prepare => prepare())
     e.pageInFlight = true
+    if (e.historyTimer !== undefined) { clearTimeout(e.historyTimer); e.historyTimer = undefined }
     e.requests++
     patchEntry(e, { loadingOlder: true, olderError: false })
-    void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
+    void fetchHistory(e, slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       const currentPage = e.pageSerial === pageSerial
+      if (!currentPage) return
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion || !e.s.chat) {
         // ⚠ A STALE OR CANCELLED RESPONSE STILL HAS TO END THE FLIGHT.
         // This branch used to `return` with `pageInFlight` still true, and
@@ -1234,14 +1306,17 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       if (!olderPageProgress(current, page) || (page.has_older && (!page.before || page.before === before))) {
         stalledPage(slug, nid, 'history cursor or page did not advance')
         patchEntry(e, { loadingOlder: false, olderError: true }, version)
+        retryHistory(e, slug, nid, { kind: 'page', before, rows })
         return
       }
       const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))
+      cancelHistoryRetry(e)
       patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
         chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
           before: page.before, has_older: page.has_older }) }, version)
     }).catch(() => {
       const currentPage = e.pageSerial === pageSerial
+      if (!currentPage) return
       if (currentPage) e.pageInFlight = false
       if (M.get(e.ownerKey) !== e || version !== e.ownerVersion) {
         // the same wedge as the success path's stale branch: `loadingOlder` is
@@ -1262,11 +1337,10 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       const keep = e.pendingKeep
       e.pendingCollapse = false
       e.pendingKeep = undefined
-      // the reader asked for earlier messages and did not get them: say so,
-      // because nothing here will ask again by itself (see `olderError`)
-      patchEntry(e, { loadingOlder: false, paged: false, olderError: true }, version)
+      // Preserve already-paged rows and their cursor while the same page retries.
+      patchEntry(e, { loadingOlder: false, olderError: true }, version)
+      if (!wanted) retryHistory(e, slug, nid, { kind: 'page', before, rows })
       if (wanted) collapseWindow(slug, nid, keep ?? CHAT_WINDOW)
-      void refreshConvo(slug, nid, { force: true })
     }).finally(() => { e.requests--; retainConvo(e) })
     return true
   }
@@ -1274,6 +1348,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   // forced refresh carry it. Mark it so that refresh's outcome is reported as
   // this page's outcome.
   const grown = Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows)))
+  e.beforeOlder.forEach(prepare => prepare())
   e.growingOlder = grown
   patch(k, { loadingOlder: true, olderError: false, win: grown })
   void refreshConvo(slug, nid, { force: true })
@@ -1651,6 +1726,7 @@ function beat(k: string, slug: string, nid: string): void {
  *  file exists to prevent. Identity of the Entry is load-bearing. */
 export function resetConvos(): void {
   M.forEach((e) => {
+    cancelHistoryRetry(e)
     stopClock(e)
     // ⚠ Only unwatched entries lose their poll. React runs child effects
     // before parent effects, so on an org switch the new desks have ALREADY

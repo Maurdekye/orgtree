@@ -1610,6 +1610,7 @@ export const DeskChat = DeskSlot
 export const OwnedDeskChat = memo(DeskChatInner, (p, n) =>
   p.node === n.node && p.map === n.map && p.slug === n.slug
   && p.staleIdentity === n.staleIdentity && p.bare === n.bare && p.compact === n.compact
+  && p.eligible === n.eligible
   && p.compactAt === n.compactAt && p.maxTop === n.maxTop && p.pxc === n.pxc
   && p.onDismiss === n.onDismiss)
 
@@ -1851,7 +1852,7 @@ function ctxTargetElement(root: Element | null,
 function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineageProp, onConfig: configProp,
   onRecenter, onJump, maxTop, pxc, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
-  staleIdentity = false, onDismiss, hidePopout = false }: DeskChatProps) {
+  staleIdentity = false, onDismiss, hidePopout = false, eligible = true }: DeskChatProps) {
   const node = useNodeMetadata(slug, baseNode)
   const enterKey = useComposerEnter()
   // A host that passes no settings/lineage handler (the Attention view's desk,
@@ -1874,7 +1875,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // scroll position, its open tab, its composer draft.
   const surface = useSurface()
   const surfaceDocument = useSurfaceDocument()
-  const convo = useConvo(slug, node.id, surfaceDocument?.defaultView)
+  const historyVisible = eligible || !!surface?.detached
+  const historyStart = useRef<() => void>(() => {})
+  const prepareHistory = useCallback(() => historyStart.current(), [])
+  const convo = useConvo(slug, node.id, surfaceDocument?.defaultView, prepareHistory, historyVisible)
   const recordChat = useRecordsEnabled(slug)
   const chatKey = `${slug}/${node.id}`
   const noticeArmed = useNoticeArmed(chatKey)
@@ -2437,6 +2441,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // the loop must not outlive the desk: an armed tick re-schedules itself,
   // and after unmount nothing else would ever stop it
   useEffect(() => stopSettle, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  // Capture synchronously before store-owned retries or another view's request.
+  // A fast response may land before React renders the loading state at all.
+  historyStart.current = () => {
+    if (!stickRef.current) {
+      growAnchor.current = captureAnchor()
+      armSettle()
+    }
+  }
   useLayoutEffect(() => {
     // ⚠ THE ANCHOR IS RE-ASSERTED BEFORE ANYTHING ELSE MEASURES.
     // `fillViewport` can ask for another page, and `loadOlder` captures the
@@ -2621,7 +2633,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const fillViewportRef = useRef<() => void>(() => {})
   fillViewportRef.current = () => {
     const el = scroller.current
-    if (!el || !hasOlder || loadingOlder || convo.olderError) return
+    if (!historyVisible || !el || !hasOlder || loadingOlder || convo.olderError) return
     const { more } = transcriptViewport(el)
     if (more) loadOlder(more)
   }
@@ -2835,8 +2847,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     ctxMarked.current = want
   })
   useEffect(() => {
-    if (!convo.loaded) void refreshConvo(slug, node.id)
-  }, [slug, node.id, convo.loaded])
+    if (historyVisible && !convo.loaded) void refreshConvo(slug, node.id)
+  }, [slug, node.id, convo.loaded, historyVisible])
   useEffect(() => {
     // the FIRST payload this view sees lands it at the bottom, whether the
     // store fetched it for us or another view had already loaded it
@@ -3550,24 +3562,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             // within a screen of the top: page in the previous window
             if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder && !convo.olderError) loadOlder()
           }}>
-          {/* paging is automatic (the onScroll above pages in within a screen
-              of the top) — this is a status line, not a control. It still
-              earns its place: it reserves height so the list does not jump as
-              rows prepend, and at the API's window cap it is the ONLY thing
-              that explains why scrolling up stopped producing messages.
-              ⚠ …EXCEPT WHEN THE LAST REQUEST FAILED, where it has to become a
-              control. Automatic paging has exactly two triggers, and a reader
-              who has just been refused a page sits where NEITHER can fire
-              again: `onScroll` needs a scroll event, and there are none left
-              at scrollTop 0, while `fillViewport` asks only while the rendered
-              rows are shorter than two screens, which a paged-in history never
-              is. Without something to press, "earlier messages" sat above a
-              transcript that would never load another one (user observation
-              2026-09-12: "loading earlier messages itself appears to fail"). */}
+          {/* Automatic paging reserves a status line above the rows. Failures
+              retry through the shared store, including at scrollTop 0 where
+              another wheel cannot produce a new scroll event. */}
           {hasOlder && (
             <div className={'dim pad loadolder-status' + (loadingOlder ? ' on' : '')
               + (convo.olderError && !loadingOlder ? ' failed' : '')}>
-              {loadingOlder ? 'loading earlier messages…'
+              {convo.retryingHistory ? 'Couldn’t load earlier messages, retrying…'
+                : loadingOlder ? 'loading earlier messages…'
                 : convo.olderError
                   ? <button type="button" className="loadolder-retry"
                       title="the last request for earlier messages failed — try again"
@@ -3579,7 +3581,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             </div>)}
           {!hasOlder && convo.win > CHAT_WINDOW && chat?.messages.length
             ? <div className="dim pad loadolder-end">— start of the conversation —</div> : null}
-          {!chat && <div className="dim pad">loading…</div>}
+          {!chat && <div className="dim pad">{convo.retryingHistory
+            ? 'Couldn’t load earlier messages, retrying…' : 'loading…'}</div>}
           {chat && !chat.messages.length && !live_feed.length &&
             <div className="dim pad">no conversation yet</div>}
           {/* a FRESH session under a seat that has history (cheap compact,
