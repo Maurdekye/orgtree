@@ -1183,7 +1183,32 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     }
     if it.status == "review" && from_status != "review" {
         if let Some(r) = it.reviewer_name() {
-            tell(engine, org.id, &it, r, format!("{} asks you to REVIEW docket item {} — \"{}\". Check the work and its evidence, then set the status (approved, done, or back to in_progress with what must change).", who.label(), it.slug, it.title), "request", true).await;
+            let ev = crate::events::typed("docket.review_requested", &who_id(who),
+                crate::events::work_item_ref(&org.slug, &it.slug, &it.title),
+                json!({ "reviewer": r, "requested_by": who_id(who), "owner": it.owner_name().unwrap_or(""),
+                        "objective": it.objective, "done_so_far": it.done, "acceptance": [], "revision": it.rev,
+                        "candidate": null, "base": null, "objective_notice": null, "relayed": false }));
+            tell_ev(engine, org.id, &it, r, format!("[DOCKET REVIEW REQUEST · {} \"{}\"]\nYou are named as REVIEWER. {} keeps ownership. Read the full scope with orgtree_work get slug={}; then use update status=approved, done, or in_progress with your findings.\nRequested by {}.\nDescription: {}", it.slug, it.title, it.owner_name().unwrap_or("its owner"), it.slug, who.label(), it.objective), "request", true, Some(ev)).await;
+        }
+    }
+    // Reviewer status transitions retain the old review outcome cards. The
+    // removed verdict/seat machinery is not reintroduced.
+    if from_status == "review" && it.status != from_status
+        && it.reviewer_name() == Some(who_id(who).as_str()) {
+        if let Some(owner) = it.owner_name() {
+            let variant = match it.status.as_str() {
+                "approved" | "done" => Some("docket.review_approved"),
+                "in_progress" => Some("docket.review_changes"),
+                _ => None,
+            };
+            if let Some(variant) = variant {
+                let note = it.done.as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n"));
+                let ev = crate::events::typed(variant, &who_id(who),
+                    crate::events::work_item_ref(&org.slug, &it.slug, &it.title),
+                    json!({ "reviewer": who_id(who), "owner": owner, "note": note, "relayed": false }));
+                let outcome = if it.status == "in_progress" { "CHANGES REQUESTED" } else { "REVIEW PASSED" };
+                tell_ev(engine, org.id, &it, owner, format!("[DOCKET REVIEW · {} \"{}\"]\n{outcome} by {}. The item is now {}.\n{}", it.slug, it.title, who.label(), it.status, note.unwrap_or_default()), "request", true, Some(ev)).await;
+            }
         }
     }
     let mut out = json!({ "updated": it.slug, "rev": it.rev, "status": it.status, "owner": it.owner_name(),

@@ -9,6 +9,37 @@ use serde_json::{json, Map, Value};
 pub const USER: &str = "@user";
 pub const SYSTEM: &str = "@system";
 
+/// Canonical leaf construction. Callers supply the declared fields, never prose
+/// recognition; the same envelope reaches the desk, inbox and agent formatter.
+#[logged]
+pub fn typed(variant: &str, who: &str, object: Value, fields: Value) -> Value {
+    let mut out = envelope(variant, actor(who), object);
+    if let Value::Object(fields) = fields {
+        out.extend(fields);
+    }
+    Value::Object(out)
+}
+
+#[logged]
+pub fn ordinary(who: &str, kind: &str, notice: bool, body: &str) -> Value {
+    let kind = if notice { "notice" } else if ["message", "question", "request", "decision", "status"].contains(&kind) { kind } else { "message" };
+    typed(&format!("ordinary.{kind}"), who, Value::Null, json!({ "body": body }))
+}
+
+#[logged]
+pub fn status_report(org: &str, node: &str, generation: i64, state: &str, summary: &str) -> Value {
+    typed("status.report", node, node_ref(org, node, generation), json!({ "state": state, "summary": summary }))
+}
+
+#[logged]
+pub fn credit_decision(org: &str, node: &str, request: &str, old: f64, asked: f64, granted: Option<f64>) -> Value {
+    let outcome = match granted {
+        None => "denied", Some(n) if n < old => "reduced", Some(n) if n == asked => "approved", Some(_) => "counter",
+    };
+    typed("decision.credit", USER, json!({"kind":"credit_request", "org":org, "id":request, "node":node}),
+          json!({ "outcome": outcome, "old": old, "asked": asked, "granted": granted, "now": granted.unwrap_or(old) }))
+}
+
 /// The canonical actor for a sender id: the user, the engine, an outside peer, an agent.
 pub fn actor(who: &str) -> Value {
     match who {

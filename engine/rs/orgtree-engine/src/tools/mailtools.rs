@@ -109,6 +109,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
             );
             out.kind = "status".into();
             out.notice = true;
+            out.ev = Some(crate::events::status_report(&caller.org_slug, &me.name, me.generation as i64, status, &summary));
             if mail::send(engine, me.org_id, out).await.is_ok() {
                 told = if sup == "user" {
                     " The user gets it in their inbox.".to_string()

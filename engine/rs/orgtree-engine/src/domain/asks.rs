@@ -592,10 +592,10 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
         let tx = client.transaction().await?;
         let open = open_by(&tx, org.id, Some(uid), None).await?;
         let msg = format!("The user granted credits: your grant is now {granted} (you asked for {asked}).");
-        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg, None).await?;
+        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, Some(granted)))).await?;
         return Ok(json!({ "ok": true, "node": node, "warnings": warnings }));
     }
-    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text, None).await?;
+    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, None))).await?;
     Ok(json!({ "ok": true, "node": node, "warnings": warnings }))
 }
 

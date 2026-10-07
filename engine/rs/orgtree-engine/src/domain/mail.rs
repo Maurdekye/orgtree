@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::domain::UserError;
 use crate::engine::Engine;
@@ -90,8 +90,12 @@ pub struct Sent {
 
 /// Store one message and wake its recipient.
 #[logged]
-pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Sent> {
+pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Result<Sent> {
     let org = engine.orgs.by_id(org_id).ok_or_else(|| anyhow::Error::new(UserError::NotFound("organization".into())))?;
+    let explicit_event = out.ev.is_some();
+    if !explicit_event {
+        out.ev = Some(crate::events::ordinary(&out.from.name(), &out.kind, out.notice, &out.body));
+    }
     let to = out.to.trim().trim_start_matches('@').to_string();
     if out.body.trim().is_empty() && out.attachments.is_empty() {
         refuse!(BadRequest, "a message needs a body");
@@ -100,6 +104,13 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
         return Box::pin(crate::domain::orginbox::send_extern(engine, org_id, &out)).await;
     }
     let client = engine.db.get().await?;
+    if !explicit_event {
+        if let Some(reply) = &out.reply_to {
+            if let Some(ev) = reply_event(&client, org_id, &org.slug, &out.from.name(), &out.body, reply).await? {
+                out.ev = Some(ev);
+            }
+        }
+    }
     let mail_uid = uid("m");
     let sender_name = out.from.name();
     let (sender_agent, sender_gen) = match &out.from {
@@ -205,6 +216,34 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
         }
     }
     Ok(Sent { uid: mail_uid, to, recipient_state: state, delivery, deferred })
+}
+
+/// Linked replies use stored identity/metadata, never body-prefix recognition.
+#[logged]
+async fn reply_event(client: &tokio_postgres::Client, org_id: i64, org: &str, who: &str, body: &str, reply: &Value) -> Result<Option<Value>> {
+    let id = reply["id"].as_str().unwrap_or("");
+    match reply["kind"].as_str().unwrap_or("") {
+        "document" => {
+            let r = client.query_opt("SELECT node_name, title FROM ot.documents WHERE org_id=$1 AND uid=$2", &[&org_id, &id]).await?;
+            Ok(r.map(|r| crate::events::typed("reply.document", who,
+                json!({ "kind":"document", "org":org, "id":id, "node":r.get::<_, String>(0), "title":r.get::<_, String>(1) }),
+                json!({ "body":body }))))
+        }
+        "mail" => {
+            let r = client.query_opt("SELECT sender, created_at, body, recipient_kind, recipient_name FROM ot.mail WHERE org_id=$1 AND uid=$2", &[&org_id,&id]).await?;
+            Ok(r.map(|r| {
+                let sender: String = r.get(0);
+                let at = crate::util::iso(r.get(1));
+                let kind: String = r.get(3);
+                let target: String = r.get(4);
+                crate::events::typed("reply.mail", who,
+                    json!({ "kind":"mail", "org":org, "id":id, "sender":sender, "at":at,
+                            "box":if kind == "agent" { "node" } else { "user" }, "node":if kind == "agent" { Some(target) } else { None } }),
+                    json!({ "body":body, "quote":{ "from":sender, "at":at, "gist":gist(&r.get::<_,String>(2),600) } }))
+            }))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// May agent `from` write to agent `to`? Superior, any descendant, peers,
