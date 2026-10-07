@@ -269,6 +269,7 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "quick_staff_request_accounts": false,
         "git_periodic_fetch_enabled": false,
         "warming_enabled": engine.settings.keep_warm(),
+        "antigravity_claude_enabled": engine.settings.antigravity_claude_enabled(),
         "working_checkups_enabled": sw.checkups,
         "wait_for_mcp_tools_enabled": engine.settings.wait_for_mcp_tools(),
         "idle_docket_reminders_enabled": sw.idle,
@@ -294,6 +295,10 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut warming = None;
     for (k, v) in &b {
         match k.as_str() {
+            "antigravity_claude_enabled" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request("antigravity_claude_enabled is true or false"))?;
+                rt.insert(k.clone(), json!(on));
+            }
             "enter_key_behavior" => {
                 let mode = v.as_str().filter(|s| ["send", "newline"].contains(s))
                     .ok_or_else(|| ApiError::bad_request("enter_key_behavior is send or newline"))?;
@@ -348,6 +353,9 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut client = e.db.get().await?;
     e.settings.merge(&mut client, json!({ "runtime": rt })).await?;
     drop(client);
+    if b.contains_key("antigravity_claude_enabled") {
+        crate::providers::publish(&e);
+    }
     if b.contains_key("enter_key_behavior") {
         e.app.set_value("enter_key_behavior", json!(e.settings.enter_key_behavior()));
     }

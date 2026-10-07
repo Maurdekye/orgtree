@@ -61,6 +61,11 @@ impl AppSettings {
     }
 
     // ---- typed readers with the documented defaults ----
+    /// Separate Antigravity Claude tiers are opt-in; existing installations keep them off.
+    pub fn antigravity_claude_enabled(&self) -> bool {
+        self.runtime().get("antigravity_claude_enabled").and_then(Value::as_bool).unwrap_or(false)
+    }
+
     /// Message composers share this app-wide choice; old installations send on Enter.
     pub fn enter_key_behavior(&self) -> &'static str {
         if self.runtime().get("enter_key_behavior").and_then(Value::as_str) == Some("newline") {
