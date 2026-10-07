@@ -83,11 +83,25 @@ pub fn ask_info(raw: &Value, node_name: &str, now: DateTime<Utc>) -> Value {
 }
 
 /// An `asks` row → `AskInfo`.
+#[logged]
 pub fn ask_card(raw: &Value, node_name: &str) -> Value {
     let mut o = raw["body"].as_object().cloned().unwrap_or_default();
+    let mut kind = raw["kind"].clone();
+    if raw["status"] == "open" && raw["body"]["parts"].is_object() {
+        // Recompose at read time too: already-open cards from earlier Rust
+        // builds must recover batch navigation without being asked again.
+        let parts = crate::domain::asks::Parts::of(&raw["body"]);
+        let (_, body) = crate::domain::asks::compose(
+            raw["uid"].as_str().unwrap_or(""), raw["rev"].as_i64().unwrap_or(1) as i32, &parts,
+        );
+        if body["tabs"].as_array().is_some_and(|tabs| !tabs.is_empty()) {
+            o.extend(body.as_object().cloned().unwrap_or_default());
+            kind = json!("batch");
+        }
+    }
     o.insert("id".into(), raw["uid"].clone());
     o.insert("node".into(), json!(node_name));
-    o.insert("kind".into(), raw["kind"].clone());
+    o.insert("kind".into(), kind);
     o.insert("status".into(), raw["status"].clone());
     o.insert("at".into(), ts(&raw["created_at"]));
     o.insert("rev".into(), raw["rev"].clone());

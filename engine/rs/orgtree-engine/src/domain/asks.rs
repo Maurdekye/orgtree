@@ -27,8 +27,9 @@ pub struct Parts {
     pub scope: Option<Value>,
 }
 
+#[logged]
 impl Parts {
-    fn of(body: &Value) -> Parts {
+    pub(crate) fn of(body: &Value) -> Parts {
         Parts {
             questions: body["parts"]["questions"].as_array().cloned().unwrap_or_default(),
             credit: body["parts"].get("credit").filter(|v| !v.is_null()).cloned(),
@@ -77,7 +78,9 @@ pub(crate) fn compose(uid: &str, rev: i32, p: &Parts) -> (String, Value) {
             o.insert("reason".into(), p.scope.as_ref().map(|s| s["reason"].clone()).unwrap_or(Value::Null));
         }
     }
-    if kind == "batch" {
+    // Open requests always use the renderer's batch form, even when every
+    // tab is a question. Keep the stored kind for resolved-card history.
+    {
         let mut tabs = Vec::new();
         for q in &p.questions {
             let mut t = q.clone();
