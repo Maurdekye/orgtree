@@ -197,7 +197,10 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
         if let Some(mut e)=next {
             if e.at<d.created_at || !accepts(&d.target,&e.name) || !visible(engine,&d,&e).await? {continue;}
             if matches!(e.name.as_str(),"agents.active"|"agents.live") {
-                let n=count(engine,d.owner,e.name=="agents.active",d.memo["event_scope"].as_str().unwrap_or("subtree"),e.members.as_deref()).await?;
+                let n=match count(engine,d.owner,e.name=="agents.active",d.memo["event_scope"].as_str().unwrap_or("subtree"),e.members.as_deref()).await {
+                    Ok(n)=>n,
+                    Err(_)=>{pause(engine,&d,"event count is unavailable or its scope is no longer permitted; review scope before resuming").await?;return Ok(())}
+                };
                 if !d.run["counts"].is_object(){d.run["counts"]=json!({});}
                 let old=d.run["counts"][&e.name].as_i64().or_else(||if d.target==e.name{d.run["count"].as_i64()}else{None});d.run["counts"][&e.name]=json!(n);
                 e.payload=json!({"count":n,"previous":old,"scope":d.memo["event_scope"].as_str().unwrap_or("subtree")});
