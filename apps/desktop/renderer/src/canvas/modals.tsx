@@ -206,6 +206,7 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
             onClick={() => setExpPattern((v) => !v)}>{dog.pattern}</div>
         </>}
         {dog.threshold && <div className="dim">Count crosses {dog.threshold} · {dog.event_scope === 'org' ? 'organization' : 'visible subtree'}</div>}
+        {dog.health && <div className="ask-warn">{dog.health}</div>}
         {dog.kind === 'event' && dog.last_output && <><div className="field-label">last event</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
         <div className="field-label">fire mode</div>
         <div className="dim">{dog.fire_mode === 'silence'

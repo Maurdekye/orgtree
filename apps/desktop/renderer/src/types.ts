@@ -662,6 +662,7 @@ export interface Watchdog {
   threshold?: string
   event_scope?: 'org' | 'subtree'
   last_output?: string
+  health?: string
   fire_mode?: 'event' | 'silence'
   quiet_period_s?: number
   silence_since?: string
