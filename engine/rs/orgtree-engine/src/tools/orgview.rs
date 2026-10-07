@@ -212,10 +212,16 @@ fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling:
 #[logged]
 fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64, (Option<i64>, Value)>) -> bool {
     if id == caller || visibility == "full" { return true; }
-    if visibility == "team" { return rows.get(&id).map(|r| r.0) == rows.get(&caller).map(|r| r.0); }
-    if visibility != "subtree" { return false; }
+    let (Some((parent, _)), Some((caller_parent, _))) = (rows.get(&id), rows.get(&caller)) else {
+        return false;
+    };
+    // Match chart's superior/peer rows, including other top-level agents.
+    // Reports at every depth are inspectable even with self visibility.
+    if visibility != "self" && (Some(id) == *caller_parent || parent == caller_parent) {
+        return true;
+    }
     let mut next = Some(id);
-    for _ in 0..1024 {
+    for _ in 0..=1024 {
         let Some(at) = next else { return false; };
         if at == caller { return true; }
         next = rows.get(&at).and_then(|r| r.0);
@@ -266,9 +272,13 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     tx.commit().await?;
     let own_scope = inspection_scope(caller.agent_id, &scopes, &ceiling)?;
     let visibility = own_scope["org_visibility"].as_str().unwrap_or("team");
+    // Chart's Me reads the stored visibility; keep its exact visible set while
+    // continuing to report effective (ancestor-clamped) scope in the projection.
+    let chart_visibility = scopes.get(&caller.agent_id)
+        .and_then(|(_, scope)| scope["org_visibility"].as_str()).unwrap_or("subtree");
     let mut out = Vec::new();
     for (id, mut row) in records {
-        if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, visibility, &scopes) { continue; }
+        if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, chart_visibility, &scopes) { continue; }
         if !names.is_empty() && !names.iter().any(|n| row["name"] == *n) { continue; }
         let effective = inspection_scope(id, &scopes, &ceiling)?;
         let provider = catalog::provider_of(row["tier"].as_str().unwrap_or("")).to_string();
