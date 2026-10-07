@@ -234,6 +234,12 @@ the host at layer 20, below dialogs (30/31). Canvas-owned dialogs must also esca
 the viewport through `ModalOverPins`: z-index alone cannot escape its stacking
 context. The temporary host yields keyboard focus to portaled dialogs, menus and
 listboxes, including dialogs without `aria-modal`.
+
+**Tab highlight colors (2026-10-07, verified from source).** Generic button
+hover/focus uses `--button-accent`, which can follow the focused provider.
+Tab buttons override that token with their scoped `--accent` so highlighting
+and selection follow the same theme. Keep that override on the button itself
+and preserve selected-state fills/underlines separately from hover/focus.
 Forced Chromium DPR does not change Windows frame DPI: compare `GetDpiForWindow` before
 claiming native DPI coverage. Rust sibling ties use the numeric database id (wire `ord`),
 not creation time. [verified: `main/windows.ts`, renderer `canvas/deskhosts.tsx`,

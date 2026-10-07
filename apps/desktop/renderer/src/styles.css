@@ -4877,6 +4877,17 @@ button {
   cursor: pointer; transition: background .12s, border-color .12s;
 }
 button:hover { background: var(--panel-2); border-color: var(--line-hover); }
+/* Tab interaction follows the same scoped theme accent as selection, not
+   the provider of whichever agent last focused the generic button chrome.
+   Resolve the token on each button so nested provider/theme scopes work too.
+   This covers settings/advanced, desk (including gallery/docket), request,
+   inbox folder, workspace and switchboard strips. Keep their distinct
+   selected fills/text/underlines and neutral hover fills below unchanged. */
+:is(button[role="tab"], button.app-settings-tab, button.adv-tab,
+    button.ask-tabbtn, button.orgview-tab, button.eye-tab-main,
+    .cc-tabs > button, .desk-tabs > button, .mail-folders > button) {
+  --button-accent: var(--accent);
+}
 /* Idle/state rules may appear later (set effort, armed notice, selected tabs).
    Ordinary hover frames always follow the button's provider scope; leave their
    idle frames, fills and text alone. Danger and native window controls retain
