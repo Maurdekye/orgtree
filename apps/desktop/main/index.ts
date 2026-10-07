@@ -1,3 +1,4 @@
+import { CredentialBridge } from './credential-bridge'
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
@@ -281,6 +282,7 @@ else {
     maximized: !!record && !record.window.isDestroyed() && record.window.isMaximized(),
   })
   const engine = new Engine()
+  const credentialBridge = new CredentialBridge()
   // Native image readers and Windows shell integration cannot reliably read
   // files inside app.asar. Packaged runtime icons are unpacked by the build;
   // development keeps the source-tree path.
@@ -629,7 +631,7 @@ else {
     // running (with its port, and whether it is exposed beyond this
     // computer), stopped, or the start error the hosting panel shows.
     trayMenu = Menu.buildFromTemplate([
-      { id: 'engine-credential-warning', label: 'Windows credentials unavailable — sign in and restart engine',
+      { id: 'engine-credential-warning', label: 'Git/GitHub access unavailable — sign in and open Orgtree',
         visible: !!engine.credentialWarning, click: () => {
           if (engine.credentialWarning) void dialog.showMessageBox({ type: 'warning',
             message: 'Saved Windows credentials may be unavailable to agents.', detail: engine.credentialWarning })
@@ -2222,6 +2224,7 @@ else {
           const owner = windows.notificationOwner()
           if (owner) sendTo(owner.id, { type: 'notification-poll', data: null })
         }
+        void credentialBridge.tick(engine.origin, engine.token)
         stats = await engine.stats(); rebuildTray()
         void updater.tick().catch(() => {})
         if (stats === null && !engine.managed && !backgroundEngineRestart) {
