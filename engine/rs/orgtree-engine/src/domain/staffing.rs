@@ -409,6 +409,7 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
     if let Some(k) = s("kickoff") {
         let mut m = Outgoing::new(From::Agent { id: my_id, name: my_name.to_string(), generation: my_gen }, &node, k);
         m.kind = s("kickoff_kind").unwrap_or("request").to_string();
+        m.ev = Some(mail::kickoff_event(engine, org.id, &org.slug, &node, my_name, "staff", k).await?);
         match mail::send(engine, org.id, m).await {
             Ok(sent) => out["kickoff"] = json!(sent.uid),
             Err(e) => out["kickoff_error"] = json!(format!("{e:#}")),

@@ -326,3 +326,12 @@ pub async fn system_wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64, text:
 pub fn summary(body: &str) -> String {
     gist(body, 160)
 }
+
+/// First-task messages have their own handoff card, including the actual seat.
+#[logged]
+pub async fn kickoff_event(engine: &Engine, org_id: i64, org: &str, node: &str, by: &str, reason: &str, body: &str) -> Result<Value> {
+    let client=engine.db.get().await?;
+    let row=client.query_one("SELECT generation,tier,grant_credits::float8 FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org_id,&node]).await?;
+    Ok(crate::events::typed("lifecycle.kickoff",by,crate::events::node_ref(org,node,row.get::<_,i32>(0) as i64),
+        json!({"body":body,"hired_by":by,"reason":reason,"tier":row.get::<_,String>(1),"grant":row.get::<_,f64>(2)})))
+}

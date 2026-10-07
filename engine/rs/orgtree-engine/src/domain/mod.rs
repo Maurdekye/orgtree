@@ -6,6 +6,7 @@ pub mod audiences;
 pub mod docket;
 pub mod docs;
 pub mod mail;
+pub mod lifecycle;
 pub mod notices;
 pub mod ops;
 pub mod orginbox;

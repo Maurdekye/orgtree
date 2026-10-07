@@ -233,7 +233,13 @@ pub async fn ask(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, args: &V
         _ => qs.push(question_of(args)?),
     }
     if !a.may_ask_user {
-        return route_to_superior(engine, org, a, "question", &qs.iter().map(render_question).collect::<Vec<_>>().join("\n\n")).await;
+        let questions: Vec<Value> = qs.iter().map(|q| json!({
+            "header":q.get("header").cloned().unwrap_or(Value::Null), "text":q["question"],
+            "work_item":q.get("work_item").cloned().unwrap_or(Value::Null),
+            "options":q["options"].as_array().map(|a|a.iter().filter_map(|o|o["label"].as_str()).collect::<Vec<_>>()).unwrap_or_default(),
+            "multi":q["multi"].as_bool().unwrap_or(false) })).collect();
+        let ev=crate::events::typed("ask.routed", &a.name, crate::events::node_ref(&org.slug,&a.name,a.generation as i64), json!({"from_node":a.name,"questions":questions}));
+        return route_to_superior(engine, org, a, "question", &qs.iter().map(render_question).collect::<Vec<_>>().join("\n\n"), ev).await;
     }
     let uid = amend(engine, org, a.id, |p| {
         for q in qs {
@@ -268,12 +274,13 @@ fn render_question(q: &Value) -> String {
 }
 
 #[logged]
-async fn route_to_superior(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, kind: &str, text: &str) -> Result<String> {
+async fn route_to_superior(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, kind: &str, text: &str, ev: Value) -> Result<String> {
     let Some(sup) = &a.superior else {
         refuse!(Forbidden, "you cannot ask the user directly");
     };
     let mut out = Outgoing::new(From::Agent { id: a.id, name: a.name.clone(), generation: a.generation }, sup, text);
     out.kind = kind.into();
+    out.ev = Some(ev);
     let sent = mail::send(engine, org.id, out).await?;
     Ok(format!(
         "You hold no audience with the user, so this went to your superior {sup} as mail ({}). End your turn; the reply arrives as mail.",
@@ -346,7 +353,19 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
             clean.iter().map(item_label).collect::<Vec<_>>().join("; "),
             reason
         );
-        return route_to_superior(engine, org, a, "request", &text).await;
+        let mut wanted=json!({"folders":[],"tools":{"bash":null,"web":null,"edit":null,"subagents":null,"mcp":null},"permission_mode":null,"org_visibility":null});
+        for item in &clean {
+            match item["kind"].as_str().unwrap_or("") {
+                "dir" => wanted["folders"].as_array_mut().unwrap().push(json!({"path":item["path"],"mode":item["mode"]})),
+                "tool" => if let Some(tool)=item["tool"].as_str() { wanted["tools"][tool]=json!(true); },
+                "mcp" => { if wanted["tools"]["mcp"].is_null() { wanted["tools"]["mcp"]=json!([]); } wanted["tools"]["mcp"].as_array_mut().unwrap().push(item["server"].clone()); },
+                "permission_mode" => wanted["permission_mode"]=item["mode"].clone(),
+                _=>{},
+            }
+        }
+        let ev=crate::events::typed("access.scope_requested", &a.name, crate::events::node_ref(&org.slug,&a.name,a.generation as i64),
+            json!({"items":clean.iter().map(item_label).collect::<Vec<_>>(),"reason":reason,"wanted":wanted}));
+        return route_to_superior(engine, org, a, "request", &text, ev).await;
     }
     let uid = amend(engine, org, a.id, |p| {
         let mut items: Vec<Value> = p.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();

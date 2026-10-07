@@ -58,6 +58,7 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
             if let Some(k) = arg_str(args, "kickoff_kind") {
                 m.kind = k.to_string();
             }
+            m.ev = Some(mail::kickoff_event(engine, org.id, &org.slug, node, &me.name, &op_name, kick).await?);
             match mail::send(engine, org.id, m).await {
                 Ok(s) => told = format!(" Kickoff sent ({}).", s.uid),
                 Err(e) => told = format!(" The kickoff could not be sent: {e}"),

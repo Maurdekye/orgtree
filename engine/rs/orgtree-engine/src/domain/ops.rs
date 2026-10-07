@@ -45,6 +45,7 @@ struct Effects {
     /// agents whose CLI warming starts after commit (hires)
     warm: Vec<i64>,
     events: bool,
+    mailboxes: Vec<i64>,
     registry: bool,
     pulses: Vec<crate::changes::Change>,
     /// watchdogs to stop / start after commit
@@ -324,12 +325,13 @@ fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
 }
 
 #[logged]
-async fn event(tx: &Transaction<'_>, org_id: i64, op: &str, actor: &Actor, subject: Option<i64>, detail: Value) -> Result<()> {
+async fn event(tx: &Transaction<'_>, org_id: i64, op: &str, actor: &Actor, subject: Option<i64>, detail: Value, fx: &mut Effects) -> Result<()> {
     tx.execute(
         "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, $2, $3, $4, $5)",
         &[&org_id, &op, &actor.label(), &subject, &detail],
     )
     .await?;
+    fx.mailboxes.extend(super::lifecycle::record(tx, org_id, op, &actor.label(), subject, &detail).await?);
     Ok(())
 }
 
@@ -432,6 +434,7 @@ async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx: Effects) 
     if !fx.dogs_off.is_empty() || !fx.dogs_on.is_empty() {
         ch.push(Change::Watchdogs);
     }
+    ch.extend(fx.mailboxes.iter().map(|id| Change::Mailbox(*id)));
     ch.extend(fx.pulses);
     crate::changes::notify(engine, org, ch);
     for id in &fx.wake {
@@ -582,8 +585,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         actor,
         Some(id),
         json!({ "node": name, "parent": parent.as_ref().map(|p| p.name.clone()), "tier": tier, "grant": grant,
-                "above": anchor.as_ref().map(|a| a.name.clone()), "cascaded": raised }),
-    )
+                "above": anchor.as_ref().map(|a| a.name.clone()), "cascaded": raised }), fx)
     .await?;
     fx.agents.insert(id);
     if let Some(p) = &parent {
@@ -654,7 +656,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     .await?;
     stamp_harness(engine, tx, n.id, &tier, false).await?;
     event(tx, org.id, "rehire", actor, Some(n.id), json!({ "node": n.name, "parent": parent.as_ref().map(|p| p.name.clone()),
-          "tier": tier, "grant": grant, "cascaded": raised }))
+          "tier": tier, "grant": grant, "cascaded": raised }), fx)
     .await?;
     fx.agents.insert(n.id);
     if let Some(p) = &parent {
@@ -722,7 +724,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         }
     }
     event(tx, org.id, if rescind { "rescind" } else { "retire" }, actor, Some(n.id),
-          json!({ "node": n.name, "team_retired": kids.len(), "clawed_back": clawed }))
+          json!({ "node": n.name, "team_retired": kids.len(), "clawed_back": clawed }), fx)
     .await?;
     fx.agents.insert(n.id);
     fx.agents.extend(kids.iter().copied());
@@ -753,7 +755,7 @@ async fn dissolve(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req
         .await?;
     let done: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &done).await?);
-    event(tx, org.id, "dissolve", actor, Some(n.id), json!({ "node": n.name, "nodes": done.len() })).await?;
+    event(tx, org.id, "dissolve", actor, Some(n.id), json!({ "node": n.name, "nodes": done.len() }), fx).await?;
     fx.agents.extend(done.iter().copied());
     if let Some(p) = n.parent {
         fx.agents.insert(p);
@@ -789,7 +791,7 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         )
         .await?;
     fx.dogs_off.extend(gone.iter().map(|r| r.get::<_, String>(0)));
-    event(tx, org.id, "delete", actor, Some(n.id), json!({ "node": n.name, "nodes": ids.len() })).await?;
+    event(tx, org.id, "delete", actor, Some(n.id), json!({ "node": n.name, "nodes": ids.len() }), fx).await?;
     fx.agents.extend(ids.iter().copied());
     if let Some(p) = n.parent {
         fx.agents.insert(p);
@@ -851,8 +853,8 @@ async fn move_node(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<
         &[&n.id, &new_parent, &order],
     )
     .await?;
-    event(tx, org.id, "move", actor, Some(n.id), json!({ "node": n.name, "to": target.as_ref().map(|t| t.name.clone()),
-          "cascaded": raised }))
+    event(tx, org.id, "move", actor, Some(n.id), json!({ "node": n.name, "to": target.as_ref().map(|t| t.name.clone()), "old_parent_id": n.parent,
+          "cascaded": raised }), fx)
     .await?;
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
@@ -890,7 +892,7 @@ async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     .await?;
     tx.execute("UPDATE ot.watchdogs SET target = $3 WHERE org_id = $1 AND kind = 'activity' AND target = $2", &[&org.id, &n.name, &new])
         .await?;
-    event(tx, org.id, "rename", actor, Some(n.id), json!({ "was": n.name, "node": new })).await?;
+    event(tx, org.id, "rename", actor, Some(n.id), json!({ "was": n.name, "node": new }), fx).await?;
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);
     fx.events = true;
@@ -935,7 +937,7 @@ async fn reallocate(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction
         &[&n.id, &delta],
     )
     .await?;
-    event(tx, org.id, "reallocate", actor, Some(n.id), json!({ "node": n.name, "delta": delta, "cascaded": raised })).await?;
+    event(tx, org.id, "reallocate", actor, Some(n.id), json!({ "node": n.name, "delta": delta, "cascaded": raised }), fx).await?;
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
         fx.agents.insert(p);
@@ -1005,7 +1007,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         )
         .await?;
     }
-    event(tx, org.id, "switch_model", actor, Some(n.id), json!({ "node": n.name, "from": n.tier, "to": tier, "cascaded": raised })).await?;
+    event(tx, org.id, "switch_model", actor, Some(n.id), json!({ "node": n.name, "from": n.tier, "to": tier, "seat_old": n.seat, "old_session": n.session, "cascaded": raised }), fx).await?;
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
         fx.agents.insert(p);
@@ -1065,7 +1067,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
     };
     tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id, &acc])
         .await?;
-    event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": acc })).await?;
+    event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": acc }), fx).await?;
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);
     fx.events = true;
@@ -1112,7 +1114,7 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
         &[&n.id, &session],
     )
     .await?;
-    event(tx, org.id, "cheap_compact", actor, Some(n.id), json!({ "node": n.name, "old_session": session })).await?;
+    event(tx, org.id, "cheap_compact", actor, Some(n.id), json!({ "node": n.name, "old_session": session }), fx).await?;
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);
     fx.stop.push(n.id);
@@ -1176,7 +1178,7 @@ async fn swap(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         )
         .await?;
     }
-    event(tx, org.id, "swap", actor, Some(a.id), json!({ "a": a.name, "b": b.name, "cascaded": raised })).await?;
+    event(tx, org.id, "swap", actor, Some(a.id), json!({ "a": a.name, "b": b.name, "old_parent_a": a.parent, "old_parent_b": b.parent, "cascaded": raised }), fx).await?;
     for id in [Some(a.id), Some(b.id), a.parent, b.parent].into_iter().flatten() {
         fx.agents.insert(id);
     }
@@ -1233,7 +1235,7 @@ async fn self_subjugate(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transa
         &[&me.id, &d.id, &me_grant],
     )
     .await?;
-    event(tx, org.id, "self_subjugate", actor, Some(me.id), json!({ "node": me.name, "promoted": d.name, "cascaded": raised })).await?;
+    event(tx, org.id, "self_subjugate", actor, Some(me.id), json!({ "node": me.name, "promoted": d.name, "old_parent_id": old_parent, "cascaded": raised }), fx).await?;
     for id in [Some(me.id), Some(d.id), me.parent, old_parent].into_iter().flatten() {
         fx.agents.insert(id);
     }
@@ -1322,7 +1324,7 @@ async fn retool(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         &[&n.id, &sc, &charter, &team, &account, &clear],
     )
     .await?;
-    event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req })).await?;
+    event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req }), fx).await?;
     fx.agents.insert(n.id);
     let below = subtree(tx, n.id).await?;
     fx.agents.extend(below.iter().copied());
