@@ -4,7 +4,7 @@
 
 use serde_json::{json, Map, Value};
 
-pub const PM_LEVELS: &[&str] = &["default", "acceptEdits", "bypassPermissions"];
+pub const PM_LEVELS: &[&str] = &["plan", "default", "acceptEdits", "bypassPermissions"];
 pub const VIS_LEVELS: &[&str] = &["self", "team", "subtree", "full"];
 
 fn rank(levels: &[&str], v: &str) -> usize {

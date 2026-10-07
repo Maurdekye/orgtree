@@ -321,7 +321,6 @@ async fn route_to_superior(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
     ))
 }
 
-/// `orgtree_request_credits`.
 /// Python's ceil(round(value, 2)): decimal formatting preserves ties-to-even
 /// on the actual binary input (multiplying by 100 first can change a tie).
 #[logged]
@@ -370,6 +369,7 @@ async fn credit_room(engine: &Engine, org_id: i64, agent_id: i64) -> Result<(f64
     Ok((grant, room))
 }
 
+/// `orgtree_request_credits`.
 #[logged]
 pub async fn request_credits(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, new_limit: f64, reason: &str) -> Result<String> {
     if !a.may_ask_user {
@@ -395,7 +395,6 @@ pub async fn request_credits(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Ask
     Ok(format!("Your credit request ({grant} → {new_limit}) is on the user's desk (request {uid}). The decision arrives as mail."))
 }
 
-/// `orgtree_request_scope`.
 #[logged]
 fn item_key(item: &Value) -> String {
     match item["kind"].as_str().unwrap_or("") {
@@ -449,6 +448,7 @@ fn holds_item(held: &Value, item: &Value) -> bool {
     }
 }
 
+/// `orgtree_request_scope`.
 #[logged]
 pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker, items: &[Value], reason: &str) -> Result<String> {
     if reason.trim().is_empty() {
@@ -526,8 +526,11 @@ pub async fn request_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, a: &Asker
         return route_to_superior(engine, org, a, "request", &text, ev).await;
     }
     let uid = amend(engine, org, a.id, |p| {
-        let mut items: Vec<Value> = p.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();
-        for c in clean {
+        let previous = p.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();
+        let mut items: Vec<Value> = Vec::new();
+        // Old cards may already contain multiple modes for the same path.
+        // As in the Python identity map, the last value wins in the first slot.
+        for c in previous.into_iter().chain(clean) {
             let key = item_key(&c);
             match items.iter_mut().find(|x| item_key(x) == key) {
                 Some(old) => *old = c,
