@@ -63,12 +63,23 @@ pub fn normalize_tools(t: &Value) -> Value {
     json!({ "bash": b("bash"), "web": b("web"), "edit": b("edit"), "subagents": b("subagents"), "mcp": mcp })
 }
 
+#[logged]
 fn norm_path(p: &str) -> String {
-    let mut s = p.replace('/', "\\");
-    while s.ends_with('\\') && s.len() > 3 {
-        s.pop();
+    // Match 3.x normpath before containment: work/../outside is not inside work.
+    let s = p.replace('/', "\\").to_lowercase();
+    let unc = s.starts_with("\\\\");
+    let rooted = s.starts_with('\\') || s.as_bytes().get(1..3) == Some(b":\\");
+    let mut parts: Vec<&str> = Vec::new();
+    for part in s.split('\\').filter(|p| !p.is_empty() && *p != ".") {
+        if part == ".." {
+            let can_pop = parts.last().is_some_and(|p| *p != ".." && !p.ends_with(':')) && (!unc || parts.len() > 2);
+            if can_pop { parts.pop(); } else if !rooted { parts.push(part); }
+        } else { parts.push(part); }
     }
-    s.to_lowercase()
+    let prefix = if unc { "\\\\" } else if s.starts_with('\\') { "\\" } else { "" };
+    let mut out = format!("{prefix}{}", parts.join("\\"));
+    if rooted && out.ends_with(':') { out.push('\\'); }
+    out
 }
 
 /// Is `child` the same as or inside `parent` (Windows, case-insensitive)?
