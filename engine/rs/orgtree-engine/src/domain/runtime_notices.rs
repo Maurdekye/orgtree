@@ -98,7 +98,7 @@ pub async fn deep_reach(engine:&Arc<Engine>,org_id:i64,agent_id:i64,text:&str,co
         let target:String=row.get(1);
         let ev=crate::events::typed("context.deep_reach","@user",crate::events::node_ref(&org,&name,r.get::<_,i32>(1) as i64),
             json!({"node":name,"gist":crate::util::gist(text,300),"kind":if command{"command"}else{"message"}}));
-        c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,ev,state) VALUES($1,$2,'@system','agent',$3,$4,'notice',true,$5,$6,'pending')", &[&crate::util::uid("m"),&org_id,&id,&target,&format!("The user contacted {name} directly."),&ev]).await?;
+        c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,ev,state) VALUES($1,$2,'@system','agent',$3,$4,'notice',true,$5,$6,'pending')", &[&crate::util::uid("m"),&org_id,&id,&target,&format!("The user contacted {name} directly."),&crate::util::pg_json(&ev).as_ref()]).await?;
         changed.push(crate::changes::Change::Mailbox(id));
     }
     drop(c);

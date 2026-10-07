@@ -47,7 +47,7 @@ async fn store(tx: &Transaction<'_>, org: i64, recipient: i64, by: &str, ev: Val
     // Never wake a passive notice. The next agent boundary drains it normally.
     let changed = tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,notice,body,ev,state)
         SELECT $1,$2,'@system','agent',id,name,'notice',true,$4,$5,'pending' FROM ot.agents
-        WHERE id=$3 AND org_id=$2 AND state='live' AND name<>$6", &[&uid,&org,&recipient,&body,&ev,&by]).await?;
+        WHERE id=$3 AND org_id=$2 AND state='live' AND name<>$6", &[&uid,&org,&recipient,&crate::util::pg_text(&body).as_ref(),&crate::util::pg_json(&ev).as_ref(),&by]).await?;
     Ok((changed>0).then_some(recipient))
 }
 

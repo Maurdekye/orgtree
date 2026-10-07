@@ -135,6 +135,10 @@ pub struct Sent {
 #[logged]
 pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Result<Sent> {
     let org = engine.orgs.by_id(org_id).ok_or_else(|| anyhow::Error::new(UserError::NotFound("organization".into())))?;
+    if out.body.contains('\0') { out.body.retain(|c| c != '\0'); }
+    if let Some(text) = &mut out.urgent_reason { if text.contains('\0') { text.retain(|c| c != '\0'); } }
+    for v in &mut out.attachments { crate::util::pg_json_mut(v); }
+    for v in [&mut out.reply_to, &mut out.ev].into_iter().flatten() { crate::util::pg_json_mut(v); }
     let explicit_event = out.ev.is_some();
     if !explicit_event {
         out.ev = Some(crate::events::ordinary(&out.from.name(), &out.kind, out.notice, &out.body));

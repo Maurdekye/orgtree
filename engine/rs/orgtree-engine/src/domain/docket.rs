@@ -1021,7 +1021,7 @@ async fn tell_tx(tx: &impl GenericClient, post: &mut AfterCommit, org_id: i64, i
     let id: i64 = row.get(0);
     tx.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state)
         VALUES ($1, $2, '@system', 'agent', $3, $4, $5, $6, $7, '[]'::jsonb, $8, $9, 'pending')",
-        &[&crate::util::uid("m"), &org_id, &id, &to, &kind, &(!wake), &body, &reply_to(it), &ev]).await?;
+        &[&crate::util::uid("m"), &org_id, &id, &to, &kind, &(!wake), &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&reply_to(it)).as_ref(), &crate::util::pg_json_option(&ev).as_ref()]).await?;
     post.recipients.push((id, wake));
     Ok(())
 }
@@ -1204,7 +1204,7 @@ async fn participation_notices_tx(tx: &impl GenericClient, post: &mut AfterCommi
                        recipient_agent_id, recipient_name, kind, notice, body, attachments, reply_to, ev, state)
                     VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, 'notice', true, $8, '[]'::jsonb, $9, $10, 'pending')",
                    &[&crate::util::uid("m"), &org.id, &from, &sender_id, &generation, &id, p,
-                     &body, &reply_to(it), &participant_ev(org, who, it)]).await?;
+                     &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&reply_to(it)).as_ref(), &crate::util::pg_json(&participant_ev(org, who, it)).as_ref()]).await?;
         post.recipients.push((id, false));
         noticed.push(p.clone());
         if state != "live" || halted {

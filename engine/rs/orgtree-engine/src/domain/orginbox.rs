@@ -180,7 +180,7 @@ pub async fn deliver_inbound(
             "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub)
              SELECT $1, $2, 'in', $3, $4, $5, $6, $7
               WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id = $2 AND dir = 'in' AND net_id = $6)",
-            &[&uid("x"), &org_id, &peer, &body, &Value::Array(attachments.clone()), &net_id, &hub],
+            &[&uid("x"), &org_id, &peer, &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(), &net_id, &hub],
         )
         .await?;
     if n == 0 {

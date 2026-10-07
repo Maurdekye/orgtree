@@ -301,7 +301,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
         let ev = crate::events::audience_decided(&org.slug, &grantee, &grantor, true, &by);
         client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
             VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', false, $5, $6, 'pending')",
-            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &body, &ev]).await?;
+            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json(&ev).as_ref()]).await?;
     }
     if fresh {
         let generation = client.query_one("SELECT generation FROM ot.agents WHERE id = $1", &[&gid]).await?.get::<_, i32>(0) as i64;
@@ -318,7 +318,7 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
         };
         client.execute("INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, ev, state)
             VALUES ($1, $2, '@system', 'agent', $3, $4, 'system', true, $5, $6, 'pending')",
-            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &body, &ev]).await?;
+            &[&crate::util::uid("m"), &org.id, &gid, &grantee, &crate::util::pg_text(&body).as_ref(), &crate::util::pg_json_option(&ev).as_ref()]).await?;
     }
     Ok((json!({ "ok": true, "grantee": grantee, "grantor": grantor, "granted": fresh, "answered": answered > 0 }), gid))
 }

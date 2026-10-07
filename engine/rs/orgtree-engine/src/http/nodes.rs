@@ -840,7 +840,8 @@ pub async fn toolinput(
     drop(client);
     if let Some(source) = kept.get("codex").filter(|s| s.is_object()).cloned() {
         let original = tokio::task::spawn_blocking(move || crate::runtime::codex::original_tool_input(&source)).await.ok().flatten();
-        if let Some(input) = original {
+        if let Some(mut input) = original {
+            crate::util::pg_json_mut(&mut input);
             let client = e.db.get().await?;
             client.execute("UPDATE ot.convo SET tool_native_inputs = tool_native_inputs || jsonb_build_object($3::text, $4::jsonb) WHERE agent_id = $1 AND seq = $2",
                 &[&a.id, &seq, &tool, &input]).await?;

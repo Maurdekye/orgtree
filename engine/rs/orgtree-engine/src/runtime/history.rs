@@ -200,11 +200,17 @@ async fn insert(engine: &Engine, agent_id: i64, rows: Vec<Value>) -> Result<()> 
         }
         let at = row["ts"].as_str().and_then(crate::util::parse_ts).unwrap_or_else(Utc::now);
         let inputs = convo::take_tool_inputs(&mut row, seq);
-        tx.execute(
+        tx.batch_execute("SAVEPOINT convo_row").await?;
+        let saved = tx.execute(
             "INSERT INTO ot.convo (agent_id, seq, ver, at, body, tool_inputs) VALUES ($1, $2, 0, $3, $4, $5) ON CONFLICT DO NOTHING",
             &[&agent_id, &seq, &at, &row, &inputs],
         )
-        .await?;
+        .await;
+        if let Err(e) = saved {
+            tx.batch_execute("ROLLBACK TO SAVEPOINT convo_row").await?;
+            tracing::warn!(agent=agent_id, seq, error=%e, "history row failed; continuing import");
+        }
+        tx.batch_execute("RELEASE SAVEPOINT convo_row").await?;
     }
     tx.commit().await?;
     Ok(())

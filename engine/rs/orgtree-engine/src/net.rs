@@ -980,7 +980,7 @@ pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by
         .execute(
             "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments)
              VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7)",
-            &[&uid, &org_id, &to, &body, &by, &net_id, &Value::Array(attachments.to_vec())],
+            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref()],
         )
         .await?;
     drop(client);

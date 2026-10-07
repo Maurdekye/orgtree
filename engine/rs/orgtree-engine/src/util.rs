@@ -114,3 +114,62 @@ pub fn gist(text: &str, max: usize) -> String {
 pub fn round2(x: f64) -> f64 {
     (x * 100.0).round() / 100.0
 }
+
+
+/// PostgreSQL UTF-8 text/jsonb reject U+0000. Rust strings cannot contain lone
+/// UTF-16 surrogates or invalid UTF-8; preserve all other scalar values.
+#[nolog]
+pub fn pg_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains('\0') { std::borrow::Cow::Owned(text.replace('\0', "")) }
+    else { std::borrow::Cow::Borrowed(text) }
+}
+
+#[nolog]
+fn json_has_nul(value: &Value) -> bool {
+    match value {
+        Value::String(s) => s.contains('\0'),
+        Value::Array(a) => a.iter().any(json_has_nul),
+        Value::Object(o) => o.iter().any(|(k,v)| k.contains('\0') || json_has_nul(v)),
+        _ => false,
+    }
+}
+
+/// Mutate owned JSON without allocating for clean input or string values.
+/// On key collisions retain the existing clean spelling deterministically.
+#[nolog]
+pub fn pg_json_mut(value: &mut Value) {
+    match value {
+        Value::String(s) => { if s.contains('\0') { s.retain(|c| c != '\0'); } }
+        Value::Array(a) => { for v in a { pg_json_mut(v); } }
+        Value::Object(o) => {
+            for v in o.values_mut() { pg_json_mut(v); }
+            if o.keys().any(|k| k.contains('\0')) {
+                let bad: Vec<String> = o.keys().filter(|k| k.contains('\0')).cloned().collect();
+                for key in bad {
+                    if let Some(v) = o.remove(&key) { o.entry(key.replace('\0', "")).or_insert(v); }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[nolog]
+pub fn pg_json(value: &Value) -> std::borrow::Cow<'_, Value> {
+    if !json_has_nul(value) { return std::borrow::Cow::Borrowed(value); }
+    let mut clean = value.clone(); pg_json_mut(&mut clean);
+    std::borrow::Cow::Owned(clean)
+}
+
+#[nolog]
+pub fn pg_json_option(value: &Option<Value>) -> std::borrow::Cow<'_, Option<Value>> {
+    if !value.as_ref().map(json_has_nul).unwrap_or(false) { return std::borrow::Cow::Borrowed(value); }
+    let mut clean = value.clone(); if let Some(v) = &mut clean { pg_json_mut(v); }
+    std::borrow::Cow::Owned(clean)
+}
+
+#[nolog]
+pub fn pg_text_option(value: &Option<String>) -> std::borrow::Cow<'_, Option<String>> {
+    if !value.as_ref().map(|s| s.contains('\0')).unwrap_or(false) { return std::borrow::Cow::Borrowed(value); }
+    std::borrow::Cow::Owned(value.as_ref().map(|s| s.replace('\0', "")))
+}

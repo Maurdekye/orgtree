@@ -481,7 +481,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
                 json!({ "body": kick, "hired_by": actor.label(), "reason": reason, "tier": target.tier, "grant": target.grant }));
             tx.execute("INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body, state, ev)
                 VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, false, $9, 'pending', $10)",
-                &[&uid, &org.id, &actor.label(), &sender, &generation, &target.id, &node, &kind, &kick, &ev]).await?;
+                &[&uid, &org.id, &actor.label(), &sender, &generation, &target.id, &node, &kind, &crate::util::pg_text(&kick).as_ref(), &crate::util::pg_json(&ev).as_ref()]).await?;
             fx.pulses.push(crate::changes::Change::Mailbox(target.id));
             fx.wake.push(target.id);
             out["kickoff"] = json!(uid);

@@ -3240,13 +3240,11 @@ impl Actor {
             return Ok(());
         }
         let client = self.engine.db.get().await?;
-        for (seq, row) in updates {
-            if seq > 0 {
-                self.convo.update(&client, seq, row).await?;
-            }
-        }
+        self.convo.update_batch(&client, updates).await;
         for (tid, list) in images {
-            convo::store_images(&client, self.id, &tid, list).await?;
+            if let Err(e) = convo::store_images(&client, self.id, &tid, list).await {
+                tracing::warn!(agent=self.id, error=%format!("{e:#}"), "tool images failed; continuing batch");
+            }
         }
         drop(client);
         self.set_activity("thinking", None);

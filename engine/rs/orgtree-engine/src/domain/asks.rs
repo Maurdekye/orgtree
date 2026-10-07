@@ -694,7 +694,7 @@ async fn settle(
         "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id,
                               recipient_name, kind, notice, body, ev, state)
          VALUES ($1, $2, '@user', 'agent', $3, $4, 'decision', false, $5, $6, 'pending')",
-        &[&mail_uid, &org.id, &open.agent_id, &open.agent, &text, &ev],
+        &[&mail_uid, &org.id, &open.agent_id, &open.agent, &crate::util::pg_text(&text).as_ref(), &crate::util::pg_json_option(&ev).as_ref()],
     ).await?;
     tx.execute(
         "UPDATE ot.asks SET status = $2, resolved_at = now(), answer = $3, answer_mail = $4 WHERE uid = $1",

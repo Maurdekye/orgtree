@@ -54,11 +54,26 @@ impl ConvoWriter {
             .await?;
         Ok(())
     }
+
+    /// Each live amendment commits independently; a bad row cannot drop later results.
+    pub async fn update_batch(&mut self, client: &Client, updates: Vec<(i64, Value)>) -> usize {
+        let mut failed = 0;
+        for (seq, row) in updates {
+            if seq > 0 {
+                if let Err(e) = self.update(client, seq, row).await {
+                    failed += 1;
+                    tracing::warn!(agent=self.agent_id, seq, error=%format!("{e:#}"), "tool transcript row failed; continuing batch");
+                }
+            }
+        }
+        failed
+    }
 }
 
 /// Atomically retained with the row, but never included in `/chat` or feeds.
 #[logged]
 pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
+    crate::util::pg_json_mut(body);
     let mut inputs = serde_json::Map::new();
     if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
         for chip in tools {
@@ -404,6 +419,7 @@ pub async fn repair_old_args(engine: std::sync::Arc<crate::engine::Engine>) {
             )
             .await?;
         let mut fixed = 0usize;
+        let mut failed = false;
         for r in &rows {
             let (agent_id, seq): (i64, i64) = (r.get(0), r.get(1));
             let mut body: Value = r.get(2);
@@ -419,12 +435,14 @@ pub async fn repair_old_args(engine: std::sync::Arc<crate::engine::Engine>) {
                 }
             }
             if changed {
-                client
-                    .execute("UPDATE ot.convo SET body = $3 WHERE agent_id = $1 AND seq = $2", &[&agent_id, &seq, &body])
-                    .await?;
-                fixed += 1;
+                crate::util::pg_json_mut(&mut body);
+                match client.execute("UPDATE ot.convo SET body = $3 WHERE agent_id = $1 AND seq = $2", &[&agent_id, &seq, &body]).await {
+                    Ok(_) => fixed += 1,
+                    Err(e) => { failed = true; tracing::warn!(agent=agent_id, seq, error=%e, "tool-chip repair row failed; continuing batch"); }
+                }
             }
         }
+        if failed { anyhow::bail!("one or more tool-chip repairs failed; retried next start"); }
         client
             .execute(
                 "INSERT INTO ot.meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
@@ -498,13 +516,15 @@ pub async fn store_images(client: &Client, agent_id: i64, tool_id: &str, images:
     if images.is_empty() || tool_id.is_empty() {
         return Ok(());
     }
+    let tool_id = crate::util::pg_text(tool_id);
     for (i, (media, data)) in images.into_iter().enumerate() {
-        client
-            .execute(
-                "INSERT INTO ot.tool_images (agent_id, tool_id, idx, media, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
-                &[&agent_id, &tool_id, &(i as i32), &media, &data],
-            )
-            .await?;
+        let media = crate::util::pg_text(&media);
+        if let Err(e) = client.execute(
+            "INSERT INTO ot.tool_images (agent_id, tool_id, idx, media, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+            &[&agent_id, &tool_id.as_ref(), &(i as i32), &media.as_ref(), &data],
+        ).await {
+            tracing::warn!(agent=agent_id, index=i, error=%e, "tool image failed; continuing batch");
+        }
     }
     client
         .execute(
