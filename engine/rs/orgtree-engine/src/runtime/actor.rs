@@ -1148,7 +1148,7 @@ impl Actor {
             .filter_map(|p| std::fs::read_to_string(std::path::Path::new(p).join("CLAUDE.md")).ok().map(|t| (p.to_string(), t)))
             .collect();
         let own_notes = if lane == prompt::Lane::Claude { None } else { std::fs::read_to_string(ctx.scratch.join("CLAUDE.md")).ok() };
-        let skills = dirs::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
+        let skills = crate::rig::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
         prompt::identity(&prompt::Identity {
             name: &ctx.name,
             title: &ctx.title,

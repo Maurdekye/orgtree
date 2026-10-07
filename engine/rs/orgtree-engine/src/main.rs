@@ -36,6 +36,7 @@ mod openrouter;
 mod orgs;
 mod pg;
 mod providers;
+mod rig;
 mod runtime;
 mod settings;
 mod tools;
@@ -91,6 +92,11 @@ fn serve() -> ExitCode {
     tracing::info!(pid = std::process::id(), root = %cfg.data_root_id, log = %log_file.display(),
                    version = env!("CARGO_PKG_VERSION"), build = if trace::RELEASE_BUILD { "release" } else { "dev" },
                    "engine starting");
+    if let Err(e) = rig::init(&cfg) {
+        tracing::error!(error = %format!("{e:#}"), "refusing to start");
+        eprintln!("orgtree-engine: {e:#}");
+        return ExitCode::from(1);
+    }
     winproc::install_root_job();
     let lock = match launch::RootLock::acquire(&cfg.data_root) {
         Ok(Some(lock)) => lock,

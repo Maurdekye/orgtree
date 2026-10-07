@@ -186,6 +186,9 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/toolinput/{seq}/{tool}", get(nodes::toolinput))
         .route("/api/orgs/{slug}/nodes/{nid}/scratch", get(nodes::scratch))
         .fallback(api_not_found);
+    // test-only: debug builds in rig mode (tools/rig), never a release build
+    #[cfg(debug_assertions)]
+    let api = if crate::rig::active() { api.route("/api/rig/tool", post(crate::rig::tool)) } else { api };
 
     Router::new()
         .merge(api)

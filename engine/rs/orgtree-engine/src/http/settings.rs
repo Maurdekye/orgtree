@@ -461,7 +461,7 @@ const PRESET_MAX: usize = 100_000;
 const CHARTER_LONG: usize = 12_000;
 
 fn user_charter_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".orgtree").join("charters")
+    crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".orgtree").join("charters")
 }
 
 fn title_of(file: &str) -> String {
@@ -682,7 +682,7 @@ pub struct FsQuery {
 /// The folder picker: subfolders of `path`, or the drives and home.
 #[logged]
 pub async fn fs(Query(q): Query<FsQuery>) -> ApiResult<Json<Value>> {
-    let home = dirs::home_dir().map(|h| h.to_string_lossy().to_string());
+    let home = crate::rig::home_dir().map(|h| h.to_string_lossy().to_string());
     if q.path.trim().is_empty() {
         let mut roots = Vec::new();
         for letter in b'A'..=b'Z' {

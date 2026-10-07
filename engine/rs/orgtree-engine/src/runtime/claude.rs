@@ -425,7 +425,7 @@ pub fn project_dir(cwd: &Path) -> String {
 /// The config folder a CLI without `CLAUDE_CONFIG_DIR` uses.
 #[logged]
 pub fn default_config_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".claude")
+    crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".claude")
 }
 
 /// Make sure `--resume <session>` from `cwd` under `config_dir` finds its

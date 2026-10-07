@@ -256,7 +256,7 @@ pub fn choice(raw: Option<&str>) -> Choice {
 /// is the host login itself.
 #[logged]
 pub fn default_home(provider: &str) -> Option<std::path::PathBuf> {
-    let home = dirs::home_dir()?;
+    let home = crate::rig::home_dir()?;
     match provider {
         "claude" => Some(home.join(".claude")),
         "openai" => Some(home.join(".codex")),

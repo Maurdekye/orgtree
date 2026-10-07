@@ -280,6 +280,9 @@ pub async fn catalog(force: bool) -> Result<Arc<Vec<Value>>> {
         }
     }
     let fetched: Result<Vec<Value>> = async {
+        if crate::rig::active() {
+            anyhow::bail!("rig mode: no network");
+        }
         let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).user_agent(USER_AGENT).build()?;
         let body: Value = client.get(format!("{API_BASE}/models")).send().await?.error_for_status()?.json().await?;
         Ok(body["data"].as_array().map(|a| a.iter().filter(|m| runnable(m)).cloned().collect()).unwrap_or_default())
@@ -538,6 +541,9 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
 /// inference key, measured in 3.x). Err((true, _)): openrouter.ai refused the
 /// key. Not logged: it holds the key.
 pub async fn key_standing(key: &str) -> std::result::Result<Map<String, Value>, (bool, String)> {
+    if crate::rig::active() {
+        return Err((false, "rig mode: no network".into()));
+    }
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .user_agent(USER_AGENT)

@@ -90,7 +90,7 @@ impl Providers {
 }
 
 fn home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+    crate::rig::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 #[logged]
@@ -110,6 +110,9 @@ fn which(name: &str) -> Option<PathBuf> {
 /// Prefer the real executable behind npm's `claude.cmd` shim.
 #[logged]
 pub fn locate_claude() -> Option<(PathBuf, String)> {
+    if crate::rig::active() {
+        return crate::rig::cli_bin("ORGTREE_CLAUDE_BIN");
+    }
     if let Ok(p) = std::env::var("ORGTREE_CLAUDE_BIN") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -131,6 +134,9 @@ pub fn locate_claude() -> Option<(PathBuf, String)> {
 
 #[logged]
 pub fn locate_codex() -> Option<(PathBuf, String)> {
+    if crate::rig::active() {
+        return crate::rig::cli_bin("ORGTREE_CODEX_BIN");
+    }
     if let Ok(p) = std::env::var("ORGTREE_CODEX_BIN") {
         let p = PathBuf::from(p);
         if p.is_file() {
@@ -153,6 +159,9 @@ pub fn locate_codex() -> Option<(PathBuf, String)> {
 
 #[logged]
 pub fn locate_agy() -> Option<(PathBuf, String)> {
+    if crate::rig::active() {
+        return crate::rig::cli_bin("ORGTREE_AGY_BIN");
+    }
     if let Some(local) = dirs::data_local_dir() {
         let p = local.join("agy").join("bin").join("agy.exe");
         if p.is_file() {

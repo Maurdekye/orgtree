@@ -90,7 +90,7 @@ impl Usage {
 }
 
 fn home() -> PathBuf {
-    dirs::home_dir().unwrap_or_default()
+    crate::rig::home_dir().unwrap_or_default()
 }
 
 fn severity(percent: f64) -> &'static str {
@@ -121,6 +121,9 @@ fn claude_dir(config_dir: Option<&str>) -> PathBuf {
 /// The Claude usage bars of one login (`config_dir` None: the machine's own).
 #[logged]
 pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
+    if let Some(v) = crate::rig::usage("claude") {
+        return v;
+    }
     let key = claude_key(config_dir);
     if !force {
         if let Some(v) = engine.usage.fresh(&key, TTL) {
@@ -260,6 +263,9 @@ pub fn codex_key(home: Option<&str>) -> String {
 /// One Codex login's rate limits (`home` None: the machine's own `~/.codex`).
 #[logged]
 pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
+    if let Some(v) = crate::rig::usage("openai") {
+        return v;
+    }
     let key = codex_key(home);
     if !force {
         if let Some(v) = engine.usage.fresh(&key, TTL) {
@@ -378,6 +384,9 @@ fn codex_limits(raw: &Value) -> Value {
 /// Antigravity's own `/usage` (zero tokens, verified per run), for the machine's login.
 #[logged]
 pub async fn antigravity(engine: &Engine, force: bool) -> Value {
+    if let Some(v) = crate::rig::usage("google") {
+        return v;
+    }
     if !force {
         if let Some(v) = engine.usage.fresh("agy", TTL) {
             return v;
@@ -519,6 +528,9 @@ fn agy_log_email(log: &str) -> Option<String> {
 /// The stored OpenRouter key's credit standing (`GET /api/v1/key`).
 #[logged]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
+    if let Some(v) = crate::rig::usage("openrouter") {
+        return v;
+    }
     if !force {
         if let Some(v) = engine.usage.fresh("openrouter", Duration::from_secs(60)) {
             return v;
@@ -678,6 +690,10 @@ pub fn publish(engine: &Engine, lane: &str, value: &Value) {
 /// windows never poll; they read these pushed values.
 #[logged]
 pub fn start(engine: &std::sync::Arc<Engine>) {
+    // a rig engine never probes a provider (no network call, no CLI)
+    if crate::rig::active() {
+        return;
+    }
     let eng = engine.clone();
     tokio::spawn(async move {
         let mut last: std::collections::HashMap<&'static str, Instant> = std::collections::HashMap::new();

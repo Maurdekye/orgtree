@@ -482,7 +482,7 @@ pub fn dynamic_tools() -> Vec<Value> {
 /// The Codex home a launch without `CODEX_HOME` uses.
 #[logged]
 pub fn default_home() -> std::path::PathBuf {
-    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join(".codex")
+    crate::rig::home_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join(".codex")
 }
 
 /// A thread's rollout file under `home/sessions` (its path below `sessions`).
