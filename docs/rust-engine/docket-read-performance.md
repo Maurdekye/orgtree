@@ -149,3 +149,36 @@ Renderer typecheck passed. An isolated synthetic API-transport smoke confirms
 real header gating, one diagnostic POST with zero live bumps, a normal mutation
 still bumping, the off header disabling reporting, and no retained marks.
 No engine change or build was needed for this follow-up.
+
+## Alpha.8 expanded foreground sample (2026-10-07 12:43Z)
+
+Measured across both alpha.8 runs, including the compressed segments of
+`2026-10-07_14-01-26.log` and the current `2026-10-07_15-17-36.log`:
+19 real events, zero hidden/unfocused events excluded, zero opens over 100 ms.
+
+| Action | n | Click-to-frame p50 ms | Click-to-frame p95 ms |
+| --- | ---: | ---: | ---: |
+| Mail panel | 4 | 24.05 | 42.7 |
+| Mail item | 4 | 5.65 | 9.1 |
+| Docket | 3 | 40.3 | 71.6 |
+| Ticket | 8 | 25.65 | 85.4 |
+| Archive | 0 | unavailable | unavailable |
+
+Each p95 is the nearest-rank observed maximum at these small sample counts;
+these are not stable estimates of long-run p95. Archive has no real open
+samples, so its click-to-frame latency remains unmeasured.
+
+The slowest ticket took 69.7 ms from click to ready commit, then 15.7 ms to the
+frame callback (85.4 ms total). The slowest docket took 58.3 + 13.3 = 71.6 ms.
+The slowest mail panel took 14.0 + 28.7 = 42.7 ms; the slowest mail item took
+4.4 + 4.7 = 9.1 ms. These are paired phases from individual events. The current
+measurement does not split pre-commit time into network, SQL and React CPU;
+it must not be described as pure rendering time. Frame means the first rAF
+after ready commit, not physical display presentation.
+
+No measured open currently warrants another performance fix. The separate
+diagnostic transport fix `cf3f75c` is merged locally but is not in installed
+alpha.8 `988433e`; these samples do not measure that follow-up. Remaining
+verification is ordinary user archive opens and a larger foreground sample,
+observed through the coordinator's log watcher without synthetic UI actions
+or live settings changes. No code changed for this report.
