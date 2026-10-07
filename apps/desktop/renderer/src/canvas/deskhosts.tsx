@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { MovableSurface, useSurface } from '../popout'
 import { openSurfaces } from '../windowlife'
@@ -139,6 +139,7 @@ function pick(e: Entry, incoming?: Slot): Slot {
 class Desks {
   entries = new Map<string, Entry>()
   pendingPopouts = new Set<string>()
+  popoutMounts = new Set<string>()
   version = 0
   nextKey = 0
   renamedAway = new Map<string, string>()
@@ -177,7 +178,8 @@ class Desks {
     const entry = this.entries.get(key)
     if (entry?.popout) { entry.popout(); return }
     if (entry) entry.pendingPopout = true
-    else this.pendingPopouts.add(key)
+    else { this.pendingPopouts.add(key); this.popoutMounts.add(key) }
+    this.change()
   }
   put(key: string, slot: Slot) {
     if (this.renamedAway.has(key)) {
@@ -310,8 +312,9 @@ class Desks {
 const DeskContext = createContext<Desks | null>(null)
 const DeskMapReady = createContext(true)
 
-export function DeskHosts({ children, map, slug, treeSlug = slug }: {
+export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: {
   children: ReactNode; map: Map<string, CanvasNode>; slug: string; treeSlug?: string
+  popoutDesk?: (node: CanvasNode) => DeskChatProps
 }) {
   const [desks] = useState(() => new Desks())
   useEffect(() => {
@@ -363,7 +366,7 @@ export function DeskHosts({ children, map, slug, treeSlug = slug }: {
   }, [desks, map, slug, treeSlug])
   useEffect(() => {
     let changed = false
-    for (const key of desks.pendingPopouts) {
+    for (const key of new Set([...desks.pendingPopouts, ...desks.popoutMounts])) {
       let parsed: unknown
       try { parsed = JSON.parse(key) } catch { parsed = null }
       const parts = Array.isArray(parsed) ? parsed : []
@@ -372,6 +375,7 @@ export function DeskHosts({ children, map, slug, treeSlug = slug }: {
       const current = id ? map.get(id) : undefined
       if (parts[0] !== slug || !current || current.generation !== generation) {
         desks.pendingPopouts.delete(key)
+        desks.popoutMounts.delete(key)
         changed = true
       }
     }
@@ -383,8 +387,34 @@ export function DeskHosts({ children, map, slug, treeSlug = slug }: {
     if (treeSlug !== slug) return
     for (const [key, id] of desks.renamedAway) if (!map.has(id)) desks.renamedAway.delete(key)
   }, [desks, map, slug, treeSlug])
-  return <DeskMapReady.Provider value={treeSlug === slug}><DeskContext.Provider value={desks}>{children}<HostList desks={desks} map={map} slug={slug} /></DeskContext.Provider></DeskMapReady.Provider>
+  return <DeskMapReady.Provider value={treeSlug === slug}><DeskContext.Provider value={desks}>{children}
+    {popoutDesk && <PopoutMounts desks={desks} map={map} slug={slug} propsFor={popoutDesk} />}
+    <HostList desks={desks} map={map} slug={slug} /></DeskContext.Provider></DeskMapReady.Provider>
 }
+
+/** Mount only explicitly requested desks, without selecting a canvas node.
+ * The same canonical host moves to its window; its launch slot is removed
+ * once detached, or on failure. No permanently hidden composers are retained. */
+function PopoutMounts({ desks, map, slug, propsFor }: {
+  desks: Desks; map: Map<string, CanvasNode>; slug: string
+  propsFor: (node: CanvasNode) => DeskChatProps
+}) {
+  useSyncExternalStore(desks.subscribe, desks.snapshot)
+  return <div hidden>{[...desks.popoutMounts].map(key => {
+    const [org, id, generation] = JSON.parse(key) as [string, string, number]
+    const node = map.get(id)
+    return org === slug && node?.generation === generation
+      ? <PopoutMount key={key} node={node} propsFor={propsFor} /> : null
+  })}</div>
+}
+
+// Registry notifications must not manufacture new slot props: registration
+// itself notifies the registry. Refresh only when the node/canvas props change.
+const PopoutMount = memo(function PopoutMount({ node, propsFor }: {
+  node: CanvasNode; propsFor: (node: CanvasNode) => DeskChatProps
+}) {
+  return <DeskSlot {...propsFor(node)} bare eligible={false} />
+})
 
 /**
  * A press on a control inside a canvas card must not reach the viewport.
@@ -548,11 +578,12 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
     })} exactSourceBox
     onDetached={(v) => {
       entry.detached = v
+      if (v) desks.popoutMounts.delete(deskIdentity(props.slug, props.node))
       if (v) props.temporaryPlacement?.onPopout()
       if (!v && !entry.slots.size) props.onJump?.(props.node.id)
       desks.change()
     }}>
-    <DeskOwnerControls entry={entry} stale={changedGeneration} dismiss={() => {
+    <DeskOwnerControls desks={desks} entry={entry} stale={changedGeneration} dismiss={() => {
       entry.redock?.(); for (const [key, e] of desks.entries) if (e === entry) desks.entries.delete(key); desks.change()
     }} />
     {changedGeneration && <StaleIdentityNotice generation={props.node.generation} />}
@@ -560,8 +591,14 @@ function DeskHost({ desks, entry, map }: { desks: Desks; entry: Entry; map: Map<
       map={map} staleIdentity={changedGeneration} />
   </MovableSurface>
 }
-function DeskOwnerControls({ entry, stale, dismiss }: { entry: Entry; stale: boolean; dismiss: () => void }) {
+function DeskOwnerControls({ desks, entry, stale, dismiss }: { desks: Desks; entry: Entry; stale: boolean; dismiss: () => void }) {
   const surface = useSurface()
+  useEffect(() => {
+    if (surface?.error && desks.popoutMounts.delete(deskIdentity(entry.last.props.slug, entry.last.props.node))) {
+      entry.last.props.toast([surface.error])
+      desks.change()
+    }
+  }, [desks, entry, surface?.error])
   useLayoutEffect(() => {
     entry.show = () => {
       if (surface?.detached) surface.open()

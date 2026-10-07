@@ -235,6 +235,12 @@ desk frame, then map its CSS rectangle through the owner's native content origin
 zoom. Windows cross-display mapping goes through physical pixels; content bounds exclude
 invisible frame allowances. Lifecycle restores still use saved standalone placement.
 
+**Desk popout navigation (2026-10-07, verified from source and browser smoke).**
+Card and agent-list menus request the canonical desk window without recentering.
+An unopened desk gets an on-demand launch slot, removed after detach or failure;
+registry notifications must not recreate its registration props. Explicit Focus
+and redock navigation remain separate. See `canvas/deskhosts.tsx`.
+
 **Temporary desks (2026-10-07, verified from source and browser smoke).** Their jump
 cards use normal desk navigation; an explicit jump closes the temporary host. Keep
 the host at layer 20, below dialogs (30/31). Canvas-owned dialogs must also escape

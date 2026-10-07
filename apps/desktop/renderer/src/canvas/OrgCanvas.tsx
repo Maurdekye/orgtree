@@ -3022,16 +3022,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // the same gate the card gets: there is no pinning on mobile
       onPin: !isMobile ? () => pinDesk(n.id) : undefined,
       onShowPin: () => showPin(slug, n.id, vpSizeNow()),
-      // ⚠ THE ROW'S POPOUT IS WHAT THE ROW'S ↗ BUTTON USED TO BE, verbatim
-      // (user 2026-09-12 removed those buttons in favour of this menu): ask
-      // the desk registry to pop out, and when that desk is not mounted yet,
-      // ALSO walk to the agent — the request is retained until the desk
-      // registers, and walking there is what mounts it.
-      onPopout: !isMobile && desk.valid
-        ? () => { desk.requestPopout(); if (!desk.present) go() }
-        : undefined,
+      // The registry mounts an unopened desk without selecting this row.
+      onPopout: !isMobile && desk.valid ? desk.requestPopout : undefined,
       onShowWindow: desk.show,
-      // ⚠ NO `go()` HERE, DELIBERATELY, unlike every neighbour above. The whole
+      // No navigation here or in popout. The whole
       // value of this entry is that it does NOT walk the camera to the agent or
       // change which node is focused — a glance, not a placement. It needs no
       // `desk.valid` gate either: the modal renders the canonical desk, which
@@ -3558,7 +3552,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       value={resolveOrgDefault(tree.default_effort, tree.effort_default)}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
     <DeskDogsProvider value={deskDogs}>
-    <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
+    <DeskHosts map={map} slug={slug} treeSlug={tree.slug} popoutDesk={node => ({
+      node, map, op, slug, toast, compactAt: tree.compact_at,
+      maxTop: tree.max_top_grant ?? 1000, pxc: pxPerCredit,
+      onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView,
+      onJump: centerOn, onConfig: () => toggleConfig(node.id),
+      onLineage: () => toggleNodeSurface('lineage', node.id, setLineageId),
+    })}><AgentNavHost
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport'
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}

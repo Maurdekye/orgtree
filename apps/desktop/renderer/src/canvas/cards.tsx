@@ -1459,15 +1459,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onSettings: onConfig,
       onPin,
       onShowPin,
-      // no native windows on mobile — the same reason the card has no `onPin`
-      // there. A desk that is not mounted yet cannot be popped out on the
-      // spot, so the request is retained and the camera goes to the agent,
-      // which mounts it (deskhosts.tsx keeps the pending request).
-      onPopout: !isMobile && desk.valid
-        ? () => { desk.requestPopout(); if (!desk.present) onRecenter?.() }
-        : undefined,
+      // The registry mounts an unopened desk without moving the canvas.
+      onPopout: !isMobile && desk.valid ? desk.requestPopout : undefined,
       onShowWindow: desk.show,
-      // ⚠ NO `onRecenter()` HERE, unlike the popout above. This entry exists
+      // No recenter here or in popout. This entry exists
       // because a glance must not move the camera or change the focused agent,
       // so it does not mount the desk by walking to it — the modal mounts its
       // own borrowing slot. Same gate as pin/popout: none of this on mobile.
