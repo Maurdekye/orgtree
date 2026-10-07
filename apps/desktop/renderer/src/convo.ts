@@ -20,7 +20,7 @@ import type { DraftAttachment } from './draftstore'
 // It also costs LESS than what it replaces: one fetch per node instead of one
 // per mounted view.
 
-import { getChat } from './api'
+import { getChat, isRequestCancelled } from './api'
 import { decodeEventRow, record } from './events/decode'
 import { segmentClientOps, segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
@@ -534,20 +534,20 @@ function cancelHistoryRetry(e: Entry): void {
 
 /** One retry owner per conversation, only while at least one desk is shown.
  * Keep the failed cursor/window: a retry must not expand a different page. */
-function retryHistory(e: Entry, slug: string, nid: string, retry: HistoryRetry): void {
+function retryHistory(e: Entry, slug: string, nid: string, retry: HistoryRetry, failed = true): void {
   if (!e.subs.size) return
   if (e.historyTimer !== undefined) clearTimeout(e.historyTimer)
   e.historyRetry = retry
-  patchEntry(e, { olderError: true, retryingHistory: true })
+  patchEntry(e, { olderError: failed, retryingHistory: failed })
   const version = e.ownerVersion
   e.historyTimer = setTimeout(() => {
     e.historyTimer = undefined
     if (M.get(e.ownerKey) !== e || e.ownerVersion !== version || !e.subs.size
       || e.historyRetry !== retry) return
     if (retry.kind === 'page') {
-      if (!loadOlder(slug, nid, retry.rows) && e.historyRetry === retry) retryHistory(e, slug, nid, retry)
+      if (!loadOlder(slug, nid, retry.rows) && e.historyRetry === retry) retryHistory(e, slug, nid, retry, failed)
     } else {
-      if (e.inflight) { retryHistory(e, slug, nid, retry); return }
+      if (e.inflight) { retryHistory(e, slug, nid, retry, failed); return }
       if (retry.kind === 'growth') {
         e.beforeOlder.forEach(prepare => prepare())
         e.growingOlder = retry.win
@@ -1174,7 +1174,10 @@ export function refreshConvo(slug: string, nid: string,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
-    const grew = takeGrowth()
+    // A focus refresh carrying only a delta cannot answer a history request,
+    // even if its requested window happens to be large enough.
+    const grew = !after && !c.incremental && takeGrowth()
+    if (!grew && e.growingOlder !== undefined) e.refreshAgain = true
     const stalledGrowth = grew && !changedConversation && !!c.has_older && !!e.s.chat
       && !olderPageProgress(e.s.chat, c)
     if (stalledGrowth) {
@@ -1185,7 +1188,13 @@ export function refreshConvo(slug: string, nid: string,
       if (!c.messages.length) c = { ...c, messages: e.s.chat!.messages }
     }
     if (c.incremental && !e.s.paged && c.messages.length > e.s.win) {
-      c = { ...c, messages: c.messages.slice(-e.s.win), before: tailBefore, has_older: true }
+      const messages = c.messages.slice(-e.s.win)
+      // Rust before-cursors are the oldest row's decimal seq. A delta's
+      // before:null describes the delta, not the retained history window.
+      const oldest = messages[0]?.seq
+      const before = /^a\d+$/.test(c.conversation_id ?? '') && typeof oldest === 'number'
+        ? String(oldest) : tailBefore
+      c = { ...c, messages, before, has_older: true }
     }
     if (changedConversation || e.historyRetry?.kind === 'initial' || e.historyRetry?.kind === 'refresh'
       || (grew && !stalledGrowth)) cancelHistoryRetry(e)
@@ -1195,9 +1204,16 @@ export function refreshConvo(slug: string, nid: string,
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
     if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
-  }).catch(() => {
-    if (!stillFreshest()) return
+  }).catch((error: unknown) => {
+    if (!stillFreshest() || requestSerial !== e.requestSerial) return
     const grew = takeGrowth()
+    if (isRequestCancelled(error)) {
+      cancelHistoryRetry(e)
+      patchEntry(e, { loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined) }, ownerVersion)
+      if (!e.s.loaded) retryHistory(e, slug, nid, { kind: 'initial' }, false)
+      if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
+      return
+    }
     if (grew) retryHistory(e, slug, nid, { kind: 'growth', win: askedWin })
     else if (!e.s.loaded) retryHistory(e, slug, nid, { kind: 'initial' })
     else if (fetchedHistory || e.historyRetry?.kind === 'refresh') retryHistory(e, slug, nid, { kind: 'refresh' })
@@ -1220,13 +1236,15 @@ export function refreshConvo(slug: string, nid: string,
 // transcript. This file no longer decides what to retire; it renders what the
 // server retired.)
 
-export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewport = false): boolean {
+export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, _viewport = false): boolean {
   const k = key(slug, nid)
   const e = entry(k)
   if (e.s.loadingOlder || e.pageInFlight || (e.s.win >= MAX_WINDOW && !e.historyRetry)) return false
   if (e.s.chat?.has_older === false) { cancelHistoryRetry(e); return false }
   const before = e.historyRetry?.kind === 'page' ? e.historyRetry.before : e.s.chat?.before
-  if (before && !viewport) {
+  // Viewport filling is history paging too. Enlarging the live tail after a
+  // burst can return only newer rows and falsely look like stalled history.
+  if (before) {
     const version = e.ownerVersion
     const conversation = e.s.chat?.conversation_id
     const pageSerial = ++e.pageSerial
@@ -1234,7 +1252,9 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     e.pageInFlight = true
     if (e.historyTimer !== undefined) { clearTimeout(e.historyTimer); e.historyTimer = undefined }
     e.requests++
-    patchEntry(e, { loadingOlder: true, olderError: false })
+    // Retain the read range as soon as paging starts. A focus delta arriving
+    // before the first page must not trim away rows between it and that page.
+    patchEntry(e, { paged: true, loadingOlder: true, olderError: false })
     void fetchHistory(e, slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       const currentPage = e.pageSerial === pageSerial
       if (!currentPage) return
@@ -1314,7 +1334,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
         chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
           before: page.before, has_older: page.has_older }) }, version)
-    }).catch(() => {
+    }).catch((error: unknown) => {
       const currentPage = e.pageSerial === pageSerial
       if (!currentPage) return
       if (currentPage) e.pageInFlight = false
@@ -1337,6 +1357,12 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       const keep = e.pendingKeep
       e.pendingCollapse = false
       e.pendingKeep = undefined
+      if (isRequestCancelled(error)) {
+        cancelHistoryRetry(e)
+        patchEntry(e, { loadingOlder: false }, version)
+        if (wanted) collapseWindow(slug, nid, keep ?? CHAT_WINDOW)
+        return
+      }
       // Preserve already-paged rows and their cursor while the same page retries.
       patchEntry(e, { loadingOlder: false, olderError: true }, version)
       if (!wanted) retryHistory(e, slug, nid, { kind: 'page', before, rows })

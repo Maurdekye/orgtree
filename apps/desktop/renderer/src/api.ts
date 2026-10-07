@@ -87,6 +87,11 @@ const timeoutSignal = (ms: number): AbortSignal | undefined => {
   return typeof f === 'function' ? f(ms) : undefined
 }
 
+/** AbortError is caller/browser cancellation; the request ceiling uses
+ * TimeoutError and remains a genuine failure. Check names across windows. */
+export const isRequestCancelled = (error: unknown): boolean =>
+  !!error && typeof error === 'object' && 'name' in error && error.name === 'AbortError'
+
 /** How much of a non-JSON body is worth putting in front of a person. Long
  *  enough for a real sentence, short enough that an HTML error page does not
  *  become the error message. */
@@ -194,6 +199,7 @@ export const req = <T,>(path: string, init?: RequestInit,
     // type instead, which is what tells an operator "the backend answered,
     // and it answered with something that is not our protocol".
     return (r.json() as Promise<T>).catch((e: unknown) => {
+      if (isRequestCancelled(e)) throw e
       throw new Error(
         `${r.status}: the backend's reply was not JSON `
         + `(content-type ${r.headers.get('Content-Type') || 'unset'}): `
