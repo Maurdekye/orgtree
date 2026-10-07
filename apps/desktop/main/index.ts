@@ -11,6 +11,7 @@ import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar, icoFromPng } from './taskbar'
 import { tintTrayBitmap } from './tray-tint'
+import { mailhubTrayItem } from './tray-mailhub'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
@@ -562,6 +563,20 @@ else {
   const refreshTrayEngine = () => {
     if (trayMenu) refreshTrayEngineMenu(trayMenu, engine.status, engine.restartInProgress, engineRestartBlocked())
   }
+  const hubMenuItem = () => mailhubTrayItem(() => stats?.mailhub,
+    url => shell.openExternal(url),
+    async error => {
+      await dialog.showMessageBox({ type: 'error', message: 'Orgtree could not open the mail hub in your browser.',
+        detail: error instanceof Error ? error.message : 'Unknown browser error' })
+    })
+  const refreshTrayHub = () => {
+    const item = trayMenu?.getMenuItemById('mailhub-status')
+    if (item) {
+      const current = hubMenuItem()
+      item.label = current.label!
+      item.enabled = current.enabled === true
+    }
+  }
   /** THE ONE WAY A RESTART IS STARTED, and it starts no process of its own:
    *  `Engine.restart` stops, proves the stop, and goes back through the same
    *  `start()` the application boots with.
@@ -589,7 +604,7 @@ else {
     tray?.setImage(image)
     for (const window of BrowserWindow.getAllWindows()) applyWindowIcon(window, image)
     if (!tray) return
-    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); return }
+    if (trayMenuOpen) { refreshTrayUpdates(); refreshTrayEngine(); refreshTrayHub(); return }
     const prefs = preferences.get()
     tray.setToolTip(`Orgtree - ${label()}`)
     // Without update support (dev-channel install, unpackaged development)
@@ -609,17 +624,10 @@ else {
     // requirement 2026-09-15). One honest line from the last stats poll:
     // running (with its port, and whether it is exposed beyond this
     // computer), stopped, or the start error the hosting panel shows.
-    const hub = stats?.mailhub
-    const hubLabel = !hub ? 'Mail hub: status unavailable'
-      : hub.error ? 'Mail hub: not running - see App settings > Mail hub'
-        : hub.running && hub.healthy
-          ? `Mail hub: running - port ${hub.port}${hub.exposed ? ' (network)' : ''}`
-          : hub.running ? `Mail hub: starting on port ${hub.port}...`
-            : 'Mail hub: stopped'
     trayMenu = Menu.buildFromTemplate([
       ...updateRows,
       { type: 'separator' },
-      { id: 'mailhub-status', label: hubLabel, enabled: false },
+      hubMenuItem(),
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
