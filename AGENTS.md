@@ -179,7 +179,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   local draft form; only confirmation creates a seat. Halt/Unhalt shares
   `toggleAgentHalt` with the desk control, including the settling halt phase.
   Copy agent name flows directly into Focus, then Hire a subordinate. The
-  final separated group is Cheap compact, Halt/Unhalt, Retire/Dissolve.
+  final separated group is Cheap compact, Cheap-compact subtree, Halt/Unhalt,
+  Retire all subordinates, Retire/Dissolve (team-only entries need live reports).
+  Both adjacent compaction actions use the theme's yellow caution tint.
   Cheap compact confirms the existing `cheap_compact` operation and is
   disabled for non-live, busy or sessionless agents. [user 2026-10-07 17:16Z;
   verified from source and isolated renderer screenshots/smoke]

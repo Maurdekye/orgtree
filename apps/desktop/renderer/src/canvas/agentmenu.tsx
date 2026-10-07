@@ -214,25 +214,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   const ask = h.onRetireAsk
-  // Bulk cheap compaction of this agent AND everyone below it. Offered only
-  // with live reports. The single-agent action is in the final group below.
-  // Not `danger`: it retires no one
-  // and interrupts nothing; the confirm names every target and every skip.
-  if (canRetire && ask && liveKids) {
-    entries.push({
-      label: 'Cheap-compact subtree…',
-      title: `give ${node.id} and every agent below it a fresh session; `
-        + 'old sessions stay consultable, mid-turn agents are skipped',
-      onSelect: () => ask('cheap-compact-subtree'),
-    })
-  }
-  if (canRetire && ask) {
-    if (liveKids) entries.push({
-      label: 'Retire all subordinates…', danger: true,
-      title: 'retires every live direct report; nested subtrees are included',
-      onSelect: () => ask('retire-all'),
-    })
-  } else if (!live && h.onDismiss) {
+  if (!live && h.onDismiss) {
     const dismiss = h.onDismiss
     entries.push({
       label: 'Dismiss',
@@ -245,12 +227,20 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const lifecycle: MenuEntry[] = []
   if (ask) lifecycle.push({
     label: 'Cheap compact…',
+    warning: true,
     disabled: !canRetire || !!node.busy || !node.session_id,
     title: !canRetire ? 'Only live agents can be compacted'
       : node.busy ? 'Wait until this agent finishes its turn'
       : !node.session_id ? 'No conversation to compact yet'
       : 'Start a fresh session with a handoff from this conversation',
     onSelect: () => ask('cheap-compact'),
+  })
+  // Keep both compaction actions adjacent, before halt and retirement.
+  if (canRetire && ask && liveKids) lifecycle.push({
+    label: 'Cheap-compact subtree…', warning: true,
+    title: `give ${node.id} and every agent below it a fresh session; `
+      + 'old sessions stay consultable, mid-turn agents are skipped',
+    onSelect: () => ask('cheap-compact-subtree'),
   })
   if (canRetire && h.onHalt) lifecycle.push({
     label: node.halt?.phase === 'halted' ? 'Unhalt' : 'Halt',
@@ -259,6 +249,11 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       : 'End this turn and block wakes until explicitly unhalted',
     danger: node.halt?.phase !== 'halted',
     onSelect: h.onHalt,
+  })
+  if (canRetire && ask && liveKids) lifecycle.push({
+    label: 'Retire all subordinates…', danger: true,
+    title: 'retires every live direct report; nested subtrees are included',
+    onSelect: () => ask('retire-all'),
   })
   if (canRetire && ask) lifecycle.push(liveKids
     ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => ask('dissolve') }

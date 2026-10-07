@@ -114,6 +114,8 @@ export interface MenuItem {
   /** a destructive action — drawn in the caution colour; callers place it
    *  after a separator at the end of the list */
   danger?: boolean
+  /** Caution tint for session-affecting actions such as compaction. */
+  warning?: boolean
   title?: string
 }
 export type MenuEntry = MenuItem | 'sep'
@@ -591,7 +593,7 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
   }, [expanded, entry.children])
   return <div className="ctxmenu-branch" onMouseEnter={expand} onMouseLeave={collapse}>
     <button ref={button} type="button" role="menuitem" tabIndex={-1}
-      className={'ctxmenu-item' + (entry.danger ? ' danger' : '')}
+      className={'ctxmenu-item' + (entry.danger ? ' danger' : entry.warning ? ' warning' : '')}
       disabled={entry.disabled} aria-disabled={entry.actionDisabled || entry.disabled || undefined}
       aria-haspopup={entry.children ? 'menu' : undefined}
       aria-expanded={entry.children ? expanded : undefined} title={entry.title}

@@ -7573,6 +7573,8 @@ html.mobile .popout-button { display: none; }
 .ctxmenu-item:disabled { color: var(--dim); cursor: default; background: none; }
 .ctxmenu-item.danger { color: var(--danger-ink); }
 .ctxmenu-item.danger:hover, .ctxmenu-item.danger:focus { color: var(--bad); }
+.ctxmenu-item.warning { color: var(--warn); }
+.ctxmenu-item.warning:hover, .ctxmenu-item.warning:focus { color: var(--warn); }
 .ctxmenu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
 .ctxmenu-description { padding: 6px 12px; max-width: 280px; white-space: normal; color: var(--dim); }
 .ctxmenu-item[aria-disabled="true"] { color: var(--dim); }
