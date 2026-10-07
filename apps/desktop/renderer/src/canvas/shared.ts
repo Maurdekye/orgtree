@@ -54,7 +54,7 @@ export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
  *  frontend had four copies of this before. */
 export const TIER_SEAT: Record<string, number> =
-  { haiku: 0.1, sonnet: 2, opus: 4, fable: 10 }
+  { haiku: 0.5, sonnet: 2, opus: 4, fable: 10 }
 /** Model VERSIONS inside a tier — mirrors ledger.MODEL_VERSIONS. A version is
  *  a subcategory of the tier (user ruling 2026-08-04): it never changes the
  *  seat cost and never appears as a chip, only in the gear. A tier absent
