@@ -15,14 +15,37 @@ use std::{
     time::{Duration, Instant},
 };
 
+const NO_DESKTOP: &str = "Orgtree credential bridge: the Orgtree desktop app isn't open in a signed-in Windows session: ask the user to sign in to Windows and open the Orgtree app [no-desktop].";
 pub const UNAVAILABLE: &str = "Open Orgtree in your signed-in Windows session to restore git/GitHub access. Agents keep running; no engine restart is needed.";
 const MAX: usize = 65536;
 const PIPE_WAIT: Duration = Duration::from_secs(1);
 const SLOT_WAIT: Duration = Duration::from_secs(2);
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum ExchangeError {
     Busy,
     Unavailable,
+    /// Fixed, secret-free code from the desktop (for example `gh-exit-1`).
+    Lookup(String),
+}
+/// Why a bridge request failed. Every variant is safe to show and log.
+enum Fail {
+    Denied,
+    Busy,
+    Unavailable,
+    Lookup(String),
+}
+impl From<()> for Fail {
+    #[nolog]
+    fn from(_: ()) -> Self {
+        Fail::Denied
+    }
+}
+/// Last real desktop lookup, for the app. Never holds credential data.
+pub struct LookupStatus {
+    pub ok: bool,
+    pub kind: &'static str,
+    pub reason: Option<String>,
+    pub at_ms: i64,
 }
 const REGISTER: &str = "/api/desktop/credential-bridge";
 const REQUEST: &str = "/api/agent-credential";
@@ -45,6 +68,7 @@ pub struct Bridge {
     grants: papaya::HashMap<i64, Arc<Grant>>,
     slots: tokio::sync::Semaphore,
     reported_ready: AtomicBool,
+    last_lookup: ArcSwapOption<LookupStatus>,
 }
 #[nolog]
 impl Bridge {
@@ -54,6 +78,47 @@ impl Bridge {
             grants: papaya::HashMap::new(),
             slots: tokio::sync::Semaphore::new(16),
             reported_ready: AtomicBool::new(false),
+            last_lookup: ArcSwapOption::empty(),
+        }
+    }
+    /// `untested` until a real git/gh lookup has gone through the desktop;
+    /// a successful ping or registration is not a lookup.
+    pub fn lookup_view(&self) -> Value {
+        match self.last_lookup.load_full() {
+            None => json!({"status": "untested"}),
+            Some(l) => json!({
+                "status": if l.ok { "succeeded" } else { "failed" },
+                "kind": l.kind,
+                "reason": l.reason,
+                "message": l.reason.as_deref().map(describe),
+                "at_ms": l.at_ms,
+            }),
+        }
+    }
+    fn record(&self, kind: &'static str, host: &str, reason: Option<&str>) {
+        let at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let previous = self.last_lookup.swap(Some(Arc::new(LookupStatus {
+            ok: reason.is_none(),
+            kind,
+            reason: reason.map(str::to_string),
+            at_ms,
+        })));
+        match reason {
+            Some(reason) => tracing::warn!(
+                kind,
+                host,
+                reason,
+                "Credential bridge lookup failed: {}",
+                describe(reason)
+            ),
+            // Log the first success and every recovery, not every lookup.
+            None if previous.map(|p| !p.ok).unwrap_or(true) => {
+                tracing::info!(kind, host, "Credential bridge lookup succeeded")
+            }
+            None => {}
         }
     }
     pub fn ready(&self) -> bool {
@@ -245,9 +310,11 @@ pub fn route(path: &str) -> bool {
 /// Entire route, including auth failures, bypasses generic body/header tracing.
 #[nolog]
 pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
-    let result = tokio::time::timeout(Duration::from_secs(10), handle(&engine, req)).await;
+    let result = tokio::time::timeout(Duration::from_secs(10), handle(&engine, req))
+        .await
+        .unwrap_or(Err(Fail::Busy));
     match result {
-        Ok(Ok(bytes)) => (
+        Ok(bytes) => (
             StatusCode::OK,
             [
                 ("content-type", "application/octet-stream"),
@@ -256,22 +323,27 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
             bytes,
         )
             .into_response(),
-        _ => (
+        Err(fail) => (
             StatusCode::SERVICE_UNAVAILABLE,
             [("cache-control", "no-store")],
-            UNAVAILABLE,
+            match fail {
+                Fail::Denied => "Orgtree credential bridge: this process's credential capability is no longer valid; a new turn or CLI process gets a fresh one [denied].".to_string(),
+                Fail::Busy => "Orgtree credential bridge: busy or timed out; retry in a moment [busy].".to_string(),
+                Fail::Unavailable => NO_DESKTOP.to_string(),
+                Fail::Lookup(reason) => describe(&reason),
+            },
         )
             .into_response(),
     }
 }
 #[nolog]
-async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
+async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
     let peer = req
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .ok_or(())?;
     if !peer.0.ip().is_loopback() || req.method() != axum::http::Method::POST {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let register = req.uri().path() == REGISTER;
     let token = req
@@ -287,7 +359,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
     if register
         && (engine.cfg.desktop_token.is_empty() || !equal(&token, &engine.cfg.desktop_token))
     {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let header_agent = req
         .headers()
@@ -302,13 +374,13 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
             .map(|g| equal(&token, &g.secret))
             .unwrap_or(false)
         {
-            return Err(());
+            return Err(Fail::Denied);
         }
     }
     let _slot = tokio::time::timeout(SLOT_WAIT, engine.credential_bridge.slots.acquire())
         .await
-        .map_err(|_| ())?
-        .map_err(|_| ())?;
+        .map_err(|_| Fail::Busy)?
+        .map_err(|_| Fail::Busy)?;
     let bytes = axum::body::to_bytes(req.into_body(), MAX)
         .await
         .map_err(|_| ())?;
@@ -328,7 +400,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
             })
             .unwrap_or(false)
         {
-            return Err(());
+            return Err(Fail::Denied);
         }
         let pid = u32::try_from(value["pid"].as_u64().ok_or(())?).map_err(|_| ())?;
         let broker = Broker {
@@ -339,10 +411,10 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
         };
         if exchange(&broker, json!({"kind":"ping"}))
             .await
-            .map_err(|_| ())?
+            .map_err(|_| Fail::Unavailable)?
             != b"ready"
         {
-            return Err(());
+            return Err(Fail::Denied);
         }
         engine
             .credential_bridge
@@ -353,7 +425,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
     }
     let agent = value["agent"].as_i64().ok_or(())?;
     if header_agent != Some(agent) {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let grant = engine
         .credential_bridge
@@ -363,43 +435,51 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
         .cloned()
         .ok_or(())?;
     if !equal(&token, &grant.secret) {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let pid = grant.pid.load(Ordering::SeqCst);
     let stamp = grant.created.load(Ordering::SeqCst);
     if stamp == 0 || process_stamp(pid) != Some(stamp) {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let db = engine.db.get().await.map_err(|_| ())?;
     let exists=db.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND org_id=$2 AND generation=$3 AND state='live' AND halt IS NULL", &[&agent,&grant.org,&grant.generation]).await.map_err(|_|())?.is_some();
     drop(db);
     if !exists {
-        return Err(());
+        return Err(Fail::Denied);
     }
-    let kind = value["kind"].as_str().ok_or(())?;
-    if kind != "git" && kind != "gh" {
-        return Err(());
-    }
+    let kind: &'static str = match value["kind"].as_str() {
+        Some("git") => "git",
+        Some("gh") => "gh",
+        _ => return Err(Fail::Denied),
+    };
     let host = value["host"].as_str().filter(|h| valid_host(h)).ok_or(())?;
     let path = value["path"].as_str().unwrap_or("");
     let username = value["username"].as_str().unwrap_or("");
     if !safe_field(path) || !safe_field(username) {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let broker = engine
         .credential_bridge
         .broker
         .load_full()
         .filter(|b| b.expires > Instant::now())
-        .ok_or(())?;
+        .ok_or(Fail::Unavailable)?;
     let answer = match exchange(
         &broker,
-        json!({"kind":kind,"host":host,"path":path,"username":username}),
+        json!({"kind":kind,"host":host,"path":path,"username":username,"diagnostics":1}),
     )
     .await
     {
-        Ok(answer) => answer,
-        Err(ExchangeError::Busy) => return Err(()),
+        Ok(answer) => {
+            engine.credential_bridge.record(kind, host, None);
+            answer
+        }
+        Err(ExchangeError::Busy) => return Err(Fail::Busy),
+        Err(ExchangeError::Lookup(reason)) => {
+            engine.credential_bridge.record(kind, host, Some(&reason));
+            return Err(Fail::Lookup(reason));
+        }
         Err(ExchangeError::Unavailable) => {
             // A missing credential is not a dead broker. Probe the channel
             // without reading a secret before withdrawing availability.
@@ -415,8 +495,12 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
                 {
                     publish_availability(engine);
                 }
+                engine.credential_bridge.record(kind, host, Some("broker-gone"));
+                return Err(Fail::Unavailable);
             }
-            return Err(());
+            // Older desktops close the pipe without a reason.
+            engine.credential_bridge.record(kind, host, Some("broker-failed"));
+            return Err(Fail::Lookup("broker-failed".into()));
         }
     };
     // Re-check revocation after the asynchronous desktop lookup.
@@ -428,13 +512,13 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
         .map(|g| Arc::ptr_eq(g, &grant))
         .unwrap_or(false)
     {
-        return Err(());
+        return Err(Fail::Denied);
     }
     if process_stamp(pid) != Some(stamp) {
-        return Err(());
+        return Err(Fail::Denied);
     }
     let db = engine.db.get().await.map_err(|_| ())?;
-    if db.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND org_id=$2 AND generation=$3 AND state='live' AND halt IS NULL", &[&agent,&grant.org,&grant.generation]).await.map_err(|_|())?.is_none() {return Err(());}
+    if db.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND org_id=$2 AND generation=$3 AND state='live' AND halt IS NULL", &[&agent,&grant.org,&grant.generation]).await.map_err(|_|())?.is_none() {return Err(Fail::Denied);}
     if !engine
         .credential_bridge
         .grants
@@ -443,7 +527,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
         .map(|g| Arc::ptr_eq(g, &grant))
         .unwrap_or(false)
     {
-        return Err(());
+        return Err(Fail::Denied);
     }
     Ok(answer)
 }
@@ -487,6 +571,27 @@ fn valid_host(s: &str) -> bool {
         && s.bytes()
             .all(|c| c.is_ascii_alphanumeric() || b".-:".contains(&c))
         && !s.starts_with(['-', '.'])
+}
+
+/// One actionable line an agent can relay to the user. Codes are fixed
+/// strings from the desktop broker and never contain tool output.
+#[nolog]
+fn describe(code: &str) -> String {
+    let tool = code.split('-').next().unwrap_or("");
+    let what = match code {
+        "gh-empty" => "GitHub sign-in missing on the desktop: ask the user to run `gh auth login` in their Windows session".to_string(),
+        "git-empty" => "no saved git login for this host on the desktop: ask the user to sign in there once (for github.com: `gh auth login`)".to_string(),
+        "gh-missing" | "git-missing" => format!("{tool}.exe is not on the desktop's PATH: ask the user to install {tool} and reopen the Orgtree app"),
+        "gh-timeout" | "git-timeout" => format!("{tool} timed out on the desktop: ask the user to check that `{tool}` works in their own terminal"),
+        "broker-gone" | "broker-failed" => "the Orgtree desktop app stopped answering: ask the user to reopen the Orgtree app".to_string(),
+        "invalid-request" => "the desktop rejected this request (unsupported host or field)".to_string(),
+        c => match c.split_once("-exit-") {
+            Some(("gh", n)) => format!("gh failed on the desktop (exit {n}), usually because GitHub sign-in is missing: ask the user to run `gh auth status` and `gh auth login` in their Windows session"),
+            Some((tool, n)) => format!("{tool} failed on the desktop (exit {n}), usually because no login is saved for this host: ask the user to sign in there once (for github.com: `gh auth login`)"),
+            None => "the desktop lookup failed: ask the user to reopen the Orgtree app".to_string(),
+        },
+    };
+    format!("Orgtree credential bridge: {what} [{code}].")
 }
 
 #[cfg(windows)]
@@ -535,6 +640,17 @@ async fn exchange(broker: &Broker, mut request: Value) -> Result<Vec<u8>, Exchan
         .map_err(|_| ExchangeError::Unavailable)?;
     if result == b"orgtree-credential-busy\n" {
         Err(ExchangeError::Busy)
+    } else if let Some(code) = result
+        .strip_prefix(b"orgtree-credential-error ")
+        .and_then(|c| c.strip_suffix(b"\n"))
+    {
+        let code = std::str::from_utf8(code).unwrap_or("");
+        let valid = !code.is_empty()
+            && code.len() <= 40
+            && code.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-');
+        Err(ExchangeError::Lookup(
+            if valid { code } else { "broker-failed" }.into(),
+        ))
     } else if result.len() > MAX || result.is_empty() {
         Err(ExchangeError::Unavailable)
     } else {
@@ -788,48 +904,73 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
         // Broker absence never disables the native credential path. An empty
         // Git helper answer allows the configured chain to continue; gh runs
         // its real executable below without an injected token.
-        let lookup =
-            async {
-                let endpoint = std::env::var("ORGTREE_CREDENTIAL_URL").map_err(|_| ())?;
-                let url = reqwest::Url::parse(&endpoint).map_err(|_| ())?;
-                if url.scheme() != "http"
-                    || url.host_str() != Some("127.0.0.1")
-                    || url.path() != REQUEST
-                    || !url.username().is_empty()
-                    || url.query().is_some()
-                {
-                    return Err(());
-                }
-                let agent = std::env::var("ORGTREE_CREDENTIAL_AGENT")
-                    .map_err(|_| ())?
-                    .parse::<i64>()
-                    .map_err(|_| ())?;
-                let token = std::env::var("ORGTREE_CREDENTIAL_AUTH").map_err(|_| ())?;
-                let client = reqwest::Client::builder()
-                    .no_proxy()
-                    .redirect(reqwest::redirect::Policy::none())
-                    .timeout(Duration::from_secs(10))
-                    .build()
-                    .map_err(|_| ())?;
-                let response = client
-            .post(url)
-            .header("x-orgtree-credential-token", token)
-            .header("x-orgtree-credential-agent", agent.to_string())
-            .json(&json!({"agent":agent,"kind":kind,"host":host,"path":path,"username":username}))
-            .send()
-            .await
-            .map_err(|_| ())?;
-                if !response.status().is_success() {
-                    return Err(());
-                }
-                let result = response.bytes().await.map_err(|_| ())?;
-                if result.is_empty() || result.len() > MAX {
-                    return Err(());
-                }
-                Ok::<Vec<u8>, ()>(result.to_vec())
+        // Every failure prints one secret-free line to stderr; the native
+        // credential path still runs afterwards.
+        const MISCONFIGURED: &str = "Orgtree credential bridge: this process's bridge settings are missing or invalid; a new turn or CLI process gets fresh ones [misconfigured].";
+        let lookup = async {
+            let endpoint = std::env::var("ORGTREE_CREDENTIAL_URL").map_err(|_| MISCONFIGURED.to_string())?;
+            let url = reqwest::Url::parse(&endpoint).map_err(|_| MISCONFIGURED.to_string())?;
+            if url.scheme() != "http"
+                || url.host_str() != Some("127.0.0.1")
+                || url.path() != REQUEST
+                || !url.username().is_empty()
+                || url.query().is_some()
+            {
+                return Err(MISCONFIGURED.to_string());
             }
-            .await;
-        lookup.unwrap_or_default()
+            let agent = std::env::var("ORGTREE_CREDENTIAL_AGENT")
+                .ok()
+                .and_then(|a| a.parse::<i64>().ok())
+                .ok_or_else(|| MISCONFIGURED.to_string())?;
+            let token = std::env::var("ORGTREE_CREDENTIAL_AUTH").map_err(|_| MISCONFIGURED.to_string())?;
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(10))
+                .build()
+                .map_err(|_| MISCONFIGURED.to_string())?;
+            let response = client
+                .post(url)
+                .header("x-orgtree-credential-token", token)
+                .header("x-orgtree-credential-agent", agent.to_string())
+                .json(&json!({"agent":agent,"kind":kind,"host":host,"path":path,"username":username}))
+                .send()
+                .await
+                .map_err(|_| "Orgtree credential bridge: the Orgtree engine did not answer; retry in a moment [no-engine].".to_string())?;
+            if !response.status().is_success() {
+                // The engine's 503 body is a fixed, secret-free sentence.
+                let body = response.bytes().await.unwrap_or_default();
+                let line: String = String::from_utf8_lossy(&body[..body.len().min(600)])
+                    .chars()
+                    .map(|c| if c.is_control() { ' ' } else { c })
+                    .collect();
+                return Err(if line.trim().is_empty() {
+                    "Orgtree credential bridge: the request failed [failed].".to_string()
+                } else {
+                    line.trim().to_string()
+                });
+            }
+            let result = response
+                .bytes()
+                .await
+                .map_err(|_| "Orgtree credential bridge: the answer was cut off; retry [truncated].".to_string())?;
+            if result.is_empty() || result.len() > MAX {
+                return Err("Orgtree credential bridge: the answer was empty; retry [empty].".to_string());
+            }
+            Ok::<Vec<u8>, String>(result.to_vec())
+        }
+        .await;
+        match lookup {
+            Ok(answer) => answer,
+            Err(line) => {
+                if kind == "gh" {
+                    eprintln!("{line} Running gh with its own sign-in only.");
+                } else {
+                    eprintln!("{line}");
+                }
+                vec![]
+            }
+        }
     };
     if kind == "git" {
         tokio::io::stdout()

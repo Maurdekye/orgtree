@@ -154,3 +154,28 @@ Git check above uses credential fill with synthetic credentials only.
   filtering has NOT been verified; no claim of Antigravity terminal credential
   compatibility is made until an actual terminal invocation is observed. No
   speculative unsupported option is passed to it.
+
+## Failure reasons and lookup status (alpha.10 follow-up, 2026-10-07)
+
+The alpha.10 incident (every bridged git/gh request returned 503) came down to
+gh not being signed in on the desktop. The bridge itself worked, but no layer
+said why it failed. Now:
+
+- The desktop broker classifies a failed lookup as a fixed code
+  (`gh-empty`, `git-empty`, `gh-exit-N`, `git-exit-N`, `gh-timeout`,
+  `gh-missing`, `git-missing`, `invalid-request`, `broker-failed`). It returns
+  `orgtree-credential-error <code>` only to an authenticated engine request
+  carrying `diagnostics: 1`. Tool stdout, stderr and messages never leave the
+  broker. Older engines get the old silent close.
+- The engine validates the code (`[A-Za-z0-9-]`, at most 40 bytes), logs a warn
+  line with the kind, the host and the code, and answers 503 with one
+  actionable sentence ("…ask the user to run `gh auth login`… [gh-empty]").
+  Engine-side refusals have their own codes: `denied`, `busy`, `no-desktop`.
+- The git helper and the gh shim print that sentence as one stderr line, then
+  continue as before: git falls through to the next helper, and gh runs with
+  its own sign-in. A missing or broken engine prints `[no-engine]`.
+- `/api/desktop/identity` → `credentialContext.bridge_lookup` =
+  `{status: untested|succeeded|failed, kind, reason, message, at_ms}`. Only a
+  real git/gh lookup through the desktop sets it, never a ping or a
+  registration. It is diagnostic only: the user ruled on 2026-10-07 at 16:12Z
+  that there is no credential UI, and agents relay the stderr line instead.

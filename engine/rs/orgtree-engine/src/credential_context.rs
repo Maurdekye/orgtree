@@ -34,11 +34,16 @@ impl CredentialContext {
     }
 
     /// Called before CLI launch/admission and when a session change is seen.
-    pub fn view(&self, bridge: bool) -> serde_json::Value {
+    /// `bridge_lookup.status` is untested|succeeded|failed: only a real git/gh
+    /// lookup through the desktop counts, never a ping. Diagnostic only (user
+    /// ruling 2026-10-07 16:12Z: no credential UI).
+    pub fn view(&self, bridge: &crate::credential_bridge::Bridge) -> serde_json::Value {
+        let ready = bridge.ready();
         let mut value = serde_json::to_value(&**self.state.load()).unwrap_or_default();
-        value["bridge_ready"] = serde_json::json!(bridge);
+        value["bridge_ready"] = serde_json::json!(ready);
         value["general_vault_isolated"] = serde_json::json!(value["warning"].is_string());
-        if bridge { value["warning"] = serde_json::Value::Null; }
+        if ready { value["warning"] = serde_json::Value::Null; }
+        value["bridge_lookup"] = bridge.lookup_view();
         value
     }
 
