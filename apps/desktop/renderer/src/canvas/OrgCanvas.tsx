@@ -2609,6 +2609,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       const p = posOf(k)
       if (p) bases.set(k, { x: p.x, y: p.y })
     }
+    // Watchdog satellites belong to the same rigid drag group as their
+    // owners, including descendants. Sharing bases also suspends their
+    // springs during drag and restores them with the node on cancellation.
+    for (const w of tree.watchdogs ?? []) {
+      if (!bases.has(w.owner)) continue
+      const key = 'dog:' + w.id, p = posOf(key)
+      if (p) bases.set(key, { x: p.x, y: p.y })
+    }
     nodeDrag.current = { id, sx: e.clientX, sy: e.clientY, bases, moved: false }
     e.currentTarget.setPointerCapture(e.pointerId)
   }

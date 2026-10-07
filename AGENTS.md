@@ -245,6 +245,12 @@ desk frame, then map its CSS rectangle through the owner's native content origin
 zoom. Windows cross-display mapping goes through physical pixels; content bounds exclude
 invisible frame allowances. Lifecycle restores still use saved standalone placement.
 
+**Watchdog drag positions (2026-10-07, verified from source).** Canvas drag bases
+include watchdog satellites for every dragged owner in the subtree. The same
+bases suspend springs during dragging and restore positions on pointercancel;
+cards and connectors both read those springs. Keep satellites in that shared
+path for row and ring layouts (`canvas/OrgCanvas.tsx`).
+
 **Desk popout navigation (2026-10-07, verified from source and browser smoke).**
 Card and agent-list menus request the canonical desk window without recentering.
 An unopened desk gets an on-demand launch slot, removed after detach or failure;
