@@ -35,7 +35,7 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
     }
     let mail = client
         .query(
-            "SELECT uid, sender, body, urgent, urgent_reason FROM ot.mail
+            "SELECT uid, sender, body, urgent, urgent_reason, ev FROM ot.mail
               WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' ORDER BY id DESC LIMIT 200",
             &[&org_id],
         )
@@ -48,7 +48,7 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         let body: String = r.get(2);
         out.push(json!({
             "id": format!("mail:{uid}"), "source_id": uid,
-            "kind": if urgent { "urgent-mail" } else { "routine" }, "org": slug, "agent": sender,
+            "kind": mail_kind(urgent, &r.get::<_, Option<Value>>(5)), "org": slug, "agent": sender,
             "title": if urgent { format!("Urgent from {sender}") } else { format!("Mail from {sender}") },
             "body": gist(&reason.unwrap_or(body), 300),
         }));
@@ -103,4 +103,14 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         }));
     }
     Ok(out)
+}
+
+/// Typed failures alert even when routine mail is disabled (3.x parity).
+#[logged]
+fn mail_kind(urgent: bool, event: &Option<Value>) -> &'static str {
+    let terminal = event.as_ref().is_some_and(|ev| {
+        matches!(ev["variant"].as_str(), Some("runtime.turn_failed_terminal" | "runtime.background_task_stopped" | "runtime.subagent_died"))
+            || (ev["variant"] == "runtime.report_stalled" && ev["cause"] == "terminal")
+    });
+    if terminal { "terminal-failure" } else if urgent { "urgent-mail" } else { "routine" }
 }
