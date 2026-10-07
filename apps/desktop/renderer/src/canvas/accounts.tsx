@@ -599,6 +599,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
 }) {
   const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
+  const [openingLogs, setOpeningLogs] = useState(false)
   // the Model tiers list leaves Terra and Gemini Pro out unless "show legacy models" is on
   useShowLegacyModels()
   useEffect(() => {
@@ -853,13 +854,29 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <SetGroup title="Debug">
         <EngineDebugToggle />
         {runtime?.verbose_logging !== undefined &&
-          <SetToggle label="verbose engine logging" checked={runtime.verbose_logging}
-            disabled={busy || runtime.verbose_logging_pinned === true}
-            onChange={v => changeRuntime(setVerboseLogging, v)}
+          <SetRow label="verbose engine logging"
             hint={runtime.verbose_logging_pinned
               ? 'Fixed for this run by ORGTREE_LOG_VERBOSE.'
               : 'Writes every engine method call and return, and each request’s headers, to the engine log. '
-                + 'Off: requests, responses, warnings and errors only. Takes effect at once.'} />}
+                + 'Off: requests, responses, warnings and errors only. Takes effect at once.'}>
+            <label className="checkline">
+              <input type="checkbox" role="switch" aria-label="verbose engine logging"
+                checked={runtime.verbose_logging}
+                disabled={busy || runtime.verbose_logging_pinned === true}
+                onChange={e => changeRuntime(setVerboseLogging, e.target.checked)} />
+              <span className={'set-state' + (runtime.verbose_logging ? ' on' : '')}>
+                {runtime.verbose_logging ? 'on' : 'off'}</span>
+            </label>
+            {desktop()?.openLogsFolder && <button disabled={openingLogs} onClick={async () => {
+              setOpeningLogs(true)
+              try {
+                const result = await desktop()!.openLogsFolder!()
+                if (!result.ok) toast([`Could not open logs folder: ${result.error || 'Unknown error'}`])
+              } catch (error) {
+                toast([`Could not open logs folder: ${error instanceof Error ? error.message : String(error)}`])
+              } finally { setOpeningLogs(false) }
+            }}>{openingLogs ? 'Opening…' : 'Open logs folder'}</button>}
+          </SetRow>}
       </SetGroup>
     </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
