@@ -24,6 +24,7 @@ mod host;
 mod http;
 mod import2x;
 mod import30;
+mod import_dogmemo;
 mod importer;
 mod launch;
 mod mailhub;
@@ -147,6 +148,8 @@ async fn run_with_cluster(
     let pool = cluster.pool(pg::ENGINE_DB, 48)?;
 
     importer::run_if_needed(&cfg, cluster, &pool, progress).await?;
+    // before any watchdog starts, so an imported passive dog never wakes its owner
+    import_dogmemo::run_once(&cfg, cluster, &pool).await;
 
     let settings_doc = {
         let client = pool.get().await?;

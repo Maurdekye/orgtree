@@ -89,6 +89,29 @@ pub async fn run(cfg: &Config, dst: &mut deadpool_postgres::Object, progress: &d
     Ok(failed)
 }
 
+/// The watchdog records of the 2.x orgs whose import uuid is in `wanted`,
+/// read exactly as the import read them (for the watchdog memo catch-up).
+#[logged]
+pub(crate) fn legacy_watchdogs(dir: &Path, staging: &Path, wanted: &HashSet<String>) -> Vec<(String, Vec<Value>)> {
+    let mut out = Vec::new();
+    for (slug, path) in find_orgs(dir) {
+        let src = match load(&slug, &path, staging) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(org = %slug, error = %format!("{e:#}"), "2.x organization unreadable for the watchdog catch-up");
+                continue;
+            }
+        };
+        let created = src.doc.get("created").and_then(Value::as_str).unwrap_or("");
+        let uuid = org_uuid(&format!("orgtree-2x:{slug}:{created}"));
+        if wanted.contains(&uuid) {
+            out.push((uuid, src.doc.get("watchdogs").and_then(Value::as_array).cloned().unwrap_or_default()));
+        }
+    }
+    let _ = std::fs::remove_dir_all(staging);
+    out
+}
+
 /// `(slug, file)` for each org: `<slug>.db`, or `<slug>.json` with no `.db`.
 #[logged]
 fn find_orgs(dir: &Path) -> Vec<(String, PathBuf)> {
