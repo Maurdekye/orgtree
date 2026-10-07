@@ -35,12 +35,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   validate final net grants in one transaction. [user ruling and source verified:
   2026-10-07; docs/rust-engine/credit-cascade-boundary.md]
 
-- Draft hire cancellation snapshots only the currently mounted full desk and
-  restores it through the normal focus route after layout settles. The saved
-  agent generation must still match; confirmation clears the snapshot and keeps
-  the existing new-agent focus. Cancel, Escape and plain canvas click-away share
-  this path. [verified from source and isolated renderer smoke: 2026-10-07;
-  `canvas/draftfocus.ts`, `canvas/OrgCanvas.tsx`]
+- Draft hire cancellation saves the camera intent (org fit or focused target)
+  and exact manual pan/zoom, plus any mounted desk's keyboard/caret state.
+  Restore after layout settles through the shared cancellation route; every
+  draft entry uses the same snapshot and confirmation discards it. A saved
+  target must still match its generation. [verified from source and isolated
+  real-browser smoke: 2026-10-07; `docs/rust-engine/draft-cancel-focus.md`]
 
 - Tool arguments live in `ot.convo.tool_inputs`, apart from the normal `body`
   projection. Tool chips carry only `input_seq`; expansion reads one agent/row/tool

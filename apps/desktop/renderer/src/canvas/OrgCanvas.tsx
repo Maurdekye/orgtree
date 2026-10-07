@@ -247,6 +247,14 @@ let leftFirstOrg = false
 type CamIntent =
   | { kind: 'org' }
   | { kind: 'focus'; id: string; z: number | null; onCanvas?: boolean }
+/** A draft temporarily owns the camera; cancellation restores its prior intent,
+ *  including whole-org fit and manually positioned views, not only desks. */
+interface DraftOrigin {
+  view: View
+  intent: CamIntent | null
+  desk: DraftDeskFocus | null
+  target: { id: string; generation: number | undefined } | null
+}
 /** tests only: put the module back in the fresh-session state */
 export const resetCanvasSessionForTests = (): void => { firstCanvasSlug = null; leftFirstOrg = false }
 
@@ -411,8 +419,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
   const [draft, setDraft] = useState<DraftState | null>(null)
-  const draftOrigin = useRef<DraftDeskFocus | null>(null)
-  const draftReturn = useRef<DraftDeskFocus | null>(null)
+  const draftOrigin = useRef<DraftOrigin | null>(null)
+  const draftReturn = useRef<DraftOrigin | null>(null)
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => {
     if (draftTimer.current !== null) clearTimeout(draftTimer.current)
@@ -2900,7 +2908,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     include: [...new Set([...(restoredModalOrg.current === slug ? [] : savedSelection.include),
       ...restoreDesks.map(([, id]) => id), ...pins.map(pin => pin.id), ...shownRetired,
       configId, lineageId, inboxId, agentDocketId, teamDocketId, tempDeskId, sheetId,
-      draftOrigin.current?.id, draftReturn.current?.id,
+      draftOrigin.current?.target?.id, draftReturn.current?.target?.id,
       focusId, draft?.parent, draft?.beside?.anchor, draft?.above?.anchor, pendingJump?.id,
     ].filter((id): id is string => !!id && id !== USER && id !== DRAFT))].sort(),
     hideRetired, fronts: retiredFronts(pileFront), browse,
@@ -3169,11 +3177,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [tree.audiences, map, hidden])
 
   const openDraft = (next: DraftState) => {
-    // Keep the original desk when replacing a draft's tier/placement.
+    // Keep the original surface when replacing a draft's tier/placement.
     if (!draft) {
       const id = buttonAgentOf(slug) ?? focusRef.current
-      draftOrigin.current = captureDraftDeskFocus(viewportRef.current,
+      const desk = captureDraftDeskFocus(viewportRef.current,
         id ? mapRef.current.get(id) : undefined)
+      const intent = camIntent.current ? { ...camIntent.current } : null
+      const targetId = intent?.kind === 'focus' ? intent.id : desk?.id
+      const node = targetId ? mapRef.current.get(targetId) : undefined
+      draftOrigin.current = { view: { ...viewRef.current }, intent, desk,
+        target: node ? { id: node.id, generation: node.generation } : null }
     }
     draftReturn.current = null
     if (draftTimer.current !== null) clearTimeout(draftTimer.current)
@@ -3191,26 +3204,35 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     firstUseCancel(slug)
     setDraft(null)
   }, [slug])
-  // Removing a draft changes layout. Wait for the restored seat to settle,
-  // then use the normal desk route and restore keyboard focus after mount.
+  // Removing a draft changes layout. Restore the saved command after layout
+  // settles, so whole-org fit remains responsive to later geometry changes.
+  // A manual view has no command: restore its exact pan/zoom without inventing one.
   useEffect(() => {
     const saved = draftReturn.current
     if (draft || !saved) return
     let frame = 0, aimed = false
     const started = performance.now()
     const restore = () => {
-      const node = mapRef.current.get(saved.id)
       if (draftReturn.current !== saved) return
-      if (!node || node.generation !== saved.generation || performance.now() - started > 10000) {
+      const node = saved.target ? mapRef.current.get(saved.target.id) : null
+      if ((saved.target && (!node || node.generation !== saved.target.generation))
+          || performance.now() - started > 10000) {
         draftReturn.current = null
         return
       }
-      const target = targetRef.current.get(saved.id), spring = springs.current.get(saved.id)
-      if (!aimed && target && spring && atRest(spring, target) && !panRef.current) {
-        centerOn(saved.id)
+      const settled = [...targetRef.current].every(([id, target]) => {
+        const spring = springs.current.get(id)
+        return spring && atRest(spring, target)
+      })
+      if (!aimed && settled && !panRef.current) {
+        if (saved.intent?.kind === 'org') fitAll()
+        else if (saved.intent?.kind === 'focus')
+          centerOn(saved.intent.id, saved.intent.z, saved.intent.onCanvas)
+        else animateTo(saved.view)
         aimed = true
       }
-      if (aimed && !animBusyRef.current && restoreDraftDeskKeyboard(viewportRef.current, saved)) {
+      if (aimed && !animBusyRef.current
+          && (!saved.desk || restoreDraftDeskKeyboard(viewportRef.current, saved.desk))) {
         draftReturn.current = null
         return
       }
@@ -3218,7 +3240,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     frame = requestAnimationFrame(restore)
     return () => cancelAnimationFrame(frame)
-  }, [draft, centerOn])
+  }, [draft, centerOn, fitAll, animateTo])
   // A plain click away cancels; panning and the draft's permissions/modal
   // controls remain usable. All cancellation routes share the same return.
   useEffect(() => {
