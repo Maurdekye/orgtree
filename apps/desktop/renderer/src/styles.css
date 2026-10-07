@@ -3654,6 +3654,22 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
   box-shadow: inset 0 0 2px rgba(255, 255, 255, .12);
 }
 .cbar-fill.alone { border-radius: 3px; }   /* no seat below (the eye, etc.) */
+/* Settings version of the canvas credits: own seat, child seats/grants, free. */
+.credit-grant { margin: 14px 0; }
+.credit-grant-heading, .credit-grant-limits { display: flex; justify-content: space-between; gap: 12px; }
+.credit-grant-heading output { font-family: var(--mono); }
+.credit-grant-track { position: relative; height: 22px; margin: 12px 8px; border: 1px dashed var(--line); border-radius: 4px; }
+.credit-grant-bar, .credit-grant-layers { position: absolute; inset: 0 auto 0 0; border-radius: 3px; overflow: hidden; pointer-events: none; }
+.credit-grant-bar { background: var(--input); outline: 1px solid var(--line); }
+.credit-grant-committed { position: absolute; top: 0; bottom: 0; background: linear-gradient(to right, #0c4a6e, #155e75); }
+.credit-grant-seat { height: 100%; background: linear-gradient(to right, #67e8f9, #a5f3fc); box-shadow: 0 0 7px rgba(165,243,252,.55); }
+.credit-grant-child { position: absolute; top: 0; bottom: 0; border-left: 1px solid rgba(157,157,157,.45); }
+.credit-grant-subseat { height: 100%; background: #22d3ee; box-shadow: inset 0 0 2px rgba(255,255,255,.25); }
+.credit-grant-floor { position: absolute; top: -4px; bottom: -4px; border-left: 1px dashed var(--dim); opacity: .5; pointer-events: none; }
+.credit-grant-handle { position: absolute; top: -5px; width: 12px; height: 30px; transform: translateX(-50%); border: 1px solid var(--accent); border-radius: 3px; background: var(--panel); cursor: ew-resize; touch-action: none; }
+.credit-grant-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.credit-grant-handle[aria-disabled="true"] { opacity: .5; cursor: default; }
+.credit-grant-limits { font-size: 11px; color: var(--dim); }
 /* clips the fill/seat/hairline layers to the bar's rounded outline — without
    it the border-box overhang let the seat block punch through the top */
 .cbar-clip {

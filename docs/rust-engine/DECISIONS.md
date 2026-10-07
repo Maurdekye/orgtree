@@ -233,3 +233,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     The interactive credential round trip is verified after alpha.9 installation;
     local source/isolated smoke checks must prove the normal-mode environment is
     unchanged. Same-user capabilities are not an OS isolation boundary.
+
+52. **Edit agent grants in their settings with a horizontal credit bar**
+    (user 2026-10-07 13:49Z). Keep the canvas bar's seat, committed and free
+    segments and colours. Drag its end, show the numeric grant, and commit on
+    release through reallocate. Clamp to committed holdings and available parent
+    or cascade credits, show both limits, and restore the saved grant with the
+    reason on refusal. Arrow keys step the grant. This does not edit the user's
+    own top-level grant.

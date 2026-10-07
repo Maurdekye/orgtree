@@ -38,6 +38,7 @@ import { accountProvider, accountValue, primaryAccount } from '../accountidentit
 import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../accountidentity'
 import { registryProviderName } from '../registrylabels'
 import { EFFORT_CHANGE_HELP } from './effort'
+import { CreditGrant } from './creditgrant'
 
 export interface ConfirmModalProps {
   title: ReactNode
@@ -1147,6 +1148,8 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             live={node.proc_live} relaunch={node.proc_relaunch}
             reason={node.proc_relaunch_reason} busy={node.busy} tier={node.tier} />}
           {tierLabel(node.tier ?? '')} · configuration</div>
+        {node.state === 'live' && node.id !== USER && !node.isBearerOf &&
+          <CreditGrant key={`${node.id}:${node.generation}`} node={node} map={map} tree={tree} op={op} />}
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
             common case plus a per-field line only where the blast radius
             DIFFERS — a wider scope, a different mechanism, or no cost at

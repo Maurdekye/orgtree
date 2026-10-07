@@ -16,6 +16,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Agent settings has a horizontal grant bar (`canvas/creditgrant.tsx`). Grants
+  exclude the fixed own seat; the floor is grant minus free (reports' seats and
+  grants). User cascade headroom propagates root-to-parent with whole-credit
+  ancestor raises, matching `ops::ensure_room`. Release uses the existing
+  `reallocate` action; refusal restores the saved value. No scope save or process
+  restart. [verified-from-source and mounted renderer smoke: 2026-10-07;
+  user request 13:49Z, DECISIONS 52]
+
 - The Windows credential bridge serves git HTTPS and PATH-resolved gh from
   signed-in Electron main. Only isolated engines inject adapters; native helper
   chains and gh remain usable without a broker. Token-group/PID/SID proof binds the broker;
