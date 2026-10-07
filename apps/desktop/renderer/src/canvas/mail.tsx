@@ -1,3 +1,4 @@
+import { beginOpen, useOpenCommit } from '../opentiming'
 import { useRecordMailbox } from '../recordpanelhooks'
 // canvas/mail.tsx — the mail interfaces: the shared webmail MailList +
 // MailFolders, a node's InboxView tab and its modal form (NodeInboxModal),
@@ -366,6 +367,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // the pane directly rather than pretended into the list, where it would
   // sit in the wrong place in a run of send times.
   const cur = curPile?.[0] ?? (foundOutside ?? undefined)
+  useOpenCommit('mail-item',`${org ?? refs?.world.org ?? ''}/${keyOf(cur)}`,!!cur,cur)
   // per-mail read (user ruling): a VIEWED unread mail is marked read the
   // moment you click OFF it — select another mail, or leave the list
   const curRef = useRef<MailRow | undefined>(undefined); curRef.current = cur
@@ -530,6 +532,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 leave(cur)
                 setSelId(null)
               } else {
+                beginOpen('mail-item',`${org ?? refs?.world.org ?? ''}/${keyOf(m)}`)
                 leave(cur)
                 setSelId(keyOf(m))
               }

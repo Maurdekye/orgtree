@@ -22,6 +22,7 @@
 // `questions` array (wire contract v3) is only used to know WHICH asks to
 // look up and for the "who is asking" header — never to answer directly.
 
+import { beginOpen, useOpenCommit } from '../opentiming'
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
@@ -942,6 +943,8 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
   const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode })
   const data = work.value
+  useOpenCommit('docket',slug,!!data && !work.status.loading)
+  useOpenCommit('archive',slug,showArchived && !!data?.archived && !work.status.loading)
   const navigation = useRef({ slug, sequence: 0 })
   if (navigation.current.slug !== slug) navigation.current = { slug, sequence: 0 }
   useEffect(() => () => { ++navigation.current.sequence }, [])
@@ -1363,7 +1366,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           <label className="checkline docket-showarchived"
             title="include archived work items — done items an hour after their last docket update, dropped items at once">
             <input type="checkbox" checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)} />
+              onChange={(e) => { if (e.target.checked) beginOpen('archive',slug); setShowArchived(e.target.checked) }} />
             Show archived
             {archivedCount > 0 && <span className="dim"> · {archivedCount}</span>}
           </label>
@@ -2120,11 +2123,15 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
   useEffect(() => {
     if (staffable) queueStaffingWarm(staffPath)
   }, [staffable, staffPath])
+  const pickTimed = () => {
+    if (!selected && org) beginOpen('ticket',`${org}/${item.slug}`)
+    onClick(item.slug)
+  }
   const rowMenu = (e: React.MouseEvent<HTMLDivElement>): MenuEntry[] => {
     const row = e.currentTarget
     const { clientX, clientY } = e
     const entries: MenuEntry[] = [
-      { label: selected ? 'Close details' : 'Open details', onSelect: () => onClick(item.slug) },
+      { label: selected ? 'Close details' : 'Open details', onSelect: pickTimed },
     ]
     // ⚠ AND IT IS SUPPRESSED WHILE A SEARCH IS ACTIVE, for the same reason the
     // arrow is disabled — but it has to be said TWICE, because the menu is a
@@ -2160,7 +2167,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     // title is printed only in the detail pane; here it is the row's hover
     // title, so nothing is lost and the row stays one line of name.
     <div data-copy-ticket-title={item.title} data-docket-measure={'row:' + item.slug}
-      className={cls} title={item.title} onClick={() => onClick(item.slug)}
+      className={cls} title={item.title} onClick={pickTimed}
       onDoubleClick={copySlug} ref={capture}
       // ⚠ THE STAFFING LOAD STARTS HERE, NOT ON THE MENU (user requirement
       // 2026-09-15). Hovering or focusing a row precedes the right-click that
@@ -2682,6 +2689,7 @@ export function DocketPane(props: ComponentProps<typeof FullDocketPane>) {
   }, [slug, item.slug, item.rev, item.view, item.view_revision, retry])
   const full = item.view !== 'list' ? item
     : loaded?.slug === slug && loaded.id === item.slug ? loaded.item : null
+  useOpenCommit('ticket',`${slug}/${item.slug}`,!!full)
   // Keep the inner pane mounted through refreshes: its reply draft belongs to
   // the selected item, not the newest HTTP request. Never reuse it across orgs.
   return <>

@@ -1,3 +1,4 @@
+import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
 import type { DesktopNotice } from './notifications'
@@ -2513,6 +2514,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
   const box = useRecordInbox(slug, readBump).value
+  useOpenCommit('mail',slug,box !== null && box !== undefined)
   // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
   // read-takes-about-half-a-sec): out of the unread group and the unread
   // count at once, saved in the background, back to unread if refused

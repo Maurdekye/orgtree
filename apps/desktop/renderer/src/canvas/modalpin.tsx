@@ -1,3 +1,4 @@
+import { beginOpen } from '../opentiming'
 import { pinLayerFor, useCanvasBox, usePinSurface, raisePinSurface, readPinSurfaces, pinSnapId, pinSurfaceKey, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { findPinSnap } from './pinSnap'
 import { MovableSurface, PopoutButton, PopoutWindowControls, useOverlayRoot, useCurrentOrg, useSurface, useSurfaceDocument } from '../popout'
@@ -366,6 +367,8 @@ export const modalToggleAction = (kind: string, open: boolean,
 export const toggleOrRaiseModal = (kind: string, open: boolean,
   set: (v: boolean) => void, org: string | null = null): void => {
   const action = modalToggleAction(kind, open, org)
+  if (action === 'open' && (kind === 'docket' || kind === 'inbox'))
+    beginOpen(kind === 'inbox' ? 'mail' : 'docket',org ?? '')
   if (action === 'raise') raisePinnedModal(kind, org)
   else set(action === 'open')
 }

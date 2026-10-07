@@ -1,3 +1,4 @@
+import { configureOpenTiming } from './opentiming'
 import type { EventReplyWire } from './eventReply'
 import type { ReplyTarget } from './generated/events'
 import { forgetNodeDetail, hydrateTree } from './archived'
@@ -50,6 +51,11 @@ import type {
  *  windowlife owns that sticky choice and the single reload operation. */
 let instance = ''
 function noteInstance(r: Response): void {
+  const verbose = r.headers.get('X-Orgtree-Verbose')
+  if (verbose !== null) configureOpenTiming(verbose === '1', value => {
+    void req('/api/diagnostics/ui-open', {method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).catch(() => {})
+  })
   const id = r.headers.get('X-Orgtree-Instance')
   if (!id) return
   if (!instance) { instance = id; return }
