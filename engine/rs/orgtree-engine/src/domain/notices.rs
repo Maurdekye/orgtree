@@ -13,7 +13,7 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
     let mut out = Vec::new();
     let asks = all_rows(client,
             "SELECT k.uid, a.name, a.generation, k.body, k.id FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
-              WHERE k.org_id = $1 AND k.status = 'open' AND k.id > $2 ORDER BY k.id LIMIT 200",
+              WHERE k.org_id = $1 AND k.status = 'open' AND a.state = 'live' AND k.id > $2 ORDER BY k.id LIMIT 200",
             org_id, 0,
         )
         .await?;
@@ -24,7 +24,10 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         let q = body
             .get("question")
             .and_then(Value::as_str)
-            .or_else(|| body.pointer("/questions/0/question").and_then(Value::as_str))
+            .or_else(|| {
+                body.pointer("/questions/0/question")
+                    .and_then(Value::as_str)
+            })
             .unwrap_or("has a question for you");
         out.push(json!({
             "id": format!("ask:{uid}"), "source_id": uid, "kind": "question", "org": slug,
@@ -51,12 +54,14 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "body": gist(&reason.unwrap_or(body), 300),
         }));
     }
-    let work = all_rows(client,
-            "SELECT slug, title, manual_attention, notification_attention_epoch, id FROM ot.work_items
-              WHERE org_id = $1 AND archived_at IS NULL AND manual_attention IS NOT NULL AND id > $2 ORDER BY id LIMIT 200",
-            org_id, 0,
-        )
-        .await?;
+    let work = all_rows(
+        client,
+        "SELECT slug, title, manual_attention, notification_attention_epoch, id FROM ot.work_items
+              WHERE org_id = $1 AND manual_attention IS NOT NULL AND id > $2 ORDER BY id LIMIT 200",
+        org_id,
+        0,
+    )
+    .await?;
     for r in &work {
         let item: String = r.get(0);
         let att: Value = r.get(2);
@@ -84,12 +89,14 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "body": gist(fz.get("error").and_then(Value::as_str).unwrap_or("usage limit reached"), 300),
         }));
     }
-    let docs = all_rows(client,
-            "SELECT uid, node_name, title, id FROM ot.documents
+    let docs = all_rows(
+        client,
+        "SELECT uid, node_name, title, id FROM ot.documents
               WHERE org_id = $1 AND NOT dismissed AND id < $2 ORDER BY id DESC LIMIT 200",
-            org_id, i64::MAX,
-        )
-        .await?;
+        org_id,
+        i64::MAX,
+    )
+    .await?;
     for r in &docs {
         let uid: String = r.get(0);
         out.push(json!({
@@ -105,10 +112,22 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
 #[logged]
 fn mail_kind(urgent: bool, event: &Option<Value>) -> &'static str {
     let terminal = event.as_ref().is_some_and(|ev| {
-        matches!(ev["variant"].as_str(), Some("runtime.turn_failed_terminal" | "runtime.background_task_stopped" | "runtime.subagent_died"))
-            || (ev["variant"] == "runtime.report_stalled" && ev["cause"] == "terminal")
+        matches!(
+            ev["variant"].as_str(),
+            Some(
+                "runtime.turn_failed_terminal"
+                    | "runtime.background_task_stopped"
+                    | "runtime.subagent_died"
+            )
+        ) || (ev["variant"] == "runtime.report_stalled" && ev["cause"] == "terminal")
     });
-    if terminal { "terminal-failure" } else if urgent { "urgent-mail" } else { "routine" }
+    if terminal {
+        "terminal-failure"
+    } else if urgent {
+        "urgent-mail"
+    } else {
+        "routine"
+    }
 }
 
 /// Read the complete inventory in bounded keyset pages. The final column is
