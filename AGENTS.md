@@ -833,11 +833,14 @@ to [`pg-data-model-design.md`](docs/state-system/pg-data-model-design.md).
   focused agent. Placement avoids the measured navigation HUD, including the card's
   expanded hover/focus width. [verified: `apps/desktop/renderer/src/canvas/OrgCanvas.tsx`,
   `canvas/shared.ts`, 2026-10-05]
-- **Circular sibling arcs:** each team is centred on its direct superior's actual angle,
-  replacing whole-depth bottom gathering. Only colliding arcs move; ordered least-squares
-  separation includes the wraparound seam. Full levels spread evenly at the existing
-  pitch. Top-level reports still centre below the eye. Descendant counts never move
-  ancestors. [verified-from-source 2026-10-06: `canvas/shared.ts`, `canvas/ringarcs.ts`]
+- **Circular sibling arcs:** parent/arc-centre springs relax all depths together, so
+  crowded subordinates push their superiors apart. Ordered collision projection keeps
+  the 190 px pitch and wrap clearance without reordering. Existing ring radii still
+  limit how closely arcs can align; only the existing capacity rule grows a radius.
+  Up to 256 deterministic relaxation steps run per layout change, never per frame;
+  existing card springs animate to that rest state. [recorded-decision: user,
+  2026-10-07; verified-from-source: `canvas/shared.ts`, `canvas/ringsprings.ts`,
+  `canvas/ringarcs.ts`]
 - **Window bounds at fractional DPI:** Windows can add an invisible frame allowance to a
   frameless window's size, even through `setBounds`, and Electron's `did-create-window` does
   not carry the original window features. Temporary desks pass their exact rectangle and

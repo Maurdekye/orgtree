@@ -16,6 +16,7 @@ import { renderHtmlResponses } from './htmlresponse'
 import { desktop } from '../desktop'
 import { siblingOrder } from '../treeorder'
 import { ringArcCentres } from './ringarcs'
+import { settleRingSprings, type SpringRing } from './ringsprings'
 import { onLiveBump } from '../livebus'
 import { fmtFull, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
@@ -1633,15 +1634,9 @@ const subscribeChartLayout = (fn: () => void): (() => void) => {
 export const useChartLayout = (): ChartLayout =>
   useSyncExternalStore(subscribeChartLayout, chartLayoutOf)
 
-// 186px chord clears two 124px squares even on the diagonal (124·√2 ≈ 175)
+// 190px chord clears two 124px squares even on the diagonal (124·√2 ≈ 175)
 const RING_PITCH = 190, RING_STEP = 230, RING_FIRST = 260
 
-/** Radial tree. Each node's team takes the slice of its parent's wedge sized
- *  by leaf count; a depth is one ring whose radius is the larger of "one step
- *  outside the ring before" and "the chord to its nearest angular neighbour is
- *  at least one node pitch" — so nothing overlaps at any size. One pass over
- *  the tree plus one over each ring: O(n). Returns top-left positions like
- *  `layout`, with the eye anchored at its usual world x. */
 /** Sibling ids in the order their neighbour lines join them: the ring deals a
  *  wedge out in angular order, so ring siblings keep that order; a row reads
  *  left to right. */
@@ -1682,6 +1677,9 @@ export function ringInsertSide(side: 'left' | 'right', anchorId: string, sibs: s
   return before > after ? 'left' : 'right'
 }
 
+/** One ring per depth, with capacity-based radii and ordered collision-safe
+ * spring relaxation. Linear work per bounded relaxation step. Returns card
+ * top-lefts like row layout, with the eye anchored at its usual world x. */
 export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = new Map()): Map<string, Pt> {
   // Drawn MIRRORED (x = cx − r·cos): the ring runs counter-clockwise from the
   // top on screen, so the arc and the bottom of a full ring read left to right
@@ -1691,12 +1689,13 @@ export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = n
   const cx = EYE_ANCHOR_X + NODE_W / 2
   out.set(root.id, { x: EYE_ANCHOR_X, y: -NODE_H / 2 })
   // The eye has no radial angle: its own reports keep the bottom-centred arc.
-  // Each subsequent group follows its actual parent's angle, including any
-  // collision adjustment on the previous level. Descendant counts never move
-  // an ancestor or an unrelated ring. No work runs inside animation frames.
+  // First seed each arc under its parent with collision-safe angles. Then
+  // relax every depth together: crowded child arcs can push their parents
+  // apart too, instead of permanently drifting away from them.
+  const rings: (SpringRing & { nodes: CanvasNode[]; radius: number })[] = []
   let level = [{ node: root, angle: Math.PI / 2 }], radius = 0
   while (level.length) {
-    const groups = level.map(p => ({ angle: p.angle, kids: p.node.children.filter(c => !hidden.has(c.id)) }))
+    const groups = level.map((p, parent) => ({ parent, angle: p.angle, kids: p.node.children.filter(c => !hidden.has(c.id)) }))
       .filter(g => g.kids.length > 0)
     const count = groups.reduce((sum, g) => sum + g.kids.length, 0)
     if (!count) break
@@ -1709,15 +1708,23 @@ export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = n
     }
     const centres = ringArcCentres(groups.map(g => g.angle), groups.map(g => g.kids.length), step)
     level = []
+    const parents: number[] = []
     for (let g = 0; g < groups.length; g++) {
       const kids = groups[g]!.kids
       for (let i = 0; i < kids.length; i++) {
         const angle = centres[g]! + (i - (kids.length - 1) / 2) * step, node = kids[i]!
         level.push({ node, angle })
-        out.set(node.id, { x: cx - radius * Math.cos(angle) - NODE_W / 2, y: radius * Math.sin(angle) - NODE_H / 2 })
+        parents.push(rings.length ? groups[g]!.parent : -1)
       }
     }
+    rings.push({ angles: level.map(p => p.angle), nodes: level.map(p => p.node), parents, step, radius })
   }
+  const settled = settleRingSprings(rings)
+  rings.forEach((ring, depth) => ring.nodes.forEach((node, i) => {
+    const angle = settled[depth]![i]!
+    out.set(node.id, { x: cx - ring.radius * Math.cos(angle) - NODE_W / 2,
+      y: ring.radius * Math.sin(angle) - NODE_H / 2 })
+  }))
   return out
 }
 
