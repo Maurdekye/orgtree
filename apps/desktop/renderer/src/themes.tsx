@@ -256,9 +256,9 @@ export function ThemeSetting() {
     </SetRow>}
     {rainbow.revealed && <SetRow label="">
       <label className="rainbow-theme-option">
-        <input type="checkbox" aria-label="RGB rainbow mode" checked={rainbow.enabled} disabled={savingRainbow}
+        <input type="checkbox" aria-label="Rainbow mode" checked={rainbow.enabled} disabled={savingRainbow}
           onChange={e => void updateRainbow({ revealed: true, enabled: e.target.checked, epoch: Date.now() })} />
-        <span aria-hidden="true">{[...'RGB rainbow mode'].map((letter, i) => <span key={i} style={{ color: `hsl(${i * 360 / 16} 80% 60%)` }}>{letter}</span>)}</span>
+        <span aria-hidden="true">{[...'Rainbow mode'].map((letter, i, letters) => <span key={i} style={{ color: `hsl(${i * 360 / letters.length} 80% 60%)` }}>{letter}</span>)}</span>
       </label>
     </SetRow>}
     {error && <p role="alert">Could not save theme: {error}</p>}
