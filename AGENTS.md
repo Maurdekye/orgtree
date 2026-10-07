@@ -203,6 +203,16 @@ the actor's mail rights, report refusals and never grant reply audiences. The
 signed F2–F5 removals remain. [verified from source: `domain/docket.rs`, `domain/mail.rs`;
 details and Python references: `docs/rust-engine/docket-parity-batch5.md`]
 
+**Inbox mail styling (2026-10-07).** Rust mail carries passive delivery as
+`notice: true`, independently of `kind`; legacy mail uses `kind: notice`.
+Mailbox rows must recognize both for the dashed edge and system-notice folding.
+Plain message/notice rows have no type badge; typed question/request/decision/status
+markings remain. Only consecutive delivered system notices fold (same typed variant
+and object kind); pending rows and system decisions remain separate. This is a
+mail-list rule, not a change to transcript event cards. [verified from source:
+`feed/compute.rs::mail_entry`, renderer `canvas/shared.ts` and `canvas/mail.tsx`;
+recorded decision: user inbox styling request 2026-10-07]
+
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
 - **Tree/scope parity (2026-10-07):** remove host `CLAUDE_CODE_*` before selected-account
