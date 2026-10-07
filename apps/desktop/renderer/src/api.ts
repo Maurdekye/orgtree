@@ -53,8 +53,11 @@ let instance = ''
 function noteInstance(r: Response): void {
   const verbose = r.headers.get('X-Orgtree-Verbose')
   if (verbose !== null) configureOpenTiming(verbose === '1', value => {
-    void req('/api/diagnostics/ui-open', {method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}).catch(() => {})
+    // Diagnostics are not mutations: never invalidate detail caches or wake
+    // every polled view just because an open was measured.
+    void fetch('/api/diagnostics/ui-open', {method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(value),
+      signal:timeoutSignal(5000)}).then(r => { noteInstance(r); return r.text() }).catch(() => {})
   })
   const id = r.headers.get('X-Orgtree-Instance')
   if (!id) return
