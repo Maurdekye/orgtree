@@ -1792,7 +1792,7 @@ export function SpendBadge({ node }: { node: SpendNode }) {
     <span className="badge dim"
       title={[
         turns.map((t) =>
-          `${fmtShort(t.at)} · $${(t.cost ?? 0).toFixed(2)}`
+          `${fmtShort(t.at)} · ${t.cost_source === 'unknown' ? '$?' : `$${(t.cost ?? 0).toFixed(2)}`}`
           + (t.estimated ? ' est.' : '')
           + (t.cost_source ? ` · ${t.cost_source}` : '')
           + (reportedLabel(t.reported) ? ` · ${reportedLabel(t.reported)}` : '')
