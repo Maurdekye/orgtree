@@ -410,15 +410,15 @@ fn all() -> Vec<Value> {
              account.signed_in/signed_out/limit.reached/limit.reset; hub.up/down/changed; credits.changed; \
              documents.created/updated/changed; audience.requested/granted/denied/revoked; cli.started/ready/cold/evicted; \
              agents.active/live. Agent/item/account events respect visibility. Count threshold is below N or at least N \
-             (false-to-true crossing); event_scope subtree is default, org requires full visibility. \
-             interval_s is a minimum fire gap (5s floor); excess bursts pause with a warning rather than silently dropping events.",
+             (false-to-true crossing); counts exclude the watcher. event_scope subtree is default, org requires full visibility. \
+             interval_s is a minimum fire gap (5s floor); bursts coalesce into bounded summaries. Storage failures retry with health diagnostics. Resume/restart refresh count baselines. Watchdog mail and its owner turn events never feed that owner's event dogs.",
             json!({
                 "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
                 "name": { "type": "string", "description": "create: a short name, e.g. build-watch" },
                 "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event"] },
                 "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
                 "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
-                "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible subtree (default), or entire org (requires full visibility)"},
+                "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible descendants (default), or org (requires full visibility); excludes the watcher"},
                 "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
                 "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, or (event) dotted event name/prefix ending in .*" },
                 "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },

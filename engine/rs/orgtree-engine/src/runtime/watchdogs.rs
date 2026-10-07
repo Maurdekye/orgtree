@@ -282,6 +282,7 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
 
 #[logged]
 pub fn disarm(engine: &Engine, uid: &str) {
+    engine.dogs.event_health.pin().remove(uid);
     if let Some(t) = engine.dogs.runners.pin().remove(uid) {
         t.cancel();
     }

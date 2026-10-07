@@ -236,7 +236,11 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                     &[&org_id],
                 )
                 .await?;
-            json!({ "watchdogs": rows.iter().map(|r| crate::domain::watchdogs::view(&r.get::<_, Value>(0), &r.get::<_, String>(1))).collect::<Vec<_>>() })
+            json!({ "watchdogs": rows.iter().map(|r| {
+                let mut v=crate::domain::watchdogs::view(&r.get::<_, Value>(0), &r.get::<_, String>(1));
+                if let Some(h)=crate::runtime::watchdogs::events::health(engine,v["id"].as_str().unwrap_or("")){v["health"]=json!(h);}
+                v
+            }).collect::<Vec<_>>() })
         }
         "inbox_summary" => {
             let r = client

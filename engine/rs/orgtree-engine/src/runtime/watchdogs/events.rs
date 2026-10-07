@@ -19,7 +19,7 @@ impl Drop for AlertTurn {
 }
 #[logged]
 pub(crate) fn alert_turn(engine: &Arc<Engine>, owner: i64, name: &str, mail: &[Value]) -> Option<AlertTurn> {
-    if !mail.iter().any(|m|m["kind"]=="watchdog"){return None;}
+    if engine.dogs.events.pin().is_empty() || !mail.iter().any(|m|m["kind"]=="watchdog"){return None;}
     let name=Arc::new(name.to_owned());
     engine.dogs.alert_turns.pin().insert(owner,name.clone());
     Some(AlertTurn{engine:engine.clone(),owner,name})
@@ -318,7 +318,7 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
             // Install progress only after the batch save succeeds. A DB blip
             // keeps the original batch and threshold baseline for retry.
             d=next;pending=staged;batch.clear();if fresh_baseline{baseline=Some(now);}
-            engine.dogs.event_health.pin().remove(&d.uid);
+            set_health(engine,&d,None);
             if d.silence(){
                 if d.due_in().map(|s|s<=0).unwrap_or(false){if fire(engine,&d,&[silence_line(&d)]," WENT QUIET —").await?{return Ok(true)}d.fired+=1;d.silence_since=Some(Utc::now());}
             }else if !pending.events.is_empty() && d.last_fired.map(|t|Utc::now()>=t+chrono::Duration::seconds(d.interval_s.max(STREAM_FLOOR_S))).unwrap_or(true){
@@ -329,11 +329,11 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
             Ok(false)
         }.await;
         match result {
-            Ok(true)=>{engine.dogs.event_health.pin().remove(&d.uid);return Ok(());},
+            Ok(true)=>{set_health(engine,&d,None);return Ok(());},
             Ok(false)=>retry=0,
             Err(e)=>{
                 retry=if retry==0{1}else{(retry*2).min(30)};
-                engine.dogs.event_health.pin().insert(d.uid.clone(),format!("Event listener retrying after a storage error; queued events retained/coalesced; next retry in {retry}s"));
+                set_health(engine,&d,Some(format!("Event listener retrying after a storage error; queued events retained/coalesced; next retry in {retry}s")));
                 tracing::warn!(watchdog=%d.uid,retry_s=retry,error=%e,"event watchdog storage retry");
             }
         }
@@ -468,4 +468,16 @@ pub(crate) fn mail_delivered(engine:&Engine,org:i64,agent:i64,rows:Vec<(String,S
     for (uid,kind) in rows {if kind!="watchdog" {
         emit(engine,event("mail.delivered",Scope::Agent(org,agent),json!({"agent_id":agent,"mail_id":uid})));
     }}
+}
+
+#[logged]
+pub(crate) fn health(engine:&Engine,uid:&str)->Option<String>{engine.dogs.event_health.pin().get(uid).cloned()}
+
+#[logged]
+fn set_health(engine:&Engine,d:&Dog,message:Option<String>){
+    let previous=health(engine,&d.uid);
+    if previous==message{return;}
+    if let Some(message)=message{engine.dogs.event_health.pin().insert(d.uid.clone(),message);}
+    else{engine.dogs.event_health.pin().remove(&d.uid);}
+    crate::changes::notify_id(engine,d.org_id,vec![Change::Watchdogs]);
 }
