@@ -374,6 +374,8 @@ struct Actor {
     parked: bool,
     slot: Option<Slot>,
     waiting_since: Option<DateTime<Utc>>,
+    /// Bounded diagnostic IDs only; the durable mailbox owns the messages.
+    followup_mail: Vec<String>,
     turn: Option<Turn>,
     convo: ConvoWriter,
     init: Value,
@@ -444,6 +446,7 @@ impl Actor {
             parked: false,
             slot: None,
             waiting_since: None,
+            followup_mail: Vec::new(),
             turn: None,
             convo,
             init: Value::Null,
@@ -1621,6 +1624,9 @@ impl Actor {
                 .await?;
             return Ok(());
         }
+        // A successful steer is positive custody even if the model has not
+        // emitted its next output yet. An error must not redeliver this batch.
+        if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
         drop(client);
@@ -1691,6 +1697,7 @@ impl Actor {
         }
         let _ = std::fs::remove_file(&receipt);
         let Some((_, _, raw)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
+        if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let client = self.engine.db.get().await?;
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
@@ -1721,11 +1728,14 @@ impl Actor {
                 return Ok(());
             }
         }
-        if let Some((_, ids, _)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) {
+        if let Some((_, ids, _)) = self.turn.as_ref().and_then(|t| t.agy_steer.as_ref()) {
             let client = self.engine.db.get().await?;
             client
-                .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE id = ANY($1) AND state = 'delivering'", &[&ids])
+                .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE id = ANY($1) AND state = 'delivering'", &[ids])
                 .await?;
+            // Retain custody if the database failed, so end_turn can exclude
+            // this unconsumed handoff from its delivered batch.
+            if let Some(t) = self.turn.as_mut() { t.agy_steer = None; }
         }
         Ok(())
     }
@@ -1880,7 +1890,12 @@ impl Actor {
             }
         };
         let context = self.turn_context(&ctx).await;
-        let text = prompt::turn_text(&mails, &context);
+        let followup: Vec<String> = mails.iter().filter(|m| self.followup_mail.contains(&m.uid))
+            .map(|m| m.uid.clone()).collect();
+        let mut text = prompt::turn_text(&mails, &context);
+        if !followup.is_empty() {
+            text.push_str("\n(orgtree) You have new mail above — handle it as appropriate, and use orgtree_status when your own task state changes.\n");
+        }
         let text = match reset_note.or(handoff) {
             Some(note) => format!("{note}\n\n{text}"),
             None => text,
@@ -1913,6 +1928,11 @@ impl Actor {
         turn.codex_turn = codex_turn;
         turn.usage_base = self.codex_total.clone();
         self.begin_turn(turn);
+        if !followup.is_empty() {
+            tracing::info!(agent = self.id, turn = turn_id, mail_ids = ?followup,
+                "started follow-up turn for undelivered mid-turn mail");
+            self.followup_mail.retain(|id| !followup.contains(id));
+        }
         self.last_error = None;
         self.activity = Some(("thinking".into(), None));
         self.sent_print = self.proc_print.clone();
@@ -2019,6 +2039,7 @@ impl Actor {
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let text = prompt::steer_text(&mails);
+        if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered after a tool call."));
         let seq = self.convo.append(&client, row.clone()).await?;
         drop(client);
@@ -2925,10 +2946,10 @@ impl Actor {
 
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
-        if res["agy"].as_bool().unwrap_or(false) {
-            if let Err(e) = self.settle_agy_steer().await {
-                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mid-turn mail could not be settled");
-            }
+        // Process exits and interrupts do not necessarily carry an `agy`
+        // result. Settle the outstanding hook handoff on every exit path.
+        if let Err(e) = self.settle_agy_steer().await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "mid-turn mail could not be settled");
         }
         let Some(turn) = self.take_turn() else { return Ok(()) };
         crate::runtime::watchdogs::activity(&self.engine, self.id, "turn_done");
@@ -3042,6 +3063,22 @@ impl Actor {
             && !turn.interrupted && !turn.killed && !turn.compact && !res.is_null();
         let requeue = error.is_some() && !turn.activity;
         let client = self.engine.db.get().await?;
+        if let Some((_, ids, _)) = &turn.agy_steer {
+            // A failed hook settlement is not delivery. Return these rows
+            // before the bulk settlement, preserving their original IDs/order.
+            client.execute(
+                "UPDATE ot.mail SET state = 'pending', turn_id = NULL
+                  WHERE id = ANY($1) AND turn_id = $2 AND state = 'delivering'",
+                &[ids, &turn.id],
+            ).await?;
+        }
+        // Read BEFORE returning a failed opening prompt. Only genuinely new
+        // waiting mail may drive a retry after an error; otherwise a broken
+        // provider would spin forever on the same requeued opening message.
+        self.followup_mail = client.query(
+            "SELECT uid FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+              AND NOT notice ORDER BY id LIMIT 64", &[&self.id],
+        ).await?.into_iter().map(|r| r.get(0)).collect();
         if requeue {
             client
                 .execute(
@@ -3175,8 +3212,9 @@ impl Actor {
             });
             return Ok(());
         }
-        if error.is_none() {
-            // more mail may have arrived during the turn
+        if error.is_none() || !self.followup_mail.is_empty() {
+            // All lanes share normal halt/freeze/killswitch and slot admission.
+            // Confirmed boundary mail is no longer pending, so is not replayed.
             self.on_wake().await?;
         }
         Ok(())

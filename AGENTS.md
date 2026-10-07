@@ -57,6 +57,13 @@ plan and this file. Read both before you change anything. All entries below: 202
   blocked wakes even with verbose logging off.
   [verified from source: 2026-10-07, `src/runtime/freeze.rs`, `src/runtime/actor.rs`]
 
+- End-of-turn mail: pending waking mail follows through ordinary admission on
+  every provider, including error exits with new mail. An unemitted Antigravity
+  handoff is returned before delivery settlement; confirmed boundary mail is
+  not replayed. Merely requeuing a failed opening prompt must not create a retry
+  loop. Follow-up IDs are logged only after the next prompt is accepted.
+  [verified from source: 2026-10-07, `src/runtime/actor.rs`]
+
 **Where and how to work** [decided: coordinator 2026-10-06, from the rust-engine session's terms;
 user, DECISIONS 39]
 - `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything
