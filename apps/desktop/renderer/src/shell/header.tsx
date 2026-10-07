@@ -23,7 +23,6 @@ import type { ReactNode } from 'react'
 import { UpdateNotice } from '../update-notice'
 import { WindowControls } from '../window-controls'
 import { desktop } from '../desktop'
-import { CredentialWarning } from '../credential-warning'
 
 export interface ShellHeaderProps {
   /** the compact app menu — present in every view */
@@ -47,7 +46,7 @@ export interface ShellHeaderProps {
 
 export function ShellHeader({ menu, title, modes, actions, guard, version }: ShellHeaderProps) {
   return (
-    <><header className={'shell-header' + (desktop() ? ' native-header' : '')}>
+    <header className={'shell-header' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-main">
         {menu}
         <h2 className="shell-header-title" title={title}>{title}</h2>
@@ -69,7 +68,6 @@ export function ShellHeader({ menu, title, modes, actions, guard, version }: She
       )}
       <WindowControls />
     </header>
-    <CredentialWarning /></>
   )
 }
 

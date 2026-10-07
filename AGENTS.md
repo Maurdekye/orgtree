@@ -16,10 +16,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
-- Credential notices render only real warnings, in flow beneath ShellHeader.
-  No bridged/restored banner. Dismissal survives reloads until warning text or
-  bridge state changes. [recorded-decision: user 2026-10-07 15:49Z;
-  verified-from-source: renderer `credential-warning.tsx` and `.css`]
+- No credential banners, annotations, tray/menu warnings or success notices.
+  Engine diagnostic fields and log lines remain; agents explain tool failures
+  to the user. [recorded-decision: user 2026-10-07 16:12Z, superseding the
+  15:49Z banner rule; verified-from-source: renderer shell and desktop tray]
 
 - Agent settings has a horizontal grant bar (`canvas/creditgrant.tsx`). Grants
   exclude the fixed own seat; the floor is grant minus free (reports' seats and
