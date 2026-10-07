@@ -59,11 +59,12 @@ plan and this file. Read both before you change anything. All entries below: 202
 - Accounts: every account has its own active checkbox in App settings › Providers, the
   native sign-in included; an inactive account serves no new turn and its agents' mail waits.
   [decided: user 2026-10-07, DECISIONS 41]
-- Composer Enter behavior is app-wide: App settings › General › Enter key defaults to
+- Composer Enter behavior is app-wide: App settings › Display › Typing › Enter key defaults to
   Send message; Insert new line uses Ctrl+Enter to send. Questions' free-text fields are
   multiline; single-line inputs and document editors keep their own shortcuts. The app
-  feed updates open windows. [decided: user 2026-10-07, DECISIONS 48; verified:
-  `http/settings.rs`, `appfeed.rs`, renderer `enterkey.ts`, `composerkeys.ts`]
+  feed updates open windows. No one-setting General tab.
+  [decided: user 2026-10-07, DECISIONS 48; verified: `http/settings.rs`, `appfeed.rs`,
+  renderer `canvas/accounts.tsx`, `enterkey.ts`, `composerkeys.ts`]
 
 - Limit marks: fresh successful provider probes may clear an older mark for the
   same account/pool; cached, failed, missing or incomplete readings cannot. A

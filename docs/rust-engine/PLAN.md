@@ -388,7 +388,7 @@ toast saying this engine does not support it.
 | I5 | Runtime: wait for MCP tools | Kept (see B3) |
 | I5b | Runtime: git periodic fetch, working checkups, idle docket reminders, blocked docket reminders, include account selection when requesting staffing | Inert |
 | I6 | Charters (presets, user folder, external template folders), org.md, hire defaults, app defaults | Kept |
-| I7 | Enter sends in message composers | App settings › General › Enter key: Send message (default; Shift+Enter for a new line) or Insert new line (Ctrl+Enter sends). Shared across desks, inboxes, docket replies and multiline question answers; single-line inputs unchanged (decision 48) |
+| I7 | Enter sends in message composers | App settings › Display › Typing › Enter key: Send message (default; Shift+Enter for a new line) or Insert new line (Ctrl+Enter sends). Shared across desks, inboxes, docket replies and multiline question answers; single-line inputs unchanged (decision 48) |
 
 ### J. Mail hub, notifications, updates
 
