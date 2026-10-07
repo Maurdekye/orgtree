@@ -94,9 +94,14 @@ fn scope_props() -> Value {
         "account": { "type": "string", "description": "provider account id (default: inherited)" },
         "account_fallback": { "type": "boolean", "description": "move to another account of the same provider when this one hits its usage limit" },
         "clear_account_fallback": { "type": "boolean" },
-        "audiences": { "type": "array", "items": { "type": "string" }, "description": "hire/rehire/staff: grant these audiences before kickoff" },
         "team_charter": { "type": "string", "description": "standing instructions for its whole team" },
     })
+}
+
+#[logged]
+fn seat_scope_props() -> Value {
+    merge(scope_props(), json!({ "audiences": { "type": "array", "items": { "type": "string" },
+        "description": "grant these audiences before kickoff" } }))
 }
 
 #[logged]
@@ -296,7 +301,7 @@ fn all() -> Vec<Value> {
                     "harness": { "type": "string", "enum": ["claude-code", "codex-cli"] },
                     "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
                 }),
-                scope_props(),
+                seat_scope_props(),
             ),
             &["name", "tier", "grant", "charter"],
         ),
@@ -308,7 +313,7 @@ fn all() -> Vec<Value> {
                         "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
                         "charter": { "type": "string" }, "kickoff": { "type": "string" },
                         "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" } }),
-                scope_props(),
+                seat_scope_props(),
             ),
             &["node"],
         ),
@@ -514,7 +519,7 @@ fn all() -> Vec<Value> {
                         "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
                         "harness": { "type": "string", "enum": ["claude-code", "codex-cli"] },
                         "kickoff_kind": { "type": "string", "enum": KINDS } }),
-                scope_props(),
+                seat_scope_props(),
             ),
             &[],
         ),

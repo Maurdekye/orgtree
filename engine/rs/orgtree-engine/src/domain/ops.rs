@@ -792,7 +792,16 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     } else {
         tx.execute("UPDATE ot.agents SET provider = $2 WHERE id = $1", &[&n.id, &catalog::provider_of(&tier)]).await?;
     }
-    retool(engine, org, tx, actor, req, fx).await?;
+    let mut scope_req = req.clone();
+    if let Some(raw) = str_arg(req, "account") {
+        let selected = match crate::accounts::choice(Some(raw)) {
+            crate::accounts::Choice::Account(a) => Some(a), _ => None,
+        };
+        tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL WHERE id = $1", &[&n.id, &selected]).await?;
+        event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": selected }), fx).await?;
+        scope_req.as_object_mut().unwrap().remove("account");
+    }
+    retool(engine, org, tx, actor, &scope_req, fx).await?;
     let name = if let Some(new) = str_arg(req, "name") {
         rename(org, tx, actor, &json!({ "node": n.name, "name": new }), fx).await?;
         new.to_string()
@@ -1144,7 +1153,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     }
     validate_account(engine, &tier, str_arg(req, "account"))?;
     if busy(tx, n.id).await? {
-        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "account": req["account"] }), true).await?;
+        let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": from != to, "account": req["account"] }), true).await?;
         event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
         fx.agents.insert(n.id);
         fx.events = true;
@@ -1196,6 +1205,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         )
         .await?;
     }
+    tx.execute("UPDATE ot.agents SET pending_switch = NULL WHERE id = $1", &[&n.id]).await?;
     event(tx, org.id, "switch_model", actor, Some(n.id), json!({ "node": n.name, "from": n.tier, "to": tier, "seat_old": n.seat, "old_session": n.session, "cascaded": raised }), fx).await?;
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
@@ -1250,7 +1260,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
             fx.agents.insert(n.id); fx.events = true;
             return Ok(json!({ "node": n.name, "queued": false, "cancelled": true }));
         }
-        let replaced = queue_config(tx, &n, actor, json!({ "account": acc.clone().unwrap_or_else(|| "primary".into()) }), false).await?;
+        let replaced = queue_config(tx, &n, actor, json!({ "account": acc.clone().unwrap_or_else(|| "primary".into()), "from": n.account.clone().unwrap_or_else(|| "primary".into()) }), false).await?;
         event(tx, org.id, "account_queued", actor, Some(n.id), json!({ "node": n.name, "account": acc, "by": actor.label() }), fx).await?;
         fx.agents.insert(n.id); fx.events = true;
         return Ok(json!({ "node": n.name, "queued": true, "pending_account": acc, "replaced": replaced }));
@@ -1575,17 +1585,18 @@ pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id
         }
     }
     let intent = sw.as_ref().or(ap.as_ref()).unwrap();
-    let actor = match intent["actor_id"].as_i64() {
-        Some(id) => Actor::Agent { id, name: intent["by"].as_str().unwrap_or("agent").to_string() },
-        None => Actor::User,
-    };
+    let authority = pending_actor(&tx, org.id, intent).await;
+    let actor = authority.as_ref().cloned().unwrap_or(Actor::User);
     // Clear before applying: account validation must not see an obsolete target.
     tx.execute("UPDATE ot.agents SET pending_switch = NULL, pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&id]).await?;
     tx.batch_execute("SAVEPOINT apply_pending_config").await?;
     let mut req = intent.clone();
     req["node"] = json!(n.name);
-    let result = if sw.is_some() { switch_model(engine, org, &tx, &actor, &req, &mut fx).await }
-                 else { account(engine, org, &tx, &actor, &req, &mut fx).await };
+    let result = match authority {
+        Err(e) => Err(e),
+        Ok(_) if sw.is_some() => switch_model(engine, org, &tx, &actor, &req, &mut fx).await,
+        Ok(_) => account(engine, org, &tx, &actor, &req, &mut fx).await,
+    };
     if let Err(e) = result {
         tx.batch_execute("ROLLBACK TO SAVEPOINT apply_pending_config").await?;
         fx = Effects::default();
@@ -1598,4 +1609,19 @@ pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id
     drop(client);
     apply_effects(engine, org, fx).await;
     Ok(true)
+}
+
+/// Imported intents have a name but no immutable actor id. Missing or retired
+/// callers lose the request; never promote an unknown caller to user authority.
+#[logged]
+async fn pending_actor(tx: &Transaction<'_>, org: i64, intent: &Value) -> Result<Actor> {
+    let name = intent["by"].as_str().unwrap_or("");
+    if intent["actor_id"].is_null() && matches!(name, "user" | "@user") { return Ok(Actor::User); }
+    let row = if let Some(id) = intent["actor_id"].as_i64() {
+        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND id = $2 AND state = 'live'", &[&org, &id]).await?
+    } else {
+        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org, &name]).await?
+    };
+    let Some(row) = row else { refuse!(Forbidden, "the caller of this queued change is no longer live") };
+    Ok(Actor::Agent { id: row.get(0), name: row.get(1) })
 }

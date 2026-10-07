@@ -1938,6 +1938,25 @@ impl Actor {
         }
         let mut client = self.engine.db.get().await?;
         let tx = client.transaction().await?;
+        // Serialize configuration changes with admission, not with CLI work.
+        // A switch that won this row lock must be loaded before claiming mail;
+        // one that loses sees the committed inflight turn and queues its intent.
+        let current = tx.query_one(
+            "SELECT tier, account, state, halt IS NOT NULL, frozen IS NOT NULL,
+                    pending_switch IS NOT NULL OR pending_account IS NOT NULL
+               FROM ot.agents WHERE id = $1 FOR UPDATE", &[&self.id]).await?;
+        if current.get::<_, String>(2) != "live" || current.get::<_, bool>(3) || current.get::<_, bool>(4) {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        if current.get::<_, String>(0) != ctx.tier || current.get::<_, Option<String>>(1) != ctx.account
+            || current.get::<_, bool>(5) {
+            tx.rollback().await?;
+            drop(client);
+            self.reconfigured = self.proc.is_some();
+            crate::runtime::wake(&self.engine, self.org_id, self.id);
+            return Ok(false);
+        }
         let turn_id: i64 = tx
             .query_one(
                 "INSERT INTO ot.turns (agent_id, started_at, account, api_key, model) VALUES ($1, now(), $2, $3, $4) RETURNING id",

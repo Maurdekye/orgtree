@@ -1966,11 +1966,14 @@ pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let rows = tx.query(
-        "SELECT w.slug FROM ot.work_items w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
+        "SELECT w.slug FROM ot.work_items w LEFT JOIN ot.agents a
+           ON a.org_id = w.org_id AND (a.id = w.owner_agent_id OR
+             (w.owner_agent_id IS NULL AND a.name = w.owner->>'node' AND a.state <> 'deleted'))
          WHERE w.org_id = $1 AND w.status NOT IN ('done', 'dropped', 'superseded')
            AND NOT coalesce((w.extra->>'deleted')::boolean, false)
            AND greatest(w.docket_at, w.updated_at) < now() - interval '30 minutes'
-           AND coalesce(w.owner->>'node', w.owner #>> '{}', '') NOT IN ('', 'user', '@user', 'SYSTEM')
+           AND jsonb_typeof(w.owner) = 'object'
+           AND coalesce(w.owner->>'node', '') NOT IN ('', 'user', '@user', 'SYSTEM')
            AND (a.id IS NULL OR a.state <> 'live' OR w.owner->'deleted' = 'true'::jsonb
              OR (coalesce(w.owner->>'born', '') <> '' AND w.owner->>'born' IS DISTINCT FROM a.born)
              OR a.generation < CASE WHEN w.owner->>'generation' ~ '^[0-9]{1,9}$' THEN (w.owner->>'generation')::integer ELSE 0 END)
@@ -1999,7 +2002,10 @@ pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>
                 && r.get::<_, i32>(2) as i64 >= reference["generation"].as_i64().unwrap_or(0)
         });
         if same { continue; }
-        let state = owner.as_ref().map(|r| r.get::<_, String>(0)).unwrap_or_else(|| "missing".into());
+        let state = owner.as_ref().map(|r| {
+            let state: String = r.get(0);
+            if state == "live" { "generation moved".into() } else { state }
+        }).unwrap_or_else(|| "missing".into());
         it.owner = Some(json!({ "node": name, "generation": generation }));
         it.owner_id = Some(id);
         it.participants.retain(|p| p != &name);
