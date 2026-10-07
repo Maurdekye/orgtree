@@ -499,7 +499,7 @@ async fn insert_agents(
                     &b(n, "compacted_unrun").unwrap_or(false),
                     &status("last_status"),
                     &status("prev_status"),
-                    &obj(n, "frozen"),
+                    &obj(n, "frozen").map(crate::runtime::freeze::normalize),
                     &obj(n, "halt"),
                     &obj(n, "pending_switch"),
                     &b(n, "limit_locked").unwrap_or(false),

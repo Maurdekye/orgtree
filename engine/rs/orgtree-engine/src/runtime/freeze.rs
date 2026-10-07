@@ -6,17 +6,64 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
 use crate::domain::mail;
 use crate::engine::Engine;
 use crate::changes::{self, Change};
 use crate::runtime::AgentMsg;
-use crate::util::parse_ts;
+use crate::util::{iso, parse_ts};
 
 /// Seconds past the stated reset before an automatic wake (clock skew).
 pub const WAKE_GRACE_S: i64 = 60;
+
+/// Read canonical Rust timestamps or the numeric deadlines kept by 2.x/3.x.
+/// Legacy `until` is a display label, never a timestamp. A committed wake is
+/// valid only for the until_ts/reset_src pair for which it was promised.
+#[logged]
+pub fn deadline(rec: &Value) -> Option<DateTime<Utc>> {
+    if let Some(until) = rec["until"].as_str().and_then(parse_ts) {
+        return Some(until);
+    }
+    let wake = &rec["wake"];
+    if wake.is_object()
+        && wake["of_ts"].as_f64() == rec["until_ts"].as_f64()
+        && wake["of_src"].as_str().unwrap_or("") == rec["reset_src"].as_str().unwrap_or("")
+    {
+        if let Some(ts) = epoch(&wake["ts"]) {
+            return Some(ts);
+        }
+    }
+    epoch(&rec["until_ts"])
+}
+
+#[logged]
+fn epoch(value: &Value) -> Option<DateTime<Utc>> {
+    let ts = value.as_f64()?;
+    if !ts.is_finite() || ts <= 0.0 || ts >= i64::MAX as f64 {
+        return None;
+    }
+    DateTime::from_timestamp(ts.floor() as i64, (ts.fract() * 1_000_000_000.0) as u32)
+}
+
+/// New imports use the Rust timestamp shape. Runtime readers also accept the
+/// old shape so an already imported agent needs no live-data repair.
+#[logged]
+pub fn normalize(mut rec: Value) -> Value {
+    if rec["until"].as_str().and_then(parse_ts).is_none() {
+        if let Some(until) = deadline(&rec) {
+            rec["until"] = json!(iso(until));
+        }
+    }
+    rec
+}
+
+#[logged]
+pub fn wake_at(rec: &Value) -> Option<DateTime<Utc>> {
+    let grace = if rec["connection"].as_bool().unwrap_or(false) { 0 } else { WAKE_GRACE_S };
+    deadline(rec)?.checked_add_signed(chrono::Duration::seconds(grace))
+}
 
 /// Arrange the automatic wake for a freeze record (if the org auto-resumes).
 #[logged]

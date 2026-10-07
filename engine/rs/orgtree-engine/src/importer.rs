@@ -307,7 +307,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                 None => Value::Null,
             }
         };
-        let frozen = opt_j(r, "frozen");
+        let frozen = crate::runtime::freeze::normalize(opt_j(r, "frozen"));
         let halt = opt_j(r, "halt");
         let pending_switch = opt_j(r, "pending_switch");
         let state: String = r.get("state");

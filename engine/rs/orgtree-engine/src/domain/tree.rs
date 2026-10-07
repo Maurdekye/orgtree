@@ -335,7 +335,7 @@ pub fn frozen_view(frozen: &Value) -> Value {
         return Value::Null;
     }
     let mut o = frozen.as_object().cloned().unwrap_or_default();
-    let until = o.get("until").and_then(Value::as_str).and_then(parse_ts);
+    let until = crate::runtime::freeze::deadline(frozen);
     o.entry("at".to_string()).or_insert(Value::Null);
     o.entry("error".to_string()).or_insert(Value::Null);
     if let Some(u) = until {
