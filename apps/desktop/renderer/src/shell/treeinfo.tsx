@@ -107,8 +107,7 @@ export function ActiveAgentSummary({ tree, orgs = [] }: {
           <AutorenewIcon fontSize="inherit" className="cc-spin" />
         </span>}
       </span>
-      <span className="org-counts dim" title="active / hired agents"
-        style={{ width: `${String(c.live).length * 2 + 1}ch` }}>{c.active}/{c.live}</span>
+      <span className="org-counts dim" title="active / hired agents">{c.active}/{c.live}</span>
       {c.tiers.map((tier) => (
         <b key={tier} className={'t-' + tier}>
           {TIER_LETTER[tier]}{c.byTier[tier]}

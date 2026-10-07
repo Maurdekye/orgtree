@@ -303,7 +303,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
    draws, so the two surfaces read as one list */
 .org {
   display: grid; grid-template-columns: 14px minmax(0, 1fr) max-content auto;
-  align-items: center; column-gap: 8px;
+  align-items: center; column-gap: 4px;
   width: 100%; text-align: left; padding: 6px 10px; border-radius: 4px;
   border: 1px solid transparent; border-left: 2px solid transparent;
   background: none; color: var(--ink); cursor: pointer; font-size: 13px;
@@ -318,11 +318,11 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .org-activity .cc-spin { display: block; width: 12px; height: 12px; }
 .org-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .org-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* n/m active/hired — kept visible when idle; right-aligned tabular digits
-   with a shared floor width, so the counts read as one column across rows */
+/* n/m active/hired — no reserved leading digit space; tabular numerals keep
+   equal-length active and idle counts stable. The icon owns its fixed slot. */
 .org-counts {
-  font-variant-numeric: tabular-nums; text-align: right;
-  min-width: 3.2em; font-size: 12px;
+  font-variant-numeric: tabular-nums; text-align: left;
+  font-size: 12px;
 }
 /* F-09: agents-currently-working spinner chip */
 .working-ct {
@@ -869,9 +869,9 @@ button.badge.audience-fold.alert {
 .kill-release:hover { background: #ff5f5f; }
 .kill-release:disabled { opacity: .65; cursor: wait; }
 /* the active-agent summary chip: total · working · per-model counts */
-.chip.agents { display: inline-flex; gap: 7px; align-items: center; }
+.chip.agents { display: inline-flex; gap: 4px; align-items: center; }
 .chip.agents:focus-visible { outline: 1px solid var(--button-accent); outline-offset: 2px; }
-.chip.agents b { font-family: var(--mono); font-weight: 700; }
+.chip.agents b { margin-left: 3px; font-family: var(--mono); font-weight: 700; }
 .chip.agents b.t-haiku { color: var(--tier-haiku); }
 .chip.agents b.t-sonnet { color: var(--tier-sonnet); }
 .chip.agents b.t-opus { color: var(--tier-opus); }
