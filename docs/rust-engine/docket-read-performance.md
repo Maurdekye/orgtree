@@ -61,3 +61,55 @@ text search. These are single SQL samples, excluding context loading, counts,
 serialization, HTTP and rendering. They are not a deployed endpoint benchmark.
 No product binary was built or installed. Deployed p95 under 100 ms and full
 live click-to-paint remain to be measured after the coordinator installs it.
+
+## Installed alpha.7 reads and next-frame instrumentation
+
+Measured on installed alpha.7 `1c4be6a`, 25 sequential read-only samples per
+endpoint. Total includes HTTP transfer and Python JSON parsing; no live data
+was changed and no response bodies were retained.
+
+| Endpoint | p50 ms | p95 ms |
+| --- | ---: | ---: |
+| Active docket | 18.982 | 26.114 |
+| First archive page | 42.615 | 51.514 |
+| Backlog | 19.867 | 28.897 |
+| Inbox | 29.642 | 32.860 |
+| One mail | 2.244 | 12.424 |
+| Named references | 12.792 | 23.174 |
+
+Archive returned 100 of 1,196 items, next offset 100, 569,578 bytes. Read latency
+is below the target in this sample; this does not establish click-to-paint.
+
+User/coordinator ruling 2026-10-07 09:28Z: instrument real UI opens instead of
+computer-use. `opentiming.ts` marks the click, ready React layout commit and
+next requestAnimationFrame for mail panel, mail row, global docket, archive
+toggle and ticket row opens. Full ticket readiness includes its detail GET;
+list and mail readiness excludes loading placeholders. Mail row and ticket
+timings include the selected identity so stale selections cannot finish them.
+One bounded `UI_OPEN action=... sample=... commit_ms=... frame_ms=... hidden=...
+focused=...` measurement line is sent through the authenticated HTTP and engine
+trace path. No general renderer-to-engine log endpoint existed; a typed
+`/api/diagnostics/ui-open` sink avoids abusing crash reports (which create files
+and may send mail). Ordinary request/method tracing remains unchanged.
+
+The existing API response path carries `X-Orgtree-Verbose`; no settings poll is
+added. Off means no marks, measurements, observers, animation callbacks or
+diagnostic requests. Turning off cancels pending measurements; the engine also
+checks verbose before emitting the measurement line. The payload contains only
+an enumerated action, counter, finite bounded durations and visibility booleans,
+never a mail body, ticket title, account, token or user-entered text.
+
+`frame_ms` is the next paint opportunity after commit, not a physical display or
+GPU presentation timestamp. Exclude hidden/unfocused windows from foreground
+latency distributions; an occluded Chromium window can still report visible.
+Canceled or superseded opens are dropped, not reported as successful paints.
+Sampling uses the real user's clicks; no synthetic clicks or data mutations run
+in the installed app. Pinned-window raises and programmatic jumps are not new
+panel-open samples. Actual distributions await the next installed build.
+
+Verification: cargo check and typecheck pass. A brief isolated renderer smoke
+checks docket, fetched ticket, archive and mail-row readiness, all five action
+types, one line per completed open, disabled operation, canceled frame and mark
+cleanup. The smoke substitutes frame scheduling for deterministic control;
+its durations are NOT performance measurements. No renderer performance fix
+was inferred from these functional checks.

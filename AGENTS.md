@@ -16,6 +16,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Verbose UI-open timings use `opentiming.ts` and `/api/diagnostics/ui-open`.
+  `frame_ms` means the first animation frame after ready content commits, not
+  GPU presentation. Filter hidden/unfocused samples; off creates no timing
+  work or diagnostic requests. [verified from source: 2026-10-07;
+  `docs/rust-engine/docket-read-performance.md`]
+
 - Agent unread mail is `pending` plus unacknowledged `delivering`, shared by
   tree badges, jump cards, desk tabs and mailbox folders. Counts are totals,
   never lengths of bounded display windows. Exact provider/hook receipts settle
