@@ -12,9 +12,9 @@ Python engine or deployment changes are included.
 | --- | --- | --- |
 | P41 | Fixed | Supersede requires management rights on both items, an open replacement, a source not already superseded, and an acyclic replacement chain. A closed dropped/done source can still be replaced. `work_supersede`, lines 19769–19810. |
 | P42 | Fixed | Creation and move share `checked_parent`: the parent must be readable, not necessarily manageable. The full ancestor chain is checked without a fixed hop cutoff. Dependencies still require existence only. `_work_parent_check`, lines 19740–19767. |
-| P43 | Fixed | Keep/append require an integer `expected_rev`, checked against the locked item before mutation. A whole list cannot also specify keep/append. The complete stored list and combined entry limit remain authoritative. As in Python, append supplies the result when keep and append are both present. `_work_patch_list`, lines 15291–15331. |
+| P43 | Fixed | Keep/append require an integer `expected_rev`, checked against the locked item before mutation. A whole list cannot also specify keep/append. Internal staffing and completion-alias keeps derive the revision from the item locked in that transaction; explicit caller patches are validated first and caller revisions are never overwritten. The complete stored list and combined entry limit remain authoritative. As in Python, append supplies the result when keep and append are both present. `_work_patch_list`, lines 15291–15331. |
 | P44 | Fixed | Agent get/list filter link headers using the same owner/creator/superior/participant/reviewer read rights as items. Unreadable dependencies return only `{visible:false}`; parent/replacement names become null with visibility false. Supersede/move history pointers receive the same filter. User views retain every readable link. `_work_view`, `_work_history_view`, `_work_pointer_visible`. |
-| P45 | Fixed | Create and participant edits share actor-authorized passive notices. Only newly added members still in the final list are told, excluding the actor. Membership commits even if mail is refused; `notice_refused` identifies each refusal and `noticed_deferred` reports deferred delivery. `Outgoing.grant_reply_audience` defaults true; only these automatic notices set false. `_work_participation_notices`, lines 17566–17615. |
+| P45 | Fixed | Create and participant edits share actor-authorized passive notices. Only newly added members still in the final list are told, excluding the actor. Membership commits even if policy refuses mail; `notice_refused` identifies each refusal and `noticed_deferred` reports deferred delivery, including through staffing's outer response. Allowed notices are inserted with the mutation; database errors still abort it. Ordinary sends default to granting reply audiences; automatic participant notices explicitly disable that grant. `_work_participation_notices`, lines 17566–17615. |
 | P46 | Fixed | Explicit archive refuses unfinished items and any manual attention or linked open question. Already archived closed work remains an idempotent success. `work_archive_now`, lines 19554–19578. |
 | P47 | Fixed | Delete clears dependency occurrences and replacement pointers on active and archived items, with a `pointer_cleared` history row on each affected item and revision/date advances. Names stay retired, and children/open questions still refuse deletion. Cleanup reads at most 128 affected rows per query. `work_delete`, lines 19646–19663. |
 | P48 | Fixed | Only the current owner of open work may request a handoff, addressed to its immediate superior (user for a top-level owner). Omitted/blank reason uses the original default. Ownership is unchanged. `work_handoff`, lines 17515–17526. |
@@ -26,7 +26,10 @@ Python engine or deployment changes are included.
 Creation, link rearrangement and deletion use short serializable database
 transactions. Concurrent conflicting graph/link writes may be refused by
 PostgreSQL instead of committing a cycle or leaving a dangling pointer.
-No global lock, mail send inside a transaction, or live-data change is added.
+Participant notices use the caller's transaction with the shared mail-rights
+check and actor identity; only mailbox publication runs after commit. Assignment,
+review-request and kickoff messages retain their existing transactional path.
+No global lock, external I/O inside a transaction, or live-data change is added.
 Link headers are read in pages of 256; ancestor queries are scalar.
 
 ## Verification
