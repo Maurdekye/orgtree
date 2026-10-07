@@ -1,4 +1,5 @@
 import { useRecordScratch } from '../recordscratch'
+import { ToolInputDetails } from './toolinput'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
@@ -4607,7 +4608,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
   // canvas/foldstate.tsx for why a component-local `useState` could not
   // survive the row being re-keyed mid-stream
   const [open, toggleOpen] = useFold(toolFoldKey(t))
-  const expandable = Boolean(t.result || t.diff || t.images)
+  const expandable = true
   if (t.presentation && !t.error && onOpenDoc) return <PresentationCard slug={slug}
     doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
     <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
@@ -4681,6 +4682,7 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
             onClick={(e) => { e.stopPropagation(); onWorkLink!(t.work) }}>
             <DocketIcon fontSize="inherit" /> open</button>)}
       </span>
+      {open && <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
       {open && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (

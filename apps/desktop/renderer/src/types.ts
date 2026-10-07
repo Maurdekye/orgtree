@@ -877,6 +877,8 @@ export interface ToolChip {
   result_event_id?: string
   name: string
   arg?: string                 // _tool_arg (supervisor.py:2611) -> str
+  /** Row identity for an on-demand full-input read; never the input itself. */
+  input_seq?: number
   id?: string | null
   result?: string
   result_lines?: number
