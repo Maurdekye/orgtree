@@ -29,6 +29,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   on demand and are retained separately; never expose unrelated transcript records.
   [verified from source: 2026-10-07; `docs/rust-engine/tool-inputs.md`]
 
+- Docket UI lists use 100-row server pages with full counts and bounded named
+  references; never fetch the whole archive to resolve links. Per-item docket
+  `view` is exempt from logging by the user's 2026-10-07 ruling.
+  [verified from source / recorded decision: 2026-10-07;
+  `docs/rust-engine/docket-read-performance.md`]
+
 - Staffing effort choices describe launch-time model capabilities, not the
   `live_effort` flag for mid-turn controls. Codex choices come from background
   `model/list` discovery; menu reads never spawn a CLI. Claude/OpenRouter keep
