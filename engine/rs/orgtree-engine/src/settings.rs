@@ -53,6 +53,15 @@ impl AppSettings {
     }
 
     // ---- typed readers with the documented defaults ----
+    /// Message composers share this app-wide choice; old installations send on Enter.
+    pub fn enter_key_behavior(&self) -> &'static str {
+        if self.runtime().get("enter_key_behavior").and_then(Value::as_str) == Some("newline") {
+            "newline"
+        } else {
+            "send"
+        }
+    }
+
     #[nolog]
     fn runtime(&self) -> Value {
         self.get().get("runtime").cloned().unwrap_or_else(|| json!({}))

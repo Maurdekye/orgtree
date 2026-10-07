@@ -250,6 +250,7 @@ async fn runtime_payload(engine: &Engine) -> Value {
         .filter_map(|(id, n)| engine.orgs.by_id(*id).map(|o| (o.slug.clone(), json!(n))))
         .collect();
     json!({
+        "enter_key_behavior": engine.settings.enter_key_behavior(),
         "quick_staff_behavior": engine.settings.quick_staff_behavior(),
         "quick_staff_request_accounts": false,
         "git_periodic_fetch_enabled": false,
@@ -280,6 +281,11 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut warming = None;
     for (k, v) in &b {
         match k.as_str() {
+            "enter_key_behavior" => {
+                let mode = v.as_str().filter(|s| ["send", "newline"].contains(s))
+                    .ok_or_else(|| ApiError::bad_request("enter_key_behavior is send or newline"))?;
+                rt.insert(k.clone(), json!(mode));
+            }
             "verbose_logging" => {
                 let on = v.as_bool().ok_or_else(|| ApiError::bad_request("verbose_logging is true or false"))?;
                 rt.insert(k.clone(), json!(on));
@@ -336,6 +342,9 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut client = e.db.get().await?;
     e.settings.merge(&mut client, json!({ "runtime": rt })).await?;
     drop(client);
+    if b.contains_key("enter_key_behavior") {
+        e.app.set_value("enter_key_behavior", json!(e.settings.enter_key_behavior()));
+    }
     if let Some(on) = verbose {
         crate::trace::apply_verbose(on);
     }
