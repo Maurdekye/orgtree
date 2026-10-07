@@ -1,0 +1,18 @@
+{
+  "org": { "name": "Rig Org" },
+  "agents": [
+    { "name": "boss", "tier": "opus", "grant": 24, "title": "Rig lead", "charter": "You lead the rig org. You exist only in test runs." },
+    { "name": "alice", "parent": "boss", "tier": "sonnet", "grant": 6, "title": "Engineer" },
+    { "name": "bob", "parent": "alice", "tier": "haiku", "title": "Helper" },
+    { "name": "carol", "parent": "boss", "tier": "haiku", "title": "Reviewer" }
+  ],
+  "docket": [
+    { "as": "boss", "args": { "title": "Rig smoke item", "objective": "A seeded docket item for rig runs.\n\nNothing depends on it.", "owner": "alice" } }
+  ],
+  "mail": [
+    { "from": "alice", "to": "boss", "body": "Seeded note from alice (passive).", "notice": true }
+  ],
+  "scenario": {
+    "default": { "turns": [ { "name": "default", "steps": [ { "text": "OK." } ] } ] }
+  }
+}
