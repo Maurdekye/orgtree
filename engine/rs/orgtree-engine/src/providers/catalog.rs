@@ -37,7 +37,7 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "sonnet", provider: CLAUDE, seat: 2.0, model: "claude-sonnet-5-5",
         versions: &[("5.5", "claude-sonnet-5-5"), ("5", "claude-sonnet-5")], letter: "S",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
-    Tier { tier: "haiku", provider: CLAUDE, seat: 1.0, model: "claude-haiku-5-5",
+    Tier { tier: "haiku", provider: CLAUDE, seat: 0.1, model: "claude-haiku-5-5",
         versions: &[("5.5", "claude-haiku-5-5"), ("4.5", "claude-haiku-4-5")], letter: "H",
         context: Some(1_000_000), live_effort: true, legacy: false, conditional: false, prices: None },
     Tier { tier: "astra", provider: OPENAI, seat: 10.0, model: "gpt-6-astra",
