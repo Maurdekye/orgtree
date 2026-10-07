@@ -58,6 +58,8 @@ pub struct Outgoing {
     pub reply_to: Option<Value>,
     pub client_op: Option<String>,
     pub ev: Option<Value>,
+    /// Automatic notices use existing rights without granting a reply audience.
+    pub grant_reply_audience: bool,
 }
 
 #[logged]
@@ -75,6 +77,7 @@ impl Outgoing {
             reply_to: None,
             client_op: None,
             ev: None,
+            grant_reply_audience: true,
         }
     }
 }
@@ -174,7 +177,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         refuse!(Conflict, "{to} cannot be reached (its session is lost); nothing was sent");
     }
     if let From::Agent { id, name, .. } = &out.from {
-        authorize(&client, org_id, *id, name, target_id, &to).await?;
+        authorize(&client, org_id, *id, name, target_id, &to, out.grant_reply_audience).await?;
     }
     client
         .execute(
@@ -263,6 +266,7 @@ async fn authorize(
     from_name: &str,
     to_id: i64,
     to_name: &str,
+    grant_reply_audience: bool,
 ) -> Result<()> {
     if from_id == to_id {
         refuse!(BadRequest, "you cannot write to yourself");
@@ -285,7 +289,7 @@ async fn authorize(
     let from_is_ancestor: bool = rel.get(2);
     let depth: Option<i32> = rel.get(3);
     if from_is_ancestor {
-        if depth.unwrap_or(1) > 1 {
+        if grant_reply_audience && depth.unwrap_or(1) > 1 {
             client
                 .execute(
                     "INSERT INTO ot.audiences (org_id, grantee, grantor, reason)

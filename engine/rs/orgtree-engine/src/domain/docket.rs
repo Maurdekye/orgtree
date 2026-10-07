@@ -264,16 +264,22 @@ pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
             }));
         }
     }
-    for r in client
-        .query(
-            "SELECT slug, title, status, owner->>'node', created_by->>'node', reviewer->>'node', participants
-               FROM ot.work_items WHERE org_id = $1 AND NOT coalesce((extra->>'deleted')::boolean, false)",
-            &[&org.id],
-        )
-        .await?
-    {
-        c.titles.insert(r.get(0), (r.get(1), r.get(2)));
-        c.rights.insert(r.get(0), (r.get(3), r.get(4), r.get(5), r.get(6)));
+    let mut cursor = 0_i64;
+    loop {
+        let rows = client.query(
+            "SELECT slug, title, status, owner->>'node', created_by->>'node', reviewer->>'node', participants, id
+               FROM ot.work_items WHERE org_id = $1 AND id > $2 AND NOT coalesce((extra->>'deleted')::boolean, false)
+               ORDER BY id LIMIT 256",
+            &[&org.id, &cursor],
+        ).await?;
+        if rows.is_empty() {
+            break;
+        }
+        for r in rows {
+            cursor = r.get(7);
+            c.titles.insert(r.get(0), (r.get(1), r.get(2)));
+            c.rights.insert(r.get(0), (r.get(3), r.get(4), r.get(5), r.get(6)));
+        }
     }
     Ok(c)
 }
@@ -344,7 +350,8 @@ fn fnv(bytes: &[u8]) -> String {
 }
 
 /// The `WorkItem` the docket renders. `detail` adds history and attachments.
-/// (Called per row: not logged.)
+/// The caller's context filters every linked item's metadata by read rights.
+#[logged]
 pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value {
     let sources = attention_sources(it, ctx);
     let is_archived = archived(it, ctx);
@@ -848,10 +855,26 @@ fn changed(engine: &Engine, org: &OrgHandle) {
 
 /// Notifications are stored with the mutation; only runtime wakes escape after commit.
 #[derive(Debug, Default)]
-pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)> }
+pub(crate) struct AfterCommit {
+    recipients: Vec<(i64, bool)>,
+    participants: Vec<(Who, Item, Vec<String>)>,
+}
 
 #[logged]
 impl AfterCommit {
+    pub(crate) async fn finish(mut self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) -> Map<String, Value> {
+        let participants = std::mem::take(&mut self.participants);
+        self.publish(engine, org);
+        let mut out = Map::new();
+        for (who, item, names) in participants {
+            for (key, value) in participation_notices(engine, org, &who, &item, &names).await {
+                let entries = out.entry(key).or_insert_with(|| json!([]));
+                entries.as_array_mut().unwrap().extend(value.as_array().unwrap().iter().cloned());
+            }
+        }
+        out
+    }
+
     pub(crate) fn publish(self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) {
         changed(engine, org);
         for (id, wake) in self.recipients {
@@ -880,10 +903,10 @@ pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
     let mut client = engine.db.get().await?;
     let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     let mut post = AfterCommit::default();
-    let out = create_tx(&*tx, org, who, args, &mut post).await?;
+    let mut out = create_tx(&*tx, org, who, args, &mut post).await?;
     tx.commit().await?;
     drop(client);
-    post.publish(engine, org);
+    out.as_object_mut().unwrap().extend(post.finish(engine, org).await);
     Ok(out)
 }
 
@@ -995,24 +1018,56 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
             notified = json!(o);
         }
     }
-    for p in &participants {
-        tell_tx(
-            tx, post,
-            org.id,
-            &it,
-            p,
-            format!("{} added you as a participant on docket item {} — \"{}\". You may update its state and add evidence; the owner is {}.",
-                who.label(), it.slug, it.title, owner_name.as_deref().unwrap_or("nobody yet")),
-            "status",
-            false,
-            Some(participant_ev(org, who, &it)),
-        )
-        .await?;
-    }
+    post.participants.push((who.clone(), it.clone(), participants));
     Ok(json!({
         "created": it.slug, "slug": it.slug, "rev": 1, "owner": it.owner, "notified": notified,
         "status": format!("work item {} created — that name is its only identity; use it in mail, reports and every later update, question and handoff", it.slug),
     }))
+}
+
+/// Membership stands even when the actor cannot mail a new member. Report
+/// that refusal, and never mint a reply audience for this automatic notice.
+#[logged]
+async fn participation_notices(engine: &Arc<Engine>, org: &OrgHandle, who: &Who, it: &Item, added: &[String]) -> Map<String, Value> {
+    let mut noticed = Vec::new();
+    let mut deferred = Vec::new();
+    let mut refused = Vec::new();
+    for p in added {
+        if Some(p.as_str()) == who.name() {
+            continue;
+        }
+        let from = match who {
+            Who::User => From::User,
+            Who::Agent { id, name, generation } => From::Agent { id: *id, name: name.clone(), generation: *generation },
+        };
+        let mut out = Outgoing::new(from, p, &format!(
+            "{} added you as a participant on docket item {} — \"{}\". You may update its state and add evidence; the owner is {}.",
+            who.label(), it.slug, it.title, it.owner_name().unwrap_or("nobody yet"),
+        ));
+        out.kind = "notice".into();
+        out.notice = true;
+        out.grant_reply_audience = false;
+        out.reply_to = Some(reply_to(it));
+        out.ev = Some(participant_ev(org, who, it));
+        match mail::send(engine, org.id, out).await {
+            Ok(sent) => {
+                noticed.push(p.clone());
+                if sent.deferred {
+                    deferred.push(p.clone());
+                }
+            }
+            Err(error) => refused.push(json!({ "node": p, "reason": error.to_string() })),
+        }
+    }
+    let mut out = Map::new();
+    out.insert("noticed".into(), json!(noticed));
+    if !deferred.is_empty() {
+        out.insert("noticed_deferred".into(), json!(deferred));
+    }
+    if !refused.is_empty() {
+        out.insert("notice_refused".into(), json!(refused));
+    }
+    out
 }
 
 /// Materialize a complete progress list without interleaving a stale patch.
@@ -1524,18 +1579,18 @@ pub async fn participants(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who,
     if added.is_empty() && removed == 0 {
         refuse!(BadRequest, "nothing changed: add names agents not yet on the item, remove names agents on it");
     }
+    added.retain(|p| it.participants.contains(p));
     it.rev += 1;
     it.updated_at = Utc::now();
     save(&*tx, &it).await?;
-    history(&*tx, &it, who, "participants", json!({ "added": added, "removed": remove })).await?;
+    history(&*tx, &it, who, "participants", json!({ "now": it.participants, "added": added, "removed": remove })).await?;
     tx.commit().await?;
     drop(client);
     changed(engine, org);
-    for p in &added {
-        tell_ev(engine, org.id, &it, p, format!("{} added you as a participant on docket item {} — \"{}\". You may update its state and add evidence; the owner is {}.",
-            who.label(), it.slug, it.title, it.owner_name().unwrap_or("nobody")), "status", false, Some(participant_ev(org, who, &it))).await;
-    }
-    Ok(json!({ "item": it.slug, "participants": it.participants, "rev": it.rev }))
+    let notices = participation_notices(engine, org, who, &it, &added).await;
+    let mut out = json!({ "item": it.slug, "participants": it.participants, "rev": it.rev });
+    out.as_object_mut().unwrap().extend(notices);
+    Ok(out)
 }
 
 /// `evidence`: notes, links, files, commits and logs on the item.
