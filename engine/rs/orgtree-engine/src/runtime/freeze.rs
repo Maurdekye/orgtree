@@ -176,7 +176,10 @@ async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expecte
     }
     tracing::info!(org = org_id, agent = agent_id, automatic = expected.is_some(), "freeze released; waking agent");
     changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::History(agent_id)]);
-    mail::system_wake(engine, org_id, agent_id, "Your usage limit has reset. Continue where you left off.").await?;
+    if let Err(e)=crate::domain::runtime_notices::released(engine, org_id, agent_id, expected.is_some()).await {
+        tracing::warn!(agent=agent_id,error=%format!("{e:#}"),"release notice could not be sent");
+    }
+    mail::system_wake(engine, org_id, agent_id, if expected.is_some() { "Your usage limit has reset. Continue where you left off." } else { "Your hold was released. Continue where you left off." }).await?;
     Ok(true)
 }
 

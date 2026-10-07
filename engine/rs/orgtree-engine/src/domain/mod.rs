@@ -8,6 +8,7 @@ pub mod docs;
 pub mod mail;
 pub mod lifecycle;
 pub mod notices;
+pub mod runtime_notices;
 pub mod ops;
 pub mod orginbox;
 pub mod scope;

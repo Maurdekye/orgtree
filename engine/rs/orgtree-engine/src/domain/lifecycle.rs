@@ -72,11 +72,15 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             if op=="rehire" { targets.push((id,"self".into())); }
         }
         "rescind" => if let Some(p)=n.parent { targets.push((p,"report".into())); },
-        "cheap_compact" | "switch_model" | "reallocate" => {
+        "compacted" | "cheap_compact" | "switch_model" | "reallocate" => {
             targets.push((id,"self".into()));
             if let Some(p)=n.parent { targets.push((p,"report".into())); }
         }
-        "rename" | "retool" => targets.push((id,"self".into())),
+        "limit_reset" => {
+            targets=family(tx,org,n.parent,id,"report","peer").await?;
+            targets.push((id,"self".into()));
+        }
+        "switch_queued" | "switch_cancelled" | "switch_dropped" | "session_rebound" | "unstick" | "rename" | "retool" => targets.push((id,"self".into())),
         "move" => {
             targets=family(tx,org,d["old_parent_id"].as_i64(),id,"old_parent","old_peer").await?;
             targets.extend(family(tx,org,n.parent,id,"new_parent","new_peer").await?);
@@ -115,6 +119,13 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             match d["old_parent_id"].as_i64() { Some(p)=>Some(seat(tx,p).await?.name),None=>None }
         } else { None };
         let (variant,fields)=match op {
+            "compacted" => ("lifecycle.compacted",json!({"node":n.name,"relation":role,"generation":n.generation,"predecessor":d["session"],"auto":d["auto"],"lost":true,"size_note":null})),
+            "switch_queued" => ("lifecycle.switch_queued",json!({"node":n.name,"old":d["old"],"new":d["new"],"by":by})),
+            "switch_cancelled" => ("lifecycle.switch_cancelled",json!({"node":n.name,"target":d["target"],"by":by})),
+            "switch_dropped" => ("lifecycle.switch_dropped",json!({"node":n.name,"target":d["target"],"kept":d["kept"],"reason":d["reason"]})),
+            "session_rebound" => ("lifecycle.session_rebound",json!({"node":n.name,"predecessor":d["predecessor"]})),
+            "unstick" => ("policy.unstuck",json!({})),
+            "limit_reset" => ("policy.limit_reset",json!({"node":n.name,"relation":role,"released":["frozen"]})),
             "hire" if d["above"].is_string() => {
                 let name=d["above"].as_str().unwrap();
                 let bid:i64=tx.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org,&name]).await?.get(0);
@@ -164,7 +175,12 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             crate::events::node_ref(&slug,name,gen as i64)
         } else { object.clone() };
         let ev=crate::events::typed(variant,by,object,fields);
-        let body=format!("{}: {} changed by {by}.",variant,n.name);
+        let body=match op {
+            "cheap_compact" => format!("{} now has a fresh session. Its previous session {} remains in history; the seat and team are unchanged.",n.name,d["old_session"].as_str().unwrap_or("")),
+            "compacted" => format!("{}'s provider compacted the conversation within its current session. Earlier history remains readable.",n.name),
+            "switch_model" => format!("{} changed from {} to {} (by {by}). A provider change starts a new provider session and cache namespace.",n.name,d["from"].as_str().unwrap_or(""),n.tier),
+            _ => format!("{}: {} changed by {by}.",variant,n.name),
+        };
         if let Some(id)=store(tx,org,target,by,ev,&body).await? { changed.push(id); }
     }
     Ok(changed)

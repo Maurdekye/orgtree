@@ -2179,6 +2179,7 @@ impl Actor {
                 Some("init") => self.on_init(&v),
                 Some("compact_boundary") => {
                     let client = self.engine.db.get().await?;
+                    crate::domain::runtime_notices::compacted(&self.engine,self.org_id,self.id,!self.turn.as_ref().map(|t|t.compact).unwrap_or(false)).await?;
                     let pre = v.pointer("/compact_metadata/pre_tokens").cloned().unwrap_or(Value::Null);
                     let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact",
                                       "pre_tokens": pre });
@@ -2267,6 +2268,7 @@ impl Actor {
                 }
             }
             "thread/compacted" => {
+                crate::domain::runtime_notices::compacted(&self.engine,self.org_id,self.id,true).await?;
                 let client = self.engine.db.get().await?;
                 let row = json!({ "role": "system", "text": "Context compacted", "ts": now_iso(), "kind": "compact" });
                 self.convo.append(&client, row).await?;
@@ -3306,13 +3308,21 @@ impl Actor {
             }
         }
         if let Some(e) = &error {
-            let row = json!({ "role": "system", "text": format!("The turn ended with an error: {e}"), "ts": now_iso(), "kind": "error" });
+            let ev = crate::events::typed("runtime.turn_failed_terminal", "@system",
+                json!({"kind":"session","org":self.org.slug,"node":self.name,"session_id":session.clone().unwrap_or_default()}),
+                json!({"door":"turn","err":e}));
+            let row = json!({ "role": "system", "text": format!("The turn ended with an error: {e}"), "ts": now_iso(), "kind": "error", "ev":ev });
             let _ = self.convo.append(&client, row).await;
         }
         drop(client);
         if cache_read > 0 || cache_write > 0 {
             self.receipt = Some((Utc::now(), ttl as i64));
             self.save_receipt().await;
+        }
+        if !turn.interrupted && !turn.killed {
+            if let Err(e) = crate::domain::runtime_notices::end_turn(&self.engine, self.org_id, self.id, error.as_deref(), freeze_rec.as_ref()).await {
+                tracing::warn!(agent = self.id, error = %format!("{e:#}"), "typed turn outcome could not be sent");
+            }
         }
         self.last_error = error.clone();
         self.mcp.last_turn_count = self.mcp.count;
@@ -3462,6 +3472,9 @@ impl Actor {
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));
         if !compact {
             let client = self.engine.db.get().await?;
+            if let Err(e)=crate::domain::runtime_notices::deep_reach(&self.engine,self.org_id,self.id,&text,true).await {
+                tracing::warn!(agent=self.id,error=%format!("{e:#}"),"command notice could not be sent");
+            }
             let row = json!({ "role": "user", "text": text, "ts": now_iso(), "command": true });
             self.convo.append(&client, row).await?;
         }

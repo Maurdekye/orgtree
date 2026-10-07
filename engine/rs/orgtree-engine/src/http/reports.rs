@@ -112,7 +112,10 @@ pub async fn crash_report(State(e): State<Arc<Engine>>, Json(b): Json<CrashBody>
                 body.push_str("\nstack:\n");
                 body.push_str(&gist(s, 6000));
             }
-            delivered = mail::send(&e, org.id, Outgoing::new(From::User, "crash-reporting", &body)).await.is_ok();
+            let mut out=Outgoing::new(From::User,"crash-reporting",&body);
+            out.ev=Some(crate::events::typed("runtime.ui_crash_report","@user",json!({"kind":"org","org":org.slug}),
+                json!({"summary":gist(&body,300),"report":{"kind":report["kind"].as_str().unwrap_or("unknown"),"message":report["message"].as_str().unwrap_or(""),"stack":report["stack"],"url":report["url"],"at":report["at"].as_str().unwrap_or("")}})));
+            delivered = mail::send(&e,org.id,out).await.is_ok();
         }
     }
     Ok(Json(json!({ "id": id, "saved": saved, "delivered": delivered, "path": name })))

@@ -92,7 +92,7 @@ pub fn work_item_ref(org: &str, slug: &str, title: &str) -> Value {
     json!({ "kind": "work_item", "org": org, "slug": slug, "title": title })
 }
 
-const ASSIGNABLE: &[&str] = &["backlogged", "open", "in_progress", "blocked", "waiting", "review", "deploy_ready", "done", "superseded", "dropped"];
+const ASSIGNABLE: &[&str] = &["backlogged", "open", "in_progress", "blocked", "waiting", "review", "approved", "deploy_ready", "done", "superseded", "dropped"];
 
 /// `docket.assigned`: the item now belongs to `owner`.
 #[allow(clippy::too_many_arguments)]

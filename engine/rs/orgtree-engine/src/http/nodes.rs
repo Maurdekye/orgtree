@@ -491,6 +491,7 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
         &[&org.id, &a.id, &json!({ "node": a.name, "change": b, "cascaded": cascaded })],
     )
     .await?;
+    let notice_ids=crate::domain::lifecycle::record(&tx,org.id,"retool","@user",Some(a.id),&json!({"change":b})).await?;
     tx.commit().await?;
     // the subtree's effective scopes may have moved
     let subtree: Vec<i64> = client
@@ -506,6 +507,7 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
         .collect();
     drop(client);
     let mut ch: Vec<Change> = subtree.iter().map(|id| Change::Agent(*id)).collect();
+    ch.extend(notice_ids.into_iter().map(Change::Mailbox));
     ch.push(Change::Events);
     ch.push(Change::History(a.id));
     changes::notify(&e, &org, ch);

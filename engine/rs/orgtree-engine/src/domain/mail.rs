@@ -194,6 +194,9 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     }
     if matches!(out.from, From::User) {
         ch.push(Change::UserMail);
+        if let Err(e)=super::runtime_notices::deep_reach(engine,org_id,target_id,&out.body,false).await {
+            tracing::warn!(agent=target_id,error=%format!("{e:#}"),"direct-contact notice could not be sent");
+        }
     }
     changes::notify(engine, &org, ch);
     let (delivery, deferred) = if state != "live" {

@@ -331,14 +331,23 @@ pub async fn recover(engine: &Arc<Engine>) {
         .unwrap_or_default();
     for r in &interrupted {
         let (id, org): (i64, i64) = (r.get(0), r.get(1));
-        let name: String = r.get(2);
-        let span = crate::trace::request_from(&crate::trace::agent_client(id, &name), crate::trace::current_rq().as_deref());
-        let _ = tracing::Instrument::instrument(crate::domain::mail::system_wake(
-            engine,
-            org,
-            id,
-            "The engine restarted while you were working. Continue where you left off.",
-        ), span).await;
+        if let Err(e)=crate::domain::runtime_notices::restarted(engine,org,id,true).await {
+            tracing::warn!(agent=id,error=%format!("{e:#}"),"restart wake could not be sent");
+        }
+    }
+    // A passive build notice also reaches idle seats, without waking them.
+    let mut after=0_i64;
+    loop {
+        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND id>$1 ORDER BY id LIMIT 200", &[&after]).await {
+            Ok(rows)=>rows, Err(e)=>{ tracing::warn!(error=%e,"restart notice page failed"); break; }
+        };
+        if rows.is_empty(){break;}
+        for row in rows {
+            after=row.get(0);
+            if let Err(e)=crate::domain::runtime_notices::restarted(engine,row.get(1),after,false).await {
+                tracing::warn!(agent=after,error=%format!("{e:#}"),"restart notice could not be sent");
+            }
+        }
     }
     freeze::recover(engine).await;
     let waiting = client

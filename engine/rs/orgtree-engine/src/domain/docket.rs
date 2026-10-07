@@ -1188,13 +1188,13 @@ pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args:
                 json!({ "reviewer": r, "requested_by": who_id(who), "owner": it.owner_name().unwrap_or(""),
                         "objective": it.objective, "done_so_far": it.done, "acceptance": [], "revision": it.rev,
                         "candidate": null, "base": null, "objective_notice": null, "relayed": false }));
-            tell_ev(engine, org.id, &it, r, format!("[DOCKET REVIEW REQUEST · {} \"{}\"]\nYou are named as REVIEWER. {} keeps ownership. Read the full scope with orgtree_work get slug={}; then use update status=approved, done, or in_progress with your findings.\nRequested by {}.\nDescription: {}", it.slug, it.title, it.owner_name().unwrap_or("its owner"), it.slug, who.label(), it.objective), "request", true, Some(ev)).await;
+            tell_ev(engine, org.id, &it, r, format!("[DOCKET REVIEW REQUEST · {} \"{}\"]\nYou are named as REVIEWER. {} keeps ownership. Read the full scope with orgtree_work get slug={}; then use update with owner set to its current holder and status=approved, done, or in_progress with your findings.\nRequested by {}.\nDescription: {}", it.slug, it.title, it.owner_name().unwrap_or("its owner"), it.slug, who.label(), it.objective), "request", true, Some(ev)).await;
         }
     }
     // Reviewer status transitions retain the old review outcome cards. The
     // removed verdict/seat machinery is not reintroduced.
     if from_status == "review" && it.status != from_status
-        && it.reviewer_name() == Some(who_id(who).as_str()) {
+        && (it.reviewer_name() == Some(who_id(who).as_str()) || matches!(who, Who::User)) {
         if let Some(owner) = it.owner_name() {
             let variant = match it.status.as_str() {
                 "approved" | "done" => Some("docket.review_approved"),

@@ -123,6 +123,9 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
         }
     }
+    if holders.is_empty() {
+        super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body).await?;
+    }
     let delivery = if holders.is_empty() {
         format!("Stored in {}'s org inbox; it has no live agent to read it yet.", dst.slug)
     } else {
@@ -192,6 +195,9 @@ pub async fn deliver_inbound(
         if let Err(e) = mail::send(engine, org_id, m).await {
             tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
         }
+    }
+    if holders.is_empty() {
+        super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body).await?;
     }
     Ok(true)
 }

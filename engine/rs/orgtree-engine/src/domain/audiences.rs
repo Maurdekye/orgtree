@@ -263,7 +263,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
             )
             .await?;
     }
-    client
+    let answered = client
         .execute(
             "UPDATE ot.audience_requests SET status = 'granted', resolved_at = now()
               WHERE org_id = $1 AND requester = $2 AND target = $3 AND status = 'pending'",
@@ -277,6 +277,10 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
         )
         .await?;
     drop(client);
+    if answered > 0 {
+        tell(engine,org.id,&grantee,format!("{} granted your requested audience with {}.",spoken(&by),spoken(&grantor)),true,
+            Some(crate::events::audience_decided(&org.slug,&grantee,&grantor,true,&by))).await;
+    }
     if fresh {
         let generation: i64 = {
             let client = engine.db.get().await?;
