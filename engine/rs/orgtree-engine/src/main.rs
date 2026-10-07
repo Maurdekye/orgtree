@@ -39,6 +39,7 @@ mod settings;
 mod tools;
 mod trace;
 mod usage;
+mod usage_history;
 mod util;
 mod winproc;
 

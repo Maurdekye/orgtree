@@ -34,6 +34,8 @@ pub struct Usage {
     cache: papaya::HashMap<String, Cached>,
     /// a provider that told us to wait: not before this
     cooldown: papaya::HashMap<String, Instant>,
+    /// the last usage-history row of each series
+    pub history: papaya::HashMap<String, crate::usage_history::Last>,
 }
 
 #[logged]
@@ -501,6 +503,7 @@ pub async fn openrouter(engine: &Engine, force: bool) -> Value {
             return v;
         }
     }
+    let observed = Utc::now();
     let mut out = match crate::openrouter::key(engine).await {
         None => json!({ "available": false, "error": "no API key — add one in App settings › Providers",
                         "reauth_evidence": "not_connected" }),
@@ -515,6 +518,7 @@ pub async fn openrouter(engine: &Engine, force: bool) -> Value {
         out["label"] = json!("OpenRouter API key");
     }
     out["observed_at"] = json!(iso(Utc::now()));
+    crate::usage_history::record(engine, "openrouter", "openrouter", observed, &out).await;
     engine.usage.put("openrouter", &out);
     out
 }
@@ -548,7 +552,7 @@ fn openrouter_limits(ks: &serde_json::Map<String, Value>) -> Vec<Value> {
     };
     let row = |percent: Option<f64>, severity: &str, active: bool, label: String| {
         json!({ "kind": "usage", "group": "credits", "percent": percent, "severity": severity, "resets_at": null,
-                "is_active": active, "model": null, "label": label })
+                "is_active": active, "model": null, "label": label, "amount": usage, "unit": "USD" })
     };
     if let Some(limit) = f("limit").filter(|l| *l > 0.0) {
         let percent = (usage / limit * 100.0).clamp(0.0, 100.0);
@@ -613,7 +617,9 @@ pub async fn registered(engine: &Engine, a: &crate::accounts::AccountInfo, force
                        "error": "not read in safe start: this account's sign-in belongs to another data folder" });
     }
     let mut u = if a.is_apikey() {
-        apikey_spend(engine, &a.id).await
+        let spend = apikey_spend(engine, &a.id).await;
+        crate::usage_history::record(engine, &a.id, &a.provider, Utc::now(), &spend).await;
+        spend
     } else {
         match a.provider.as_str() {
             "claude" => claude(engine, a.config_dir.as_deref(), force).await,
@@ -694,6 +700,10 @@ async fn publish_due(engine: &Engine, last: &mut std::collections::HashMap<&'sta
         }
         crate::openrouter::publish(engine).await;
         last.insert("openrouter", Instant::now());
+    }
+    if due(last, "usage_history_prune", 3600) {
+        crate::usage_history::prune(engine).await;
+        last.insert("usage_history_prune", Instant::now());
     }
     if due(last, "registered", 300) {
         let view = engine.accounts.view();

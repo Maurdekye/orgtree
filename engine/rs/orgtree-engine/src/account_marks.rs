@@ -84,6 +84,7 @@ pub async fn profile_usage(
         .collect();
     for account in accounts {
         usage(engine, &account, provider, observed, value).await;
+        crate::usage_history::record(engine, &account, provider, observed, value).await;
     }
 }
 
