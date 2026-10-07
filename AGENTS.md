@@ -243,6 +243,13 @@ mail-list rule, not a change to transcript event cards. [verified from source:
 `feed/compute.rs::mail_entry`, renderer `canvas/shared.ts` and `canvas/mail.tsx`;
 recorded decision: user inbox styling request 2026-10-07]
 
+**Activity summary strip (2026-10-07).** `ActiveAgentSummary` uses the org list's
+`active/live` count and spinning-arrow styles, but keeps counting its own live
+tree nodes (`busy` means active); per-tier totals and tooltip use that same tree.
+The shared org activity spinner stays visible but static under reduced motion,
+and is absent while idle. [verified from source: `shell/treeinfo.tsx`,
+`shell/orgrows.tsx`, `styles.css`; recorded decision: user 2026-10-07 09:44Z]
+
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
 - **Tree/scope parity (2026-10-07):** remove host `CLAUDE_CODE_*` before selected-account
