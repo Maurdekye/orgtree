@@ -976,7 +976,7 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     }
     let mut deps: Vec<String> = Vec::new();
     for d in names(&args["dependencies"]) {
-        load(tx, org.id, &d, false).await?;
+        let d = load(tx, org.id, &d, false).await?.slug;
         if !deps.contains(&d) {
             deps.push(d);
         }
@@ -1108,7 +1108,10 @@ fn attention_archive(flag: &Value) -> Value {
 
 #[logged]
 fn attention_repeat_guard(it: &Item, reason: &str) -> Result<()> {
-    let norm = |s: &str| s.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    // Python str.split also treats the four ASCII information separators as
+    // whitespace; retain that normalization for imported dismissal wording.
+    let norm = |s: &str| s.to_lowercase().split(|c: char| c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}'))
+        .filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
     if let Some(last) = it.dismissals.as_array().and_then(|a| a.last()) {
         if norm(last["reason"].as_str().unwrap_or_default()) == norm(reason) {
             refuse!(Conflict, "the user dismissed exactly this reason at {}; state material new information before raising or amending it", last["at"]);
