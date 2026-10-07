@@ -200,6 +200,9 @@ struct Turn {
     killed: bool,
     /// the CLI produced something for this turn (so it holds the prompt)
     activity: bool,
+    /// Exact opening batch, settled when this turn first shows CLI activity.
+    /// Never include an Antigravity handoff the hook has not consumed.
+    opening_mail: Vec<i64>,
     usage: Value,
     model: Option<String>,
     draft: String,
@@ -246,6 +249,7 @@ impl Turn {
             interrupted: false,
             killed: false,
             activity: false,
+            opening_mail: Vec::new(),
             usage: Value::Null,
             model: None,
             draft: String::new(),
@@ -564,6 +568,9 @@ impl Actor {
                     }
                 }
             }
+            if let Err(e) = self.acknowledge_opening().await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "opening mail acknowledgement will retry");
+            }
             if self.stopping {
                 break;
             }
@@ -581,6 +588,18 @@ impl Actor {
     #[nolog]
     fn dormant(&self) -> bool {
         self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none()
+    }
+
+    /// One acknowledgement at the first positive activity boundary, not at
+    /// admission. A launch that fails before producing anything stays replayable.
+    #[nolog] // checked on every stream event; the rare DB acknowledgement logs
+    async fn acknowledge_opening(&mut self) -> Result<()> {
+        let Some(t) = self.turn.as_ref().filter(|t| t.activity && !t.opening_mail.is_empty()) else { return Ok(()) };
+        let client = self.engine.db.get().await?;
+        crate::domain::mail::acknowledge(&client, self.id, t.id, &t.opening_mail).await?;
+        if let Some(t) = self.turn.as_mut() { t.opening_mail.clear(); }
+        self.changed(vec![Change::Mailbox(self.id)]);
+        Ok(())
     }
 
     #[nolog]
@@ -1753,6 +1772,7 @@ impl Actor {
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
+        crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
         drop(client);
         let mut committed = row;
         committed["seq"] = json!(seq);
@@ -1820,11 +1840,13 @@ impl Actor {
             return Ok(false);
         }
         let _ = std::fs::remove_file(&receipt);
-        let Some((_, _, raw)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
+        let Some(turn_id) = self.turn.as_ref().map(|t| t.id) else { return Ok(false) };
+        let Some((_, ids, raw)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let client = self.engine.db.get().await?;
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
+        crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
         drop(client);
         let mut committed = row;
         committed["seq"] = json!(seq);
@@ -2136,6 +2158,7 @@ impl Actor {
             }
         }
         let mut turn = Turn::new(turn_id, false);
+        turn.opening_mail = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
         turn.admitted_at = admitted_at;
         turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
@@ -2252,6 +2275,8 @@ impl Actor {
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered after a tool call."));
         let seq = self.convo.append(&client, row.clone()).await?;
+        let ids: Vec<i64> = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
+        crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
         drop(client);
         let mut committed = row;
         committed["seq"] = json!(seq);

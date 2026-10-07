@@ -105,17 +105,21 @@ pub async fn chat(
         .await?;
     let pending = client
         .query(
-            "SELECT to_jsonb(m) FROM ot.mail m WHERE recipient_agent_id = $1 AND state = 'pending' ORDER BY id LIMIT 200",
+            &format!("SELECT to_jsonb(m), count(*) OVER () FROM ot.mail m
+                      WHERE recipient_agent_id = $1 AND state IN {} ORDER BY id LIMIT 200", mail::UNREAD_STATES),
             &[&a.id],
         )
         .await?;
     drop(client);
+    let pending_count = pending.first().map(|r| r.get::<_, i64>(1)).unwrap_or(0);
     let pending_mail: Vec<Value> = pending
         .iter()
         .map(|row| {
             let m: Value = row.get(0);
             let mut p = crate::feed::compute::mail_entry(&m);
-            if live.busy {
+            if m["state"].as_str() == Some("delivering") {
+                p["stage"] = json!("turn");
+            } else if live.busy {
                 p["stage"] = json!("steer");
             } else if !m["notice"].as_bool().unwrap_or(false) && e.agents.get(a.id).is_some() {
                 p["stage"] = json!("queued");
@@ -146,7 +150,7 @@ pub async fn chat(
         "draft_epoch": live.draft_epoch,
         "live": [],
         "init": if live.init.is_null() { Value::Null } else { live.init.clone() },
-        "mail_pending": pending_mail.len(),
+        "mail_pending": pending_count,
         "mail_stranded": 0,
         "pending_mail": pending_mail,
     });

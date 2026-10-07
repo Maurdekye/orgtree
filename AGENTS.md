@@ -16,6 +16,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Agent unread mail is `pending` plus unacknowledged `delivering`, shared by
+  tree badges, jump cards, desk tabs and mailbox folders. Counts are totals,
+  never lengths of bounded display windows. Exact provider/hook receipts settle
+  only their claimed batch; startup repair requires a same-agent, current-turn
+  conversation receipt for each mail ID. Human/org inbox read state is separate.
+  [verified from source and disposable-DB/renderer smoke: 2026-10-07;
+  `docs/rust-engine/unread-mail.md`]
+
 - Draft hire cancellation snapshots only the currently mounted full desk and
   restores it through the normal focus route after layout settles. The saved
   agent generation must still match; confirmation clears the snapshot and keeps

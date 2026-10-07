@@ -22,7 +22,7 @@ pub const ASK_HISTORY_KEEP: i64 = 12;
 const AGENT_SQL: &str = r#"
 SELECT a.id, (to_jsonb(a) - 'extra') || jsonb_build_object(
   'x_mail_pending', (SELECT count(*) FROM ot.mail m
-                      WHERE m.recipient_agent_id = a.id AND m.state IN ('pending','delivering')),
+                      WHERE m.recipient_agent_id = a.id AND m.state IN __UNREAD_STATES__),
   'x_retired_children', (SELECT count(*) FROM ot.agents c
                       WHERE c.org_id = a.org_id AND c.parent_id = a.id AND c.state IN ('archived','unrecoverable')),
   'x_children_hold', (SELECT coalesce(sum(c.seat + c.grant_credits), 0) FROM ot.agents c
@@ -44,7 +44,8 @@ FROM ot.agents a
 /// Raw rows for these agents (any state except deleted).
 #[logged]
 pub async fn agents(client: &Client, org_id: i64, ids: &[i64]) -> Result<HashMap<i64, Value>> {
-    let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.id = ANY($2) AND a.state <> 'deleted'");
+    let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.id = ANY($2) AND a.state <> 'deleted'")
+        .replace("__UNREAD_STATES__", crate::domain::mail::UNREAD_STATES);
     let rows = client.query(&sql, &[&org_id, &ids]).await?;
     Ok(rows.into_iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
 }
@@ -52,7 +53,8 @@ pub async fn agents(client: &Client, org_id: i64, ids: &[i64]) -> Result<HashMap
 /// Every live agent of the org (the shared set's agent records).
 #[logged]
 pub async fn live_agents(client: &Client, org_id: i64) -> Result<HashMap<i64, Value>> {
-    let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.state = 'live'");
+    let sql = format!("{AGENT_SQL} WHERE a.org_id = $1 AND a.state = 'live'")
+        .replace("__UNREAD_STATES__", crate::domain::mail::UNREAD_STATES);
     let rows = client.query(&sql, &[&org_id]).await?;
     Ok(rows.into_iter().map(|r| (r.get::<_, i64>(0), r.get::<_, Value>(1))).collect())
 }
@@ -69,19 +71,19 @@ pub async fn retired_agents(
         None => {
             let sql = format!(
                 "{AGENT_SQL} WHERE a.org_id = $1 AND a.state IN ('archived','unrecoverable') ORDER BY a.id LIMIT 5000"
-            );
+            ).replace("__UNREAD_STATES__", crate::domain::mail::UNREAD_STATES);
             client.query(&sql, &[&org_id]).await?
         }
         Some(None) => {
             let sql = format!(
                 "{AGENT_SQL} WHERE a.org_id = $1 AND a.parent_id IS NULL AND a.state IN ('archived','unrecoverable') ORDER BY a.id LIMIT 5000"
-            );
+            ).replace("__UNREAD_STATES__", crate::domain::mail::UNREAD_STATES);
             client.query(&sql, &[&org_id]).await?
         }
         Some(Some(p)) => {
             let sql = format!(
                 "{AGENT_SQL} WHERE a.org_id = $1 AND a.parent_id = $2 AND a.state IN ('archived','unrecoverable') ORDER BY a.id LIMIT 5000"
-            );
+            ).replace("__UNREAD_STATES__", crate::domain::mail::UNREAD_STATES);
             client.query(&sql, &[&org_id, &p]).await?
         }
     };
@@ -232,8 +234,8 @@ pub async fn events_window(client: &Client, org_id: i64) -> Result<(Vec<(i64, Va
 pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String, Value)>> {
     let pending = client
         .query(
-            "SELECT id, to_jsonb(m) FROM ot.mail m WHERE recipient_agent_id = $1 AND state IN ('pending','delivering')
-             ORDER BY id LIMIT $2",
+            &format!("SELECT id, to_jsonb(m) FROM ot.mail m WHERE recipient_agent_id = $1 AND state IN {}
+             ORDER BY id LIMIT $2", crate::domain::mail::UNREAD_STATES),
             &[&agent_id, &MAILBOX_WINDOW],
         )
         .await?;

@@ -304,18 +304,13 @@ pub async fn recover(engine: &Arc<Engine>) {
         return;
     }
     let Ok(client) = engine.db.get().await else { return };
-    // turns the last stop cut off: mail the CLI was already handed is in its
-    // session (delivered); mail that never reached it goes back to the queue
-    let _ = client
-        .execute(
-            "UPDATE ot.mail m SET state = 'delivered', delivered_at = now() FROM ot.turns t
-              WHERE m.turn_id = t.id AND m.state = 'delivering' AND t.sent_at IS NOT NULL",
-            &[],
-        )
-        .await;
-    let _ = client
-        .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE state = 'delivering'", &[])
-        .await;
+    // Also repairs old mid-turn receipts left counted as unread. Run before
+    // waking actors, and never discard an unconsumed later handoff merely
+    // because its owning turn's opening prompt was sent.
+    if let Err(err) = crate::domain::mail::recover_deliveries(&client).await {
+        tracing::error!(error = %format!("{err:#}"), "mail recovery failed; automatic admission stays stopped");
+        return;
+    }
     let _ = client
         .execute(
             "UPDATE ot.turns SET ended_at = now(), killed = true, error = coalesce(error, 'the engine stopped during this turn')

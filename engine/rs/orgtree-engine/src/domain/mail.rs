@@ -13,6 +13,46 @@ use crate::changes::{self, Change};
 use crate::refuse;
 use crate::util::{gist, uid};
 
+/// Agent unread means queued or claimed but not yet acknowledged by the CLI.
+/// Human inbox read state is deliberately separate.
+pub const UNREAD_STATES: &str = "('pending','delivering')";
+
+/// A positive provider/hook acknowledgement settles only this exact delivery.
+#[logged]
+pub async fn acknowledge(client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<u64> {
+    Ok(client.execute(
+        "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now())
+          WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering'",
+        &[&agent, &turn, &ids],
+    ).await?)
+}
+
+/// Startup-only repair of old unsettled deliveries. A turn timestamp alone
+/// cannot prove a later hook handoff was consumed: require this message in a
+/// durable conversation receipt from that turn. Unproven rows go back to mail.
+#[logged]
+pub async fn recover_deliveries(client: &tokio_postgres::Client) -> Result<()> {
+    loop {
+        let ids: Vec<i64> = client.query(
+            "SELECT id FROM ot.mail WHERE state = 'delivering' ORDER BY id LIMIT 256", &[],
+        ).await?.into_iter().map(|r| r.get(0)).collect();
+        if ids.is_empty() { return Ok(()) }
+        client.execute(
+            "UPDATE ot.mail m SET state = 'delivered', delivered_at = coalesce(m.delivered_at, now())
+              FROM ot.turns t WHERE m.id = ANY($1) AND m.turn_id = t.id AND m.state = 'delivering'
+                AND t.agent_id = m.recipient_agent_id AND t.sent_at IS NOT NULL
+                AND EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id = m.recipient_agent_id
+                  AND c.at >= t.started_at AND c.body->>'role' = 'user'
+                  AND jsonb_typeof(c.body->'mail_ids') = 'array'
+                  AND (c.body->'mail_ids') ? m.uid)", &[&ids],
+        ).await?;
+        client.execute(
+            "UPDATE ot.mail SET state = 'pending', turn_id = NULL
+              WHERE id = ANY($1) AND state = 'delivering'", &[&ids],
+        ).await?;
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub enum From {
     User,
