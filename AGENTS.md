@@ -121,10 +121,13 @@ plan and this file. Read both before you change anything. All entries below: 202
   [decided: user 2026-10-07, DECISIONS 48; verified: `http/settings.rs`, `appfeed.rs`,
   renderer `canvas/accounts.tsx`, `enterkey.ts`, `composerkeys.ts`]
 
-- Transcript auto-follow releases on upward wheel/keyboard input before the scroll
-  event arrives, and resumes only on downward movement to the bottom or jump-to-bottom.
-  Resize must not re-enable it; retain 3.x's row anchors, paging and context-menu hold.
-  [decided: user 2026-10-07; verified-from-source: renderer `canvas/desk.tsx`]
+- Transcript auto-follow releases only on user scroll intent: upward wheel/keys,
+  scrollbar drag or touch drag. A scroll event or changed scrollTop alone is not
+  intent: browser anchoring, streams, images, prepends, resize and disclosure/jump-card
+  clicks keep the bottom pin. Resume only on user movement down to the bottom or
+  jump-to-bottom; retain 3.x's row anchors, paging and context-menu hold.
+  [decided: user 2026-10-07 09:31/09:37Z; verified-from-source and mounted smoke:
+  renderer `canvas/desk.tsx`, `docs/rust-engine/transcript-scroll-intent.md`]
 
 - Failed transcript first loads and earlier pages retry every five seconds through
   the shared conversation store. Retain the failed cursor/window and existing rows;
