@@ -244,7 +244,15 @@ Mailbox rows must recognize both for the dashed edge and system-notice folding.
 Plain message/notice rows have no type badge; typed question/request/decision/status
 markings remain. Only consecutive delivered system notices fold (same typed variant
 and object kind); pending rows and system decisions remain separate. This is a
-mail-list rule, not a change to transcript event cards. [verified from source:
+mail-list grouping rule. Passive delivery's dashed edge also belongs on transcript,
+pending, standalone and read-pane cards, independent of typed family; only the
+owning card has the edge (not its pending wrapper). Shared `isNoticeRow` gives an
+explicit notice flag precedence over legacy kind. Transcript writes retain the
+flag; old missing flags are recovered read-only from recipient-scoped original
+mail in bounded batches, without rewriting history. [user follow-up 2026-10-07
+11:22Z; verified from source: `runtime/actor.rs::mail_row`, `runtime/convo.rs`,
+renderer `events/card.tsx`, `events/segments.tsx`, `events/decode.ts`;
+verified from source:
 `feed/compute.rs::mail_entry`, renderer `canvas/shared.ts` and `canvas/mail.tsx`;
 recorded decision: user inbox styling request 2026-10-07]
 
