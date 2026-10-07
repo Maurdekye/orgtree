@@ -1139,9 +1139,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   return (
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
-    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · configuration`}
+    <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
       panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
-        <h3 data-copy-agent-name={node.id}><SettingsIcon fontSize="inherit" /> {node.id}</h3>
+        <h3 data-copy-agent-name={node.id}><span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span></h3>
         {/* ⚠ THE LIFECYCLE MARK IS LIVE STATE, NOT A TITLE — whether this
             agent's process is warm, relaunching or mid-turn is the reason to
             keep this panel open at all, and it used to sit inside the h3, which
@@ -1158,7 +1158,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         {!node.isBearerOf && (
           <SetRow label="Name" hint="Renaming also moves this agent’s folder and mailbox.">
             <span className="agent-identity-row">
-            <span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>
             <input type="text" aria-label="Agent name" placeholder="Agent name"
               value={val('rename', node.id)}
               onChange={(e) => set('rename', node.id)(e.target.value)} />
@@ -1178,7 +1177,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         )}
 
         <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
-          {node.state === 'live' && node.parent && node.parent !== USER &&
+          {node.state === 'live' &&
             <button className="danger" onClick={() => setAsking('rescind')}>
               rescind</button>}
           {/* retire asks too (user bug 2026-08-09) — it sat as the one
@@ -1194,10 +1193,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             <button className="primary" onClick={() =>
               op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
               rehire (context intact)</button>}
-          {/* FR-22: rescind — retire whose freed stake is CLAWED BACK from the
-              superior's grant (user-only; agents have no verb). Only where a
-              superior exists to claw from: top-level rescind degrades to a
-              plain retire and earns no separate button. */}
           <button className="danger delete"
             onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
         </span></SetRow>
@@ -1468,7 +1463,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       )}
       {asking === 'rescind' && (
         <ConfirmModal title={`rescind ${node.id}?`}
-          body={`Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
+          body={!node.parent || node.parent === USER
+            ? 'Retire this agent and its subtree. There is no superior grant to reduce. Context is kept.'
+            : `Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
           confirmLabel="rescind"
           onConfirm={() => op({ op: 'rescind', node: node.id })
             .then(close).catch(() => {})}

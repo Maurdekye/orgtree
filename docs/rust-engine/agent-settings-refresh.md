@@ -2,7 +2,8 @@
 
 User requests: 2026-10-07 16:45–16:49 UTC.
 
-The name, model badge and existing agent actions move above the tabs. The Agent
+The name and existing agent actions move above the tabs. The model badge
+replaces the gear in the window header, including pinned and detached headers. The Agent
 tab is removed. Existing rename, retire, rescind, rehire, dissolve and permanent
 delete actions keep their handlers and confirmations. The user eye opens Org
 settings, not this agent panel. Archived agents retain rehire and delete; legacy
@@ -72,3 +73,10 @@ no live engine or installed app is exercised. Before/after images for every tab,
 scrolling through long panels, and separate expanded/zero-grant bar images live
 in the worktree's ignored `artifacts/settings-evidence/` folder. The hand-in
 records final measured outcomes and any limitations.
+
+## Follow-up, 2026-10-07 17:14 UTC
+
+Rescind is shown for every live agent. Source inspection of Rust `domain/ops.rs`
+and 3.x `ledger.py` confirms that top-level rescind archives the agent and its
+subtree without reducing any superior grant. Its confirmation describes that
+case; subordinate confirmations retain the grant-reduction explanation.

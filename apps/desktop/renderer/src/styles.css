@@ -3664,6 +3664,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .credit-grant-drag[aria-disabled="true"] { cursor: default; }
 .credit-grant-limits { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--dim); }
 .agent-identity-row { display: flex; align-items: center; gap: 8px; justify-content: flex-start; flex-wrap: wrap; }
+.agent-config-title { display: inline-flex; align-items: center; gap: 10px; }
 .agent-model-icon.tier { width: 42px; height: 42px; font-size: 26px; flex: none; }
 /* clips the fill/seat/hairline layers to the bar's rounded outline — without
    it the border-box overhang let the seat block punch through the top */
