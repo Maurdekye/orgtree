@@ -51,7 +51,9 @@ frozen ~7 h past its wake until a manual unstick. The rust-engine session's firs
 2. Whether desks still show some transcript entries twice.
 3. Agent build caches: on 2026-10-07 drive C: fell to 100 MB free because several agents keep their
    own multi-GB Rust `target` folders in their scratch folders (the caches were cleared once).
-   Proposed: a per-agent `CARGO_TARGET_DIR` on E:, or scratch folders on E:.
+   Resolved by the user (2026-10-07 07:56Z): Rust builders in this org set a per-agent
+   `CARGO_TARGET_DIR` on E: through team instructions. Remove the app setting and launcher
+   override; already-saved values are ignored. See superseded DECISIONS 47.
 
 ## The user's sign-off of the 3.x to 4.0 changes
 

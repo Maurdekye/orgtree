@@ -277,11 +277,10 @@ ring layout/hire-arrow direction stay unchanged. [verified from source:
 2026-10-07, renderer `canvas/ringreorder.ts`, `canvas/OrgCanvas.tsx`]
 
 **Engine priority and agent build caches (2026-10-07).** The boot task requests Normal
-CPU priority (Task Scheduler value 5), matching desktop launches. Runtime's "Agent build
-cache folder" sets `CARGO_TARGET_DIR=<folder>/<org slug>/<agent name>` for every new Claude,
-Codex or Antigravity agent CLI (including OpenRouter routes). Empty adds no override; existing
-processes keep their environment until their next start. This does not move old caches, change
-folder grants or edit live settings. [decided: user, DECISIONS 46-47; verified:
+CPU priority (Task Scheduler value 5), matching desktop launches. The app has no build-cache
+setting or launcher override; a previously saved value is ignored. Rust builders in this org
+set their own `CARGO_TARGET_DIR` on E: as a team instruction. [recorded-decision: user,
+2026-10-07 07:56Z, DECISIONS 47 superseded; verified from source:
 `tools/boot-engine-task.ps1`, Rust `settings.rs`, `http/settings.rs`, `runtime/{claude,codex,agy}.rs`]
 
 **Codex Windows runner timeouts (2026-10-07).** A workspace-write seat can fail

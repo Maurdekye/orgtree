@@ -112,9 +112,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
 46. **The engine runs at Normal CPU priority everywhere** (user 2026-10-07 00:00Z).
     The boot task must request Normal, matching desktop-started engines; no launch path raises it.
 47. **Agent Rust build caches can be redirected off C:** (user 2026-10-07 00:00Z).
-    App settings > Runtime has "Agent build cache folder" (empty = off). When set, each agent CLI
-    starts with `CARGO_TARGET_DIR=<folder>/<org slug>/<agent name>`. The user chooses the folder;
-    agents implementing the setting do not change live settings or move existing caches.
+    **Superseded by the user, 2026-10-07 07:56Z:** remove the app's "Agent build cache folder"
+    setting and its launcher environment override. Rust build-cache placement is an instruction
+    for this org's agents, not a setting in a general-purpose app. An already-saved value is
+    ignored; no migration is needed. Agents building Rust in this org use their own
+    `CARGO_TARGET_DIR` on E: under the team's instructions. Decision 46 (Normal CPU priority)
+    remains unchanged.
 
 ## Verification during the build
 
