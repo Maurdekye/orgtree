@@ -3449,7 +3449,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           exactly who the switchboard shows. */}
       {onOpenDoc && (node.documents?.length ?? 0) > 0 && (
         <div className="desk-docs">
-          {node.documents!.slice(-4).map((d) => (
+          {node.documents!.slice(0, 4).map((d) => (
             <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
               className="doc-badge" onOpen={onOpenDoc}>
               <DocIcon fontSize="inherit" /><span>{d.title}</span>
