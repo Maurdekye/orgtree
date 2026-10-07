@@ -2240,13 +2240,13 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const scroller = useRef<HTMLDivElement | null>(null)
   const loadedRef = useRef(false)     // first load always lands at the bottom
   const live = node.state === 'live'
-  // sticky-bottom, in one place. `stuck` is maintained by the SCROLL EVENT
-  // rather than recomputed at each update: growing content does not move
-  // scrollTop, so a reader sitting at the bottom stays "stuck" and a reader who
-  // scrolled up stays free until they come back down. Upward input releases
-  // follow before the browser delivers its asynchronous scroll event.
+  // Only user input releases bottom follow. Native scroll events also come
+  // from browser anchoring, image loads, prepends and viewport reflow.
   const stickRef = useRef(true)
   const followTop = useRef<number | null>(null)
+  const scrollIntent = useRef<{ direction: -1 | 1, until: number } | null>(null)
+  const scrollbarPointer = useRef<number | null>(null)
+  const touchY = useRef<number | null>(null)
   const [showJump, setShowJump] = useChangedState(false)
   const atBottom = () => {
     const el = scroller.current
@@ -2257,6 +2257,39 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     stickRef.current = v
     setShowJump(!v)   // only on a real flip — useChangedState, not an updater
   }
+  const noteScrollIntent = (direction: -1 | 1) => {
+    // Cover asynchronous default scrolling and touch/trackpad momentum; this
+    // timestamp does not schedule a timer or keep a closed desk alive.
+    scrollIntent.current = { direction, until: performance.now() + 1000 }
+    if (direction < 0) setStuck(false)
+  }
+  const userScrollDirection = () => scrollbarPointer.current !== null ? 0
+    : scrollIntent.current && performance.now() <= scrollIntent.current.until
+      ? scrollIntent.current.direction : null
+  useEffect(() => {
+    const doc = surfaceDocument
+    const end = (event: PointerEvent) => {
+      if (scrollbarPointer.current !== event.pointerId) return
+      const top = scroller.current?.scrollTop
+      // The last native movement may still be waiting for its scroll event.
+      if (event.type === 'pointerup' && top !== undefined && followTop.current !== null
+        && top !== followTop.current) noteScrollIntent(top < followTop.current ? -1 : 1)
+      scrollbarPointer.current = null
+    }
+    doc.addEventListener('pointerup', end, true)
+    doc.addEventListener('pointercancel', end, true)
+    const blur = () => {
+      scrollbarPointer.current = null
+      touchY.current = null
+      scrollIntent.current = null
+    }
+    doc.defaultView?.addEventListener('blur', blur)
+    return () => {
+      doc.removeEventListener('pointerup', end, true)
+      doc.removeEventListener('pointercancel', end, true)
+      doc.defaultView?.removeEventListener('blur', blur)
+    }
+  }, [surfaceDocument])
   // ⚠ THE AUTOSCROLL IS HELD WHILE A CONTEXT MENU IS OPEN ON THIS DESK.
   // (user spec 2026-09-12: a menu raised on a transcript event must survive
   // the events that keep arriving behind it.) A menu is positioned in viewport
@@ -2274,10 +2307,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const pin = () => {
     const el = scroller.current
     if (!el || menuOpenRef.current) return
-    // Native movement can precede its scroll event. Yield before overwriting
-    // it; a smaller scroll range's browser clamp is not upward user movement.
-    if (followTop.current !== null && el.scrollTop < followTop.current
-      && el.scrollHeight - el.clientHeight >= followTop.current) {
+    // A scrollbar drag can move before its scroll event. Content reflow can
+    // too, so only the active input may make that movement release the pin.
+    if (userScrollDirection() === 0 && followTop.current !== null
+      && el.scrollTop < followTop.current) {
       followTop.current = el.scrollTop
       setStuck(false)
       return
@@ -2486,6 +2519,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     return el ? transcriptViewport(el).page : CHAT_WINDOW
   }
   const toBottom = () => {
+    scrollIntent.current = null
+    scrollbarPointer.current = null
     followTop.current = null   // explicit jump wins over unreported movement
     setStuck(true); pin()
     // jumping to the tail LEAVES history — the expanded poll window goes
@@ -3517,12 +3552,40 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               </span>
             </button>)}
         <div className="msgs" ref={attachScroller} tabIndex={0}
-          onWheel={(e) => { if (e.deltaY < 0) setStuck(false) }}
+          onWheel={(e) => {
+            if (!e.defaultPrevented && !e.ctrlKey && e.deltaY !== 0)
+              noteScrollIntent(e.deltaY < 0 ? -1 : 1)
+          }}
+          onPointerDown={(e) => {
+            // Scrollbar presses target the scroller itself, in its gutter.
+            // Clicking/selecting a transcript row is not scrolling intent.
+            const el = e.currentTarget
+            const rect = el.getBoundingClientRect()
+            if (e.button === 0 && e.target === el && el.offsetWidth > el.clientWidth
+              && (e.clientX >= rect.left + el.clientLeft + el.clientWidth
+                || e.clientX < rect.left + el.clientLeft)) {
+              scrollIntent.current = null
+              scrollbarPointer.current = e.pointerId
+            }
+          }}
+          onTouchStart={(e) => { touchY.current = e.touches.length === 1 ? e.touches[0].clientY : null }}
+          onTouchMove={(e) => {
+            if (e.defaultPrevented || e.touches.length !== 1) { touchY.current = null; return }
+            const y = e.touches[0].clientY
+            if (touchY.current !== null && y !== touchY.current)
+              noteScrollIntent(y > touchY.current ? -1 : 1)
+            touchY.current = y
+          }}
+          onTouchEnd={() => { touchY.current = null }}
+          onTouchCancel={() => { touchY.current = null; scrollIntent.current = null }}
           onKeyDown={(e) => {
             if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey
               || (e.target as HTMLElement).closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+            if (e.key === ' ' && (e.target as HTMLElement).closest('button, a, summary, [role="button"]')) return
             if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home'
-              || (e.key === ' ' && e.shiftKey)) setStuck(false)
+              || (e.key === ' ' && e.shiftKey)) noteScrollIntent(-1)
+            else if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'End'
+              || (e.key === ' ' && !e.shiftKey)) noteScrollIntent(1)
           }}
           onScroll={(e) => {
             const wasStuck = stickRef.current
@@ -3530,11 +3593,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             const previous = followTop.current ?? top
             const echo = anchorEcho.current !== null
               && Math.abs(top - anchorEcho.current) <= 1
-            if (!echo) {
-              if (top < previous || !atBottom()) setStuck(false)
-              else if (top > previous) setStuck(true)
+            const direction = userScrollDirection()
+            const manual = direction !== null && !echo
+            if (manual) {
+              if (direction === 0 && top < previous) setStuck(false)
+              else if (direction >= 0 && top > previous && atBottom()) setStuck(true)
             }
             followTop.current = top
+            if (stickRef.current) pin()
             // scrolling BACK DOWN to the tail leaves history: the expanded
             // window collapses so the poll returns to the tail (perf-review
             // round 2 — the mounted-desk case), but never below what this
@@ -3554,7 +3620,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             // here on, a hold finding the viewport elsewhere knows it moved
             // natively again without this desk having heard yet
             knownTop.current = e.currentTarget.scrollTop
-            if (growAnchor.current && !echo) {
+            if (growAnchor.current && manual) {
               if (stickRef.current) { growAnchor.current = null; stopSettle() }
               else if (loadingOlderRef.current) growAnchor.current = captureAnchor()
               else { growAnchor.current = null; stopSettle() }
