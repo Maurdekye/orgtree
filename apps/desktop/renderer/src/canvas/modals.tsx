@@ -30,7 +30,7 @@ import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ProcessLifecycleMark } from './desk'
 import { ModalOverPins, PinFrame } from './modalpin'
-import { SetBlock, SetGroup, SetRow } from './settingskit'
+import { SetBlock, SetGroup, SetRow, SettingsTabs, SettingsTabPanel } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
 import { peekStaffingOptions } from './staffingoptions'
@@ -859,6 +859,14 @@ export function savePopups(
   return r?.warnings ?? []
 }
 
+type NodeConfigTab = 'charter' | 'model' | 'scope' | 'agent'
+const NODE_CONFIG_TABS = [
+  { id: 'charter', label: 'Charter' },
+  { id: 'model', label: 'Model' },
+  { id: 'scope', label: 'Scope' },
+  { id: 'agent', label: 'Agent' },
+] satisfies { id: NodeConfigTab; label: string }[]
+
 interface NodeConfigProps {
   node: CanvasNode
   map: Map<string, CanvasNode>
@@ -878,6 +886,8 @@ interface NodeConfigProps {
 
 export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   antigravityProvider, openrouterProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
+  const [tab, setTab] = useState<NodeConfigTab>('charter')
+  const tabId = useId()
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
   // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a
@@ -1137,55 +1147,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             live={node.proc_live} relaunch={node.proc_relaunch}
             reason={node.proc_relaunch_reason} busy={node.busy} tier={node.tier} />}
           {tierLabel(node.tier ?? '')} · configuration</div>
-        {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
-            working folder and session all move; history keeps the old name
-            (the warning rides the toast). Refused while mid-turn. */}
-        {!node.isBearerOf && (
-          <div className="row">
-            <input style={{ width: '14em' }} placeholder="rename…"
-              value={val('rename', node.id)}
-              onChange={(e) => set('rename', node.id)(e.target.value)} />
-            {val('rename', node.id) !== node.id && (
-              <button onClick={() =>
-                op({ op: 'rename', node: node.id,
-                     name: String(val('rename', node.id)) })
-                  .then((r) => {
-                    toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
-                           ...((r?.warnings as string[] | undefined) ?? [])])
-                    close()
-                  })
-                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                rename</button>
-            )}
-          </div>
-        )}
-
-        <div className="row">
-          {/* retire asks too (user bug 2026-08-09) — it sat as the one
-              seat-freeing action firing straight off the click, beside a
-              dissolve button that asks */}
-          {node.state === 'live' && !node.children.some((c) => c.state !== 'archived') &&
-            <button className="danger" onClick={() => setAsking('retire')}>
-              retire · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'live' && node.children.some((c) => c.state !== 'archived') &&
-            <button className="danger" onClick={() => setAsking('dissolve')}>
-              dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'archived' &&
-            <button className="primary" onClick={() =>
-              op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
-              rehire (context intact)</button>}
-          {/* FR-22: rescind — retire whose freed stake is CLAWED BACK from the
-              superior's grant (user-only; agents have no verb). Only where a
-              superior exists to claw from: top-level rescind degrades to a
-              plain retire and earns no separate button. */}
-          {node.state === 'live' && node.parent && node.parent !== USER &&
-            <button className="danger" onClick={() => setAsking('rescind')}>
-              rescind</button>}
-          <span style={{ flex: 1 }} />
-          <button className="danger delete"
-            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
-        </div>
-
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
             common case plus a per-field line only where the blast radius
             DIFFERS — a wider scope, a different mechanism, or no cost at
@@ -1194,6 +1155,158 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         <div className="dim hub-hint">Changing a setting here restarts this
           agent's process and re-sends its prompt: it pays one cold turn.
           Fields whose reach is wider — or free — say so themselves.</div>
+        <SettingsTabs tabs={NODE_CONFIG_TABS} tab={tab} setTab={setTab}
+          idBase={tabId} label="Agent settings" />
+        {/* Keep every panel mounted: switching tabs preserves all draft fields.
+            The shared save below still applies edits from every tab together. */}
+        <SettingsTabPanel id="charter" idBase={tabId} active={tab === 'charter'}>
+        <div className="field-label">charter</div>
+        <div className="dim hub-hint">Restarts this agent's process and re-sends its prompt.</div>
+        <textarea rows={10} className="charterbox" value={charter}
+          onChange={(e) => setCharter(e.target.value)} />
+        <div className="field-label">team charter</div>
+        <div className="dim hub-hint">Restarts this agent AND every agent in
+          its subtree — the cascade puts this text into each of their
+          prompts, so every one of them re-sends.</div>
+        <textarea rows={10} className="charterbox" value={teamCharter}
+          onChange={(e) => setTeamCharter(e.target.value)} />
+        </SettingsTabPanel>
+        <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
+        <div className="field-label">model (switchable on the fly — context
+          survives; cheaper frees the seat difference to the agent, pricier
+          bubbles any shortfall up the chain)</div>
+        <div className="dim hub-hint">Restarts this agent's process. A
+          switch to a different provider also starts a new cache namespace,
+          so nothing cached carries over.</div>
+        {/* D-202: a family this machine does not have is not listed at all —
+            not as a disabled row, not as an empty group. `shownTiers` keeps
+            this node's OWN tier whatever happens to its provider, so the
+            select can never lose its own value and silently switch the model
+            on save (and so the panel never lies about what this agent is). */}
+        <select className="model-switch" aria-label="model tier"
+          value={model} onChange={(e) => {
+            const next = e.target.value
+            if (providerOf(next) !== providerOf(model)) setAcct(
+              acct && ['claude', 'openai', 'google'].includes(providerOf(next))
+                ? primaryAccount(providerOf(next)) : '')
+            setModel(next)
+          }}>
+          {([['Claude', TIERS], ['Codex', CODEX_TIERS],
+             ['Antigravity', ANTIGRAVITY_TIERS],
+             // the OpenRouter favorites, from the registry the payload fills
+             // (preserving this node's own tier if it was since deselected — w76fba70b)
+             ['OpenRouter', openrouterTierIds(node.tier)]] as const)
+            .map(([label, fam]) => [label, shownTiers(fam)] as const)
+            .filter(([, fam]) => fam.length > 0)
+            .map(([label, fam]) => (
+              <optgroup key={label} label={label}>
+                {fam.map(modelOption)}
+              </optgroup>
+            ))}
+        </select>
+
+        {versions.length > 1 && (
+          <>
+            <div className="field-label">model version — {model} runs the
+              latest unless you pin one here</div>
+            <select value={versions.includes(modelVersion) ? modelVersion : ''}
+              onChange={(e) => setModelVersion(e.target.value)}>
+              <option value="">{`latest (${versions[0]})`}</option>
+              {versions.map((v) => (
+                <option key={v} value={v}>{`${model} ${v}`}</option>
+              ))}
+            </select>
+          </>
+        )}
+
+
+        <div className="field-label">thinking effort (user-approved: a deep
+          setting, never a hire-row control)</div>
+        <select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
+          <option value="">{`inherit — org default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="xhigh">xhigh</option>
+          <option value="max">max</option>
+        </select>
+
+        {/* Primary is selectable even if no registry row exists. */}
+        {['claude', 'openai', 'google'].includes(providerOf(model)) && (
+          <>
+            <div className="field-label">account
+              {node.account?.startsWith('missing:') &&
+                <span className="ask-warn"> — PARKED: {node.account}</span>}
+            </div>
+            <AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
+              host={hostIdentity} onChange={setAcct} />
+          </>
+        )}
+        <div className="field-label">Automatic account fallback</div>
+        <select aria-label="Automatic account fallback" value={accountFallback}
+          disabled={!['claude', 'openai'].includes(providerOf(model))}
+          onChange={(e) => setEdit((old) => ({ ...old, accountFallback: e.target.value }))}>
+          <option value="">Org default ({tree.account_fallback_default ? 'on' : 'off'})</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+        <div className="hint">After a usage limit, switch to another account with
+          capacity for this lane. Keep the replacement account.
+          {!['claude', 'openai'].includes(providerOf(model))
+            ? ' This provider cannot automatically switch accounts.'
+            : providerOf(model) === 'openai'
+              ? ' Switching accounts starts a new provider cache and a new Codex session.'
+              : ' Switching accounts starts a new provider cache.'}</div>
+        <div className="field-label">cache-protective cheap compaction</div>
+        <div className="dim hub-hint">Before a turn whose prompt cache is
+          known to be cold, start a fresh session with a summary instead of
+          re-reading the whole old one. Expiry is fixed by lane: Claude uses
+          60 min after a positive subscription receipt or 5 min after a
+          positive API-key receipt; OpenAI subscription uses the documented
+          30 min default as a fixed estimate. Known identity changes are cold
+          immediately; unknown forecasts never auto-compact.</div>
+        <select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
+          <option value="">inherit the org setting</option>
+          <option value="on">on for this agent</option>
+          <option value="off">off for this agent</option>
+        </select>
+        {accMode === 'on' && <div className="row">
+          <label>context ≥ <input type="number" min="5" max="95" step="5"
+            style={{ width: '5em' }} value={accOcc}
+            onChange={(e) => setAccOcc(e.target.value)} />%</label>
+        </div>}
+
+        {initInfo && (
+          <>
+            <div className="field-label">this turn, as the CLI resolved it (№14)</div>
+            <div className="initblock dim">
+              <div>model {initInfo.model ?? '?'} · {initInfo.permissionMode ?? '?'}
+                {' · '}{initInfo.tools ?? '?'} tools</div>
+              {(initInfo.mcp_servers ?? []).map((s) => (
+                <div key={s.name}>
+                  <span className={'mcpdot ' + (s.status === 'connected'
+                    ? 'ok' : 'bad')} /> {s.name} · {s.status}
+                </div>))}
+            </div>
+          </>
+        )}
+        {/* D-234: the queue is visible where the switch is made, with its one
+            control — cancel — which is the same op asked with the current
+            tier (the ledger's cancel door). An unchanged save does NOT cancel:
+            saving scope must never silently withdraw a switch. */}
+        {node.pending_switch && (
+          <div className="cascade-warn queued-warn">
+            ⏳ a switch to <b>{node.pending_switch.tier}</b> is QUEUED — it applies
+            when the current turn ends; interrupting the turn applies it now.{' '}
+            <button className="badge queued"
+              onClick={() => op({ op: 'switch_model', node: node.id,
+                tier: node.tier ?? '' })
+                .then((r) => toast(r.warnings ?? [])).catch(() => {})}>
+              cancel queued switch</button>
+          </div>
+        )}
+        </SettingsTabPanel>
+        <SettingsTabPanel id="scope" idBase={tabId} active={tab === 'scope'}>
         <div className="field-label">folder access</div>
         <div className="dirlist">
           {dirs.map((d, i) => (
@@ -1277,71 +1390,12 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           )
         })}
 
-        <div className="field-label">model (switchable on the fly — context
-          survives; cheaper frees the seat difference to the agent, pricier
-          bubbles any shortfall up the chain)</div>
-        <div className="dim hub-hint">Restarts this agent's process. A
-          switch to a different provider also starts a new cache namespace,
-          so nothing cached carries over.</div>
-        {/* D-202: a family this machine does not have is not listed at all —
-            not as a disabled row, not as an empty group. `shownTiers` keeps
-            this node's OWN tier whatever happens to its provider, so the
-            select can never lose its own value and silently switch the model
-            on save (and so the panel never lies about what this agent is). */}
-        <select className="model-switch" aria-label="model tier"
-          value={model} onChange={(e) => {
-            const next = e.target.value
-            if (providerOf(next) !== providerOf(model)) setAcct(
-              acct && ['claude', 'openai', 'google'].includes(providerOf(next))
-                ? primaryAccount(providerOf(next)) : '')
-            setModel(next)
-          }}>
-          {([['Claude', TIERS], ['Codex', CODEX_TIERS],
-             ['Antigravity', ANTIGRAVITY_TIERS],
-             // the OpenRouter favorites, from the registry the payload fills
-             // (preserving this node's own tier if it was since deselected — w76fba70b)
-             ['OpenRouter', openrouterTierIds(node.tier)]] as const)
-            .map(([label, fam]) => [label, shownTiers(fam)] as const)
-            .filter(([, fam]) => fam.length > 0)
-            .map(([label, fam]) => (
-              <optgroup key={label} label={label}>
-                {fam.map(modelOption)}
-              </optgroup>
-            ))}
-        </select>
-
         <div className="field-label">org-structure visibility</div>
         <div className="dim hub-hint">Moving to or from "self" restarts this
           agent. Between team, subtree and full it costs nothing — the roster
           arrives each turn, not in the cached prompt.</div>
         <select value={vis} onChange={(e) => setVis(e.target.value)}>
           {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-        </select>
-
-        {versions.length > 1 && (
-          <>
-            <div className="field-label">model version — {model} runs the
-              latest unless you pin one here</div>
-            <select value={versions.includes(modelVersion) ? modelVersion : ''}
-              onChange={(e) => setModelVersion(e.target.value)}>
-              <option value="">{`latest (${versions[0]})`}</option>
-              {versions.map((v) => (
-                <option key={v} value={v}>{`${model} ${v}`}</option>
-              ))}
-            </select>
-          </>
-        )}
-
-
-        <div className="field-label">thinking effort (user-approved: a deep
-          setting, never a hire-row control)</div>
-        <select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
-          <option value="">{`inherit — org default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="xhigh">xhigh</option>
-          <option value="max">max</option>
         </select>
 
         {/* user ruling 2026-08-07: writing the machine's GLOBAL skills is
@@ -1360,92 +1414,60 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
         </select>
 
-        <div className="field-label">cache-protective cheap compaction</div>
-        <div className="dim hub-hint">Before a turn whose prompt cache is
-          known to be cold, start a fresh session with a summary instead of
-          re-reading the whole old one. Expiry is fixed by lane: Claude uses
-          60 min after a positive subscription receipt or 5 min after a
-          positive API-key receipt; OpenAI subscription uses the documented
-          30 min default as a fixed estimate. Known identity changes are cold
-          immediately; unknown forecasts never auto-compact.</div>
-        <select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
-          <option value="">inherit the org setting</option>
-          <option value="on">on for this agent</option>
-          <option value="off">off for this agent</option>
-        </select>
-        {accMode === 'on' && <div className="row">
-          <label>context ≥ <input type="number" min="5" max="95" step="5"
-            style={{ width: '5em' }} value={accOcc}
-            onChange={(e) => setAccOcc(e.target.value)} />%</label>
-        </div>}
-
-        <div className="field-label">charter</div>
-        <div className="dim hub-hint">Restarts this agent's process and re-sends its prompt.</div>
-        <textarea rows={10} className="charterbox" value={charter}
-          onChange={(e) => setCharter(e.target.value)} />
-        <div className="field-label">team charter</div>
-        <div className="dim hub-hint">Restarts this agent AND every agent in
-          its subtree — the cascade puts this text into each of their
-          prompts, so every one of them re-sends.</div>
-        <textarea rows={10} className="charterbox" value={teamCharter}
-          onChange={(e) => setTeamCharter(e.target.value)} />
-        {initInfo && (
-          <>
-            <div className="field-label">this turn, as the CLI resolved it (№14)</div>
-            <div className="initblock dim">
-              <div>model {initInfo.model ?? '?'} · {initInfo.permissionMode ?? '?'}
-                {' · '}{initInfo.tools ?? '?'} tools</div>
-              {(initInfo.mcp_servers ?? []).map((s) => (
-                <div key={s.name}>
-                  <span className={'mcpdot ' + (s.status === 'connected'
-                    ? 'ok' : 'bad')} /> {s.name} · {s.status}
-                </div>))}
-            </div>
-          </>
-        )}
-        {/* Primary is selectable even if no registry row exists. */}
-        {['claude', 'openai', 'google'].includes(providerOf(model)) && (
-          <>
-            <div className="field-label">account
-              {node.account?.startsWith('missing:') &&
-                <span className="ask-warn"> — PARKED: {node.account}</span>}
-            </div>
-            <AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
-              host={hostIdentity} onChange={setAcct} />
-          </>
-        )}
-        <div className="field-label">Automatic account fallback</div>
-        <select aria-label="Automatic account fallback" value={accountFallback}
-          disabled={!['claude', 'openai'].includes(providerOf(model))}
-          onChange={(e) => setEdit((old) => ({ ...old, accountFallback: e.target.value }))}>
-          <option value="">Org default ({tree.account_fallback_default ? 'on' : 'off'})</option>
-          <option value="on">On</option>
-          <option value="off">Off</option>
-        </select>
-        <div className="hint">After a usage limit, switch to another account with
-          capacity for this lane. Keep the replacement account.
-          {!['claude', 'openai'].includes(providerOf(model))
-            ? ' This provider cannot automatically switch accounts.'
-            : providerOf(model) === 'openai'
-              ? ' Switching accounts starts a new provider cache and a new Codex session.'
-              : ' Switching accounts starts a new provider cache.'}</div>
-        {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
-            grant is legal either way, so this warns, never blocks */}
-        {/* D-234: the queue is visible where the switch is made, with its one
-            control — cancel — which is the same op asked with the current
-            tier (the ledger's cancel door). An unchanged save does NOT cancel:
-            saving scope must never silently withdraw a switch. */}
-        {node.pending_switch && (
-          <div className="cascade-warn queued-warn">
-            ⏳ a switch to <b>{node.pending_switch.tier}</b> is QUEUED — it applies
-            when the current turn ends; interrupting the turn applies it now.{' '}
-            <button className="badge queued"
-              onClick={() => op({ op: 'switch_model', node: node.id,
-                tier: node.tier ?? '' })
-                .then((r) => toast(r.warnings ?? [])).catch(() => {})}>
-              cancel queued switch</button>
+        </SettingsTabPanel>
+        <SettingsTabPanel id="agent" idBase={tabId} active={tab === 'agent'}>
+        {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
+            working folder and session all move; history keeps the old name
+            (the warning rides the toast). Refused while mid-turn. */}
+        {!node.isBearerOf && (
+          <div className="row">
+            <input style={{ width: '14em' }} placeholder="rename…"
+              value={val('rename', node.id)}
+              onChange={(e) => set('rename', node.id)(e.target.value)} />
+            {val('rename', node.id) !== node.id && (
+              <button onClick={() =>
+                op({ op: 'rename', node: node.id,
+                     name: String(val('rename', node.id)) })
+                  .then((r) => {
+                    toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
+                           ...((r?.warnings as string[] | undefined) ?? [])])
+                    close()
+                  })
+                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
+                rename</button>
+            )}
           </div>
         )}
+
+        <div className="row">
+          {/* retire asks too (user bug 2026-08-09) — it sat as the one
+              seat-freeing action firing straight off the click, beside a
+              dissolve button that asks */}
+          {node.state === 'live' && !node.children.some((c) => c.state !== 'archived') &&
+            <button className="danger" onClick={() => setAsking('retire')}>
+              retire · {fmtCredits(node.seat! + node.grant!)}</button>}
+          {node.state === 'live' && node.children.some((c) => c.state !== 'archived') &&
+            <button className="danger" onClick={() => setAsking('dissolve')}>
+              dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
+          {node.state === 'archived' &&
+            <button className="primary" onClick={() =>
+              op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
+              rehire (context intact)</button>}
+          {/* FR-22: rescind — retire whose freed stake is CLAWED BACK from the
+              superior's grant (user-only; agents have no verb). Only where a
+              superior exists to claw from: top-level rescind degrades to a
+              plain retire and earns no separate button. */}
+          {node.state === 'live' && node.parent && node.parent !== USER &&
+            <button className="danger" onClick={() => setAsking('rescind')}>
+              rescind</button>}
+          <span style={{ flex: 1 }} />
+          <button className="danger delete"
+            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
+        </div>
+
+        </SettingsTabPanel>
+        {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
+            grant is legal either way, so this warns, never blocks */}
         {cascade.length > 0 && (
           <div className="cascade-warn" title={cascade.map((c) =>
             `${c.id} gains ${c.gains.join(', ')}`).join('\n')}>
