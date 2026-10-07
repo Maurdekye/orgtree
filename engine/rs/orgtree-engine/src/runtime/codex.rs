@@ -112,6 +112,9 @@ impl CodexProc {
         for (k, v) in &spec.env {
             cmd.env(k, v);
         }
+        if let Some(dir) = engine.settings.agent_build_cache_dir(&caller.org_slug, &caller.name) {
+            cmd.env("CARGO_TARGET_DIR", dir);
+        }
         winproc::no_window(&mut cmd);
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
         let job = winproc::child_job(&child);

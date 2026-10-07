@@ -254,6 +254,7 @@ async fn runtime_payload(engine: &Engine) -> Value {
         "quick_staff_request_accounts": false,
         "git_periodic_fetch_enabled": false,
         "warming_enabled": engine.settings.keep_warm(),
+        "agent_build_cache_folder": engine.settings.agent_build_cache_folder(),
         "working_checkups_enabled": sw.checkups,
         "wait_for_mcp_tools_enabled": engine.settings.wait_for_mcp_tools(),
         "idle_docket_reminders_enabled": sw.idle,
@@ -291,6 +292,13 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
             }
             "wait_for_mcp_tools_enabled" => {
                 rt.insert(k.clone(), json!(v.as_bool().unwrap_or(false)));
+            }
+            "agent_build_cache_folder" => {
+                let folder = v.as_str().ok_or_else(|| ApiError::bad_request("agent_build_cache_folder must be a path or an empty string"))?.trim();
+                if folder.contains('\0') || (!folder.is_empty() && !FsPath::new(folder).is_absolute()) {
+                    return Err(ApiError::bad_request("Agent build cache folder must be an absolute path (or empty to turn off)"));
+                }
+                rt.insert(k.clone(), json!(folder));
             }
             "max_concurrent_turns" => {
                 let n = v.as_u64().filter(|n| (1..=1024).contains(n)).ok_or_else(|| {

@@ -81,6 +81,16 @@ impl AppSettings {
     pub fn keep_warm(&self) -> bool {
         self.runtime().get("warming_enabled").and_then(Value::as_bool).unwrap_or(true)
     }
+    /// Empty leaves Cargo's normal environment/configuration unchanged.
+    pub fn agent_build_cache_folder(&self) -> String {
+        self.runtime().get("agent_build_cache_folder").and_then(Value::as_str).unwrap_or("").trim().to_string()
+    }
+
+    /// One namespace per org and agent, inherited by the CLI's build commands.
+    pub fn agent_build_cache_dir(&self, org_slug: &str, agent_name: &str) -> Option<std::path::PathBuf> {
+        let folder = self.agent_build_cache_folder();
+        if folder.is_empty() { None } else { Some(std::path::PathBuf::from(folder).join(org_slug).join(agent_name)) }
+    }
     #[nolog]
     pub fn wait_for_mcp_tools(&self) -> bool {
         self.runtime().get("wait_for_mcp_tools_enabled").and_then(Value::as_bool).unwrap_or(false)
