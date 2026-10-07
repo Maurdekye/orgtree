@@ -25,7 +25,7 @@ use crate::runtime::agy::{self as agyrt, AgyProc, AgySpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
-use crate::runtime::{freeze, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
+use crate::runtime::{freeze, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
 use crate::util::{gist, iso, now_iso};
 
 /// What `/chat` needs from a running actor.
@@ -226,6 +226,8 @@ struct Turn {
     /// Antigravity: mid-turn mail handed to the steer hook and not yet
     /// emitted: (handoff id, mail ids, the claimed mail rows)
     agy_steer: Option<(String, Vec<i64>, Vec<Value>)>,
+    /// the CLI exited before this turn's result (died in flight, P34)
+    exited: bool,
 }
 
 #[logged]
@@ -259,6 +261,7 @@ impl Turn {
             denials: Vec::new(),
             agy_text: HashMap::new(),
             agy_steer: None,
+            exited: false,
         }
     }
 }
@@ -443,6 +446,12 @@ struct Actor {
     provider: String,
     /// Codex: the thread's latest cumulative token counts
     codex_total: Option<Value>,
+    /// the CLI's subagents and background tasks (P33/P39)
+    tasks: crate::runtime::tasks::Tasks,
+    /// waking mail arrived while a turn ran: when (the unread-mail check, P36)
+    steer_since: Option<Instant>,
+    /// mail whose sender was already told it waits unread (this turn)
+    late_told: std::collections::HashSet<i64>,
 }
 
 // Opaque to the logging macro: connection internals are never log arguments.
@@ -505,6 +514,9 @@ impl Actor {
             board_sent: None,
             provider: catalog::provider_of(&tier).to_string(),
             codex_total: None,
+            tasks: Default::default(),
+            steer_since: None,
+            late_told: Default::default(),
         })
     }
 
@@ -588,6 +600,9 @@ impl Actor {
                 d = d.min(t.started + Duration::from_secs(total));
             }
         }
+        if let (Some(_), Some(s)) = (&self.turn, self.steer_since) {
+            d = d.min(s + Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64));
+        }
         if self.dormant() {
             d = d.min(self.idle_since + ACTOR_IDLE_EXIT + Duration::from_millis(50));
         }
@@ -614,6 +629,11 @@ impl Actor {
                 None
             }
         });
+        if self.turn.is_some()
+            && self.steer_since.map(|s| s.elapsed() >= Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64)).unwrap_or(false)
+        {
+            self.steer_late().await;
+        }
         if let Some(why) = expired {
             tracing::warn!(agent = %self.name, why, "ending turn");
             if let Some(t) = self.turn.as_mut() {
@@ -627,7 +647,12 @@ impl Actor {
 
     async fn handle_msg(&mut self, msg: AgentMsg) -> Result<()> {
         match msg {
-            AgentMsg::Wake => self.on_wake().await?,
+            AgentMsg::Wake => {
+                if self.turn.is_some() && self.steer_since.is_none() {
+                    self.steer_since = Some(Instant::now());
+                }
+                self.on_wake().await?
+            }
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
             AgentMsg::Claude(process, v) => {
                 if self.owns_process(process) { self.on_claude(v).await?; }
@@ -1900,6 +1925,7 @@ impl Actor {
             p.close().await;
         }
         self.proc_print = None;
+        self.orphans("the CLI was closed");
     }
 
     async fn kill_proc(&mut self) {
@@ -1908,10 +1934,76 @@ impl Actor {
             p.kill().await;
         }
         self.proc_print = None;
+        self.orphans("the CLI was stopped");
+    }
+
+    /// The CLI is gone: background tasks it still held died with it. Tell
+    /// the agent once (3.x `_bg_orphaned`); the counts drop to zero.
+    fn orphans(&mut self, reason: &str) {
+        let orphans = self.tasks.orphaned();
+        if orphans.is_empty() {
+            return;
+        }
+        let session = self.init["session_id"].as_str().map(str::to_string);
+        let (engine, org_id, id, reason) = (self.engine.clone(), self.org_id, self.id, reason.to_string());
+        let span = tracing::Span::current();
+        tokio::spawn(tracing::Instrument::instrument(async move {
+            let rows = tokio::task::spawn_blocking(move || tasks::orphan_rows(session.as_deref(), &orphans))
+                .await
+                .unwrap_or_default();
+            recovery::subagent_died(&engine, org_id, id, rows, &reason).await;
+        }, span));
+        self.publish();
+    }
+
+    /// Waking mail has waited unread while this turn runs: tell each sender
+    /// once, passively (3.x steer-late, 45 s). Re-arms for younger mail.
+    async fn steer_late(&mut self) {
+        self.steer_since = None;
+        let Some(admitted) = self.turn.as_ref().map(|t| t.admitted_at) else { return };
+        let rows = match async {
+            let client = self.engine.db.get().await?;
+            Ok::<_, anyhow::Error>(client
+                .query(
+                    "SELECT m.id, m.uid, s.name, m.created_at, extract(epoch FROM now() - m.created_at)::float8
+                       FROM ot.mail m JOIN ot.agents s ON s.id = m.sender_agent_id AND s.state = 'live'
+                      WHERE m.recipient_agent_id = $1 AND m.state = 'pending' AND NOT m.notice
+                        AND m.created_at >= $2
+                      ORDER BY m.id LIMIT 50",
+                    &[&self.id, &admitted],
+                )
+                .await?)
+        }.await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "unread mail could not be read");
+                return;
+            }
+        };
+        let late = Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64);
+        for r in rows {
+            let id: i64 = r.get(0);
+            let waited: f64 = r.get(4);
+            if self.late_told.contains(&id) {
+                continue;
+            }
+            if waited < late.as_secs_f64() {
+                // re-arm: the oldest younger mail comes due at its own 45 s
+                let since = Instant::now().checked_sub(Duration::from_secs_f64(waited.max(0.0))).unwrap_or_else(Instant::now);
+                self.steer_since = Some(self.steer_since.map_or(since, |s| s.min(since)));
+                continue;
+            }
+            self.late_told.insert(id);
+            let (uid, sender, at): (String, String, DateTime<Utc>) = (r.get(1), r.get(2), r.get(3));
+            recovery::delivery_unread(&self.engine, self.org_id, &self.org.slug, &sender, &self.name, &uid,
+                                      &crate::util::iso(at), waited).await;
+        }
     }
 
     fn begin_turn(&mut self, mut turn: Turn) {
         self.unpark();
+        self.steer_since = None;
+        self.late_told.clear();
         turn.span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
         self.turn = Some(turn);
         self.keep_until = None;
@@ -1921,6 +2013,8 @@ impl Actor {
 
     fn take_turn(&mut self) -> Option<Turn> {
         let t = self.turn.take();
+        self.steer_since = None;
+        self.late_told.clear();
         // Cleanup may fail in the database; a finished turn must never retain a slot.
         self.slot = None;
         if t.is_some() {
@@ -2194,6 +2288,17 @@ impl Actor {
     async fn on_claude(&mut self, v: Value) -> Result<()> {
         if let Some(t) = self.turn.as_mut() {
             t.last_event = Instant::now();
+        }
+        let counts = self.tasks.counts();
+        if let Some(stopped) = self.tasks.observe(&v) {
+            let (engine, org_id, id) = (self.engine.clone(), self.org_id, self.id);
+            let span = tracing::Span::current();
+            tokio::spawn(tracing::Instrument::instrument(async move {
+                recovery::task_stopped(&engine, org_id, id, stopped).await;
+            }, span));
+        }
+        if self.tasks.counts() != counts {
+            self.publish();
         }
         let sub = v.get("parent_tool_use_id").map(|p| !p.is_null()).unwrap_or(false);
         match v["type"].as_str() {
@@ -3074,6 +3179,10 @@ impl Actor {
         self.proc = None;
         self.proc_print = None;
         self.unpark();
+        self.orphans(&format!("the CLI exited: {reason}"));
+        if let Some(t) = self.turn.as_mut() {
+            t.exited = true;
+        }
         if self.turn.is_some() {
             let quiet = self.turn.as_ref().map(|t| t.interrupted || t.killed).unwrap_or(false);
             let msg = if quiet { None } else { Some(format!("the {} process exited during the turn ({status}; {reason})", catalog::provider_label(&self.provider))) };
@@ -3234,6 +3343,43 @@ impl Actor {
             }
             error = None;
         }
+        // P34/P35 (3.x): a transient failure retries behind a connection
+        // freeze; a rejected credential or repeated balance refusals park the
+        // agent with no reset time. Classified failures skip the generic
+        // stalled card; their own alerts follow below.
+        let mut classified = false;
+        let mut exhausted: Option<(i64, String)> = None;
+        let mut parked: Option<&'static str> = None;
+        if let (Some(e), false) = (error.as_deref(), turn.interrupted || turn.killed || freeze_rec.is_some()) {
+            let died = turn.exited && turn.activity && res.is_null();
+            let account = turn.serving_account.as_deref();
+            match recovery::classify(e, &res, openrouter, died) {
+                Some(recovery::Class::Net(kind)) => {
+                    classified = true;
+                    let run = recovery::bump(&self.engine, self.id, "net_fail_run").await?;
+                    if run <= recovery::NET_RETRY_MAX {
+                        freeze_rec = Some(recovery::connection_freeze(run, &kind, e, account));
+                    } else if run == recovery::NET_RETRY_MAX + 1 {
+                        exhausted = Some((run - 1, kind));
+                    }
+                }
+                Some(recovery::Class::Auth) => {
+                    classified = true;
+                    freeze_rec = Some(recovery::auth_freeze(e, account));
+                    parked = Some("auth");
+                }
+                Some(recovery::Class::Balance) => {
+                    classified = true;
+                    let run = recovery::bump(&self.engine, self.id, "balance_probe_run").await?;
+                    let (rec, park) = recovery::balance_freeze(run, e, account);
+                    freeze_rec = Some(rec);
+                    if park {
+                        parked = Some("balance");
+                    }
+                }
+                None => {}
+            }
+        }
         // the CLI holds the prompt once it produced anything: settle the mail
         // as delivered; a turn that never started gives its mail back
         let succeeded = error.is_none() && limit.is_none() && !turn.limit_signal
@@ -3297,7 +3443,8 @@ impl Actor {
                         context_window = coalesce(context_window, $5),
                         session_id = coalesce($6, session_id), inflight_at = NULL, last_denials = $7,
                         last_error = $8,
-                        frozen = coalesce($10, frozen), limit_locked = ($10::jsonb IS NOT NULL) OR limit_locked,
+                        frozen = coalesce($10, frozen),
+                        limit_locked = coalesce(($10::jsonb->>'limit')::boolean, false) OR limit_locked,
                         extra = jsonb_set(extra, '{cost_seen}', to_jsonb($11::float8)),
                         row_version = row_version + 1
                   WHERE id = $1",
@@ -3341,10 +3488,21 @@ impl Actor {
             self.receipt = Some((Utc::now(), ttl as i64));
             self.save_receipt().await;
         }
-        if !turn.interrupted && !turn.killed {
+        if !turn.interrupted && !turn.killed && !classified {
             if let Err(e) = crate::domain::runtime_notices::end_turn(&self.engine, self.org_id, self.id, error.as_deref(), freeze_rec.as_ref()).await {
                 tracing::warn!(agent = self.id, error = %format!("{e:#}"), "typed turn outcome could not be sent");
             }
+        }
+        if succeeded {
+            if let Err(e) = recovery::clear_runs(&self.engine, self.id).await {
+                tracing::warn!(agent = self.id, error = %format!("{e:#}"), "failure runs could not be cleared");
+            }
+        }
+        if let Some((run, kind)) = &exhausted {
+            recovery::retry_exhausted(&self.engine, self.org_id, self.id, *run, error.as_deref().unwrap_or(""), kind).await;
+        }
+        if let Some(kind) = parked {
+            recovery::parked(&self.engine, self.org_id, self.id, kind, error.as_deref().unwrap_or("")).await;
         }
         self.apply_pending_config().await?;
         self.last_error = error.clone();
@@ -3586,8 +3744,8 @@ impl Actor {
             "mcp_readiness_waiting": self.mcp.waiting,
             "mcp_readiness_state": self.mcp.state,
             "mcp_readiness_reason": self.mcp.reason,
-            "tasks": 0,
-            "bg_tasks": 0,
+            "tasks": self.tasks.counts().0,
+            "bg_tasks": self.tasks.counts().1,
             "last_error": self.last_error,
             "activity": activity,
             "cache_forecast": self.forecast,

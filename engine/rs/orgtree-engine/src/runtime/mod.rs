@@ -15,8 +15,10 @@ pub mod freeze;
 pub mod history;
 pub mod identity;
 pub mod prompt;
+pub mod recovery;
 pub mod reminders;
 pub mod sched;
+pub mod tasks;
 pub mod watchdogs;
 
 use std::collections::HashMap;

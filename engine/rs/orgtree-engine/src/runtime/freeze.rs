@@ -164,22 +164,33 @@ async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expecte
     // One short statement. A timer for an older freeze can never erase a new
     // refusal, nor a manual clear followed by a new freeze.
     let row = client.query_opt(
-        "UPDATE ot.agents SET frozen = NULL, limit_locked = false, row_version = row_version + 1
-          WHERE id = $1 AND org_id = $2 AND frozen IS NOT NULL AND state = 'live'
-            AND ($3::jsonb IS NULL OR frozen = $3)
-          RETURNING name",
+        "WITH old AS (SELECT frozen FROM ot.agents WHERE id = $1)
+         UPDATE ot.agents a SET frozen = NULL, limit_locked = false, row_version = row_version + 1
+           FROM old
+          WHERE a.id = $1 AND a.org_id = $2 AND a.frozen IS NOT NULL AND a.state = 'live'
+            AND ($3::jsonb IS NULL OR a.frozen = $3)
+          RETURNING old.frozen",
         &[&agent_id, &org_id, &expected],
     ).await?;
     drop(client);
-    if row.is_none() {
-        return Ok(false);
-    }
-    tracing::info!(org = org_id, agent = agent_id, automatic = expected.is_some(), "freeze released; waking agent");
+    let Some(row) = row else { return Ok(false) };
+    let old: Value = row.get::<_, Option<Value>>(0).unwrap_or(Value::Null);
+    // a connection retry (parity P34) is neither a limit reset nor an unstick
+    let retry = expected.is_some() && old["connection"].as_bool().unwrap_or(false) && !old["limit"].as_bool().unwrap_or(false);
+    tracing::info!(org = org_id, agent = agent_id, automatic = expected.is_some(), retry, "freeze released; waking agent");
     changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::History(agent_id)]);
-    if let Err(e)=crate::domain::runtime_notices::released(engine, org_id, agent_id, expected.is_some()).await {
-        tracing::warn!(agent=agent_id,error=%format!("{e:#}"),"release notice could not be sent");
+    if !retry {
+        if let Err(e)=crate::domain::runtime_notices::released(engine, org_id, agent_id, expected.is_some()).await {
+            tracing::warn!(agent=agent_id,error=%format!("{e:#}"),"release notice could not be sent");
+        }
     }
-    mail::system_wake(engine, org_id, agent_id, if expected.is_some() { "Your usage limit has reset. Continue where you left off." } else { "Your hold was released. Continue where you left off." }).await?;
+    let text = match old["wake_text"].as_str() {
+        // the freeze's own wake (a retry, a balance probe) when automatic
+        Some(t) if expected.is_some() => t.to_string(),
+        _ if expected.is_some() => "Your usage limit has reset. Continue where you left off.".to_string(),
+        _ => "Your hold was released. Continue where you left off.".to_string(),
+    };
+    mail::system_wake(engine, org_id, agent_id, &text).await?;
     Ok(true)
 }
 
