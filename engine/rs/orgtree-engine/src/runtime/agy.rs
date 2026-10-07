@@ -411,6 +411,11 @@ fn steering_hooks(agents: &Path, exe: &str) -> Result<Value> {
 /// the long-context rate on its pro-class models).
 #[logged]
 pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
+    // Antigravity publishes quota fractions, not Claude token prices. Zero is
+    // represented as unknown by the existing cost UI; never use Gemini prices.
+    if model.starts_with("claude-") {
+        return 0.0;
+    }
     let pro = ["gemini-3.1-pro", "gemini-4-argon", "gemini-4-barium"].contains(&model);
     let (pi, pc, po) = if model.contains("flash") {
         (0.75, 0.075, 3.75)

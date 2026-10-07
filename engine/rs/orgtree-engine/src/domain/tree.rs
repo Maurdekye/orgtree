@@ -205,7 +205,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     let resumable = state == "live" && !frozen.is_null() && !halted;
     o.insert("resumable".into(), json!(resumable));
     let continue_accounts: Vec<String> = if resumable && frozen.get("limit").and_then(Value::as_bool).unwrap_or(true) {
-        ctx.accounts.continue_candidates(catalog::provider_of(tier), account, ctx.org_slug)
+        ctx.accounts.continue_candidates(tier, account, ctx.org_slug)
     } else {
         Vec::new()
     };

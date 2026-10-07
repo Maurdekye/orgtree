@@ -194,6 +194,7 @@ struct Turn {
     admitted_at: DateTime<Utc>,
     serving_account: Option<String>,
     serving_provider: String,
+    serving_tier: String,
     limit_signal: bool,
     last_event: Instant,
     /// API message id → (convo seq, the row as built so far)
@@ -247,6 +248,7 @@ impl Turn {
             admitted_at: Utc::now(),
             serving_account: None,
             serving_provider: String::new(),
+            serving_tier: String::new(),
             limit_signal: false,
             last_event: Instant::now(),
             rows: HashMap::new(),
@@ -1272,8 +1274,19 @@ impl Actor {
         if route.is_some() {
             return Ok(());
         }
+        if catalog::antigravity_claude(&ctx.tier) && !self.engine.settings.antigravity_claude_enabled() {
+            return Err(anyhow!("Claude models through Antigravity are turned off in App settings > Runtime"));
+        }
+        if let Some(reason) = crate::usage::antigravity_limit(&self.engine, &ctx.tier) {
+            return Err(anyhow!(reason));
+        }
         let view = self.engine.accounts.view();
         let acc = ctx.account.as_deref().and_then(|a| view.get(a));
+        if ctx.provider == catalog::GOOGLE {
+            if let Some(until) = acc.and_then(|a| a.limited_for(&ctx.tier, Utc::now())) {
+                return Err(anyhow!("Antigravity {} quota is marked exhausted until {until}", catalog::antigravity_pool(&ctx.tier)));
+            }
+        }
         // a legacy org key never serves another org's turn (3.x parity F02)
         if let Some(a) = acc.filter(|a| !a.available_to(Some(&ctx.org_slug))) {
             return Err(anyhow!(
@@ -1752,7 +1765,7 @@ impl Actor {
         let spec = AgySpec {
             exe,
             cwd: ctx.scratch.clone(),
-            model: ctx.model.clone(),
+            model: catalog::antigravity_model(&ctx.tier, &ctx.model, &ctx.effort),
             effort: Some(catalog::antigravity_effort(&ctx.tier, &ctx.effort).to_string()),
             conversation,
             identity: plan.identity.clone(),
@@ -2222,6 +2235,7 @@ impl Actor {
         turn.admitted_at = admitted_at;
         turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
+        turn.serving_tier = ctx.tier.clone();
         turn.codex_turn = codex_turn;
         turn.usage_base = self.codex_total.clone();
         self.begin_turn(turn);
@@ -3440,7 +3454,7 @@ impl Actor {
         if let Some(until) = limit {
             let ctx = self.load_ctx().await?;
             if ctx.fallback {
-                moved_to = freeze::pick_fallback(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.org_slug);
+                moved_to = freeze::pick_fallback(&self.engine, &ctx.tier, ctx.account.as_deref(), &ctx.org_slug);
             }
             if moved_to.is_none() {
                 freeze_rec = Some(json!({
@@ -3531,7 +3545,8 @@ impl Actor {
                   WHERE id = $1",
                 &[
                     &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
-                    &turn.killed, &error, &turn.model, &(if codex || agy || openrouter { "priced" } else { "cli" }),
+                    &turn.killed, &error, &turn.model, &(if agy && catalog::antigravity_claude(&turn.serving_tier) { "unknown" }
+                        else if codex || agy || openrouter { "priced" } else { "cli" }),
                 ],
             )
             .await?;
@@ -3570,11 +3585,14 @@ impl Actor {
             }
             if let Some(until) = limit {
                 let win = self.rate_limit.as_ref().and_then(|r| r["rateLimitType"].as_str().map(str::to_string));
+                let pool = if agy {
+                    format!("agy:{}", catalog::antigravity_pool(&turn.serving_tier))
+                } else { "default".to_string() };
                 let _ = client
                     .execute(
-                        "INSERT INTO ot.account_marks (account, pool, until, provenance, win) VALUES ($1, 'default', $2, 'observed', $3)
+                        "INSERT INTO ot.account_marks (account, pool, until, provenance, win) VALUES ($1, $4, $2, 'observed', $3)
                          ON CONFLICT (account, pool) DO UPDATE SET until = EXCLUDED.until, win = EXCLUDED.win, at = now()",
-                        &[acc, &until, &win],
+                        &[acc, &until, &win, &pool],
                     )
                     .await;
             }
@@ -3620,7 +3638,7 @@ impl Actor {
         self.idle_since = Instant::now();
         if succeeded {
             if let Some(account) = turn.serving_account.as_deref() {
-                crate::account_marks::success(&self.engine, account, &turn.serving_provider, turn.admitted_at).await;
+                crate::account_marks::success(&self.engine, account, &turn.serving_provider, &turn.serving_tier, turn.admitted_at).await;
             }
         }
         if limit.is_some() {
@@ -3767,6 +3785,7 @@ impl Actor {
         turn.serving_account = self.serving_account_of(&ctx);
         turn.serving_provider = ctx.provider.clone();
         turn.activity = true;
+        turn.serving_tier = ctx.tier.clone();
         self.begin_turn(turn);
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));
         if !compact {

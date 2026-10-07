@@ -22,6 +22,27 @@ const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const USER_AGENT: &str = concat!("orgtree-engine/", env!("CARGO_PKG_VERSION"));
 const NOT_YET: &str = "usage unavailable; start a turn on this account to see usage";
 
+/// Antigravity has one native sign-in. Only its model family's windows apply.
+/// Missing/stale readings remain unknown; an observed unexpired full window refuses.
+#[logged]
+pub fn antigravity_limit(engine: &Engine, tier: &str) -> Option<String> {
+    use crate::providers::catalog;
+    if catalog::provider_of(tier) != catalog::GOOGLE {
+        return None;
+    }
+    let pool = catalog::antigravity_pool(tier);
+    let data = engine.usage.peek("agy", catalog::GOOGLE);
+    let limits = data["limits"].as_array()?;
+    limits.iter().find(|l| {
+        let group = l["group"].as_str().unwrap_or("");
+        (group == format!("{pool}-5h") || group == format!("{pool}-weekly"))
+            && l["percent"].as_f64().is_some_and(|p| p >= 100.0)
+            && !l["resets_at"].as_str().and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .is_some_and(|t| t <= Utc::now())
+    }).map(|l| format!("Antigravity {} is exhausted until {}; this tier spends the {pool} windows",
+        l["group"].as_str().unwrap_or("usage"), l["resets_at"].as_str().unwrap_or("the provider resets it")))
+}
+
 #[derive(Clone)]
 struct Cached {
     at: Instant,
@@ -850,7 +871,12 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         text.push_str(l);
     }
     text.push_str("\n* your account for this turn; - = not authoritatively reported.");
-    text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above."));
+    if provider == crate::providers::catalog::GOOGLE {
+        let pool = crate::providers::catalog::antigravity_pool(tier);
+        text.push_str(&format!("\nThis turn spends: {tier} on {selected_lane} → session:{pool}-5h and weekly_scoped:{pool}-weekly. Other model groups' windows do not apply to this tier."));
+    } else {
+        text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above."));
+    }
     text.push_str("\n[END PROVIDER USAGE]");
     let key = format!("{selected_lane}\n{}\n{}", roster.join("|"), key_lines.join("\n"));
     (text, key)

@@ -463,7 +463,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     };
     let row = tx
-        .query_one("SELECT scope, charter, team_charter FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
+        .query_one("SELECT scope, charter, team_charter, tier FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
     let before: Value = row.get(0);
     let mut sc = scope::normalize(&before);
@@ -505,6 +505,9 @@ pub(crate) async fn apply_user_scope_in_tx(
         }
     }
     if let Some(v) = b.get("model_version") {
+        if crate::providers::catalog::antigravity_claude(&row.get::<_, String>(3)) && v.as_str().is_some_and(|s| !s.is_empty()) {
+            crate::refuse!(BadRequest, "Antigravity Claude tiers are fixed at 5.5 and have no version choice");
+        }
         match v.as_str().filter(|s| !s.is_empty()) {
             Some(s) => obj.insert("model_version".into(), json!(s)),
             None => obj.remove("model_version"),

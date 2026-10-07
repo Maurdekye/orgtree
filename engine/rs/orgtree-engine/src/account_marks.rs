@@ -11,6 +11,15 @@ fn usage_allows(provider: &str, pool: &str, win: Option<&str>, usage: &Value) ->
     if usage["available"] != true || !usage["error"].is_null() || usage["reauth_required"] == true {
         return false;
     }
+    if provider == "google" && matches!(pool, "agy:3p" | "agy:gemini") {
+        let prefix = pool.trim_start_matches("agy:");
+        let Some(bars) = usage["limits"].as_array() else { return false };
+        return [format!("{prefix}-5h"), format!("{prefix}-weekly")].iter().all(|id| {
+            bars.iter().any(|b| b["group"].as_str() == Some(id.as_str())
+                && b["percent"].as_f64().is_some_and(|p| p.is_finite() && p >= 0.0 && p < 100.0)
+                && b["is_active"] != true)
+        });
+    }
     let supported = pool == "default"
         || (provider == "openai" && pool == "openai-plan")
         || (provider == "claude" && pool == "pooled");
@@ -135,13 +144,17 @@ pub async fn usage(
 /// Current Rust turns spend the default pool (legacy plan/pooled alias); never
 /// clear an imported reserve or Fable-only mark from a different pool.
 #[logged]
-pub async fn success(engine: &Engine, account: &str, provider: &str, admitted: DateTime<Utc>) {
+pub async fn success(engine: &Engine, account: &str, provider: &str, tier: &str, admitted: DateTime<Utc>) {
     let result: anyhow::Result<u64> = async {
         let client = engine.db.get().await?;
-        let legacy_pool = match provider { "openai" => "openai-plan", "claude" => "pooled", _ => "default" };
+        let legacy_pool = match provider {
+            "google" => format!("agy:{}", crate::providers::catalog::antigravity_pool(tier)),
+            "openai" => "openai-plan".into(), "claude" => "pooled".into(), _ => "default".into()
+        };
+        let default_pool = if provider == "google" { legacy_pool.as_str() } else { "default" };
         let n = client.execute(
-            "DELETE FROM ot.account_marks WHERE account = $1 AND pool IN ('default', $3) AND at < $2 AND until > now()",
-            &[&account, &admitted, &legacy_pool],
+            "DELETE FROM ot.account_marks WHERE account = $1 AND pool IN ($4, $3) AND at < $2 AND until > now()",
+            &[&account, &admitted, &legacy_pool, &default_pool],
         ).await?;
         if n > 0 { tracing::info!(account, %admitted, "account limit mark cleared by successful turn"); }
         Ok(n)

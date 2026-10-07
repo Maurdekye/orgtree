@@ -34,6 +34,8 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
     let mut out: Vec<Offer> = catalog::TIERS
         .iter()
         .filter(|t| !t.legacy && !t.conditional && engine.settings.provider_enabled(t.provider))
+        .filter(|t| !catalog::antigravity_claude(t.tier) || engine.settings.antigravity_claude_enabled())
+        .filter(|t| crate::usage::antigravity_limit(engine, t.tier).is_none())
         .filter(|t| match t.provider {
             catalog::CLAUDE => st.claude.installed,
             catalog::OPENAI => st.codex.installed,
@@ -82,7 +84,8 @@ fn efforts(t: &catalog::Tier, state: &crate::providers::State) -> Vec<&'static s
 
 /// Accounts that can run `provider` now: enabled, signed in, not at a limit.
 #[logged]
-fn eligible_accounts(engine: &Engine, provider: &str, org_slug: &str) -> Vec<Value> {
+fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> {
+    let provider = catalog::provider_of(tier);
     let now = Utc::now();
     let view = engine.accounts.view();
     let mut out: Vec<Value> = view
@@ -93,7 +96,7 @@ fn eligible_accounts(engine: &Engine, provider: &str, org_slug: &str) -> Vec<Val
                 && a.available_to(Some(org_slug))
                 && crate::accounts::active(engine, provider, Some(a))
                 && a.auth != "signed_out"
-                && a.limited(now).is_none()
+                && a.limited_for(tier, now).is_none()
         })
         .map(|a| json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email }))
         .collect();
@@ -138,7 +141,7 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
         .filter_map(|t| {
             let mut m = json!({ "tier": t.tier, "seat": t.seat, "efforts": t.efforts });
             if !request {
-                let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, t.provider, &org.slug) };
+                let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, &t.tier, &org.slug) };
                 let host = host_ready(engine, t.provider);
                 if accounts.is_empty() && !host {
                     return None;
@@ -389,7 +392,7 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
     let tiers: Vec<Value> = runnable_tiers(engine)
         .into_iter()
         .filter_map(|t| {
-            let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, t.provider, org_slug) };
+            let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
             let host = host_ready(engine, t.provider);
             if accounts.is_empty() && !host {
                 return None;

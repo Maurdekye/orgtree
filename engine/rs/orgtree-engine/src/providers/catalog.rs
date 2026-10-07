@@ -67,6 +67,12 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "barium", provider: GOOGLE, seat: 2.0, model: "gemini-4-barium",
         versions: &[], letter: "B",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
+    Tier { tier: "agy-sonnet", provider: GOOGLE, seat: 2.0, model: "claude-sonnet-5-5-high",
+        versions: &[], letter: "S",
+        context: None, live_effort: false, legacy: false, conditional: false, prices: None },
+    Tier { tier: "agy-opus", provider: GOOGLE, seat: 4.0, model: "claude-opus-5-5-high",
+        versions: &[], letter: "O",
+        context: None, live_effort: false, legacy: false, conditional: false, prices: None },
 ];
 
 pub const SEAT_FLOOR: f64 = 0.10;
@@ -79,9 +85,29 @@ pub const DEFAULT_EFFORT: &str = "high";
 pub fn antigravity_effort<'a>(tier: &str, effort: &'a str) -> &'a str {
     match effort {
         "low" | "high" => effort,
-        "medium" if tier == "flash" => effort,
+        "medium" if tier == "flash" || antigravity_claude(tier) => effort,
         _ => "high",
     }
+}
+
+#[logged]
+pub fn antigravity_claude(tier: &str) -> bool {
+    matches!(tier, "agy-sonnet" | "agy-opus")
+}
+
+/// These independent tiers have no model versions; effort selects a verified CLI id.
+#[logged]
+pub fn antigravity_model(tier: &str, model: &str, effort: &str) -> String {
+    if antigravity_claude(tier) {
+        format!("{}-{}", model.trim_end_matches("-high"), antigravity_effort(tier, effort))
+    } else {
+        model.to_string()
+    }
+}
+
+#[logged]
+pub fn antigravity_pool(tier: &str) -> &'static str {
+    if antigravity_claude(tier) { "3p" } else { "gemini" }
 }
 
 pub fn tier(name: &str) -> Option<&'static Tier> {

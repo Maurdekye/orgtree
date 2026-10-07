@@ -248,11 +248,12 @@ pub async fn recover(engine: &Arc<Engine>) {
 /// API-key fallback and subscription switches: subscriptions first, then
 /// metered keys.
 #[logged]
-pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>, org_slug: &str) -> Option<String> {
+pub fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, org_slug: &str) -> Option<String> {
+    let provider = crate::providers::catalog::provider_of(tier);
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
     let keys = engine.settings.apikey_fallback(provider);
-    let candidates = view.continue_candidates(provider, current, org_slug);
+    let candidates = view.continue_candidates(tier, current, org_slug);
     // the provider's own sign-in only while its checkbox is on (rows are
     // already filtered on their own)
     let sub = candidates.iter().find(|id| {

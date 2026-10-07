@@ -48,6 +48,15 @@ impl AccountInfo {
     pub fn limited(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
         self.marks.values().map(|(u, _)| *u).filter(|u| *u > now).max()
     }
+    /// Google model groups have independent quota. Unknown/default marks remain conservative.
+    pub fn limited_for(&self, tier: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        if self.provider != crate::providers::catalog::GOOGLE {
+            return self.limited(now);
+        }
+        let pool = format!("agy:{}", crate::providers::catalog::antigravity_pool(tier));
+        self.marks.iter().filter(|(k, _)| !k.starts_with("agy:") || **k == pool)
+            .map(|(_, (u, _))| *u).filter(|u| *u > now).max()
+    }
     #[nolog]
     pub fn is_apikey(&self) -> bool {
         self.kind == "apikey"
@@ -86,7 +95,8 @@ impl AccountsView {
         v
     }
     /// Other usable accounts of `provider` a frozen agent could continue on.
-    pub fn continue_candidates(&self, provider: &str, current: Option<&str>, org_slug: &str) -> Vec<String> {
+    pub fn continue_candidates(&self, tier: &str, current: Option<&str>, org_slug: &str) -> Vec<String> {
+        let provider = crate::providers::catalog::provider_of(tier);
         let now = Utc::now();
         self.all()
             .into_iter()
@@ -96,7 +106,7 @@ impl AccountsView {
                     && Some(a.id.as_str()) != current
                     && a.enabled
                     && a.auth != "unauthenticated"
-                    && a.limited(now).is_none()
+                    && a.limited_for(tier, now).is_none()
             })
             .map(|a| a.id.clone())
             .collect()

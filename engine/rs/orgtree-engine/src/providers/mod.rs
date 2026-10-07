@@ -363,6 +363,9 @@ pub fn payload(engine: &Engine) -> Value {
         let mut tiers = tier_rows(catalog::GOOGLE, false);
         tiers.retain(|t| {
             let tier = t["tier"].as_str().unwrap_or("");
+            if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
+                return false;
+            }
             let cond = catalog::tier(tier).map(|x| x.conditional).unwrap_or(false);
             !cond || st.agy_models.iter().any(|m| m.starts_with(t["model"].as_str().unwrap_or("?")))
         });

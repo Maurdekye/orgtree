@@ -319,6 +319,9 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
 #[logged]
 fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&str>) -> Result<()> {
     let provider = catalog::provider_of(tier);
+    if let Some(reason) = crate::usage::antigravity_limit(engine, tier) {
+        refuse!(Conflict, "{reason}");
+    }
     if let Some(prefix) = raw.and_then(|v| v.strip_suffix("/primary")) {
         if prefix != provider {
             refuse!(BadRequest, "{prefix}/primary cannot serve {provider}");
@@ -331,6 +334,11 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
         if a.provider != provider {
             refuse!(BadRequest, "{id} is a {} account and {tier} runs on {provider}", a.provider);
         }
+        if provider == catalog::GOOGLE {
+            if let Some(until) = a.limited_for(tier, Utc::now()) {
+                refuse!(Conflict, "{id} has exhausted this Antigravity model group's quota until {until}");
+            }
+        }
     }
     Ok(())
 }
@@ -338,6 +346,9 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
 /// The seat price of a tier (catalog or an OpenRouter favorite).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
+    if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
+        refuse!(Conflict, "Claude models through Antigravity are turned off in App settings > Runtime");
+    }
     if let Some(t) = catalog::tier(tier) {
         return Ok(t.seat);
     }
