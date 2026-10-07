@@ -16,6 +16,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Cost labels show only `$X.XX`, including partial nonzero totals; unknown zero
+  stays `$?`. Partial/estimated explanations stay in the existing hover titles.
+  [recorded-decision: user 2026-10-07 09:49Z; verified-from-source:
+  renderer `canvas/desk.tsx`, `shell/treeinfo.tsx`]
+
 - Verbose UI-open timings use `opentiming.ts` and `/api/diagnostics/ui-open`.
   `frame_ms` means the first animation frame after ready content commits, not
   GPU presentation. Filter hidden/unfocused samples; off creates no timing
