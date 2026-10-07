@@ -4001,9 +4001,11 @@ fn codex_tool(item: &Value) -> Option<(String, Value)> {
                 .unwrap_or_default();
             ("apply_patch".into(), json!({ "path": paths.join(", "), "changes": item["changes"] }))
         }
-        "webSearch" => ("web_search".into(), json!({ "query": s("query") })),
+        "webSearch" => ("web_search".into(), json!({ "query": s("query"), "action": item["action"] })),
         "imageView" => ("view_image".into(), json!({ "path": s("path") })),
-        "collabAgentToolCall" => (item["tool"].as_str().unwrap_or("collaboration").to_string(), json!({ "prompt": s("prompt") })),
+        "collabAgentToolCall" => (item["tool"].as_str().unwrap_or("collaboration").to_string(),
+            json!({ "prompt": s("prompt"), "model": item["model"], "reasoningEffort": item["reasoningEffort"],
+                "receiverThreadIds": item["receiverThreadIds"] })),
         "subAgentActivity" => ("collaboration".into(), json!({ "agent": s("agentPath"), "action": s("kind") })),
         "sleep" => ("wait".into(), json!({ "duration_ms": item["durationMs"] })),
         "imageGeneration" => ("image_generation".into(), json!({ "prompt": s("revisedPrompt") })),
