@@ -80,3 +80,5 @@ Rescind is shown for every live agent. Source inspection of Rust `domain/ops.rs`
 and 3.x `ledger.py` confirms that top-level rescind archives the agent and its
 subtree without reducing any superior grant. Its confirmation describes that
 case; subordinate confirmations retain the grant-reduction explanation.
+
+Follow-up 17:23 UTC: remove the subtitle, size the header badge using the canvas card's 16:10.5 badge-to-name ratio, and match top/left padding. The centered pin controls sit outside document flow so they do not subtract from that padding. Rescind now displays its seat-plus-grant stake, like Dissolve. Mounted smoke measured badge offsets 27.22 px top / 27 px left (including border), ratio 1.523, no subtitle, and rescind with 21 credits; typecheck passed.

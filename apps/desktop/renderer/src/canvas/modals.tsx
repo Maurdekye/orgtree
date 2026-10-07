@@ -28,7 +28,6 @@ import { agentNavProps } from './agentnav'
 import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, legacyMark, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
-import { ProcessLifecycleMark } from './desk'
 import { ModalOverPins, PinFrame } from './modalpin'
 import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel } from './settingskit'
 import { fmtStamp } from '../timefmt'
@@ -1142,16 +1141,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={<span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>{node.id} · configuration</span>}
       panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
         <h3 data-copy-agent-name={node.id}><span className="agent-config-title"><span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>{node.id}</span></h3>
-        {/* ⚠ THE LIFECYCLE MARK IS LIVE STATE, NOT A TITLE — whether this
-            agent's process is warm, relaunching or mid-turn is the reason to
-            keep this panel open at all, and it used to sit inside the h3, which
-            a pinned window hides along with the duplicated heading. Outside it,
-            visible in both modes. */}
-        <div className="dim modalpin-subtitle">
-          {node.state === 'live' && <ProcessLifecycleMark warm={Boolean(node.proc_warm)}
-            live={node.proc_live} relaunch={node.proc_relaunch}
-            reason={node.proc_relaunch_reason} busy={node.busy} tier={node.tier} />}
-          {tierLabel(node.tier ?? '')} · configuration</div>
         {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
             working folder and session all move; history keeps the old name
             (the warning rides the toast). Refused while mid-turn. */}
@@ -1179,7 +1168,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
           {node.state === 'live' &&
             <button className="danger" onClick={() => setAsking('rescind')}>
-              rescind</button>}
+              rescind · {fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}</button>}
           {/* retire asks too (user bug 2026-08-09) — it sat as the one
               seat-freeing action firing straight off the click, beside a
               dissolve button that asks */}

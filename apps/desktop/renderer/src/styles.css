@@ -3665,7 +3665,8 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .credit-grant-limits { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--dim); }
 .agent-identity-row { display: flex; align-items: center; gap: 8px; justify-content: flex-start; flex-wrap: wrap; }
 .agent-config-title { display: inline-flex; align-items: center; gap: 10px; }
-.agent-model-icon.tier { width: 42px; height: 42px; font-size: 26px; flex: none; }
+/* Match .sq-head's 16px badge / 10.5px name, scaled with the heading. */
+.agent-model-icon.tier { width: 1.777778em; height: 1.777778em; font-size: 0.857143em; flex: none; }
 /* clips the fill/seat/hairline layers to the bar's rounded outline — without
    it the border-box overhang let the seat block punch through the top */
 .cbar-clip {
@@ -3863,7 +3864,12 @@ main.solo { width: 100%; }
 }
 .settings > * { min-width: 0; }
 /* the agent ⚙ panel: wider, with room to actually write charters */
-.settings.cfg { width: min(880px, 94vw); }
+.settings.cfg { width: min(880px, 94vw); --panel-pad-y: var(--panel-pad-x); }
+.settings.cfg > h3 { display: flex; }
+.settings.cfg:not(.modalpin-win):not(.modalpin-detached) { position: relative; }
+.settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar {
+  position: absolute; top: var(--panel-pad-y); right: var(--panel-pad-x); margin: 0;
+}
 .settings .charterbox { min-height: 220px; resize: vertical; }
 .settings .chip.grow {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
