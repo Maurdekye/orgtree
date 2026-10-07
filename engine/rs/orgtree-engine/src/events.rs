@@ -233,3 +233,66 @@ pub fn reminder_idle_docket(org: &str, node: &str, generation: i64, items: Vec<V
     o.insert("more".into(), json!(more));
     Value::Object(o)
 }
+
+// ── runtime recovery and alert cards (parity batch 4a: P33-P36) ──
+
+/// `SessionRef`: the agent session a runtime card is about.
+#[logged]
+pub fn session_ref(org: &str, node: &str, session_id: &str) -> Value {
+    json!({ "kind": "session", "org": org, "node": node, "session_id": session_id })
+}
+
+/// `runtime.subagent_died`: the CLI died holding live background subagents.
+/// `orphans` holds `{id, description, output_file}` rows (at least one).
+#[logged]
+pub fn subagent_died(org: &str, node: &str, session_id: &str, orphans: Vec<Value>, reason: &str) -> Option<Value> {
+    if orphans.is_empty() {
+        return None;
+    }
+    let count = orphans.len();
+    Some(typed("runtime.subagent_died", SYSTEM, session_ref(org, node, session_id),
+        json!({ "orphans": orphans, "count": count, "reason": reason })))
+}
+
+/// `runtime.background_task_stopped`: a background task ended without
+/// completing while its CLI stayed alive.
+#[logged]
+pub fn background_task_stopped(org: &str, node: &str, task_id: &str, description: &str,
+                               summary: Option<&str>, output_file: Option<&str>) -> Value {
+    typed("runtime.background_task_stopped", SYSTEM,
+        json!({ "kind": "task", "org": org, "id": task_id, "node": node, "description": description }),
+        json!({ "summary": summary, "output_file": output_file }))
+}
+
+/// `runtime.turn_failed_repeated`: the bounded transient retries are spent.
+#[logged]
+pub fn turn_failed_repeated(org: &str, node: &str, session_id: &str, attempts: i64, classified: &str, err: &str) -> Value {
+    typed("runtime.turn_failed_repeated", SYSTEM, session_ref(org, node, session_id),
+        json!({ "attempts": attempts, "classified": classified, "err": err }))
+}
+
+/// `runtime.report_stalled` with cause `repeated`: a report's retries are spent.
+#[logged]
+pub fn report_stalled_repeated(org: &str, node: &str, generation: i64, audience: &str, attempts: i64,
+                               classified: &str, err: &str) -> Value {
+    typed("runtime.report_stalled", SYSTEM, node_ref(org, node, generation),
+        json!({ "report": node, "report_name": node, "cause": "repeated", "audience": audience,
+                "attempts": attempts, "classified": classified, "door": null, "err": err }))
+}
+
+/// `runtime.report_parked`: a report is frozen with no reset time.
+#[logged]
+pub fn report_parked(org: &str, node: &str, generation: i64, audience: &str, headline: &str, detail: &str,
+                     lane: &str, err: Option<&str>) -> Value {
+    typed("runtime.report_parked", SYSTEM, node_ref(org, node, generation),
+        json!({ "report": node, "report_name": node, "audience": audience, "headline": headline,
+                "detail": detail, "lane": lane, "err": err }))
+}
+
+/// `runtime.delivery_unread`: mail sent to a working agent is still unread.
+#[logged]
+pub fn delivery_unread(org: &str, recipient: &str, mail_uid: &str, sender: &str, at: &str, waited: &str) -> Value {
+    typed("runtime.delivery_unread", SYSTEM,
+        json!({ "kind": "mail", "org": org, "box": "node", "node": recipient, "id": mail_uid, "sender": sender, "at": at }),
+        json!({ "to": recipient, "waited": waited, "boundary_for": null }))
+}
