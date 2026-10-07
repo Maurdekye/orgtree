@@ -2,6 +2,12 @@
 export interface EventSourceRef { org: string; agent: string; generation: number; eventId: string }
 export interface ReplyContext extends EventSourceRef { quote: string }
 export interface EventReplyWire { source_event_ref: EventSourceRef; quoted_context: string }
+/** Mailbox/object replies retain a small source snapshot independently of delivery. */
+export interface MailReplySnapshot {
+  id: string; kind: 'mail' | 'document' | 'work_item'; from: string; at: string; gist: string
+  org?: string; box?: 'user' | 'org' | 'node'; node?: string
+}
+export type MailReplyWire = EventReplyWire | MailReplySnapshot
 export const MAX_REPLY_QUOTE = 4000
 
 export function validReply(value: unknown): value is ReplyContext {

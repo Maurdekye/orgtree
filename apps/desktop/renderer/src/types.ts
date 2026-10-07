@@ -1,4 +1,4 @@
-import type { EventReplyWire } from './eventReply'
+import type { EventReplyWire, MailReplyWire } from './eventReply'
 import type { TypedReplyReceipt } from './generated/events'
 // API payload types — the frontend's half of the seam (typing wave, docs/typing-plan.md).
 //
@@ -165,6 +165,7 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
+  reply_to?: MailReplyWire
   /** Raw wire data is decoded against the generated schema. */
   ev?: unknown
   ev_raw?: unknown
@@ -999,7 +1000,7 @@ export interface ChatInit {
 // api.py node_chat: the durable pending-mail projection (parity №11)
 export interface PendingMail {
   event_id?: string
-  reply_to?: EventReplyWire
+  reply_to?: MailReplyWire
   ev?: unknown
   ev_raw?: unknown
   ev_error?: unknown

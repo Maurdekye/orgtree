@@ -8,14 +8,13 @@ import { eventSummary } from './project'
 import { ReceivedMailBody } from '../canvas/mailpreview'
 import { mailFoldKeys } from '../canvas/foldstate'
 import { RefMdBody } from '../canvas/refmd'
-import { ReplyPreview } from '../canvas/replypreview'
+import { MailReplyPreview } from '../canvas/mailreply'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import { md } from '../canvas/shared'
 import { fileBase, fileUrl } from '../api'
 import { AttachThumb, fmtBytes, isImg } from '../canvas/img'
 import { DownloadIcon } from '../icons'
 import { fmtFull } from '../timefmt'
-import { replyContext } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
 
 /** Approved machine-only composition is retained for agents and storage,
@@ -167,9 +166,8 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
             it uses the same annotation shape without a remove control). The backend already
             threads `reply_to` this far (ledger.post_mail -> journal_row ->
             _segments_for's mail rows), it was simply never rendered. */}
-        {!annotation && (() => { const rc = replyContext(row.reply_to)
-          return rc && <ReplyPreview reply={rc} available={Boolean(replyAvailable?.(rc))}
-            onLocate={() => onLocateReply?.(rc)} /> })()}
+        {!annotation && <MailReplyPreview row={row} org={slug} world={world} onOpen={onOpen}
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} />}
         {card(row, true, "body")}<SegmentAttachments values={row.attachments} slug={slug} nid={nid}/>
         {row.attachments_missing?.map((name,k)=><div key={k} className="dim">Attachment unavailable: {name}</div>)}
   </section>

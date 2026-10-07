@@ -38,6 +38,7 @@ import { decodeEventRow } from '../events/decode'
 import { eventSummary, projectEvent } from '../events/project'
 import type { EventView } from '../events/project'
 import { EventCard, eventSurface } from '../events/card'
+import { MailReplyPreview, recordedMailReply } from './mailreply'
 
 // One mail interface, everywhere (user ruling: the user's and the agents'
 // inboxes function identically), laid out like a webmail client: the list on
@@ -620,6 +621,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
   rowRef?: (el: HTMLDivElement | null) => void
 }) {
   const isPile = pile > 1
+  const reply = recordedMailReply(m, '')
   return (
     <div ref={rowRef}
       className={'mailrow' + (view ? ' event-row event-' + view.family : '') + (selected ? ' on' : '') + (m._wait ? ' unread' : '')
@@ -701,7 +703,10 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           ever see. The body is still one click away in the reading
           pane, and the `l1` header keeps the row identifiable. */}
       {!isSystemNotice(m)
-        && <div className="l2">{briefLine(view ? eventSummary(view.event) : m.body)}</div>}
+        && <div className="l2">
+          {reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>
+            ↩ {briefLine(reply.gist || 'original unavailable')} · </span>}
+          {briefLine(view ? eventSummary(view.event) : m.body)}</div>}
     </div>
   )
 }
@@ -742,12 +747,15 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   const S = sender
   const messageContent = (m: MailRow, standalone = false) => {
     const decoded = decodeEventRow(m, profile)
-    return decoded.kind === 'legacy'
+    return <>
+      <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} />
+      {decoded.kind === 'legacy'
       ? <RefMdBody className="mailer-body md" html={md(m.body, mdBase?.(m) || undefined)}
           world={refs?.world} onOpen={refs?.onOpen} />
       : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
           org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
-          world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, m)} /></div>
+          world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, m)} /></div>}
+    </>
   }
   const run = members && members.length > 1 ? members : null
   return (
