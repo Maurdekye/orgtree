@@ -4696,7 +4696,11 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   replyAvailable?: (r: ReplyContext) => boolean
   onLocateReply?: (r: ReplyContext) => void
 }) {
-  if (m.role === 'system') return <SysLine m={m} />
+  if (m.role === 'system') {
+    if (decodeEventRow(m, 'operator').kind !== 'legacy') return <EventCard row={m} profile="operator" org={slug}
+      world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />} />
+    return <SysLine m={m} />
+  }
   const profile = 'operator'
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
     <SegmentList segments={m.segments} profile={profile} slug={slug} nid={nid}

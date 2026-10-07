@@ -303,7 +303,7 @@ export interface DocketAssigned {
   owner: string;
   previous_owner: string | null;
   assigner: string;
-  status: "backlogged" | "open" | "in_progress" | "blocked" | "waiting" | "review" | "deploy_ready" | "done" | "superseded" | "dropped";
+  status: "backlogged" | "open" | "in_progress" | "blocked" | "waiting" | "review" | "approved" | "deploy_ready" | "done" | "superseded" | "dropped";
   objective: string;
   done_so_far: Array<string>;
   working_on_next: Array<string>;

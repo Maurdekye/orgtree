@@ -1503,6 +1503,7 @@
             "blocked",
             "waiting",
             "review",
+            "approved",
             "deploy_ready",
             "done",
             "superseded",
