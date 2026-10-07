@@ -118,6 +118,13 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 ## Verification during the build
 
+46. **App-wide Enter key choice** (user 2026-10-07 00:01Z): App settings › General ›
+    Enter key offers Send message (default: Enter sends, Shift+Enter inserts a new line)
+    and Insert new line (Enter inserts a new line, Ctrl+Enter sends). Persist the choice
+    with app settings and use it in every message composer, including desks, user and
+    org inboxes, docket replies and question free-text answers. Single-line inputs keep
+    their own behavior. Send buttons keep working and shortcut hints follow the choice.
+
 33. **Brief smoke tests are allowed**; beyond that the user judges for themselves how well the app
     works once it launches.
 
