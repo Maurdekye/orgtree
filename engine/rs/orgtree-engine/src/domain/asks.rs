@@ -788,15 +788,53 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
 
 /// `POST /nodes/{nid}/batch`: resolve the whole request at once.
 #[logged]
+fn validate_batch(open: &Open, body: &Value) -> Result<()> {
+    for (part, present) in [
+        ("ask", !open.parts.questions.is_empty()),
+        ("credits", open.parts.credit.is_some()),
+        ("scope", open.parts.scope.is_some()),
+    ] {
+        if present && body["revs"][part].as_i64() != Some(i64::from(open.rev)) {
+            refuse!(Conflict, "the {part} request changed or its revision is missing; read it again");
+        }
+    }
+    if !open.parts.questions.is_empty() {
+        let Some(answers) = body["answers"].as_array() else {
+            refuse!(BadRequest, "send one answer per question; use null to skip explicitly");
+        };
+        if answers.len() != open.parts.questions.len() {
+            refuse!(BadRequest, "send one answer per question; use null to skip explicitly");
+        }
+    }
+    if open.parts.credit.is_some() {
+        let cd = &body["credits"];
+        let decisions = usize::from(cd["skip"] == true)
+            + usize::from(cd["deny"] == true)
+            + usize::from(cd["granted"].as_f64().is_some());
+        if decisions != 1 {
+            refuse!(BadRequest, "decide credits explicitly: granted, deny, or skip");
+        }
+    }
+    if let Some(scope) = &open.parts.scope {
+        let count = scope["items"].as_array().map(Vec::len).unwrap_or(0);
+        let Some(decisions) = body["scope"].as_array() else {
+            refuse!(BadRequest, "send approve, deny, or skip for every scope item");
+        };
+        if decisions.len() != count || decisions.iter().any(|v| {
+            !matches!(v.as_str().map(str::trim), Some("approve" | "deny" | "skip"))
+        }) {
+            refuse!(BadRequest, "send approve, deny, or skip for every scope item");
+        }
+    }
+    Ok(())
+}
+
+#[logged]
 pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &str, body: &Value) -> Result<Value> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let open = open_by(&tx, org.id, None, Some(agent)).await?;
-    if let Some(rev) = body.pointer("/revs/ask").and_then(Value::as_i64) {
-        if rev as i32 != open.rev {
-            refuse!(Conflict, "the request changed while you were answering; read it again");
-        }
-    }
+    validate_batch(&open, body)?;
     tx.rollback().await?;
     let mut sections = Vec::new();
     let mut cards: Vec<Value> = Vec::new();
@@ -839,8 +877,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         let mut decided = Vec::new();
         let mut lines = vec![json!("[SCOPE REQUEST decided]")];
         for (i, it) in items.iter().enumerate() {
-            let d = decisions.get(i).and_then(Value::as_str).unwrap_or("skip");
-            let d = if d == "approve" || d == "deny" { d } else { "skip" };
+            let d = decisions[i].as_str().unwrap().trim();
             sections.push(format!("{}: {}", item_label(it), match d {
                 "approve" => "granted",
                 "deny" => "denied",
