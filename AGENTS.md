@@ -71,6 +71,13 @@ user, DECISIONS 39]
   they never change anything live, stay in your own scratch folder (they hold secrets), are never
   committed or sent, and are deleted when no longer needed. [decided: user, DECISIONS 40]
 
+**Turn slots and CLI replacement (2026-10-07).** Slots count admitted turns across all orgs,
+not parked CLIs. Publish admission before slow CLI startup; release the slot when taking the
+finished turn, before fallible cleanup. Stream and exit notifications carry a process incarnation,
+so a replaced CLI cannot finish its successor's turn. Exit observations log the incarnation,
+PID, reason and OS status (or explicit uncertainty). [verified: `runtime/actor.rs`, `sched.rs`,
+`claude.rs`, `codex.rs`, `agy.rs`; details: `docs/rust-engine/turn-slot-lifecycle.md`]
+
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
 - **No global locks of any kind.** State is owned, not shared: each running agent's state belongs
