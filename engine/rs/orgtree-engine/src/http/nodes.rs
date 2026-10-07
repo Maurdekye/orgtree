@@ -722,11 +722,20 @@ pub async fn scratch(
     let dir: Option<String> = client.query_one("SELECT scratch_dir FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
     drop(client);
     let root = dir.map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&org.slug).join(&a.name));
-    let target = root.join(q.path.trim_start_matches(['/', '\\']));
-    if q.path.split(['/', '\\']).any(|s| s == "..") {
-        return Err(ApiError::forbidden("that path leaves the folder"));
+    if q.path.is_empty() && !root.exists() {
+        // a seat that has not written anything yet: an empty folder
+        return Ok(Json(json!({ "dir": q.path, "entries": [] })));
     }
-    if target.is_dir() || !target.exists() && q.path.is_empty() {
+    // 3.x node_scratch: both ends resolved (links, junctions, an absolute or
+    // drive path that `join` would let replace the root), then a
+    // component-wise containment test, so a sibling `<root>-x` is outside too
+    let base = std::fs::canonicalize(&root).map_err(|_| ApiError::not_found("this agent's folder could not be read"))?;
+    let target = std::fs::canonicalize(root.join(q.path.trim_start_matches(['/', '\\'])))
+        .map_err(|_| ApiError::not_found(format!("no such path: {}", q.path)))?;
+    if !target.starts_with(&base) {
+        return Err(ApiError::unprocessable("path escapes the scratch space"));
+    }
+    if target.is_dir() {
         let mut entries: Vec<Value> = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&target) {
             for ent in rd.flatten() {
