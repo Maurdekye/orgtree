@@ -693,7 +693,7 @@ pub fn start(engine: &std::sync::Arc<Engine>) {
 }
 
 #[logged]
-async fn publish_due(engine: &Engine, last: &mut std::collections::HashMap<&'static str, Instant>) {
+async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collections::HashMap<&'static str, Instant>) {
     let due = |last: &std::collections::HashMap<&'static str, Instant>, k: &str, every: u64| {
         last.get(k).map(|t| t.elapsed() >= Duration::from_secs(every)).unwrap_or(true)
     };
@@ -709,8 +709,19 @@ async fn publish_due(engine: &Engine, last: &mut std::collections::HashMap<&'sta
         last.insert("openai", Instant::now());
     }
     if st.agy.installed && due(last, "google", 300) {
+        let before = engine.usage.peek("agy", "google");
         let v = antigravity(engine, false).await;
         publish(engine, "google", &v);
+        // A known full group becoming usable releases mail held at the turn gate.
+        let recovered = before["limits"].as_array().is_some_and(|old| old.iter().any(|b| {
+            b["percent"].as_f64().is_some_and(|p| p >= 100.0)
+                && v["limits"].as_array().is_some_and(|new| new.iter().any(|n| {
+                    n["group"] == b["group"] && n["percent"].as_f64().is_some_and(|p| p < 100.0)
+                }))
+        }));
+        if recovered {
+            crate::accounts::wake_waiting(engine, crate::accounts::Waiting::Native("google".into())).await;
+        }
         last.insert("google", Instant::now());
     }
     let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
@@ -878,6 +889,6 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above."));
     }
     text.push_str("\n[END PROVIDER USAGE]");
-    let key = format!("{selected_lane}\n{}\n{}", roster.join("|"), key_lines.join("\n"));
+    let key = format!("{selected_lane}\n{tier}\n{}\n{}", roster.join("|"), key_lines.join("\n"));
     (text, key)
 }

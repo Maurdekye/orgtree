@@ -301,6 +301,7 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
 pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
     let mut out = Vec::new();
     for t in catalog::TIERS.iter().filter(|t| !t.legacy) {
+        if catalog::antigravity_claude(t.tier) && !engine.settings.antigravity_claude_enabled() { continue; }
         if !engine.settings.provider_enabled(t.provider) {
             continue;
         }

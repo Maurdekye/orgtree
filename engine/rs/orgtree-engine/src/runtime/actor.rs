@@ -2656,7 +2656,9 @@ impl Actor {
                         acc["input"] = json!(acc["input"].as_i64().unwrap_or(0) + inp);
                         acc["cached"] = json!(acc["cached"].as_i64().unwrap_or(0) + cached);
                         acc["output"] = json!(acc["output"].as_i64().unwrap_or(0) + out);
-                        acc["cost"] = json!(acc["cost"].as_f64().unwrap_or(0.0) + agyrt::request_cost(&model, inp, cached, out));
+                        if !catalog::antigravity_claude(&t.serving_tier) {
+                            acc["cost"] = json!(acc["cost"].as_f64().unwrap_or(0.0) + agyrt::request_cost(&model, inp, cached, out));
+                        }
                         acc["last_prompt"] = json!(inp + cached);
                     }
                     t.draft.clear();
@@ -3555,6 +3557,7 @@ impl Actor {
         client
             .execute(
                 "UPDATE ot.agents SET cost_usd = cost_usd + $2::float8::numeric,
+                        cost_unknown = cost_unknown OR $12,
                         occupancy = CASE WHEN $3 THEN $4 ELSE occupancy END,
                         occupancy_est = CASE WHEN $3 THEN false WHEN $9 THEN true ELSE occupancy_est END,
                         compacted_unrun = CASE WHEN $9 THEN true WHEN $3 THEN false ELSE compacted_unrun END,
@@ -3569,6 +3572,7 @@ impl Actor {
                 &[
                     &self.id, &cost, &measured, &occupancy, &window, &session, &json!(denials), &error, &turn.compact,
                     &freeze_rec, &self.cost_seen,
+                    &(agy && catalog::antigravity_claude(&turn.serving_tier) && input + cache_read + output > 0),
                 ],
             )
             .await?;

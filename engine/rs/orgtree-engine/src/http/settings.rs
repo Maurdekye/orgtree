@@ -355,6 +355,13 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     drop(client);
     if b.contains_key("antigravity_claude_enabled") {
         crate::providers::publish(&e);
+        for org in e.orgs.all() {
+            changes::notify(&e, &org, vec![Change::Tiers]);
+        }
+        if e.settings.antigravity_claude_enabled() {
+            crate::accounts::wake_waiting(&e, crate::accounts::Waiting::Native("google".into())).await;
+            if e.settings.keep_warm() { crate::runtime::warm_all(&e); }
+        }
     }
     if b.contains_key("enter_key_behavior") {
         e.app.set_value("enter_key_behavior", json!(e.settings.enter_key_behavior()));

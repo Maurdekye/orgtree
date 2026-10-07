@@ -335,7 +335,7 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
             refuse!(BadRequest, "{id} is a {} account and {tier} runs on {provider}", a.provider);
         }
         if provider == catalog::GOOGLE {
-            if let Some(until) = a.limited_for(tier, Utc::now()) {
+            if let Some(until) = a.limited_for(tier, chrono::Utc::now()) {
                 refuse!(Conflict, "{id} has exhausted this Antigravity model group's quota until {until}");
             }
         }
@@ -1310,6 +1310,9 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             &[&n.id, &tier, &seat, &account, &clear],
         )
         .await?;
+    }
+    if catalog::antigravity_claude(&tier) {
+        tx.execute("UPDATE ot.agents SET context_window = NULL, scope = scope - 'model_version' WHERE id = $1", &[&n.id]).await?;
     }
     tx.execute("UPDATE ot.agents SET pending_switch = NULL WHERE id = $1", &[&n.id]).await?;
     event(tx, org.id, "switch_model", actor, Some(n.id), json!({ "node": n.name, "from": n.tier, "to": tier, "seat_old": n.seat, "old_session": n.session, "cascaded": raised }), fx).await?;
