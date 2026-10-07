@@ -68,7 +68,7 @@ export interface EngineOptions { python: string; directory: string; dataRoot: st
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
-export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; mailhub?: MailhubStats; maintenance?: MaintenanceRequest }
+export interface RuntimeStats { activeAgents: number; totalAgents: number; idle: boolean; mailhub?: MailhubStats; maintenance?: MaintenanceRequest; credentialWarning?: string | null }
 
 /** Tolerant parse: a malformed hub summary drops the FIELD, never the whole
  *  stats payload — the agent counts still matter when the hub is broken. */
@@ -149,6 +149,8 @@ export class Engine extends EventEmitter {
   /** Why the last attach attempt was declined; empty when no descriptor existed. */
   attachDiagnostic = ''
   status: EngineStatus = { state: 'starting' }
+  /** Retained through a failed poll; a successful new engine read clears it. */
+  credentialWarning: string | null = null
   get origin(): string { return this.endpoint }
   // Main-process only; never include this field in bridge responses or logs.
   get token(): string { return this.credential }
@@ -679,10 +681,14 @@ export class Engine extends EventEmitter {
       const r = await fetch(this.endpoint + '/api/desktop/status', { headers: { [TOKEN_HEADER]: this.credential }, signal: AbortSignal.timeout(4000), redirect: 'error' })
       if (!r.ok) return null
       const value = await r.json() as RuntimeStats
+      if (value.credentialWarning === null || typeof value.credentialWarning === 'string') {
+        this.credentialWarning = value.credentialWarning || null
+      }
       if (!Number.isInteger(value.activeAgents) || !Number.isInteger(value.totalAgents) || value.activeAgents < 0 || value.totalAgents < value.activeAgents || typeof value.idle !== 'boolean' || (value.idle && value.activeAgents > 0)) return null
       const maintenance = maintenanceRequest(value.maintenance)
       const mailhub = mailhubStats((value as unknown as Record<string, unknown>).mailhub)
       return { activeAgents: value.activeAgents, totalAgents: value.totalAgents, idle: value.idle,
+        credentialWarning: this.credentialWarning,
         ...(mailhub ? { mailhub } : {}), ...(maintenance ? { maintenance } : {}) }
     } catch { return null }
   }
