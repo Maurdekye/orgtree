@@ -175,6 +175,6 @@ pub async fn quick_commit(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<
 /// staffing surface can offer, computed from in-memory state at once.
 #[logged]
 pub async fn staffing_options(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
-    let _ = org(&e, &slug)?;
-    Ok(Json(crate::domain::staffing::options(&e)))
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::domain::staffing::options(&e, &o.slug)))
 }

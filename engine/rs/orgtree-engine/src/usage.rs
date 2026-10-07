@@ -743,7 +743,7 @@ fn countdown(secs: i64) -> String {
 /// key of what changed materially (the readings' ages left out), so an
 /// unchanged board can be sent as one line.
 #[logged]
-pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: &str) -> (String, String) {
+pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: &str, org_slug: &str) -> (String, String) {
     let now = Utc::now();
     let view = engine.accounts.view();
     let pin = engine.usage.cache.pin();
@@ -757,7 +757,8 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     };
     // (lane name, cache key, email)
     let mut lanes: Vec<(String, String, Option<String>)> = vec![("claude/primary".into(), claude_key(None), None)];
-    let registered = view.all();
+    // another org's legacy org keys are not this agent's lanes (3.x list_accounts(org))
+    let registered: Vec<_> = view.all().into_iter().filter(|a| a.available_to(Some(org_slug))).collect();
     for a in registered.iter().filter(|a| a.provider == "claude" && !a.is_apikey() && !crate::accounts::is_ambient(a)) {
         lanes.push((a.id.clone(), claude_key(a.config_dir.as_deref()), a.email.clone()));
     }

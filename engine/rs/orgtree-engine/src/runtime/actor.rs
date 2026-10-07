@@ -988,7 +988,8 @@ impl Actor {
                         a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, a.parent_id, a.scratch_dir,
                         p.team_charter, o.name, o.slug, o.settings, o.killswitch IS NOT NULL,
                         (SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
-                          WHERE ac.id = a.account AND ac.kind = 'apikey'),
+                          WHERE ac.id = a.account AND ac.kind = 'apikey'
+                            AND coalesce(ac.origin_org, '') IN ('', o.slug)),
                         a.extra->>'harness', a.extra->>'handoff_due',
                         a.team_charter, p.name,
                         EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
@@ -1273,6 +1274,13 @@ impl Actor {
         }
         let view = self.engine.accounts.view();
         let acc = ctx.account.as_deref().and_then(|a| view.get(a));
+        // a legacy org key never serves another org's turn (3.x parity F02)
+        if let Some(a) = acc.filter(|a| !a.available_to(Some(&ctx.org_slug))) {
+            return Err(anyhow!(
+                "the account {} is an org key restricted to another organization; move this agent to another account",
+                a.id
+            ));
+        }
         if crate::accounts::active(&self.engine, &ctx.provider, acc) {
             return Ok(());
         }
@@ -2239,7 +2247,7 @@ impl Actor {
     /// The PROVIDER USAGE block for this turn: in full (numbered) when it
     /// changed or the session is new, else one line pointing at the last one.
     fn usage_block(&mut self, ctx: &Ctx) -> String {
-        let (text, key) = crate::usage::turn_board(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.tier);
+        let (text, key) = crate::usage::turn_board(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.tier, &ctx.org_slug);
         if let Some((session, last, seq)) = &self.board_sent {
             if *session == ctx.session_id && *last == key {
                 return format!("[PROVIDER USAGE #{seq} — unchanged since #{seq} earlier in this conversation; read the numbers there]");
@@ -3434,7 +3442,7 @@ impl Actor {
         if let Some(until) = limit {
             let ctx = self.load_ctx().await?;
             if ctx.fallback {
-                moved_to = freeze::pick_fallback(&self.engine, &ctx.provider, ctx.account.as_deref());
+                moved_to = freeze::pick_fallback(&self.engine, &ctx.provider, ctx.account.as_deref(), &ctx.org_slug);
             }
             if moved_to.is_none() {
                 freeze_rec = Some(json!({

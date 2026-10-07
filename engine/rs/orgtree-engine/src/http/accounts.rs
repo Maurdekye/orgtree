@@ -53,14 +53,17 @@ fn host_identity() -> Value {
 
 /// `GET /api/accounts`: the registry rows, with what runs on each.
 #[logged]
-pub async fn list(State(e): State<Arc<Engine>>, Query(_q): Query<OrgQuery>) -> ApiResult<Json<Value>> {
+pub async fn list(State(e): State<Arc<Engine>>, Query(q): Query<OrgQuery>) -> ApiResult<Json<Value>> {
     let bound = bindings(&e).await?;
     let view = e.accounts.view();
     let now = chrono::Utc::now();
+    // `?org=` asks for one org's selectable accounts: another org's legacy
+    // org keys are left out (3.x registry.list_accounts(org))
+    let org = q.org.as_deref().filter(|o| !o.is_empty());
     let rows: Vec<Value> = view
         .all()
         .into_iter()
-        .filter(|a| a.provider != "openrouter")
+        .filter(|a| a.provider != "openrouter" && a.available_to(org))
         .map(|a| crate::accounts::row(a, bound.get(&a.id).cloned().unwrap_or_default(), now))
         .collect();
     Ok(Json(json!({ "accounts": rows, "primary": "claude/primary", "host_identity": host_identity() })))
@@ -228,41 +231,51 @@ pub async fn identity(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> A
     Ok(Json(json!({ "auth": auth, "email": email })))
 }
 
-/// `GET /api/accounts/{id}/marks`: its "limited until" marks.
+/// `GET /api/accounts/{id}/marks`: every stored mark with its freshness and
+/// the `expected` fingerprint a clear must send back (3.x describe_marks).
 #[logged]
 pub async fn marks(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    if e.accounts.view().get(&id).is_none() {
+        return Err(ApiError::not_found(format!("no account {id}")));
+    }
     let client = e.db.get().await?;
-    let rows = client
-        .query("SELECT pool, until, provenance, win, at FROM ot.account_marks WHERE account = $1 ORDER BY until DESC", &[&id])
-        .await?;
-    let marks: Vec<Value> = rows
-        .iter()
-        .map(|r| {
-            let until: chrono::DateTime<chrono::Utc> = r.get(1);
-            json!({ "pool": r.get::<_, String>(0), "until": until.timestamp(), "until_iso": crate::util::iso(until),
-                    "provenance": r.get::<_, String>(2), "window": r.get::<_, Option<String>>(3),
-                    "at": crate::util::iso(r.get(4)) })
-        })
-        .collect();
+    let marks = crate::account_marks::describe(&client, &id).await?;
     Ok(Json(json!({ "account": id, "marks": marks })))
 }
 
 #[derive(Deserialize, Debug, Default)]
 pub struct ClearMarks {
+    source: Option<String>,
     pool: Option<String>,
+    expected: Option<Value>,
+    companion_expected: Option<Value>,
+    reason: Option<String>,
 }
 
-/// `POST /api/accounts/{id}/marks/clear`: the user says the account works again.
+/// `POST /api/accounts/{id}/marks/clear`: clear ONE mark the user saw, only if
+/// it is still exactly that mark; the audit row commits with the delete.
 #[logged]
 pub async fn clear_marks(State(e): State<Arc<Engine>>, Path(id): Path<String>, body: Option<Json<ClearMarks>>) -> ApiResult<Json<Value>> {
-    let pool = body.and_then(|b| b.0.pool);
-    let client = e.db.get().await?;
-    let n = client
-        .execute("DELETE FROM ot.account_marks WHERE account = $1 AND ($2::text IS NULL OR pool = $2)", &[&id, &pool])
-        .await?;
-    drop(client);
-    refreshed(&e).await;
-    Ok(Json(json!({ "cleared": n })))
+    let b = body.map(|b| b.0).unwrap_or_default();
+    if b.source.as_deref().is_some_and(|s| s != "registry") {
+        return Err(ApiError::bad_request("this engine has no legacy roster; every mark is in the registry"));
+    }
+    if e.accounts.view().get(&id).is_none() {
+        return Err(ApiError::not_found(format!("no account {id}")));
+    }
+    let pool = b.pool.unwrap_or_default();
+    let by = crate::account_marks::ClearBy { actor: "@user", org_slug: None, org_id: None, via: "app" };
+    let out = crate::account_marks::clear(
+        &e,
+        &id,
+        &pool,
+        &b.expected.unwrap_or(Value::Null),
+        b.companion_expected.as_ref(),
+        b.reason.as_deref().unwrap_or(""),
+        &by,
+    )
+    .await?;
+    Ok(Json(out))
 }
 
 // ------------------------------------------------------------ the legacy Claude key readout

@@ -169,7 +169,7 @@ pub async fn detail(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
         eff = scope::clamp(s, &eff);
     }
     let accounts = e.accounts.view();
-    let ctx = TreeCtx { org_settings: &settings, now: chrono::Utc::now(), accounts: &accounts, audiences_held: &held };
+    let ctx = TreeCtx { org_settings: &settings, now: chrono::Utc::now(), accounts: &accounts, audiences_held: &held, org_slug: &o.slug };
     let mut body = agent_body(raw, &eff, a.parent_id, &ctx);
     if let Some(h) = e.agents.get(a.id) {
         let rt = h.view.load();

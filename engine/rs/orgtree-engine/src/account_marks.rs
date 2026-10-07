@@ -160,3 +160,200 @@ async fn refreshed(engine: &Engine, result: anyhow::Result<u64>) {
         _ => {}
     }
 }
+
+// ------------------------------------------------------------ manual clear (3.x parity F01)
+
+/// The fable mark a pooled/default mark carries when it was inferred with it.
+const FABLE: &str = "fable";
+
+#[nolog]
+fn micros(t: DateTime<Utc>) -> i64 {
+    t.timestamp_micros()
+}
+
+#[nolog]
+fn secs(t: DateTime<Utc>) -> f64 {
+    t.timestamp_micros() as f64 / 1e6
+}
+
+/// A stored mark, as read under the clear's row lock or for inspect.
+struct Mark {
+    pool: String,
+    until: DateTime<Utc>,
+    provenance: String,
+    win: Option<String>,
+    at: DateTime<Utc>,
+}
+
+#[logged]
+impl Mark {
+    #[nolog]
+    fn of(r: &tokio_postgres::Row) -> Mark {
+        Mark { pool: r.get(0), until: r.get(1), provenance: r.get(2), win: r.get(3), at: r.get(4) }
+    }
+    /// The exact values a clear must present back (3.x `mark_fingerprint`):
+    /// any write to the mark since it was read changes at least one of them.
+    #[nolog]
+    fn fingerprint(&self) -> Value {
+        serde_json::json!({ "until": secs(self.until), "observed_at": secs(self.at),
+                            "provenance": self.provenance, "window": self.win.clone().unwrap_or_default() })
+    }
+    /// Does a caller's `expected` still name this exact mark? Times compare at
+    /// the microsecond the database stores; a malformed fingerprint never matches.
+    #[nolog]
+    fn matches(&self, expected: &Value) -> bool {
+        let us = |k: &str| expected[k].as_f64().filter(|v| v.is_finite()).map(|v| (v * 1e6).round() as i64);
+        us("until") == Some(micros(self.until))
+            && us("observed_at") == Some(micros(self.at))
+            && expected["provenance"].as_str() == Some(self.provenance.as_str())
+            && expected["window"].as_str().unwrap_or("") == self.win.as_deref().unwrap_or("")
+    }
+    #[nolog]
+    fn snapshot(&self) -> Value {
+        serde_json::json!({ "until": secs(self.until), "observed_at": secs(self.at),
+                            "provenance": self.provenance, "window": self.win })
+    }
+}
+
+/// Is this fable mark the inferred companion of this pooled mark? Same rule
+/// as 3.x `_rides_with`: inferred, with the same horizon.
+#[nolog]
+fn rides_with(pooled: &Mark, fable: &Mark) -> bool {
+    fable.provenance == "inferred" && fable.until == pooled.until
+}
+
+#[nolog]
+fn pooled(pool: &str) -> bool {
+    pool == "pooled" || pool == "default"
+}
+
+/// Every stored mark on one exact account row, with its freshness and the
+/// `expected` fingerprint a clear must present (3.x `describe_marks`).
+#[logged]
+pub async fn describe(client: &deadpool_postgres::Object, account: &str) -> anyhow::Result<Vec<Value>> {
+    let rows = client
+        .query("SELECT pool, until, provenance, win, at FROM ot.account_marks WHERE account = $1 ORDER BY pool LIMIT 64", &[&account])
+        .await?;
+    let marks: Vec<Mark> = rows.iter().map(Mark::of).collect();
+    let now = Utc::now();
+    let fable = marks.iter().find(|m| m.pool == FABLE);
+    Ok(marks
+        .iter()
+        .map(|m| {
+            let mut e = serde_json::json!({
+                "source": "registry", "account": account, "pool": m.pool,
+                "state": if m.until > now { "active" } else { "expired" },
+                "until": secs(m.until), "until_iso": crate::util::iso(m.until),
+                "remaining_s": ((m.until - now).num_milliseconds() as f64 / 1000.0).max(0.0),
+                "observed_at": secs(m.at), "age_s": (now - m.at).num_milliseconds() as f64 / 1000.0,
+                "provenance": m.provenance, "window": m.win.clone().unwrap_or_default(),
+                "expected": m.fingerprint() });
+            if let (true, Some(f)) = (pooled(&m.pool), fable) {
+                e["companion"] = serde_json::json!({ "pool": FABLE, "cleared_with_this": rides_with(m, f), "expected": f.fingerprint() });
+            }
+            e
+        })
+        .collect())
+}
+
+/// Who asked for a manual clear; kept in the audit row.
+pub struct ClearBy<'a> {
+    pub actor: &'a str,
+    pub org_slug: Option<&'a str>,
+    /// the clearing org's events log, for the agent tool
+    pub org_id: Option<i64>,
+    pub via: &'a str,
+}
+
+#[nolog]
+fn with(mut v: Value, extra: Value) -> Value {
+    if let (Some(o), Value::Object(x)) = (v.as_object_mut(), extra) {
+        o.extend(x);
+    }
+    v
+}
+
+/// Remove ONE stored mark only if it is still exactly `expected` (3.x
+/// `registry.clear_mark`). `changed`, `missing` and `expired` write nothing.
+/// Clearing pooled/default also removes an inferred fable companion with the
+/// same horizon; any other fable mark is kept and reported. The delete and its
+/// audit row commit in ONE transaction. Adds no capacity and resumes no agent.
+#[logged]
+pub async fn clear(
+    engine: &Engine,
+    account: &str,
+    pool: &str,
+    expected: &Value,
+    companion_expected: Option<&Value>,
+    reason: &str,
+    by: &ClearBy<'_>,
+) -> anyhow::Result<Value> {
+    if pool.is_empty() {
+        crate::refuse!(BadRequest, "name the pool to clear");
+    }
+    if !expected.is_object() {
+        crate::refuse!(BadRequest, "expected must be the `expected` object inspect returned");
+    }
+    if reason.chars().count() > 500 {
+        crate::refuse!(BadRequest, "reason is limited to 500 characters");
+    }
+    let base = serde_json::json!({ "account": account, "source": "registry", "pool": pool });
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let rows = tx
+        .query(
+            "SELECT pool, until, provenance, win, at FROM ot.account_marks WHERE account = $1 AND pool IN ($2, $3) FOR UPDATE",
+            &[&account, &pool, &FABLE],
+        )
+        .await?;
+    let marks: Vec<Mark> = rows.iter().map(Mark::of).collect();
+    let Some(mark) = marks.iter().find(|m| m.pool == pool) else {
+        return Ok(with(base, serde_json::json!({ "result": "missing", "current": null })));
+    };
+    if !mark.matches(expected) {
+        return Ok(with(base, serde_json::json!({ "result": "changed", "current": mark.snapshot() })));
+    }
+    if mark.until <= Utc::now() {
+        return Ok(with(base, serde_json::json!({ "result": "expired", "current": mark.snapshot() })));
+    }
+    let mut cleared = serde_json::Map::new();
+    let mut kept = serde_json::Map::new();
+    cleared.insert(pool.to_string(), mark.snapshot());
+    if let (true, Some(f)) = (pooled(pool), marks.iter().find(|m| m.pool == FABLE)) {
+        if companion_expected.is_some_and(|c| !f.matches(c)) {
+            return Ok(with(
+                base,
+                serde_json::json!({ "result": "changed", "current": mark.snapshot(), "companion_current": f.snapshot() }),
+            ));
+        }
+        if rides_with(mark, f) {
+            cleared.insert(FABLE.to_string(), f.snapshot());
+        } else {
+            kept.insert(FABLE.to_string(), f.snapshot());
+        }
+    }
+    let pools: Vec<String> = cleared.keys().cloned().collect();
+    tx.execute("DELETE FROM ot.account_marks WHERE account = $1 AND pool = ANY($2)", &[&account, &pools]).await?;
+    let (cleared, kept) = (Value::Object(cleared), Value::Object(kept));
+    let audit = tx
+        .query_one(
+            "INSERT INTO ot.account_mark_audit (actor, org, via, account, pool, cleared, kept, reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, at",
+            &[&by.actor, &by.org_slug, &by.via, &account, &pool, &cleared, &kept, &reason],
+        )
+        .await?;
+    let entry = serde_json::json!({ "id": audit.get::<_, i64>(0), "at": crate::util::iso(audit.get(1)), "actor": by.actor,
+                                    "org": by.org_slug, "via": by.via, "account": account, "source": "registry",
+                                    "pool": pool, "cleared": cleared, "kept": kept, "reason": reason });
+    if let Some(org_id) = by.org_id {
+        tx.execute(
+            "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_mark_cleared', $2, $3)",
+            &[&org_id, &by.actor, &entry],
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    drop(client);
+    refreshed(engine, Ok(1)).await;
+    Ok(with(base, serde_json::json!({ "result": "cleared", "cleared": cleared, "kept": kept, "audit": entry })))
+}

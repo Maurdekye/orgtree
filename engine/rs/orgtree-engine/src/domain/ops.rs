@@ -317,7 +317,7 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
 
 /// Validate a selector before storing it; qualified primary selectors also name a provider.
 #[logged]
-fn validate_account(engine: &Engine, tier: &str, raw: Option<&str>) -> Result<()> {
+fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&str>) -> Result<()> {
     let provider = catalog::provider_of(tier);
     if let Some(prefix) = raw.and_then(|v| v.strip_suffix("/primary")) {
         if prefix != provider {
@@ -326,7 +326,8 @@ fn validate_account(engine: &Engine, tier: &str, raw: Option<&str>) -> Result<()
     }
     if let crate::accounts::Choice::Account(id) = crate::accounts::choice(raw) {
         let view = engine.accounts.view();
-        let Some(a) = view.get(&id) else { refuse!(NotFound, "no account {id}") };
+        // a legacy org key is refused exactly like an id that does not exist
+        let Some(a) = view.get(&id).filter(|a| a.available_to(Some(org_slug))) else { refuse!(NotFound, "no account {id}") };
         if a.provider != provider {
             refuse!(BadRequest, "{id} is a {} account and {tier} runs on {provider}", a.provider);
         }
@@ -663,10 +664,10 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     // parent's bound account. Explicit empty/primary means provider primary.
     let explicit = req.get("account").and_then(Value::as_str);
     let selected = if let Some(raw) = explicit {
-        validate_account(engine, &tier, Some(raw))?;
+        validate_account(engine, &org.slug, &tier, Some(raw))?;
         Some(raw)
     } else {
-        caps.settings["default_account"].as_str().filter(|raw| validate_account(engine, &tier, Some(raw)).is_ok())
+        caps.settings["default_account"].as_str().filter(|raw| validate_account(engine, &org.slug, &tier, Some(raw)).is_ok())
     };
     let account = match crate::accounts::choice(selected) {
         crate::accounts::Choice::Account(a) => Some(a),
@@ -785,7 +786,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if !engine.settings.provider_enabled(catalog::provider_of(&tier)) {
         refuse!(Conflict, "provider is disabled for {tier}");
     }
-    validate_account(engine, &tier, str_arg(req, "account").or(n.account.as_deref()))?;
+    validate_account(engine, &org.slug, &tier, str_arg(req, "account").or(n.account.as_deref()))?;
     let anchor_stake = anchor.as_ref().map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = req["grant"].as_f64().unwrap_or(n.grant);
     if grant < 0.0 { refuse!(BadRequest, "a grant cannot be negative"); }
@@ -1245,7 +1246,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     if !engine.settings.provider_enabled(to) {
         refuse!(Conflict, "{} is turned off in App settings", catalog::provider_label(to));
     }
-    validate_account(engine, &tier, str_arg(req, "account"))?;
+    validate_account(engine, &org.slug, &tier, str_arg(req, "account"))?;
     if busy(tx, n.id).await? {
         let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": from != to, "account": req["account"] }), true).await?;
         event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
@@ -1259,7 +1260,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     } else {
         Vec::new()
     };
-    validate_account(engine, &tier, str_arg(req, "account"))?;
+    validate_account(engine, &org.slug, &tier, str_arg(req, "account"))?;
     let picked = crate::accounts::choice(str_arg(req, "account"));
     let clear = picked == crate::accounts::Choice::Primary;
     let account = match picked {
@@ -1342,7 +1343,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
     authorize(tx, actor, &n, "change the account of").await?;
     let pending: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     let target_tier = pending.as_ref().and_then(|p| p["tier"].as_str()).unwrap_or(&n.tier);
-    validate_account(engine, target_tier, str_arg(req, "account"))?;
+    validate_account(engine, &org.slug, target_tier, str_arg(req, "account"))?;
     let acc = match crate::accounts::choice(str_arg(req, "account")) {
         crate::accounts::Choice::Account(a) => Some(a),
         _ => None,
@@ -1729,7 +1730,7 @@ pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id
         };
         let want = account["account"].as_str().unwrap_or("primary");
         if newer || model["account"].as_str().map_or(true, str::is_empty) {
-            match validate_account(engine, model["tier"].as_str().unwrap_or(""), Some(want)) {
+            match validate_account(engine, &org.slug, model["tier"].as_str().unwrap_or(""), Some(want)) {
                 Ok(()) => model["account"] = json!(want),
                 Err(e) => event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": e.to_string() }), &mut fx).await?,
             }

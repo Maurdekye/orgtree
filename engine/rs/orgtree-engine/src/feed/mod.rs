@@ -413,7 +413,8 @@ impl Actor {
         let (settings, accounts) = self.ctx_bodies();
         let ceiling = scope::org_ceiling(&settings["dirs"]);
         let now = chrono::Utc::now();
-        let ctx = TreeCtx { org_settings: &settings, now, accounts: &accounts, audiences_held: &self.audiences_held };
+        let slug = self.org_row["slug"].as_str().unwrap_or("");
+        let ctx = TreeCtx { org_settings: &settings, now, accounts: &accounts, audiences_held: &self.audiences_held, org_slug: slug };
         let mut changed = Vec::new();
         for (_, id) in ordered {
             let raw = &self.live_raw[&id];
@@ -507,6 +508,7 @@ impl Actor {
                 now: chrono::Utc::now(),
                 accounts: &accounts,
                 audiences_held: &self.audiences_held,
+                org_slug: self.org_row["slug"].as_str().unwrap_or(""),
             };
             for (id, raw) in retired_now {
                 let parent = raw["parent_id"].as_i64();
@@ -1059,7 +1061,13 @@ async fn read_sub(
     let settings = groups::effective_settings(&org_row["settings"], &engine.settings.defaults());
     let ceiling = scope::org_ceiling(&settings["dirs"]);
     let accounts = engine.accounts.view();
-    let ctx = TreeCtx { org_settings: &settings, now: chrono::Utc::now(), accounts: &accounts, audiences_held: audiences };
+    let ctx = TreeCtx {
+        org_settings: &settings,
+        now: chrono::Utc::now(),
+        accounts: &accounts,
+        audiences_held: audiences,
+        org_slug: org_row["slug"].as_str().unwrap_or(""),
+    };
     for (id, raw) in raws {
         let eff = scope::clamp(&raw["scope"], &ceiling);
         let body = agent_body(&raw, &eff, raw["parent_id"].as_i64(), &ctx);

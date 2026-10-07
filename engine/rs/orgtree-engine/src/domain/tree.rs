@@ -17,6 +17,8 @@ pub struct TreeCtx<'a> {
     pub now: DateTime<Utc>,
     pub accounts: &'a crate::accounts::AccountsView,
     pub audiences_held: &'a HashMap<String, Vec<String>>,
+    /// the org these bodies are for: legacy org keys stay inside their org
+    pub org_slug: &'a str,
 }
 
 /// Re-emit a timestamp column (`to_jsonb` spells it `...+00:00`) in the
@@ -203,7 +205,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     let resumable = state == "live" && !frozen.is_null() && !halted;
     o.insert("resumable".into(), json!(resumable));
     let continue_accounts: Vec<String> = if resumable && frozen.get("limit").and_then(Value::as_bool).unwrap_or(true) {
-        ctx.accounts.continue_candidates(catalog::provider_of(tier), account)
+        ctx.accounts.continue_candidates(catalog::provider_of(tier), account, ctx.org_slug)
     } else {
         Vec::new()
     };

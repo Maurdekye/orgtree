@@ -136,6 +136,7 @@ async fn import_org(
     let result = async {
         let tx = dst.transaction().await?;
         let n = copy_org(cfg, &src, &tx, slug, uuid, db).await?;
+        import_org_accounts(&src, &tx, slug).await?;
         tx.commit().await?;
         Ok::<usize, anyhow::Error>(n)
     }
@@ -930,6 +931,82 @@ async fn insert_mail(
     Ok(())
 }
 
+/// The legacy org keys restricted to this org: 3.x kept them in the org's own
+/// database (org_accounts), never in the app database. They keep their
+/// origin_org so no other org can list, bind or spend them.
+#[logged]
+async fn import_org_accounts(src: &Client, tx: &Transaction<'_>, slug: &str) -> Result<()> {
+    let present: bool = src
+        .query_one("SELECT to_regclass('orgtree.org_accounts') IS NOT NULL AND to_regclass('orgtree.org_account_marks') IS NOT NULL", &[])
+        .await?
+        .get(0);
+    if !present {
+        return Ok(());
+    }
+    let rows = src
+        .query(
+            "SELECT id, ord, provider, label, credential_kind, credential_path, identity::jsonb, auth, mode, enabled,
+                    tint_ordinal, extra::jsonb, origin_org
+               FROM orgtree.org_accounts WHERE NOT coalesce(removing, false) ORDER BY ord",
+            &[],
+        )
+        .await?;
+    for r in &rows {
+        let mode: Option<String> = r.get(8);
+        let kind = if mode.as_deref() == Some("apikey") {
+            "apikey".to_string()
+        } else {
+            r.get::<_, Option<String>>(4).unwrap_or_else(|| "managed".into())
+        };
+        let origin = r.get::<_, Option<String>>(12).filter(|o| !o.is_empty()).unwrap_or_else(|| slug.to_string());
+        tx.execute(
+            "INSERT INTO ot.accounts (id, provider, kind, label, config_dir, identity, auth, tint_ordinal, enabled, ord, extra, origin_org)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING",
+            &[
+                &r.get::<_, String>(0),
+                &r.get::<_, Option<String>>(2).unwrap_or_else(|| "claude".into()),
+                &kind,
+                &r.get::<_, Option<String>>(3).unwrap_or_default(),
+                &r.get::<_, Option<String>>(5),
+                &r.get::<_, Option<Value>>(6).unwrap_or(json!({})),
+                &r.get::<_, Option<String>>(7).unwrap_or_else(|| "unobserved".into()),
+                &(r.get::<_, Option<i64>>(10).unwrap_or(0) as i32),
+                &r.get::<_, Option<bool>>(9).unwrap_or(true),
+                &r.get::<_, i32>(1),
+                &r.get::<_, Option<Value>>(11).unwrap_or(json!({})),
+                &origin,
+            ],
+        )
+        .await?;
+    }
+    let marks = src
+        .query("SELECT account_id, pool, until, \"window\", provenance FROM orgtree.org_account_marks", &[])
+        .await?;
+    for m in &marks {
+        let until: Option<f64> = m.get(2);
+        let Some(until) = until.and_then(|u| DateTime::from_timestamp(u as i64, 0)) else { continue };
+        if until < Utc::now() {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO ot.account_marks (account, pool, until, win, provenance) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (account, pool) DO NOTHING",
+            &[
+                &m.get::<_, String>(0),
+                &m.get::<_, String>(1),
+                &until,
+                &m.get::<_, Option<String>>(3),
+                &m.get::<_, Option<String>>(4).unwrap_or_else(|| "observed".into()),
+            ],
+        )
+        .await?;
+    }
+    if !rows.is_empty() {
+        tracing::info!(org = %slug, accounts = rows.len(), "imported org-restricted accounts");
+    }
+    Ok(())
+}
+
 #[logged]
 async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
     let rows = app
@@ -967,7 +1044,7 @@ async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
         .await?;
     }
     let marks = app
-        .query("SELECT account_id, pool, until, window, provenance FROM orgtree.account_marks", &[])
+        .query("SELECT account_id, pool, until, \"window\", provenance FROM orgtree.account_marks", &[])
         .await
         .unwrap_or_default();
     for m in &marks {

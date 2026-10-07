@@ -1094,9 +1094,11 @@ pub(crate) async fn import_accounts(path: &Path, dst: &deadpool_postgres::Object
         };
         let extra = json!({ "harness": r.get("harness"), "created_at": r.get("created_at"),
                             "registered_from": r.get("registered_from"), "origin_org": r.get("origin_org") });
+        // a legacy org key keeps its org boundary (3.x registry.validate_binding)
+        let origin_org = s(r, "origin_org").filter(|o| !o.is_empty());
         dst.execute(
-            "INSERT INTO ot.accounts (id, provider, kind, label, config_dir, identity, auth, tint_ordinal, enabled, ord, extra)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO ot.accounts (id, provider, kind, label, config_dir, identity, auth, tint_ordinal, enabled, ord, extra, origin_org)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO NOTHING",
             &[
                 &id,
                 &s(r, "provider").unwrap_or_else(|| "claude".into()),
@@ -1109,6 +1111,7 @@ pub(crate) async fn import_accounts(path: &Path, dst: &deadpool_postgres::Object
                 &b(r, "enabled").unwrap_or(true),
                 &(ord as i32),
                 &extra,
+                &origin_org,
             ],
         )
         .await?;

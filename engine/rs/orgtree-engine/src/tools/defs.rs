@@ -238,12 +238,20 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_account_mark",
-            "Read (inspect) or clear an account's usage-limit marks. Clearing adds no capacity and resumes nobody.",
+            "Read or clear an account's capacity mark (the record that its usage limit is used up until a reset \
+             time). `inspect` lists every stored mark with its pool, reset time, age, provenance and the `expected` \
+             values a clear must send back. `clear` removes one mark only if it still matches `expected`; otherwise \
+             it answers `changed`, `missing` or `expired` and writes nothing. Clearing the pooled/default mark also \
+             removes an inferred `fable` mark with the same reset time. Each clear is audited. It adds no capacity and \
+             resumes nobody: `frozen_here` names agents that still need orgtree_unstick. Works on any account your org can see.",
             json!({
                 "action": { "type": "string", "enum": ["inspect", "clear"] },
-                "account": { "type": "string" },
-                "pool": { "type": "string", "description": "clear: the mark's pool" },
-                "reason": { "type": "string", "description": "clear: why (kept in the audit)" },
+                "account": { "type": "string", "description": "inspect: account id or name. clear: the exact `account` of the mark entry" },
+                "source": { "type": "string", "enum": ["registry", "legacy-roster"], "description": "clear: the mark entry's `source`" },
+                "pool": { "type": "string", "description": "clear: the mark entry's `pool`" },
+                "expected": { "type": "object", "description": "clear: the mark entry's `expected`" },
+                "companion_expected": { "type": "object", "description": "clear, optional: the `companion.expected` of a pooled entry" },
+                "reason": { "type": "string", "description": "clear, required: why, kept in the audit (500 max)" },
             }),
             &["action", "account"],
         ),

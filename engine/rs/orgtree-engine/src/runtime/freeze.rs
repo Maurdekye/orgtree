@@ -248,11 +248,11 @@ pub async fn recover(engine: &Arc<Engine>) {
 /// API-key fallback and subscription switches: subscriptions first, then
 /// metered keys.
 #[logged]
-pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>) -> Option<String> {
+pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>, org_slug: &str) -> Option<String> {
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
     let keys = engine.settings.apikey_fallback(provider);
-    let candidates = view.continue_candidates(provider, current);
+    let candidates = view.continue_candidates(provider, current, org_slug);
     // the provider's own sign-in only while its checkbox is on (rows are
     // already filtered on their own)
     let sub = candidates.iter().find(|id| {
@@ -266,7 +266,8 @@ pub fn pick_fallback(engine: &Engine, provider: &str, current: Option<&str>) -> 
 #[logged]
 pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str) -> Result<Value> {
     let view = engine.accounts.view();
-    let Some(acc) = view.get(account).cloned() else {
+    let slug = engine.orgs.by_id(org_id).map(|o| o.slug.clone());
+    let Some(acc) = view.get(account).filter(|a| a.available_to(Some(slug.as_deref().unwrap_or("")))).cloned() else {
         crate::refuse!(NotFound, "no account {account}");
     };
     let client = engine.db.get().await?;

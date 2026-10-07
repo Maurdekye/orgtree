@@ -52,6 +52,17 @@ impl AccountInfo {
     pub fn is_apikey(&self) -> bool {
         self.kind == "apikey"
     }
+    /// A legacy org key (origin_org) is visible, bindable and spendable only
+    /// inside its origin org (3.x registry.list_accounts / validate_binding,
+    /// user ruling: legacy org keys keep their org restriction). `None` is the
+    /// user's own app surface, which sees every row.
+    #[nolog]
+    pub fn available_to(&self, org_slug: Option<&str>) -> bool {
+        match (self.origin_org.as_deref().filter(|o| !o.is_empty()), org_slug) {
+            (None, _) | (_, None) => true,
+            (Some(origin), Some(org)) => origin == org,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -75,12 +86,13 @@ impl AccountsView {
         v
     }
     /// Other usable accounts of `provider` a frozen agent could continue on.
-    pub fn continue_candidates(&self, provider: &str, current: Option<&str>) -> Vec<String> {
+    pub fn continue_candidates(&self, provider: &str, current: Option<&str>, org_slug: &str) -> Vec<String> {
         let now = Utc::now();
         self.all()
             .into_iter()
             .filter(|a| {
                 a.provider == provider
+                    && a.available_to(Some(org_slug))
                     && Some(a.id.as_str()) != current
                     && a.enabled
                     && a.auth != "unauthenticated"

@@ -131,7 +131,7 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     let tier: String = client.query_one("SELECT tier FROM ot.agents WHERE id = $1", &[&t.id]).await?.get(0);
     drop(client);
     let view = engine.accounts.view();
-    let Some(acc) = view.get(account).cloned() else {
+    let Some(acc) = view.get(account).filter(|a| a.available_to(Some(&caller.org_slug))).cloned() else {
         crate::refuse!(NotFound, "no account {account}");
     };
     let provider = crate::providers::catalog::provider_of(&tier);
@@ -145,56 +145,81 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     Done::json(&r)
 }
 
+/// 3.x parity F01/F02: inspect returns each mark's `expected` fingerprint;
+/// clear is compare-and-set on it, with its audit in the same transaction.
+/// Another org's legacy org key is refused exactly like an unknown account.
 #[logged]
 pub async fn account_mark(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
-    let account = need_str(args, "account")?.to_string();
+    let account = need_str(args, "account")?.trim().to_string();
     let view = engine.accounts.view();
-    let id = view
-        .all()
-        .into_iter()
-        .find(|a| a.id == account || a.label == account || a.email.as_deref() == Some(account.as_str()))
-        .map(|a| a.id.clone())
-        .unwrap_or(account.clone());
-    let client = engine.db.get().await?;
+    let visible: Vec<&crate::accounts::AccountInfo> =
+        view.all().into_iter().filter(|a| a.available_to(Some(&caller.org_slug))).collect();
+    let hidden = || -> anyhow::Error {
+        crate::domain::user_err(crate::domain::UserError::NotFound, format!("no account {account:?} is visible here"))
+    };
     match action {
         "inspect" => {
-            let rows = client
-                .query("SELECT pool, until, provenance, win, at FROM ot.account_marks WHERE account = $1 ORDER BY pool", &[&id])
-                .await?;
-            let now = chrono::Utc::now();
-            let marks: Vec<Value> = rows
+            let Some(row) = visible
                 .iter()
-                .map(|r| {
-                    let until: chrono::DateTime<chrono::Utc> = r.get(1);
-                    json!({ "account": id, "pool": r.get::<_, String>(0), "until": iso(until), "active": until > now,
-                            "provenance": r.get::<_, String>(2), "window": r.get::<_, Option<String>>(3),
-                            "marked_at": iso(r.get(4)) })
-                })
-                .collect();
-            Done::json(&json!({ "account": id, "marks": marks }))
+                .find(|a| a.id == account || a.label == account || a.email.as_deref() == Some(account.as_str()))
+            else {
+                return Err(hidden());
+            };
+            let (id, provider, name) = (row.id.clone(), row.provider.clone(), row.display());
+            drop(view);
+            let client = engine.db.get().await?;
+            let marks = crate::account_marks::describe(&client, &id).await?;
+            Done::json(&json!({ "account": id, "name": name, "provider": provider, "marks": marks,
+                                "note": "Clearing a mark adds no capacity and resumes no agent; if the provider still refuses, the account is marked again." }))
         }
         "clear" => {
-            let pool = arg_str(args, "pool").unwrap_or("default").to_string();
-            let Some(reason) = arg_str(args, "reason") else {
+            match arg_str(args, "source").unwrap_or("registry") {
+                "registry" => {}
+                "legacy-roster" => crate::refuse!(BadRequest, "this engine has no legacy roster; every mark is in the registry (source registry)"),
+                other => crate::refuse!(BadRequest, "source must be registry, not {other}"),
+            }
+            if !visible.iter().any(|a| a.id == account) {
+                if let Some(a) = visible.iter().find(|a| a.label == account || a.email.as_deref() == Some(account.as_str())) {
+                    crate::refuse!(BadRequest, "{account:?} names {:?}; a clear takes the exact account id that inspect returned", a.id);
+                }
+                return Err(hidden());
+            }
+            drop(view);
+            let Some(pool) = arg_str(args, "pool") else {
+                crate::refuse!(BadRequest, "clear needs the mark entry's pool");
+            };
+            let Some(reason) = arg_str(args, "reason").filter(|r| !r.trim().is_empty()) else {
                 crate::refuse!(BadRequest, "clear needs a reason");
             };
-            let n = client.execute("DELETE FROM ot.account_marks WHERE account = $1 AND pool = $2", &[&id, &pool]).await?;
-            if n == 0 {
-                return Done::json(&json!({ "cleared": false, "state": "missing" }));
-            }
+            let expected = args.get("expected").cloned().unwrap_or(Value::Null);
+            let client = engine.db.get().await?;
             let me = me(&client, caller).await?;
-            client
-                .execute(
-                    "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'account_mark_cleared', $2, $3)",
-                    &[&me.org_id, &me.name, &json!({ "account": id, "pool": pool, "reason": crate::util::gist(reason, 500) })],
-                )
-                .await?;
             drop(client);
-            let _ = engine.accounts.reload(engine).await;
-            crate::accounts::publish(engine);
-            Done::json(&json!({ "cleared": true, "account": id, "pool": pool,
-                                "note": "this adds no capacity and resumes nobody" }))
+            let by = crate::account_marks::ClearBy {
+                actor: &me.name,
+                org_slug: Some(&caller.org_slug),
+                org_id: Some(me.org_id),
+                via: "orgtree_account_mark",
+            };
+            let mut out =
+                crate::account_marks::clear(engine, &account, pool, &expected, args.get("companion_expected"), reason, &by).await?;
+            if out["result"] == "cleared" {
+                // read-only hint: clearing resumes nobody
+                let client = engine.db.get().await?;
+                let frozen: Vec<String> = client
+                    .query(
+                        "SELECT name FROM ot.agents WHERE org_id = $1 AND account = $2 AND state = 'live' AND frozen IS NOT NULL ORDER BY name LIMIT 50",
+                        &[&me.org_id, &account],
+                    )
+                    .await?
+                    .iter()
+                    .map(|r| r.get(0))
+                    .collect();
+                out["frozen_here"] = json!(frozen);
+                out["note"] = json!("this adds no capacity and resumes nobody");
+            }
+            Done::json(&out)
         }
         other => crate::refuse!(BadRequest, "unknown action {other} (inspect or clear)"),
     }
