@@ -113,6 +113,18 @@ The renderer assignment status now includes `approved`; do not overwrite that ex
 with the frozen Python generator. [verified from source / recorded coordinator ruling:
 2026-10-07; inventory and remaining parity gaps: `docs/rust-engine/typed-message-parity.md`]
 
+**Mail and artifact parity (2026-10-07).** File reads fold every ancestor's folder
+ceiling; user attachments and deliveries copy into a fresh outbox directory. Hub attachments
+must start in the sender's scratch and fit 25 MB. Org-inbox delivery uses live holders only;
+automatic and explicit grants enforce single-holder mode, and disabling multi-holder with
+multiple holders refuses. Manual inbox reads page waiting mail and expose complete UTF-8
+chunks without altering automatic delivery. Delivery retry IDs are scoped to the sender.
+HTML presentations capture a bounded local asset bundle for ZIP download and an offline
+preview; a vanished staged hub attachment is dropped with a durable event, not a blocked
+message. [verified from source: `domain/docs.rs`, `domain/orginbox.rs`, `domain/html_bundle.rs`,
+`tools/mailtools.rs`, `net.rs`; details and verification limits:
+[`docs/rust-engine/mail-artifact-parity.md`](docs/rust-engine/mail-artifact-parity.md)]
+
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
 - **Open request cards (2026-10-07):** emit `kind: batch` with typed `tabs`, even for
