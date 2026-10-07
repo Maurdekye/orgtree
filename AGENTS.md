@@ -34,7 +34,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   names or `prefix.*`; regex sees safe payloads only after visibility checks.
   Counts use `threshold:"below N"` or `"at least N"` (crossings only), default
   visible strict descendants (never the watcher); org totals require full visibility.
-  Alert-bearing turns suppress their own owner event dogs through settlement.
+  Alert-bearing turns suppress their own owner event dogs through settlement;
+  own cli.* events are always excluded to prevent delayed eviction loops.
+  All runner errors back off before re-arm; missing rows stop, and output/alert
+  payloads strip NUL before PostgreSQL writes.
   Batch progress, coalesce overflow, retry storage failures with visible health,
   and refresh count baselines on resume/recovery. Recover subscriptions
   before engine.started; never forward raw feed bodies or alert mail back into

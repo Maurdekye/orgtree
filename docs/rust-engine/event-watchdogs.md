@@ -129,3 +129,25 @@ watchers in that run. A scratch-only trigger then rejected watchdog writes:
 the listener exposed retry health and fired the retained event once the trigger
 was removed. These are production helper/runner measurements, not a paid-provider
 turn or live-engine claim. All scratch engine and PostgreSQL processes stopped.
+
+
+## Runner and delayed CLI follow-up (2026-10-07)
+
+Every runner kind, including file/command/process/stream/activity, backs off after
+an error before re-arm: 2, 4, 8, 16, then 30 seconds for consecutive failures.
+A successful reload does not skip this delay. Initial/reload storage failures
+also wait; a missing row stops the runner and clears retry health. Output tails
+and alert payloads strip NUL before PostgreSQL text/jsonb writes, including
+UTF-16/binary file output. This does not claim to decode UTF-16 text.
+
+An owner's `cli.*` events are always excluded from its own event dogs, even
+outside an alert turn. Otherwise delayed idle eviction would make a new alert,
+wake a paid turn, and repeat. Watch another visible agent for CLI state changes.
+Named-agent guard lookup is scoped by org as well as name.
+
+Documented limits: an owner's event dogs do not observe its own events for the
+whole alert-bearing turn, including passive alerts mixed with ordinary mail.
+Two agents watching each other can still cause an alert ping-pong; this does
+not attempt a cross-agent causal graph. Use one-shot or passive notices for
+such mutual watches.
+Measured second-round scratch smoke: two forced file-save errors recovered after 6.05 seconds (2s and 4s delays; four attempted UPDATEs including successful save/fire). A NUL-containing file saved progress and fired without NUL in the alert. Deleted and initially missing dogs cleared health and stayed stopped. Own CLI events did not fire; another visible agent CLI eviction did. Final cargo check and typecheck pass. The scratch engine and private PostgreSQL stopped.
