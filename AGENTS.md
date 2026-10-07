@@ -29,6 +29,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   restart. [verified-from-source and mounted renderer smoke: 2026-10-07;
   user request 13:49Z, DECISIONS 52]
 
+- Agent settings shares the canvas credit paint and stats in `creditbarpaint.tsx`;
+  the horizontal bar rotates that paint and expands its initial 2x grant range
+  during right-edge drags. Identity/actions sit above the tabs, and setting
+  controls use `settingskit` rows. Keep the UI-only restyle separate from drag
+  behavior changes. [recorded-decision / verified-from-source: 2026-10-07;
+  `docs/rust-engine/agent-settings-refresh.md`, DECISIONS 52 addition]
+
 - Event watchdogs (`kind:event`) receive pushed, allow-listed post-commit events.
   Catalog: credentials.bridge.available/unavailable, credentials.isolated/ready,
   engine.started; agent lifecycle/settings/changed, turn started/finished/failed/

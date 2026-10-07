@@ -3655,16 +3655,16 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 }
 .cbar-fill.alone { border-radius: 3px; }   /* no seat below (the eye, etc.) */
 /* Settings reuses canvas paint and its annotation; only orientation/placement differ. */
-.credit-grant { margin: 14px 0; }
+.credit-grant { margin: 0; }
 .credit-grant > .cbar-tip { position: static; transform: none; opacity: 1; width: max-content; margin: 6px 0 10px; }
 .credit-grant-track { position: relative; height: 14px; margin: 10px 0; border-bottom: 1px dashed var(--line); }
 .credit-grant-drag { position: relative; height: 14px; cursor: ew-resize; touch-action: none; }
 .credit-grant-drag > .cbar { left: 0; top: 0; bottom: auto; transform-origin: 0 0; pointer-events: none; }
 .credit-grant-drag:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 3px; }
 .credit-grant-drag[aria-disabled="true"] { cursor: default; }
-.credit-grant-floor { position: absolute; top: -3px; bottom: -3px; border-left: 1px dashed var(--dim); opacity: .5; pointer-events: none; }
 .credit-grant-limits { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--dim); }
-.agent-identity-row { justify-content: flex-start; flex-wrap: wrap; }
+.agent-identity-row { display: flex; align-items: center; gap: 8px; justify-content: flex-start; flex-wrap: wrap; }
+.agent-model-icon.tier { width: 42px; height: 42px; font-size: 26px; flex: none; }
 /* clips the fill/seat/hairline layers to the bar's rounded outline — without
    it the border-box overhang let the seat block punch through the top */
 .cbar-clip {

@@ -1,4 +1,5 @@
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
+import { SetBlock } from './settingskit'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 import type { TreePayload } from '../types'
@@ -134,8 +135,7 @@ export function CreditGrant({ node, map, tree, op }: {
     g.scale = Math.min(max, Math.max(baseScale, g.raw * 1.2))
     gesture.current = g; publish(g)
   }
-  return <section className="credit-grant" aria-labelledby={label}>
-    <div id={label} className="set-label">Credit grant</div>
+  return <SetBlock label={<span id={label}>Credit grant</span>}><section className="credit-grant" aria-labelledby={label}>
     <CreditBarStats seat={seat} cur={value} committed={limits.min} delta={draft ? value - grant : 0} />
     <div className="credit-grant-track" ref={track}>
       <div role="slider" aria-label="Credit grant" aria-valuemin={min} aria-valuemax={Math.max(min, max)}
@@ -157,11 +157,10 @@ export function CreditGrant({ node, map, tree, op }: {
             segments={node.children.filter(c => c.state !== 'archived').map(c => ({seat: c.seat ?? 0, grant: c.grant ?? 0}))} />
         </div>
       </div>
-      <span className="credit-grant-floor" style={{left: (seat + limits.min) * pxc}} />
     </div>
     <div className="credit-grant-limits"><span>Minimum {fmtCredits(min)}</span><span>Scale {fmtCredits(scale)} · limit {fmtCredits(max)}</span></div>
     <div className="set-hint" id={`${label}-hint`}>{pending ? 'Saving…' : 'Drag the bar or use arrow keys; hold near the right edge to add more.'}</div>
     {limits.unavailable && <div className="set-hint">Waiting for the superior’s credit details.</div>}
     {error && <div className="ask-warn" role="alert">{error}</div>}
-  </section>
+  </section></SetBlock>
 }

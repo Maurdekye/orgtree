@@ -30,7 +30,7 @@ import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ProcessLifecycleMark } from './desk'
 import { ModalOverPins, PinFrame } from './modalpin'
-import { SetBlock, SetGroup, SetRow, SettingsTabs, SettingsTabPanel } from './settingskit'
+import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
 import { peekStaffingOptions } from './staffingoptions'
@@ -1156,8 +1156,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             working folder and session all move; history keeps the old name
             (the warning rides the toast). Refused while mid-turn. */}
         {!node.isBearerOf && (
-          <div className="row agent-identity-row">
-            <input style={{ width: '14em' }} placeholder="rename…"
+          <SetRow label="Name" hint="Renaming also moves this agent’s folder and mailbox.">
+            <span className="agent-identity-row">
+            <span className={'tier agent-model-icon t-' + model} title={tierLabel(model)}>{TIER_LETTER[model] ?? '?'}</span>
+            <input type="text" aria-label="Agent name" placeholder="Agent name"
               value={val('rename', node.id)}
               onChange={(e) => set('rename', node.id)(e.target.value)} />
             {val('rename', node.id) !== node.id && (
@@ -1172,10 +1174,13 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                   .catch((e: Error) => toast([`error: ${e.message}`]))}>
                 rename</button>
             )}
-          </div>
+          </span></SetRow>
         )}
 
-        <div className="row agent-identity-row">
+        <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
+          {node.state === 'live' && node.parent && node.parent !== USER &&
+            <button className="danger" onClick={() => setAsking('rescind')}>
+              rescind</button>}
           {/* retire asks too (user bug 2026-08-09) — it sat as the one
               seat-freeing action firing straight off the click, beside a
               dissolve button that asks */}
@@ -1193,12 +1198,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               superior's grant (user-only; agents have no verb). Only where a
               superior exists to claw from: top-level rescind degrades to a
               plain retire and earns no separate button. */}
-          {node.state === 'live' && node.parent && node.parent !== USER &&
-            <button className="danger" onClick={() => setAsking('rescind')}>
-              rescind</button>}
           <button className="danger delete"
             onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
-        </div>
+        </span></SetRow>
 
         {node.state === 'live' && node.id !== USER && !node.isBearerOf &&
           <CreditGrant key={`${node.id}:${node.generation}`} node={node} map={map} tree={tree} op={op} />}
@@ -1207,38 +1209,19 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             DIFFERS — a wider scope, a different mechanism, or no cost at
             all. Eight identical subtitles would train the reader to skip
             them, and the org-wide ones are the expensive ones to miss. */}
-        <div className="dim hub-hint">Changing a setting here restarts this
-          agent's process and re-sends its prompt: it pays one cold turn.
-          Fields whose reach is wider — or free — say so themselves.</div>
+        <p className="set-hint">Some changes restart the agent, as noted below.</p>
         <SettingsTabs tabs={NODE_CONFIG_TABS} tab={tab} setTab={setTab}
           idBase={tabId} label="Agent settings" />
         {/* Keep every panel mounted: switching tabs preserves all draft fields.
             The shared save below still applies edits from every tab together. */}
         <SettingsTabPanel id="charter" idBase={tabId} active={tab === 'charter'}>
-        <div className="field-label">charter</div>
-        <div className="dim hub-hint">Restarts this agent's process and re-sends its prompt.</div>
-        <textarea rows={10} className="charterbox" value={charter}
-          onChange={(e) => setCharter(e.target.value)} />
-        <div className="field-label">team charter</div>
-        <div className="dim hub-hint">Restarts this agent AND every agent in
-          its subtree — the cascade puts this text into each of their
-          prompts, so every one of them re-sends.</div>
-        <textarea rows={10} className="charterbox" value={teamCharter}
-          onChange={(e) => setTeamCharter(e.target.value)} />
+        <SetBlock label="Instructions" hint="What this agent should do; changes restart its process."><textarea rows={10} className="charterbox" value={charter}
+          onChange={(e) => setCharter(e.target.value)} /></SetBlock>
+        <SetBlock label="Team instructions" hint="Shared instructions for this agent and its team; changes restart their processes."><textarea rows={10} className="charterbox" value={teamCharter}
+          onChange={(e) => setTeamCharter(e.target.value)} /></SetBlock>
         </SettingsTabPanel>
         <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
-        <div className="field-label">model (switchable on the fly — context
-          survives; cheaper frees the seat difference to the agent, pricier
-          bubbles any shortfall up the chain)</div>
-        <div className="dim hub-hint">Restarts this agent's process. A
-          switch to a different provider also starts a new cache namespace,
-          so nothing cached carries over.</div>
-        {/* D-202: a family this machine does not have is not listed at all —
-            not as a disabled row, not as an empty group. `shownTiers` keeps
-            this node's OWN tier whatever happens to its provider, so the
-            select can never lose its own value and silently switch the model
-            on save (and so the panel never lies about what this agent is). */}
-        <select className="model-switch" aria-label="model tier"
+        <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="model tier"
           value={model} onChange={(e) => {
             const next = e.target.value
             if (providerOf(next) !== providerOf(model)) setAcct(
@@ -1258,82 +1241,57 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                 {fam.map(modelOption)}
               </optgroup>
             ))}
-        </select>
+        </select></SetRow>
 
         {versions.length > 1 && (
           <>
-            <div className="field-label">model version — {model} runs the
-              latest unless you pin one here</div>
-            <select value={versions.includes(modelVersion) ? modelVersion : ''}
+            <SetRow label="Model version" hint="Choose a specific version or use the latest."><select value={versions.includes(modelVersion) ? modelVersion : ''}
               onChange={(e) => setModelVersion(e.target.value)}>
               <option value="">{`latest (${versions[0]})`}</option>
               {versions.map((v) => (
                 <option key={v} value={v}>{`${model} ${v}`}</option>
               ))}
-            </select>
+            </select></SetRow>
           </>
         )}
 
 
-        <div className="field-label">thinking effort (user-approved: a deep
-          setting, never a hire-row control)</div>
-        <select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
-          <option value="">{`inherit — org default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
+        <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><select title={EFFORT_CHANGE_HELP} value={effort} onChange={(e) => setEffort(e.target.value)}>
+          <option value="">{`Organization default (${tree.default_effort || tree.effort_default || 'high'})`}</option>
           <option value="low">low</option>
           <option value="medium">medium</option>
           <option value="high">high</option>
           <option value="xhigh">xhigh</option>
           <option value="max">max</option>
-        </select>
+        </select></SetRow>
 
         {/* Primary is selectable even if no registry row exists. */}
         {['claude', 'openai', 'google'].includes(providerOf(model)) && (
           <>
-            <div className="field-label">account
-              {node.account?.startsWith('missing:') &&
-                <span className="ask-warn"> — PARKED: {node.account}</span>}
-            </div>
-            <AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
-              host={hostIdentity} onChange={setAcct} />
+        <SetRow label="Account" hint={node.account?.startsWith('missing:') ? `The saved account is missing: ${node.account}.` : 'Choose the signed-in account this agent uses.'}><AccountSelect rows={acctRows} provider={providerOf(model)} value={acct}
+              host={hostIdentity} onChange={setAcct} /></SetRow>
           </>
         )}
-        <div className="field-label">Automatic account fallback</div>
-        <select aria-label="Automatic account fallback" value={accountFallback}
+        <SetRow label="Switch accounts when limited" hint={!['claude', 'openai'].includes(providerOf(model)) ? 'This provider does not support automatic account switching.' : providerOf(model) === 'openai' ? 'Use another account when limited; switching Codex accounts starts a new conversation.' : 'Use another account with room when this one reaches its limit.'}><select aria-label="Automatic account fallback" value={accountFallback}
           disabled={!['claude', 'openai'].includes(providerOf(model))}
           onChange={(e) => setEdit((old) => ({ ...old, accountFallback: e.target.value }))}>
           <option value="">Org default ({tree.account_fallback_default ? 'on' : 'off'})</option>
           <option value="on">On</option>
           <option value="off">Off</option>
-        </select>
-        <div className="hint">After a usage limit, switch to another account with
-          capacity for this lane. Keep the replacement account.
-          {!['claude', 'openai'].includes(providerOf(model))
-            ? ' This provider cannot automatically switch accounts.'
-            : providerOf(model) === 'openai'
-              ? ' Switching accounts starts a new provider cache and a new Codex session.'
-              : ' Switching accounts starts a new provider cache.'}</div>
-        <div className="field-label">cache-protective cheap compaction</div>
-        <div className="dim hub-hint">Before a turn whose prompt cache is
-          known to be cold, start a fresh session with a summary instead of
-          re-reading the whole old one. Expiry is fixed by lane: Claude uses
-          60 min after a positive subscription receipt or 5 min after a
-          positive API-key receipt; OpenAI subscription uses the documented
-          30 min default as a fixed estimate. Known identity changes are cold
-          immediately; unknown forecasts never auto-compact.</div>
-        <select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
-          <option value="">inherit the org setting</option>
-          <option value="on">on for this agent</option>
-          <option value="off">off for this agent</option>
-        </select>
-        {accMode === 'on' && <div className="row">
-          <label>context ≥ <input type="number" min="5" max="95" step="5"
-            style={{ width: '5em' }} value={accOcc}
-            onChange={(e) => setAccOcc(e.target.value)} />%</label>
-        </div>}
+        </select></SetRow>
+
+        <SetRow label="Start fresh when needed" hint="Start a new conversation with a summary when reusing the old one would cost more."><select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
+          <option value="">Organization default</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select></SetRow>
+        {accMode === 'on' && <SetRow label="Conversation size" hint="Start fresh once the conversation reaches this share of its limit."><label><input type="number" min="5" max="95" step="5"
+ value={accOcc}
+            onChange={(e) => setAccOcc(e.target.value)} />%</label></SetRow>}
 
         {initInfo && (
           <>
-            <div className="field-label">this turn, as the CLI resolved it (№14)</div>
+            <SetBlock label="Current session" hint="The model and tools reported by the running agent.">
             <div className="initblock dim">
               <div>model {initInfo.model ?? '?'} · {initInfo.permissionMode ?? '?'}
                 {' · '}{initInfo.tools ?? '?'} tools</div>
@@ -1343,6 +1301,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
                     ? 'ok' : 'bad')} /> {s.name} · {s.status}
                 </div>))}
             </div>
+          </SetBlock>
           </>
         )}
         {/* D-234: the queue is visible where the switch is made, with its one
@@ -1350,20 +1309,17 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             tier (the ledger's cancel door). An unchanged save does NOT cancel:
             saving scope must never silently withdraw a switch. */}
         {node.pending_switch && (
-          <div className="cascade-warn queued-warn">
-            ⏳ a switch to <b>{node.pending_switch.tier}</b> is QUEUED — it applies
-            when the current turn ends; interrupting the turn applies it now.{' '}
-            <button className="badge queued"
+          <SetRow label="Pending model change" hint={`Switch to ${node.pending_switch.tier} when the current turn ends.`}>
+            <button
               onClick={() => op({ op: 'switch_model', node: node.id,
                 tier: node.tier ?? '' })
                 .then((r) => toast(r.warnings ?? [])).catch(() => {})}>
-              cancel queued switch</button>
-          </div>
+              Cancel change</button>
+          </SetRow>
         )}
         </SettingsTabPanel>
         <SettingsTabPanel id="scope" idBase={tabId} active={tab === 'scope'}>
-        <div className="field-label">folder access</div>
-        <div className="dirlist">
+        <SetBlock label="Folders" hint="Choose which folders the agent can read or change."><div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
               <span className="chip mono grow">{d.path}</span>
@@ -1395,9 +1351,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               and the user asked for new DIRECTORIES specifically, so the
               control has to be able to express it at any depth. */}
           <div className="dirrow">
-            <input placeholder={parent && parent !== USER
-              ? 'or any absolute path — superiors are raised to carry it'
-              : 'or any absolute path (top-level: you grant freely)'}
+              <input type="text" placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
             <button type="button" className="iconbtn" title="browse for a folder"
               onClick={() => pickFolder().then((r) => {
@@ -1409,49 +1363,30 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           </div>
         </div>
 
-        <div className="field-label">tools</div>
-        {TOOL_LABELS.map(([k, label]) => (
-          <label className="checkline" key={k}>
-            <input type="checkbox" checked={tools[k] && parentHolds(k)}
-              disabled={!parentHolds(k)}
-              onChange={(e) => setTools({ ...tools, [k]: e.target.checked })} />
-            {label}
-            {!parentHolds(k) && <span className="dim"> — parent doesn't hold it</span>}
-          </label>
+        </SetBlock>
+        <SetGroup title="Tools">
+        {TOOL_LABELS.map(([k]) => (
+          <SetToggle key={k} label={{bash: 'Run commands', web: 'Browse the web', edit: 'Edit files', subagents: 'Use helper agents'}[k]} checked={Boolean(tools[k] && parentHolds(k))}
+            disabled={!parentHolds(k)} hint={!parentHolds(k) ? "The superior does not have this permission." : undefined}
+            onChange={checked => setTools({ ...tools, [k]: checked })} />
         ))}
+        </SetGroup>
 
-        <div className="field-label">MCP servers (from your global registry)</div>
-        <div className="dim hub-hint">Restarts this agent's process.
-          Editing the global registry itself (outside orgtree) restarts every
-          agent granted "*", in every org on this machine.</div>
-        {servers.length === 0 && <div className="hint">none registered</div>}
-        {servers.map((s) => {
-          return (
-            <label className="checkline" key={s}>
-              <input type="checkbox"
-                checked={(holdsAllMcp || tools.mcp.includes(s)) && parentHoldsMcp(s)}
-                disabled={!parentHoldsMcp(s)}
-                onChange={(e) => setTools({
-                  ...tools,
-                  // unchecking under "*" materializes the concrete server list
-                  mcp: e.target.checked
-                    ? (holdsAllMcp ? tools.mcp : [...tools.mcp, s])
-                    : (holdsAllMcp ? servers.filter((x) => x !== s)
-                                   : tools.mcp.filter((x) => x !== s)),
-                })} />
-              <span className="mono">{s}</span>
-              {!parentHoldsMcp(s) && <span className="dim"> — parent doesn't hold it</span>}
-            </label>
-          )
-        })}
+        <SetGroup title="Connected tools">
+        <p className="set-hint">Choose tools from the shared registry; changes restart this agent.</p>
+        {servers.length === 0 && <div className="hint">No tools registered.</div>}
+        {servers.map((s) => <SetToggle key={s} label={s}
+          checked={(holdsAllMcp || tools.mcp.includes(s)) && parentHoldsMcp(s)}
+          disabled={!parentHoldsMcp(s)} hint={!parentHoldsMcp(s) ? "The superior does not have this tool." : undefined}
+          onChange={checked => setTools({ ...tools,
+            mcp: checked ? (holdsAllMcp ? tools.mcp : [...tools.mcp, s])
+              : (holdsAllMcp ? servers.filter(x => x !== s) : tools.mcp.filter(x => x !== s)),
+          })} />)}
+        </SetGroup>
 
-        <div className="field-label">org-structure visibility</div>
-        <div className="dim hub-hint">Moving to or from "self" restarts this
-          agent. Between team, subtree and full it costs nothing — the roster
-          arrives each turn, not in the cached prompt.</div>
-        <select value={vis} onChange={(e) => setVis(e.target.value)}>
-          {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-        </select>
+        <SetRow label="Visible agents" hint="Choose how much of the organization this agent can see."><select value={vis} onChange={(e) => setVis(e.target.value)}>
+          {VIS_OPTIONS.map(([v]) => <option key={v} value={v}>{{self:'Only this agent', team:'Its team', subtree:'Its team and all reports', full:'Everyone'}[v]}</option>)}
+        </select></SetRow>
 
         {/* user ruling 2026-08-07: writing the machine's GLOBAL skills is
             gated above every allow-rule and hook — only bypassPermissions
@@ -1459,15 +1394,12 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             reachable by API alone before this; agents still cannot set it
             (orgtree_retool does not expose it), so raising one is the
             user's act. */}
-        <div className="field-label">permission mode — bypassPermissions is
-          the ONLY mode that can write ~/.claude/skills, and it removes this
-          agent&apos;s prompts for everything else too</div>
-        <select value={pm} onChange={(e) => setPm(e.target.value)}>
-          <option value="plan">plan — read-only planning seat</option>
-          <option value="default">default — asks (headless: auto-denies)</option>
-          <option value="acceptEdits">acceptEdits — the normal seat</option>
-          <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
-        </select>
+        <SetRow label="File and command access" hint="Unrestricted access removes approval prompts, including for shared skill files."><select value={pm} onChange={(e) => setPm(e.target.value)}>
+          <option value="plan">Read only</option>
+          <option value="default">Ask before changes</option>
+          <option value="acceptEdits">Allow normal changes</option>
+          <option value="bypassPermissions">Unrestricted access</option>
+        </select></SetRow>
 
         </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the

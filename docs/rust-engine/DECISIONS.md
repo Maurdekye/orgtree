@@ -241,3 +241,14 @@ All entries are dated 2026-10-06 unless stated otherwise.
     or cascade credits, show both limits, and restore the saved grant with the
     reason on refusal. Arrow keys step the grant. This does not edit the user's
     own top-level grant.
+
+    User additions, 2026-10-07 16:45–16:49Z: move the Agent tab contents above
+    the tabs and remove that tab; put destructive buttons together and a large
+    model-card icon beside the name. Start the grant bar's range at no more
+    than twice the saved grant (a small usable range for zero), expanding it
+    while dragging at the right edge. Remove the handle: the whole bar drags.
+    Reuse the canvas bar's exact paint and always show its exact stats above
+    the bar. Restyle all settings with App/Org shared rows and controls, and
+    use short, plain labels/descriptions; preserve behavior and keep the visual
+    restyle in a separate commit. Wording list and details:
+    `agent-settings-refresh.md`.
