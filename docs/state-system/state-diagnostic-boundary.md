@@ -23,6 +23,14 @@ progress percentage. `runtime_census` and `conversion_authorized` remain false.
 
 ## What the public tests establish
 
+**4.0 visibility amendment (user ruling, 2026-10-07 08:28Z):** structural
+inspection now allows the chart-visible set plus the caller's entire subtree,
+including at `self` visibility. `team` therefore includes the caller's superior,
+peers and all descendants. No-argument and explicit selection use the same set;
+archived rows still require `include_archived`. This supersedes only the
+visibility restriction in the historical 3.x table below. Safe-field projection
+is unchanged. See `../rust-engine/tree-scope-parity.md` P55.
+
 The tests use the real authenticated `/api/agent` door with temporary
 organizations, credentials and existing migrated SQLite stores. They do not
 start the ASGI lifespan, a provider, PostgreSQL or a Rust service.

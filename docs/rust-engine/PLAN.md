@@ -410,6 +410,11 @@ Kept at the user's decision (2026-10-06): `orgtree_staff`, `orgtree_swap`,
 `orgtree_state_inspect`, and `orgtree_list_orgs`. `orgtree_send_notice` becomes
 `orgtree_message` with `notice: true` (old name kept as an alias).
 
+State inspection additionally exposes the caller's whole subtree at every
+visibility, including `self`, and everything its chart shows (user ruling
+2026-10-07 08:28Z, DECISIONS 49). This deliberately widens 3.x inspection;
+archives remain opt-in and the safe-field projection is unchanged.
+
 ## 11. Decisions I need from you
 
 1. **New schema + one-time import** (recommended), rather than running on the 3.2 per-org schema.

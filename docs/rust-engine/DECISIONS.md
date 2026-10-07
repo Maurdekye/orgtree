@@ -135,6 +135,14 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 ## Diagnostics
 
+49. **State inspection covers chart visibility plus the caller's whole subtree**
+    (user 2026-10-07 08:28Z: "Yes: chart + own subtree"). At every visibility,
+    `orgtree_state_inspect` includes all descendants; team/subtree also include
+    the superior and peers, as the chart does. No-argument and explicit requests
+    use the same visibility set. Archived rows still require `include_archived`;
+    safe-field restrictions remain. This supersedes the 3.x diagnostic contract's
+    team-only self/siblings restriction and the original P55 parity rule.
+
 34. **Dense, verbose per-method invocation logging** (user 2026-10-06):
     - Every method defined in the engine is logged when it is invoked, with its full input and its
       full output, each capped at 8 KB (decision 36). The only exceptions are extremely hot calls (run thousands

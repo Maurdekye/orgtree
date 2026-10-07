@@ -210,7 +210,9 @@ details and Python references: `docs/rust-engine/docket-parity-batch5.md`]
   never the parent's binding. Superior insertion authorizes the target (self allowed below top
   level) and inherits its effective capabilities. Retool refuses grants above its caller and
   raises intermediate managers for valid deep grants; report those expansions. State inspection
-  uses effective scope and refuses explicitly invisible targets. [verified from source;
+  reports effective scope and refuses explicitly invisible targets. Its visible set
+  is the chart's set plus all own descendants, even at self visibility; archives
+  remain opt-in. [recorded decision: user 2026-10-07 08:28Z, DECISIONS 49; verified from source;
   details and measured limits: `docs/rust-engine/tree-scope-parity.md`]
 - **Open request cards (2026-10-07):** emit `kind: batch` with typed `tabs`, even for
   question-only or single-tab requests, as 3.x did. That selects the existing renderer's
