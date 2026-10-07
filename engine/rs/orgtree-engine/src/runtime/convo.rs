@@ -241,6 +241,10 @@ pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Opti
         "[Orgtree] You now run on a fresh session ({why}), so your earlier conversation is not in your context. \
          Here is what you were working on.\n\n"
     );
+    note.push_str(
+        "Read breadcrumbs.md in your working folder first, if you kept one: it is your own log of what was decided, \
+         what is in flight and where things are.\n\n",
+    );
     let status: Option<Value> = client
         .query_opt("SELECT last_status FROM ot.agents WHERE id = $1", &[&agent_id])
         .await?

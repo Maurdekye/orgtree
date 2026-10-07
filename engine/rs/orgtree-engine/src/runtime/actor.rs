@@ -99,7 +99,16 @@ struct Ctx {
     api_key: Option<String>,
     effective: Value,
     charter: Option<String>,
+    /// the superior's team charter (what binds this agent's team)
     team_charter: Option<String>,
+    /// this agent's own team charter (what it gives its team)
+    own_team_charter: Option<String>,
+    /// ancestors' team charters, root first: (name, charter)
+    cascade: Vec<(String, String)>,
+    /// the superior's name (None: top-level)
+    superior: Option<String>,
+    /// holds the org-inbox audience
+    extern_holder: bool,
     org_md: Option<String>,
     session_id: Option<String>,
     session_provider: Option<String>,
@@ -907,7 +916,10 @@ impl Actor {
                         p.team_charter, o.name, o.slug, o.settings, o.killswitch IS NOT NULL,
                         (SELECT s.secret FROM ot.account_secrets s JOIN ot.accounts ac ON ac.id = s.account_id
                           WHERE ac.id = a.account AND ac.kind = 'apikey'),
-                        a.extra->>'harness', a.extra->>'handoff_due'
+                        a.extra->>'harness', a.extra->>'handoff_due',
+                        a.team_charter, p.name,
+                        EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
+                                   AND au.grantor = '@extern' AND au.revoked_at IS NULL)
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    LEFT JOIN ot.agents p ON p.id = a.parent_id
                   WHERE a.id = $1",
@@ -920,7 +932,7 @@ impl Actor {
                    SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1
                    UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
                     WHERE c.depth < 1024)
-                 SELECT scope FROM chain ORDER BY depth DESC",
+                 SELECT c.scope, c.depth, a.name, a.team_charter FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth DESC",
                 &[&self.id],
             )
             .await?;
@@ -966,6 +978,12 @@ impl Actor {
             .map(PathBuf::from)
             .unwrap_or_else(|| self.engine.cfg.scratch_root(&slug).join(&name));
         let org_md = std::fs::read_to_string(self.engine.cfg.workspace_dir(&slug).join("org.md")).ok();
+        // §15 cascade: every ancestor's team charter binds its subtree, root first
+        let cascade: Vec<(String, String)> = chain
+            .iter()
+            .filter(|c| c.get::<_, i32>(1) > 0)
+            .filter_map(|c| c.get::<_, Option<String>>(3).filter(|t| !t.trim().is_empty()).map(|t| (c.get::<_, String>(2), t)))
+            .collect();
         Ok(Ctx {
             name,
             title: r.get(1),
@@ -995,6 +1013,10 @@ impl Actor {
             compact_at,
             cold_reset,
             handoff_due: r.get(21),
+            own_team_charter: r.get(22),
+            superior: r.get(23),
+            extern_holder: r.get(24),
+            cascade,
         })
     }
 
@@ -1013,20 +1035,65 @@ impl Actor {
         Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false) })
     }
 
-    /// Everything a launch needs, computed without side effects (the cache
-    /// forecast compares these without starting anything).
-    fn plan(&self, ctx: &Ctx) -> Plan {
-        let identity = prompt::identity(&prompt::Identity {
+    /// The system prompt for this launch (runtime::identity). Reads the
+    /// agent's own and its granted folders' CLAUDE.md; no side effects.
+    fn identity(&self, ctx: &Ctx, external: &[String]) -> String {
+        let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
+        let lane = if codex {
+            prompt::Lane::Codex
+        } else if ctx.provider == catalog::GOOGLE {
+            prompt::Lane::Antigravity
+        } else {
+            prompt::Lane::Claude
+        };
+        let tools = &ctx.effective["tools"];
+        let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
+        let may_write = tools.get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
+        let sandbox = if !may_write {
+            "read-only"
+        } else if pm == "bypassPermissions" {
+            "danger-full-access"
+        } else {
+            "workspace-write"
+        };
+        // granted folders' CLAUDE.md; the org workspace's is org.md, delivered on its own
+        let workspace = self.engine.cfg.workspace_dir(&ctx.org_slug);
+        let folder_notes: Vec<(String, String)> = ctx.effective["add_dirs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|d| d["path"].as_str())
+            .filter(|p| crate::config::canonical(std::path::Path::new(p)).ok() != crate::config::canonical(&workspace).ok())
+            .filter_map(|p| std::fs::read_to_string(std::path::Path::new(p).join("CLAUDE.md")).ok().map(|t| (p.to_string(), t)))
+            .collect();
+        let own_notes = if lane == prompt::Lane::Claude { None } else { std::fs::read_to_string(ctx.scratch.join("CLAUDE.md")).ok() };
+        let skills = dirs::home_dir().map(|h| h.join(".claude").join("skills").to_string_lossy().to_string()).unwrap_or_default();
+        prompt::identity(&prompt::Identity {
             name: &ctx.name,
             title: &ctx.title,
             org_name: &ctx.org_name,
             org_slug: &ctx.org_slug,
             scratch: &ctx.scratch.to_string_lossy(),
             charter: ctx.charter.as_deref(),
-            team_charter: ctx.team_charter.as_deref(),
+            team_charter: ctx.own_team_charter.as_deref(),
+            cascade: &ctx.cascade,
+            superior: ctx.superior.as_deref(),
             org_md: ctx.org_md.as_deref(),
-            top_level: ctx.top_level,
-        });
+            lane,
+            scope: &ctx.effective,
+            codex_sandbox: if lane == prompt::Lane::Codex { Some(sandbox) } else { None },
+            mcp_servers: external,
+            extern_holder: ctx.extern_holder,
+            folder_notes: &folder_notes,
+            own_notes: own_notes.as_deref(),
+            skills_dir: &skills,
+        })
+    }
+
+    /// Everything a launch needs, computed without side effects (the cache
+    /// forecast compares these without starting anything).
+    fn plan(&self, ctx: &Ctx) -> Plan {
+
         let tools = &ctx.effective["tools"];
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let mut disallowed: Vec<String> = vec!["AskUserQuestion".into(), "EnterPlanMode".into(), "ExitPlanMode".into()];
@@ -1059,6 +1126,7 @@ impl Actor {
                 }
             }
         }
+        let identity = self.identity(ctx, &external);
         let mcp = json!({ "mcpServers": servers });
         let mut allowed: Vec<String> = servers.keys().map(|k| format!("mcp__{k}")).collect();
         if on("bash") {

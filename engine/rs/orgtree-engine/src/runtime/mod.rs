@@ -11,6 +11,7 @@ pub mod codex;
 pub mod convo;
 pub mod freeze;
 pub mod history;
+pub mod identity;
 pub mod prompt;
 pub mod reminders;
 pub mod sched;
