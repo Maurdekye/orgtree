@@ -93,7 +93,7 @@ import { askHidden, markAnswerSeen, queuedAnswerRow, queuedAnswers, useSubmitted
 import { eventDedup } from '../events/dedup'
 import { mergeAssistantRows } from '../assistantMessages'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
-import { isMobile } from '../mobile'
+import { useComposerEnter } from '../enterkey'
 import { fmtFull, fmtShort, fmtStamp, localizeFreezeUntil } from '../timefmt'
 
 interface ContextWheelProps {
@@ -1852,6 +1852,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
   staleIdentity = false, onDismiss, hidePopout = false }: DeskChatProps) {
   const node = useNodeMetadata(slug, baseNode)
+  const enterKey = useComposerEnter()
   // A host that passes no settings/lineage handler (the Attention view's desk,
   // a restored desk) gets the shell's own openers, so the gear and the
   // `gen N` badge are never dead buttons. See AgentSurfaceRoutes.
@@ -3977,6 +3978,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             e.target.value = ''
           }} />
         <textarea rows={2} value={text} disabled={!canMail} data-first-use-chat={node.id}
+          title={enterKey.hint}
           ref={attachComposer}
           placeholder={live ? `message ${node.id}…`
             : node.state === 'archived'
@@ -4021,9 +4023,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 return
               }
             }
-            // mobile: soft keyboards emit Enter with shiftKey:false and no
-            // gesture recovers the newline — send is the button's job there
-            if (e.key === 'Enter' && !e.shiftKey && !isMobile) { e.preventDefault(); send() }
+            if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
@@ -4040,7 +4040,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               onClick={() => interruptNode(slug, node.id)
                 .then((r) => { if (!r.interrupted) toast([`error: ${r.reason}`]) })
                 .catch((e: Error) => toast([`error: ${e.message}`]))}><StopIcon fontSize="inherit" /></button>
-          : <button className="cc-send" disabled={!canMail || !text.trim()}
+          : <button className="cc-send" title={enterKey.hint} disabled={!canMail || !text.trim()}
               onClick={send}><ArrowUpIcon fontSize="inherit" /></button>}
       </div>
     </ReplySourceProvider>

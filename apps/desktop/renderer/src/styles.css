@@ -2671,6 +2671,8 @@ button.cc-name:hover {
 .ask-free-response label { color: var(--ink-strong); font-weight: 600; }
 .ask-free-response-input { max-width: 100%; }
 .ask-other { margin: 2px 7px 2px 29px; }
+textarea.ask-other { max-width: calc(100% - 36px); resize: vertical; }
+textarea.ask-free-response-input { resize: vertical; }
 .ask-submit {
   align-self: stretch; text-align: left; color: var(--dim);
   background: var(--input); border: 1px solid var(--line); border-radius: 5px;

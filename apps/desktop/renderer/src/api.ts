@@ -883,6 +883,11 @@ export const setAgentBuildCacheFolder = (folder: string): Promise<RuntimeSetting
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ agent_build_cache_folder: folder }),
   })
+export const setEnterKeyBehavior = (enter_key_behavior: import('./composerkeys').EnterKeyBehavior): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enter_key_behavior }),
+  })
 export const setGitPeriodicFetchEnabled = (enabled: boolean): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },

@@ -27,6 +27,7 @@ import { AgentName } from './identity'
 import { RefMdBody } from './refmd'
 import { refToken } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
+import { useComposerEnter } from '../enterkey'
 import { isMobile } from '../mobile'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import { CollapsibleMailer } from './narrowlist'
@@ -869,6 +870,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   notice?: boolean
 }) {
   const [draft, setDraft] = useState('')
+  const enterKey = useComposerEnter()
   // what happened to the last send, said in the box: `sending` from the click,
   // `sent` once the server accepted it, `failed` (with the reason) when it
   // refused — the text is back in the box by then
@@ -977,6 +979,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             e.target.value = ''
           }} />
         <textarea rows={2} value={draft}
+          title={enterKey.hint}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -988,8 +991,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               if (!sendDisabled) setNoticeArmed((v) => !v)
               return
             }
-            if (e.key === 'Enter' && !e.shiftKey && (draft.trim() || attached.length)
-                && !isMobile && !sendDisabled) {
+            if (enterKey.sends(e) && (draft.trim() || attached.length) && !sendDisabled) {
               e.preventDefault()
               send()
             }
@@ -1000,6 +1002,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             positional match silently pick the wrong element instead of
             failing loudly, which is worse */}
         <button className="mail-reply-send"
+          title={enterKey.hint}
           disabled={(!draft.trim() && !attached.length) || sendDisabled} onClick={send}>
           reply
         </button>
@@ -1687,6 +1690,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
   toast: ToastFn
   close: () => void
 }) {
+  const enterKey = useComposerEnter()
   // multiple recipients (user spec 2026-08-05): chips TOGGLE into a set and
   // the mail goes to every selected address — one send per recipient, the
   // failures reported per-address
@@ -1878,7 +1882,13 @@ function ComposeModal({ slug, net, entries, toast, close }: {
             value={freeTo} onChange={(e) => setFreeTo(e.target.value)} />
         )}
         <textarea rows={5} placeholder="the message…" value={text}
-          disabled={busy} onChange={(e) => setText(e.target.value)} />
+          title={enterKey.hint} disabled={busy} onChange={(e) => setText(e.target.value)}
+          onKeyDown={e => {
+            if (enterKey.sends(e) && !busy && dests.length && text.trim()) {
+              e.preventDefault()
+              send()
+            }
+          }} />
         <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <input ref={fileRef} type="file" multiple hidden
             onChange={(e) => {
@@ -1903,6 +1913,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
           <span className="spacer" />
           <button onClick={close} disabled={busy}>cancel</button>
           <button className="primary"
+            title={enterKey.hint}
             disabled={busy || !dests.length || !text.trim()}
             onClick={send}>
             {busy ? 'sending…'

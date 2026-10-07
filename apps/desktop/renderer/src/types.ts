@@ -1599,6 +1599,7 @@ export interface ProvidersPayload {
 
 /** GET/PUT /api/app-settings/runtime — machine behavior, never org state. */
 export interface RuntimeSettingsPayload {
+  enter_key_behavior?: import('./composerkeys').EnterKeyBehavior
   quick_staff_behavior?: 'request' | 'under_assignee' | 'top_level'
   /** Default off: Request staffing offers no account choice until the user
    *  turns on "Include account selection when requesting staffing". Absent

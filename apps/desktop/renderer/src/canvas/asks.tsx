@@ -27,6 +27,7 @@ import { askFailure, askHidden, submitAsk, useSubmittedAsks } from '../asksubmit
 import { CreditBar } from './cards'
 import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
+import { useComposerEnter } from '../enterkey'
 import { useQuestionVisibility } from '../notification-visibility'
 import { md, orgPxc } from './shared'
 
@@ -50,7 +51,10 @@ const inlineMd = (text: string, base: string) => {
  *  its root; preventDefault also stops a focused row button from
  *  click-toggling on the same Enter. */
 const isSubmitKey = (e: KeyboardEvent): boolean =>
-  e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+  !e.defaultPrevented && e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+    && !e.shiftKey && !e.altKey && !e.repeat && !e.nativeEvent.isComposing
+    && e.nativeEvent.keyCode !== 229
+    && (e.target as HTMLElement).tagName !== 'TEXTAREA'
 
 /** WHY THE CREDIT STEPPER IS AT ITS END. Both bounds are real rules with real
  *  numbers, and a dead button shows neither: the floor is what the asking
@@ -170,6 +174,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   pxc?: number
 }) {
   const visibilityRef = useQuestionVisibility(slug, ask.id)
+  const enterKey = useComposerEnter()
   const tabs: AskTab[] = (ask.tabs ?? []).map((t) => ({
     ...t, options: (t.options ?? []).map((o) =>
       typeof o === 'string' ? { label: o } : o) }))
@@ -327,21 +332,23 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
               <span className="ask-row-body"><b>Other</b></span>
             </button>
             {otherOn && !d.q.skip && (
-              <input value={d.q.text} disabled={busy}
+              <textarea rows={2} value={d.q.text} disabled={busy} title={enterKey.hint}
                 className="ask-other" placeholder="your answer…"
                 onChange={(e) => patch({ q: { ...d.q, skip: false,
-                  text: e.target.value } })} />
+                  text: e.target.value } })}
+                onKeyDown={e => {
+                  if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit(null) }
+                }} />
             )}
           </> : <div className="ask-free-response">
             <label htmlFor={freeResponseId(cur)}>Your answer</label>
-            <input id={freeResponseId(cur)} value={d.q.text} disabled={busy}
+            <textarea rows={2} id={freeResponseId(cur)} value={d.q.text} disabled={busy} title={enterKey.hint}
               className="ask-free-response-input" placeholder="Type your answer…"
               autoFocus={!d.q.skip}
               onChange={(e) => patch({ q: { ...d.q, skip: false,
                 text: e.target.value } })}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && ready)
-                  submit(null)
+                if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit(null) }
               }} />
           </div>}
           {/* FR-14: skippable tabs — an explicit skip, never a hole */}
@@ -420,7 +427,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         </div>
       </>)}
       <button className="ask-submit" disabled={busy || !ready}
-        title="ctrl+enter" onClick={() => submit(null)}>
+        title={t.kind === 'question' ? enterKey.hint : 'ctrl+enter'} onClick={() => submit(null)}>
         {busy ? 'sending…'
           : ready ? (tabs.length === 1 ? 'submit the decision'
             : `submit all ${tabs.length}`)
@@ -543,6 +550,7 @@ const tabValue = (q: AskQuestion, d: TabDraft): string | string[] => {
 function QuestionAsk({ ask, slug, toast }: {
   ask: AskInfo; slug: string; toast: ToastFn
 }) {
+  const enterKey = useComposerEnter()
   const visibilityRef = useQuestionVisibility(slug, ask.id)
   // tolerate a stale backend payload with no `questions` — degrade to the
   // top-level mirror of tab 0
@@ -660,26 +668,27 @@ function QuestionAsk({ ask, slug, toast }: {
             <span className="ask-row-body"><b>Other</b></span>
           </button>
           {otherOn && (
-            <input autoFocus value={d.text} disabled={busy}
+            <textarea rows={2} autoFocus value={d.text} disabled={busy} title={enterKey.hint}
               className="ask-other" placeholder="your answer…"
               onChange={(e) => patch({ text: e.target.value })}
               onKeyDown={(e) => {
-                // plain enter only — ctrl+enter bubbles to the card root
-                if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) submit() }} />
+                if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit() }
+              }} />
           )}
         </> : <div className="ask-free-response">
           <label htmlFor={freeResponseId(tab)}>Your answer</label>
-          <input id={freeResponseId(tab)} autoFocus={!d.text} value={d.text}
+          <textarea rows={2} id={freeResponseId(tab)} autoFocus={!d.text} value={d.text} title={enterKey.hint}
             disabled={busy} className="ask-free-response-input"
             placeholder="Type your answer…"
             onChange={(e) => patch({ text: e.target.value })}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) submit() }} />
+              if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit() }
+            }} />
         </div>}
       </div>
       {q.multi && <div className="dim">several may apply</div>}
       <button className="ask-submit" disabled={busy || !ready}
-        title="ctrl+enter" onClick={submit}>
+        title={enterKey.hint} onClick={submit}>
         {busy ? 'sending…'
           : batch ? (ready ? `submit ${qs.length} answers`
             : `${doneCount}/${qs.length} answered`)
