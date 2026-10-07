@@ -182,9 +182,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Open submenu follows Hire: desk, popout and pin destinations together,
   then a separator before inbox, docket, team docket and presentations.
   Destination availability keeps its existing gates.
+  Switchboard tab names and desk headers reach this same builder through
+  `agentnav`; they do not maintain a separate action list.
   The final separated group is Cheap compact, Cheap-compact subtree, Halt/Unhalt,
+  Halt/Unhalt subtree, Halt/Unhalt all subordinates,
   Retire all subordinates, Retire/Dissolve (team-only entries need live reports).
   Both adjacent compaction actions use the theme's yellow caution tint.
+  Team halt actions confirm live target counts and use HTTP ops `nodes`, with
+  all targets validated before the shared F05 parallel executor. Each set
+  offers Unhalt only when all its live targets are halted; mixed sets offer Halt.
   Cheap compact confirms the existing `cheap_compact` operation and is
   disabled for non-live, busy or sessionless agents. [user 2026-10-07 17:16Z;
   verified from source and isolated renderer screenshots/smoke]

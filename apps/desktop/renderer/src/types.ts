@@ -1988,6 +1988,8 @@ export interface AudiencesPayload {
 // api.py Op — the ledger op envelope (POST /api/orgs/{slug}/ops)
 export interface OpRequest {
   op: string
+  /** Batch halt/unhalt: validated together before parallel actor control. */
+  nodes?: string[]
   actor?: string
   node?: string | null
   parent?: string | null

@@ -454,7 +454,7 @@ export function EyeDesk({ map, op, slug, toast,
           </svg>
           <div className="eye-tabs">
           {agents.map((a) => (
-            <span key={a.id} data-copy-agent-name={a.id} className={'eye-tab'
+            <span key={a.id} data-copy-agent-name={a.id} {...agentNavProps(a.id)} className={'eye-tab'
               + (isPinned(a.id) ? ' pinned' : minned.has(a.id) ? '' : ' on')}>
               {/* The tab name selects its panel. Agent navigation belongs
                   only to the separate jump button (user 2026-09-10). */}
