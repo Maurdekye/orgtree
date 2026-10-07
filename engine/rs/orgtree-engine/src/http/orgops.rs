@@ -173,6 +173,10 @@ pub async fn dissolve_all(State(e): State<Arc<Engine>>, Path(slug): Path<String>
     Ok(Json(json!({ "freed": freed, "nodes": nodes })))
 }
 
+/// Why Stop All paused a watchdog (3.x wording); release leaves it paused.
+const KILLSWITCH_PAUSE: &str =
+    "⏹ STOP ALL paused every watchdog. Nothing un-pauses it automatically — resume this dog deliberately when you want it back.";
+
 /// Stop everything: running turns are interrupted, watchdogs paused, and
 /// nothing starts a turn until the latch is released.
 #[logged]
@@ -187,10 +191,11 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
         .await?;
     let paused = client
         .query(
-            "UPDATE ot.watchdogs w SET state = 'paused', memo = jsonb_set(memo, '{paused_by}', '\"killswitch\"')
+            "UPDATE ot.watchdogs w SET state = 'paused',
+                    memo = memo || jsonb_build_object('paused_why', $2::text)
                FROM ot.agents a WHERE a.id = w.owner_agent_id AND w.org_id = $1 AND w.state = 'armed'
              RETURNING w.uid, w.name, a.name",
-            &[&o.id],
+            &[&o.id, &KILLSWITCH_PAUSE],
         )
         .await?;
     let live: Vec<(i64, String)> = client
@@ -227,6 +232,10 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
                     "watchdogs_paused": watchdogs })))
 }
 
+/// Release the latch, and only the latch (as 3.x): no turn is started or
+/// resumed, and the watchdogs Stop All paused stay paused until each is
+/// resumed by hand. Agents merely become eligible again for whatever
+/// legitimately drives them next.
 #[logged]
 pub async fn killswitch_release(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
@@ -234,33 +243,7 @@ pub async fn killswitch_release(State(e): State<Arc<Engine>>, Path(slug): Path<S
     let released = client
         .execute("UPDATE ot.orgs SET killswitch = NULL, row_version = row_version + 1 WHERE id = $1 AND killswitch IS NOT NULL", &[&o.id])
         .await?;
-    let rearmed: Vec<String> = client
-        .query(
-            "UPDATE ot.watchdogs SET state = 'armed', memo = memo - 'paused_by'
-              WHERE org_id = $1 AND state = 'paused' AND memo->>'paused_by' = 'killswitch' RETURNING uid",
-            &[&o.id],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    for d in &rearmed {
-        crate::runtime::watchdogs::arm(&e, d);
-    }
-    let waiting: Vec<i64> = client
-        .query(
-            "SELECT DISTINCT m.recipient_agent_id FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
-              WHERE a.org_id = $1 AND a.state = 'live' AND m.state = 'pending' AND NOT m.notice",
-            &[&o.id],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
     drop(client);
-    for id in waiting {
-        crate::runtime::wake(&e, o.id, id);
-    }
-    changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
-    Ok(Json(json!({ "released": released > 0, "status": if released > 0 { "released" } else { "not latched" } })))
+    changes::notify(&e, &o, vec![Change::Org]);
+    Ok(Json(json!({ "released": released > 0, "status": if released > 0 { "released" } else { "the killswitch is not latched" } })))
 }
