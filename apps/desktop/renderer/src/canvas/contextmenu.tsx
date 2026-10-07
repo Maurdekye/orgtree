@@ -365,14 +365,17 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // copy OBJECT and never from the builder; the marker's value is the agent
     // name at every call site carrying both attributes, so it is identical to
     // the one the copy object would have produced.
+    // Agent copy flows straight into its actions. Other object menus keep
+    // their existing copy/action separator.
+    const agentCopy = object?.hasAttribute('data-copy-agent-name') || (!object && navEl && navId)
+    const copyGap: MenuEntry[] = agentCopy ? [] : ['sep']
     const list: MenuEntry[] = object
       ? [objectCopyEntry(object, feedback),
-         ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
-         ...(surfaceEntries.length ? ['sep' as const, ...surfaceEntries] : [])]
+         ...(navEntries.length ? [...copyGap, ...navEntries] : []),
+         ...(surfaceEntries.length ? [...copyGap, ...surfaceEntries] : [])]
       : (navEl && navId
           ? [agentCopyEntry(navEl, navId, feedback),
-             ...(navEntries.length ? ['sep' as const, ...navEntries] : []),
-             ...(surfaceEntries.length ? ['sep' as const, ...surfaceEntries] : [])]
+             ...navEntries, ...surfaceEntries]
           : entriesList)
     // nothing to offer is not a menu: the browser's own stands
     if (!list.some((x) => x !== 'sep')) return

@@ -46,7 +46,7 @@ import type { CanvasNode, HireProviders, OpFn } from './shared'
  *  `cheap-compact-subtree` rides the same plumbing so that every surface that
  *  already hosts the retire confirm hosts the bulk compaction confirm too,
  *  without a second piece of state per surface (canvas/bulkcompact.tsx). */
-export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact-subtree'
+export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact' | 'cheap-compact-subtree'
 
 export interface AgentMenuHandlers {
   /** open this agent's desk — the card re-centres the camera on itself, the
@@ -195,20 +195,11 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (s.detached && showWindow) {
     entries.push({ label: 'Show desk window', onSelect: () => showWindow() })
   }
-  if (canRetire && h.onHalt) {
-    entries.push({
-      label: node.halt?.phase === 'halted' ? 'Unhalt' : 'Halt',
-      title: node.halt?.phase === 'halted' ? 'Allow pending work to resume'
-        : node.halt?.phase === 'halting' ? 'Finish halting the active turn'
-        : 'End this turn and block wakes until explicitly unhalted',
-      danger: node.halt?.phase !== 'halted',
-      onSelect: h.onHalt,
-    })
-  }
   const hire = h.onHire
   if (canHire && hire) {
     const choices = hireTierChoices(s)
-    entries.push({
+    // Copy agent name is prepended by useContextMenu: Focus, then Hire.
+    entries.splice(1, 0, {
       label: 'Hire a subordinate',
       title: 'Choose a tier to open its hire form',
       submenuOnly: true,
@@ -224,8 +215,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   const ask = h.onRetireAsk
   // Bulk cheap compaction of this agent AND everyone below it. Offered only
-  // with live reports — without them it is the single action, which already
-  // has its door on the desk's context wheel. Not `danger`: it retires no one
+  // with live reports. The single-agent action is in the final group below.
+  // Not `danger`: it retires no one
   // and interrupts nothing; the confirm names every target and every skip.
   if (canRetire && ask && liveKids) {
     entries.push({
@@ -241,19 +232,38 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       title: 'retires every live direct report; nested subtrees are included',
       onSelect: () => ask('retire-all'),
     })
-    entries.push('sep', liveKids
-      ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => ask('dissolve') }
-      : { label: 'Retire…', danger: true, onSelect: () => ask('retire') })
   } else if (!live && h.onDismiss) {
     const dismiss = h.onDismiss
-    entries.push('sep', {
+    entries.push({
       label: 'Dismiss',
       title: 'hide this retired agent again',
       onSelect: () => dismiss(),
     })
   }
-  // LAST, below the lifecycle actions (user 2026-09-30: "put settings at the bottom")
-  entries.push('sep', { label: 'Settings', onSelect: () => h.onSettings() })
+  entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
+  // User 2026-10-07: one final group, in this exact order.
+  const lifecycle: MenuEntry[] = []
+  if (ask) lifecycle.push({
+    label: 'Cheap compact…',
+    disabled: !canRetire || !!node.busy || !node.session_id,
+    title: !canRetire ? 'Only live agents can be compacted'
+      : node.busy ? 'Wait until this agent finishes its turn'
+      : !node.session_id ? 'No conversation to compact yet'
+      : 'Start a fresh session with a handoff from this conversation',
+    onSelect: () => ask('cheap-compact'),
+  })
+  if (canRetire && h.onHalt) lifecycle.push({
+    label: node.halt?.phase === 'halted' ? 'Unhalt' : 'Halt',
+    title: node.halt?.phase === 'halted' ? 'Allow pending work to resume'
+      : node.halt?.phase === 'halting' ? 'Finish halting the active turn'
+      : 'End this turn and block wakes until explicitly unhalted',
+    danger: node.halt?.phase !== 'halted',
+    onSelect: h.onHalt,
+  })
+  if (canRetire && ask) lifecycle.push(liveKids
+    ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => ask('dissolve') }
+    : { label: 'Retire…', danger: true, onSelect: () => ask('retire') })
+  if (lifecycle.length) entries.push('sep', ...lifecycle)
   return entries
 }
 
@@ -274,6 +284,15 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
   toast: ToastFn
   close: () => void
 }) {
+  if (kind === 'cheap-compact') {
+    return <ConfirmModal title={`cheap compact ${node.id}?`}
+      body="Start a fresh session seeded with a handoff from this conversation. The agent keeps its settings and team; its previous conversation is retained."
+      confirmLabel="cheap compact"
+      onConfirm={() => op({ op: 'cheap_compact', node: node.id })
+        .then(() => toast([`${node.id} cheap-compacted — fresh session ready`]))
+        .catch((e: Error) => toast([`error: ${e.message}`]))}
+      close={close} />
+  }
   if (kind === 'cheap-compact-subtree') {
     return (
       <BulkCompactConfirm title={`cheap-compact ${node.id} and its subtree?`}

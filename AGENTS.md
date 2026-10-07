@@ -152,7 +152,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   submenu uses `hireTierOffer` (also used by HireSheet) and opens the existing
   local draft form; only confirmation creates a seat. Halt/Unhalt shares
   `toggleAgentHalt` with the desk control, including the settling halt phase.
-  [verified from source: 2026-10-07]
+  Copy agent name flows directly into Focus, then Hire a subordinate. The
+  final separated group is Cheap compact, Halt/Unhalt, Retire/Dissolve.
+  Cheap compact confirms the existing `cheap_compact` operation and is
+  disabled for non-live, busy or sessionless agents. [user 2026-10-07 17:16Z;
+  verified from source and isolated renderer screenshots/smoke]
 
 - Staffing composites use `ops::run_in_tx` and publish deferred `Effects` only
   after the caller commits. Busy model/account switches persist intents and

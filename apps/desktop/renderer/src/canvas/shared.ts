@@ -758,6 +758,8 @@ export interface CanvasNode {
   account?: string | null
   account_tint_ordinal?: number
   account_label?: string
+  /** Used by session actions; synthetic or freshly compacted seats omit it. */
+  session_id?: string
   children: CanvasNode[]
   title?: string
   /** set by flatten(): the parent card's id (null on the eye root) */
