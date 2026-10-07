@@ -1278,14 +1278,6 @@ interface NodeSquareProps {
    *  the id because the same handler serves this card and the Agents List row,
    *  and the two menus must offer the same entries. */
   onOpenTemporary?: (id: string) => void
-  /** "Hire a subordinate…" picked from the AGENTS LIST rather than from this
-   *  card (user request 2026-09-12): the chips live here, so the row glides to
-   *  the agent and asks its card to open them. A COUNTER, not a flag — picking
-   *  the entry twice for the same agent must reveal twice — and the card
-   *  reports back through `onHireRevealed` so a card that is scrolled out of
-   *  the viewport and back does not silently reveal them again. */
-  revealHire?: number
-  onHireRevealed?: () => void
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
 }
@@ -1414,7 +1406,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
   mapMode, deskEligible = true, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
   onOpenTemporary,
-  revealHire, onHireRevealed, onDismiss }: NodeSquareProps) {
+  onDismiss }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
   // DeskChat mount itself keys on `deskOpen`.
@@ -1449,26 +1441,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // hand-written copy is exactly the drift that ticket was about. This side
   // passes the card's own handlers and the two facts the builder cannot see.
   const menu = useContextMenu()
-  const [hireReveal, setHireReveal] = useState(false)
-  // "Hire a subordinate…" has no single handler (the tier choice and its
-  // provider gating live in SpawnChips), so it REVEALS the bottom hire chips
-  // the way a bottom-edge hover does: the `hire-reveal` class holds them open
-  // until the pointer leaves the card. An Agents List row picks the same entry
-  // from off-card, which is what `revealHire` below arrives as.
-  const revealHireChips = () => { setEdge('b'); setHireReveal(true); setExpandedHireEdge('b') }
-  // The signal runs the SAME reveal the card's own menu entry runs — it is the
-  // same action asked for from another surface, not a second one. Read through
-  // a ref so the effect stays keyed on the counter alone: `onHireRevealed` is
-  // a fresh closure on every parent render, and depending on it would re-run
-  // this on renders that changed nothing.
-  const revealedCb = useRef(onHireRevealed)
-  revealedCb.current = onHireRevealed
-  useEffect(() => {
-    if (revealHire == null) return
-    revealHireChips()
-    revealedCb.current?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revealHire])
   // the desk's NATIVE window, read at menu-open time (deskhosts.tsx): whether
   // this agent's desk is already popped out decides which of the two entries
   // the builder offers, and a card must not hold a store subscription for it
@@ -1500,11 +1472,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       // own borrowing slot. Same gate as pin/popout: none of this on mobile.
       onOpenTemporary: !isMobile && onOpenTemporary
         ? () => onOpenTemporary(node.id) : undefined,
-      onHire: revealHireChips,
+      onHire: onSpawn,
       onRetireAsk: setAsking,
       onDismiss,
       onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
-    }, { pinned, piled: !!pile, detached: desk.detached })
+    }, { pinned, piled: !!pile, detached: desk.detached,
+      claudeHire, codexHire, antigravityHire, openrouterHire })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -1557,7 +1530,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   }
   if (node.audiences_held?.length) cls.push('aud')
   if (pinned) cls.push('pinned')
-  if (hireReveal) cls.push('hire-reveal')
   const toggleCompactHire = (which: 'b' | 'l' | 'r' | 't') =>
     setExpandedHireEdge((open) => open === which ? null : which)
   // MEDIUM-ZOOM FULL NAME (docket show-full-truncated-agent-name-on-hover-at-
@@ -1703,7 +1675,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onPointerEnter={() => setNameHover(true)}
       onPointerMove={(e) => { setNameHover(true); trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, focused)}
-      onPointerLeave={() => { setExpandedHireEdge(null); setHireReveal(false); setNameHover(false) }}
+      onPointerLeave={() => { setExpandedHireEdge(null); setNameHover(false) }}
       /* the card's context menu — NOT at desk zoom: the open desk is its own
          surface (chat text, mail rows, its own header controls), and a
          right-click on its content must keep the browser's or the row's menu */

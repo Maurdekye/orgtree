@@ -538,6 +538,31 @@ export const antigravityTierOffer = (
   return familyOffer(h)
 }
 
+/** Shared hire-sheet and context-menu eligibility, including per-tier rollout gates. */
+export const hireTierOffer = (provider: string, hire: HireState | null | undefined,
+  tier: string): FamilyOffer =>
+  provider === 'codex' ? codexTierOffer(hire, tier)
+    : provider === 'antigravity' ? antigravityTierOffer(hire, tier)
+    : optInLegacyHidden(tier) ? 'hide' : familyOffer(hire)
+
+export interface HireProviders {
+  claudeHire?: HireState | null
+  codexHire?: HireState | null
+  antigravityHire?: HireState | null
+  openrouterHire?: HireState | null
+}
+
+/** The same family order and tier registry as the hire sheet. */
+export const hireTierChoices = (h: HireProviders) => [
+  { provider: 'claude', tiers: TIERS, hire: h.claudeHire },
+  { provider: 'codex', tiers: CODEX_TIERS, hire: h.codexHire },
+  { provider: 'antigravity', tiers: ANTIGRAVITY_TIERS, hire: h.antigravityHire },
+  { provider: 'openrouter', tiers: openrouterTierIds(), hire: h.openrouterHire },
+].flatMap(({ provider, tiers, hire }) => tiers.map(tier => ({
+  tier, offer: hireTierOffer(provider, hire, tier),
+  reason: hire?.reason ?? 'hiring is not enabled yet',
+}))).filter(choice => choice.offer !== 'hide')
+
 /* ---------------- conditional tiers the payload currently offers (Argon and Barium)
    For surfaces that have no HireState of their own (the bearer rehire list).
    OrgCanvas feeds it from the same providers poll the hire strips read, so

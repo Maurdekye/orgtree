@@ -26,7 +26,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ago, ALL_TIER_SEAT, antigravityTierOffer, anyTierSeat, attentionPip, codexTierOffer, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, optInLegacyHidden, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
+  ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
@@ -487,12 +487,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const [trayQ, setTrayQ] = useState('')            // №26: tray name filter
   const [trayArch, setTrayArch] = useState(false)   // archived rows shown (user
                                                     // spec: hidden by default)
-  // "Hire a subordinate…" picked from an AGENTS LIST row: the hire chips are
-  // the card's, so the row walks the camera there and hands the card this
-  // signal. A counter rather than a flag — picking it twice for the same agent
-  // must open the chips twice — cleared by the card once it has acted on it.
-  const [hireReveal, setHireReveal] =
-    useState<{ id: string; seq: number } | null>(null)
   const [inboxId, setInboxId] = useState<string | null>(null)
   const [agentDocketId, setAgentDocketId] = useState<string | null>(null)
   // the TEAM docket's root agent — its own surface, deliberately not a mode of
@@ -3016,9 +3010,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // handles an archived or unavailable seat with its own semantics rather
       // than this menu second-guessing them.
       onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
-      // the hire chips live ON THE CARD, so this walks to the agent and asks
-      // its card to open them — the same reveal the card's own entry runs
-      onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
+      onHire: (tier) => spawn(n.id, tier),
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
@@ -3026,6 +3018,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // this file being the single menu definition
       onContinueOn: (account) => void continueFrozenOnAccount(slug, n.id, account, toast),
     }, {
+      claudeHire, codexHire, antigravityHire, openrouterHire,
       pinned: pinnedIds.has(n.id),
       detached: desk.detached,
       // a piled agent's card is (or becomes, once the row brings it to the
@@ -3694,10 +3687,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               onDragEnd={endNodeDrag} onDragCancel={abortNodeDrag}
               mapMode={compact} dogs={dogsByOwner[n.id]?.total ?? 0}
               oneShotDogs={dogsByOwner[n.id]?.oneShot ?? 0}
-              /* the Agents List row's "Hire a subordinate…" — the chips are
-                 here, so the row asks this card to open them */
-              revealHire={hireReveal?.id === n.id ? hireReveal.seq : undefined}
-              onHireRevealed={() => setHireReveal(null)}
               onDismiss={hideRetired && n.state === 'archived' && shownRetired.has(n.id)
                 ? () => dismissRetiredAgent(n.id) : undefined} />
           )
@@ -4367,11 +4356,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   // just be "the family's first tier" — it has to be the first tier that is
   // ITSELF offerable.
   const tierOffer = (f: (typeof famRows)[number], t: string): FamilyOffer =>
-    f.key === 'codex' ? codexTierOffer(f.hire, t)
-      // Gemini Pro (legacy toggle) and Argon/Barium (only once agy lists it)
-      : f.key === 'antigravity' ? antigravityTierOffer(f.hire, t)
-      // an opt-in legacy tier of another family, toggle off
-      : optInLegacyHidden(t) ? 'hide' : f.offer
+    hireTierOffer(f.key, f.hire, t)
   const firstOfferable = famRows
     .flatMap((f) => f.tiers.filter((t) => tierOffer(f, t) === 'offer'))[0] ?? ''
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire]

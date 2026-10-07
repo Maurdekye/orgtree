@@ -37,8 +37,8 @@ import type { ToastFn } from '../types'
 import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
-import { fmtCredits } from './shared'
-import type { CanvasNode, OpFn } from './shared'
+import { fmtCredits, hireTierChoices, tierLabel } from './shared'
+import type { CanvasNode, HireProviders, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
  *  (a node with live reports dissolves, one without retires) so no caller has
@@ -86,10 +86,8 @@ export interface AgentMenuHandlers {
    *  borrows the canonical desk and returns it to the same placement, rather
    *  than drawing a second read-only imitation. */
   onOpenTemporary?: () => void
-  /** reveal the card's bottom hire chips. There is no single "hire" handler —
-   *  the tier choice and its provider gating live in SpawnChips — so this
-   *  opens the chips the way a bottom-edge hover does. */
-  onHire?: () => void
+  /** Open the existing local hire form; no seat is created until confirmation. */
+  onHire?: (tier: string) => void
   /** open the confirm for `kind`; render `AgentRetireConfirm` from it */
   onRetireAsk?: (kind: RetireKind) => void
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
@@ -102,7 +100,7 @@ export interface AgentMenuHandlers {
   onContinueOn?: (account: string) => void
 }
 
-export interface AgentMenuState {
+export interface AgentMenuState extends HireProviders {
   /** this agent's desk is already open as a pinned window */
   pinned?: boolean
   /** …or already popped out into a native window of its own. The two are
@@ -198,10 +196,19 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   const hire = h.onHire
   if (canHire && hire) {
+    const choices = hireTierChoices(s)
     entries.push({
-      label: 'Hire a subordinate…',
-      title: 'shows the hire chips under the card — pick a model there',
-      onSelect: () => hire(),
+      label: 'Hire a subordinate',
+      title: 'Choose a tier to open its hire form',
+      submenuOnly: true,
+      disabled: choices.length === 0,
+      onSelect: () => {},
+      children: choices.map(({ tier, offer, reason }) => ({
+        label: tierLabel(tier),
+        disabled: offer !== 'offer',
+        title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire under ${node.id}` : reason,
+        onSelect: () => hire(tier),
+      })),
     })
   }
   const ask = h.onRetireAsk

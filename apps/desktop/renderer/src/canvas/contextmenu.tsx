@@ -108,6 +108,8 @@ export interface MenuItem {
   /** Submenu parents can be expanded even when selecting the parent is unavailable. */
   children?: MenuEntry[]
   actionDisabled?: boolean
+  /** This parent only opens its submenu, including on click or Enter. */
+  submenuOnly?: boolean
   description?: string
   /** a destructive action — drawn in the caution colour; callers place it
    *  after a separator at the end of the list */
@@ -598,7 +600,7 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
           else expand()
         }
       }}
-      onClick={e => { e.stopPropagation(); if (entry.actionDisabled) return; close(); entry.onSelect() }}>
+      onClick={e => { e.stopPropagation(); if (entry.submenuOnly) { expand(); return }; if (entry.actionDisabled) return; close(); entry.onSelect() }}>
       {entry.label}{entry.children && <span aria-hidden="true"> ▸</span>}
     </button>
     {expanded && entry.children && <div ref={submenu} className="ctxmenu ctxmenu-submenu" role="menu"
