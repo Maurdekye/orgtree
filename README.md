@@ -77,14 +77,6 @@ Give agents jobs, see what they are doing, and keep their conversations, files a
 
 A typical workflow: give a coordinator a project, have a specialist investigate one part, ask another agent to review the result, and keep the decisions and deliverables on the project's tickets.
 
-When you change an agent's effort, the app reports delivery. Agent tools return the same information in `effort_delivery`:
-
-| Result | Meaning |
-| --- | --- |
-| `sent` | Delivered to the running Claude Code turn. This does not confirm that the CLI applied it; if the CLI ignores the request, the new level still applies from the next turn. |
-| `unchanged` | The effective level is the same, so nothing was sent. |
-| `next_turn` | The change applies from the next turn, with a reason for deferring delivery. |
-
 ## Install
 
 The published installer is for **64-bit Windows**.
