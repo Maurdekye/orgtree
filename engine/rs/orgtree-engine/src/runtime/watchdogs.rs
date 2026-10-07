@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use regex::Regex;
+use fancy_regex::Regex;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -105,8 +105,9 @@ impl Dog {
         self.memo["notice"].as_bool().unwrap_or(false)
     }
 
-    fn regex(&self) -> Option<Regex> {
-        self.pattern.as_deref().and_then(|p| Regex::new(p).ok())
+    /// The compiled pattern (None: no pattern), or why it does not compile.
+    fn regex(&self) -> Result<Option<Regex>, String> {
+        self.pattern.as_deref().map(compile).transpose()
     }
 
     /// Seconds until a silence dog is due (zero or less: due now).
@@ -123,6 +124,23 @@ impl Dog {
     #[nolog]
     fn run_i64(&self, key: &str) -> i64 {
         self.run[key].as_i64().unwrap_or(0)
+    }
+}
+
+/// A watchdog pattern, in a dialect close to the Python `re` 3.x accepted
+/// (lookarounds and backreferences included).
+#[logged]
+fn compile(p: &str) -> Result<Regex, String> {
+    Regex::new(p).map_err(|e| e.to_string())
+}
+
+/// Does a line match: no pattern matches every line; a pattern that does
+/// not compile, or gives up backtracking, matches nothing (never everything).
+fn matches(re: &Result<Option<Regex>, String>, line: &str) -> bool {
+    match re {
+        Ok(None) => true,
+        Ok(Some(r)) => r.is_match(line).unwrap_or(false),
+        Err(_) => false,
     }
 }
 
@@ -266,6 +284,12 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Resu
         pause(engine, &dog, ARCHIVE_PAUSE).await?;
         return Ok(());
     }
+    // an imported pattern this engine cannot compile pauses the dog rather
+    // than letting it match every line
+    if let Err(e) = dog.regex() {
+        pause(engine, &dog, &format!("its pattern does not compile here ({e}) — re-create it with a pattern that does")).await?;
+        return Ok(());
+    }
     match dog.kind.as_str() {
         "stream" => run_stream(engine, dog, cancel).await,
         "activity" => run_activity(engine, dog, cancel).await,
@@ -347,7 +371,7 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
 #[logged]
 async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, Option<bool>) {
     let re = dog.regex();
-    let hit = |line: &str| !line.trim().is_empty() && re.as_ref().map(|r| r.is_match(line)).unwrap_or(true);
+    let hit = |line: &str| !line.trim().is_empty() && matches(&re, line);
     let kind = dog.kind.clone();
     let target = dog.target.clone();
     let shell = dog.shell.clone();
@@ -817,7 +841,7 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
                 recent = tail(&recent, OUT_KEEP);
                 recent.push('\n');
             }
-            if !line.trim().is_empty() && re.as_ref().map(|r| r.is_match(&line)).unwrap_or(true) {
+            if !line.trim().is_empty() && matches(&re, &line) {
                 if d.silence() {
                     matched_at = Some(Utc::now());
                     d.silence_since = matched_at;
@@ -980,7 +1004,7 @@ async fn activity_loop(
             _ = tokio::time::sleep(wait) => {}
             _ = cancel.cancelled() => return Ok(()),
         }
-        let hits: Vec<String> = seen.iter().filter(|l| re.as_ref().map(|r| r.is_match(l)).unwrap_or(true)).cloned().collect();
+        let hits: Vec<String> = seen.iter().filter(|l| matches(&re, l)).cloned().collect();
         if !seen.is_empty() {
             let Some(fresh) = load(engine, &d.uid).await? else { return Ok(()) };
             if fresh.state != "armed" {
@@ -1372,7 +1396,7 @@ async fn smoke(kind: &str, target: &str, pattern: Option<&Regex>, shell: Option<
         });
     }
     if let Some(re) = pattern {
-        let hits = out.output.lines().filter(|l| re.is_match(l)).count();
+        let hits = out.output.lines().filter(|l| re.is_match(l).unwrap_or(false)).count();
         res["matched"] = json!(hits > 0);
         res["matched_note"] = json!(if hits > 0 {
             format!("the pattern matched {hits} line(s) — this dog would fire NOW")
@@ -1436,7 +1460,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         );
     }
     if kind == "process" {
-        let ok = Regex::new(r"^(pid|port):\d+$").map(|r| r.is_match(&target)).unwrap_or(false);
+        let ok = regex::Regex::new(r"^(pid|port):\d+$").map(|r| r.is_match(&target)).unwrap_or(false);
         if !ok {
             refuse!(BadRequest, "process targets are `pid:N` or `port:N`");
         }
@@ -1478,7 +1502,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let shell_col: Option<String> = (shell == "bash").then(|| shell.clone());
     let pattern = args["pattern"].as_str().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
     let re = match &pattern {
-        Some(p) => match Regex::new(p) {
+        Some(p) => match compile(p) {
             Ok(r) => Some(r),
             Err(e) => refuse!(BadRequest, "pattern does not compile: {e}"),
         },
