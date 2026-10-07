@@ -168,6 +168,14 @@ processes keep their environment until their next start. This does not move old 
 folder grants or edit live settings. [decided: user, DECISIONS 46-47; verified:
 `tools/boot-engine-task.ps1`, Rust `settings.rs`, `http/settings.rs`, `runtime/{claude,codex,agy}.rs`]
 
+**Codex Windows runner timeouts (2026-10-07).** A workspace-write seat can fail
+before shell startup while its authorized per-command escalated retry succeeds;
+the observed difference is not necessarily a new-agent launch bug. Preserve the
+shell-and-write approval gate; plan/edit-disabled seats cannot escape their
+sandbox this way. Attribution of the current elevated runner failure remains open.
+[verified from source: `runtime/codex.rs`, legacy `supervisor.py`; measured comparison:
+`docs/rust-engine/codex-sandbox-runner.md`]
+
 ## Keep this file current
 
 **When you find an engine gotcha or a design invariant, or a new decision or ruling is
