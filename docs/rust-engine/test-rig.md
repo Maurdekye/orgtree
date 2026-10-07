@@ -20,9 +20,22 @@ node tools/rig/rig.mjs down                           # graceful stop, then the 
 ```
 
 Scripted runs: `node tools/rig/rig.mjs run tools/rig/proofs/turn-recovery.mjs` brings a run up,
-calls the script's default export with a `Rig` handle (`tools/rig/lib.mjs`), and always tears the
-run down (also on Ctrl-C). `tools/rig/proofs/` holds worked examples; `proof.mjs` records
-pass/fail checks and evidence under `<rig home>\evidence\<proof>-<time>\`, which outlives the run.
+calls the script's default export with a `Rig` handle (`tools/rig/lib.mjs`), and always stops the
+run (also on Ctrl-C); a run whose script failed keeps its files for inspection until
+`rig cleanup`. A script may `export async function setup(flags)` returning `up` options
+(`{ fixture: 'none', legacy: <dir>, prepare: async ({ data, pgBin }) => … }`). `proof.mjs`
+records pass/fail checks and evidence under `<rig home>\evidence\<proof>-<time>\`, which outlives
+the run.
+
+| Proof (`tools/rig/proofs/`) | What it runs through the real engine |
+|---|---|
+| `turn-recovery.mjs` | CLI exits mid-turn → connection freeze → timer retry with the banner on the resumed session; a 401 result → auth park and the superior's one-time notice |
+| `background-and-mail.mjs` | stopped and orphaned background tasks (P33), the 45 s unread notice (P36), mid-turn mail through the PostToolUse hook |
+| `docket-rules.mjs` | docket read/update permissions and stale `expected_rev` refusals, checked in the database |
+| `batch-halt.mjs` | Halt subtree / Unhalt all / Halt all (with a turn running) / Unhalt subtree from the menus, in the real renderer |
+| `import-2x.mjs` | first-start import of a synthetic 2.x store, section by section; a damaged store fails loudly |
+| `import-3x.mjs` | first-start import of a synthetic 3.2 store built with the 3.x migrations; a dropped column; an older schema level |
+| `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
 
 ## What keeps it safe
 
@@ -113,9 +126,52 @@ visibility and side effects included). `rig.tool(agent, tool, args)` in scripts,
 `rig tool <agent> <tool> '<json>'` on the command line; assert on the result and on the database
 with `rig.sql()` (psql against the run's cluster, rows as JSON).
 
+## Desktop smoke
+
+`rig desktop <page-script.cjs> ['<json args>'] [--preset short|tall|wide|WxH]` (or
+`runDesktop(rig, script, { preset, args, out })` from `tools/rig/desktop.mjs`) starts
+`electron.exe` where it is installed (this worktree's, the main checkout's or the integration
+checkout's `node_modules`, or `ORGTREE_RIG_ELECTRON`; never linked or copied) on
+`desktop/main.cjs`. That loads the run's real renderer bundle at `/o/<org>` in an offscreen window
+with a fresh profile per invocation, and signs engine requests with the run's token the way the
+desktop does (`session.webRequest`). A page script is a CommonJS module
+`async (page, { org, args, out }) => value`; `page` offers `goto`, `waitFor(target)`,
+`click`/`rightClick`/`hover(target)` (after the target stops moving), `press(key)`, `type(text)`,
+`screenshot(name)`, `resize(preset)`, `eval(fn, ...args)`, `api(method, path, body)` and
+`consoleErrors`. A target is a CSS selector or `{ selector, text, regex }` (the innermost visible
+element whose text matches). Clicks, keys and text go through CDP `Input.dispatch*`, so the page
+sees trusted events. Examples: `desktop/menu-action.cjs` (walk a card's context-menu path and
+confirm it), `desktop/explore.cjs` (screenshot plus a card summary), `desktop/watch-crash.cjs`.
+
+The renderer bundle defaults to this worktree's `dist/renderer`, else the installed app's `ui`;
+`node tools/rig/build-ui.mjs [--dev]` builds this worktree's renderer into the rig home for
+`up --ui <dir>` (`--dev`: unminified React with source maps, so a crash names its component).
+
+What it cannot test, and does not pretend to: the desktop main process (tray, pop-out windows,
+native menus, window controls, notifications, the preload bridge: the renderer runs as it does in
+a plain browser); native `<select>` popups and OS drag and drop (Chromium draws them outside the
+page); real Windows DPI. Agents run in session 0, whose display is 1024x768 and Windows clamps
+windows to it, so viewport presets are a CDP device-metrics override (what layout, events and
+screenshots see), not a native window size.
+
+## Legacy stores for importer runs
+
+`tools/rig/legacy2x.mjs` writes a synthetic 2.x data folder (`orgs/<slug>.db`); pass its folder
+as `up --legacy <dir>` (copied into the new data root before the engine's first start).
+`tools/rig/legacy32.mjs` builds a 3.2 store (`orgtree_app` + `orgtree_org_1`) in the run's own
+cluster with the 3.x engine's migrations, as a `prepare` hook; `level` stops at an older org
+migration and `damage` runs SQL after seeding. Migrated templates are cached per level under
+`<rig home>\pg\template32-*` (the first build takes several minutes).
+
 ## Traps
 
 - Git Bash rewrites `/api/...` arguments into `C:/Program Files/Git/api/...`; `rig api` undoes it,
   other tools need `MSYS_NO_PATHCONV=1`.
 - A turn's prompt is long (ORG STATE, mail envelopes); match on a token you put in the mail.
 - Timers are real: a connection retry waits 30 s, the unread-mail notice 45 s.
+- A halt (single or batch) kills the agent's CLI process tree; it does not send an interrupt, so
+  the fake CLI logs no `interrupted` entry for it (the turn row is `killed`).
+- Write page scripts and scenarios with an editor, not a bash heredoc: heredocs mangle
+  backslashes in regexes and Windows paths.
+- Several agents may share the rig home: `cleanup` only stops runs whose keeper is gone (or your
+  own with `--mine`), and never another live run's processes; `--dry-run` shows the plan.

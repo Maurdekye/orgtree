@@ -378,6 +378,8 @@ export async function startRun(opts = {}) {
   if (opts.legacy) fs.cpSync(opts.legacy, data, { recursive: true })
   // --initdb: let the engine create the cluster itself (its own first-start path)
   if (!opts.initdb && !fs.existsSync(path.join(data, 'pg', 'cluster'))) fs.cpSync(pgTemplate(home, pg), path.join(data, 'pg', 'cluster'), { recursive: true })
+  // a script's hook on the run's own cluster before the engine's first start (e.g. a legacy 3.x store)
+  if (opts.prepare) await opts.prepare({ dir, data, pgBin: pg })
   // copies: a running engine never locks the developer's cargo output
   fs.copyFileSync(engine, path.join(dir, 'bin', 'orgtree-engine.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))

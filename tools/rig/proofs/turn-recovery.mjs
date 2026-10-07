@@ -5,7 +5,14 @@
 //          time ("credential rejected") → its superior alice is told once.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-recovery.mjs
 
+import path from 'node:path'
+
+import { runDesktop } from '../desktop.mjs'
+import { RIG_DIR } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
+
+const look = (rig, p, agent, tag) => runDesktop(rig, path.join(RIG_DIR, 'desktop', 'frozen-card.cjs'),
+  { preset: 'tall', args: { agent }, out: path.join(p.dir, `${agent}-${tag}`) })
 
 export default async function (rig) {
   const p = new Proof('turn-recovery')
@@ -46,6 +53,12 @@ export default async function (rig) {
     return s >= 25 && s <= 35
   })(), { at: frozen.frozen.at, until: frozen.frozen.until })
   p.check('carol: run counter net_fail_run = 1', Number(frozen.extra?.net_fail_run) === 1, frozen.extra)
+  // what the user sees during the 30 s wait (screenshots in the evidence folder)
+  const seenC = await look(rig, p, 'carol', 'frozen')
+  // the 124 px card uses the short labels (FREEZE_LABEL_SHORT: "net", "credential"), the desk the full ones
+  p.check('carol: card and desk show the network freeze while it waits', seenC.ok && /(^|\s)net(\s|$)/i.test(seenC.value?.cardText ?? '')
+    && (seenC.value?.freezeText ?? []).some(t => /network/i.test(t)),
+    seenC.ok ? { card: seenC.value.cardText, freeze: seenC.value.freezeText } : seenC.error)
   const firstTurn = rig.turns('carol')[0]
   p.check('carol: the dead turn is recorded with its exit', firstTurn?.ended_at && /exited during the turn/.test(firstTurn.error ?? ''), firstTurn)
 
@@ -81,6 +94,11 @@ export default async function (rig) {
   }, { what: 'bob to be parked after the 401', timeout: 60000 })
   p.check('bob: 401 → parked (cause auth, no reset time)', parked.frozen.cause === 'auth' && parked.frozen.parked === true && parked.frozen.until === null, parked.frozen)
   p.check('bob: label tells the operator what to do', /credential rejected/.test(parked.frozen.label ?? ''), parked.frozen.label)
+  const seenB = await look(rig, p, 'bob', 'parked')
+  p.check('bob: the card says "credential", the desk "credential rejected" with an unstick control', seenB.ok && /credential/i.test(seenB.value?.cardText ?? '')
+    && (seenB.value?.freezeText ?? []).some(t => /credential rejected/i.test(t)) && (seenB.value?.freezeText ?? []).some(t => /^unstick$/i.test(t)),
+    seenB.ok ? { card: seenB.value.cardText, freeze: seenB.value.freezeText } : seenB.error)
+  p.note('what the user sees for the auth park (bob-parked/*.png)', { card: seenB.ok ? seenB.value.cardText : null, desk: seenB.ok ? seenB.value.freezeText : null })
   const told = await rig.waitFor(() => rig.sql(`SELECT m.uid, m.body, m.ev FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
                                                   WHERE a.name = 'alice' AND m.body LIKE 'bob had its credential REJECTED%'`), { what: 'alice to be told bob is parked', timeout: 30000 })
   p.check('bob: superior alice told once ("credential REJECTED")', told.length === 1, told.map(m => m.body.slice(0, 120)))
