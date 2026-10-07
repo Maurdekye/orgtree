@@ -63,7 +63,8 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
         <span className={'org-counts dim'
           + (freshness === 'loading' ? ' org-counts-loading' : '')
           + (freshness === 'stale' ? ' org-counts-stale' : '')}
-          title={current ? 'active / hired agents' : staleTitle}>
+          title={current ? 'active / hired agents' : staleTitle}
+          style={{ width: `${String(o.live).length * 2 + 1}ch` }}>
           {freshness === 'loading' ? '…'
             : typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
         </span>

@@ -310,7 +310,12 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 }
 /* the activity column exists in EVERY row so names start flush; the spinner
    inside it renders only while that org has a turn executing */
-.org-activity { display: inline-flex; align-items: center; justify-content: center; }
+.org-activity {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 14px; width: 14px; height: 14px; line-height: 0;
+}
+.org-activity .working-ct { display: flex; align-items: center; justify-content: center; }
+.org-activity .cc-spin { display: block; width: 12px; height: 12px; }
 .org-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .org-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* n/m active/hired — kept visible when idle; right-aligned tabular digits
@@ -864,7 +869,7 @@ button.badge.audience-fold.alert {
 .kill-release:hover { background: #ff5f5f; }
 .kill-release:disabled { opacity: .65; cursor: wait; }
 /* the active-agent summary chip: total · working · per-model counts */
-.chip.agents { display: inline-flex; gap: 7px; align-items: baseline; }
+.chip.agents { display: inline-flex; gap: 7px; align-items: center; }
 .chip.agents:focus-visible { outline: 1px solid var(--button-accent); outline-offset: 2px; }
 .chip.agents b { font-family: var(--mono); font-weight: 700; }
 .chip.agents b.t-haiku { color: var(--tier-haiku); }
