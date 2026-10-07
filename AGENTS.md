@@ -16,6 +16,15 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Antigravity Claude 5.5 uses separate `agy-sonnet` / `agy-opus` tiers (seats
+  2 / 4), enabled together in Runtime settings and off by default. They have
+  no versions, keep Antigravity provider/account/theme, and share only the
+  native Claude model colours. Their quota is `3p-5h` plus `3p-weekly`, separate
+  from Gemini; token prices and context capacity are unknown. See
+  [`antigravity-claude.md`](docs/rust-engine/antigravity-claude.md) for the
+  measured CLI contract, gates and verification limits. [user 2026-10-07;
+  verified from agy 1.3.1 model/zero-token usage output and source smokes]
+
 - Desk document metadata is newest presentation/update first (`at DESC, id
   DESC`), including replacements of old documents; the desk takes its first
   four entries. Keep the separate total count unchanged. [verified-from-source
