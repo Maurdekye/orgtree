@@ -150,7 +150,7 @@ function New-BootTaskXml($Record) {
     # Serialize Unicode/XML escaping. Command is an unquoted path, not shell
     # text; the separate argument is the quoted service-host script path.
     $doc = Read-BootXml @'
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>S4U</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>1</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><Arguments /><WorkingDirectory /></Exec></Actions></Task>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><BootTrigger><Enabled>true</Enabled></BootTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>S4U</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><Arguments /><WorkingDirectory /></Exec></Actions></Task>
 '@
     $doc.Task.RegistrationInfo.Description = Get-BootMarker $Record
     $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
@@ -284,8 +284,8 @@ function Invoke-BootLifecycle {
             # DONT_ADD_PRINCIPAL_ACE preserves the explicit read/execute-only operator ACL.
             $flags = 18 # TASK_CREATE | TASK_DONT_ADD_PRINCIPAL_ACE: never overwrite a collision.
             if ($null -ne $task) { Assert-OwnedBootTask $task $record $InstallDir; $flags=20 } # verified TASK_UPDATE only
-            # Ownership accepts old tasks with missing/7 priority. Register
-            # always writes the new explicit High setting, including upgrades.
+            # Ownership accepts older task priorities. Register
+            # always writes explicit Normal priority (Task Scheduler value 5), including upgrades.
             $sddl = "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$($record.OperatorSid))"
             $registered = $folder.RegisterTask($script:BootTaskName,(New-BootTaskXml $record),$flags,$record.OperatorSid,$null,2,$sddl)
             Assert-OwnedBootTask $registered $record $InstallDir
