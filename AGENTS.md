@@ -30,6 +30,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   four entries. Keep the separate total count unchanged. [verified-from-source
   and disposable PostgreSQL smoke: 2026-10-07; feed/compute.rs, canvas/desk.tsx]
 
+- Size and rect state fed by observers is set as a VALUE, and layout effects
+  schedule only a changed value. A lower-priority updater (`set(prev => …)`)
+  is re-run from its stale base on every higher-priority render and returns a
+  new object each time; the zoom HUD's layout effect keyed on that object
+  re-ran until React's nested-update limit crashed the canvas (rig finding F1).
+  [verified with `tools/rig/proofs/canvas-resize-crash.mjs`: 2026-10-07;
+  `canvas/OrgCanvas.tsx`]
+
 - App and Org settings checkboxes use `SetToggle`: checkbox left, label/hint,
   on/off state right. Its optional `labelContent` preserves decorative text
   with a plain accessible name; `action` keeps independent right-side controls
