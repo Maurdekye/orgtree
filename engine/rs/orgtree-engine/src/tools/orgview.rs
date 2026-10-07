@@ -186,52 +186,105 @@ pub async fn chart(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     Done::text(out)
 }
 
+/// Read-only scope evaluation over one coherent, paged structural snapshot.
+#[logged]
+fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value) -> Result<Value> {
+    let mut chain = Vec::new();
+    let mut next = Some(id);
+    let mut seen = std::collections::HashSet::new();
+    while let Some(at) = next {
+        if chain.len() >= 1024 || !seen.insert(at) {
+            crate::refuse!(Conflict, "invalid scope ancestry");
+        }
+        let Some((parent, sc)) = rows.get(&at) else {
+            crate::refuse!(Conflict, "missing scope ancestor");
+        };
+        chain.push(sc);
+        next = *parent;
+    }
+    let mut effective = ceiling.clone();
+    for sc in chain.into_iter().rev() {
+        effective = crate::domain::scope::clamp(sc, &effective);
+    }
+    Ok(effective)
+}
+
+#[logged]
+fn inspection_visible(id: i64, caller: i64, visibility: &str, rows: &HashMap<i64, (Option<i64>, Value)>) -> bool {
+    if id == caller || visibility == "full" { return true; }
+    if visibility == "team" { return rows.get(&id).map(|r| r.0) == rows.get(&caller).map(|r| r.0); }
+    if visibility != "subtree" { return false; }
+    let mut next = Some(id);
+    for _ in 0..1024 {
+        let Some(at) = next else { return false; };
+        if at == caller { return true; }
+        next = rows.get(&at).and_then(|r| r.0);
+    }
+    false
+}
+
 #[logged]
 pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let archived = args["include_archived"].as_bool().unwrap_or(false);
-    let mut names: Vec<String> = args["nodes"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
-    if let Some(n) = arg_str(args, "node") {
-        names.push(n.to_string());
+    let mut names: Vec<String> = args["nodes"].as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    if let Some(n) = arg_str(args, "node") { names.push(n.to_string()); }
+    for n in &mut names { *n = n.trim().trim_start_matches('@').to_string(); }
+    names.retain(|n| !n.is_empty());
+    let mut client = engine.db.get().await?;
+    let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await?;
+    let settings: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&caller.org_id]).await?.get(0);
+    let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
+    let ceiling = crate::domain::scope::org_ceiling(&settings["dirs"]);
+    let mut scopes = HashMap::new();
+    let mut records = Vec::new();
+    let mut after = 0i64;
+    loop {
+        let page = tx.query(
+            "SELECT a.id, a.parent_id, a.scope, jsonb_build_object(
+              'id', a.name, 'name', a.name, 'parent', (SELECT name FROM ot.agents p WHERE p.id=a.parent_id),
+              'title', a.title, 'state', a.state, 'generation', a.generation, 'model', a.tier, 'tier', a.tier,
+              'grant', a.grant_credits, 'seat_cost', a.seat, 'seat', a.seat, 'archived_at', a.archived_at,
+              'free', CASE WHEN a.state='live' THEN a.grant_credits - (SELECT coalesce(sum(c.seat+c.grant_credits),0) FROM ot.agents c WHERE c.parent_id=a.id AND c.state='live') END,
+              'account_binding', jsonb_build_object('present', coalesce(a.account,'')<>'', 'missing', coalesce(a.account,'') LIKE 'missing:%'),
+              'frozen', CASE WHEN a.frozen IS NOT NULL THEN jsonb_strip_nulls(jsonb_build_object('provider', a.frozen->'provider', 'cause', a.frozen->'cause', 'pool', a.frozen->'pool', 'until_ts', a.frozen->'until_ts')) END,
+              'last_status', CASE WHEN a.last_status IS NOT NULL THEN jsonb_build_object('status', a.last_status->'status', 'at', a.last_status->'at') END,
+              'pending_switch', CASE WHEN a.pending_switch IS NOT NULL THEN jsonb_strip_nulls(jsonb_build_object('from', a.pending_switch->'from', 'tier', a.pending_switch->'tier', 'crossing', a.pending_switch->'crossing', 'at', a.pending_switch->'at')) END,
+              'mid_turn', a.inflight_at IS NOT NULL, 'halted', a.halt IS NOT NULL,
+              'limit_locked', a.limit_locked, 'occupancy', a.occupancy, 'context_window', a.context_window,
+              'mail_waiting', (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id=a.id AND m.state='pending'))
+             FROM ot.agents a WHERE a.org_id=$1 AND a.state<>'deleted' AND a.id>$2 ORDER BY a.id LIMIT 256",
+            &[&caller.org_id, &after]).await?;
+        if page.is_empty() { break; }
+        for r in page {
+            let id: i64 = r.get(0);
+            scopes.insert(id, (r.get(1), r.get(2)));
+            records.push((id, r.get::<_, Value>(3)));
+            after = id;
+        }
     }
-    let client = engine.db.get().await?;
-    let me = me(&client, caller).await?;
-    let vis = visible(&client, &me).await?;
-    let rs = client
-        .query(
-            "SELECT id, name, parent_id, state, tier, account, title, last_status, halt, frozen, limit_locked,
-                    inflight_at IS NOT NULL, grant_credits::float8, seat::float8, occupancy, context_window, generation,
-                    coalesce(scope->>'org_visibility', 'subtree'), (SELECT name FROM ot.agents p WHERE p.id = a.parent_id),
-                    (SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending')
-               FROM ot.agents a WHERE org_id = $1 AND (state = 'live' OR ($2 AND state IN ('archived','unrecoverable')))
-              ORDER BY id",
-            &[&me.org_id, &archived],
-        )
-        .await?;
+    tx.commit().await?;
+    let own_scope = inspection_scope(caller.agent_id, &scopes, &ceiling)?;
+    let visibility = own_scope["org_visibility"].as_str().unwrap_or("team");
     let mut out = Vec::new();
-    for r in rs {
-        let id: i64 = r.get(0);
-        let name: String = r.get(1);
-        if vis.as_ref().map(|v| !v.contains(&id)).unwrap_or(false) {
-            continue;
-        }
-        if !names.is_empty() && !names.iter().any(|n| n.trim_start_matches('@') == name) {
-            continue;
-        }
-        let running = engine.agents.get(id).map(|h| h.view.load().get("busy").and_then(Value::as_bool).unwrap_or(false));
-        out.push(json!({
-            "name": name, "parent": r.get::<_, Option<String>>(18), "state": r.get::<_, String>(3),
-            "tier": r.get::<_, String>(4), "account": r.get::<_, Option<String>>(5), "title": r.get::<_, String>(6),
-            "last_status": r.get::<_, Option<Value>>(7), "halt": r.get::<_, Option<Value>>(8),
-            "frozen": r.get::<_, Option<Value>>(9), "limit_locked": r.get::<_, bool>(10),
-            "mid_turn": running.unwrap_or(r.get::<_, bool>(11)), "grant": r.get::<_, f64>(12), "seat": r.get::<_, f64>(13),
-            "occupancy": r.get::<_, Option<i32>>(14), "context_window": r.get::<_, Option<i32>>(15),
-            "generation": r.get::<_, i32>(16), "visibility": r.get::<_, String>(17), "mail_waiting": r.get::<_, i64>(19),
-        }));
+    for (id, mut row) in records {
+        if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, visibility, &scopes) { continue; }
+        if !names.is_empty() && !names.iter().any(|n| row["name"] == *n) { continue; }
+        let effective = inspection_scope(id, &scopes, &ceiling)?;
+        let provider = catalog::provider_of(row["tier"].as_str().unwrap_or("")).to_string();
+        row["provider"] = json!(provider);
+        row["account_binding"]["provider"] = json!(provider);
+        row["scope"] = json!({"org_visibility":effective["org_visibility"], "permission_mode":effective["permission_mode"],
+            "tools": {"bash":effective["tools"]["bash"],"web":effective["tools"]["web"],"edit":effective["tools"]["edit"],"subagents":effective["tools"]["subagents"]}, "mcp":effective["tools"]["mcp"]});
+        row["visibility"] = effective["org_visibility"].clone();
+        out.push(row);
     }
-    Done::json(&json!({ "agents": out }))
+    for name in &names {
+        if !out.iter().any(|r| r["name"] == *name) {
+            crate::refuse!(Forbidden, "state inspection is outside your visible scope: {name}");
+        }
+    }
+    Done::json(&json!({"actor":caller.name,"visibility":visibility,"nodes":out}))
 }
 
 #[logged]
