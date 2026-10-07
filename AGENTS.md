@@ -178,8 +178,10 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   submenu uses `hireTierOffer` (also used by HireSheet) and opens the existing
   local draft form; only confirmation creates a seat. Halt/Unhalt shares
   `toggleAgentHalt` with the desk control, including the settling halt phase.
-  Copy agent name flows directly into Focus, then Hire a subordinate. The
-  final separated group is Cheap compact, Cheap-compact subtree, Halt/Unhalt,
+  Copy agent name flows directly into Focus, then Hire a subordinate.
+  Open submenu follows Hire and contains the desk, inbox, docket, team docket,
+  presentations and pin/popout destinations with their existing gates.
+  The final separated group is Cheap compact, Cheap-compact subtree, Halt/Unhalt,
   Retire all subordinates, Retire/Dissolve (team-only entries need live reports).
   Both adjacent compaction actions use the theme's yellow caution tint.
   Cheap compact confirms the existing `cheap_compact` operation and is

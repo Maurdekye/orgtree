@@ -129,25 +129,26 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // User 2026-09-30: swap Focus and Open desk. The copy entry still precedes
   // these, and every other entry keeps its existing position.
   entries.push({ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk })
+  const openEntries: MenuEntry[] = []
   const temporary = h.onOpenTemporary
-  if (temporary) entries.push({
+  if (temporary) openEntries.push({
     label: 'Open desk',
     title: `read ${node.id}'s desk in a modal without changing the focused `
       + 'agent, pinning it, or opening a window — closing puts everything back',
     onSelect: () => temporary(),
   })
-  entries.push(
+  openEntries.push(
     { label: 'Open inbox', onSelect: () => h.onInbox() },
   )
   const docket = h.onDocket
-  if (docket) entries.push({ label: 'Open docket', onSelect: () => docket() })
+  if (docket) openEntries.push({ label: 'Open docket', onSelect: () => docket() })
   // …and the same docket widened to this agent's REPORTS. It sits next to
   // "Open docket" because the two answer the same question at two scopes, and
   // the label says whose team it is rather than "Team docket": the menu is
   // already raised on the agent, so the scope is the news.
   const teamDocket = h.onTeamDocket
   if (teamDocket) {
-    entries.push({
+    openEntries.push({
       label: 'Open team docket',
       title: `tickets assigned to ${node.id} or to any agent below it`,
       onSelect: () => teamDocket(),
@@ -155,7 +156,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   const presentations = h.onPresentations
   if (presentations && (node.documents?.length ?? 0) > 0) {
-    entries.push({ label: 'Open presentations', onSelect: () => presentations() })
+    openEntries.push({ label: 'Open presentations', onSelect: () => presentations() })
   }
   // ⭐ RECOVERY BEFORE CONFIGURATION. A frozen agent that another account
   // could carry is the one thing an operator opened this menu to fix, so the
@@ -182,19 +183,22 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     }
   }
   const pin = h.onPin, showPin = h.onShowPin
-  if (pin && !s.pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
-  if (s.pinned && showPin) entries.push({ label: 'Show pinned window', onSelect: () => showPin() })
+  if (pin && !s.pinned) openEntries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
+  if (s.pinned && showPin) openEntries.push({ label: 'Show pinned window', onSelect: () => showPin() })
   // …and the OS window beside the in-app one. "Open desk in a new window" and
   // not the bare "Open in new window" every pinnable panel uses (modalpin.tsx,
   // popout.tsx): there the object IS the surface, here the object is an agent
   // and what pops out is its desk.
   const popout = h.onPopout, showWindow = h.onShowWindow
   if (popout && !s.detached) {
-    entries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
+    openEntries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
   }
   if (s.detached && showWindow) {
-    entries.push({ label: 'Show desk window', onSelect: () => showWindow() })
+    openEntries.push({ label: 'Show desk window', onSelect: () => showWindow() })
   }
+  entries.splice(1, 0, {
+    label: 'Open', submenuOnly: true, onSelect: () => {}, children: openEntries,
+  })
   const hire = h.onHire
   if (canHire && hire) {
     const choices = hireTierChoices(s)
