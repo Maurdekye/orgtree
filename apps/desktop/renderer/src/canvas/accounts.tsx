@@ -4,7 +4,6 @@ import { ThemeSetting } from '../themes'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
-import { AgentBuildCacheSetting } from './buildcachesetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useRef, useState } from 'react'
@@ -19,7 +18,6 @@ import {
   getProviders, peekProviders, getRuntimeSettings, setEnterKeyBehavior,
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
-  setAgentBuildCacheFolder,
   setProviderEnabled,
   setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
@@ -793,12 +791,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <CharterDocumentsSetting />
       <CharterTemplateDirsSetting />
       <SetGroup title="Agent processes">
-        <AgentBuildCacheSetting runtime={runtime} busy={busy} onSave={folder => {
-          setBusy(true)
-          setAgentBuildCacheFolder(folder).then(r => { setRuntime(r); setError('') })
-            .catch((e: Error) => { setError(e.message); toast([e.message]) })
-            .finally(() => setBusy(false))
-        }} />
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
           hint={'Every live agent’s CLI starts with Orgtree and on hire, and stays ready between turns '
