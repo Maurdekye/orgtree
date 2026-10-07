@@ -5,6 +5,7 @@ pub mod asks;
 pub mod audiences;
 pub mod docket;
 pub mod docs;
+pub mod html_bundle;
 pub mod mail;
 pub mod lifecycle;
 pub mod notices;

@@ -16,8 +16,8 @@ pub const GROUPS: &[&str] = &[
     "org_inbox", "net", "work_summary",
 ];
 
-/// The compaction threshold as a fraction (0.5â€“0.95). Saved as a percent
-/// (50â€“95); an imported 3.x value is already a fraction.
+/// The compaction threshold as a fraction (0.5–0.95). Saved as a percent
+/// (50–95); an imported 3.x value is already a fraction.
 #[logged]
 pub fn compact_frac(v: &Value) -> f64 {
     let x = v.as_f64().filter(|x| x.is_finite() && *x > 0.0).unwrap_or(80.0);

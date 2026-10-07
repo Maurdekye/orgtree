@@ -765,6 +765,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         let mut atts: Vec<Value> = r.get::<_, Value>(5).as_array().cloned().unwrap_or_default();
         let mut att_ids = Vec::new();
         let mut broken = None;
+        let mut vanished = Vec::new();
         for a in atts.iter_mut() {
             if let Some(id) = a["hub_id"].as_str() {
                 att_ids.push(id.to_string());
@@ -774,8 +775,9 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             let data = match tokio::fs::read(path).await {
                 Ok(d) => d,
                 Err(_) => {
-                    broken = Some(format!("attachment {} vanished before it was sent", a["name"].as_str().unwrap_or("?")));
-                    break;
+                    vanished.push(a["name"].as_str().unwrap_or("?").to_string());
+                    *a = Value::Null;
+                    continue;
                 }
             };
             let up = HTTP
@@ -805,7 +807,14 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
                 }
             }
         }
+        atts.retain(|a| !a.is_null());
         let client = engine.db.get().await?;
+        if !vanished.is_empty() {
+            client.execute("INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'net_attachment_missing', '@system', $2)",
+                &[&org_id, &json!({"message": net_id, "files": vanished, "note": "Unreadable staged attachments were dropped; the message and remaining files will still be sent."})]).await?;
+            client.execute("UPDATE ot.org_inbox SET last_err = $2 WHERE id = $1", &[&row_id, &format!("attachment vanished before upload: {}", vanished.join(", "))]).await?;
+            changes::notify_id(engine, org_id, vec![Change::Events, Change::OrgInbox]);
+        }
         client
             .execute("UPDATE ot.org_inbox SET attachments = $2, net_id = $3 WHERE id = $1", &[&row_id, &Value::Array(atts.clone()), &net_id])
             .await?;

@@ -126,6 +126,8 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     }
     let title = args["title"].as_str().map(str::trim).filter(|t| !t.is_empty());
     let Some(title) = title else { refuse!(BadRequest, "a document needs a title") };
+    let mut bundle_download: Option<Vec<u8>> = None;
+    let mut bundle_preview: Option<String> = None;
     let (body, format) = match (args["body"].as_str(), args["path"].as_str()) {
         (Some(b), None) => {
             if b.len() > MARKDOWN_MAX {
@@ -143,7 +145,10 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
             if size > HTML_MAX {
                 refuse!(BadRequest, "an HTML mockup is limited to 4 MB");
             }
-            (std::fs::read_to_string(&f)?, "html")
+            let bundle = crate::domain::html_bundle::capture(&f)?;
+            bundle_download = bundle.download;
+            bundle_preview = Some(bundle.preview);
+            (bundle.body, "html")
         }
         _ => refuse!(BadRequest, "give exactly one of body (markdown) or path (an .html mockup)"),
     };
@@ -153,9 +158,9 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
         Some(old) => {
             let n = client
                 .execute(
-                    "UPDATE ot.documents SET title = $3, body = $4, format = $5, bytes = $6, at = now(), dismissed = false
+                    "UPDATE ot.documents SET title = $3, body = $4, format = $5, bytes = $6, at = now(), dismissed = false, download = $8, preview = $9
                       WHERE org_id = $1 AND uid = $2 AND agent_id = $7",
-                    &[&org.id, &old, &title, &body, &format, &bytes, &p.id],
+                    &[&org.id, &old, &title, &body, &format, &bytes, &p.id, &bundle_download, &bundle_preview],
                 )
                 .await?;
             if n == 0 {
@@ -167,8 +172,8 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
             let id = uid("d");
             client
                 .execute(
-                    "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                    &[&id, &org.id, &p.id, &p.name, &title, &body, &format, &bytes],
+                    "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    &[&id, &org.id, &p.id, &p.name, &title, &body, &format, &bytes, &bundle_download, &bundle_preview],
                 )
                 .await?;
             id
@@ -192,11 +197,14 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
     let Some(raw) = args["path"].as_str().filter(|s| !s.trim().is_empty()) else {
         refuse!(BadRequest, "name the file to send (path)");
     };
+    if let Some(did) = args["delivery_id"].as_str() {
+        if did.len() > 200 { refuse!(BadRequest, "delivery_id is limited to 200 bytes"); }
+    }
     let note = args["note"].as_str().map(|n| crate::util::gist(n, 300));
     let client = engine.db.get().await?;
     if let Some(did) = args["delivery_id"].as_str().filter(|s| !s.is_empty()) {
         if let Some(r) = client
-            .query_opt("SELECT name, path, bytes, note FROM ot.deliveries WHERE org_id = $1 AND uid = $2", &[&org.id, &did])
+            .query_opt("SELECT name, path, bytes, note FROM ot.deliveries WHERE org_id = $1 AND uid = $2 AND agent_id = $3", &[&org.id, &did, &p.id])
             .await?
         {
             let card = json!({ "file": { "name": r.get::<_, String>(0), "path": r.get::<_, String>(1),
@@ -210,21 +218,20 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
     let path = copy["path"].as_str().unwrap().to_string();
     let bytes = copy["bytes"].as_u64().unwrap() as i64;
     let did = args["delivery_id"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| uid("f"));
-    let client = engine.db.get().await?;
-    client
-        .execute(
-            "INSERT INTO ot.deliveries (uid, org_id, agent_id, name, path, bytes, note) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            &[&did, &org.id, &p.id, &name, &path, &bytes, &note],
-        )
-        .await?;
-    client
-        .execute(
-            "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'send_file', $2, $3, $4)",
-            &[&org.id, &p.name, &p.id, &json!({ "name": name, "bytes": bytes, "delivery_id": did })],
-        )
-        .await?;
-    drop(client);
-    changes::notify(engine, org, vec![Change::Events, Change::History(p.id)]);
-    let card = json!({ "file": { "name": name, "path": path, "bytes": bytes, "note": note, "delivery_id": did } });
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let inserted = tx.execute(
+        "INSERT INTO ot.deliveries (uid, org_id, agent_id, name, path, bytes, note) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (uid) DO NOTHING",
+        &[&did, &org.id, &p.id, &name, &path, &bytes, &note]).await?;
+    let row = tx.query_opt("SELECT name, path, bytes, note FROM ot.deliveries WHERE uid = $1 AND org_id = $2 AND agent_id = $3", &[&did, &org.id, &p.id]).await?;
+    let Some(row) = row else { refuse!(Conflict, "delivery_id is already in use; choose another ID"); };
+    if inserted > 0 {
+        tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'send_file', $2, $3, $4)",
+            &[&org.id, &p.name, &p.id, &json!({ "name": name, "bytes": bytes, "delivery_id": did })]).await?;
+    }
+    tx.commit().await?;
+    let name: String = row.get(0); let bytes: i64 = row.get(2);
+    let card = json!({ "file": { "name": name, "path": row.get::<_,String>(1), "bytes": bytes, "note": row.get::<_,Option<String>>(3), "delivery_id": did } });
+    if inserted > 0 { changes::notify(engine, org, vec![Change::Events, Change::History(p.id)]); }
     Ok((format!("Delivered {name} ({bytes} bytes) to the user as a download card (delivery {did})."), card))
 }

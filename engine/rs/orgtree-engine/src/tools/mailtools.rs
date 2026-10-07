@@ -107,7 +107,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
             let mut out = Outgoing::new(
                 From::Agent { id: me.id, name: me.name.clone(), generation: me.generation },
                 &sup,
-                &format!("Status: {status} â€” {summary}"),
+                &format!("Status: {status} — {summary}"),
             );
             out.kind = "status".into();
             out.notice = true;
@@ -125,63 +125,95 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     Done::text(format!("Status recorded: {shown}.{told}"))
 }
 
+
+/// UTF-8 chunks concatenate exactly; the handle binds reads to an immutable body digest.
+#[logged]
+fn mail_chunk(body: &str, index: usize) -> Result<Value> {
+    use sha2::{Digest, Sha256};
+    let mut spans = Vec::new();
+    let mut start = 0;
+    loop {
+        let mut end = (start + 64 * 1024).min(body.len());
+        while !body.is_char_boundary(end) { end -= 1; }
+        spans.push((start, end));
+        if end == body.len() { break; }
+        start = end;
+    }
+    let Some(&(start, end)) = spans.get(index) else { crate::refuse!(BadRequest, "chunk_index is outside this message"); };
+    let content = &body[start..end];
+    Ok(json!({"body_bytes": body.len(), "body_sha256": hex::encode(Sha256::digest(body.as_bytes())),
+        "chunk_index": index, "chunk_total": spans.len(), "chunk_sha256": hex::encode(Sha256::digest(content.as_bytes())),
+        "content": content, "content_state": "present", "complete": spans.len() == 1}))
+}
+
 #[logged]
 pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
+    let allowed = match action {
+        "list" => vec!["action", "cursor", "limit"], "fetch" => vec!["action", "message_ids"],
+        "chunk" => vec!["action", "delivery_id", "message_id", "chunk_index"],
+        _ => crate::refuse!(BadRequest, "action must be list, fetch or chunk"),
+    };
+    if args.as_object().map(|a| a.keys().any(|k| !allowed.contains(&k.as_str()))).unwrap_or(true) {
+        crate::refuse!(BadRequest, "the manual inbox reads only your own mailbox; it takes no agent, node, org or mailbox argument");
+    }
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
-    match action {
-        "list" => {
-            let limit = args["limit"].as_i64().unwrap_or(30).clamp(1, 200);
-            let rows = client
-                .query(
-                    "SELECT uid, sender, kind, state, created_at, body, notice FROM ot.mail
-                      WHERE recipient_agent_id = $1 ORDER BY (state IN ('pending','delivering')) DESC, id DESC LIMIT $2",
-                    &[&me.id, &limit],
-                )
-                .await?;
-            let items: Vec<Value> = rows
-                .iter()
-                .map(|r| {
-                    let body: String = r.get(5);
-                    json!({
-                        "id": r.get::<_, String>(0), "from": r.get::<_, String>(1), "kind": r.get::<_, String>(2),
-                        "state": r.get::<_, String>(3), "at": iso(r.get(4)), "notice": r.get::<_, bool>(6),
-                        "preview": gist(&body, 160),
-                    })
-                })
-                .collect();
-            Done::json(&json!({ "messages": items }))
-        }
-        "fetch" => {
-            let ids: Vec<String> = args["message_ids"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).take(20).collect())
-                .unwrap_or_default();
-            if ids.is_empty() {
-                crate::refuse!(BadRequest, "fetch needs message_ids");
+    if action == "list" {
+        let limit = args["limit"].as_i64().unwrap_or(50).clamp(1, 200);
+        let after = match args["cursor"].as_str() {
+            None => 0,
+            Some(c) => {
+                let values: Vec<&str> = c.split(':').collect();
+                if values.len() != 2 || values[0] != me.id.to_string() { crate::refuse!(BadRequest, "invalid inbox cursor"); }
+                values[1].parse::<i64>().ok().filter(|x| *x >= 0).ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("invalid inbox cursor".into())))?
             }
-            let rows = client
-                .query(
-                    "SELECT uid, sender, recipient_name, kind, state, created_at, body, attachments FROM ot.mail
-                      WHERE uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)",
-                    &[&me.id, &ids],
-                )
-                .await?;
-            let items: Vec<Value> = rows
-                .iter()
-                .map(|r| {
-                    json!({
-                        "id": r.get::<_, String>(0), "from": r.get::<_, String>(1), "to": r.get::<_, String>(2),
-                        "kind": r.get::<_, String>(3), "state": r.get::<_, String>(4), "at": iso(r.get(5)),
-                        "body": r.get::<_, String>(6), "attachments": r.get::<_, Value>(7),
-                    })
-                })
-                .collect();
-            let found: Vec<&str> = items.iter().filter_map(|i| i["id"].as_str()).collect();
-            let missing: Vec<&String> = ids.iter().filter(|i| !found.contains(&i.as_str())).collect();
-            Done::json(&json!({ "messages": items, "not_found": missing }))
-        }
-        other => crate::refuse!(BadRequest, "unknown action {other} (list or fetch)"),
+        };
+        let rows = client.query("SELECT id, uid, sender, kind, state, created_at, body, notice FROM ot.mail
+            WHERE recipient_agent_id = $1 AND state IN ('pending','delivering') AND id > $2 ORDER BY id LIMIT $3",
+            &[&me.id, &after, &(limit + 1)]).await?;
+        let has_more = rows.len() > limit as usize;
+        let rows = &rows[..rows.len().min(limit as usize)];
+        let items: Vec<Value> = rows.iter().map(|r| json!({"id":r.get::<_,String>(1), "message_id":r.get::<_,String>(1),
+            "from":r.get::<_,String>(2), "kind":r.get::<_,String>(3), "state":r.get::<_,String>(4),
+            "at":iso(r.get(5)), "preview":gist(&r.get::<_,String>(6),200), "notice":r.get::<_,bool>(7)})).collect();
+        let cursor = if has_more { rows.last().map(|r| format!("{}:{}", me.id, r.get::<_,i64>(0))) } else { None };
+        return Done::json(&json!({"messages":items, "next_cursor":cursor, "has_more":has_more}));
     }
+    let ids: Vec<String> = if action == "chunk" { vec![need_str(args,"message_id")?.to_string()] } else {
+        let a = args["message_ids"].as_array().ok_or_else(|| anyhow::anyhow!("fetch needs message_ids"))?;
+        if a.is_empty() || a.len() > 20 || a.iter().any(|v| !v.is_string()) { crate::refuse!(BadRequest,"fetch needs 1 to 20 message IDs"); }
+        let mut ids = Vec::new();
+        for id in a.iter().filter_map(Value::as_str) { if !ids.iter().any(|i| i == id) { ids.push(id.to_string()); } }
+        ids
+    };
+    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments FROM ot.mail WHERE recipient_agent_id = $1 AND uid = ANY($2) LIMIT 20", &[&me.id,&ids]).await?;
+    let mut items = Vec::new();
+    let mut missing = Vec::new();
+    let mut deferred = Vec::new();
+    let mut budget = 256 * 1024usize;
+    for id in ids {
+        let Some(r) = rows.iter().find(|r| r.get::<_,String>(0) == id) else { missing.push(id); continue; };
+        let body: String = r.get(5);
+        let index = if action == "chunk" { args["chunk_index"].as_u64().ok_or_else(|| anyhow::anyhow!("chunk needs a nonnegative chunk_index"))? as usize } else { 0 };
+        let mut item = mail_chunk(&body,index)?;
+        let did = format!("inbox:{}:{}:{}", me.id, id, item["body_sha256"].as_str().unwrap());
+        if action == "chunk" && args["delivery_id"].as_str() != Some(&did) { crate::refuse!(BadRequest,"delivery_id does not match this message and body"); }
+        let bytes = item["content"].as_str().unwrap().len();
+        if bytes > budget { deferred.push(id); continue; }
+        budget -= bytes;
+        item["id"] = json!(id); item["message_id"] = json!(id); item["delivery_id"] = json!(did);
+        item["from"] = json!(r.get::<_,String>(1)); item["kind"] = json!(r.get::<_,String>(2));
+        let state: String = r.get(3);
+        item["state"] = json!(state); item["at"] = json!(iso(r.get(4)));
+        item["attachments"] = r.get::<_,Value>(6);
+        item["will_redeliver"] = json!(state == "pending" || state == "delivering");
+        item["will_redeliver_reason"] = json!("Manual reads leave delivery state unchanged; waiting mail still follows normal automatic delivery.");
+        items.push(item);
+    }
+    if action == "chunk" {
+        if items.is_empty() { crate::refuse!(NotFound,"message not found in your mailbox"); }
+        return Done::json(&items[0]);
+    }
+    Done::json(&json!({"messages":items, "not_found":missing, "deferred_ids":deferred}))
 }

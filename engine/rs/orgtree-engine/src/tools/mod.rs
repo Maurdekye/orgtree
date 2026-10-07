@@ -50,7 +50,15 @@ pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> V
 #[logged]
 async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or("");
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let mut args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    if name == "orgtree_send_file" && args["delivery_id"].as_str().filter(|s| !s.is_empty()).is_none() {
+        use sha2::{Digest, Sha256};
+        let id = match params.pointer("/_meta/claudecode~1toolUseId").and_then(Value::as_str) {
+            Some(call) => format!("f{}", hex::encode(Sha256::digest(format!("{}:{}:{call}", caller.org_id, caller.agent_id).as_bytes()))),
+            None => crate::util::uid("f"),
+        };
+        args["delivery_id"] = json!(id);
+    }
     let tool_use = params.pointer("/_meta/claudecode~1toolUseId").and_then(Value::as_str).map(str::to_string);
     let started = std::time::Instant::now();
     let out = dispatch(engine, caller, name, &args).await;
@@ -75,6 +83,9 @@ async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
                     format!("{name} failed inside the engine: {e:#}")
                 }
             };
+            let text = if name == "orgtree_send_file" {
+                format!("{text}\nIf delivery is uncertain, retry with delivery_id={}", args["delivery_id"].as_str().unwrap_or(""))
+            } else { text };
             json!({ "content": [{ "type": "text", "text": text }], "isError": true })
         }
     }

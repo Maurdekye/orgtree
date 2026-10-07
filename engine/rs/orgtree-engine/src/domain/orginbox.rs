@@ -12,7 +12,7 @@ use crate::engine::Engine;
 use crate::changes::{self, Change};
 use crate::util::uid;
 
-/// An `org_inbox` row â†’ `OrgInboxEntry`.
+/// An `org_inbox` row → `OrgInboxEntry`.
 pub fn entry(r: &Value) -> Value {
     let mut o = Map::new();
     o.insert("id".into(), r["uid"].clone());

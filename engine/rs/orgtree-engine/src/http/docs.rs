@@ -138,7 +138,7 @@ pub async fn mockup(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Strin
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let r = client
-        .query_opt("SELECT coalesce(body, ''), format FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&o.id, &did])
+        .query_opt("SELECT coalesce(preview, body, ''), format FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&o.id, &did])
         .await?
         .ok_or_else(|| ApiError::not_found("that document no longer exists"))?;
     let body: String = r.get(0);
@@ -147,7 +147,7 @@ pub async fn mockup(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Strin
         return Err(ApiError::bad_request("that document is not an HTML mockup"));
     }
     let csp = "sandbox allow-scripts; default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data:; \
-               style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; frame-ancestors 'self'";
+               style-src 'unsafe-inline' data:; script-src 'unsafe-inline' data:; connect-src 'none'; form-action 'none'; frame-ancestors 'self'";
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
@@ -166,19 +166,21 @@ pub async fn download(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Str
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let r = client
-        .query_opt("SELECT title, coalesce(body, ''), format FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&o.id, &did])
+        .query_opt("SELECT title, coalesce(body, ''), format, download FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&o.id, &did])
         .await?
         .ok_or_else(|| ApiError::not_found("that document no longer exists"))?;
     let title: String = r.get(0);
     let format: String = r.get(2);
-    let ext = if format == "html" { "html" } else { "md" };
+    let bundle: Option<Vec<u8>> = r.get(3);
+    let ext = if bundle.is_some() { "zip" } else if format == "html" { "html" } else { "md" };
+    let body = bundle.unwrap_or_else(|| r.get::<_,String>(1).into_bytes());
     let safe: String = title.chars().map(|c| if c.is_alphanumeric() || " -_.".contains(c) { c } else { '_' }).collect();
     Ok((
         [
-            (header::CONTENT_TYPE, if ext == "html" { "text/html; charset=utf-8" } else { "text/markdown; charset=utf-8" }.to_string()),
+            (header::CONTENT_TYPE, if ext == "zip" { "application/zip" } else if ext == "html" { "text/html; charset=utf-8" } else { "text/markdown; charset=utf-8" }.to_string()),
             (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}.{ext}\"", safe.trim())),
         ],
-        r.get::<_, String>(1),
+        body,
     )
         .into_response())
 }

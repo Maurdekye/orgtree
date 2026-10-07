@@ -1,5 +1,5 @@
 //! Audiences: who may write to whom beyond the chain of command. A grant
-//! lets its grantee write to its grantor â€” an agent, the user (`@user`), or
+//! lets its grantee write to its grantor — an agent, the user (`@user`), or
 //! the org inbox (`@extern`: mail from outside the org reaches its holders).
 //! A request goes straight to whoever it names for a yes or a no; an
 //! org-inbox request goes to the requester's top-level agent.
@@ -20,7 +20,7 @@ use crate::util::iso_opt;
 pub const USER: &str = "@user";
 pub const EXTERN: &str = "@extern";
 
-/// `user`, `extern`, an agent name â€” as the grantor column spells it.
+/// `user`, `extern`, an agent name — as the grantor column spells it.
 #[logged]
 pub fn party(raw: Option<&str>) -> String {
     match raw.map(str::trim).unwrap_or("") {
@@ -168,7 +168,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
             org.id,
             &holder,
             format!(
-                "{my_name} asks for an audience with {what}{why}\nAnswer with orgtree_audience: action=grant from={my_name}{} â€” or action=deny from={my_name}.",
+                "{my_name} asks for an audience with {what}{why}\nAnswer with orgtree_audience: action=grant from={my_name}{} — or action=deny from={my_name}.",
                 if target == EXTERN { " target=extern" } else { "" }
             ),
             true,
@@ -307,7 +307,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
         };
         tell(engine, org.id, &grantee, body, false, ev).await;
     }
-    changes::notify(engine, org, vec![Change::Audiences, Change::Events, Change::Agent(gid), Change::UserMail]);
+    changes::notify(engine, org, vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::UserMail]);
     Ok(json!({ "ok": true, "grantee": grantee, "grantor": grantor, "granted": fresh }))
 }
 

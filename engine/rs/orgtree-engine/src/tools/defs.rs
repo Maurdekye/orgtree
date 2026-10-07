@@ -150,11 +150,15 @@ fn all() -> Vec<Value> {
         tool(
             "orgtree_inbox",
             "Your own mail. list: waiting and recent messages (ids, senders, previews). fetch: the full text of up \
-             to 20 ids. Waiting mail is also delivered to you automatically.",
+             to 20 ids, with bodies above 64 KB served in chunks. chunk: read the remaining content using its delivery_id. Manual reads leave automatic delivery unchanged.",
             json!({
-                "action": { "type": "string", "enum": ["list", "fetch"] },
-                "limit": { "type": "integer", "description": "list: how many (default 30, max 200)" },
-                "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: ids from list" },
+                "action": { "type": "string", "enum": ["list", "fetch", "chunk"] },
+                "limit": { "type": "integer", "description": "list: how many (default 50, max 200)" },
+                "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list" },
+                "cursor": { "type": "string", "description": "list: next_cursor from the preceding page" },
+                "delivery_id": { "type": "string", "description": "chunk: delivery_id returned with this fetched message" },
+                "message_id": { "type": "string", "description": "chunk: the message ID" },
+                "chunk_index": { "type": "integer", "minimum": 0, "description": "chunk: zero-based index" },
             }),
             &["action"],
         ),
@@ -273,7 +277,8 @@ fn all() -> Vec<Value> {
             "orgtree_send_file",
             "Deliver a file to the user as a download card in your chat (images show as the picture). Use it \
              whenever the user asks for a file. Relative paths start in your working folder.",
-            json!({ "path": { "type": "string" }, "note": { "type": "string" } }),
+            json!({ "path": { "type": "string" }, "note": { "type": "string" },
+                "delivery_id": { "type": "string", "description": "Reuse for the same delivery after a lost response; new ID for a new delivery" } }),
             &["path"],
         ),
         tool(
