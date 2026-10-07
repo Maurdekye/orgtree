@@ -16,6 +16,12 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Staffing composites use `ops::run_in_tx` and publish deferred `Effects` only
+  after the caller commits. Busy model/account switches persist intents and
+  apply at settlement; admission locks the agent row before claiming mail.
+  Abandoned-owner recovery selects bounded policy rows, never an entire archive.
+  [verified from source: 2026-10-07; `docs/rust-engine/parity-staffing.md`]
+
 The plan is [`docs/rust-engine/PLAN.md`](docs/rust-engine/PLAN.md) (§10 lists every user-facing
 difference from 3.x); the user's standing rulings are
 [`docs/rust-engine/DECISIONS.md`](docs/rust-engine/DECISIONS.md), numbered, and they override the
