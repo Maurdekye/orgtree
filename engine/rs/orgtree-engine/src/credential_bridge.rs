@@ -17,6 +17,13 @@ use std::{
 
 pub const UNAVAILABLE: &str = "Open Orgtree in your signed-in Windows session to restore git/GitHub access. Agents keep running; no engine restart is needed.";
 const MAX: usize = 65536;
+const PIPE_WAIT: Duration = Duration::from_secs(1);
+const SLOT_WAIT: Duration = Duration::from_secs(2);
+#[derive(Clone, Copy, PartialEq)]
+enum ExchangeError {
+    Busy,
+    Unavailable,
+}
 const REGISTER: &str = "/api/desktop/credential-bridge";
 const REQUEST: &str = "/api/agent-credential";
 
@@ -82,7 +89,8 @@ impl Bridge {
         let Ok(exe) = std::env::current_exe() else {
             return vec![];
         };
-        // Installed version directory: no secret in these adapter files.
+        // Per-boot static adapters contain no secrets. Startup reclaims stale
+        // boot folders; locked binaries are retained until a later startup.
         let dir = engine.cfg.path("credential-adapters").join(&engine.boot.id);
         if std::fs::create_dir_all(&dir).is_err() {
             return vec![];
@@ -135,11 +143,7 @@ fn adapter_environment(
         .find(|p| p.is_file() && !adapter_path(p));
     let path = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&old_path)))
         .unwrap_or(old_path);
-    let n = std::env::var("GIT_CONFIG_COUNT")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|v| *v < 128)
-        .unwrap_or(0);
+    let n = git_config_slot(std::env::var("GIT_CONFIG_COUNT").ok().as_deref());
     let quoted = exe
         .to_string_lossy()
         .replace('\\', "/")
@@ -151,16 +155,22 @@ fn adapter_environment(
             format!("http://127.0.0.1:{}{REQUEST}", port),
         ),
         ("ORGTREE_CREDENTIAL_AGENT".into(), agent.to_string()),
-        ("PATH".into(), path.to_string_lossy().into_owned()),
-        ("GIT_CONFIG_COUNT".into(), (n + 1).to_string()),
-        (format!("GIT_CONFIG_KEY_{n}"), "credential.helper".into()),
-        (
-            format!("GIT_CONFIG_VALUE_{n}"),
-            format!("!'{}' credential-helper", quoted),
-        ),
-        ("GIT_TERMINAL_PROMPT".into(), "0".into()),
     ];
+    // Never replace malformed/oversized inherited configuration with slot zero.
+    // Git retains its native behavior; gh bridging remains independently usable.
+    if let Some(n) = n {
+        env.extend([
+            ("GIT_CONFIG_COUNT".into(), (n + 1).to_string()),
+            (format!("GIT_CONFIG_KEY_{n}"), "credential.helper".into()),
+            (
+                format!("GIT_CONFIG_VALUE_{n}"),
+                format!("!'{}' credential-helper", quoted),
+            ),
+            ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+        ]);
+    }
     if let Some(real) = real_gh {
+        env.push(("PATH".into(), path.to_string_lossy().into_owned()));
         env.push((
             "ORGTREE_REAL_GH".into(),
             real.to_string_lossy().into_owned(),
@@ -291,10 +301,9 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
             return Err(());
         }
     }
-    let _slot = engine
-        .credential_bridge
-        .slots
-        .try_acquire()
+    let _slot = tokio::time::timeout(SLOT_WAIT, engine.credential_bridge.slots.acquire())
+        .await
+        .map_err(|_| ())?
         .map_err(|_| ())?;
     let bytes = axum::body::to_bytes(req.into_body(), MAX)
         .await
@@ -324,7 +333,11 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
             pid,
             expires: Instant::now() + Duration::from_secs(20),
         };
-        if exchange(&broker, json!({"kind":"ping"})).await? != b"ready" {
+        if exchange(&broker, json!({"kind":"ping"}))
+            .await
+            .map_err(|_| ())?
+            != b"ready"
+        {
             return Err(());
         }
         engine
@@ -382,10 +395,11 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
     .await
     {
         Ok(answer) => answer,
-        Err(()) => {
+        Err(ExchangeError::Busy) => return Err(()),
+        Err(ExchangeError::Unavailable) => {
             // A missing credential is not a dead broker. Probe the channel
             // without reading a secret before withdrawing availability.
-            if exchange(&broker, json!({"kind":"ping"})).await.is_err() {
+            if exchange(&broker, json!({"kind":"ping"})).await == Err(ExchangeError::Unavailable) {
                 let previous = engine
                     .credential_bridge
                     .broker
@@ -473,13 +487,25 @@ fn valid_host(s: &str) -> bool {
 
 #[cfg(windows)]
 #[nolog]
-async fn exchange(broker: &Broker, mut request: Value) -> Result<Vec<u8>, ()> {
+async fn exchange(broker: &Broker, mut request: Value) -> Result<Vec<u8>, ExchangeError> {
     use std::os::windows::io::AsRawHandle;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::windows::named_pipe::ClientOptions,
     };
-    let mut pipe = ClientOptions::new().open(&broker.pipe).map_err(|_| ())?;
+    let started = Instant::now();
+    let mut pipe = loop {
+        match ClientOptions::new().open(&broker.pipe) {
+            Ok(pipe) => break pipe,
+            Err(error) if pipe_busy(error.raw_os_error()) => {
+                if started.elapsed() >= PIPE_WAIT {
+                    return Err(ExchangeError::Busy);
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(_) => return Err(ExchangeError::Unavailable),
+        }
+    };
     let mut pid = 0;
     if unsafe {
         windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(
@@ -490,27 +516,31 @@ async fn exchange(broker: &Broker, mut request: Value) -> Result<Vec<u8>, ()> {
         || pid != broker.pid
         || !interactive_same_user(pid)
     {
-        return Err(());
+        return Err(ExchangeError::Unavailable);
     }
     request["secret"] = Value::String(broker.secret.clone());
-    let mut raw = serde_json::to_vec(&request).map_err(|_| ())?;
+    let mut raw = serde_json::to_vec(&request).map_err(|_| ExchangeError::Unavailable)?;
     raw.push(b'\n');
-    pipe.write_all(&raw).await.map_err(|_| ())?;
+    pipe.write_all(&raw)
+        .await
+        .map_err(|_| ExchangeError::Unavailable)?;
     let mut result = Vec::new();
     pipe.take((MAX + 1) as u64)
         .read_to_end(&mut result)
         .await
-        .map_err(|_| ())?;
-    if result.len() > MAX || result.is_empty() {
-        Err(())
+        .map_err(|_| ExchangeError::Unavailable)?;
+    if result == b"orgtree-credential-busy\n" {
+        Err(ExchangeError::Busy)
+    } else if result.len() > MAX || result.is_empty() {
+        Err(ExchangeError::Unavailable)
     } else {
         Ok(result)
     }
 }
 #[cfg(not(windows))]
 #[nolog]
-async fn exchange(_: &Broker, _: Value) -> Result<Vec<u8>, ()> {
-    Err(())
+async fn exchange(_: &Broker, _: Value) -> Result<Vec<u8>, ExchangeError> {
+    Err(ExchangeError::Unavailable)
 }
 
 #[cfg(windows)]
@@ -675,6 +705,7 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
     let mut host = std::env::var("GH_HOST").unwrap_or_else(|_| "github.com".into());
     let mut path = String::new();
     let mut username = String::new();
+    let mut bridge_target = true;
     if kind == "git" {
         if args.first().map(|s| s.as_str()) != Some("get") {
             return Ok(0);
@@ -717,25 +748,20 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
                 }
             }
         }
-        for (i, arg) in args.iter().enumerate() {
-            if matches!(arg.as_str(), "--hostname" | "--repo" | "-R") {
-                let value = args.get(i + 1).ok_or(())?;
-                if arg == "--hostname" {
-                    host = value.clone();
-                } else if value.split('/').count() == 3 {
-                    host = value.split('/').next().unwrap().to_string();
-                }
-            } else if let Some(h) = arg.strip_prefix("--hostname=") {
-                host = h.into();
-            } else if let Some(repo) = arg.strip_prefix("--repo=") {
-                if repo.split('/').count() == 3 {
-                    host = repo.split('/').next().unwrap().to_string();
-                }
-            }
+        match gh_bridge_host(host.clone(), args) {
+            Some(target) => host = target,
+            None => bridge_target = false,
         }
     }
-    if !valid_host(&host) || !safe_field(&path) || !safe_field(&username) {
-        return Err(());
+    if !valid_host(&host)
+        || host.matches(':').count() > 1
+        || !safe_field(&path)
+        || !safe_field(&username)
+    {
+        if kind == "git" {
+            return Err(());
+        }
+        bridge_target = false;
     }
     let enterprise = host != "github.com" && !host.ends_with(".ghe.com");
     let token_env = if enterprise {
@@ -752,7 +778,7 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
         && [token_env, fallback_env]
             .iter()
             .any(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false));
-    let answer = if explicit {
+    let answer = if explicit || !bridge_target {
         vec![]
     } else {
         // Broker absence never disables the native credential path. An empty
@@ -837,4 +863,94 @@ fn gh_command(
         cmd.env(token_env, token.trim());
     }
     Ok(cmd)
+}
+
+#[nolog]
+fn pipe_busy(code: Option<i32>) -> bool {
+    code == Some(231)
+} // ERROR_PIPE_BUSY
+
+#[nolog]
+fn git_config_slot(value: Option<&str>) -> Option<usize> {
+    match value {
+        None => Some(0),
+        Some(value) => value.parse::<usize>().ok().filter(|n| *n < 128),
+    }
+}
+
+/// Only delete known static files in UUID boot folders, without following links.
+/// An in-use Windows executable is left for the next startup; never recurse.
+#[logged]
+pub fn cleanup_adapters(engine: &Engine) {
+    let root = engine.cfg.path("credential-adapters");
+    if root
+        .symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(true)
+    {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return;
+    };
+    for entry in entries.take(256).flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == engine.boot.id || uuid::Uuid::parse_str(&name).is_err() {
+            continue;
+        }
+        if !entry
+            .file_type()
+            .map(|t| t.is_dir() && !t.is_symlink())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let dir = entry.path();
+        let Ok(files) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for file in files.take(256).flatten() {
+            let name = file.file_name().to_string_lossy().into_owned();
+            let known = name == "gh.exe"
+                || name
+                    .strip_suffix(".tmp")
+                    .map(|s| uuid::Uuid::parse_str(s).is_ok())
+                    .unwrap_or(false);
+            if known
+                && file
+                    .file_type()
+                    .map(|t| t.is_file() && !t.is_symlink())
+                    .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(file.path());
+            }
+        }
+        let _ = std::fs::remove_dir(dir);
+    }
+}
+
+#[nolog]
+fn gh_bridge_host(mut host: String, args: &[String]) -> Option<String> {
+    for (i, arg) in args.iter().enumerate() {
+        if matches!(arg.as_str(), "--hostname" | "--repo" | "-R") {
+            let Some(value) = args
+                .get(i + 1)
+                .filter(|v| !v.is_empty() && !v.starts_with('-'))
+            else {
+                return None;
+            };
+            if arg == "--hostname" {
+                host = value.clone();
+            } else if value.split('/').count() == 3 {
+                host = value.split('/').next().unwrap().to_string();
+            }
+        } else if let Some(h) = arg.strip_prefix("--hostname=") {
+            host = h.into();
+        } else if let Some(repo) = arg.strip_prefix("--repo=") {
+            if repo.split('/').count() == 3 {
+                host = repo.split('/').next().unwrap().to_string();
+            }
+        }
+    }
+    (valid_host(&host) && host.matches(':').count() <= 1).then_some(host)
 }

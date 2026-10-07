@@ -28,8 +28,10 @@ commands ask signed-in Electron main for the user's configured credentials.
   bypass generic request/response/header tracing completely, including failures.
   Secret-bearing functions use nolog, no secret structures derive Serialize or
   Debug, and no credential is stored in Orgtree files or databases. The endpoint
-  allows 16 concurrent requests, bounds bodies/results to 64 KiB and lookup time
-  to ten seconds. Broker commands have six-second timeouts and no interactive
+  allows 16 concurrent requests, waits at most two seconds for a slot, bounds
+  bodies/results to 64 KiB and the whole request to ten seconds. Windows pipe
+  opens retry ERROR_PIPE_BUSY every 25 ms for at most one second. Busy exhaustion
+  and the desktop's explicit saturation response never withdraw broker readiness. Broker commands have six-second timeouts and no interactive
   credential prompts. Failures never echo tool stderr or credential bytes.
 - Git gets one process-local GIT_CONFIG_* helper entry appended to its normal
   helper chain; no empty helper reset and no gitconfig edit. Existing helpers
@@ -50,7 +52,12 @@ commands ask signed-in Electron main for the user's configured credentials.
   lookup skips all credential-adapters directories, including an inherited outer
   shim, preventing recursive shim launch. A missing executable produces an explicit installation/
   PATH-refresh error. Tokens never go in argv. Static adapters contain
-  no secret and live in a per-engine-boot directory.
+  no secret and live in a per-engine-boot directory. Startup removes only known
+  static files in old UUID boot folders, bounded to 256 folders/files per scan,
+  without following symlinks or recursive deletion. Locked executables wait for
+  the next startup. PATH is changed only when a real gh executable exists.
+  Malformed or >=128 inherited GIT_CONFIG_COUNT values are left untouched;
+  Git bridging is skipped instead of overwriting the user's entries.
 
 ## Availability and limits
 
@@ -128,3 +135,22 @@ credential round trip remains a post-install user check, per coordinator ruling
 Windows (1314); no task, privilege, live data or desktop state was changed. A local
 bare push is not accepted as credential-helper evidence. The meaningful local
 Git check above uses credential fill with synthetic credentials only.
+
+## Alpha.9 follow-ups (2026-10-07)
+
+- Measured actual production pipe-open retry loop (awaited sleep replaced with
+  blocking sleep only in the isolated harness) against a real single-instance
+  Windows named pipe: initially busy then released succeeded at 126 ms; held busy
+  returned Busy at 1012 ms. Busy is distinct from unavailable both on lookup and
+  the follow-up ping. The desktop's saturation path sends an explicit Busy marker.
+- Measured source-extracted host/config helpers: missing -R/--hostname, underscore
+  and IPv6 targets skip brokerage and invoke real gh unchanged; malformed/huge
+  Git counts preserve inherited entries; no installed gh means no PATH shim.
+- Orchestration ensure_proc/ensure_codex/ensure_agy use normal impl logging again.
+  Secret-valued work remains in nolog helpers; Ctx and OrRoute Debug mask keys.
+- Antigravity limitation: source confirms AgyProc::spawn applies all spec.env
+  entries after provider cleanup, so KEY/count/AUTH reach the CLI. Installed agy
+  --help exposes no environment-policy control. Its proprietary terminal's later
+  filtering has NOT been verified; no claim of Antigravity terminal credential
+  compatibility is made until an actual terminal invocation is observed. No
+  speculative unsupported option is passed to it.

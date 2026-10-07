@@ -66,6 +66,7 @@ fn report(status: &Status) {
 
 #[logged]
 pub fn start(engine: &Arc<crate::engine::Engine>) {
+    crate::credential_bridge::cleanup_adapters(engine);
     let engine = engine.clone();
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(std::time::Duration::from_secs(30));

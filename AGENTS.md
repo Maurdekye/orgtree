@@ -28,7 +28,9 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   signed-in Electron main. Only isolated engines inject adapters; native helper
   chains and gh remain usable without a broker. Token-group/PID/SID proof binds the broker;
   agent generation plus CLI PID/creation time binds revocable helper authority.
-  Its HTTP routes bypass all wire body/header logging. Never persist bridge
+  Busy pipe/slot bursts wait briefly and never mark a broker dead. Startup
+  reclaims stale static shim links; see the Antigravity terminal verification
+  limit in the bridge document. Its routes bypass wire logging. Never persist bridge
   secrets or pass the desktop token to agents. No separate startup helper.
   [recorded-decision and verified-from-source: 2026-10-07; DECISIONS 51;
   `docs/rust-engine/credential-bridge.md`]

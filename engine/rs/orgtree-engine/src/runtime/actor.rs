@@ -1386,7 +1386,6 @@ impl Actor {
         Ok(Some(note))
     }
 
-    #[nolog]
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
         // Warn only: an S4U boot context must not silently look credential-ready.
         self.engine.credentials.refresh();
@@ -1558,7 +1557,6 @@ impl Actor {
     }
 
     /// Start (or keep) the agent's Codex app-server on its thread.
-    #[nolog]
     async fn ensure_codex(&mut self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
         if route.is_none() && !self.engine.settings.provider_enabled(catalog::OPENAI) {
             return Err(anyhow!("OpenAI is turned off in App settings"));
@@ -1699,7 +1697,6 @@ impl Actor {
     }
 
     /// Start (or keep) the agent's Antigravity process on its conversation.
-    #[nolog]
     async fn ensure_agy(&mut self, ctx: &Ctx) -> Result<()> {
         if !self.engine.settings.provider_enabled(catalog::GOOGLE) {
             return Err(anyhow!("Antigravity is turned off in App settings"));
