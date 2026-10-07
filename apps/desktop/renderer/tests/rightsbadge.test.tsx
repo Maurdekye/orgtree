@@ -128,7 +128,7 @@ test('spend still opens the badge on its own, unknown cost still says so',
 
     const partial = await badge({ cost_usd: 2, cost_usd_unknown: true })
     try {
-      assert.equal(partial.span?.textContent, '$2.00 estimated/incomplete')
+      assert.equal(partial.span?.textContent, '$2.00')
     } finally { await partial.view.unmount() }
   })
 

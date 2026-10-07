@@ -1797,7 +1797,7 @@ export function SpendBadge({ node }: { node: SpendNode }) {
         ...rights,
       ].join('\n')}>
       {costUnknown
-        ? (cost > 0 ? `$${cost.toFixed(2)} estimated/incomplete` : '$?')
+        ? (cost > 0 ? `$${cost.toFixed(2)}` : '$?')
         : `$${cost.toFixed(2)}`}</span>
   )
 }

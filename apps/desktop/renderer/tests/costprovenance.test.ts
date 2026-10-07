@@ -24,7 +24,7 @@ test('org cost gate and label distinguish known zero from unresolved estimates',
 
   const incomplete = tree(1.25, true, 0.25)
   assert.equal(showCost(incomplete), true)
-  assert.equal(costLabel(incomplete), '$1.25 estimated/incomplete')
+  assert.equal(costLabel(incomplete), '$1.25')
   assert.match(costTitle(incomplete), /subscription \$1\.00 · api key \$0\.25/)
   assert.doesNotMatch(costLabel(incomplete), /at least|≥/)
 })

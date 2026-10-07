@@ -29,7 +29,7 @@ const costSplitTitle = (tree: TreePayload): string => {
 export const costLabel = (tree: Pick<TreePayload, 'cost_usd_total' | 'cost_usd_unknown'>): string =>
   tree.cost_usd_unknown
     ? (tree.cost_usd_total > 0
-      ? `$${tree.cost_usd_total.toFixed(2)} estimated/incomplete` : '$?')
+      ? `$${tree.cost_usd_total.toFixed(2)}` : '$?')
     : `$${tree.cost_usd_total.toFixed(2)}`
 const costUnknownTitle = (tree: TreePayload): string => tree.cost_usd_unknown
   ? 'recorded numeric estimate; unresolved amounts are not accounted for' : ''
