@@ -1473,3 +1473,5 @@ Cold archived docket projections covered by the existing policy spec use its typ
 - 2026-10-07 (verified-from-source): agent settings MODEL_VERSIONS includes Haiku 5.5/4.5, matching Rust providers/catalog.rs. The current tree payload does not expose version choices; keep the renderer fallback table synchronized. Model/version/effort/account changes remain staged until Save.
 
 - 2026-10-07 (recorded-decision): model choices in settings/hire/rehire share modelChoiceLabel and modelChoiceTitle. Enabled options show only model and seat; known OpenRouter capabilities move to tooltips, unknowns are omitted. Disabled choices retain a visible refusal-reason suffix and tooltip (coordinator clarification18:56Z), without changing provider/login/favorite gates. Shared settings selects cap intrinsic width.
+
+- 2026-10-07 (verified-from-source and mounted renderer): direct children of agent settings (.settings.cfg) must not flex-shrink. Different tab heights otherwise compress the shared Name/Agent actions rows and shift the tab strip; let the panel scroll instead.

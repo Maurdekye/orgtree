@@ -3865,6 +3865,8 @@ main.solo { width: 100%; }
 .settings > * { min-width: 0; }
 /* the agent ⚙ panel: wider, with room to actually write charters */
 .settings.cfg { width: min(880px, 94vw); --panel-pad-y: var(--panel-pad-x); }
+/* Tab content scrolls; it must not compress the shared header's rows. */
+.settings.cfg > * { flex-shrink: 0; }
 .settings.cfg > h3 { display: flex; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) { position: relative; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar {
