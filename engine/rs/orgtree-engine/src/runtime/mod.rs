@@ -9,6 +9,7 @@ pub mod agy;
 pub mod claude;
 pub mod codex;
 pub mod convo;
+pub mod envelope;
 pub mod event_text;
 pub mod freeze;
 pub mod history;

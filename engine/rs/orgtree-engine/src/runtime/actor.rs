@@ -1709,7 +1709,7 @@ impl Actor {
         let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
-        let text = prompt::steer_text(&mails);
+        let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
         let steered = match &self.proc {
             Some(Proc::Codex(p)) => p.steer(&codex_turn, &text).await,
             _ => Err(anyhow!("no Codex process")),
@@ -1761,7 +1761,7 @@ impl Actor {
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
         let id = format!("t{turn_id}-m{}", ids[0]);
-        let body = json!({ "id": id, "text": prompt::steer_text(&mails) }).to_string();
+        let body = json!({ "id": id, "text": prompt::steer_text(&mails, &self.rels_of(&mails).await) }).to_string();
         let tmp = dir.join("pending.tmp");
         let written = std::fs::create_dir_all(&dir)
             .and_then(|_| std::fs::write(&tmp, body.as_bytes()))
@@ -1986,17 +1986,11 @@ impl Actor {
                 None
             }
         };
-        let context = self.turn_context(&ctx).await;
+        let (context, envelope_record) = self.turn_context(&ctx).await;
         let followup: Vec<String> = mails.iter().filter(|m| self.followup_mail.contains(&m.uid))
             .map(|m| m.uid.clone()).collect();
-        let mut text = prompt::turn_text(&mails, &context);
-        if !followup.is_empty() {
-            text.push_str("\n(orgtree) You have new mail above — handle it as appropriate, and use orgtree_status when your own task state changes.\n");
-        }
-        let text = match reset_note.or(handoff) {
-            Some(note) => format!("{note}\n\n{text}"),
-            None => text,
-        };
+        let rels = self.rels_of(&mails).await;
+        let text = prompt::turn_text(&mails, &context, &rels, reset_note.or(handoff).as_deref());
         let mut codex_turn: Option<String> = None;
         let sent = match self.proc.as_ref() {
             Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
@@ -2017,6 +2011,12 @@ impl Actor {
             self.return_mail(turn_id, true).await;
             self.close_proc().await;
             return Err(anyhow!("the {} process did not accept the turn", catalog::provider_label(&ctx.provider)));
+        }
+        if let Some(r) = envelope_record {
+            // D-223: the agent now holds this snapshot; later turns may point at it
+            if let Err(e) = crate::runtime::envelope::commit(&self.engine, self.id, &r).await {
+                tracing::info!(agent = %self.name, error = %format!("{e:#}"), "envelope record not stored");
+            }
         }
         let mut turn = Turn::new(turn_id, false);
         turn.admitted_at = admitted_at;
@@ -2044,8 +2044,6 @@ impl Actor {
         Ok(true)
     }
 
-    /// Fast-changing facts for the turn's opening message (kept out of the
-    /// system prompt so the provider's cache survives hires and status changes).
     /// The PROVIDER USAGE block for this turn: in full (numbered) when it
     /// changed or the session is new, else one line pointing at the last one.
     fn usage_block(&mut self, ctx: &Ctx) -> String {
@@ -2060,33 +2058,31 @@ impl Actor {
         text.replacen("[PROVIDER USAGE", &format!("[PROVIDER USAGE #{seq}"), 1)
     }
 
-    async fn turn_context(&mut self, ctx: &Ctx) -> String {
-        let mut s = format!("[Orgtree] {} · you are {}", now_iso(), ctx.name);
-        let Ok(client) = self.engine.db.get().await else { return s };
-        if let Ok(rows) = client
-            .query(
-                "SELECT name, last_status->>'status' FROM ot.agents WHERE parent_id = $1 AND state = 'live'
-                  ORDER BY sibling_order, id LIMIT 50",
-                &[&self.id],
-            )
-            .await
-        {
-            if !rows.is_empty() {
-                let list: Vec<String> = rows
-                    .iter()
-                    .map(|r| match r.get::<_, Option<String>>(1) {
-                        Some(st) => format!("{} ({st})", r.get::<_, String>(0)),
-                        None => r.get::<_, String>(0),
-                    })
-                    .collect();
-                s.push_str("\nYour reports: ");
-                s.push_str(&list.join(", "));
+    /// The per-turn envelope before the mail (3.x layout, D-181): the
+    /// `[ORG STATE]` block, then the provider-usage board. Fast-changing facts
+    /// stay out of the system prompt so the provider's cache survives hires
+    /// and status changes. Returns the text and the D-223 record to store once
+    /// the turn was sent.
+    async fn turn_context(&mut self, ctx: &Ctx) -> (String, Option<Value>) {
+        let (mut s, record) = match crate::runtime::envelope::org_state(&self.engine, self.id).await {
+            Ok(st) => (st.text, st.record),
+            Err(e) => {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "org state block failed");
+                (format!("[Orgtree] {} · you are {}", now_iso(), ctx.name), None)
             }
+        };
+        let usage = self.usage_block(ctx);
+        if !usage.is_empty() {
+            s.push_str("\n\n");
+            s.push_str(&usage);
         }
-        drop(client);
-        s.push_str("\n\n");
-        s.push_str(&self.usage_block(ctx));
-        s
+        (s, record)
+    }
+
+    /// How each sender stands to this agent, for the `[MAIL]` headers.
+    async fn rels_of(&self, mails: &[Mail]) -> std::collections::HashMap<String, String> {
+        let senders: Vec<String> = mails.iter().map(|m| m.sender.clone()).collect();
+        crate::runtime::envelope::relationships(&self.engine, self.id, &senders).await.unwrap_or_default()
     }
 
     /// Give a failed turn's mail back (`requeue`) or settle it as delivered.
@@ -2135,7 +2131,7 @@ impl Actor {
         rows.sort_by_key(|(id, _)| *id);
         let raw: Vec<Value> = rows.into_iter().map(|(_, m)| m).collect();
         let mails: Vec<Mail> = raw.iter().map(mail_of).collect();
-        let text = prompt::steer_text(&mails);
+        let text = prompt::steer_text(&mails, &self.rels_of(&mails).await);
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered after a tool call."));
         let seq = self.convo.append(&client, row.clone()).await?;
@@ -3656,6 +3652,7 @@ fn mail_of(m: &Value) -> Mail {
         notice: m["notice"].as_bool().unwrap_or(false),
         urgent: m["urgent"].as_bool().unwrap_or(false),
         reply_to: m.get("reply_to").cloned().unwrap_or(Value::Null),
+        ev: m.get("ev").cloned().unwrap_or(Value::Null),
     }
 }
 

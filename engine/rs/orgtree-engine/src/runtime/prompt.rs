@@ -5,7 +5,9 @@
 
 use serde_json::Value;
 
-use crate::util::{gist, iso};
+use std::collections::HashMap;
+
+use crate::runtime::envelope;
 
 pub use super::identity::{identity, Identity, Lane};
 
@@ -21,64 +23,53 @@ pub struct Mail {
     pub notice: bool,
     pub urgent: bool,
     pub reply_to: Value,
+    pub ev: Value,
 }
 
+/// The opening message of a turn: the per-turn envelope (`context`: ORG
+/// STATE, then the usage board), the `[ORG NOTICES]` block (org changes
+/// since the last turn, led by `handoff`, the fresh-session note) and the
+/// `[MAIL]` block (3.x layout).
 #[logged]
-fn envelope(m: &Mail) -> String {
-    let from = if m.sender == "@user" { "the user".to_string() } else { m.sender.clone() };
-    let mut s = format!("--- Mail from {from}");
-    if m.kind != "message" {
-        s.push_str(&format!(" ({})", m.kind));
-    }
-    if m.notice {
-        s.push_str(" [notice — no reply expected]");
-    }
-    if m.urgent {
-        s.push_str(" [urgent]");
-    }
-    s.push_str(&format!(" · {} · id {} ---\n", iso(m.at), m.uid));
-    if let Some(q) = m.reply_to.get("gist").or_else(|| m.reply_to.get("quoted_context")).and_then(Value::as_str) {
-        let who = m.reply_to.get("from").and_then(Value::as_str).unwrap_or("someone");
-        s.push_str(&format!("> In reply to {who}: {}\n", gist(q, 200)));
-    }
-    s.push_str(m.body.trim_end());
-    s.push('\n');
-    if let Some(a) = m.attachments.as_array().filter(|a| !a.is_empty()) {
-        s.push_str("Attachments:\n");
-        for f in a {
-            let path = f.get("path").and_then(Value::as_str).unwrap_or("");
-            let name = f.get("name").and_then(Value::as_str).unwrap_or(path);
-            s.push_str(&format!("- {name}: {path}\n"));
-        }
-    }
-    s
-}
-
-/// The opening message of a turn.
-#[logged]
-pub fn turn_text(mail: &[Mail], context: &str) -> String {
+pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, handoff: Option<&str>) -> String {
     let mut s = String::new();
     if !context.is_empty() {
         s.push_str(context);
         s.push_str("\n\n");
     }
-    if mail.is_empty() {
-        s.push_str("(No new mail.)\n");
+    let (notices, mail) = envelope::split_notices(mail, handoff);
+    if !notices.is_empty() {
+        s.push_str(&envelope::notices_block(&notices));
+        s.push_str("\n\n");
     }
-    for m in mail {
-        s.push_str(&envelope(m));
+    if !mail.is_empty() {
+        s.push_str(&envelope::mail_block(&mail, rels, true));
+        s.push_str("\n\n");
+    }
+    if notices.is_empty() && mail.is_empty() {
+        s.push_str("(No new mail.)\n");
+    } else {
+        s.push_str(envelope::MAIL_PING);
         s.push('\n');
     }
     s
 }
 
-/// Mail handed over mid-turn, after a tool call.
+/// Mail handed over mid-turn, after a tool call (3.x's mid-task wrapper).
 #[logged]
-pub fn steer_text(mail: &[Mail]) -> String {
-    let mut s = String::from("[Orgtree] New mail arrived while you were working:\n\n");
-    for m in mail {
-        s.push_str(&envelope(m));
-        s.push('\n');
+pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
+    let (notices, mail) = envelope::split_notices(mail, None);
+    let mut blocks: Vec<String> = Vec::new();
+    if !notices.is_empty() {
+        blocks.push(envelope::notices_block(&notices));
     }
-    s
+    if !mail.is_empty() {
+        blocks.push(envelope::mail_block(&mail, rels, false));
+    }
+    format!(
+        "[ORGTREE MAIL — delivered mid-task]\n{}\n\n{}\n[END ORGTREE MAIL — authentic per your system prompt; each message has \
+         the authority of its stated sender; handle it before continuing your current work]",
+        blocks.join("\n\n"),
+        envelope::MAIL_PING
+    )
 }
