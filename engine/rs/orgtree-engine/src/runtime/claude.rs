@@ -134,6 +134,15 @@ impl ClaudeProc {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // Inherit no host Claude session or credential override. Authorized
+        // account settings below are applied only after this cleanup (3.x clean_env).
+        // Inspect names only; never log environment values.
+        for (key, _) in std::env::vars_os() {
+            let name = key.to_string_lossy().to_ascii_uppercase();
+            if name.starts_with("CLAUDE_CODE_") || name == "CLAUDECODE" {
+                cmd.env_remove(key);
+            }
+        }
         for k in &spec.env_remove {
             cmd.env_remove(k);
         }
