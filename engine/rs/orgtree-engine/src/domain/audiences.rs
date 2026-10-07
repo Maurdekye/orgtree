@@ -1,5 +1,5 @@
 //! Audiences: who may write to whom beyond the chain of command. A grant
-//! lets its grantee write to its grantor — an agent, the user (`@user`), or
+//! lets its grantee write to its grantor â€” an agent, the user (`@user`), or
 //! the org inbox (`@extern`: mail from outside the org reaches its holders).
 //! A request goes straight to whoever it names for a yes or a no; an
 //! org-inbox request goes to the requester's top-level agent.
@@ -20,7 +20,7 @@ use crate::util::iso_opt;
 pub const USER: &str = "@user";
 pub const EXTERN: &str = "@extern";
 
-/// `user`, `extern`, an agent name — as the grantor column spells it.
+/// `user`, `extern`, an agent name â€” as the grantor column spells it.
 #[logged]
 pub fn party(raw: Option<&str>) -> String {
     match raw.map(str::trim).unwrap_or("") {
@@ -168,7 +168,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
             org.id,
             &holder,
             format!(
-                "{my_name} asks for an audience with {what}{why}\nAnswer with orgtree_audience: action=grant from={my_name}{} — or action=deny from={my_name}.",
+                "{my_name} asks for an audience with {what}{why}\nAnswer with orgtree_audience: action=grant from={my_name}{} â€” or action=deny from={my_name}.",
                 if target == EXTERN { " target=extern" } else { "" }
             ),
             true,
@@ -188,7 +188,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
     if grantee.is_empty() {
         refuse!(BadRequest, "name who receives the audience (from)");
     }
-    let client = engine.db.get().await?;
+    let mut client = engine.db.get().await?;
     let (gid, _) = live(&client, org.id, &grantee).await?;
     let grantor = match actor {
         Actor::User => party(target),
@@ -254,28 +254,36 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
         Actor::User => USER.to_string(),
         Actor::Agent { name, .. } => name.clone(),
     };
-    let fresh = !holds(&client, org.id, &grantee, &grantor).await?;
+    let tx = client.transaction().await?;
+    let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org.id]).await?.get(0);
+    let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
+    let fresh = tx.query_opt("SELECT 1 FROM ot.audiences WHERE org_id = $1 AND grantee = $2 AND grantor = $3 AND revoked_at IS NULL AND NOT paused LIMIT 1",
+        &[&org.id, &grantee, &grantor]).await?.is_none();
+    if grantor == EXTERN && !settings["org_inbox_multi_holder"].as_bool().unwrap_or(false) {
+        tx.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantor = '@extern' AND grantee <> $2 AND revoked_at IS NULL", &[&org.id, &grantee]).await?;
+    }
     if fresh {
-        client
+        tx
             .execute(
                 "INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, $3, $4)",
                 &[&org.id, &grantee, &grantor, &reason.trim()],
             )
             .await?;
     }
-    let answered = client
+    let answered = tx
         .execute(
             "UPDATE ot.audience_requests SET status = 'granted', resolved_at = now()
               WHERE org_id = $1 AND requester = $2 AND target = $3 AND status = 'pending'",
             &[&org.id, &grantee, &grantor],
         )
         .await?;
-    client
+    tx
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', $2, $3, $4)",
             &[&org.id, &by, &gid, &json!({ "grantee": grantee, "grantor": grantor })],
         )
         .await?;
+    tx.commit().await?;
     drop(client);
     if answered > 0 {
         tell(engine,org.id,&grantee,format!("{} granted your requested audience with {}.",spoken(&by),spoken(&grantor)),true,

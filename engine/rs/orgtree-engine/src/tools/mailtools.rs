@@ -31,7 +31,6 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     let body = args.get("body").and_then(Value::as_str).unwrap_or("").to_string();
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
-    let scratch = scratch_of(engine, &client, caller, me.id).await?;
     drop(client);
     let kind = arg_str(args, "kind").unwrap_or("message");
     if !KINDS.contains(&kind) {
@@ -51,17 +50,20 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
         out.urgent = true;
         out.urgent_reason = Some(gist(reason, 300));
     }
-    for a in args["attachments"].as_array().cloned().unwrap_or_default().iter().take(10) {
-        let Some(p) = a.as_str() else { continue };
-        let path = if std::path::Path::new(p).is_absolute() { PathBuf::from(p) } else { scratch.join(p) };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            crate::refuse!(BadRequest, "attachment {p} does not exist (paths are relative to your working folder {})", scratch.display());
-        };
-        if !meta.is_file() {
-            crate::refuse!(BadRequest, "attachment {p} is not a file");
+    let attachments = args["attachments"].as_array().cloned().unwrap_or_default();
+    if attachments.len() > 10 { crate::refuse!(BadRequest, "at most 10 attachments"); }
+    if !attachments.is_empty() {
+        let network = to.trim().trim_start_matches('@').starts_with("net:");
+        if !to_user && !network {
+            crate::refuse!(BadRequest, "attachments ride mail to the user or @net: peers; for local recipients use paths");
         }
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p.to_string());
-        out.attachments.push(json!({ "name": name, "path": path.to_string_lossy(), "bytes": meta.len() }));
+        let org = engine.orgs.by_id(me.org_id).ok_or_else(|| anyhow::anyhow!("organization not open"))?;
+        let presenter = crate::domain::docs::presenter(engine, &org, me.id).await?;
+        if to_user && !presenter.may_present { crate::refuse!(Forbidden, "mail to the user needs a user audience"); }
+        for a in attachments {
+            let Some(path) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
+            out.attachments.push(crate::domain::docs::snapshot(&presenter, path, network)?);
+        }
     }
     let sent = mail::send(engine, me.org_id, out).await?;
     let box_name = if to_user { "user_inbox".to_string() } else { sent.to.clone() };
@@ -105,7 +107,7 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
             let mut out = Outgoing::new(
                 From::Agent { id: me.id, name: me.name.clone(), generation: me.generation },
                 &sup,
-                &format!("Status: {status} — {summary}"),
+                &format!("Status: {status} â€” {summary}"),
             );
             out.kind = "status".into();
             out.notice = true;

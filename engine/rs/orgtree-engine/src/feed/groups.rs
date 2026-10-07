@@ -16,8 +16,8 @@ pub const GROUPS: &[&str] = &[
     "org_inbox", "net", "work_summary",
 ];
 
-/// The compaction threshold as a fraction (0.5–0.95). Saved as a percent
-/// (50–95); an imported 3.x value is already a fraction.
+/// The compaction threshold as a fraction (0.5â€“0.95). Saved as a percent
+/// (50â€“95); an imported 3.x value is already a fraction.
 #[logged]
 pub fn compact_frac(v: &Value) -> f64 {
     let x = v.as_f64().filter(|x| x.is_finite() && *x > 0.0).unwrap_or(80.0);
@@ -265,15 +265,8 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                     &[&org_id],
                 )
                 .await?;
-            let holders: Vec<String> = client
-                .query(
-                    "SELECT grantee FROM ot.audiences WHERE org_id = $1 AND grantor = '@extern' AND revoked_at IS NULL ORDER BY id",
-                    &[&org_id],
-                )
-                .await?
-                .iter()
-                .map(|r| r.get(0))
-                .collect();
+            let holders = crate::domain::orginbox::live_holders(client, org_id,
+                settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
             let mut entries: Vec<Value> = preview.iter().map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))).collect();
             entries.reverse();
             let total: i64 = counts.get(0);

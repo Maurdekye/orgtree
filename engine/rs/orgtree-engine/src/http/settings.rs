@@ -91,7 +91,13 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
             return Err(ApiError::bad_request("compact_at is a percentage between 50 and 95"));
         }
     }
-    let client = e.db.get().await?;
+    let mut conn = e.db.get().await?;
+    let client = conn.transaction().await?;
+    client.query_one("SELECT id FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&o.id]).await?;
+    if patch.get("org_inbox_multi_holder").and_then(Value::as_bool) == Some(false) {
+        let holders = crate::domain::orginbox::live_holders(&*client, o.id, true).await?;
+        if holders.len() > 1 { return Err(ApiError::bad_request("revoke extra org-inbox holders before disabling multi-holder mode")); }
+    }
     let row = client
         .query_one(
             "UPDATE ot.orgs SET settings = settings || $2, row_version = row_version + 1 WHERE id = $1 RETURNING settings",
@@ -119,7 +125,8 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
             &[&o.id, &Value::Object(patch.clone())],
         )
         .await?;
-    drop(client);
+    client.commit().await?;
+    drop(conn);
     changes::notify(&e, &o, vec![Change::Org, Change::Events]);
     if patch.contains_key("dirs") || patch.contains_key("permission_mode") {
         reconfigure_org(&e, o.id).await?;

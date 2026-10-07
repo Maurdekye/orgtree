@@ -12,7 +12,7 @@ use crate::engine::Engine;
 use crate::changes::{self, Change};
 use crate::util::uid;
 
-/// An `org_inbox` row → `OrgInboxEntry`.
+/// An `org_inbox` row â†’ `OrgInboxEntry`.
 pub fn entry(r: &Value) -> Value {
     let mut o = Map::new();
     o.insert("id".into(), r["uid"].clone());
@@ -55,29 +55,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     let Some(src) = engine.orgs.by_id(org_id) else {
         crate::refuse!(NotFound, "organization not open");
     };
-    let client = engine.db.get().await?;
-    let by = match &out.from {
-        From::User => "user".to_string(),
-        f => f.name(),
-    };
+    let by = match &out.from { From::User => "user".to_string(), f => f.name() };
     if let From::Agent { id, name, .. } = &out.from {
-        let ok: bool = client
-            .query_one(
-                "SELECT (SELECT parent_id IS NULL FROM ot.agents WHERE id = $1)
-                     OR EXISTS (SELECT 1 FROM ot.audiences WHERE org_id = $2 AND grantee = $3 AND grantor = '@extern'
-                                  AND revoked_at IS NULL AND NOT paused)",
-                &[id, &org_id, name],
-            )
-            .await?
-            .get(0);
-        if !ok {
-            crate::refuse!(
-                Forbidden,
-                "outside mail goes out as the organization: it needs the org-inbox audience (top-level agents hold it); ask your superior"
-            );
-        }
+        ensure_holders(engine, org_id, Some((*id, name.as_str()))).await?;
     }
-    drop(client);
     if let Some(peer) = to.strip_prefix("net:") {
         let (uid, to) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.attachments).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
@@ -110,7 +91,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer],
         )
         .await?;
-    let holders = holders(&client, dst.id).await?;
+    let holders = ensure_holders(engine, dst.id, None).await?;
     drop(client);
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
     changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
@@ -134,30 +115,49 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     Ok(Sent { uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() })
 }
 
-/// Who reads an org's outside mail: its org-inbox audience holders, else its
-/// first top-level agent.
+/// Effective live audience holders; newest grant wins in single-holder mode.
 #[logged]
-async fn holders(client: &tokio_postgres::Client, org_id: i64) -> Result<Vec<String>> {
-    let mut holders: Vec<String> = client
-        .query(
-            "SELECT DISTINCT grantee FROM ot.audiences WHERE org_id = $1 AND grantor = '@extern' AND revoked_at IS NULL AND NOT paused",
-            &[&org_id],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    if holders.is_empty() {
-        holders = client
-            .query(
-                "SELECT name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' ORDER BY sibling_order, id LIMIT 1",
-                &[&org_id],
-            )
-            .await?
-            .iter()
-            .map(|r| r.get(0))
-            .collect();
+pub async fn live_holders<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<String>> {
+    let rows = client.query(
+        "SELECT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+         WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND NOT au.paused AND a.state = 'live'
+         GROUP BY au.grantee ORDER BY max(au.id) DESC LIMIT $2", &[&org_id, &(if multi { 10000i64 } else { 1i64 })]).await?;
+    Ok(rows.iter().map(|r| r.get(0)).collect())
+}
+
+/// Serialize only this org's short audience update; never hold the transaction over sending or IO.
+#[logged]
+async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, &str)>) -> Result<Vec<String>> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org_id]).await?.get(0);
+    let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
+    let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+    let mut holders = live_holders(&*tx, org_id, multi).await?;
+    let target = if let Some((id, name)) = sender {
+        if holders.iter().any(|h| h == name) { None } else {
+            let top = tx.query_opt("SELECT id FROM ot.agents WHERE id = $1 AND org_id = $2 AND state = 'live' AND parent_id IS NULL", &[&id, &org_id]).await?.is_some();
+            if !top { crate::refuse!(Forbidden, "outside mail needs the org-inbox audience; ask your superior"); }
+            Some((id, name.to_string(), "auto-granted: top-level agent messaged an outside party"))
+        }
+    } else if holders.is_empty() {
+        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' ORDER BY sibling_order, id LIMIT 1", &[&org_id]).await?
+            .map(|r| (r.get(0), r.get(1), "auto-granted: outside mail arrived with no live org-inbox holder"))
+    } else { None };
+    let mut changed = false;
+    if let Some((id, name, reason)) = target {
+        if !multi {
+            tx.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantor = '@extern' AND revoked_at IS NULL", &[&org_id]).await?;
+            holders.clear();
+        }
+        tx.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, '@extern', $3)", &[&org_id, &name, &reason]).await?;
+        tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', '@system', $2, $3)",
+            &[&org_id, &id, &json!({"grantee": name, "grantor": "@extern", "reason": reason})]).await?;
+        holders.push(name);
+        changed = true;
     }
+    tx.commit().await?;
+    if changed { changes::notify_id(engine, org_id, vec![Change::Audiences, Change::OrgInbox, Change::Events]); }
     Ok(holders)
 }
 
@@ -186,7 +186,7 @@ pub async fn deliver_inbound(
     if n == 0 {
         return Ok(false);
     }
-    let holders = holders(&client, org_id).await?;
+    let holders = ensure_holders(engine, org_id, None).await?;
     drop(client);
     changes::notify(engine, &org, vec![Change::OrgInbox]);
     for h in &holders {

@@ -45,12 +45,20 @@ pub async fn presenter(engine: &Engine, org: &OrgHandle, agent_id: i64) -> Resul
         .map(PathBuf::from)
         .unwrap_or_else(|| engine.cfg.scratch_root(&org.slug).join(&name));
     let settings = crate::feed::groups::effective_settings(&r.get::<_, Value>(3), &engine.settings.defaults());
-    let configured = scope::normalize(&r.get::<_, Value>(2));
+    let chain = client.query(
+        "WITH RECURSIVE chain AS (
+           SELECT id, parent_id, scope, 0 AS depth FROM ot.agents WHERE id = $1 AND org_id = $2
+           UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1
+           FROM ot.agents a JOIN chain c ON a.id = c.parent_id WHERE a.org_id = $2 AND c.depth < 1024)
+         SELECT scope, parent_id FROM chain ORDER BY depth DESC LIMIT 1025",
+        &[&agent_id, &org.id]).await?;
+    if chain.first().map(|r| r.get::<_, Option<i64>>(1).is_some()).unwrap_or(true) {
+        refuse!(Forbidden, "cannot resolve your complete folder authority chain");
+    }
+    let mut effective = scope::org_ceiling(&settings["dirs"]);
+    for ancestor in chain { effective = scope::clamp(&ancestor.get::<_, Value>(0), &effective); }
     let mut dirs: Vec<String> = Vec::new();
-    for d in scope::clamp_dirs(
-        configured["add_dirs"].as_array().map(|a| a.as_slice()).unwrap_or(&[]),
-        settings["dirs"].as_array().map(|a| a.as_slice()).unwrap_or(&[]),
-    ) {
+    for d in effective["add_dirs"].as_array().into_iter().flatten() {
         if let Some(p) = d["path"].as_str() {
             dirs.push(p.to_string());
         }
@@ -61,18 +69,53 @@ pub async fn presenter(engine: &Engine, org: &OrgHandle, agent_id: i64) -> Resul
 
 /// A path the agent may read: inside its folder, the workspace or a folder it holds.
 #[logged]
-fn readable(p: &Presenter, raw: &str) -> Result<PathBuf> {
+pub(crate) fn readable(p: &Presenter, raw: &str) -> Result<PathBuf> {
     let path = if Path::new(raw).is_absolute() { PathBuf::from(raw) } else { p.scratch.join(raw) };
     let Ok(canon) = std::fs::canonicalize(&path) else {
         refuse!(NotFound, "{raw} does not exist (relative paths start in your working folder {})", p.scratch.display());
     };
     let canon = crate::config::strip_verbatim(&canon);
     let c = canon.to_string_lossy().to_string();
-    let inside = scope::path_within(&c, &p.scratch.to_string_lossy()) || p.dirs.iter().any(|d| scope::path_within(&c, d));
+    let inside = std::iter::once(p.scratch.clone()).chain(p.dirs.iter().map(PathBuf::from)).any(|root| {
+        std::fs::canonicalize(root).ok().map(|r| scope::path_within(&c, &crate::config::strip_verbatim(&r).to_string_lossy())).unwrap_or(false)
+    });
     if !inside {
         refuse!(Forbidden, "{raw} is outside your working folder and the folders you hold");
     }
     Ok(canon)
+}
+
+/// Copy a checked file to a fresh outbox directory, even if the source is already in outbox.
+#[logged]
+pub(crate) fn snapshot(p: &Presenter, raw: &str, network: bool) -> Result<Value> {
+    let src = readable(p, raw)?;
+    if !src.is_file() { refuse!(BadRequest, "attachment is not a file"); }
+    let size = std::fs::metadata(&src)?.len();
+    if network {
+        let scratch = crate::config::strip_verbatim(&std::fs::canonicalize(&p.scratch)?);
+        if !scope::path_within(&src.to_string_lossy(), &scratch.to_string_lossy()) {
+            refuse!(Forbidden, "network attachments must be inside your working folder");
+        }
+        if size > 25 * 1024 * 1024 { refuse!(BadRequest, "attachment over 25 MB"); }
+    }
+    let name = src.file_name().ok_or_else(|| anyhow::anyhow!("file has no name"))?.to_string_lossy().to_string();
+    let outbox = p.scratch.join("outbox");
+    std::fs::create_dir_all(&outbox)?;
+    let scratch = crate::config::strip_verbatim(&std::fs::canonicalize(&p.scratch)?);
+    let outbox = crate::config::strip_verbatim(&std::fs::canonicalize(outbox)?);
+    if !scope::path_within(&outbox.to_string_lossy(), &scratch.to_string_lossy()) {
+        refuse!(Forbidden, "outbox escapes your working folder");
+    }
+    let folder = outbox.join(uid("delivery"));
+    std::fs::create_dir(&folder)?;
+    let dest = folder.join(&name);
+    std::fs::copy(&src, &dest)?;
+    let bytes = std::fs::metadata(&dest)?.len();
+    if network && bytes > 25 * 1024 * 1024 {
+        std::fs::remove_file(&dest)?;
+        refuse!(BadRequest, "attachment over 25 MB");
+    }
+    Ok(json!({ "name": name, "path": dest.to_string_lossy(), "bytes": bytes }))
 }
 
 /// `orgtree_present`. Returns (text, chip card).
@@ -161,26 +204,13 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
             return Ok((format!("Already delivered ({did})."), card));
         }
     }
-    let src = readable(p, raw)?;
-    if !src.is_file() {
-        refuse!(BadRequest, "{raw} is not a file");
-    }
-    let name = src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
-    // the delivered copy lives in the agent's outbox, so later edits never change it
-    let outbox = p.scratch.join("outbox");
-    std::fs::create_dir_all(&outbox)?;
+    drop(client);
+    let copy = snapshot(p, raw, false)?;
+    let name = copy["name"].as_str().unwrap().to_string();
+    let path = copy["path"].as_str().unwrap().to_string();
+    let bytes = copy["bytes"].as_u64().unwrap() as i64;
     let did = args["delivery_id"].as_str().filter(|s| !s.is_empty()).map(str::to_string).unwrap_or_else(|| uid("f"));
-    let mut dest = outbox.join(&name);
-    if dest != src && dest.exists() {
-        let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let ext = Path::new(&name).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-        dest = outbox.join(format!("{stem}-{}{ext}", &did[did.len().saturating_sub(6)..]));
-    }
-    if dest != src {
-        std::fs::copy(&src, &dest)?;
-    }
-    let bytes = std::fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
-    let path = dest.to_string_lossy().to_string();
+    let client = engine.db.get().await?;
     client
         .execute(
             "INSERT INTO ot.deliveries (uid, org_id, agent_id, name, path, bytes, note) VALUES ($1, $2, $3, $4, $5, $6, $7)",
