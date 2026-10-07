@@ -63,6 +63,8 @@ const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, c =>
 
 export const TRAY_ROW_H = 28
 export const TRAY_LIST_W = 200
+// The unavailable sentence is wider than an org row's ellipsized name.
+const TRAY_STATUS_W = 260
 const TRAY_LIST_PAD = 12
 
 /** The spinning-arrows working icon matching AutorenewIcon and active agents. */
@@ -115,7 +117,8 @@ export function trayListHtml(rows: OrgActivityRow[] | null, theme?: VisualTheme 
     '.act{display:inline-flex;align-items:center;justify-content:center}' +
     '.spin{display:inline-block;line-height:1;color:var(--accent);animation:actspin 1.6s linear infinite;flex:none}' +
     '@keyframes actspin{to{transform:rotate(360deg)}}' +
-    '.empty{padding:9px 7px;color:#9a9a9a}' +
+    `.empty{height:${TRAY_ROW_H}px;display:flex;align-items:center;padding:0 7px;` +
+    'white-space:nowrap;line-height:18px;color:#9a9a9a}' +
     '</style></head><body>' + body + '</body></html>'
 }
 
@@ -126,7 +129,7 @@ export function popupBounds(anchor: Rect, workArea: Rect, rowCount: number): Rec
   const height = Math.min(
     Math.max(rowCount, 1) * TRAY_ROW_H + TRAY_LIST_PAD,
     Math.max(TRAY_ROW_H + TRAY_LIST_PAD, Math.round(workArea.height * 0.6)))
-  const width = TRAY_LIST_W
+  const width = rowCount > 0 ? TRAY_LIST_W : TRAY_STATUS_W
   let x = Math.round(anchor.x + anchor.width / 2 - width / 2)
   x = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - width))
   let y = anchor.y - height - 4

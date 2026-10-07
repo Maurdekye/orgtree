@@ -483,7 +483,7 @@ else {
     // cursor so the popup still lands on the right display
     const point = anchor.width > 0 ? { x: anchor.x + Math.round(anchor.width / 2), y: anchor.y } : screen.getCursorScreenPoint()
     const area = screen.getDisplayNearestPoint(point).workArea
-    const bounds = popupBounds(anchor.width > 0 ? anchor : { ...point, width: 0, height: 0 }, area, rows?.length ?? 1)
+    const bounds = popupBounds(anchor.width > 0 ? anchor : { ...point, width: 0, height: 0 }, area, rows?.length ?? 0)
     // no preload, no node, sandboxed, scriptless document (CSP: no sources):
     // the popup is a picture of a list — selection is a CANCELLED navigation
     // to a reserved .invalid origin, so it never gains any other capability

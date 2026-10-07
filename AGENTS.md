@@ -311,6 +311,13 @@ reused. Preset/loading ICO assets stay unchanged; rainbow cycling is renderer-on
 and the native icon retains the selected custom color. [`main/tray-tint.ts`,
 `main/index.ts`, `tools/generate-icon.mjs`, renderer `rainbow.ts`]
 
+**Tray list status sizing (2026-10-07, verified from source and Electron smoke).**
+Pass zero rows for unavailable/loading/error and empty-list popups: they use a 260 px
+width, with one 28 px nowrap message row plus 12 px border/padding. Keep populated
+lists at 200 px and allow their usual vertical scroll when long. `Engine.orgActivity`
+maps missing endpoint, failed request and malformed responses to the shared unavailable
+message. [`main/traylist.ts`, `main/index.ts`, `main/engine.ts`]
+
 **Still valid from the 3.x sections:** [Machine traps](#machine-traps) (shell, CRLF, slow git on
 E:), the worktree rules (own worktree, no `node_modules` links, no bare `git stash`), "commit
 before you mutate", the evidence rules, and the product rulings except where PLAN §10 or
