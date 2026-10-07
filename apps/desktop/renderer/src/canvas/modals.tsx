@@ -173,7 +173,7 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
   return (
     <PinFrame kind="watchdog" restore={{ watchdog: dog.id }} title={`${dog.name} · watchdog`} panel="settings content-height"
       close={close}>
-        <h3>🐕 {dog.name}</h3>
+        <h3>{dog.kind === 'event' ? '⚡' : '🐕'} {dog.name}</h3>
         {/* THE DOG'S LIVE STATE IS NOT ITS NAME. It used to sit inside the h3,
             which a pinned window hides along with the duplicated heading —
             and 'departing' is exactly the thing you keep a watchdog window
@@ -192,6 +192,7 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
         <div className="field-label">{dog.kind === 'file' ? 'watched file'
           : dog.kind === 'process' ? 'watched process'
           : dog.kind === 'stream' ? 'listening command (realtime)'
+          : dog.kind === 'event' ? 'engine event'
           : dog.kind === 'activity' ? 'watched agent'
           : 'command (each interval)'}</div>
         <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
@@ -204,12 +205,15 @@ export function WatchdogPanel({ slug, dog, toast, close }: {
             title={expPattern ? 'click to collapse' : 'click to see the full text'}
             onClick={() => setExpPattern((v) => !v)}>{dog.pattern}</div>
         </>}
+        {dog.threshold && <div className="dim">Count crosses {dog.threshold} · {dog.event_scope === 'org' ? 'organization' : 'visible subtree'}</div>}
+        {dog.kind === 'event' && dog.last_output && <><div className="field-label">last event</div><div className="chip mono grow wd-cmd">{dog.last_output}</div></>}
         <div className="field-label">fire mode</div>
         <div className="dim">{dog.fire_mode === 'silence'
           ? `on silence — ${dog.quiet_period_s}s without a matching event; resets after each match and fire`
           : 'on a matching event'}</div>
         <div className="dim">
-          {dog.kind === 'activity' ? 'turns and tool calls'
+          {dog.kind === 'event' ? `pushed by the engine · at most every ${dog.interval_s}s`
+            : dog.kind === 'activity' ? 'turns and tool calls'
             : dog.kind === 'stream'
               ? dog.fire_mode === 'silence' ? 'realtime — silence checked every 5s'
                 : `realtime — fires at most every ${dog.interval_s}s (coalesced)`

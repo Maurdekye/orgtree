@@ -32,7 +32,7 @@ export function useDeskDogs(agentId: string): { dogs: Watchdog[]; open: (id: str
   return dogs.length ? { dogs, open: ctx.open } : null
 }
 
-const glyph = (w: Watchdog) => w.state === 'armed' ? '◉' : w.state === 'paused' ? '◫' : '✕'
+const glyph = (w: Watchdog) => w.state === 'armed' ? w.kind === 'event' ? '⚡' : '◉' : w.state === 'paused' ? '◫' : '✕'
 
 /** One watchdog's card: the canvas chip's glyph and name, in the desk's chip
  *  style, marked as a dog (not an agent) by its glyph and its class. */
