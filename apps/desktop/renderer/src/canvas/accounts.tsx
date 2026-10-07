@@ -257,16 +257,15 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'general' | 'about' | 'providers' | 'runtime' | 'mailhub'
+type AppSettingsTab = 'about' | 'providers' | 'runtime' | 'mailhub'
   | 'display' | 'defaults' | 'developer'
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
 // Display, Default org settings, Mail hub, Developer, About. The panel OPENS
 // on Providers, the first tab (user 2026-09-30), unless the caller asks for a
 // tab (the queued-turn banner's link to Runtime) — see useState below.
-// General holds app-wide composer behavior (user 2026-10-07).
+// App-wide composer behavior lives in Display > Typing (user 2026-10-07).
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
-  { id: 'general', label: 'General' },
   { id: 'runtime', label: 'Runtime' },
   { id: 'display', label: 'Display' },
   // Default org settings USED TO BE ITS OWN WINDOW, opened from the sidebar
@@ -604,7 +603,8 @@ export function AccountsPanel({ toast, close, initialTab }: {
   useShowLegacyModels()
   useEffect(() => {
     const open = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      const requested = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      const tab = requested === 'general' ? 'display' : requested
       if (tab && APP_TABS.some(t => t.id === tab)) setTab(tab as AppSettingsTab)
     }
     window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
@@ -701,23 +701,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <h3>App settings</h3>
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
-    <SettingsTabPanel id="general" idBase="app-settings" active={tab === 'general'}>
-      <SetGroup title="Messages">
-        <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>
-          <select aria-label="Enter key" value={enterKey ?? runtime?.enter_key_behavior ?? 'send'}
-            disabled={!runtime || busy} onChange={e => {
-              const mode = e.target.value as EnterKeyBehavior
-              setBusy(true)
-              setEnterKeyBehavior(mode).then(r => { setRuntime(r); setError('') })
-                .catch((err: Error) => { setError(err.message); toast([err.message]) })
-                .finally(() => setBusy(false))
-            }}>
-            <option value="send">Send message</option>
-            <option value="newline">Insert new line</option>
-          </select>
-        </SetRow>
-      </SetGroup>
-    </SettingsTabPanel>
     <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
       <AboutSection appVersion={appVersion} />
     </SettingsTabPanel>
@@ -846,6 +829,21 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <SetGroup title="Desk"><ChartLayoutSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Typing">
+        <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>
+          <select aria-label="Enter key" value={enterKey ?? runtime?.enter_key_behavior ?? 'send'}
+            disabled={!runtime || busy} onChange={e => {
+              const mode = e.target.value as EnterKeyBehavior
+              setBusy(true)
+              setEnterKeyBehavior(mode).then(r => { setRuntime(r); setError('') })
+                .catch((err: Error) => { setError(err.message); toast([err.message]) })
+                .finally(() => setBusy(false))
+            }}>
+            <option value="send">Send message</option>
+            <option value="newline">Insert new line</option>
+          </select>
+        </SetRow>
+      </SetGroup>
       <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>

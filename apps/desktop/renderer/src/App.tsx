@@ -438,11 +438,12 @@ export default function App() {
   // the section a banner asked Application settings to open at (the queued-
   // for-a-turn-slot banner points at Runtime); the panel follows later asks
   // itself while it is open
-  const [appSettingsTab, setAppSettingsTab] = useState<'runtime' | undefined>(undefined)
+  const [appSettingsTab, setAppSettingsTab] = useState<'runtime' | 'display' | undefined>(undefined)
   useEffect(() => {
     const open = (e: Event) => {
       const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
-      setAppSettingsTab(tab === 'runtime' ? 'runtime' : undefined)
+      setAppSettingsTab(tab === 'general' || tab === 'display' ? 'display'
+        : tab === 'runtime' ? 'runtime' : undefined)
       setShowAccounts(true)
     }
     window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
