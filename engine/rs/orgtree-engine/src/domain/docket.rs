@@ -221,6 +221,8 @@ pub struct Ctx {
     questions: HashMap<String, Vec<Value>>,
     /// every item's (title, status), for dependency and parent rows
     titles: HashMap<String, (String, String)>,
+    /// Authorization headers; never included in a rendered item.
+    rights: HashMap<String, (Option<String>, Option<String>, Option<String>, Vec<String>)>,
 }
 
 #[logged]
@@ -264,14 +266,28 @@ pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
     }
     for r in client
         .query(
-            "SELECT slug, title, status FROM ot.work_items WHERE org_id = $1 AND NOT coalesce((extra->>'deleted')::boolean, false)",
+            "SELECT slug, title, status, owner->>'node', created_by->>'node', reviewer->>'node', participants
+               FROM ot.work_items WHERE org_id = $1 AND NOT coalesce((extra->>'deleted')::boolean, false)",
             &[&org.id],
         )
         .await?
     {
         c.titles.insert(r.get(0), (r.get(1), r.get(2)));
+        c.rights.insert(r.get(0), (r.get(3), r.get(4), r.get(5), r.get(6)));
     }
     Ok(c)
+}
+
+/// Keep link metadata only for items this viewer may read, including archives.
+#[logged]
+fn restrict_links(ctx: &mut Ctx, who: &Who, under: &HashSet<i64>) {
+    let Who::Agent { name, .. } = who else { return };
+    let agents = &ctx.agents;
+    let rights = &ctx.rights;
+    ctx.titles.retain(|slug, _| rights.get(slug).map(|(owner, creator, reviewer, parts)| {
+        let manages = |n: &Option<String>| n.as_ref().map(|n| n == name || agents.get(n).map(|a| under.contains(&a.0)).unwrap_or(false)).unwrap_or(false);
+        manages(owner) || manages(creator) || reviewer.as_ref() == Some(name) || parts.contains(name)
+    }).unwrap_or(false));
 }
 
 fn attention_sources(it: &Item, ctx: &Ctx) -> Vec<&'static str> {
@@ -403,15 +419,28 @@ pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value
         "attention_sources": sources,
         "acceptance": [],
         "dependencies": deps,
-        "parent": it.parent,
+        "parent": it.parent.as_ref().filter(|p| ctx.titles.contains_key(*p)),
         "parent_visible": it.parent.as_ref().map(|p| ctx.titles.contains_key(p)),
         "evidence": it.evidence,
         "delivery": null,
         "accepted": it.accepted,
-        "superseded_by": it.superseded_by,
+        "superseded_by": it.superseded_by.as_ref().filter(|p| ctx.titles.contains_key(*p)),
         "superseded_by_visible": it.superseded_by.as_ref().map(|s| ctx.titles.contains_key(s)),
     });
     if let Some((history, attachments)) = detail {
+        let mut history = history.to_vec();
+        for row in &mut history {
+            let fields: &[&str] = match row["op"].as_str() {
+                Some("supersede") => &["by"],
+                Some("move") => &["from", "to"],
+                _ => &[],
+            };
+            for field in fields {
+                if row[*field].as_str().map(|s| !ctx.titles.contains_key(s)).unwrap_or(false) {
+                    row[*field] = Value::Null;
+                }
+            }
+        }
         v["history"] = json!(history);
         v["attachments"] = json!(attachments);
     }
@@ -625,6 +654,35 @@ fn level(who: &Who, it: &Item, ctx: &Ctx, under: &HashSet<i64>) -> Level {
     Level::None
 }
 
+/// Parent attachment needs read rights, and walks the full chain for cycles.
+#[logged]
+async fn checked_parent(client: &impl GenericClient, org: &OrgHandle, who: &Who, child: Option<&str>, reference: &str) -> Result<String> {
+    let parent = load(client, org.id, reference, false).await?;
+    let ctx = ctx(client, org).await?;
+    let under = match who.id() {
+        Some(id) => below(client, id).await?,
+        None => HashSet::new(),
+    };
+    if level(who, &parent, &ctx, &under) == Level::None {
+        refuse!(Forbidden, "the proposed parent is not readable to you");
+    }
+    let mut seen = HashSet::new();
+    let mut cur = Some(parent.slug.clone());
+    while let Some(slug) = cur {
+        if Some(slug.as_str()) == child {
+            refuse!(BadRequest, "an item cannot be placed inside its own subtree");
+        }
+        if !seen.insert(slug.clone()) {
+            break;
+        }
+        cur = client.query_opt(
+            "SELECT parent FROM ot.work_items WHERE org_id = $1 AND slug = $2 AND NOT coalesce((extra->>'deleted')::boolean, false)",
+            &[&org.id, &slug],
+        ).await?.and_then(|r| r.get::<_, Option<String>>(0));
+    }
+    Ok(parent.slug)
+}
+
 // ------------------------------------------------------------ writing
 
 fn text_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -820,7 +878,7 @@ async fn tell_tx(tx: &impl GenericClient, post: &mut AfterCommit, org_id: i64, i
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args: &Value) -> Result<Value> {
     let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
+    let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     let mut post = AfterCommit::default();
     let out = create_tx(&*tx, org, who, args, &mut post).await?;
     tx.commit().await?;
@@ -901,7 +959,7 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         }
     }
     let parent = match text_arg(args, "parent") {
-        Some(p) => Some(load(tx, org.id, p, false).await?.slug),
+        Some(p) => Some(checked_parent(tx, org, who, None, p).await?),
         None => None,
     };
     let base = slugify(&title, SLUG_MAX);
@@ -1401,7 +1459,7 @@ pub(crate) async fn staff_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who:
     Ok(slug.to_string())
 }
 
-/// `handoff`: the owner asks its superior (or `target`) to take the item.
+/// `handoff`: the owner requests a transfer to its immediate superior.
 #[logged]
 pub async fn handoff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug: &str, target: Option<&str>, reason: &str) -> Result<Value> {
     let Who::Agent { id, name, generation } = who else { refuse!(BadRequest, "handoff is the owner's request; the user assigns directly") };
@@ -1409,6 +1467,9 @@ pub async fn handoff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug
     let it = load(&**client, org.id, slug, false).await?;
     if it.owner_name() != Some(name.as_str()) {
         refuse!(Forbidden, "only the owner hands an item off; {} is owned by {}", it.slug, it.owner_name().unwrap_or("nobody"));
+    }
+    if it.closed() {
+        refuse!(Conflict, "a closed item cannot request an upward handoff");
     }
     let superior: Option<String> = client
         .query_one("SELECT p.name FROM ot.agents a LEFT JOIN ot.agents p ON p.id = a.parent_id WHERE a.id = $1", &[id])
@@ -1419,9 +1480,10 @@ pub async fn handoff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug
         Some(t) => t.to_string(),
         None => superior.clone().unwrap_or_else(|| "user".into()),
     };
-    if reason.trim().is_empty() {
-        refuse!(BadRequest, "say why the item needs an upward handoff (reason)");
+    if to != superior.as_deref().unwrap_or("user") {
+        refuse!(Forbidden, "an upward handoff may name only the owner's immediate superior");
     }
+    let reason = if reason.trim().is_empty() { "the owner requests an authorized upward handoff" } else { reason.trim() };
     client
         .execute(
             "INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, $2, 'handoff_request', $3)",
@@ -1538,21 +1600,60 @@ pub async fn evidence(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slu
 #[logged]
 pub async fn arrange(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, action: &str, slug: &str, args: &Value) -> Result<Value> {
     let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
-    let (mut it, _ctx, _) = managed(&*tx, org, who, slug, action).await?;
+    // Predicate reads protect link checks against concurrent move/supersede/delete.
+    let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
+    let (mut it, ctx, under) = managed(&*tx, org, who, slug, action).await?;
     let now = Utc::now();
+    let mut audit = json!({});
     let out = match action {
         "archive" => {
+            if !attention_sources(&it, &ctx).is_empty() {
+                refuse!(Conflict, "{} still holds attention (a pending question or a manual flag)", it.slug);
+            }
+            if !it.closed() {
+                refuse!(Conflict, "only done|superseded|dropped items archive; {} is {}", it.slug, it.status);
+            }
+            if archived(&it, &ctx) {
+                return Ok(json!({ "archived": it.slug, "already": true }));
+            }
             it.archived_at = Some(now);
-            json!({ "archived": it.slug, "note": if it.attention.is_some() { "it stays on the list while its attention flag stands" } else { "archived" } })
+            json!({ "archived": it.slug })
         }
         "supersede" => {
             let Some(by) = text_arg(args, "by").or(text_arg(args, "superseded_by")).or(text_arg(args, "target")) else {
                 refuse!(BadRequest, "supersede names the item that replaces this one (by)");
             };
-            let by = load(&*tx, org.id, by, false).await?.slug;
-            if by == it.slug {
+            let other = load(&*tx, org.id, by, false).await?;
+            if level(who, &other, &ctx, &under) < Level::Manage {
+                refuse!(Forbidden, "the replacing item needs the same owner-level right as the source");
+            }
+            if other.slug == it.slug {
                 refuse!(BadRequest, "an item cannot supersede itself");
+            }
+            if it.status == "superseded" {
+                refuse!(Conflict, "{} is already superseded; supersede its replacement instead", it.slug);
+            }
+            if other.closed() {
+                refuse!(Conflict, "a replacement must be open work; {} is {}", other.slug, other.status);
+            }
+            let mut seen = HashSet::new();
+            let mut cur = Some(other.slug.clone());
+            while let Some(slug) = cur {
+                if slug == it.slug {
+                    refuse!(BadRequest, "that would close a supersede cycle");
+                }
+                if !seen.insert(slug.clone()) {
+                    break;
+                }
+                cur = tx.query_opt(
+                    "SELECT superseded_by FROM ot.work_items WHERE org_id = $1 AND slug = $2 AND NOT coalesce((extra->>'deleted')::boolean, false)",
+                    &[&org.id, &slug],
+                ).await?.and_then(|r| r.get::<_, Option<String>>(0));
+            }
+            let by = other.slug;
+            audit = json!({ "from": it.status, "by": by });
+            if let Some(flag) = it.attention.take() {
+                audit["manual_attention"] = attention_archive(&flag);
             }
             it.status = "superseded".into();
             it.superseded_by = Some(by.clone());
@@ -1564,37 +1665,22 @@ pub async fn arrange(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, acti
         }
         "move" => {
             let parent = text_arg(args, "parent").filter(|p| *p != "null" && *p != "none");
+            let was = it.parent.clone();
             match parent {
                 None => it.parent = None,
                 Some(p) => {
-                    let p = load(&*tx, org.id, p, false).await?;
-                    // no cycles: walk up from the new parent
-                    let mut cur = Some(p.slug.clone());
-                    let mut hops = 0;
-                    while let Some(c) = cur {
-                        if c == it.slug {
-                            refuse!(BadRequest, "{} is above {} already; moving would make a loop", it.slug, p.slug);
-                        }
-                        hops += 1;
-                        if hops > 256 {
-                            break;
-                        }
-                        cur = tx
-                            .query_opt("SELECT parent FROM ot.work_items WHERE org_id = $1 AND slug = $2", &[&org.id, &c])
-                            .await?
-                            .and_then(|r| r.get::<_, Option<String>>(0));
-                    }
-                    it.parent = Some(p.slug);
+                    it.parent = Some(checked_parent(&*tx, org, who, Some(&it.slug), p).await?);
                 }
             }
-            json!({ "moved": it.slug, "parent": it.parent })
+            audit = json!({ "from": was, "to": it.parent });
+            json!({ "moved": it.slug, "parent": it.parent, "changed": was != it.parent })
         }
         other => refuse!(BadRequest, "unknown action {other}"),
     };
     it.rev += 1;
     it.updated_at = now;
     save(&*tx, &it).await?;
-    history(&*tx, &it, who, action, args.get("by").cloned().map(|b| json!({ "by": b })).unwrap_or(json!({}))).await?;
+    history(&*tx, &it, who, action, audit).await?;
     sweep(&*tx, org.id).await?;
     tx.commit().await?;
     drop(client);
@@ -1607,7 +1693,7 @@ pub async fn arrange(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, acti
 #[logged]
 pub async fn delete(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug: &str) -> Result<Value> {
     let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
+    let tx = client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::Serializable).start().await?;
     let mut it = load(&*tx, org.id, slug, true).await?;
     if let Who::Agent { id, name, .. } = who {
         let owner_top = it.owner_name() == Some(name.as_str())
@@ -1637,15 +1723,51 @@ pub async fn delete(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, slug:
     if asked {
         refuse!(Conflict, "{} has an open question attached; withdraw or answer it first", it.slug);
     }
+    // Clear references on active and archived records in bounded row batches.
+    // Each affected item's own history records exactly which pointer vanished.
+    let mut cursor = 0_i64;
+    let mut cleared = Vec::new();
+    loop {
+        let rows = tx.query(
+            &format!("SELECT {COLS} FROM ot.work_items WHERE org_id = $1 AND id > $2 AND id <> $3
+                         AND NOT coalesce((extra->>'deleted')::boolean, false)
+                         AND ($4 = ANY(dependencies) OR superseded_by = $4)
+                         ORDER BY id LIMIT 128 FOR UPDATE"),
+            &[&org.id, &cursor, &it.id, &it.slug],
+        ).await?;
+        if rows.is_empty() {
+            break;
+        }
+        for row in rows {
+            let mut other = item_of(&row);
+            cursor = other.id;
+            let mut fields = Vec::new();
+            if other.dependencies.contains(&it.slug) {
+                other.dependencies.retain(|s| s != &it.slug);
+                fields.push("dependencies");
+            }
+            if other.superseded_by.as_deref() == Some(it.slug.as_str()) {
+                other.superseded_by = None;
+                fields.push("superseded_by");
+            }
+            other.rev += fields.len() as i64;
+            other.updated_at = Utc::now();
+            save(&*tx, &other).await?;
+            for field in fields {
+                history(&*tx, &other, who, "pointer_cleared", json!({ "field": field, "deleted": it.slug })).await?;
+                cleared.push(json!({ "item": other.slug, "field": field }));
+            }
+        }
+    }
     it.extra["deleted"] = json!(true);
     it.archived_at = Some(Utc::now());
     it.rev += 1;
     save(&*tx, &it).await?;
-    history(&*tx, &it, who, "delete", json!({})).await?;
+    history(&*tx, &it, who, "delete", json!({ "pointers_cleared": cleared })).await?;
     tx.commit().await?;
     drop(client);
     changed(engine, org);
-    Ok(json!({ "deleted": it.slug }))
+    Ok(json!({ "deleted": it.slug, "pointers_cleared": cleared }))
 }
 
 // ------------------------------------------------------------ the agent's reads
@@ -1690,11 +1812,12 @@ pub async fn agent_list(engine: &Engine, org: &OrgHandle, who: &Who, args: &Valu
     let projection = if args["compact"].as_bool().unwrap_or(false) { "compact" } else { args["projection"].as_str().unwrap_or("summary") };
     let fields = names(&args["fields"]);
     let client = engine.db.get().await?;
-    let ctx = ctx(&**client, org).await?;
+    let mut ctx = ctx(&**client, org).await?;
     let under = match who.id() {
         Some(id) => below(&**client, id).await?,
         None => HashSet::new(),
     };
+    restrict_links(&mut ctx, who, &under);
     let rows = client
         .query(
             &format!("SELECT {COLS} FROM ot.work_items WHERE org_id = $1 AND NOT coalesce((extra->>'deleted')::boolean, false)
@@ -1755,11 +1878,12 @@ pub async fn agent_list(engine: &Engine, org: &OrgHandle, who: &Who, args: &Valu
 pub async fn agent_get(engine: &Engine, org: &OrgHandle, who: &Who, slug: &str, args: &Value) -> Result<Value> {
     let client = engine.db.get().await?;
     let it = load(&**client, org.id, slug, false).await?;
-    let ctx = ctx(&**client, org).await?;
+    let mut ctx = ctx(&**client, org).await?;
     let under = match who.id() {
         Some(id) => below(&**client, id).await?,
         None => HashSet::new(),
     };
+    restrict_links(&mut ctx, who, &under);
     if level(who, &it, &ctx, &under) == Level::None && !matches!(who, Who::User) {
         refuse!(Forbidden, "{} is not readable to you (owner, creator, their superiors, participants and the reviewer read it)", it.slug);
     }
