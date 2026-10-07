@@ -6,7 +6,6 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './mobile'   // D-125: stamp html.mobile before first paint
 import App from './App'
-import { CredentialWarning } from './credential-warning'
 import CrashBoundary, { CrashTestRenderTrigger } from './CrashBoundary'
 import { installFreezeLog } from './freezelog'
 import FreezeLogPage, { isFreezeLogPath } from './FreezeLogPage'
@@ -44,7 +43,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <CrashBoundary>
       <CrashTestRenderTrigger />
-      {freezePage ? <FreezeLogPage /> : <><App /><CredentialWarning /></>}
+      {freezePage ? <FreezeLogPage /> : <App />}
     </CrashBoundary>
   </React.StrictMode>,
 )
