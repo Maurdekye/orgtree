@@ -1,0 +1,21 @@
+[package]
+name = "orgtree-fakecli"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Scripted stand-in for the Claude Code CLI that tools/rig hands the engine"
+
+[[bin]]
+name = "orgtree-fakecli"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# its own workspace: never part of engine/rs
+[workspace]
+
+[profile.dev]
+opt-level = 1
+debug = 0
