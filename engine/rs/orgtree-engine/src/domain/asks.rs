@@ -41,6 +41,28 @@ impl Parts {
     }
 }
 
+/// One attachment per ticket for one request, preserving every matching tab
+/// and its original index. Unattached tabs still belong to the full ask card.
+#[logged]
+pub(crate) fn attached_tabs(questions: &[Value]) -> Vec<(String, Vec<Value>)> {
+    let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
+    for (index, q) in questions.iter().enumerate() {
+        let Some(slug) = q["work_item"].as_str() else { continue };
+        let mut tab = json!({ "index": index, "question": q["question"].clone() });
+        for key in ["header", "options", "multi"] {
+            if let Some(value) = q.get(key).filter(|v| !v.is_null()) {
+                tab[key] = value.clone();
+            }
+        }
+        if let Some((_, tabs)) = groups.iter_mut().find(|(item, _)| item == slug) {
+            tabs.push(tab);
+        } else {
+            groups.push((slug.to_string(), vec![tab]));
+        }
+    }
+    groups
+}
+
 /// Compose the card (what `AskInfo` shows) from the parts.
 #[logged]
 pub(crate) fn compose(uid: &str, rev: i32, p: &Parts) -> (String, Value) {
@@ -98,7 +120,7 @@ pub(crate) fn compose(uid: &str, rev: i32, p: &Parts) -> (String, Value) {
         o.insert("tabs".into(), json!(tabs));
     }
     o.insert("revs".into(), json!({ "ask": rev, "credits": rev, "scope": rev }));
-    let work: Vec<Value> = p.questions.iter().filter_map(|q| q.get("work_item").cloned()).filter(|w| w.is_string()).collect();
+    let work: Vec<String> = attached_tabs(&p.questions).into_iter().map(|(slug, _)| slug).collect();
     if !work.is_empty() {
         o.insert("work_items".into(), json!(work));
     }

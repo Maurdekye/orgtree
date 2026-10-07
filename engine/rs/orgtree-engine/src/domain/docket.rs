@@ -237,28 +237,17 @@ pub async fn ctx(client: &impl GenericClient, org: &OrgHandle) -> Result<Ctx> {
     }
     for r in client
         .query(
-            "SELECT k.uid, a.name, k.rev, k.created_at, k.body, k.work_items FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
+            "SELECT k.uid, a.name, k.rev, k.created_at, k.body FROM ot.asks k JOIN ot.agents a ON a.id = k.agent_id
               WHERE k.org_id = $1 AND k.status = 'open' AND cardinality(k.work_items) > 0",
             &[&org.id],
         )
         .await?
     {
         let body: Value = r.get(4);
-        let items: Vec<String> = r.get(5);
         let qs = body["questions"].as_array().cloned().unwrap_or_default();
-        for slug in items {
-            let mut tabs: Vec<Value> = Vec::new();
-            for (i, q) in qs.iter().enumerate() {
-                if q["work_item"].as_str().map(|w| w == slug).unwrap_or(true) {
-                    let mut t = json!({ "index": i, "question": q["question"].clone() });
-                    for k in ["header", "options", "multi"] {
-                        if let Some(v) = q.get(k).filter(|v| !v.is_null()) {
-                            t[k] = v.clone();
-                        }
-                    }
-                    tabs.push(t);
-                }
-            }
+        // Read old rows safely too: work_items in earlier Rust builds contains
+        // the same slug once per tab. Group within this request, never by text.
+        for (slug, tabs) in crate::domain::asks::attached_tabs(&qs) {
             c.questions.entry(slug).or_default().push(json!({
                 "ask_id": r.get::<_, String>(0), "node": r.get::<_, String>(1), "rev": r.get::<_, i32>(2),
                 "at": iso(r.get(3)), "tabs": tabs,
