@@ -14,14 +14,14 @@ use tokio::sync::{mpsc, oneshot};
 use crate::engine::Engine;
 
 pub struct Scheduler {
-    tx: mpsc::UnboundedSender<Msg>,
+    tx: mpsc::UnboundedSender<(Msg, tracing::Span)>,
     pub limit: AtomicUsize,
     pub held: Arc<AtomicUsize>,
     pub waiting: Arc<AtomicUsize>,
 }
 
 /// The scheduler task's inbox, handed to `start` once.
-pub struct SchedInbox(mpsc::UnboundedReceiver<Msg>);
+pub struct SchedInbox(mpsc::UnboundedReceiver<(Msg, tracing::Span)>);
 
 enum Msg {
     Want { org: i64, agent: i64, reply: oneshot::Sender<Slot> },
@@ -48,7 +48,8 @@ pub struct SchedStats {
 
 /// A held turn slot; dropping it frees the slot.
 pub struct Slot {
-    tx: mpsc::UnboundedSender<Msg>,
+    span: tracing::Span,
+    tx: mpsc::UnboundedSender<(Msg, tracing::Span)>,
     held: Arc<AtomicUsize>,
     org: i64,
     agent: i64,
@@ -62,14 +63,19 @@ impl std::fmt::Debug for Slot {
 
 impl Drop for Slot {
     fn drop(&mut self) {
+        let _entered = self.span.enter();
         let held = self.held.fetch_sub(1, Ordering::SeqCst) - 1;
         tracing::info!(org = self.org, agent = self.agent, held, "turn slot released");
-        let _ = self.tx.send(Msg::Released);
+        let _ = self.tx.send((Msg::Released, self.span.clone()));
     }
 }
 
 #[logged]
 impl Scheduler {
+    fn post(&self, msg: Msg) {
+        let _ = self.tx.send((msg, tracing::Span::current()));
+    }
+
     pub fn new(limit: usize) -> (Self, SchedInbox) {
         let (tx, rx) = mpsc::unbounded_channel();
         (
@@ -86,31 +92,31 @@ impl Scheduler {
     /// Ask for a slot; resolves when one is granted.
     pub fn want(&self, org: i64, agent: i64) -> oneshot::Receiver<Slot> {
         let (reply, rx) = oneshot::channel();
-        let _ = self.tx.send(Msg::Want { org, agent, reply });
+        self.post(Msg::Want { org, agent, reply });
         rx
     }
 
     pub fn cancel(&self, agent: i64) {
-        let _ = self.tx.send(Msg::Cancel { agent });
+        self.post(Msg::Cancel { agent });
     }
 
     /// This agent's CLI is idle and alive (a parked process).
     pub fn parked(&self, agent: i64) {
-        let _ = self.tx.send(Msg::Parked(agent));
+        self.post(Msg::Parked(agent));
     }
 
     pub fn unparked(&self, agent: i64) {
-        let _ = self.tx.send(Msg::Unparked(agent));
+        self.post(Msg::Unparked(agent));
     }
 
     pub fn set_limit(&self, n: usize) {
         self.limit.store(n.max(1), Ordering::SeqCst);
-        let _ = self.tx.send(Msg::Limit(n.max(1)));
+        self.post(Msg::Limit(n.max(1)));
     }
 
     pub async fn stats(&self) -> SchedStats {
         let (tx, rx) = oneshot::channel();
-        if self.tx.send(Msg::Stats(tx)).is_err() {
+        if self.tx.send((Msg::Stats(tx), tracing::Span::current())).is_err() {
             return SchedStats::default();
         }
         rx.await.unwrap_or_default()
@@ -122,31 +128,24 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
     let engine = engine.clone();
     let mut rx = inbox.0;
     tokio::spawn(async move {
-        let mut queues: HashMap<i64, VecDeque<(i64, oneshot::Sender<Slot>)>> = HashMap::new();
+        let mut queues: HashMap<i64, VecDeque<(i64, oneshot::Sender<Slot>, tracing::Span)>> = HashMap::new();
         let mut rotation: VecDeque<i64> = VecDeque::new();
         let mut parked: VecDeque<i64> = VecDeque::new();
         let sched = &engine.sched;
-        while let Some(msg) = rx.recv().await {
-            let span = match &msg {
-                Msg::Want { agent, .. } => crate::trace::request(&format!("agent:{agent}")),
-                Msg::Cancel { agent } | Msg::Parked(agent) | Msg::Unparked(agent) => {
-                    crate::trace::request(&format!("agent:{agent}"))
-                }
-                _ => tracing::Span::none(),
-            };
+        while let Some((msg, span)) = rx.recv().await {
             let _g = span.enter();
             match msg {
                 Msg::Want { org, agent, reply } => {
                     let q = queues.entry(org).or_default();
-                    q.retain(|(a, _)| *a != agent);
-                    q.push_back((agent, reply));
+                    q.retain(|(a, _, _)| *a != agent);
+                    q.push_back((agent, reply, span.clone()));
                     if !rotation.contains(&org) {
                         rotation.push_back(org);
                     }
                 }
                 Msg::Cancel { agent } => {
                     for q in queues.values_mut() {
-                        q.retain(|(a, _)| *a != agent);
+                        q.retain(|(a, _, _)| *a != agent);
                     }
                 }
                 Msg::Released | Msg::Limit(_) => {}
@@ -170,7 +169,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                         queues.iter().map(|(o, q)| (*o, q.len())).filter(|(_, n)| *n > 0).collect();
                     let mut queue = Vec::new();
                     for q in queues.values() {
-                        for (i, (a, _)) in q.iter().enumerate() {
+                        for (i, (a, _, _)) in q.iter().enumerate() {
                             queue.push((*a, i as i64));
                         }
                     }
@@ -191,7 +190,7 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                 }
                 let Some(org) = rotation.pop_front() else { break };
                 let Some(q) = queues.get_mut(&org) else { continue };
-                let Some((agent, reply)) = q.pop_front() else {
+                let Some((agent, reply, owner_span)) = q.pop_front() else {
                     continue;
                 };
                 if !q.is_empty() {
@@ -201,8 +200,10 @@ pub fn start(engine: &Arc<Engine>, inbox: SchedInbox) {
                     continue;
                 }
                 let held = sched.held.fetch_add(1, Ordering::SeqCst) + 1;
-                tracing::info!(org, agent, held, limit = sched.limit.load(Ordering::SeqCst), "turn slot granted");
-                let slot = Slot { tx: sched.tx.clone(), held: sched.held.clone(), org, agent };
+                owner_span.in_scope(|| {
+                    tracing::info!(org, agent, held, limit = sched.limit.load(Ordering::SeqCst), "turn slot granted");
+                });
+                let slot = Slot { span: owner_span, tx: sched.tx.clone(), held: sched.held.clone(), org, agent };
                 if let Err(slot) = reply.send(slot) {
                     drop(slot);
                 }

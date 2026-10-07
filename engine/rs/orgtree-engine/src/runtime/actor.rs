@@ -48,14 +48,40 @@ const MCP_WAIT: Duration = Duration::from_secs(30);
 
 #[logged]
 pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedReceiver<Envelope>) {
-    tokio::spawn(async move {
+    let cause = crate::trace::current_rq();
+    let origin = tracing::Span::current();
+    tokio::spawn(tracing::Instrument::instrument(async move {
         let id = handle.id;
-        match Actor::new(engine.clone(), handle.clone()).await {
-            Ok(actor) => actor.run(rx).await,
-            Err(e) => tracing::warn!(agent = id, error = %format!("{e:#}"), "agent actor could not start"),
+        // Read the existing startup row before entering the actor's named request.
+        // No second identity query, and no connection is kept by the running actor.
+        let loaded: Result<_> = async {
+        let client = engine.db.get().await?;
+        let row = client
+            .query_one(
+                "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt' FROM ot.agents WHERE id = $1",
+                &[&handle.id],
+            )
+            .await?;
+            Ok((client, row))
+        }.await;
+        match loaded {
+            Ok((client, row)) => {
+                let name: String = row.get(0);
+                let span = crate::trace::request_from(&crate::trace::agent_client(id, &name), cause.as_deref());
+                tracing::Instrument::instrument(async {
+                    match Actor::new(engine.clone(), handle.clone(), Startup { connection: client, row }).await {
+                        Ok(actor) => actor.run(rx).await,
+                        Err(e) => tracing::warn!(agent = id, error = %format!("{e:#}"), "agent actor could not start"),
+                    }
+                    engine.agents.remove_if(id, &handle);
+                }, span).await;
+            }
+            Err(e) => {
+                tracing::warn!(agent = id, error = %format!("{e:#}"), "agent identity could not be read");
+                engine.agents.remove_if(id, &handle);
+            }
         }
-        engine.agents.remove_if(id, &handle);
-    });
+    }, origin));
 }
 
 /// Everything about the agent a turn needs, read fresh before each spawn.
@@ -407,17 +433,17 @@ struct Actor {
     codex_total: Option<Value>,
 }
 
+// Opaque to the logging macro: connection internals are never log arguments.
+struct Startup {
+    connection: deadpool_postgres::Object,
+    row: tokio_postgres::Row,
+}
+
 #[logged]
 impl Actor {
-    async fn new(engine: Arc<Engine>, handle: Arc<AgentHandle>) -> Result<Actor> {
+    async fn new(engine: Arc<Engine>, handle: Arc<AgentHandle>, startup: Startup) -> Result<Actor> {
+        let Startup { connection: client, row } = startup;
         let org = engine.orgs.by_id(handle.org_id).ok_or_else(|| anyhow!("organization not open"))?;
-        let client = engine.db.get().await?;
-        let row = client
-            .query_one(
-                "SELECT name, coalesce((extra->>'cost_seen')::float8, 0), tier, extra->'cache_receipt' FROM ot.agents WHERE id = $1",
-                &[&handle.id],
-            )
-            .await?;
         let convo = ConvoWriter::load(&client, handle.id).await?;
         drop(client);
         let tier: String = row.get(2);
@@ -3198,18 +3224,19 @@ impl Actor {
         }
         self.changed(ch);
         if let Some(rec) = &freeze_rec {
-            freeze::schedule(&self.engine, self.org_id, self.id, rec);
+            freeze::schedule(&self.engine, self.org_id, self.id, &self.name, rec);
             return Ok(());
         }
         if let Some(acc) = moved_to {
             let engine = self.engine.clone();
             let (org_id, id) = (self.org_id, self.id);
             // continue_on messages this actor; run it off the actor's own loop
-            tokio::spawn(async move {
+            let span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
+            tokio::spawn(tracing::Instrument::instrument(async move {
                 if let Err(e) = freeze::continue_on(&engine, org_id, id, &acc, "account fallback").await {
                     tracing::warn!(agent = id, error = %format!("{e:#}"), "account fallback failed");
                 }
-            });
+            }, span));
             return Ok(());
         }
         if error.is_none() || !self.followup_mail.is_empty() {

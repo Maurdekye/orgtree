@@ -67,7 +67,7 @@ pub fn wake_at(rec: &Value) -> Option<DateTime<Utc>> {
 
 /// Arrange a wake for this exact freeze. A replacement owns its own timer.
 #[logged]
-pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, rec: &Value) {
+pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, name: &str, rec: &Value) {
     let Some(wake) = wake_at(rec) else {
         tracing::info!(org = org_id, agent = agent_id, "freeze not scheduled: no valid reset deadline; manual unstick required");
         return;
@@ -80,7 +80,8 @@ pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, rec: &Value) {
                    "freeze wake scheduled");
     let expected = rec.clone();
     let engine = engine.clone();
-    crate::trace::spawn(async move {
+    let span = crate::trace::request_from(&crate::trace::agent_client(agent_id, name), crate::trace::current_rq().as_deref());
+    tokio::spawn(tracing::Instrument::instrument(async move {
         let mut wait = (wake - Utc::now()).to_std().unwrap_or(Duration::ZERO);
         let mut reported_off = false;
         loop {
@@ -104,7 +105,7 @@ pub fn schedule(engine: &Arc<Engine>, org_id: i64, agent_id: i64, rec: &Value) {
             // the only timer. No connection is held during this wait.
             wait = Duration::from_secs(30);
         }
-    });
+    }, span));
 }
 
 #[logged]
@@ -205,7 +206,7 @@ pub async fn recover(engine: &Arc<Engine>) {
         let rows = async {
             let client = engine.db.get().await?;
             Ok::<_, anyhow::Error>(client.query(
-                "SELECT id, org_id, frozen FROM ot.agents WHERE frozen IS NOT NULL AND state = 'live'
+                "SELECT id, org_id, frozen, name FROM ot.agents WHERE frozen IS NOT NULL AND state = 'live'
                   AND id > $1 ORDER BY id LIMIT 256", &[&after],
             ).await?)
         }.await;
@@ -220,7 +221,10 @@ pub async fn recover(engine: &Arc<Engine>) {
         for r in rows {
             after = r.get(0);
             total += 1;
-            schedule(engine, r.get(1), after, &r.get::<_, Value>(2));
+            let name: String = r.get(3);
+            let span = crate::trace::request_from(&crate::trace::agent_client(after, &name), crate::trace::current_rq().as_deref());
+            let _entered = span.enter();
+            schedule(engine, r.get(1), after, &name, &r.get::<_, Value>(2));
         }
     }
     tracing::info!(frozen_agents = total, "freeze recovery finished");
