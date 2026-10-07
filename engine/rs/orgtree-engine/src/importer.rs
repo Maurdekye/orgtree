@@ -557,7 +557,9 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                     (SELECT coalesce(json_agg(d.value ORDER BY d.pos), '[]'::json) FROM orgtree.work_item_done d WHERE d.item_id = w.id) AS done,
                     (SELECT coalesce(json_agg(n.value ORDER BY n.pos), '[]'::json) FROM orgtree.work_item_next n WHERE n.item_id = w.id) AS next,
                     (SELECT coalesce(array_agg(p.value ORDER BY p.pos), '{}') FROM orgtree.work_item_participants p WHERE p.item_id = w.id) AS participants,
-                    (SELECT coalesce(array_agg(x.value ORDER BY x.pos), '{}') FROM orgtree.work_item_dependencies x WHERE x.item_id = w.id) AS deps
+                    (SELECT coalesce(array_agg(x.value ORDER BY x.pos), '{}') FROM orgtree.work_item_dependencies x WHERE x.item_id = w.id) AS deps,
+                    (to_jsonb(w)->>'notification_attention_epoch')::bigint,
+                    (to_jsonb(w)->>'notification_attention_active')::boolean
                FROM orgtree.work_items w WHERE w.slug IS NOT NULL ORDER BY w.id",
             &[],
         )
@@ -628,8 +630,9 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                 "INSERT INTO ot.work_items (org_id, slug, rev, kind, title, objective, status, blocked_reason, dropped_reason,
                                             owner, owner_agent_id, reviewer, reviewer_agent_id, created_by, last_updater,
                                             participants, parent, dependencies, superseded_by, done_so_far, working_on_next,
-                                            manual_attention, accepted, created_at, updated_at, docket_at, status_at, archived_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+                                            manual_attention, accepted, created_at, updated_at, docket_at, status_at, archived_at,
+                                            notification_attention_epoch, notification_attention_active)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
                  ON CONFLICT (org_id, slug) DO NOTHING RETURNING id",
                 &[
                     &org_id,
@@ -660,6 +663,8 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                     &docket_at,
                     &w.get::<_, Option<DateTime<Utc>>>(23),
                     &archived_at,
+                    &w.get::<_, Option<i64>>(40),
+                    &w.get::<_, Option<bool>>(41),
                 ],
             )
             .await

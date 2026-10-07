@@ -876,8 +876,8 @@ async fn insert_docket(src: &Source, tx: &Transaction<'_>, org_id: i64, ids: &Ha
                                             owner, owner_agent_id, reviewer, reviewer_agent_id, created_by, last_updater,
                                             participants, parent, dependencies, superseded_by, done_so_far, working_on_next,
                                             manual_attention, dismissals, evidence, accepted, created_at, updated_at, docket_at,
-                                            status_at, archived_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+                                            status_at, archived_at, notification_attention_epoch, notification_attention_active)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
                  ON CONFLICT (org_id, slug) DO NOTHING RETURNING id",
                 &[
                     &org_id,
@@ -910,6 +910,8 @@ async fn insert_docket(src: &Source, tx: &Transaction<'_>, org_id: i64, ids: &Ha
                     &docket_at,
                     &t(w, "status_at"),
                     &archived_at,
+                    &i(w, "notification_attention_epoch"),
+                    &w.get("notification_attention_active").and_then(Value::as_bool),
                 ],
             )
             .await

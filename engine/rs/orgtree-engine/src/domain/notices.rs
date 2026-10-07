@@ -52,7 +52,7 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         }));
     }
     let work = all_rows(client,
-            "SELECT slug, title, manual_attention, id FROM ot.work_items
+            "SELECT slug, title, manual_attention, notification_attention_epoch, id FROM ot.work_items
               WHERE org_id = $1 AND archived_at IS NULL AND manual_attention IS NOT NULL AND id > $2 ORDER BY id LIMIT 200",
             org_id, 0,
         )
@@ -61,8 +61,9 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
         let item: String = r.get(0);
         let att: Value = r.get(2);
         let rev = att.get("set_rev").and_then(Value::as_i64).unwrap_or(1);
+        let epoch = r.get::<_, Option<i64>>(3).unwrap_or(rev);
         out.push(json!({
-            "id": format!("work:{item}:{rev}"), "kind": "work-attention", "org": slug, "item": item, "rev": rev,
+            "id": format!("work:{item}:{epoch}"), "kind": "work-attention", "org": slug, "item": item, "rev": rev,
             "title": format!("Ticket needs you: {}", gist(&r.get::<_, String>(1), 120)),
             "body": gist(att.get("reason").and_then(Value::as_str).unwrap_or(""), 300),
         }));
