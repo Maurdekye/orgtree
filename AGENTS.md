@@ -29,6 +29,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [verified-from-source: 2026-10-07; 3.x `api.py`, Rust `tools/orgview.rs`;
   `docs/rust-engine/read-transcript-parity.md`]
 
+- Transcript and mail content must remove actual U+0000 before PostgreSQL
+  text/jsonb writes. Use `util::pg_text` / `pg_json` (borrow clean input), or
+  `pg_json_mut` for owned JSON; `convo::take_tool_inputs` sanitizes before splitting
+  full inputs from desk rows. Preserve other Unicode and binary image bytes.
+  Batch transcript failures log and continue per row; history uses savepoints.
+  [verified-from-source: 2026-10-07; `docs/rust-engine/transcript-nul.md`]
+
 - No credential banners, annotations, tray/menu warnings or success notices.
   Engine diagnostic fields and log lines remain; agents explain tool failures
   to the user. [recorded-decision: user 2026-10-07 16:12Z, superseding the
