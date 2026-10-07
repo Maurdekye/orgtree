@@ -16,8 +16,10 @@ const hostOK = (value: unknown): value is string => typeof value === 'string' &&
 function lookupEnv(): NodeJS.ProcessEnv {
   const env = {...process.env}
   for (const key of Object.keys(env)) {
-    if (/^(ORGTREE_CREDENTIAL_|ORGTREE_REAL_GH$|GIT_CONFIG_(COUNT|KEY_.*|VALUE_.*|PARAMETERS)$|GIT_ASKPASS$|SSH_ASKPASS$)/i.test(key)) delete env[key]
+    if (/^(ORGTREE_CREDENTIAL_|ORGTREE_REAL_GH$|ORGTREE_GH_LAUNCH_ACTIVE$|GIT_CONFIG_(COUNT|KEY_.*|VALUE_.*|PARAMETERS)$|GIT_ASKPASS$|SSH_ASKPASS$)/i.test(key)) delete env[key]
   }
+  const pathKey = Object.keys(env).find(key => key.toLowerCase() === 'path')
+  if (pathKey) env[pathKey] = (env[pathKey] || '').split(path.delimiter).filter(dir => !dir.split(/[\\/]/).some(part => part.toLowerCase() === 'credential-adapters')).join(path.delimiter)
   env.GIT_TERMINAL_PROMPT = '0'
   env.GCM_INTERACTIVE = 'never'
   env.GH_PROMPT_DISABLED = '1'
@@ -25,7 +27,7 @@ function lookupEnv(): NodeJS.ProcessEnv {
 }
 function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
   const search = Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] || ''
-  return search.split(path.delimiter).map(dir => path.join(dir, name + '.exe')).find(p => path.isAbsolute(p) && fs.existsSync(p))
+  return search.split(path.delimiter).filter(dir => !dir.split(/[\\/]/).some(part => part.toLowerCase() === 'credential-adapters')).map(dir => path.join(dir, name + '.exe')).find(p => path.isAbsolute(p) && fs.existsSync(p))
 }
 function run(exe: string, args: string[], input: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
