@@ -126,6 +126,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/charters", get(settings::charters))
         .route("/api/charters/populate", post(settings::charters_populate))
         .route("/api/charters/open", post(settings::charters_open))
+        .route("/api/charters/{name}", axum::routing::put(settings::charters_save))
         .route("/api/fs", get(settings::fs))
         .route("/api/orgs/{slug}/ops", post(orgops::run_op))
         .route("/api/orgs/{slug}/dissolve-all", post(orgops::dissolve_all))

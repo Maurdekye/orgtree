@@ -559,6 +559,63 @@ pub async fn charters_populate() -> ApiResult<Json<Value>> {
     Ok(Json(json!({ "dir": dir.to_string_lossy(), "created": created, "existing": existing })))
 }
 
+/// 3.x `CHARTER_NAME`: `[A-Za-z0-9](?:[A-Za-z0-9 _-]{0,118}[A-Za-z0-9])?`.
+#[logged]
+fn charter_name_ok(name: &str) -> bool {
+    let b = name.as_bytes();
+    !b.is_empty()
+        && b.len() <= 120
+        && b[0].is_ascii_alphanumeric()
+        && b[b.len() - 1].is_ascii_alphanumeric()
+        && b.iter().all(|c| c.is_ascii_alphanumeric() || matches!(c, b' ' | b'_' | b'-'))
+}
+
+/// 3.x `desktop_import._plain`: refuse when the path or any existing ancestor
+/// is a link or reparse point (a junction planted at the charters folder
+/// would receive every write).
+#[logged]
+fn plain_path(path: &FsPath) -> Result<(), String> {
+    for part in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        let Ok(md) = std::fs::symlink_metadata(part) else { continue };
+        #[cfg(windows)]
+        let reparse = std::os::windows::fs::MetadataExt::file_attributes(&md) & 0x400 != 0;
+        #[cfg(not(windows))]
+        let reparse = false;
+        if md.file_type().is_symlink() || reparse {
+            return Err(format!("Links and reparse points are not imported: {}", part.display()));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, Debug)]
+pub struct CharterDoc {
+    content: String,
+}
+
+/// `PUT /api/charters/{name}` (3.x `charters_save`): save one charter
+/// document as `~/.orgtree/charters/<name>.md`; the next `/api/charters`
+/// read serves it. Bundled presets and per-agent charters are untouched.
+#[logged]
+pub async fn charters_save(Path(name): Path<String>, Json(body): Json<CharterDoc>) -> ApiResult<Json<Value>> {
+    if !charter_name_ok(&name) {
+        return Err(ApiError::unprocessable("charter names are plain words, digits, spaces, - and _"));
+    }
+    if body.content.chars().count() > PRESET_MAX {
+        return Err(ApiError::unprocessable(format!("charter documents are bounded at {PRESET_MAX} characters")));
+    }
+    let dir = user_charter_dir();
+    plain_path(&dir).map_err(ApiError::conflict)?;
+    std::fs::create_dir_all(&dir).map_err(|x| ApiError::internal(format!("Could not create charter directory: {x}")))?;
+    let target = dir.join(format!("{name}.md"));
+    // writing FOLLOWS a link and truncates its target: refuse the link itself
+    plain_path(&target).map_err(ApiError::conflict)?;
+    std::fs::write(&target, body.content.as_bytes())
+        .map_err(|x| ApiError::unavailable(format!("Could not save the charter document: {x}")))?;
+    let abs = std::path::absolute(&target).unwrap_or(target);
+    Ok(Json(json!({ "saved": format!("{name}.md"), "path": abs.to_string_lossy() })))
+}
+
 #[logged]
 pub async fn charters_open() -> ApiResult<Json<Value>> {
     let dir = user_charter_dir();
