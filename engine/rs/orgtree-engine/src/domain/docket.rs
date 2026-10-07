@@ -957,6 +957,53 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     }))
 }
 
+/// Materialize a complete progress list without interleaving a stale patch.
+#[logged]
+fn patch_progress(args: &Value, field: &str, keep_key: &str, append_key: &str, stored: &Value) -> Result<Option<Vec<String>>> {
+    let keep = args[keep_key].as_bool().unwrap_or(false);
+    let append = !args[append_key].is_null();
+    if !keep && !append {
+        return entries(field, &args[field]);
+    }
+    if !args[field].is_null() {
+        refuse!(BadRequest, "pass either the whole {field} or {keep_key}/{append_key}, not both");
+    }
+    if args["expected_rev"].as_i64().is_none() {
+        refuse!(BadRequest, "{keep_key}/{append_key} needs expected_rev: name the revision of the list you read");
+    }
+    let mut out: Vec<String> = stored.as_array().map(|a| a.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect()).unwrap_or_default();
+    if append {
+        out.extend(entries(append_key, &args[append_key])?.unwrap_or_default());
+    }
+    if out.len() > ENTRIES_MAX {
+        refuse!(BadRequest, "{field} holds at most {ENTRIES_MAX} entries after the patch");
+    }
+    Ok(Some(out))
+}
+
+/// Preserve the final wording and its authors whenever a flag comes down.
+#[logged]
+fn attention_archive(flag: &Value) -> Value {
+    let mut out = json!({ "reason": flag["reason"].as_str().unwrap_or_default(), "raised_at": flag["at"], "raised_by": flag["by"] });
+    for key in ["amended_at", "amended_by"] {
+        if !flag[key].is_null() {
+            out[key] = flag[key].clone();
+        }
+    }
+    out
+}
+
+#[logged]
+fn attention_repeat_guard(it: &Item, reason: &str) -> Result<()> {
+    let norm = |s: &str| s.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(last) = it.dismissals.as_array().and_then(|a| a.last()) {
+        if norm(last["reason"].as_str().unwrap_or_default()) == norm(reason) {
+            refuse!(Conflict, "the user dismissed exactly this reason at {}; state material new information before raising or amending it", last["at"]);
+        }
+    }
+    Ok(())
+}
+
 /// `orgtree_work update`: progress, status, attention, scope.
 #[logged]
 pub async fn update(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who, args: &Value) -> Result<Value> {
@@ -1030,26 +1077,9 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     if objective.is_some() && objective_append.is_some() {
         refuse!(BadRequest, "pass either `objective` (replacing the description) or `objective_append`, not both");
     }
-    // progress
-    let mut done = entries("done_so_far", &args["done_so_far"])?;
-    let mut next = entries("working_on_next", &args["working_on_next"])?;
-    let as_list = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default() };
-    if args["keep_done"].as_bool().unwrap_or(false) {
-        done = Some(as_list(&it.done));
-    }
-    if args["keep_next"].as_bool().unwrap_or(false) {
-        next = Some(as_list(&it.next));
-    }
-    if let Some(add) = entries("done_append", &args["done_append"])? {
-        let mut d = done.unwrap_or_else(|| as_list(&it.done));
-        d.extend(add);
-        done = Some(d);
-    }
-    if let Some(add) = entries("next_append", &args["next_append"])? {
-        let mut n = next.unwrap_or_else(|| as_list(&it.next));
-        n.extend(add);
-        next = Some(n);
-    }
+    // A patch describes a list the caller read, so it needs the checked revision.
+    let done = patch_progress(args, "done_so_far", "keep_done", "done_append", &it.done)?;
+    let next = patch_progress(args, "working_on_next", "keep_next", "next_append", &it.next)?;
     let progress = done.is_some() || next.is_some();
     if progress {
         let d = done.clone().unwrap_or_default();
@@ -1098,12 +1128,8 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     if amend && it.attention.is_none() {
         refuse!(Conflict, "there is no attention flag standing on {}, so there is nothing to amend — raise one with attention=true", it.slug);
     }
-    if attention == Some(true) {
-        let r = reason.clone().unwrap_or_default();
-        let repeat = it.dismissals.as_array().map(|d| d.iter().any(|x| x["reason"].as_str() == Some(r.as_str()))).unwrap_or(false);
-        if repeat {
-            refuse!(Conflict, "the user already dismissed exactly this flag; say what changed since, or do not raise it again");
-        }
+    if attention == Some(true) || amend {
+        attention_repeat_guard(&it, reason.as_deref().unwrap_or_default())?;
     }
     let reviewer = text_arg(args, "reviewer").map(|r| r.trim_start_matches('@').to_string());
     let substantive = progress || status.is_some() || attention.is_some() || amend || title.is_some() || objective.is_some()
@@ -1115,6 +1141,8 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     let now = Utc::now();
     let from_status = it.status.clone();
     let mut notes: Vec<String> = Vec::new();
+    let mut attention_change = Value::Null;
+    let mut amendment = None;
     if let Some(t) = title {
         it.title = bounded("title", t, TITLE_MAX)?;
     }
@@ -1174,13 +1202,19 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         let rev = it.extra["attention_rev"].as_i64().unwrap_or_else(|| it.attention.as_ref().and_then(|a| a["set_rev"].as_i64()).unwrap_or(0)) + 1;
         it.extra["attention_rev"] = json!(rev);
         it.attention = Some(json!({ "reason": reason.clone().unwrap_or_default(), "at": iso(now), "by": who.actor(), "set_rev": rev }));
+        attention_change = json!({ "set_rev": rev });
     } else if amend {
         if let Some(a) = it.attention.as_mut() {
+            amendment = Some(json!({ "set_rev": a["set_rev"], "from": a["reason"], "to": reason }));
             a["reason"] = json!(reason.clone().unwrap_or_default());
-            a["at"] = json!(iso(now));
+            a["amended_at"] = json!(iso(now));
+            a["amended_by"] = who.actor();
         }
     } else if attention == Some(false) && it.attention.is_some() {
-        it.attention = None;
+        let flag = it.attention.take().unwrap();
+        attention_change = attention_archive(&flag);
+        attention_change["cleared_set_rev"] = flag["set_rev"].clone();
+        attention_change["by"] = json!("explicit retraction");
         notes.push("the standing attention flag was CLEARED by this update".into());
     }
     if let Some(d) = done {
@@ -1210,13 +1244,17 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         it.last_updater = Some(who.actor());
     }
     save(tx, &it).await?;
+    if let Some(detail) = amendment {
+        history(tx, &it, who, "attention_amend", detail).await?;
+    }
     history(
         tx,
         &it,
         who,
         if reopen { "reopen" } else { "update" },
         json!({ "from": (from_status != it.status).then(|| from_status.clone()), "to": (from_status != it.status).then(|| it.status.clone()),
-                "attention": attention, "claimed_from": claim.clone().filter(|c| !c.is_empty()) }),
+                "attention": attention, "changes": { "manual_attention": attention_change },
+                "claimed_from": claim.clone().filter(|c| !c.is_empty()) }),
     )
     .await?;
     sweep(tx, org.id).await?;
@@ -1766,7 +1804,11 @@ pub async fn dismiss(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, set
     it.rev += 1;
     it.updated_at = Utc::now();
     save(&*tx, &it).await?;
-    history(&*tx, &it, &Who::User, "dismiss_attention", json!({ "set_rev": at, "from": from, "to": it.status })).await?;
+    let mut detail = attention_archive(&cur);
+    detail["set_rev"] = json!(at);
+    detail["from"] = json!(from);
+    detail["to"] = json!(it.status);
+    history(&*tx, &it, &Who::User, "dismiss_attention", detail).await?;
     tx.commit().await?;
     drop(client);
     changed(engine, org);
@@ -1834,21 +1876,31 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
     out.reply_to = Some(reply_to(&it));
     out.ev = Some(crate::events::reply_docket(&org.slug, &it.slug, &it.title, text, role, it.owner_name()));
     let sent = mail::send(engine, org.id, out).await?;
-    // the user answered: a standing manual flag has been seen
+    // Mail is sent outside the transaction. Do not clear a newer flag, or a
+    // flag whose linked question still needs its own answer.
     if it.attention.is_some() {
-        let client = engine.db.get().await?;
-        client
-            .execute(
-                "UPDATE ot.work_items SET manual_attention = NULL, rev = rev + 1, updated_at = now() WHERE id = $1",
-                &[&it.id],
-            )
-            .await?;
-        client
-            .execute(
-                "INSERT INTO ot.work_events (work_id, by, op, detail) VALUES ($1, '\"user\"', 'attention_answered', '{}')",
-                &[&it.id],
-            )
-            .await?;
+        let mut client = engine.db.get().await?;
+        let tx = client.transaction().await?;
+        let mut current = load(&*tx, org.id, &it.slug, true).await?;
+        let pending: bool = tx.query_one(
+            "SELECT EXISTS (SELECT 1 FROM ot.asks WHERE org_id = $1 AND status = 'open' AND $2 = ANY(work_items))",
+            &[&org.id, &it.slug],
+        ).await?.get(0);
+        if !pending && current.attention == it.attention {
+            if let Some(flag) = current.attention.take() {
+                let mut detail = attention_archive(&flag);
+                detail["set_rev"] = flag["set_rev"].clone();
+                if !text.is_empty() {
+                    detail["answer"] = json!(body);
+                }
+                current.rev += 1;
+                current.updated_at = Utc::now();
+                current.docket_at = Some(current.updated_at);
+                save(&*tx, &current).await?;
+                history(&*tx, &current, &Who::User, "reply_clear_attention", detail).await?;
+            }
+        }
+        tx.commit().await?;
     }
     changed(engine, org);
     Ok(json!({
