@@ -1113,18 +1113,21 @@ export const EXTERN = '@extern'      // the org-inbox audience grantor sentinel
  *  de-emphasised notice row keys on (user, 2026-08-28). */
 export const SYSTEM = '@system'
 
+/** 3.x encoded passive mail in kind; 4.0 keeps its kind and sets notice. */
+export const isMailNotice = (m: MailRow): boolean => m.kind === 'notice' || m.notice === true
+
 /** D-173's SHORTER-ROW predicate, in one place because three renderings now
  *  key on it: the row class, the suppressed preview line, and the pile below.
  *
- *  ⚠ `kind` AND `from`, never either alone. `@system` also sends the user
+ *  ⚠ Passive delivery AND `from`, never either alone. `@system` also sends the user
  *  `kind: "decision"` mail — a Fable limit exhausted, agents halted or whole
  *  subtrees dissolved — and that is the mail they most need to see. Widening
  *  this to "notice OR from @system" would de-emphasise it; widening it to
  *  "any notice" would de-emphasise an AGENT's notice, which in a node mailbox
  *  is the ordinary traffic. This is NOT the read-on-arrival predicate, which
- *  is the kind alone and lives server-side (`Org.to_user_inbox`). */
+ *  is passive delivery alone and lives server-side. */
 export const isSystemNotice = (m: MailRow): boolean =>
-  !m._ask && m.kind === 'notice' && m.from === SYSTEM
+  !m._ask && isMailNotice(m) && m.from === SYSTEM
 
 /** Fold each RUN of consecutive system notices into one group, leaving every
  *  other row a group of one (user, 2026-08-28: "if there are multiple

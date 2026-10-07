@@ -19,7 +19,7 @@ import {
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
 } from '../icons'
 import {
-  EXTERN, fmtCredits, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
+  EXTERN, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
   useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
@@ -631,7 +631,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           ? ' ask' : ' ask askdone') : '')
         /* passive notices (orgtree_send_notice) stand apart too — but
            quietly: a dashed neutral edge, never the ask accent */
-        + (!m._ask && m.kind === 'notice' ? ' notice' : '')
+        + (!m._ask && isMailNotice(m) ? ' notice' : '')
         /* …and a SYSTEM notice shrinks to a single line (user,
            2026-08-28). ⚠ The `from` test is what keeps this off an
            AGENT's notice, which stays full height: the user asked only
@@ -669,17 +669,16 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         <span className="mfrom">
           {outgoing ? '→ ' : ''}{party}
         </span>
-        {!m._ask && view && <span className="event-row-kind">{view.title}</span>}
+        {!m._ask && view && view.event.variant !== 'ordinary.message'
+          && view.event.variant !== 'ordinary.notice'
+          && <span className="event-row-kind">{view.title}</span>}
         {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
-        {/* the count rides the chip that already said `notice`, so the
-            folded row is the same row with a number in it: "@system ·
-            3 notices · 08-28 12:44". A run of one still reads exactly
-            `notice` — nothing about a lone notice changes. */}
-        {!m._ask && m.kind === 'notice'
+        {/* Plain notices are unmarked. A folded run keeps its existing
+            count so its hidden members remain discoverable. */}
+        {!m._ask && isMailNotice(m) && isPile
           && <span className="noticekind"
-            title={isPile ? `${pile} system notices — open to read them`
-              : undefined}>
-            {isPile ? `${pile} notices` : 'notice'}</span>}
+            title={`${pile} system notices — open to read them`}>
+            {pile} notices</span>}
         {/* the FILLED chip — every other chip in this list is an
             outline, so filled is the one step up the vocabulary that
             was still unused. Its tooltip carries the sender's reason,

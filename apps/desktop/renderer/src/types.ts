@@ -175,6 +175,8 @@ export interface MailEntry {
   kind: string
   body: string
   at: string
+  /** 4.0 passive delivery is independent of the typed message kind. */
+  notice?: boolean
   relationship?: string | null
   attachments?: MailAttachment[]
   delivering?: boolean
