@@ -661,16 +661,17 @@ test('§6 right-clicking the divider offers exactly one entry, Swap panels, whic
   assert.ok(s.desk < s.divider && s.divider < s.queue, 'the panels trade places around the divider')
   assert.equal(document.querySelector('.attn-slot-queue') === queueNode, true, 'the panel is moved, not remounted')
   const queueFlex = (document.querySelector('.attn-slot-queue') as HTMLElement).style.flex
-  assert.equal(queueFlex, '0 0 30.00%',
-    'the queue keeps its 30% share on its new side')
-  assert.equal(Number(document.querySelector('.attn-divider')!.getAttribute('aria-valuenow')), 30)
+  assert.equal(queueFlex, '1 1 0', 'the queue takes the old right area')
+  assert.equal((document.querySelector('.attn-slot-desk') as HTMLElement).style.flex,
+    '0 0 30.00%', 'the desk takes the old left area')
+  assert.equal(Number(document.querySelector('.attn-divider')!.getAttribute('aria-valuenow')), 70)
   assert.equal(attentionLayout(SLUG).swapped, true)
   assert.equal(attentionLayout('other-org').swapped, false, 'other orgs are unaffected')
 
   // survives a reload: drop the in-memory cache and read storage again
   forgetAttentionMode()
   assert.equal(attentionLayout(SLUG).swapped, true, 'remembered in storage')
-  assert.equal(attentionLayout(SLUG).split, 0.3)
+  assert.equal(attentionLayout(SLUG).split, 0.7)
 
   await openDividerMenu()
   await inAct(() => {
@@ -678,6 +679,7 @@ test('§6 right-clicking the divider offers exactly one entry, Swap panels, whic
   })
   await inAct(() => flush(3))
   assert.equal(attentionLayout(SLUG).swapped, false, 'swapping again puts them back')
+  assert.ok(Math.abs(attentionLayout(SLUG).split - 0.3) < 1e-9)
   await v.unmount()
 })
 

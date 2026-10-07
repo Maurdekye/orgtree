@@ -87,6 +87,11 @@ plan and this file. Read both before you change anything. All entries below: 202
   loop. Follow-up IDs are logged only after the next prompt is accepted.
   [verified from source: 2026-10-07, `src/runtime/actor.rs`]
 
+- Attention's Swap panels exchanges the persisted split and visual order together.
+  The physical left slot owns the fixed percentage; the right slot takes the remainder
+  after the divider, so its six-pixel width does not move the divider during a swap.
+  [verified from source: 2026-10-07, renderer `attention/AttentionView.tsx`]
+
 **Where and how to work** [decided: coordinator 2026-10-06, from the rust-engine session's terms;
 user, DECISIONS 39]
 - `rust-engine` is a **local** branch: it is not on `origin`. **Never push** it or anything

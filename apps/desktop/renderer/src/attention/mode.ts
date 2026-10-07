@@ -9,7 +9,7 @@
 //
 // Three things are remembered, all per org:
 //   view      'canvas' | 'attention'
-//   split     the divider position, as the left panel's fraction of the stage
+//   split     divider fraction from the queue's side (1 - split when swapped)
 //   agent     the selected agent in the dynamic agent area
 //   listOpen  whether the agents list is rolled out rather than collapsed
 //
@@ -26,7 +26,7 @@ export type OrgView = 'canvas' | 'attention'
 export const ORG_VIEW_KEY = 'orgtree-org-view'
 export const ATTENTION_LAYOUT_KEY = 'orgtree-attention-layout'
 
-/** the left panel's share of the stage. Bounded so a drag can never leave
+/** Divider fraction from the queue's side. Bounded so a drag can never leave
  *  either panel at a width nothing can be read or clicked in. */
 export const SPLIT_MIN = 0.2
 export const SPLIT_MAX = 0.8

@@ -494,12 +494,14 @@ export function AttentionView(props: AttentionViewProps) {
     commit(next)
   }
 
-  // SWAPPED reverses the visual order with flex `order`, not the JSX order, so
-  // neither panel remounts and the split stays the Needs-attention panel's own
-  // share. The divider keeps its place in the DOM (and tab order).
+  // Reverse visual order without remounting either panel. Fix the physical
+  // left area's width; the right area gets the remainder after the divider.
+  // Complementing split on swap then preserves the divider's exact position,
+  // including its own width, instead of transferring that width between sides.
   const swapped = layout.swapped
-  const leftStyle = { flex: `0 0 ${(split * 100).toFixed(2)}%`, order: swapped ? 3 : 1 }
-  const rightStyle = { flex: '1 1 0', order: swapped ? 1 : 3 }
+  const leftFlex = `0 0 ${((swapped ? 1 - split : split) * 100).toFixed(2)}%`
+  const leftStyle = { flex: swapped ? '1 1 0' : leftFlex, order: swapped ? 3 : 1 }
+  const rightStyle = { flex: swapped ? leftFlex : '1 1 0', order: swapped ? 1 : 3 }
   const dividerStyle = { order: 2 }
   const menu = useContextMenu(props.toast)
 
@@ -541,7 +543,7 @@ export function AttentionView(props: AttentionViewProps) {
           style={dividerStyle}
           onContextMenu={(e) => menu.open(e, [{
             label: 'Swap panels',
-            onSelect: () => setAttentionLayout(slug, { swapped: !layout.swapped }),
+            onSelect: () => setAttentionLayout(slug, { swapped: !layout.swapped, split: 1 - split }),
           }])}
           onKeyDown={onDividerKey}>
           <span className="attn-divider-grip" aria-hidden="true" />
