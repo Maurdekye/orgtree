@@ -86,7 +86,8 @@ async fn next_id(e: &Engine, provider: &str) -> ApiResult<String> {
     let client = e.db.get().await?;
     let n: i64 = client
         .query_one(
-            "SELECT coalesce(max(substring(id FROM '-([0-9]+)$')::bigint), 0) + 1 FROM ot.accounts WHERE provider = $1",
+            "SELECT coalesce(max(substring(id FROM '-([0-9]+)$')::bigint), 0) + 1 FROM
+               (SELECT id FROM ot.accounts WHERE provider = $1 UNION ALL SELECT id FROM ot.removed_accounts WHERE provider = $1) ids",
             &[&provider],
         )
         .await?
@@ -168,27 +169,10 @@ fn identity_of(provider: &str, dir: Option<&str>) -> (bool, Option<String>) {
     }
 }
 
-/// `DELETE /api/accounts/{id}`: refused while a live agent runs on it.
+/// `DELETE /api/accounts/{id}`: atomically move stored bindings to primary.
 #[logged]
 pub async fn remove(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    let client = e.db.get().await?;
-    let users: Vec<String> = client
-        .query("SELECT name FROM ot.agents WHERE account = $1 AND state = 'live' LIMIT 5", &[&id])
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    if !users.is_empty() {
-        return Err(ApiError::conflict(format!("{} still run on {id}; move them to another account first", users.join(", "))));
-    }
-    let n = client.execute("DELETE FROM ot.accounts WHERE id = $1 AND id <> $2", &[&id, &crate::openrouter::ACCOUNT_ID]).await?;
-    client.execute("DELETE FROM ot.account_marks WHERE account = $1", &[&id]).await?;
-    drop(client);
-    if n == 0 {
-        return Err(ApiError::not_found(format!("no account {id}")));
-    }
-    refreshed(&e).await;
-    Ok(Json(json!({ "removed": id })))
+    Ok(Json(crate::domain::account_removal::remove(&e, &id).await?))
 }
 
 #[derive(Deserialize, Debug)]

@@ -1941,16 +1941,18 @@ impl Actor {
         // Serialize configuration changes with admission, not with CLI work.
         // A switch that won this row lock must be loaded before claiming mail;
         // one that loses sees the committed inflight turn and queues its intent.
+        // Account removal uses this same lock and may reset an idle session
+        // without changing tier; reload that session before admitting its mail.
         let current = tx.query_one(
             "SELECT tier, account, state, halt IS NOT NULL, frozen IS NOT NULL,
-                    pending_switch IS NOT NULL OR pending_account IS NOT NULL
+                    pending_switch IS NOT NULL OR pending_account IS NOT NULL, session_id
                FROM ot.agents WHERE id = $1 FOR UPDATE", &[&self.id]).await?;
         if current.get::<_, String>(2) != "live" || current.get::<_, bool>(3) || current.get::<_, bool>(4) {
             tx.rollback().await?;
             return Ok(false);
         }
         if current.get::<_, String>(0) != ctx.tier || current.get::<_, Option<String>>(1) != ctx.account
-            || current.get::<_, bool>(5) {
+            || current.get::<_, bool>(5) || current.get::<_, Option<String>>(6) != ctx.session_id {
             tx.rollback().await?;
             drop(client);
             self.reconfigured = self.proc.is_some();

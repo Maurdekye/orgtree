@@ -12,6 +12,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0004_tool_images", include_str!("../migrations/0004_tool_images.sql")),
     ("0005_no_done_status", include_str!("../migrations/0005_no_done_status.sql")),
     ("0006_document_bundles", include_str!("../migrations/0006_document_bundles.sql")),
+    ("0007_account_references", include_str!("../migrations/0007_account_references.sql")),
 ];
 
 #[logged]

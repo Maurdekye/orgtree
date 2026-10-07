@@ -32,6 +32,14 @@ impl AppSettings {
         Ok(row.map(|r| r.get::<_, Value>(0)).unwrap_or_else(|| json!({})))
     }
 
+    /// Republish a document changed by a coordinated database operation.
+    pub async fn reload(&self, pool: &deadpool_postgres::Pool) -> Result<()> {
+        let client = pool.get().await?;
+        let next = Self::load(&client).await?;
+        self.snapshot.store(Arc::new(next));
+        Ok(())
+    }
+
     /// Deep-merge `patch` into the stored document (null removes a key) under
     /// the document's own row lock, and publish the result.
     pub async fn merge(&self, client: &mut tokio_postgres::Client, patch: Value) -> Result<Arc<Value>> {
