@@ -7,7 +7,7 @@ tokio::task_local! { pub(super) static ALERT_DELIVERY: bool; }
 
 /// Prevent a paid alert turn from feeding any event dog owned by that agent.
 /// Other agents' watchers still observe it. No global lock or task-local lifetime.
-pub(crate) struct AlertTurn { engine: Arc<Engine>, owner: i64, name: Arc<String> }
+pub(crate) struct AlertTurn { engine: Arc<Engine>, owner: i64, name: Arc<(i64,String)> }
 #[logged]
 impl Drop for AlertTurn {
     fn drop(&mut self) {
@@ -18,9 +18,9 @@ impl Drop for AlertTurn {
     }
 }
 #[logged]
-pub(crate) fn alert_turn(engine: &Arc<Engine>, owner: i64, name: &str, mail: &[Value]) -> Option<AlertTurn> {
+pub(crate) fn alert_turn(engine: &Arc<Engine>, org: i64, owner: i64, name: &str, mail: &[Value]) -> Option<AlertTurn> {
     if engine.dogs.events.pin().is_empty() || !mail.iter().any(|m|m["kind"]=="watchdog"){return None;}
-    let name=Arc::new(name.to_owned());
+    let name=Arc::new((org,name.to_owned()));
     engine.dogs.alert_turns.pin().insert(owner,name.clone());
     Some(AlertTurn{engine:engine.clone(),owner,name})
 }
@@ -56,8 +56,8 @@ pub fn emit(engine: &Engine, mut e: Event) {
     if engine.dogs.events.pin().is_empty(){return;}
     e.at=Utc::now();
     e.suppressed_owner=match &e.scope {
-        Scope::Agent(_,id) if engine.dogs.alert_turns.pin().contains_key(id)=>Some(*id),
-        Scope::NamedAgent(_,name)=>engine.dogs.alert_turns.pin().iter().find(|(_,n)|n.as_str()==name).map(|(id,_)|*id),
+        Scope::Agent(org,id) if engine.dogs.alert_turns.pin().get(id).map(|n|n.0==*org).unwrap_or(false)=>Some(*id),
+        Scope::NamedAgent(org,name)=>engine.dogs.alert_turns.pin().iter().find(|(_,n)|n.0==*org && n.1==*name).map(|(id,_)|*id),
         _=>None,
     };
     if ALERT_DELIVERY.try_with(|v|*v).unwrap_or(false){return;}
@@ -182,6 +182,9 @@ impl Access {
             Scope::NamedAgent(org,n)=>{if *org!=self.me.org_id{return false;}let Some(id)=self.names.get(n)else{return false;};*id},
             Scope::Docket(org,slug)=>return *org==self.me.org_id && self.docket.contains(slug),
         };
+        // CLI teardown happens long after the alert-turn guard is gone. Own
+        // CLI events are never useful wake triggers: watch another agent instead.
+        if id==self.me.id && e.name.starts_with("cli."){return false;}
         self.ids.contains(&id) && self.visible.as_ref().map(|v|v.contains(&id)).unwrap_or(true)
     }
     fn count(&self,engine:&Engine,active:bool,scope:&str,members:Option<&Vec<i64>>)->i64 {

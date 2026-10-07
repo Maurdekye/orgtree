@@ -411,7 +411,7 @@ fn all() -> Vec<Value> {
              documents.created/updated/changed; audience.requested/granted/denied/revoked; cli.started/ready/cold/evicted; \
              agents.active/live. Agent/item/account events respect visibility. Count threshold is below N or at least N \
              (false-to-true crossing); counts exclude the watcher. event_scope subtree is default, org requires full visibility. \
-             interval_s is a minimum fire gap (5s floor); bursts coalesce into bounded summaries. Storage failures retry with health diagnostics. Resume/restart refresh count baselines. Watchdog mail and its owner turn events never feed that owner's event dogs.",
+             interval_s is a minimum fire gap (5s floor); bursts coalesce into bounded summaries. Storage failures retry with health diagnostics. Resume/restart refresh count baselines. Watchdog mail and its owner turn events never feed that owner's event dogs. Own cli.* events are excluded to prevent idle-eviction wake loops.",
             json!({
                 "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
                 "name": { "type": "string", "description": "create: a short name, e.g. build-watch" },

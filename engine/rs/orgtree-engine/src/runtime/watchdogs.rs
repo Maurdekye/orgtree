@@ -66,7 +66,7 @@ pub struct Registry {
     runners: papaya::HashMap<String, CancellationToken>,
     events: papaya::HashMap<String, events::Subscription>,
     conditions: papaya::HashMap<String, Value>,
-    alert_turns: papaya::HashMap<i64, Arc<String>>,
+    alert_turns: papaya::HashMap<i64, Arc<(i64,String)>>,
     event_health: papaya::HashMap<String, String>,
     activity: papaya::HashMap<i64, papaya::HashMap<String, ActivityTx>>,
 }
@@ -214,6 +214,11 @@ pub async fn start(engine: &Arc<Engine>) {
 /// Start the runner for `uid` unless one already runs.
 #[logged]
 pub fn arm(engine: &Arc<Engine>, uid: &str) {
+    arm_retry(engine,uid,0);
+}
+
+#[logged]
+fn arm_retry(engine: &Arc<Engine>, uid: &str, failures: u32) {
     if engine.is_stopping() {
         return;
     }
@@ -240,7 +245,7 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
                     Err(e)=>{
                         tracing::warn!(watchdog=%id,error=%e,"watchdog initial load retry");
                         engine.dogs.event_health.pin().insert(id.clone(),"Listener retrying initial storage read".into());
-                        tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=token.cancelled()=>return}
+                        tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=token.cancelled()=>{events::unsubscribe(&engine,&id,&event_sub);engine.dogs.event_health.pin().remove(&id);return}}
                     }
                 }
             };
@@ -249,6 +254,7 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
                 _ => tracing::Span::current(),
             };
             tracing::Instrument::instrument(async {
+                let missing = matches!(&loaded,Ok(None));
                 let r = match loaded {
                     Ok(Some(dog)) if dog.kind == "event" => events::run(&engine, dog, &event_sub, event_rx, &token).await,
                     Ok(Some(dog)) => { events::unsubscribe(&engine, &id, &event_sub); run(&engine, dog, &token).await },
@@ -259,19 +265,37 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
                 if let Err(e) = &r {
                     tracing::warn!(watchdog = %id, error = %format!("{e:#}"), "watchdog runner stopped");
                 }
+                if missing {
+                    engine.dogs.event_health.pin().remove(&id);
+                    token.cancel();
+                    return;
+                }
+                let failed=r.is_err();
+                let next_failures=if failed{failures.saturating_add(1)}else{0};
+                // All runner kinds back off after a failure, even when the row
+                // reload succeeds. Keep admission occupied during the delay.
+                if failed && !token.is_cancelled() {
+                    let delay=(2u64 << failures.min(4)).min(30);
+                    engine.dogs.event_health.pin().insert(id.clone(),format!("Runner failed; retrying in {delay}s"));
+                    tokio::select!{_=tokio::time::sleep(Duration::from_secs(delay))=>{},_=token.cancelled()=>return}
+                }
                 let left_alone = !token.is_cancelled();
                 token.cancel();
-                // a resume can land while this runner is on its way out
+                // A resume can land while this runner is on its way out.
                 if left_alone && !engine.is_stopping() {
-                    if let Ok(Some(d)) = load(&engine, &id).await {
-                        let dead_stream = d.kind == "stream" && d.exit.is_some() && !d.silence();
-                        if d.state == "armed" && d.owner_live && !dead_stream {
-                            arm(&engine, &id);
+                    match load(&engine,&id).await {
+                        Ok(Some(d))=>{
+                            let dead_stream=d.kind=="stream" && d.exit.is_some() && !d.silence();
+                            if d.state=="armed" && d.owner_live && !dead_stream {arm_retry(&engine,&id,next_failures);}
+                            else{engine.dogs.event_health.pin().remove(&id);}
+                        },
+                        Ok(None)=>{engine.dogs.event_health.pin().remove(&id);},
+                        Err(e)=>{
+                            tracing::warn!(watchdog=%id,error=%e,"watchdog reload retry");
+                            engine.dogs.event_health.pin().insert(id.clone(),"Listener re-arming after storage error".into());
+                            tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=engine.shutdown.cancelled()=>return}
+                            arm_retry(&engine,&id,next_failures);
                         }
-                    } else {
-                        engine.dogs.event_health.pin().insert(id.clone(),"Listener re-arming after storage error".into());
-                        tokio::time::sleep(Duration::from_secs(2)).await;
-                        arm(&engine,&id);
                     }
                 }
             }, span).await;
@@ -487,7 +511,9 @@ fn read_at(path: &Path, from: u64, take: usize) -> std::io::Result<Vec<u8>> {
 }
 
 fn tail(text: &str, keep: usize) -> String {
-    let t = text.trim_end();
+    // PostgreSQL text/jsonb reject NUL, common in UTF-16 and binary logs.
+    let clean = text.replace('\0', "");
+    let t = clean.trim_end();
     if t.len() <= keep {
         return t.to_string();
     }
@@ -1094,6 +1120,8 @@ async fn below(engine: &Engine, owner: i64, node: i64) -> Result<bool> {
 /// (a one-shot dog is spent by its fire; a dog changed underneath is left be).
 #[logged]
 async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) -> Result<bool> {
+    let clean:Vec<String>=events.iter().map(|s|s.replace('\0',"" )).collect();
+    let events=clean.as_slice();
     let now = Utc::now();
     let ring: Vec<Value> = events.iter().take(20).map(|e| json!({ "at": iso(now), "gist": gist(e, 200) })).collect();
     let client = engine.db.get().await?;
@@ -1128,6 +1156,8 @@ async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) 
 /// The fire of a stream dog that has just moved to `exited`.
 #[logged]
 async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Result<()> {
+    let clean:Vec<String>=events.iter().map(|s|s.replace('\0',"" )).collect();
+    let events=clean.as_slice();
     let client = engine.db.get().await?;
     let fired: i32 = client
         .query_one("UPDATE ot.watchdogs SET fired = fired + 1, last_fired = now() WHERE uid = $1 RETURNING fired", &[&dog.uid])
