@@ -28,9 +28,7 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value, op: &str) 
     match op {
         "hire" => {
             if arg_str(args, "hire_type") == Some("superior") {
-                let Some(t) = arg_str(args, "target") else {
-                    crate::refuse!(BadRequest, "hire_type superior needs the target seat to insert above");
-                };
+                let t = arg_str(args, "target").or_else(|| arg_str(args, "parent")).unwrap_or(&me.name);
                 req["above"] = json!(t);
             } else if let Some(t) = arg_str(args, "target").or_else(|| arg_str(args, "parent")) {
                 req["parent"] = json!(t);

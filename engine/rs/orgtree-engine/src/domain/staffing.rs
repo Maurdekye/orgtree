@@ -361,7 +361,7 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
             refuse!(BadRequest, "a hire needs a charter: the agent's role and standing instructions, written in full");
         }
         if s("hire_type") == Some("superior") {
-            let Some(t) = s("target") else { refuse!(BadRequest, "hire_type superior needs the target seat to insert above") };
+            let t = s("target").unwrap_or(my_name);
             req["above"] = json!(t);
         } else {
             req["parent"] = json!(s("target").unwrap_or(my_name));

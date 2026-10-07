@@ -414,7 +414,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "dissolve" => dissolve(org, &tx, actor, req, fx).await?,
         "delete" => delete(org, &tx, actor, req, fx).await?,
         "move" | "promote" | "demote" => move_node(engine, org, &tx, actor, req, fx).await?,
-        "rename" => rename(org, &tx, actor, req, fx).await?,
+        "rename" => rename(org, &tx, actor, req, fx, false).await?,
         "reallocate" => reallocate(engine, org, &tx, actor, req, fx).await?,
         "switch_model" => switch_model(engine, org, &tx, actor, req, fx).await?,
         "reorder" => reorder(org, &tx, actor, req, fx).await?,
@@ -422,7 +422,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
         "cheap_compact" => cheap_compact(engine, org, &tx, actor, req, fx).await?,
         "swap" => swap(engine, org, &tx, actor, req, fx).await?,
         "self_subjugate" => self_subjugate(engine, org, &tx, actor, req, fx).await?,
-        "retool" => retool(engine, org, &tx, actor, req, fx).await?,
+        "retool" => retool(engine, org, &tx, actor, req, fx, false).await?,
         "moves" => moves(engine, org, &tx, actor, req, fx).await?,
         other => refuse!(BadRequest, "unknown op {other}"),
     };
@@ -535,6 +535,24 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
 
 // ------------------------------------------------------------ hire
 
+/// Scope authority is captured under the operation transaction, never a runtime view.
+#[logged]
+async fn capability(tx: &Transaction<'_>, id: i64, settings: &Value) -> Result<Value> {
+    let mut sc = scope::org_ceiling(&settings["dirs"]);
+    for n in chain(tx, id).await? { sc = scope::clamp(&n.scope, &sc); }
+    Ok(sc)
+}
+
+#[logged]
+async fn insertion_authority(tx: &Transaction<'_>, actor: &Actor, target: &Node) -> Result<()> {
+    if target.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
+    if let Actor::Agent { id, .. } = actor {
+        if target.parent.is_none() { refuse!(Forbidden, "only the user can insert above a top-level agent"); }
+        if !within(tx, *id, target.id).await? { refuse!(Forbidden, "insert a superior only above yourself or your reports"); }
+    }
+    Ok(())
+}
+
 /// The configured scope of a new hire: what the op says over the org defaults.
 #[logged]
 fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
@@ -594,7 +612,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             refuse!(Conflict, "{} is not live", p.name);
         }
         if let Actor::Agent { id, name } = actor {
-            if p.id != *id && !within(tx, *id, p.id).await? {
+            if anchor.is_none() && p.id != *id && !within(tx, *id, p.id).await? {
                 refuse!(Forbidden, "{name} can only hire under itself or its reports");
             }
         }
@@ -616,31 +634,28 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     };
     let sc = if let Some(a) = &anchor {
         if a.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
-        authorize(tx, actor, a, "insert a superior above").await?;
+        insertion_authority(tx, actor, a).await?;
         for field in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
             if !req[field].is_null() { refuse!(BadRequest, "superior insertion inherits target scope; omit {field}"); }
         }
-        a.scope.clone()
+        let target_scope = capability(tx, a.id, &caps.settings).await?;
+        let mut inherited = hire_scope(&caps, req);
+        for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] { inherited[k] = target_scope[k].clone(); }
+        inherited
     } else { hire_scope(&caps, req) };
-    let account = match crate::accounts::choice(str_arg(req, "account")) {
-        crate::accounts::Choice::Account(a) => Some(a),
-        crate::accounts::Choice::Primary => None,
-        crate::accounts::Choice::Unset => caps.settings["default_account"]
-            .as_str()
-            .filter(|s| !s.is_empty() && crate::accounts::choice(Some(s)) != crate::accounts::Choice::Primary)
-            .map(str::to_string)
-            .or_else(|| parent.as_ref().and_then(|p| p.account.clone())),
+    // An omitted choice uses only a valid compatible org default, never the
+    // parent's bound account. Explicit empty/primary means provider primary.
+    let explicit = req.get("account").and_then(Value::as_str);
+    let selected = if let Some(raw) = explicit {
+        validate_account(engine, &tier, Some(raw))?;
+        Some(raw)
+    } else {
+        caps.settings["default_account"].as_str().filter(|raw| validate_account(engine, &tier, Some(raw)).is_ok())
     };
-    if let Some(acc) = &account {
-        let view = engine.accounts.view();
-        match view.get(acc) {
-            Some(a) if a.provider != provider && !(provider == catalog::OPENROUTER) => {
-                refuse!(BadRequest, "{acc} is a {} account and {tier} runs on {}", a.provider, provider)
-            }
-            None => refuse!(NotFound, "no account {acc}"),
-            _ => {}
-        }
-    }
+    let account = match crate::accounts::choice(selected) {
+        crate::accounts::Choice::Account(a) => Some(a),
+        _ => None,
+    };
     let parent_id = parent.as_ref().map(|p| p.id);
     let order: f64 = tx
         .query_one(
@@ -710,9 +725,9 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     authorize(tx, actor, &n, "rehire").await?;
     let caps = caps(engine, tx, org.id).await?;
     let anchor = if str_arg(req, "hire_type") == Some("superior") {
-        let target = str_arg(req, "target").ok_or_else(|| anyhow::anyhow!("superior rehire needs target"))?;
+        let target = str_arg(req, "target").or_else(|| str_arg(req, "parent")).unwrap_or_else(|| match actor { Actor::Agent { name, .. } => name, Actor::User => "@user" });
         let a = node_by_name(tx, org.id, target).await?;
-        authorize(tx, actor, &a, "insert a superior above").await?;
+        insertion_authority(tx, actor, &a).await?;
         if a.state != "live" || a.id == n.id || within(tx, n.id, a.id).await? {
             refuse!(Conflict, "superior insertion needs a live target outside the archived subtree");
         }
@@ -745,7 +760,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     if let Actor::Agent { id, name } = actor {
         match &parent {
-            Some(p) if p.id == *id || within(tx, *id, p.id).await? => {}
+            Some(p) if anchor.is_some() || p.id == *id || within(tx, *id, p.id).await? => {}
             _ => refuse!(Forbidden, "{name} can only rehire under itself or its reports"),
         }
     }
@@ -776,6 +791,14 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         )
         .await?
         .get(0);
+    let inherited_scope = match &anchor {
+        Some(a) => {
+            let mut inherited = scope::normalize(&n.scope);
+            let target_scope = capability(tx, a.id, &caps.settings).await?;
+            for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] { inherited[k] = target_scope[k].clone(); }
+            Some(inherited)
+        }, None => None,
+    };
     tx.execute(
         "UPDATE ot.agents SET state = 'live', archived_at = NULL, parent_id = $2, sibling_order = $3, tier = $4,
                 seat = $5::float8::numeric, grant_credits = $6::float8::numeric, halt = NULL, row_version = row_version + 1
@@ -785,7 +808,7 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     .await?;
     if let Some(a) = &anchor {
         tx.execute("UPDATE ot.agents SET scope = $2, provider = $3, sibling_order = (SELECT sibling_order FROM ot.agents WHERE id = $4) WHERE id = $1",
-            &[&n.id, &a.scope, &catalog::provider_of(&tier), &a.id]).await?;
+            &[&n.id, inherited_scope.as_ref().unwrap(), &catalog::provider_of(&tier), &a.id]).await?;
         tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1", &[&a.id, &n.id]).await?;
         fx.agents.insert(a.id);
         fx.reconfigure.push(a.id);
@@ -801,9 +824,12 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": selected }), fx).await?;
         scope_req.as_object_mut().unwrap().remove("account");
     }
-    retool(engine, org, tx, actor, &scope_req, fx).await?;
+    // Placement was authorized before mutation. Self-superior insertion has
+    // now moved this caller beneath the restored seat; do not reauthorize
+    // that already-approved composite against its changed topology.
+    retool(engine, org, tx, actor, &scope_req, fx, anchor.is_some()).await?;
     let name = if let Some(new) = str_arg(req, "name") {
-        rename(org, tx, actor, &json!({ "node": n.name, "name": new }), fx).await?;
+        rename(org, tx, actor, &json!({ "node": n.name, "name": new }), fx, anchor.is_some()).await?;
         new.to_string()
     } else { n.name.clone() };
     stamp_harness(engine, tx, n.id, &tier, false).await?;
@@ -841,6 +867,10 @@ async fn moot_asks(tx: &Transaction<'_>, ids: &[i64], fx: &mut Effects) -> Resul
 #[logged]
 async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, rescind: bool) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !rescind && n.state == "archived" {
+        if !matches!(actor, Actor::Agent { id, .. } if *id == n.id) { authorize(tx, actor, &n, "retire").await?; }
+        return Ok(json!({"freed":0,"warnings":[format!("{} was already archived — nothing to do",n.name)]}));
+    }
     if n.state != "live" {
         refuse!(Conflict, "{} is not live", n.name);
     }
@@ -1034,9 +1064,9 @@ async fn move_node(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<
 }
 
 #[logged]
-async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+async fn rename(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
-    authorize(tx, actor, &n, "rename").await?;
+    if !preauthorized { authorize(tx, actor, &n, "rename").await?; }
     let new = valid_name(str_arg(req, "name").unwrap_or(""))?;
     if new == n.name {
         return Ok(json!({ "node": new, "unchanged": true }));
@@ -1471,18 +1501,19 @@ async fn moves(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
         refuse!(BadRequest, "moves is a list of {{node, new_parent}}");
     }
     let mut done = Vec::new();
-    for m in list.iter().take(64) {
+    if list.len() > 20 { refuse!(BadRequest, "at most 20 moves per batch (got {})", list.len()); }
+    for m in list {
         let one = json!({ "op": "move", "node": m["node"], "new_parent": m["new_parent"] });
         done.push(move_node(engine, org, tx, actor, &one, fx).await?);
     }
-    Ok(json!({ "moves": done }))
+    Ok(json!({ "moved": done.len(), "moves": done }))
 }
 
 /// Re-scope a node below the caller (folders, tools, visibility, permission
 /// mode, effort, charter, team charter, account); on itself only the team
-/// charter. What exceeds the caller's own scope is clamped where it is read.
+/// charter. Grants are checked against the caller and raised through intermediates.
 #[logged]
-async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects, preauthorized: bool) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     let own = matches!(actor, Actor::Agent { id, .. } if *id == n.id);
     if own {
@@ -1490,7 +1521,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         if fields.iter().any(|k| !["op", "node", "team_charter"].contains(k)) {
             refuse!(Forbidden, "on yourself only team_charter can change; ask your superior for the rest");
         }
-    } else {
+    } else if !preauthorized {
         authorize(tx, actor, &n, "retool").await?;
     }
     let mut sc = scope::normalize(&n.scope);
@@ -1529,6 +1560,46 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     } else if let Some(b) = req.get("account_fallback").and_then(Value::as_bool) {
         o.insert("account_fallback".into(), json!(b));
     }
+    let mut granted = json!({});
+    for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] {
+        if req.get(k).is_some_and(|v| !v.is_null()) { granted[k] = sc[k].clone(); }
+    }
+    let settings = caps(engine, tx, org.id).await?.settings;
+    if let Actor::Agent { id, .. } = actor {
+        scope::require_grant(&granted, &capability(tx, *id, &settings).await?)?;
+    }
+    let mut cascaded = Vec::new();
+    if granted.as_object().is_some_and(|o| !o.is_empty()) {
+        let ancestors = chain(tx, n.id).await?;
+        let mut below_actor = matches!(actor, Actor::User);
+        for a in ancestors.iter().filter(|a| a.id != n.id) {
+            if matches!(actor, Actor::Agent { id, .. } if *id == a.id) { below_actor = true; continue; }
+            if !below_actor { continue; }
+            let raised = scope::raise(&a.scope, &granted);
+            if raised != scope::normalize(&a.scope) {
+                tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&raised]).await?;
+                cascaded.push(a.name.clone());
+                fx.agents.insert(a.id);
+                fx.reconfigure.push(a.id);
+                let descendants = subtree(tx, a.id).await?;
+                fx.agents.extend(descendants.iter().copied());
+                fx.reconfigure.extend(descendants);
+                event(tx,org.id,"retool",actor,Some(a.id),json!({"node":a.name,"change":granted,"cascade_for":n.name}),fx).await?;
+            }
+        }
+        // A user grant reaching the top level enters the org's defaults too.
+        if matches!(actor, Actor::User) {
+            let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE", &[&org.id]).await?.get(0);
+            let base = json!({"add_dirs":settings["dirs"],"tools":settings["default_tools"],"org_visibility":settings["default_visibility"],"permission_mode":settings["permission_mode"]});
+            let raised = scope::raise(&base,&granted);
+            let mut next = stored;
+            for (key, field) in [("add_dirs","dirs"),("tools","default_tools"),("org_visibility","default_visibility"),("permission_mode","permission_mode")] {
+                if granted.get(key).is_some() { next[field] = raised[key].clone(); }
+            }
+            tx.execute("UPDATE ot.orgs SET settings=$2 WHERE id=$1", &[&org.id,&next]).await?;
+            fx.pulses.push(crate::changes::Change::Org);
+        }
+    }
     let charter = str_arg(req, "charter").map(str::to_string);
     let team = str_arg(req, "team_charter").map(str::to_string);
     let account_result = if str_arg(req, "account").is_some() {
@@ -1543,11 +1614,27 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req }), fx).await?;
     fx.agents.insert(n.id);
     let below = subtree(tx, n.id).await?;
+    if granted.as_object().is_some_and(|o| !o.is_empty()) {
+        let settings = caps(engine, tx, org.id).await?.settings;
+        let mut effective = std::collections::HashMap::new();
+        effective.insert(n.id, capability(tx,n.id,&settings).await?);
+        for id in &below {
+            let child = node_by_id(tx,*id).await?;
+            let Some(parent) = child.parent.and_then(|id| effective.get(&id)) else { refuse!(Conflict,"scope subtree changed during retool"); };
+            let bounded = scope::clamp(&child.scope,parent);
+            if bounded != scope::normalize(&child.scope) {
+                tx.execute("UPDATE ot.agents SET scope=$2,row_version=row_version+1 WHERE id=$1", &[id,&bounded]).await?;
+            }
+            effective.insert(*id,bounded);
+        }
+    }
     fx.agents.extend(below.iter().copied());
     fx.reconfigure.push(n.id);
     fx.reconfigure.extend(below);
     fx.events = true;
     let mut out = account_result.unwrap_or_else(|| json!({}));
+    out["cascaded"] = json!(cascaded);
+    if !cascaded.is_empty() { out["warnings"] = json!([format!("cascaded permission increase to agents {}", cascaded.join(", "))]); }
     out["node"] = json!(n.name);
     Ok(out)
 }
