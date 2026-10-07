@@ -636,11 +636,18 @@ struct DecisionEffects {
     scope: Option<crate::http::nodes::ScopeEffects>,
 }
 
+struct CommittedDecision {
+    agent: String,
+    agent_id: i64,
+    live: bool,
+    halted: bool,
+    fx: DecisionEffects,
+}
+
 /// Commit the decision, grants and durable answer mail together. All actor
 /// messages and feed notifications follow the commit.
 #[logged]
 async fn settle(
-    engine: &Arc<Engine>,
     org: &Arc<OrgHandle>,
     tx: deadpool_postgres::Transaction<'_>,
     open: &Open,
@@ -649,7 +656,7 @@ async fn settle(
     text: String,
     ev: Option<Value>,
     fx: DecisionEffects,
-) -> Result<String> {
+) -> Result<CommittedDecision> {
     let target = tx.query_one(
         "SELECT state, halt IS NOT NULL FROM ot.agents WHERE id = $1 FOR UPDATE",
         &[&open.agent_id],
@@ -676,22 +683,32 @@ async fn settle(
         &[&org.id, &open.agent_id, &json!({ "id": open.uid, "status": status })],
     ).await?;
     tx.commit().await?;
+    Ok(CommittedDecision {
+        agent: open.agent.clone(), agent_id: open.agent_id,
+        live: state == "live", halted, fx,
+    })
+}
+
+/// The caller has returned its connection to the pool before publishing.
+#[logged]
+async fn publish_decision(engine: &Arc<Engine>, org: &Arc<OrgHandle>, decision: CommittedDecision) -> String {
+    let CommittedDecision { agent, agent_id, live, halted, fx } = decision;
     ops::apply_effects(engine, org, fx.credits).await;
     if let Some(scope) = fx.scope {
         crate::http::nodes::apply_scope_effects(engine, org, scope).await;
     }
     changes::notify(engine, org, vec![
-        Change::Asks, Change::Agent(open.agent_id), Change::UserMail,
-        Change::Mailbox(open.agent_id), Change::Events, Change::History(open.agent_id),
-        Change::Spark { from: "@user".into(), to: open.agent.clone() },
+        Change::Asks, Change::Agent(agent_id), Change::UserMail,
+        Change::Mailbox(agent_id), Change::Events, Change::History(agent_id),
+        Change::Spark { from: "@user".into(), to: agent.clone() },
     ]);
-    if state == "live" && !halted {
-        crate::runtime::wake(engine, org.id, open.agent_id);
+    if live && !halted {
+        crate::runtime::wake(engine, org.id, agent_id);
     }
-    if let Some(h) = engine.agents.get(open.agent_id) {
+    if let Some(h) = engine.agents.get(agent_id) {
         h.send(crate::runtime::AgentMsg::Wake);
     }
-    Ok(open.agent.clone())
+    agent
 }
 
 /// `POST /asks/{aid}/answer`: a question card (`selected` is one entry per tab).
@@ -721,7 +738,9 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
             .collect();
         let single = qs.len() <= 1;
         let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, None, true, single);
-        let node = settle(engine, org, tx, &open, "dismissed", json!({ "dismissed": true }), text, Some(ev), DecisionEffects::default()).await?;
+        let decision = settle(org, tx, &open, "dismissed", json!({ "dismissed": true }), text, Some(ev), DecisionEffects::default()).await?;
+        drop(client);
+        let node = publish_decision(engine, org, decision).await;
         return Ok(json!({ "answered": open.uid, "node": node }));
     }
     let selected = body["selected"].as_array().cloned().unwrap_or_default();
@@ -751,7 +770,9 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
     let single = qs.len() <= 1;
     let note = Some(free.as_str()).filter(|f| !f.is_empty());
     let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, note, false, single);
-    let node = settle(engine, org, tx, &open, "answered", json!({ "selected": selected, "text": free }), text, Some(ev), DecisionEffects::default()).await?;
+    let decision = settle(org, tx, &open, "answered", json!({ "selected": selected, "text": free }), text, Some(ev), DecisionEffects::default()).await?;
+    drop(client);
+    let node = publish_decision(engine, org, decision).await;
     Ok(json!({ "answered": open.uid, "node": node }))
 }
 
@@ -817,10 +838,14 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
         let mut fx = DecisionEffects::default();
         grant_credits(engine, org, &tx, &open.agent, granted, &mut fx.credits).await?;
         let msg = format!("The user granted credits: your grant is now {granted} (you asked for {asked}).");
-        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, Some(granted))), fx).await?;
+        let decision = settle(org, tx, &open, "granted", json!({ "granted": granted }), msg, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, Some(granted))), fx).await?;
+        drop(client);
+        let node = publish_decision(engine, org, decision).await;
         return Ok(json!({ "ok": true, "node": node, "warnings": warnings }));
     }
-    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, None)), DecisionEffects::default()).await?;
+    let decision = settle(org, tx, &open, status, json!({ "denied": true }), text, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, None)), DecisionEffects::default()).await?;
+    drop(client);
+    let node = publish_decision(engine, org, decision).await;
     Ok(json!({ "ok": true, "node": node, "warnings": warnings }))
 }
 
@@ -939,7 +964,9 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     }
     let text = format!("The user resolved your request:\n\n{}", sections.join("\n\n"));
     let ev = crate::events::answer_batch(&org.slug, &open.uid, &open.agent, cards);
-    let node = settle(engine, org, tx, &open, "answered", body.clone(), text, Some(ev), fx).await?;
+    let decision = settle(org, tx, &open, "answered", body.clone(), text, Some(ev), fx).await?;
+    drop(client);
+    let node = publish_decision(engine, org, decision).await;
     Ok(json!({ "resolved": open.uid, "node": node }))
 }
 
