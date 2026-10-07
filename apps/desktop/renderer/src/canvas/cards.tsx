@@ -8,7 +8,7 @@ import { toggleAgentHalt } from './haltcontrol'
 
 import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
 import { audienceAction, dissolveAll, getCharters, unstickNode } from '../api'
@@ -41,7 +41,7 @@ import { agentNavProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
-import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
+import { AgentBatchHaltConfirm, AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
@@ -128,6 +128,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   const menu = useContextMenu()
   const [askingRetireAll, setAskingRetireAll] = useState(false)
   const [askingCompactAll, setAskingCompactAll] = useState(false)
+  const [askingHaltAll, setAskingHaltAll] = useState<boolean | null>(null)
   // ⚠ THE MENU IS THE UNCONDITIONAL ROUTE. The two buttons above are a
   // convenience that most readers will never switch on, so every action they
   // offer has to be reachable without them — otherwise turning the setting
@@ -145,11 +146,16 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx).
     // Each target still runs the normal op and its checks.
     entries.push({
-      label: 'Cheap-compact all agents…',
+      label: 'Cheap-compact all agents…', warning: true,
       title: 'give every live agent a fresh session; old sessions stay '
         + 'consultable, mid-turn agents are skipped',
       onSelect: () => setAskingCompactAll(true),
     })
+    const targets = allAgents(map)
+    const unhalt = targets.length > 0 && targets.every((n) => n.halt?.phase === 'halted')
+    entries.push({ label: unhalt ? 'Unhalt all agents…' : 'Halt all agents…', danger: true,
+      disabled: !targets.length, title: `${unhalt ? 'Release' : 'Halt'} all ${targets.length} live agents`,
+      onSelect: () => setAskingHaltAll(unhalt) })
     entries.push('sep', {
       label: 'Retire all agents…', danger: true,
       title: 'retires every agent in the org at once; context is kept',
@@ -256,6 +262,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
       {focused && (
         <EyeDesk map={map} op={op} slug={slug} toast={toast}
+          onGeneralContextMenu={(e) => menu.open(e, menuEntries)}
           /* `onFocus` IS `centerOn(USER)` — the very glide an unfocused eye
              gets from the click below. Re-centring is that same action asked
              for again, so it is the same callback, not a second one that
@@ -268,6 +275,10 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
           pinnedIds={pinnedIds} onShowPin={onShowPin} />
       )}
       {menu.node}
+      {askingHaltAll !== null && createPortal(
+        <AgentBatchHaltConfirm targets={allAgents(map)} unhalt={askingHaltAll}
+          scope="all agents in this organization" op={op} toast={toast}
+          close={() => setAskingHaltAll(null)} />, document.body)}
       {/* The SAME confirmation and the SAME call the org-settings button
           makes — one action with two doors, not two implementations that
           could come to disagree about what "retire all" means. Portaled to
@@ -297,6 +308,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
 // manage crowding. A line that exists via an audience grant carries an ✕:
 // closing that tab RESCINDS the grant (top-level lines are permanent).
 interface EyeDeskProps {
+  onGeneralContextMenu?: (event: MouseEvent) => void
   map: Map<string, CanvasNode>
   op: OpFn
   slug: string
@@ -332,7 +344,7 @@ interface EyeDeskProps {
 export function EyeDesk({ map, op, slug, toast,
   eyeW, posX, onJump, compactAt, maxTop, pxc,
   onMailLink, onWorkLink, onOpenDoc, onNodeLineage, onNodeConfig, onRecenter,
-  pinnedIds, onShowPin }: EyeDeskProps) {
+  pinnedIds, onShowPin, onGeneralContextMenu }: EyeDeskProps) {
   const isPinned = (id: string) => !!pinnedIds?.has(id)
   const agents = [...map.values()].filter((n) =>
     n.id !== USER && n.id !== DRAFT && n.state === 'live' && !n.isBearerOf
@@ -446,7 +458,7 @@ export function EyeDesk({ map, op, slug, toast,
       <div className="desk-inner desk-body eye-inner" style={{ width: innerW }}>
         {/* one row (user spec 2026-07-31): the "you · N direct lines" label
             was dead space — the TABS live in the head now, beside the eye */}
-        <div className="eye-head">
+        <div className="eye-head" onContextMenu={onGeneralContextMenu}>
           <svg className="eye eye-mini" viewBox="0 0 48 26">
             <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
             <circle className="iris" cx="24" cy="13" r="6.5" />

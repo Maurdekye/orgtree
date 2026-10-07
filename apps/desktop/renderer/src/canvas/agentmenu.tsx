@@ -46,7 +46,7 @@ import type { CanvasNode, HireProviders, OpFn } from './shared'
  *  `cheap-compact-subtree` rides the same plumbing so that every surface that
  *  already hosts the retire confirm hosts the bulk compaction confirm too,
  *  without a second piece of state per surface (canvas/bulkcompact.tsx). */
-export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact' | 'cheap-compact-subtree'
+export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact' | 'cheap-compact-subtree' | 'cheap-compact-subordinates'
   | 'halt-subtree' | 'halt-subordinates' | 'unhalt-subtree' | 'unhalt-subordinates'
 
 export interface AgentMenuHandlers {
@@ -125,7 +125,6 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // dissolved or hired under
   const canRetire = live && !node.isBearerOf && !node.bearer_state
   const canHire = canRetire && !s.piled
-  const liveKids = node.children.some((c) => c.state === 'live')
   const entries: MenuEntry[] = []
   // User 2026-09-30: swap Focus and Open desk. The copy entry still precedes
   // these, and every other entry keeps its existing position.
@@ -230,61 +229,86 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
-  // User 2026-10-07: one final group, in this exact order.
+  // Clickable single-agent roots; team scopes expand on hover / ArrowRight.
+  const subtree = subtreeAgents(node)
+  const descendants = subtree.filter((target) => target.id !== node.id)
+  const hasTeam = canRetire && descendants.length > 0
   const lifecycle: MenuEntry[] = []
   if (ask) lifecycle.push({
-    label: 'Cheap compact…',
-    warning: true,
-    disabled: !canRetire || !!node.busy || !node.session_id,
+    label: 'Cheap compact…', warning: true,
+    disabled: !canRetire,
+    actionDisabled: !!node.busy || !node.session_id,
     title: !canRetire ? 'Only live agents can be compacted'
       : node.busy ? 'Wait until this agent finishes its turn'
       : !node.session_id ? 'No conversation to compact yet'
       : 'Start a fresh session with a handoff from this conversation',
     onSelect: () => ask('cheap-compact'),
-  })
-  // Keep both compaction actions adjacent, before halt and retirement.
-  if (canRetire && ask && liveKids) lifecycle.push({
-    label: 'Cheap-compact subtree…', warning: true,
-    title: `give ${node.id} and every agent below it a fresh session; `
-      + 'old sessions stay consultable, mid-turn agents are skipped',
-    onSelect: () => ask('cheap-compact-subtree'),
+    children: hasTeam ? [
+      { label: 'subtree', warning: true,
+        title: `Cheap-compact ${node.id} and its live descendants; busy agents are skipped`,
+        onSelect: () => ask('cheap-compact-subtree') },
+      { label: 'all subordinates', warning: true,
+        title: `Cheap-compact live descendants only; ${node.id} stays unchanged`,
+        onSelect: () => ask('cheap-compact-subordinates') },
+    ] : undefined,
   })
   if (canRetire && h.onHalt) lifecycle.push({
-    label: node.halt?.phase === 'halted' ? 'Unhalt' : 'Halt',
+    label: node.halt?.phase === 'halted' ? 'Unhalt…' : 'Halt…',
     title: node.halt?.phase === 'halted' ? 'Allow pending work to resume'
       : node.halt?.phase === 'halting' ? 'Finish halting the active turn'
       : 'End this turn and block wakes until explicitly unhalted',
     danger: node.halt?.phase !== 'halted',
     onSelect: h.onHalt,
-  })
-  if (canRetire && ask) {
-    const subtree = subtreeAgents(node)
-    const descendants = subtree.filter((target) => target.id !== node.id)
-    if (descendants.length) {
-      for (const [scope, targets, label] of [
-        ['subtree', subtree, 'subtree'],
-        ['subordinates', descendants, 'all subordinates'],
-      ] as const) {
-        const unhalt = targets.every((target) => target.halt?.phase === 'halted')
-        lifecycle.push({
-          label: `${unhalt ? 'Unhalt' : 'Halt'} ${label}…`,
-          danger: !unhalt,
-          title: `${unhalt ? 'Release' : 'Halt'} ${targets.length} live agents${scope === 'subtree' ? ` including ${node.id}` : ` below ${node.id}; this agent stays unchanged`}`,
-          onSelect: () => ask(`${unhalt ? 'unhalt' : 'halt'}-${scope}`),
-        })
+    children: hasTeam && ask ? ([
+      ['subtree', subtree, 'subtree'],
+      ['subordinates', descendants, 'all subordinates'],
+    ] as const).map(([scope, targets, label]) => {
+      const unhalt = targets.every((target) => target.halt?.phase === 'halted')
+      return {
+        label, danger: !unhalt,
+        title: `${unhalt ? 'Unhalt' : 'Halt'} ${targets.length} live agents${scope === 'subtree' ? ` including ${node.id}` : ` below ${node.id}; this agent stays unchanged`}`,
+        onSelect: () => ask(`${unhalt ? 'unhalt' : 'halt'}-${scope}`),
       }
-    }
-  }
-  if (canRetire && ask && liveKids) lifecycle.push({
-    label: 'Retire all subordinates…', danger: true,
-    title: 'retires every live direct report; nested subtrees are included',
-    onSelect: () => ask('retire-all'),
+    }) : undefined,
   })
-  if (canRetire && ask) lifecycle.push(liveKids
-    ? { label: 'Dissolve suborganization…', danger: true, onSelect: () => ask('dissolve') }
-    : { label: 'Retire…', danger: true, onSelect: () => ask('retire') })
+  // The engine's retire operation includes a manager's team. Keep that scope
+  // explicit rather than promising an unavailable manager-only retirement.
+  if (canRetire && ask) lifecycle.push({
+    label: hasTeam ? 'Dissolve…' : 'Retire…', danger: true,
+    onSelect: () => ask(hasTeam ? 'dissolve' : 'retire'),
+    children: hasTeam ? [
+      { label: 'subtree', danger: true, onSelect: () => ask('dissolve'),
+        title: `Retire ${node.id} and its ${descendants.length} live descendants` },
+      { label: 'all subordinates', danger: true, onSelect: () => ask('retire-all'),
+        title: `Retire all live descendants; ${node.id} stays live` },
+    ] : undefined,
+  })
   if (lifecycle.length) entries.push('sep', ...lifecycle)
   return entries
+}
+
+/** Shared count confirmation and batch outcome report for team and org controls. */
+export function AgentBatchHaltConfirm({ targets, unhalt, scope, detail = '', op, toast, close }: {
+  targets: CanvasNode[]; unhalt: boolean; scope: string; detail?: string
+  op: OpFn; toast: ToastFn; close: () => void
+}) {
+  const verb = unhalt ? 'unhalt' : 'halt'
+  return <ConfirmModal title={`${verb} ${scope}?`}
+    body={`${unhalt ? 'Release' : 'Halt'} ${targets.length} live agent${targets.length === 1 ? '' : 's'}. `
+      + detail
+      + (unhalt ? 'Pending work may resume.' : 'Active turns stop and new wakes wait until explicitly unhalted.')}
+    confirmLabel={`${verb} ${targets.length} agent${targets.length === 1 ? '' : 's'}`}
+    onConfirm={async () => {
+      if (!targets.length) { toast(['No live agents remain in this set.']); return }
+      try {
+        const result = await op({ op: verb, nodes: targets.map((target) => target.id) }, { quiet: true })
+        const outcomes = result.nodes as Record<string, { error?: string }> | undefined
+        const failed = outcomes ? Object.entries(outcomes).filter(([, value]) => value.error) : []
+        const count = targets.length - failed.length
+        toast([`${unhalt ? 'Released' : 'Halted'} ${count} agent${count === 1 ? '' : 's'}.`,
+          ...failed.map(([name, value]) => `Could not ${verb} ${name}: ${value.error}`)])
+      } catch (e) { toast([`Could not ${verb} ${scope}: ${(e as Error).message}`]) }
+    }} close={close} />
 }
 
 /**
@@ -309,24 +333,10 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
     const unhalt = kind.startsWith('unhalt-')
     const descendantsOnly = kind.endsWith('-subordinates')
     const targets = subtreeAgents(node).filter((target) => !descendantsOnly || target.id !== node.id)
-    const verb = unhalt ? 'unhalt' : 'halt'
     const scope = descendantsOnly ? `all subordinates of ${node.id}` : `${node.id} and its subtree`
-    return <ConfirmModal title={`${verb} ${scope}?`}
-      body={`${unhalt ? 'Release' : 'Halt'} ${targets.length} live agent${targets.length === 1 ? '' : 's'}. `
-        + (descendantsOnly ? `${node.id} stays unchanged. ` : `${node.id} is included. `)
-        + (unhalt ? 'Pending work may resume.' : 'Active turns stop and new wakes wait until explicitly unhalted.')}
-      confirmLabel={`${verb} ${targets.length} agent${targets.length === 1 ? '' : 's'}`}
-      onConfirm={async () => {
-        if (!targets.length) { toast(['No live agents remain in this set.']); return }
-        try {
-          const result = await op({ op: verb, nodes: targets.map((target) => target.id) }, { quiet: true })
-          const outcomes = result.nodes as Record<string, { error?: string }> | undefined
-          const failed = outcomes ? Object.entries(outcomes).filter(([, value]) => value.error) : []
-          const count = targets.length - failed.length
-          toast([`${unhalt ? 'Released' : 'Halted'} ${count} agent${count === 1 ? '' : 's'}.`,
-            ...failed.map(([name, value]) => `Could not ${verb} ${name}: ${value.error}`)])
-        } catch (e) { toast([`Could not ${verb} ${scope}: ${(e as Error).message}`]) }
-      }} close={close} />
+    return <AgentBatchHaltConfirm targets={targets} unhalt={unhalt} scope={scope}
+      detail={descendantsOnly ? `${node.id} stays unchanged. ` : `${node.id} is included. `}
+      op={op} toast={toast} close={close} />
   }
   if (kind === 'cheap-compact') {
     return <ConfirmModal title={`cheap compact ${node.id}?`}
@@ -337,25 +347,24 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
         .catch((e: Error) => toast([`error: ${e.message}`]))}
       close={close} />
   }
-  if (kind === 'cheap-compact-subtree') {
+  if (kind === 'cheap-compact-subtree' || kind === 'cheap-compact-subordinates') {
+    const descendantsOnly = kind === 'cheap-compact-subordinates'
+    const scope = descendantsOnly ? `all subordinates of ${node.id}` : `subtree of ${node.id}`
     return (
-      <BulkCompactConfirm title={`cheap-compact ${node.id} and its subtree?`}
-        scope={`subtree of ${node.id}`} targets={subtreeAgents(node)}
+      <BulkCompactConfirm title={`cheap-compact ${scope}?`}
+        scope={scope} targets={subtreeAgents(node).filter((target) => !descendantsOnly || target.id !== node.id)}
         op={op} toast={toast} close={close} />
     )
   }
   if (kind === 'retire-all') {
     const direct = node.children.filter((child) => child.state === 'live')
-    const nested = direct.reduce((count, child) => {
-      const descendants = (n: CanvasNode): number =>
-        n.children.reduce((total, c) => total + 1 + descendants(c), 0)
-      return count + descendants(child)
-    }, 0)
+    const total = subtreeAgents(node).filter((target) => target.id !== node.id).length
+    const nested = Math.max(0, total - direct.length)
     const warning = nested
       ? ` Nested descendants (${nested}) are included through each report's existing recursive retirement path.`
       : ''
     const body = direct.length
-      ? `This retires ${direct.length} live direct report${direct.length === 1 ? '' : 's'} of ${node.id}.${warning} ${node.id} stays live. Each report is processed through the normal retirement operation; if another change wins first, the result will show what was already retired or failed.`
+      ? `This retires ${total} live agent${total === 1 ? '' : 's'} through ${direct.length} direct report${direct.length === 1 ? '' : 's'} of ${node.id}.${warning} ${node.id} stays live. Each report is processed through the normal retirement operation; if another change wins first, the result will show what was already retired or failed.`
       : `No live direct reports of ${node.id} remain. Nothing will be retired, and ${node.id} stays live.`
     return (
       <ConfirmModal title={`retire all subordinates of ${node.id}?`}
@@ -368,7 +377,7 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
   if (kind === 'dissolve') {
     return (
       <ConfirmModal title={`dissolve ${node.id}?`}
-        body="Its entire suborganization is retired with it. Context is kept; rehire brings nodes back."
+        body={`This retires ${subtreeAgents(node).length} live agents, including ${node.id} and its entire suborganization. Context is kept; rehire brings nodes back.`}
         confirmLabel="dissolve"
         onConfirm={() => op({ op: 'dissolve', node: node.id })}
         close={close} />

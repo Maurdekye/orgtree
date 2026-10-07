@@ -184,10 +184,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   Destination availability keeps its existing gates.
   Switchboard tab names and desk headers reach this same builder through
   `agentnav`; they do not maintain a separate action list.
-  The final separated group is Cheap compact, Cheap-compact subtree, Halt/Unhalt,
-  Halt/Unhalt subtree, Halt/Unhalt all subordinates,
-  Retire all subordinates, Retire/Dissolve (team-only entries need live reports).
-  Both adjacent compaction actions use the theme's yellow caution tint.
+  The final separated group has clickable Cheap compact, Halt/Unhalt and
+  Retire/Dissolve roots; live teams get subtree/all-subordinates submenus.
+  All compaction entries use the yellow caution tint. Busy/sessionless heads
+  cannot compact themselves but retain access to eligible descendants.
+  Manager retirement includes its team in the engine, so its root says Dissolve.
+  The switchboard header exposes the eye's general menu, including yellow
+  Cheap-compact all agents and count-confirmed batch Halt/Unhalt all agents.
+  This batch does not apply the broader STOP ALL organization/watchdog latch.
   Team halt actions confirm live target counts and use HTTP ops `nodes`, with
   all targets validated before the shared F05 parallel executor. Each set
   offers Unhalt only when all its live targets are halted; mixed sets offer Halt.
