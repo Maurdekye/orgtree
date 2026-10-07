@@ -32,10 +32,11 @@ impl ConvoWriter {
         self.ver += 1;
         let seq = self.seq;
         stamp(&mut body, seq);
+        let inputs = take_tool_inputs(&mut body, seq);
         client
             .execute(
-                "INSERT INTO ot.convo (agent_id, seq, ver, body) VALUES ($1, $2, $3, $4)",
-                &[&self.agent_id, &seq, &self.ver, &body],
+                "INSERT INTO ot.convo (agent_id, seq, ver, body, tool_inputs) VALUES ($1, $2, $3, $4, $5)",
+                &[&self.agent_id, &seq, &self.ver, &body, &inputs],
             )
             .await?;
         Ok(seq)
@@ -44,14 +45,33 @@ impl ConvoWriter {
     pub async fn update(&mut self, client: &Client, seq: i64, mut body: Value) -> Result<()> {
         self.ver += 1;
         stamp(&mut body, seq);
+        let inputs = take_tool_inputs(&mut body, seq);
         client
             .execute(
-                "UPDATE ot.convo SET body = $3, ver = $4 WHERE agent_id = $1 AND seq = $2",
-                &[&self.agent_id, &seq, &body, &self.ver],
+                "UPDATE ot.convo SET body = $3, ver = $4, tool_inputs = tool_inputs || $5 WHERE agent_id = $1 AND seq = $2",
+                &[&self.agent_id, &seq, &body, &self.ver, &inputs],
             )
             .await?;
         Ok(())
     }
+}
+
+/// Atomically retained with the row, but never included in `/chat` or feeds.
+#[logged]
+pub fn take_tool_inputs(body: &mut Value, seq: i64) -> Value {
+    let mut inputs = serde_json::Map::new();
+    if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
+        for chip in tools {
+            let Some(id) = chip["id"].as_str().map(str::to_string) else { continue };
+            let Some(chip) = chip.as_object_mut() else { continue };
+            if let Some(input) = chip.remove("input") {
+                let source = chip.remove("input_source");
+                inputs.insert(id, json!({ "input": input, "codex": source }));
+                chip.insert("input_seq".into(), json!(seq));
+            }
+        }
+    }
+    Value::Object(inputs)
 }
 
 #[logged]

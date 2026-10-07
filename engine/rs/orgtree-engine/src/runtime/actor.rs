@@ -2583,9 +2583,9 @@ impl Actor {
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
-                        let input = if info["parameters"].is_object() { info["parameters"].clone() } else { json!({}) };
+                        let input = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
                         if let Some(tools) = row["tools"].as_array_mut() {
-                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) }));
+                            tools.push(json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input }));
                         }
                         t.tools.insert(id.clone(), key.clone());
                         (*seq, row.clone())
@@ -2614,6 +2614,9 @@ impl Actor {
                         let (clipped, truncated) = convo::clip(&result, 4000);
                         if let Some(chips) = row["tools"].as_array_mut() {
                             for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
+                                if let Some(input) = info.get("parameters") {
+                                    chip["input"] = input.clone();
+                                }
                                 chip["result"] = json!(clipped);
                                 chip["result_lines"] = json!(result.lines().count());
                                 if truncated {
@@ -2727,6 +2730,10 @@ impl Actor {
             }
             _ => {
                 let Some((name, input)) = codex_tool(item) else { return Ok(()) };
+                let input_source = self.proc.as_ref().and_then(|p| match p {
+                    Proc::Codex(p) => Some(p.input_source(&id)),
+                    _ => None,
+                });
                 let client = self.engine.db.get().await?;
                 if !completed {
                     crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
@@ -2734,7 +2741,8 @@ impl Actor {
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         let Some((seq, row)) = t.rows.get_mut(&key) else { return Ok(()) };
-                        let chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) });
+                        let chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input),
+                            "input": input, "input_source": input_source });
                         if let Some(tools) = row["tools"].as_array_mut() {
                             tools.push(chip);
                         }
@@ -2756,6 +2764,8 @@ impl Actor {
                     let (clipped, truncated) = convo::clip(&text, 4000);
                     if let Some(chips) = row["tools"].as_array_mut() {
                         for chip in chips.iter_mut().filter(|c| c["id"].as_str() == Some(id.as_str())) {
+                            chip["input"] = input.clone();
+                            chip["input_source"] = json!(input_source);
                             chip["result"] = json!(clipped);
                             chip["result_lines"] = json!(text.lines().count());
                             if truncated {
@@ -3041,7 +3051,7 @@ impl Actor {
                         let name = block["name"].as_str().unwrap_or("tool").to_string();
                         crate::runtime::watchdogs::activity(&self.engine, self.id, &format!("tool_call {name}"));
                         let input = block["input"].clone();
-                        let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) });
+                        let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input });
                         if name == "TodoWrite" {
                             chip["todos"] = input["todos"].clone();
                         }
@@ -3967,18 +3977,22 @@ fn codex_images(mails: &[Mail]) -> Vec<Value> {
 
 /// A Codex tool item as (chip name, argument object).
 fn codex_tool(item: &Value) -> Option<(String, Value)> {
-    let args = |v: &Value| if v.is_object() { v.clone() } else { json!({ "arguments": v }) };
+    let args = |v: &Value| v.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok()).unwrap_or_else(|| v.clone());
     let s = |k: &str| item[k].as_str().unwrap_or("").to_string();
     Some(match item["type"].as_str()? {
         "dynamicToolCall" => (item["tool"].as_str().unwrap_or("tool").to_string(), args(&item["arguments"])),
         "mcpToolCall" => (format!("mcp__{}__{}", item["server"].as_str().unwrap_or("mcp"), item["tool"].as_str().unwrap_or("tool")), args(&item["arguments"])),
-        "commandExecution" => ("exec_command".into(), json!({ "command": s("command") })),
+        "commandExecution" => {
+            let input: Map<String, Value> = ["command", "cwd", "description", "timeout", "timeout_ms", "yield_time_ms"]
+                .iter().filter_map(|k| item.get(*k).map(|v| ((*k).to_string(), v.clone()))).collect();
+            ("exec_command".into(), Value::Object(input))
+        },
         "fileChange" => {
             let paths: Vec<String> = item["changes"]
                 .as_array()
                 .map(|a| a.iter().filter_map(|c| c["path"].as_str().map(str::to_string)).collect())
                 .unwrap_or_default();
-            ("apply_patch".into(), json!({ "path": paths.join(", ") }))
+            ("apply_patch".into(), json!({ "path": paths.join(", "), "changes": item["changes"] }))
         }
         "webSearch" => ("web_search".into(), json!({ "query": s("query") })),
         "imageView" => ("view_image".into(), json!({ "path": s("path") })),

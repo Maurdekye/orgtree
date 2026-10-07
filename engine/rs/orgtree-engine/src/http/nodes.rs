@@ -810,6 +810,40 @@ pub struct ToolImgQuery {
     idx: i32,
 }
 
+/// Full tool input, fetched only when the user expands a transcript chip.
+#[logged]
+pub async fn toolinput(
+    State(e): State<Arc<Engine>>,
+    Path((slug, nid, seq, tool)): Path<(String, String, i64, String)>,
+) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    let client = e.db.get().await?;
+    let row = client.query_opt(
+        "SELECT tool_inputs -> $3::text, tool_native_inputs -> $3::text FROM ot.convo WHERE agent_id = $1 AND seq = $2",
+        &[&a.id, &seq, &tool],
+    ).await?;
+    let Some(row) = row else { return Err(ApiError::not_found("The full input was not retained for this tool call.")); };
+    if let Some(input) = row.get::<_, Option<Value>>(1) {
+        return Ok(Json(json!({ "input": input })));
+    }
+    let Some(kept) = row.get::<_, Option<Value>>(0) else {
+        return Err(ApiError::not_found("The full input was not retained for this tool call."));
+    };
+    drop(client);
+    if let Some(source) = kept.get("codex").filter(|s| s.is_object()).cloned() {
+        let original = tokio::task::spawn_blocking(move || crate::runtime::codex::original_tool_input(&source)).await.ok().flatten();
+        if let Some(input) = original {
+            let client = e.db.get().await?;
+            client.execute("UPDATE ot.convo SET tool_native_inputs = tool_native_inputs || jsonb_build_object($3::text, $4::jsonb) WHERE agent_id = $1 AND seq = $2",
+                &[&a.id, &seq, &tool, &input]).await?;
+            return Ok(Json(json!({ "input": input })));
+        }
+        return Ok(Json(json!({ "input": kept["input"], "note": "Showing the provider's tool details; its original argument record is not available." })));
+    }
+    Ok(Json(json!({ "input": kept["input"] })))
+}
+
 /// `GET …/nodes/{nid}/toolimg/{tool_id}?idx=N`: an image a tool returned.
 #[logged]
 pub async fn toolimg(

@@ -73,6 +73,8 @@ pub struct CodexProc {
     pub model: String,
     pub effort: Option<String>,
     cwd: String,
+    home: PathBuf,
+    rollout_path: Option<PathBuf>,
 }
 
 /// Preserve the selected level, as 3.x did; staffing filters by model/list.
@@ -161,6 +163,8 @@ impl CodexProc {
             model: spec.model.clone(),
             effort: spec.effort.clone(),
             cwd: spec.cwd.to_string_lossy().to_string(),
+            home: spec.codex_home.as_ref().map(PathBuf::from).unwrap_or_else(default_home),
+            rollout_path: None,
         };
         proc.request(
             "initialize",
@@ -183,7 +187,10 @@ impl CodexProc {
                 )
                 .await
             {
-                Ok(r) => thread = thread_id_of(&r),
+                Ok(r) => {
+                    thread = thread_id_of(&r);
+                    proc.rollout_path = r.pointer("/thread/path").and_then(Value::as_str).map(PathBuf::from);
+                }
                 Err(e) => tracing::warn!(thread = %tid, error = %format!("{e:#}"), "the Codex thread could not be resumed; starting a new one"),
             }
         }
@@ -198,12 +205,18 @@ impl CodexProc {
                         Duration::from_secs(120),
                     )
                     .await
-                    .context("thread/start")?;
+                .context("thread/start")?;
+                proc.rollout_path = r.pointer("/thread/path").and_then(Value::as_str).map(PathBuf::from);
                 thread_id_of(&r).ok_or_else(|| anyhow!("thread/start returned no thread id"))?
             }
         };
         proc.session_id = thread;
         Ok(proc)
+    }
+
+    /// Stored privately with a chip; lookup happens only when it is expanded.
+    pub fn input_source(&self, tool: &str) -> Value {
+        json!({ "home": self.home, "path": self.rollout_path, "thread": self.session_id, "call_id": tool })
     }
 
     #[nolog]
@@ -492,6 +505,33 @@ fn find_rollout(home: &std::path::Path, thread: &str) -> Option<(std::path::Path
                 let rel = path.strip_prefix(&root).map(|p| p.to_path_buf()).unwrap_or_default();
                 return Some((path, rel));
             }
+        }
+    }
+    None
+}
+
+/// Read only the matching tool arguments from the provider's own transcript.
+/// Never return other records (prompts, credentials or tool results).
+#[logged]
+pub fn original_tool_input(source: &Value) -> Option<Value> {
+    use std::io::BufRead;
+    let call_id = source["call_id"].as_str()?;
+    let path = source["path"].as_str().map(PathBuf::from).filter(|p| p.is_file())
+        .or_else(|| find_rollout(std::path::Path::new(source["home"].as_str()?), source["thread"].as_str()?).map(|p| p.0))?;
+    let file = std::fs::File::open(path).ok()?;
+    for line in std::io::BufReader::new(file).lines() {
+        let line = line.ok()?;
+        // Avoid parsing the many unrelated transcript records.
+        if !line.contains(call_id) { continue; }
+        let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
+        let item = &record["payload"];
+        if record["type"] != "response_item" || item["call_id"].as_str() != Some(call_id) { continue; }
+        match item["type"].as_str()? {
+            "function_call" => return Some(item["arguments"].as_str()
+                .and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| item["arguments"].clone())),
+            "custom_tool_call" => return item.get("input").cloned(),
+            "local_shell_call" => return item.get("action").cloned(),
+            _ => {},
         }
     }
     None

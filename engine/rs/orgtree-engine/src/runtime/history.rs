@@ -199,9 +199,10 @@ async fn insert(engine: &Engine, agent_id: i64, rows: Vec<Value>) -> Result<()> 
             o.entry("event_id".to_string()).or_insert(json!(format!("h{}", -seq)));
         }
         let at = row["ts"].as_str().and_then(crate::util::parse_ts).unwrap_or_else(Utc::now);
+        let inputs = convo::take_tool_inputs(&mut row, seq);
         tx.execute(
-            "INSERT INTO ot.convo (agent_id, seq, ver, at, body) VALUES ($1, $2, 0, $3, $4) ON CONFLICT DO NOTHING",
-            &[&agent_id, &seq, &at, &row],
+            "INSERT INTO ot.convo (agent_id, seq, ver, at, body, tool_inputs) VALUES ($1, $2, 0, $3, $4, $5) ON CONFLICT DO NOTHING",
+            &[&agent_id, &seq, &at, &row, &inputs],
         )
         .await?;
     }
@@ -326,7 +327,7 @@ fn rows_of(all: Vec<Value>, cutoff: Option<DateTime<Utc>>) -> (Vec<Value>, Vec<(
                             let id = block["id"].as_str().unwrap_or("").to_string();
                             let name = block["name"].as_str().unwrap_or("tool").to_string();
                             let input = block["input"].clone();
-                            let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input) });
+                            let mut chip = json!({ "id": id, "name": name, "arg": convo::tool_arg(&name, &input), "input": input });
                             if name == "TodoWrite" {
                                 chip["todos"] = input["todos"].clone();
                             }
