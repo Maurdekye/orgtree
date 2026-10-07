@@ -141,6 +141,13 @@ message. [verified from source: `domain/docs.rs`, `domain/orginbox.rs`, `domain/
 `tools/mailtools.rs`, `net.rs`; details and verification limits:
 [`docs/rust-engine/mail-artifact-parity.md`](docs/rust-engine/mail-artifact-parity.md)]
 
+**Docket policy parity (2026-10-07).** Keep the retained 3.x link/read rights,
+revision-checked progress patches, closed-only archive, deletion pointer cleanup,
+upward handoff and attention wording/history. Automatic participant notices use
+the actor's mail rights, report refusals and never grant reply audiences. The
+signed F2–F5 removals remain. [verified from source: `domain/docket.rs`, `domain/mail.rs`;
+details and Python references: `docs/rust-engine/docket-parity-batch5.md`]
+
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
 - **Tree/scope parity (2026-10-07):** remove host `CLAUDE_CODE_*` before selected-account
