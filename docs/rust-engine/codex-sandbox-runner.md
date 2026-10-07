@@ -1,5 +1,10 @@
 # Codex Windows runner investigation (2026-10-07)
 
+The failure reproduces in Codex without Orgtree running it and outside every
+Windows job: it belongs to the local Codex elevated sandbox path, not an
+Orgtree-only launch or job-containment failure. Whether the underlying defect
+is in Codex's implementation or its local Windows sandbox setup remains open.
+
 The reported failure is not specific to a newly hired agent. Both parity-astra
 and an existing feed-astra session fail ordinary shell commands with
 `timed out after 15000ms connecting runner pipe-in`. The shell has not started:
@@ -60,22 +65,59 @@ response within the probe's 30-second bound, on either version. The same
 unelevated probe times out in a separate hidden process for which
 `IsProcessInJob` returns false. All probe processes have ended.
 
-That control does not reproduce the production elevated runner's precise pipe
-error. It cannot rule out an interaction between elevated Codex and Rust's jobs,
-nor establish an upstream regression. The measured failing component is the
-Codex Windows sandbox startup path; attribution between Codex and Orgtree remains
-unresolved. No engine fix should be presented as verified yet.
+The unelevated control alone did not reproduce the precise production error.
+The subsequent elevated comparison below supplies that evidence instead.
 
-## Proposed next step
+## Completed elevated comparison
 
-Compare the same no-model **elevated** command under the existing sandbox setup
-inside the engine job tree and outside every job. This may refresh Codex sandbox
-metadata and Windows ACLs, so it needs explicit authorization beyond this task's
-read-only/live-data constraint. Do not change an agent's permission mode merely
-to run the comparison.
+The coordinator authorized a scratch copy only. The copy contained the profile
+configuration, sandbox capability SID, existing setup marker and sandbox-user
+credentials; provider sign-in credentials, conversations and databases were not
+needed or copied. Both cwd and the workspace writable root were the probe's own
+scratch directory. The existing CLI executables were read from their installed
+locations; `initialize` confirmed that Codex home was the scratch copy.
 
-Meanwhile the existing authorized per-command retry is the measured workaround
-for a write-enabled shell seat. A targeted agent instruction could explain that
-retry after this exact startup error, preserving the normal approval gate and
-the plan/edit-disabled restrictions. That would change the instruction prefix;
-it should be coordinated rather than added as an unannounced blanket bypass.
+| CLI | Parent process in a Windows job | Unrestricted echo | Elevated workspace-write echo |
+| --- | --- | --- | --- |
+| 0.160.0 | Yes, inherited Orgtree jobs | Exit 0, probe-ok | Exact 15-second runner pipe-in timeout |
+| 0.160.0 | No, measured with IsProcessInJob | Exit 0, probe-ok | Exact same timeout |
+| 0.159.2 | No, measured with IsProcessInJob | Exit 0, probe-ok | Exact same timeout |
+
+These were standalone app-server `command/exec` calls: no model request, thread
+or turn, and no Orgtree code in the outside-job process. Setup refresh completed
+with `errors=[]`; helper copies and generated metadata went into the copied
+home. No UAC prompt or live-profile fallback was used. Every probe finished,
+and the entire copied profile, including its secrets, was deleted afterwards.
+
+Measured conclusion: the specific timeout is independently reproducible in the
+local Codex elevated sandbox on two installed CLI versions. Rust's nested jobs
+are unnecessary to reproduce it. This does not establish a new 0.160.0
+regression, or distinguish a CLI implementation bug from broken local sandbox
+state. No Orgtree engine correction is justified as the root-cause fix by this
+evidence.
+
+## Proposed Orgtree recovery
+
+Keep the existing per-command approval route, rather than changing sandbox modes
+or automatically replaying commands. The measured workaround is a retry with
+`sandbox_permissions=require_escalated` for a seat with shell and write authority.
+
+Prefer a narrowly triggered engine hint over a permanent startup instruction:
+
+1. In `Actor::on_codex_item`, recognize a completed, failed commandExecution
+   whose source is unifiedExecStartup, processId is null, duration is zero and
+   output contains the exact runner pipe-in timeout. Do not match arbitrary
+   command stderr or agent prose.
+2. Once per turn, check current shell/write authority. For an eligible seat,
+   use the existing `CodexProc::steer` path to explain that startup failed and
+   suggest retrying the same command once through the normal escalation request.
+   For plan/edit-disabled/shell-disabled seats, explain the runner failure without
+   recommending an outside-sandbox retry. Existing approval decisions remain
+   authoritative.
+3. Record the diagnostic in the conversation. If steering loses a turn race,
+   retain the diagnostic without restarting the turn or replaying the command.
+   Bound the hint to prevent a retry loop.
+
+This would improve recovery while leaving the agent's permission mode and the
+Windows process leash intact. It appends a runtime message rather than changing
+the startup instruction prefix. It is a proposal, not an implemented engine fix.

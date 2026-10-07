@@ -172,7 +172,8 @@ folder grants or edit live settings. [decided: user, DECISIONS 46-47; verified:
 before shell startup while its authorized per-command escalated retry succeeds;
 the observed difference is not necessarily a new-agent launch bug. Preserve the
 shell-and-write approval gate; plan/edit-disabled seats cannot escape their
-sandbox this way. Attribution of the current elevated runner failure remains open.
+sandbox this way. The exact elevated timeout also reproduces outside every Windows
+job on Codex 0.160.0 and 0.159.2; the deeper CLI-versus-local-setup cause remains open.
 [verified from source: `runtime/codex.rs`, legacy `supervisor.py`; measured comparison:
 `docs/rust-engine/codex-sandbox-runner.md`]
 
