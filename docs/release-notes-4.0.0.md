@@ -13,7 +13,10 @@ Orgtree 4 replaces the Python engine with a new Rust engine, built for faster re
 
 ## Improved
 
-- Agent menus keep destinations and lifecycle actions together. Team and switchboard actions can halt or resume multiple agents together.
+- **Redesigned agent settings.** Name, actions and the credit bar sit above the tabs (the separate Agent tab is gone), the model icon is in the title, and every setting uses the same row style with shorter, plainer wording. Model pickers stay compact and say why a model is unavailable.
+- **Reorganized right-click menus.** Copy, Focus, Hire and a new Open submenu come first; below them, Cheap compact (yellow), Halt and Retire/Dissolve each act on the agent itself, with a submenu for its whole subtree or all subordinates. The switchboard uses the same menu and adds Halt all agents and Cheap-compact all agents.
+- **Settings checkboxes** across App and Org settings follow one consistent layout.
+- **Desk headers** show the four most recently presented documents.
 - Model and account switches retain the existing session where possible. A provider switch or fresh session gets a handoff summary, with the desk history saved in the agent's folder.
 - Settings use consistent controls and shorter descriptions. Cost chips show the amount, with explanations of partial totals available on hover.
 - The background engine, warmed agent processes, prompt-cache forecasts, external MCP connections and cross-organization mail remain available.
