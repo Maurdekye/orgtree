@@ -725,6 +725,7 @@ impl Actor {
                     .await?;
                 drop(client);
                 self.changed(vec![Change::Agent(self.id)]);
+                crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("agent.unhalted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
                 let _ = reply.send(json!({ "unhalted": true, "status": "idle" }));
                 self.on_wake().await?;
             }
@@ -798,6 +799,7 @@ impl Actor {
             }
             AgentMsg::CloseIdle => {
                 if self.turn.is_none() && self.proc.is_some() {
+                    crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("cli.evicted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
                     self.keep_until = None;
                     self.close_proc().await;
                     self.publish();
@@ -1388,7 +1390,7 @@ impl Actor {
 
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
         // Warn only: an S4U boot context must not silently look credential-ready.
-        self.engine.credentials.refresh();
+        self.engine.credentials.refresh(&self.engine);
         let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
         self.account_gate(ctx, route.as_ref())?;
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
@@ -3490,12 +3492,8 @@ impl Actor {
                 )
                 .await?;
         } else {
-            client
-                .execute(
-                    "UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering'",
-                    &[&turn.id],
-                )
-                .await?;
+            let rows=client.query("UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering' RETURNING uid", &[&turn.id]).await?;
+            for row in rows {crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("mail.delivered",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id,"mail_id":row.get::<_,String>(0)})));}
         }
         // Account captured at admission: a rebind during the turn cannot move
         // this turn's spend, refusal, or successful recovery to another account.
@@ -3585,6 +3583,11 @@ impl Actor {
             recovery::parked(&self.engine, self.org_id, self.id, kind, error.as_deref().unwrap_or("")).await;
         }
         self.apply_pending_config().await?;
+        if error.is_some() || limit.is_some() {
+            crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event(
+                if limit.is_some(){"turn.limited"}else{"turn.failed"},
+                crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
+        }
         self.last_error = error.clone();
         self.mcp.last_turn_count = self.mcp.count;
         self.slot = None;
@@ -3693,6 +3696,7 @@ impl Actor {
             Change::Mailbox(self.id),
             Change::Pulse { node: self.name.clone(), event: "turn_done", extra: None },
         ]);
+        crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("agent.halted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
         Ok(json!({ "halted": true, "settled": true, "status": "halted" }))
     }
 
@@ -3837,7 +3841,8 @@ impl Actor {
     #[nolog]
     fn publish(&self) {
         let v = self.runtime_value();
-        self.handle.view.store(Arc::new(v.clone()));
+        let old=self.handle.view.swap(Arc::new(v.clone()));
+        crate::runtime::watchdogs::events::runtime(&self.engine,self.org_id,self.id,&old,&v);
         self.org.feed.runtime(self.id, v);
     }
 
@@ -3854,7 +3859,8 @@ impl Actor {
         }
         v.insert("last_error".into(), json!(self.last_error));
         let v = Value::Object(v);
-        self.handle.view.store(Arc::new(v.clone()));
+        let old=self.handle.view.swap(Arc::new(v.clone()));
+        crate::runtime::watchdogs::events::runtime(&self.engine,self.org_id,self.id,&old,&v);
         self.org.feed.runtime(self.id, v);
     }
 

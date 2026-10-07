@@ -177,6 +177,7 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
         .await;
     }
     changes::notify(engine, org, ch);
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.requested",crate::runtime::watchdogs::events::Scope::Agent(org.id,my_id),json!({"agent_id":my_id})));
     Ok(json!({ "requested": target, "waiting_on": spoken(&holder), "status": "pending",
                "note": format!("{} decides; the answer arrives as mail.", spoken(&holder)) }))
 }
@@ -190,6 +191,7 @@ pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, gr
     tx.commit().await?;
     drop(client);
     changes::notify(engine, org, vec![Change::Audiences, Change::OrgInbox, Change::Events, Change::Agent(gid), Change::Mailbox(gid), Change::UserMail]);
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::Agent(org.id,gid),json!({"agent_id":gid})));
     if out["answered"] == true { crate::runtime::wake(engine, org.id, gid); }
     Ok(out)
 }
@@ -360,6 +362,7 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
     )
     .await;
     changes::notify(engine, org, vec![Change::Audiences, Change::Events, Change::UserMail]);
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.denied",crate::runtime::watchdogs::events::Scope::NamedAgent(org.id,requester.clone()),json!({"agent":requester})));
     Ok(json!({ "ok": true, "denied": requester, "target": sought }))
 }
 
@@ -436,6 +439,7 @@ pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, g
         ch.push(Change::Agent(g));
     }
     changes::notify(engine, org, ch);
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("audience.revoked",crate::runtime::watchdogs::events::Scope::NamedAgent(org.id,grantee.clone()),json!({"agent":grantee})));
     Ok(json!({ "ok": true, "revoked": grantee, "grantor": grantor }))
 }
 

@@ -798,6 +798,13 @@ fn level(who: &Who, it: &Item, ctx: &Ctx, under: &HashSet<i64>) -> Level {
     Level::None
 }
 
+/// Narrow event permission read; no item body, history or other private rows are projected.
+#[logged]
+pub(crate) async fn event_readable(client: &impl GenericClient, owner: i64, name: &str, org: i64, slug: &str) -> Result<bool> {
+    let r=client.query_one("WITH RECURSIVE down(id,name,depth) AS (SELECT id,name,0 FROM ot.agents WHERE id=$1 AND org_id=$3 UNION ALL SELECT a.id,a.name,d.depth+1 FROM ot.agents a JOIN down d ON a.parent_id=d.id WHERE a.org_id=$3 AND d.depth<1024) SELECT EXISTS(SELECT 1 FROM ot.work_items WHERE org_id=$3 AND slug=$4 AND NOT coalesce((extra->>'deleted')::boolean,false) AND (owner->>'node' IN (SELECT name FROM down) OR created_by->>'node' IN (SELECT name FROM down) OR $2=ANY(participants) OR reviewer->>'node'=$2))", &[&owner,&name,&org,&slug]).await?;
+    Ok(r.get(0))
+}
+
 /// Parent attachment needs read rights, and walks the full chain for cycles.
 #[logged]
 async fn checked_parent(client: &impl GenericClient, org: &OrgHandle, who: &Who, child: Option<&str>, reference: &str) -> Result<String> {
@@ -992,12 +999,13 @@ fn changed(engine: &Engine, org: &OrgHandle) {
 
 /// Notifications are stored with the mutation; only runtime wakes escape after commit.
 #[derive(Debug, Default)]
-pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)> }
+pub(crate) struct AfterCommit { recipients: Vec<(i64, bool)>, events: Vec<crate::runtime::watchdogs::events::Event> }
 
 #[logged]
 impl AfterCommit {
     pub(crate) fn publish(self, engine: &Arc<Engine>, org: &Arc<OrgHandle>) {
         changed(engine, org);
+        for e in self.events {crate::runtime::watchdogs::events::emit(engine,e);}
         for (id, wake) in self.recipients {
             changes::notify(engine, org, vec![Change::Mailbox(id)]);
             if wake { crate::runtime::wake(engine, org.id, id); }
@@ -1131,6 +1139,7 @@ pub(crate) async fn create_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         )
         .await?;
     let it = item_of(&row);
+    post.events.push(crate::runtime::watchdogs::events::event("docket.created",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug,"status":it.status})));
     history(tx, &it, who, "create", json!({ "title": title, "status": status, "owner": owner_name })).await?;
     let mut notified = Value::Null;
     if let Some(o) = &owner_name {
@@ -1514,12 +1523,14 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
         it.docket_at = Some(now);
     }
     if it.status != from_status {
+        post.events.push(crate::runtime::watchdogs::events::event("docket.status.changed",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug,"status":it.status})));
         it.status_at = Some(now);
     }
     if !matches!(who, Who::User) {
         it.last_updater = Some(who.actor());
     }
     save(tx, &it).await?;
+    if attention==Some(true) {post.events.push(crate::runtime::watchdogs::events::event("docket.attention",crate::runtime::watchdogs::events::Scope::Docket(org.id,it.slug.clone()),json!({"slug":it.slug})));}
     if let Some(detail) = amendment {
         history(tx, &it, who, "attention_amend", detail).await?;
     }

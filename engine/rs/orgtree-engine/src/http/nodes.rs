@@ -414,6 +414,7 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
 
 pub(crate) struct ScopeEffects {
     notice_ids: Vec<i64>,
+    fields: Vec<String>,
     agent_id: i64,
     subtree: Vec<i64>,
     effort_change: Option<String>,
@@ -529,6 +530,7 @@ pub(crate) async fn apply_user_scope_in_tx(
         .collect();
     Ok(ScopeEffects {
         agent_id: a.id, subtree, effort_change, notice_ids,
+        fields: b.as_object().map(|o|o.keys().filter(|k|["charter","team_charter","tools","add_dirs","effort","account","account_fallback","org_visibility","permission_mode","tier"].contains(&k.as_str())).cloned().collect()).unwrap_or_default(),
         structural: b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false),
         out: json!({ "ok": true, "cascaded": cascaded }),
     })
@@ -537,7 +539,8 @@ pub(crate) async fn apply_user_scope_in_tx(
 /// Publish only after the transaction owning the scope change commits.
 #[logged]
 pub(crate) async fn apply_scope_effects(e: &Arc<Engine>, org: &Arc<OrgHandle>, fx: ScopeEffects) -> Value {
-    let ScopeEffects { agent_id, subtree, effort_change, structural, mut out, notice_ids } = fx;
+    let ScopeEffects { agent_id, subtree, effort_change, structural, mut out, notice_ids, fields } = fx;
+    crate::runtime::watchdogs::events::emit(e,crate::runtime::watchdogs::events::event("agent.settings.changed",crate::runtime::watchdogs::events::Scope::Agent(org.id,agent_id),json!({"agent_id":agent_id,"fields":fields})));
     let mut ch: Vec<Change> = subtree.iter().map(|id| Change::Agent(*id)).collect();
     ch.extend(notice_ids.into_iter().map(Change::Mailbox));
     ch.push(Change::Events);

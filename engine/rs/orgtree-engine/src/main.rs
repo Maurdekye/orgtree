@@ -210,8 +210,8 @@ async fn run_with_cluster(
     net::start(&engine);
     runtime::recover(&engine).await;
     runtime::warm_all(&engine);
+    runtime::watchdogs::start(&engine).await;
     if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1") {
-        runtime::watchdogs::start(&engine).await;
         runtime::reminders::start(&engine);
     }
 
@@ -229,6 +229,7 @@ async fn run_with_cluster(
     tokio::spawn(runtime::convo::repair_old_args(engine.clone()));
     progress("engine-ready");
     launch::ready(port, &cfg.data_root_id);
+    runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));
     tracing::info!(port, "engine ready");
     axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(async move { shutdown.cancelled().await })

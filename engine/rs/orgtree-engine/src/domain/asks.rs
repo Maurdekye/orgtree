@@ -659,6 +659,7 @@ struct DecisionEffects {
 }
 
 struct CommittedDecision {
+    question: Option<String>,
     agent: String,
     agent_id: i64,
     live: bool,
@@ -706,6 +707,7 @@ async fn settle(
     ).await?;
     tx.commit().await?;
     Ok(CommittedDecision {
+        question: (status=="answered" && !open.parts.questions.is_empty()).then(||open.uid.clone()),
         agent: open.agent.clone(), agent_id: open.agent_id,
         live: state == "live", halted, fx,
     })
@@ -714,7 +716,7 @@ async fn settle(
 /// The caller has returned its connection to the pool before publishing.
 #[logged]
 async fn publish_decision(engine: &Arc<Engine>, org: &Arc<OrgHandle>, decision: CommittedDecision) -> String {
-    let CommittedDecision { agent, agent_id, live, halted, fx } = decision;
+    let CommittedDecision { question, agent, agent_id, live, halted, fx } = decision;
     ops::apply_effects(engine, org, fx.credits).await;
     if let Some(scope) = fx.scope {
         crate::http::nodes::apply_scope_effects(engine, org, scope).await;
@@ -724,6 +726,7 @@ async fn publish_decision(engine: &Arc<Engine>, org: &Arc<OrgHandle>, decision: 
         Change::Mailbox(agent_id), Change::Events, Change::History(agent_id),
         Change::Spark { from: "@user".into(), to: agent.clone() },
     ]);
+    if let Some(request)=question {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("docket.question.answered",crate::runtime::watchdogs::events::Scope::Agent(org.id,agent_id),json!({"agent_id":agent_id,"request":request})));}
     if live && !halted {
         crate::runtime::wake(engine, org.id, agent_id);
     }

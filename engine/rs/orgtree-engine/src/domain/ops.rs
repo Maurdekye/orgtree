@@ -353,6 +353,7 @@ async fn event(tx: &Transaction<'_>, org_id: i64, op: &str, actor: &Actor, subje
         &[&org_id, &op, &actor.label(), &subject, &detail],
     )
     .await?;
+    fx.pulses.extend(crate::runtime::watchdogs::events::operation(org_id,op,subject,&detail).into_iter().map(crate::changes::Change::EngineEvent));
     fx.mailboxes.extend(super::lifecycle::record(tx, org_id, op, &actor.label(), subject, &detail).await?);
     Ok(())
 }
@@ -443,6 +444,7 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
                 let Some(target) = target.as_str() else { refuse!(BadRequest, "audience targets must be strings") };
                 let (grant, id) = crate::domain::audiences::grant_tx(engine, tx, org, actor, &node, Some(target), "granted with staffing").await?;
                 fx.agents.insert(id);
+                fx.pulses.push(crate::changes::Change::EngineEvent(crate::runtime::watchdogs::events::event("audience.granted",crate::runtime::watchdogs::events::Scope::Agent(org.id,id),json!({"agent_id":id}))));
                 if grant["answered"] == true { fx.wake.push(id); }
                 fx.pulses.push(crate::changes::Change::Mailbox(id));
                 fx.pulses.push(crate::changes::Change::OrgInbox);
@@ -484,6 +486,10 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
             out["kickoff"] = json!(uid);
         }
     }
+    if crate::runtime::watchdogs::events::interested(engine,"agents.live") {
+        let ids=tx.query("SELECT id FROM ot.agents WHERE org_id=$1 AND state='live'", &[&org.id]).await?.iter().map(|r|r.get(0)).collect();
+        fx.pulses.push(crate::changes::Change::EngineEvent(crate::runtime::watchdogs::events::live_count(org.id,ids)));
+    }
     Ok(out)
 }
 
@@ -513,6 +519,14 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     use crate::changes::Change;
     let mut ch: Vec<Change> = fx.agents.iter().map(|id| Change::Agent(*id)).collect();
     ch.extend(fx.agents.iter().map(|id| Change::History(*id)));
+    if fx.pulses.iter().any(|p| matches!(p,Change::EngineEvent(e) if matches!(e.name.as_str(),"agent.hired"|"agent.rehired"|"agent.retired"|"agent.moved"|"agent.settings.changed"|"credits.changed"))) {
+        let mut credit_ids=fx.agents.clone();
+        if let Ok(c)=engine.db.get().await {
+            let ids:Vec<i64>=fx.agents.iter().copied().collect();
+            if let Ok(rows)=c.query("SELECT DISTINCT parent_id FROM ot.agents WHERE id=ANY($1) AND parent_id IS NOT NULL", &[&ids]).await {for r in rows{credit_ids.insert(r.get(0));}}
+        }
+        for id in &credit_ids { ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("credits.changed",crate::runtime::watchdogs::events::Scope::Agent(org.id,*id),json!({"agent_id":id})))); }
+    }
     ch.push(Change::Credits);
     ch.push(Change::Audiences);
     if fx.events {

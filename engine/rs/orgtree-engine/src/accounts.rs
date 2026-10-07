@@ -142,7 +142,9 @@ impl Accounts {
                 a.marks.insert(m.get(1), (m.get(2), m.get(3)));
             }
         }
-        self.snap.store(Arc::new(Inner { by_id }));
+        let next=Arc::new(Inner { by_id });
+        let old=self.snap.swap(next.clone());
+        crate::runtime::watchdogs::events::accounts(engine,&old,&next);
         Ok(())
     }
 }

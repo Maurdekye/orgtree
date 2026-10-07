@@ -25,6 +25,7 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
         let err=error.unwrap_or("");
         ("runtime.report_stalled",json!({"report":name,"report_name":name,"audience":audience,"cause":"terminal","attempts":null,"classified":null,"door":null,"err":err}),format!("{name}'s turn ended with an error: {err}"))
     };
+    if freeze.is_none() {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));}
     let mut out=Outgoing::new(From::System,target,&body);
     out.kind="status".into();
     out.ev=Some(crate::events::typed(variant,"@system",object,fields));
@@ -58,6 +59,7 @@ pub async fn released(engine:&Arc<Engine>,org_id:i64,agent_id:i64,automatic:bool
     let ids=super::lifecycle::record(&tx,org_id,if automatic{"limit_reset"}else{"unstick"},"@system",Some(agent_id),&json!({})).await?;
     tx.commit().await?;
     drop(c);
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("agent.unfrozen",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));
     crate::changes::notify_id(engine,org_id,ids.into_iter().map(crate::changes::Change::Mailbox).collect());
     Ok(())
 }

@@ -55,6 +55,8 @@ const SHELL_ERRORS: &[&str] = &[
     "no such file or directory",
 ];
 
+pub mod events;
+
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
 /// The running watchdogs: each runner's cancellation token, and the
@@ -62,6 +64,8 @@ type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 #[derive(Default)]
 pub struct Registry {
     runners: papaya::HashMap<String, CancellationToken>,
+    events: papaya::HashMap<String, events::Subscription>,
+    conditions: papaya::HashMap<String, Value>,
     activity: papaya::HashMap<i64, papaya::HashMap<String, ActivityTx>>,
 }
 
@@ -193,8 +197,8 @@ pub async fn start(engine: &Arc<Engine>) {
     let ids: Vec<String> = client
         .query(
             "SELECT w.uid FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id JOIN ot.orgs o ON o.id = w.org_id
-              WHERE w.state = 'armed' AND a.state = 'live' AND o.state <> 'trashed'",
-            &[],
+              WHERE w.state = 'armed' AND a.state = 'live' AND o.state <> 'trashed' AND (NOT $1 OR w.kind='event')",
+            &[&crate::mailhub::safe_start()],
         )
         .await
         .map(|rows| rows.iter().map(|r| r.get(0)).collect())
@@ -219,6 +223,8 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
         }
         map.insert(uid.to_string(), token.clone());
     }
+    // Subscribe before spawning/loading so create and startup have no missed-event gap.
+    let (event_sub, event_rx) = events::subscribe(engine, uid);
     let engine = engine.clone();
     let id = uid.to_string();
     let origin = tracing::Span::current();
@@ -233,10 +239,12 @@ pub fn arm(engine: &Arc<Engine>, uid: &str) {
             };
             tracing::Instrument::instrument(async {
                 let r = match loaded {
-                    Ok(Some(dog)) => run(&engine, dog, &token).await,
+                    Ok(Some(dog)) if dog.kind == "event" => events::run(&engine, dog, &event_sub, event_rx, &token).await,
+                    Ok(Some(dog)) => { events::unsubscribe(&engine, &id, &event_sub); run(&engine, dog, &token).await },
                     Ok(None) => Ok(()),
                     Err(e) => Err(e),
                 };
+                events::unsubscribe(&engine, &id, &event_sub);
                 if let Err(e) = &r {
                     tracing::warn!(watchdog = %id, error = %format!("{e:#}"), "watchdog runner stopped");
                 }
@@ -1094,7 +1102,7 @@ async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) 
     let body = fire_body(dog, events, prefix, once, fired);
     let lines: Vec<String> = events.iter().take(40).cloned().collect();
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once));
-    deliver(engine, dog, body, ev).await;
+    events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     if once {
         disarm(engine, &dog.uid);
     }
@@ -1113,7 +1121,7 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     let mut body = fire_body(dog, events, " STREAM EXITED —", false, fired);
     body.push_str("The stream is not restarted; resume the watchdog to start it again.\n");
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, "STREAM EXITED —", events, false));
-    deliver(engine, dog, body, ev).await;
+    events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     Ok(())
 }
 
@@ -1241,7 +1249,7 @@ async fn alert(engine: &Arc<Engine>, dog: &Dog, lost: &Lost) -> Result<()> {
         )
         .await?;
     drop(client);
-    deliver(engine, dog, body, ev).await;
+    events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     Ok(())
 }
 
@@ -1429,8 +1437,8 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         refuse!(BadRequest, "a watchdog needs a short name");
     }
     let kind = args["kind"].as_str().unwrap_or("").to_string();
-    if !["file", "command", "process", "stream", "activity"].contains(&kind.as_str()) {
-        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity");
+    if !["file", "command", "process", "stream", "activity", "event"].contains(&kind.as_str()) {
+        refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event");
     }
     let target = args["target"].as_str().map(str::trim).unwrap_or("").to_string();
     if target.is_empty() {
@@ -1466,6 +1474,11 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         }
     }
     let mut memo = json!({ "run": {} });
+    if kind == "event" {
+        events::validate(&target,args)?;
+        memo["threshold"]=args["threshold"].clone();
+        memo["event_scope"]=json!(args["event_scope"].as_str().unwrap_or("subtree"));
+    } else if args.get("threshold").is_some() || args.get("event_scope").is_some() { refuse!(BadRequest,"threshold/event_scope require kind event"); }
     if kind == "activity" {
         let t = target.trim_start_matches('@').to_string();
         let row = client
@@ -1511,7 +1524,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if kind == "command" && pattern.is_none() {
         refuse!(BadRequest, "a command watchdog needs a pattern — 'ran and printed something' is not an event");
     }
-    let floor = if kind == "stream" || kind == "activity" { STREAM_FLOOR_S } else { FLOOR_S };
+    let floor = if kind == "stream" || kind == "activity" || kind == "event" { STREAM_FLOOR_S } else { FLOOR_S };
     let interval = args["interval_s"].as_i64().unwrap_or(60).max(floor).min(i32::MAX as i64) as i32;
     let once = args["once"].as_bool().unwrap_or(false);
     let notice = args["notice"].as_bool().unwrap_or(false);
@@ -1541,7 +1554,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         _ => {}
     }
     let cwd = scratch.is_dir().then_some(scratch);
-    let smoked = smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await;
+    let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? } else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
+    if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
+    if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
     let id = uid("wd");
     let client = engine.db.get().await?;
     client
@@ -1563,7 +1578,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
-        "activity" => String::new(),
+        "activity" | "event" => " (pushed events)".to_string(),
         _ => format!(" every {interval}s"),
     };
     let mut status = format!("{}{kind} watchdog{cadence}", if once { "armed — ONE-SHOT " } else { "armed — " });
@@ -1700,6 +1715,8 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
                 }
             };
             put("pattern", json!(d.pattern));
+            put("threshold",d.memo["threshold"].clone());
+            put("event_scope",d.memo["event_scope"].clone());
             put("last_fired", json!(d.last_fired.map(iso)));
             put("last_check", json!(last_check.map(iso)));
             put("last_output", d.run["last_output"].clone());
@@ -1746,7 +1763,7 @@ fn health(d: &Dog) -> Option<String> {
                 hours(age)
             )
         }),
-        "activity" => None,
+        "activity" | "event" => None,
         _ if runs == 0 => (age >= NEVER_RAN_AGE_S)
             .then(|| format!("⚠ armed {} ago but has NEVER RUN A CHECK — the engine has not picked it up; report this.", hours(age))),
         _ => (d.fired == 0 && runs >= QUIET_CHECKS && age >= QUIET_AGE_S).then(|| {

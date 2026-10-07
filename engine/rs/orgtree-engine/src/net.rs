@@ -342,6 +342,7 @@ fn set_status(engine: &Engine, org_id: i64, hub_id: &str, connected: bool, error
     };
     let changed = prev.connected != next.connected || prev.error != next.error;
     map.insert(key, next);
+    if prev.connected != connected {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event(if connected{"hub.up"}else{"hub.down"},crate::runtime::watchdogs::events::Scope::Org(org_id),json!({"hub":hub_id})));}
     if changed {
         if let Some(o) = engine.orgs.by_id(org_id) {
             changes::notify(engine, &o, vec![Change::Net]);

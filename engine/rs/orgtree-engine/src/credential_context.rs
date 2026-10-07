@@ -42,11 +42,16 @@ impl CredentialContext {
         value
     }
 
-    pub fn refresh(&self) {
+    pub fn refresh(&self, engine: &crate::engine::Engine) {
         let next = probe();
         if **self.state.load() != next {
             report(&next);
+            let isolated=next.warning.is_some();
+            let changed=self.state.load().warning.is_some()!=isolated;
             self.state.store(Arc::new(next));
+            if changed {
+            crate::runtime::watchdogs::events::condition(engine,if isolated{"credentials.isolated"}else{"credentials.ready"},if isolated{"credentials.ready"}else{"credentials.isolated"},serde_json::json!({"reason":if isolated{"boot credential warning"}else{"boot credential warning cleared"}}));
+            }
         }
     }
 }
@@ -81,7 +86,7 @@ pub fn start(engine: &Arc<crate::engine::Engine>) {
                     let (process, console, own_user, console_user) = sessions();
                     if (process, console, own_user, console_user) !=
                         (old.process_session, old.console_session, old.process_user_signed_in, old.console_user_signed_in) {
-                        engine.credentials.refresh();
+                        engine.credentials.refresh(&engine);
                     }
                 }
             }

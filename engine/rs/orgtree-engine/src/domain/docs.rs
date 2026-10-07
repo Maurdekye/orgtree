@@ -186,6 +186,7 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
         )
         .await?;
     drop(client);
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event(if args["replaces"].as_str().is_some(){"documents.updated"}else{"documents.created"},crate::runtime::watchdogs::events::Scope::Agent(org.id,p.id),json!({"agent_id":p.id,"document":id})));
     changes::notify(engine, org, vec![Change::Documents(p.id), Change::Events]);
     let card = json!({ "presentation": { "id": id, "title": title, "format": format } });
     Ok((format!("Presented \"{title}\" to the user (id {id}; pass it as `replaces` to update this card)."), card))

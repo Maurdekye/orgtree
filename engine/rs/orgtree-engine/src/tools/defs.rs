@@ -400,14 +400,27 @@ fn all() -> Vec<Value> {
              growing, a command cannot run, a pid already fired). notice:true fires passively (no turn). once:true \
              fires exactly once and removes itself — use it whenever the condition can happen only once and ALWAYS \
              when the pattern is a DEADLINE rather than an EDGE. Free; max 8 per agent. Actions: create, list, pause, \
-             resume, remove (reason optional). Superiors may manage their subtree's dogs.",
+             resume, remove (reason optional). Superiors may manage their subtree's dogs. \
+             kind=event is pushed by the engine (no polling): target is a dotted name or prefix ending .*; \
+             pattern matches only safe JSON payload. Current-state smoke does not fire. No offline replay; \
+             recovered dogs see engine.started. Catalog: credentials.bridge.available/unavailable, \
+             credentials.isolated/ready, engine.started; agent.hired/retired/rehired/halted/unhalted/frozen/unfrozen/moved/renamed/changed, \
+             agent.settings.changed (field names only); turn.started/finished/failed/stalled/limited; \
+             mail.waiting/delivered/changed; docket.created/status.changed/attention/question.answered; \
+             account.signed_in/signed_out/limit.reached/limit.reset; hub.up/down/changed; credits.changed; \
+             documents.created/updated/changed; audience.requested/granted/denied/revoked; cli.started/ready/cold/evicted; \
+             agents.active/live. Agent/item/account events respect visibility. Count threshold is below N or at least N \
+             (false-to-true crossing); event_scope subtree is default, org requires full visibility. \
+             interval_s is a minimum fire gap (5s floor); excess bursts pause with a warning rather than silently dropping events.",
             json!({
                 "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
                 "name": { "type": "string", "description": "create: a short name, e.g. build-watch" },
-                "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity"] },
+                "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event"] },
                 "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
+                "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
+                "event_scope": {"type":"string","enum":["subtree","org"],"description":"count targets only: visible subtree (default), or entire org (requires full visibility)"},
                 "quiet_period_s": { "type": "integer", "minimum": 1, "description": "create, silence only: seconds without a matching event" },
-                "target": { "type": "string", "description": "the path, command line, pid:N / port:N, or (activity) agent name" },
+                "target": { "type": "string", "description": "the path, command line, pid:N / port:N, (activity) agent name, or (event) dotted event name/prefix ending in .*" },
                 "pattern": { "type": "string", "description": "regex an event line must match (required for command; optional for file/stream/activity = any line)" },
                 "interval_s": { "type": "integer", "minimum": 5, "description": "poll cadence (floor 15s); stream/activity: the minimum gap between fires (floor 5s)" },
                 "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },

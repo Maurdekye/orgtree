@@ -232,6 +232,7 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         )
         .await?;
     let mut ch = vec![Change::Mailbox(target_id), Change::Spark { from: out.from.spark(), to: to.clone() }];
+    if !matches!(out.from,From::Watchdog{..}) {ch.push(Change::EngineEvent(crate::runtime::watchdogs::events::event("mail.waiting",crate::runtime::watchdogs::events::Scope::Agent(org_id,target_id),json!({"agent_id":target_id,"mail_id":mail_uid}))));}
     if let Some(a) = sender_agent {
         ch.push(Change::Mailbox(a));
     }

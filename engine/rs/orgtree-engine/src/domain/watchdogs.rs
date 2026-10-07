@@ -20,6 +20,8 @@ pub fn view(w: &Value, owner: &str) -> Value {
         o.insert("silence_since".into(), ts(s));
     }
     o.insert("target".into(), w["target"].clone());
+    for key in ["threshold","event_scope"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
+    if let Some(v)=w["memo"]["run"].get("last_output"){o.insert("last_output".into(),v.clone());}
     if let Some(p) = w.get("pattern").filter(|v| !v.is_null()) {
         o.insert("pattern".into(), p.clone());
     }

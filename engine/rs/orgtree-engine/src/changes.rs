@@ -18,6 +18,7 @@ use crate::orgs::OrgHandle;
 
 #[derive(Debug, Clone)]
 pub enum Change {
+    EngineEvent(crate::runtime::watchdogs::events::Event),
     /// an agent's own record (status, scope, credits, state, account, freeze, halt)
     Agent(i64),
     /// an agent's mailbox (and the waiting-mail count on its card)
@@ -64,7 +65,9 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
     let mut app = false;
     let mut registry = false;
     for c in changes {
+        crate::runtime::watchdogs::events::change(engine,org.id,&c);
         match c {
+            Change::EngineEvent(e) => crate::runtime::watchdogs::events::emit(engine,e),
             Change::Agent(id) => {
                 keys.push(Key::Agent(id));
                 // live/frozen counts and frozen-agent notices
