@@ -13,7 +13,7 @@ use tokio_postgres::Transaction;
 
 use crate::changes::{self, Change};
 use crate::domain::mail::{self, From, Outgoing};
-use crate::domain::scope;
+use crate::domain::{ops, scope};
 use crate::engine::Engine;
 use crate::orgs::OrgHandle;
 use crate::refuse;
@@ -630,7 +630,14 @@ fn answer_text(q: &Value, a: &Value) -> String {
     format!("Q: {}\nA: {}", q["question"].as_str().unwrap_or(""), shown)
 }
 
-/// Settle: mark answered, mail the outcome, stamp the mail on the card.
+#[derive(Default)]
+struct DecisionEffects {
+    credits: ops::Effects,
+    scope: Option<crate::http::nodes::ScopeEffects>,
+}
+
+/// Commit the decision, grants and durable answer mail together. All actor
+/// messages and feed notifications follow the commit.
 #[logged]
 async fn settle(
     engine: &Arc<Engine>,
@@ -641,21 +648,49 @@ async fn settle(
     answer: Value,
     text: String,
     ev: Option<Value>,
+    fx: DecisionEffects,
 ) -> Result<String> {
+    let target = tx.query_one(
+        "SELECT state, halt IS NOT NULL FROM ot.agents WHERE id = $1 FOR UPDATE",
+        &[&open.agent_id],
+    ).await?;
+    let state: String = target.get(0);
+    let halted: bool = target.get(1);
+    if state == "deleted" || state == "unrecoverable" {
+        refuse!(Conflict, "{} cannot receive the answer; nothing was changed", open.agent);
+    }
+    let mail_uid = crate::util::uid("m");
     tx.execute(
-        "UPDATE ot.asks SET status = $2, resolved_at = now(), answer = $3 WHERE uid = $1",
-        &[&open.uid, &status, &answer],
-    )
-    .await?;
+        "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id,
+                              recipient_name, kind, notice, body, ev, state)
+         VALUES ($1, $2, '@user', 'agent', $3, $4, 'decision', false, $5, $6, 'pending')",
+        &[&mail_uid, &org.id, &open.agent_id, &open.agent, &text, &ev],
+    ).await?;
+    tx.execute(
+        "UPDATE ot.asks SET status = $2, resolved_at = now(), answer = $3, answer_mail = $4 WHERE uid = $1",
+        &[&open.uid, &status, &answer, &mail_uid],
+    ).await?;
+    tx.execute(
+        "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail)
+         VALUES ($1, 'request_resolved', '@user', $2, $3)",
+        &[&org.id, &open.agent_id, &json!({ "id": open.uid, "status": status })],
+    ).await?;
     tx.commit().await?;
-    let mut out = Outgoing::new(From::User, &open.agent, &text);
-    out.kind = "decision".into();
-    out.ev = ev;
-    let sent = mail::send(engine, org.id, out).await?;
-    let client = engine.db.get().await?;
-    client.execute("UPDATE ot.asks SET answer_mail = $2 WHERE uid = $1", &[&open.uid, &sent.uid]).await?;
-    drop(client);
-    changes::notify(engine, org, vec![Change::Asks, Change::Agent(open.agent_id), Change::UserMail]);
+    ops::apply_effects(engine, org, fx.credits).await;
+    if let Some(scope) = fx.scope {
+        crate::http::nodes::apply_scope_effects(engine, org, scope).await;
+    }
+    changes::notify(engine, org, vec![
+        Change::Asks, Change::Agent(open.agent_id), Change::UserMail,
+        Change::Mailbox(open.agent_id), Change::Events, Change::History(open.agent_id),
+        Change::Spark { from: "@user".into(), to: open.agent.clone() },
+    ]);
+    if state == "live" && !halted {
+        crate::runtime::wake(engine, org.id, open.agent_id);
+    }
+    if let Some(h) = engine.agents.get(open.agent_id) {
+        h.send(crate::runtime::AgentMsg::Wake);
+    }
     Ok(open.agent.clone())
 }
 
@@ -665,8 +700,11 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let open = open_by(&tx, org.id, Some(uid), None).await?;
+    if open.parts.credit.is_some() || open.parts.scope.is_some() {
+        refuse!(Conflict, "this request has other tabs; submit the complete batch");
+    }
     if let Some(rev) = body["rev"].as_i64() {
-        if rev as i32 != open.rev {
+        if rev != i64::from(open.rev) {
             refuse!(Conflict, "the question changed while you were answering; read it again");
         }
     }
@@ -683,7 +721,7 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
             .collect();
         let single = qs.len() <= 1;
         let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, None, true, single);
-        let node = settle(engine, org, tx, &open, "dismissed", json!({ "dismissed": true }), text, Some(ev)).await?;
+        let node = settle(engine, org, tx, &open, "dismissed", json!({ "dismissed": true }), text, Some(ev), DecisionEffects::default()).await?;
         return Ok(json!({ "answered": open.uid, "node": node }));
     }
     let selected = body["selected"].as_array().cloned().unwrap_or_default();
@@ -713,27 +751,23 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
     let single = qs.len() <= 1;
     let note = Some(free.as_str()).filter(|f| !f.is_empty());
     let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, note, false, single);
-    let node = settle(engine, org, tx, &open, "answered", json!({ "selected": selected, "text": free }), text, Some(ev)).await?;
+    let node = settle(engine, org, tx, &open, "answered", json!({ "selected": selected, "text": free }), text, Some(ev), DecisionEffects::default()).await?;
     Ok(json!({ "answered": open.uid, "node": node }))
 }
 
 /// Apply a credit decision: the agent's grant becomes `granted`.
 #[logged]
-async fn grant_credits(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &str, granted: f64) -> Result<Value> {
-    let client = engine.db.get().await?;
-    let grant: f64 = client
-        .query_one("SELECT grant_credits::float8 FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live'", &[&org.id, &agent])
+async fn grant_credits(
+    engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>,
+    agent: &str, granted: f64, fx: &mut ops::Effects,
+) -> Result<Value> {
+    let grant: f64 = tx
+        .query_one("SELECT grant_credits::float8 FROM ot.agents WHERE org_id = $1 AND name = $2 AND state = 'live' FOR UPDATE", &[&org.id, &agent])
         .await?
         .get(0);
-    drop(client);
     let delta = granted - grant;
-    crate::domain::ops::run(
-        engine,
-        org,
-        crate::domain::ops::Actor::User,
-        &json!({ "op": "reallocate", "node": agent, "delta": delta }),
-    )
-    .await
+    ops::run_in_tx(engine, org, tx, &ops::Actor::User,
+        &json!({ "op": "reallocate", "node": agent, "delta": delta }), fx).await
 }
 
 /// `POST /credit-requests {id, action, granted?, dry?}` on a credit card.
@@ -745,13 +779,20 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let open = open_by(&tx, org.id, Some(uid), None).await?;
+    if !open.parts.questions.is_empty() || open.parts.scope.is_some() {
+        refuse!(Conflict, "this request has other tabs; submit the complete batch");
+    }
+    if let Some(rev) = body.get("rev") {
+        if rev.as_i64() != Some(i64::from(open.rev)) {
+            refuse!(Conflict, "the credit request changed; read it again");
+        }
+    }
     let Some(c) = open.parts.credit.clone() else { refuse!(Conflict, "that request asks for no credits") };
     let asked = c["new"].as_f64().unwrap_or(0.0);
-    let granted = body["granted"].as_f64().unwrap_or(asked);
+    let granted = credit_total(body["granted"].as_f64().unwrap_or(asked))?;
     let mut warnings = Vec::new();
     if action != "deny" {
-        let client2 = engine.db.get().await?;
-        let held: f64 = client2
+        let held: f64 = tx
             .query_one(
                 "SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c JOIN ot.agents a ON a.id = c.parent_id
                   WHERE a.org_id = $1 AND a.name = $2 AND c.state = 'live'",
@@ -773,16 +814,13 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
         status = "denied";
         text = format!("The user denied your credit request ({} → {asked}).", c["old"]);
     } else {
-        tx.rollback().await?;
-        grant_credits(engine, org, &open.agent, granted).await?;
-        let mut client = engine.db.get().await?;
-        let tx = client.transaction().await?;
-        let open = open_by(&tx, org.id, Some(uid), None).await?;
+        let mut fx = DecisionEffects::default();
+        grant_credits(engine, org, &tx, &open.agent, granted, &mut fx.credits).await?;
         let msg = format!("The user granted credits: your grant is now {granted} (you asked for {asked}).");
-        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, Some(granted)))).await?;
+        let node = settle(engine, org, tx, &open, "granted", json!({ "granted": granted }), msg, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, Some(granted))), fx).await?;
         return Ok(json!({ "ok": true, "node": node, "warnings": warnings }));
     }
-    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, None))).await?;
+    let node = settle(engine, org, tx, &open, status, json!({ "denied": true }), text, Some(crate::events::credit_decision(&org.slug, &open.agent, &open.uid, c["old"].as_f64().unwrap_or(0.0), asked, None)), DecisionEffects::default()).await?;
     Ok(json!({ "ok": true, "node": node, "warnings": warnings }))
 }
 
@@ -835,7 +873,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     let tx = client.transaction().await?;
     let open = open_by(&tx, org.id, None, Some(agent)).await?;
     validate_batch(&open, body)?;
-    tx.rollback().await?;
+    let mut fx = DecisionEffects::default();
     let mut sections = Vec::new();
     let mut cards: Vec<Value> = Vec::new();
     // questions
@@ -857,7 +895,8 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         let old = c["old"].as_f64().unwrap_or(0.0);
         let wanted = c["new"].as_f64().unwrap_or(0.0);
         if let Some(g) = cd["granted"].as_f64() {
-            grant_credits(engine, org, &open.agent, g).await?;
+            let g = credit_total(g)?;
+            grant_credits(engine, org, &tx, &open.agent, g, &mut fx.credits).await?;
             sections.push(format!("Credits: granted — your grant is now {g} (you asked for {}).", c["new"]));
             cards.push(json!({ "kind": "credit", "outcome": if (g - wanted).abs() < 1e-9 { "approved" } else { "counter" },
                                "old": old, "asked": wanted, "granted": g, "now": g }));
@@ -895,35 +934,38 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         }
         cards.push(json!({ "kind": "scope", "decisions": decided, "lines": lines }));
         if !approved.is_empty() {
-            apply_scope(engine, org, &open.agent, &approved).await?;
+            fx.scope = Some(apply_scope(org, &tx, &open.agent, &approved).await?);
         }
     }
-    let mut client = engine.db.get().await?;
-    let tx = client.transaction().await?;
-    let open = open_by(&tx, org.id, None, Some(agent)).await?;
     let text = format!("The user resolved your request:\n\n{}", sections.join("\n\n"));
     let ev = crate::events::answer_batch(&org.slug, &open.uid, &open.agent, cards);
-    let node = settle(engine, org, tx, &open, "answered", body.clone(), text, Some(ev)).await?;
+    let node = settle(engine, org, tx, &open, "answered", body.clone(), text, Some(ev), fx).await?;
     Ok(json!({ "resolved": open.uid, "node": node }))
 }
 
 /// Granted scope items join the agent's configured scope (the user grants
 /// them, so the chain above is raised as needed by the scope route).
 #[logged]
-async fn apply_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &str, items: &[Value]) -> Result<()> {
-    let client = engine.db.get().await?;
-    let sc: Value = client
-        .query_one("SELECT scope FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'", &[&org.id, &agent])
+async fn apply_scope(
+    org: &Arc<OrgHandle>, tx: &Transaction<'_>, agent: &str, items: &[Value],
+) -> Result<crate::http::nodes::ScopeEffects> {
+    let sc: Value = tx
+        .query_one("SELECT scope FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' FOR UPDATE", &[&org.id, &agent])
         .await?
         .get(0);
-    drop(client);
     let cur = scope::normalize(&sc);
     let mut patch = json!({});
     let mut dirs = cur["add_dirs"].as_array().cloned().unwrap_or_default();
     let mut tools = cur["tools"].clone();
     for it in items {
         match it["kind"].as_str() {
-            Some("dir") => dirs.push(json!({ "path": it["path"], "mode": it["mode"] })),
+            Some("dir") => {
+                if let Some(old) = dirs.iter_mut().find(|d| d["path"] == it["path"]) {
+                    if it["mode"] == "rw" { old["mode"] = json!("rw"); }
+                } else {
+                    dirs.push(json!({ "path": it["path"], "mode": it["mode"] }));
+                }
+            },
             Some("tool") => {
                 if let Some(t) = it["tool"].as_str() {
                     tools[t] = json!(true);
@@ -931,7 +973,7 @@ async fn apply_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &str, it
             }
             Some("mcp") => {
                 if let (Some(s), Some(list)) = (it["server"].as_str(), tools["mcp"].as_array_mut()) {
-                    if !list.iter().any(|x| x == s) {
+                    if !list.iter().any(|x| x == s || x == "*") {
                         list.push(json!(s));
                     }
                 }
@@ -942,6 +984,5 @@ async fn apply_scope(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &str, it
     }
     patch["add_dirs"] = json!(dirs);
     patch["tools"] = tools;
-    crate::http::nodes::apply_user_scope(engine, org, agent, &patch).await?;
-    Ok(())
+    crate::http::nodes::apply_user_scope_in_tx(org, tx, agent, &patch).await
 }

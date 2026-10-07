@@ -400,9 +400,30 @@ pub async fn set_scope(
 /// requests apply.
 #[logged]
 pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<Value> {
+    let mut client = e.db.get().await?;
+    let tx = client.transaction().await?;
+    let fx = apply_user_scope_in_tx(org, &tx, nid, b).await?;
+    tx.commit().await?;
+    drop(client);
+    Ok(apply_scope_effects(e, org, fx).await)
+}
+
+pub(crate) struct ScopeEffects {
+    notice_ids: Vec<i64>,
+    agent_id: i64,
+    subtree: Vec<i64>,
+    effort_change: Option<String>,
+    structural: bool,
+    out: Value,
+}
+
+/// Shared mutation path for direct user edits and atomic request approvals.
+#[logged]
+pub(crate) async fn apply_user_scope_in_tx(
+    org: &Arc<OrgHandle>, tx: &tokio_postgres::Transaction<'_>, nid: &str, b: &Value,
+) -> anyhow::Result<ScopeEffects> {
     let a = {
-        let client = e.db.get().await?;
-        let r = client
+        let r = tx
             .query_opt(
                 "SELECT id, name, state, parent_id FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted'",
                 &[&org.id, &nid],
@@ -413,8 +434,6 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
             None => crate::refuse!(NotFound, "no agent named {nid}"),
         }
     };
-    let mut client = e.db.get().await?;
-    let tx = client.transaction().await?;
     let row = tx
         .query_one("SELECT scope, charter, team_charter FROM ot.agents WHERE id = $1 FOR UPDATE", &[&a.id])
         .await?;
@@ -492,9 +511,8 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
     )
     .await?;
     let notice_ids=crate::domain::lifecycle::record(&tx,org.id,"retool","@user",Some(a.id),&json!({"change":b})).await?;
-    tx.commit().await?;
     // the subtree's effective scopes may have moved
-    let subtree: Vec<i64> = client
+    let subtree: Vec<i64> = tx
         .query(
             "WITH RECURSIVE down(id, depth) AS (SELECT $1::bigint, 0 UNION ALL
                SELECT c.id, d.depth + 1 FROM ot.agents c JOIN down d ON c.parent_id = d.id WHERE d.depth < 1024 AND c.state = 'live')
@@ -505,14 +523,22 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
         .iter()
         .map(|r| r.get(0))
         .collect();
-    drop(client);
+    Ok(ScopeEffects {
+        agent_id: a.id, subtree, effort_change, notice_ids,
+        structural: b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false),
+        out: json!({ "ok": true, "cascaded": cascaded }),
+    })
+}
+
+/// Publish only after the transaction owning the scope change commits.
+#[logged]
+pub(crate) async fn apply_scope_effects(e: &Arc<Engine>, org: &Arc<OrgHandle>, fx: ScopeEffects) -> Value {
+    let ScopeEffects { agent_id, subtree, effort_change, structural, mut out, notice_ids } = fx;
     let mut ch: Vec<Change> = subtree.iter().map(|id| Change::Agent(*id)).collect();
     ch.extend(notice_ids.into_iter().map(Change::Mailbox));
     ch.push(Change::Events);
-    ch.push(Change::History(a.id));
+    ch.push(Change::History(agent_id));
     changes::notify(&e, &org, ch);
-    let mut out = json!({ "ok": true, "cascaded": cascaded });
-    let structural = b.as_object().map(|o| o.keys().any(|k| k != "effort")).unwrap_or(false);
     if structural {
         for id in &subtree {
             if let Some(h) = e.agents.get(*id) {
@@ -521,10 +547,10 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
         }
     }
     if let Some(level) = effort_change {
-        let live = match e.agents.get(a.id) {
+        let live = match e.agents.get(agent_id) {
             Some(_) => {
                 let lv = level.clone();
-                ask(&e, org.id, a.id, move |tx| AgentMsg::Effort(lv, tx)).await.ok()
+                ask(&e, org.id, agent_id, move |tx| AgentMsg::Effort(lv, tx)).await.ok()
             }
             None => None,
         };
@@ -532,7 +558,7 @@ pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, 
             .and_then(|v| v.get("effort_delivery").cloned())
             .unwrap_or_else(|| json!("next_turn"));
     }
-    Ok(out)
+    out
 }
 
 /// Raise each ancestor's configured scope to cover `child` (tools, MCP
