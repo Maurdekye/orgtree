@@ -49,6 +49,7 @@ export const TIER_LETTER: Record<string, string> = {
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
   flash: 'F', pro: 'P', argon: 'A', barium: 'B',
+  'agy-sonnet': 'S', 'agy-opus': 'O',
 }
 export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
@@ -111,13 +112,13 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
  *  codex family. Seats by the standing rule: flash $1.50 standing → 1 (the
  *  $0.75 launch price is a promo), pro $2 → 2 (the >200K long-context
  *  surcharge never sets a seat). */
-export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon', 'barium']
+export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon', 'barium', 'agy-sonnet', 'agy-opus']
 export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
-  { flash: 'F', pro: 'P', argon: 'A', barium: 'B' }
+  { flash: 'F', pro: 'P', argon: 'A', barium: 'B', 'agy-sonnet': 'S', 'agy-opus': 'O' }
 /** Argon and Barium seats are PLACEHOLDERS copied from pro (coordinator ruling
  *  2026-10-01; Barium mirrors Argon, user 2026-10-05). Mirrors ledger.TIERS. */
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
-  { flash: 1, pro: 2, argon: 2, barium: 2 }
+  { flash: 1, pro: 2, argon: 2, barium: 2, 'agy-sonnet': 2, 'agy-opus': 4 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
  *  2026-10-01) and Barium (`gemini-4-barium`, user 2026-10-05). Known to the
  *  axis (a node wearing one keeps its letter,
@@ -125,7 +126,8 @@ export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
  *  payload lists it among the Antigravity tier rows, which it does only while
  *  the account's live `agy models` list contains that id. Mirrors
  *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
-export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium']
+// The Claude tiers depend on the Runtime opt-in. They have no version picker.
+export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon', 'barium', 'agy-sonnet', 'agy-opus']
 /** Provider-neutral surfaces (for example the live-agent summary) use this;
  * provider-specific controls keep using their family list. */
 export const ALL_TIERS = [...TIERS, ...CODEX_TIERS, ...ANTIGRAVITY_TIERS]
@@ -306,6 +308,8 @@ export const noteTierModels = (
  *  remembered tier→model table, else (a tier nothing has ever described)
  *  the slug without its `or-` prefix. */
 export const tierLabel = (tier: string): string => {
+  if (tier === 'agy-sonnet') return 'Claude Sonnet 5.5'
+  if (tier === 'agy-opus') return 'Claude Opus 5.5'
   if (!isOpenRouterTier(tier)) return tier
   const t = openrouterTier(tier)
   if (t) return t.label ?? modelLabel(t.model)

@@ -874,7 +874,9 @@ button.badge.audience-fold.alert {
 .chip.agents b { margin-left: 3px; font-family: var(--mono); font-weight: 700; }
 .chip.agents b.t-haiku { color: var(--tier-haiku); }
 .chip.agents b.t-sonnet { color: var(--tier-sonnet); }
+.chip.agents b.t-agy-sonnet { color: var(--tier-sonnet); }
 .chip.agents b.t-opus { color: var(--tier-opus); }
+.chip.agents b.t-agy-opus { color: var(--tier-opus); }
 .chip.agents b.t-fable { color: var(--tier-fable); }
 /* The summary is a model inventory, so every provider's model count keeps
    the same tier colour it wears on cards and pickers. Provider identity
@@ -1104,7 +1106,9 @@ button.badge.audience-fold.alert {
    background is composed once below so neither channel erases the other. */
 .sq.mini.tier-haiku { --mini-tier: var(--tier-haiku); }
 .sq.mini.tier-sonnet { --mini-tier: var(--tier-sonnet); }
+.sq.mini.tier-agy-sonnet { --mini-tier: var(--tier-sonnet); }
 .sq.mini.tier-opus { --mini-tier: var(--tier-opus); }
+.sq.mini.tier-agy-opus { --mini-tier: var(--tier-opus); }
 .sq.mini.tier-fable { --mini-tier: var(--tier-fable); }
 /* the codex family's card dressing (FR-15; dormant until codex hire lands).
    Provider theming (user spec 2026-08-28): a codex agent's DESK is blue
@@ -2345,11 +2349,15 @@ button.cc-name:hover {
 .sq { border-top-width: 3px; }
 .sq.tier-haiku { --tier-accent: var(--tier-haiku); border-top-color: color-mix(in srgb, var(--tier-haiku) 55%, var(--line)); }
 .sq.tier-sonnet { --tier-accent: var(--tier-sonnet); border-top-color: color-mix(in srgb, var(--tier-sonnet) 55%, var(--line)); }
+.sq.tier-agy-sonnet { --tier-accent: var(--tier-sonnet); border-top-color: color-mix(in srgb, var(--tier-sonnet) 55%, var(--line)); }
 .sq.tier-opus { --tier-accent: var(--tier-opus); border-top-color: color-mix(in srgb, var(--tier-opus) 55%, var(--line)); }
+.sq.tier-agy-opus { --tier-accent: var(--tier-opus); border-top-color: color-mix(in srgb, var(--tier-opus) 55%, var(--line)); }
 .sq.tier-fable { --tier-accent: var(--tier-fable); border-top-color: color-mix(in srgb, var(--tier-fable) 55%, var(--line)); }
 .tier.t-haiku { color: var(--tier-haiku); border-color: color-mix(in srgb, var(--tier-haiku) 45%, var(--line)); }
 .tier.t-sonnet { color: var(--tier-sonnet); border-color: color-mix(in srgb, var(--tier-sonnet) 45%, var(--line)); }
+.tier.t-agy-sonnet { color: var(--tier-sonnet); border-color: color-mix(in srgb, var(--tier-sonnet) 45%, var(--line)); }
 .tier.t-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
+.tier.t-agy-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .tier.t-fable { color: var(--tier-fable); border-color: color-mix(in srgb, var(--tier-fable) 45%, var(--line)); }
 .tier.t-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
 .tier.t-gpt-6-luna { color: var(--tier-luna); border-color: color-mix(in srgb, var(--tier-luna) 45%, var(--line)); }
@@ -3581,11 +3589,15 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 /* each chip wears its model's color (same idiom as the .tier badge) */
 .hsof button.t-haiku { color: var(--tier-haiku); border-color: color-mix(in srgb, var(--tier-haiku) 45%, var(--line)); }
 .hsof button.t-sonnet { color: var(--tier-sonnet); border-color: color-mix(in srgb, var(--tier-sonnet) 45%, var(--line)); }
+.hsof button.t-agy-sonnet { color: var(--tier-sonnet); border-color: color-mix(in srgb, var(--tier-sonnet) 45%, var(--line)); }
 .hsof button.t-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
+.hsof button.t-agy-opus { color: var(--tier-opus); border-color: color-mix(in srgb, var(--tier-opus) 45%, var(--line)); }
 .hsof button.t-fable { color: var(--tier-fable); border-color: color-mix(in srgb, var(--tier-fable) 45%, var(--line)); }
 .hsof button.t-haiku:hover:not(:disabled) { border-color: var(--tier-haiku); }
 .hsof button.t-sonnet:hover:not(:disabled) { border-color: var(--tier-sonnet); }
+.hsof button.t-agy-sonnet:hover:not(:disabled) { border-color: var(--tier-sonnet); }
 .hsof button.t-opus:hover:not(:disabled) { border-color: var(--tier-opus); }
+.hsof button.t-agy-opus:hover:not(:disabled) { border-color: var(--tier-opus); }
 .hsof button.t-fable:hover:not(:disabled) { border-color: var(--tier-fable); }
 /* codex family (FR-15 preview) — same idiom; the strip's preview chips are
    permanently disabled, so no hover leg. A touch dimmer than the generic
@@ -7835,3 +7847,8 @@ main:has(> .orgbar.native-header) > .error {
 @media (prefers-reduced-motion: reduce) {
   .rainbow-theme-label { animation-play-state: paused; }
 }
+
+/* Separate Antigravity tiers share only the Claude model colours. */
+:root { --tier-agy-sonnet: var(--tier-sonnet); --tier-agy-opus: var(--tier-opus); }
+.sq.prov-google.desk.tier-agy-sonnet { border-top-color: var(--tier-sonnet); }
+.sq.prov-google.desk.tier-agy-opus { border-top-color: var(--tier-opus); }
