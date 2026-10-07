@@ -1454,3 +1454,5 @@ Warm-pool eligibility shares one lazy NativeInventory per keeper pass through tr
 Cold archived docket projections covered by the existing policy spec use its typed decoder and policy extra, not full item/event reconstruction. The same snapshot retains pending moves/deletions and archive sequence order; uncovered fields use the full compatibility reader. [decided: drag-opus 2026-10-06; verified: `orgdb/compat/sql.py` `_project`]
 
 - 2026-10-07 (verified-from-source): top-level rescind is supported by Rust `domain/ops.rs` and 3.x `ledger.py`: archive the subtree, with no superior grant to reduce. Agent settings shows it for every live agent and explains that case in its confirmation. See `docs/rust-engine/agent-settings-refresh.md`.
+
+- 2026-10-07 (verified-from-source): agent settings MODEL_VERSIONS includes Haiku 5.5/4.5, matching Rust providers/catalog.rs. The current tree payload does not expose version choices; keep the renderer fallback table synchronized. Model/version/effort/account changes remain staged until Save.
