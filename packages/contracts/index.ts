@@ -21,6 +21,8 @@ export interface DesktopPreferences extends NotificationPreferences {
   agentColorSource: AgentColorSource
   /** True when the user chose a theme; absent means use the detected default. */
   visualThemeExplicit?: boolean
+  /** Hidden custom-color mode; the saved visualTheme remains the static color. */
+  rainbowTheme?: { revealed: boolean; enabled: boolean; epoch: number }
   exitOnClose: boolean
   startAtLogin: boolean
   automaticUpdates: boolean

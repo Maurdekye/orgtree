@@ -24,6 +24,11 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     if (key === 'visualTheme') {
       if (!isVisualTheme(val)) throw new Error('Invalid visual theme')
       result.visualTheme = val
+    } else if (key === 'rainbowTheme') {
+      const mode = val as DesktopPreferences['rainbowTheme']
+      if (!mode || typeof mode.revealed !== 'boolean' || typeof mode.enabled !== 'boolean'
+        || !Number.isSafeInteger(mode.epoch) || mode.epoch < 0 || (mode.enabled && !mode.revealed)) throw new Error('Invalid rainbow theme')
+      result.rainbowTheme = { revealed: mode.revealed, enabled: mode.enabled, epoch: mode.epoch }
     } else if (key === 'contrastTheme') {
       if (!isContrastTheme(val)) throw new Error('Invalid contrast theme')
       result.contrastTheme = val
