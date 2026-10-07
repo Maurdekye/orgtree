@@ -57,9 +57,16 @@ pub fn init(cfg: &Config) -> Result<()> {
     }
     let home = cfg.data_root.join("rig-home");
     std::fs::create_dir_all(&home)?;
-    tracing::warn!(home = %home.display(), "rig mode: fake home, rig CLIs only, no usage probes, /api/rig/tool served");
     let _ = RIG.set(Some(home));
     Ok(())
+}
+
+/// Say in the log that this engine runs in rig mode (`init` runs before the log opens).
+#[logged]
+pub fn announce() {
+    if let Some(home) = RIG.get().cloned().flatten() {
+        tracing::warn!(home = %home.display(), "rig mode: fake home, rig CLIs only, no usage probes, /api/rig/tool served");
+    }
 }
 
 /// A release build has no rig mode: asking for it is a refusal to start.

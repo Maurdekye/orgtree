@@ -88,15 +88,16 @@ fn serve() -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // before the log opens: a refused rig root gets nothing written into it
+    if let Err(e) = rig::init(&cfg) {
+        eprintln!("orgtree-engine: {e:#}");
+        return ExitCode::from(1);
+    }
     let (_guards, log_file) = trace::init(&cfg);
     tracing::info!(pid = std::process::id(), root = %cfg.data_root_id, log = %log_file.display(),
                    version = env!("CARGO_PKG_VERSION"), build = if trace::RELEASE_BUILD { "release" } else { "dev" },
                    "engine starting");
-    if let Err(e) = rig::init(&cfg) {
-        tracing::error!(error = %format!("{e:#}"), "refusing to start");
-        eprintln!("orgtree-engine: {e:#}");
-        return ExitCode::from(1);
-    }
+    rig::announce();
     winproc::install_root_job();
     let lock = match launch::RootLock::acquire(&cfg.data_root) {
         Ok(Some(lock)) => lock,
