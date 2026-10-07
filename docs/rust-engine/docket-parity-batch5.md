@@ -33,8 +33,11 @@ Link headers are read in pages of 256; ancestor queries are scalar.
 
 The policy dispositions above are verified from source against the frozen
 Python reference; they are not a claim of measured PostgreSQL behavior.
-The assigned check is `cargo check --offline --manifest-path engine/rs/Cargo.toml
--p orgtree-engine -j 2`, with `CARGO_TARGET_DIR=E:/cargo-target/jobs-sol` and at
-least 6 GiB free RAM. Its final result is recorded in the hand-in and docket.
+Measured: `cargo check --offline --manifest-path engine/rs/Cargo.toml
+-p orgtree-engine -j 2` passed with `CARGO_TARGET_DIR=E:/cargo-target/jobs-sol`
+and at least 6 GiB free RAM. The first check took 3m 23s in the fresh target;
+the replay onto integration `807210f` passed in 18.23s; the final anonymous-link
+projection correction passed in 6.04s. All engine patches compared equal across
+the replay; the guide conflict was resolved by retaining both agents' entries.
 No unit-test suite, independent review round, engine build, push, install or
 restart is part of this prototype hand-in.
