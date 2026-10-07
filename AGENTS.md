@@ -128,6 +128,14 @@ plan and this file. Read both before you change anything. All entries below: 202
   [recorded-decision: user 2026-10-07 08:19Z; verified-from-source and mounted mock smoke:
   renderer `convo.ts`, `canvas/desk.tsx`]
 
+- Viewport history fill uses `before` cursor pages, not a larger moving tail:
+  a burst while a window is away can make a valid enlarged tail look stalled.
+  Rust cursors are decimal oldest-row sequences; preserve that cursor when
+  trimming incremental rows, and retain the read range from page-request start.
+  Caller/browser `AbortError` and superseded errors are silent; `TimeoutError`
+  remains a real failure. [verified-from-source and mounted mock: 2026-10-07;
+  `docs/rust-engine/transcript-history-retries.md`]
+
 - Limit marks: fresh successful provider probes may clear an older mark for the
   same account/pool; cached, failed, missing or incomplete readings cannot. A
   successful turn uses its captured admission account/time, never a later rebind.
