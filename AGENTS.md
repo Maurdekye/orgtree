@@ -40,7 +40,7 @@ plan and this file. Read both before you change anything. All entries below: 202
 - Composer Enter behavior is app-wide: App settings › General › Enter key defaults to
   Send message; Insert new line uses Ctrl+Enter to send. Questions' free-text fields are
   multiline; single-line inputs and document editors keep their own shortcuts. The app
-  feed updates open windows. [decided: user 2026-10-07, DECISIONS 46; verified:
+  feed updates open windows. [decided: user 2026-10-07, DECISIONS 48; verified:
   `http/settings.rs`, `appfeed.rs`, renderer `enterkey.ts`, `composerkeys.ts`]
 
 - Limit marks: fresh successful provider probes may clear an older mark for the

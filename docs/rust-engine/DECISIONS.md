@@ -118,7 +118,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 ## Verification during the build
 
-46. **App-wide Enter key choice** (user 2026-10-07 00:01Z): App settings › General ›
+48. **App-wide Enter key choice** (user 2026-10-07 00:01Z): App settings › General ›
     Enter key offers Send message (default: Enter sends, Shift+Enter inserts a new line)
     and Insert new line (Enter inserts a new line, Ctrl+Enter sends). Persist the choice
     with app settings and use it in every message composer, including desks, user and
