@@ -310,7 +310,10 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
     }
     let cwd = workdir(engine, &dog);
     let (events, alive) = check(&mut dog, cwd.as_deref()).await;
-    note_life(&mut dog.run, alive);
+    // a probe that could not see is not a sign of death: quiet stays put
+    if let Some(alive) = alive {
+        note_life(&mut dog.run, alive);
+    }
     let matched = !events.is_empty();
     save_run(engine, &mut dog, matched).await?;
     if dog.silence() {
@@ -339,9 +342,10 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
 }
 
 /// Check the target once: the matching event lines, and whether the subject
-/// showed a sign of life (the file grew, the command ran, the process answered).
+/// showed a sign of life (the file grew, the command ran, the process answered);
+/// None when a process probe could not tell.
 #[logged]
-async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, bool) {
+async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, Option<bool>) {
     let re = dog.regex();
     let hit = |line: &str| !line.trim().is_empty() && re.as_ref().map(|r| r.is_match(line)).unwrap_or(true);
     let kind = dog.kind.clone();
@@ -356,7 +360,7 @@ async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, bool) {
                 Ok(m) if m.is_file() => m,
                 _ => {
                     run["missing"] = json!(true);
-                    return (Vec::new(), false);
+                    return (Vec::new(), Some(false));
                 }
             };
             run["missing"] = json!(false);
@@ -367,20 +371,18 @@ async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, bool) {
                 from = 0;
             }
             if len == from {
-                return (Vec::new(), false);
+                return (Vec::new(), Some(false));
             }
             const WINDOW: usize = 1 << 20;
             let take = ((len - from) as usize).min(WINDOW);
-            let Ok(buf) = read_at(path, from, take) else { return (Vec::new(), false) };
-            // stop at the last complete line, unless one line fills the window
-            // or an unterminated tail sat unchanged for a whole interval
-            let cut = match buf.iter().rposition(|b| *b == b'\n') {
+            let Ok(buf) = read_at(path, from, take) else { return (Vec::new(), Some(false)) };
+            // a line is an event only once it is whole: stop at the last line
+            // end and read the fragment again next check, however long it
+            // waits, unless one line fills the window (3.x)
+            let cut = match buf.iter().rposition(|b| *b == b'\n' || *b == b'\r') {
                 Some(i) => i + 1,
-                None if buf.len() == WINDOW || run["partial"].as_u64() == Some(buf.len() as u64) => buf.len(),
-                None => {
-                    run["partial"] = json!(buf.len());
-                    return (Vec::new(), false);
-                }
+                None if buf.len() == WINDOW => buf.len(),
+                None => return (Vec::new(), Some(false)),
             };
             if let Some(o) = run.as_object_mut() {
                 o.remove("partial");
@@ -388,7 +390,7 @@ async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, bool) {
             let text = String::from_utf8_lossy(&buf[..cut]).to_string();
             run["offset"] = json!(from + cut as u64);
             run["last_output"] = json!(tail(&text, OUT_KEEP));
-            (text.lines().filter(|l| hit(l)).map(|l| gist(l.trim_end(), 300)).collect(), true)
+            (text.split(['\n', '\r']).filter(|l| hit(l)).map(|l| gist(l.trim_end(), 300)).collect(), Some(true))
         }
         "command" => {
             let out = run_command(&target, shell.as_deref(), cwd, COMMAND_TIMEOUT_S).await;
@@ -400,16 +402,22 @@ async fn check(dog: &mut Dog, cwd: Option<&Path>) -> (Vec<String>, bool) {
             if out.timed_out {
                 ev.push(format!("(the command did not exit within {COMMAND_TIMEOUT_S} s and was stopped)"));
             }
-            (ev, !broken)
+            (ev, Some(!broken))
         }
         "process" => {
-            let up = target_up(&target).await;
-            let was_up = run["up"].as_bool().unwrap_or(true);
+            // unknown keeps the last known state and fires no edge (3.x)
+            let Some(up) = target_up(&target).await else {
+                run["observed"] = json!("unknown");
+                return (Vec::new(), None);
+            };
+            run["observed"] = json!(if up { "alive" } else { "dead" });
+            // the DOWN edge only from a state seen UP
+            let was_up = run["up"].as_bool() == Some(true);
             run["up"] = json!(up);
             let ev = if was_up && !up { vec![format!("{target} went DOWN")] } else { Vec::new() };
-            (ev, up)
+            (ev, Some(up))
         }
-        _ => (Vec::new(), false),
+        _ => (Vec::new(), Some(false)),
     }
 }
 
@@ -482,18 +490,22 @@ async fn save_run(engine: &Engine, dog: &mut Dog, matched: bool) -> Result<()> {
     Ok(())
 }
 
+/// Is a `pid:N` / `port:N` target up: Some(true) up, Some(false) decisively
+/// down (no such pid, exited, or the port refused), None when the probe
+/// could not tell (access denied, a timed-out or failed connect, a bad target).
 #[logged]
-async fn target_up(target: &str) -> bool {
+async fn target_up(target: &str) -> Option<bool> {
     if let Some(pid) = target.strip_prefix("pid:").and_then(|p| p.trim().parse::<u32>().ok()) {
-        return crate::winproc::process_alive(pid);
+        return crate::winproc::process_state(pid);
     }
     if let Some(port) = target.strip_prefix("port:").and_then(|p| p.trim().parse::<u16>().ok()) {
-        return tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(("127.0.0.1", port)))
-            .await
-            .map(|r| r.is_ok())
-            .unwrap_or(false);
+        return match tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(("127.0.0.1", port))).await {
+            Ok(Ok(_)) => Some(true),
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => Some(false),
+            _ => None,
+        };
     }
-    false
+    None
 }
 
 fn silence_line(dog: &Dog) -> String {
@@ -1313,11 +1325,15 @@ async fn smoke(kind: &str, target: &str, pattern: Option<&Regex>, shell: Option<
         }
         "process" => {
             let up = target_up(target).await;
-            res["ran"] = json!(format!("{target} is {} right now", if up { "UP" } else { "DOWN" }));
-            res["note"] = json!(if up {
-                "this dog fires on the DOWN EDGE only."
-            } else {
-                "this dog fires on the DOWN EDGE only — and the target is ALREADY DOWN, so it will not fire until it comes UP and goes down again."
+            res["ran"] = json!(match up {
+                Some(true) => format!("{target} is UP right now"),
+                Some(false) => format!("{target} is DOWN right now"),
+                None => format!("{target} could not be determined right now (access denied or no answer) — this is not evidence that it stopped"),
+            });
+            res["note"] = json!(match up {
+                Some(true) => "this dog fires on the DOWN EDGE only.",
+                Some(false) => "this dog fires on the DOWN EDGE only — and the target is ALREADY DOWN, so it will not fire until it comes UP and goes down again.",
+                None => "this dog fires on the DOWN EDGE only, from a state it has seen UP; checks that cannot see the target change nothing.",
             });
             return res;
         }
@@ -1493,7 +1509,11 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     // where the runner starts: a file from its current end, a process from its current state
     match kind.as_str() {
         "file" => memo["run"]["offset"] = json!(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0)),
-        "process" => memo["run"]["up"] = json!(target_up(&target).await),
+        "process" => {
+            if let Some(up) = target_up(&target).await {
+                memo["run"]["up"] = json!(up);
+            }
+        }
         _ => {}
     }
     let cwd = scratch.is_dir().then_some(scratch);

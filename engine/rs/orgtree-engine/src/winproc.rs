@@ -108,6 +108,29 @@ mod imp {
         }
     }
 
+    /// Is `pid` running: Some(true) running, Some(false) decisively gone
+    /// (no such pid, or exited), None when the probe could not see (access
+    /// denied or any other failure), as 3.x `liveness.observe`.
+    #[logged]
+    pub fn process_state(pid: u32) -> Option<bool> {
+        const ERROR_INVALID_PARAMETER: i32 = 87;
+        const WAIT_TIMEOUT: u32 = 258;
+        unsafe {
+            let h = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                let code = std::io::Error::last_os_error().raw_os_error();
+                return (code == Some(ERROR_INVALID_PARAMETER)).then_some(false);
+            }
+            let r = WaitForSingleObject(h, 0);
+            CloseHandle(h);
+            match r {
+                WAIT_OBJECT_0 => Some(false),
+                WAIT_TIMEOUT => Some(true),
+                _ => None,
+            }
+        }
+    }
+
     /// Block a dedicated thread until `pid` exits, then call `on_exit`.
     pub fn watch_parent(pid: u32, on_exit: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
@@ -141,6 +164,9 @@ mod imp_other {
     }
     pub fn process_alive(_pid: u32) -> bool {
         true
+    }
+    pub fn process_state(_pid: u32) -> Option<bool> {
+        None
     }
     pub fn watch_parent(_pid: u32, _on_exit: impl FnOnce() + Send + 'static) {}
 }
