@@ -83,3 +83,8 @@ engine/cluster restart, and silence fire without target polling. All fixture
 agents were halted, all alerts passive; no provider turn or live data was used.
 The private engine and cluster were stopped afterwards. Production emit adapters
 were checked from source; this smoke does not simulate every provider lifecycle.
+
+SAFE_START recovers only event dogs, and all watchdog alerts are passive in that mode;
+a recovered dog can never launch a provider from a copied database. Normal runs
+retain notice/wake semantics. Count scope failures pause with a diagnostic. Credit
+parent lookups run only while a matching event subscriber exists.
