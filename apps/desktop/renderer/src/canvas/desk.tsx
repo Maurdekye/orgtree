@@ -2236,13 +2236,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // sticky-bottom, in one place. `stuck` is maintained by the SCROLL EVENT
   // rather than recomputed at each update: growing content does not move
   // scrollTop, so a reader sitting at the bottom stays "stuck" and a reader who
-  // scrolled up stays free until they come back down. 40px of slack keeps it
-  // from unsticking on a stray pixel.
+  // scrolled up stays free until they come back down. Upward input releases
+  // follow before the browser delivers its asynchronous scroll event.
   const stickRef = useRef(true)
+  const followTop = useRef<number | null>(null)
   const [showJump, setShowJump] = useChangedState(false)
-  const nearBottom = () => {
+  const atBottom = () => {
     const el = scroller.current
-    return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    // scrollTop can be fractional while the height measurements are rounded.
+    return !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 1
   }
   const setStuck = (v: boolean) => {
     stickRef.current = v
@@ -2264,7 +2266,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   menuOpenRef.current = replyMenu.isOpen
   const pin = () => {
     const el = scroller.current
-    if (el && !menuOpenRef.current) el.scrollTop = el.scrollHeight
+    if (!el || menuOpenRef.current) return
+    // Native movement can precede its scroll event. Yield before overwriting
+    // it; a smaller scroll range's browser clamp is not upward user movement.
+    if (followTop.current !== null && el.scrollTop < followTop.current
+      && el.scrollHeight - el.clientHeight >= followTop.current) {
+      followTop.current = el.scrollTop
+      setStuck(false)
+      return
+    }
+    el.scrollTop = el.scrollHeight
+    followTop.current = el.scrollTop
   }
   useEffect(() => {
     if (!replyMenu.isOpen && stickRef.current) pin()
@@ -2459,6 +2471,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     return el ? transcriptViewport(el).page : CHAT_WINDOW
   }
   const toBottom = () => {
+    followTop.current = null   // explicit jump wins over unreported movement
     setStuck(true); pin()
     // jumping to the tail LEAVES history — the expanded poll window goes
     // back to what this desk is drawing (perf-review round 2; bounded by the
@@ -2563,18 +2576,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // the layout effect above still covers every React-driven growth
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      // ⚠ The else branch is not symmetry for its own sake. A panel that gets
-      // WIDER re-wraps SHORTER, so the browser clamps a scrolled-up reader's
-      // scrollTop — and can deposit them at the bottom without them ever
-      // scrolling. `stickRef` would stay false, the ⇩ chip would sit there
-      // over an already-bottomed view, and the next agent message would not
-      // pin: the exact silent failure this whole observer exists to prevent,
-      // reached through its own path. Browsers do fire a scroll event on a
-      // clamp, which would heal it — but a fix that depends on that is an
-      // argument, and this is a guard. `nearBottom()` is the same 40px
-      // predicate onScroll uses, so this can only ever agree with it.
+      // Resize follows an already-following reader. It must not re-enable
+      // follow after upward input, before the browser has moved the viewport.
+      // Only a downward scroll to the bottom or an explicit jump resumes it.
       if (stickRef.current) pin()
-      else setStuck(nearBottom())
       calcPinRef.current()
       fillViewportRef.current()
     })
@@ -3496,10 +3501,25 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 ↑ you: {pinTarget.label || 'your message'}
               </span>
             </button>)}
-        <div className="msgs" ref={attachScroller}
+        <div className="msgs" ref={attachScroller} tabIndex={0}
+          onWheel={(e) => { if (e.deltaY < 0) setStuck(false) }}
+          onKeyDown={(e) => {
+            if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey
+              || (e.target as HTMLElement).closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+            if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home'
+              || (e.key === ' ' && e.shiftKey)) setStuck(false)
+          }}
           onScroll={(e) => {
             const wasStuck = stickRef.current
-            setStuck(nearBottom())
+            const top = e.currentTarget.scrollTop
+            const previous = followTop.current ?? top
+            const echo = anchorEcho.current !== null
+              && Math.abs(top - anchorEcho.current) <= 1
+            if (!echo) {
+              if (top < previous || !atBottom()) setStuck(false)
+              else if (top > previous) setStuck(true)
+            }
+            followTop.current = top
             // scrolling BACK DOWN to the tail leaves history: the expanded
             // window collapses so the poll returns to the tail (perf-review
             // round 2 — the mounted-desk case), but never below what this
@@ -3514,8 +3534,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             // check is what lets the settle loop's own writes through — in a
             // real browser they arrive here as scroll events, and treating
             // them as the reader would disarm the hold it is part of.
-            const echo = anchorEcho.current !== null
-              && Math.abs(e.currentTarget.scrollTop - anchorEcho.current) <= 1
             anchorEcho.current = null
             // a delivered event accounts for the position it reports — from
             // here on, a hold finding the viewport elsewhere knows it moved
