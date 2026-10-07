@@ -5,7 +5,7 @@ export type RainbowPreference = NonNullable<DesktopPreferences['rainbowTheme']>
 export const RAINBOW_OFF: RainbowPreference = { revealed: false, enabled: false, epoch: 0 }
 const KEY = 'orgtree-rainbow-theme'
 const STORED = 'orgtree:rainbow-stored'
-export const CYCLE_MS = 20_000
+export const CYCLE_MS = 30_000
 
 export function colorHsl(hex: string): [number, number, number] {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number]

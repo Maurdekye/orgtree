@@ -7780,3 +7780,20 @@ main:has(> .orgbar.native-header) > .error {
 .edbg-table th:nth-child(2), .edbg-table td:nth-child(2) { text-align: left; }
 .edbg-self td { color: var(--accent, #61afef); }
 :root .rainbow-theme-option { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.rainbow-theme-label {
+  /* Two identical spectra make each rightward pass loop without a seam. */
+  background-image: linear-gradient(to right,
+    hsl(0 55% 60%), hsl(60 55% 60%), hsl(120 55% 60%), hsl(180 55% 60%), hsl(240 55% 60%), hsl(300 55% 60%),
+    hsl(0 55% 60%), hsl(60 55% 60%), hsl(120 55% 60%), hsl(180 55% 60%), hsl(240 55% 60%), hsl(300 55% 60%), hsl(0 55% 60%));
+  background-size: 200% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: rainbow-label-flow 10s linear infinite;
+}
+@keyframes rainbow-label-flow {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rainbow-theme-label { animation-play-state: paused; }
+}
