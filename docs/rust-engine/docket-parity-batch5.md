@@ -39,8 +39,12 @@ Python reference; they are not a claim of measured PostgreSQL behavior.
 Measured: `cargo check --offline --manifest-path engine/rs/Cargo.toml
 -p orgtree-engine -j 2` passed with `CARGO_TARGET_DIR=E:/cargo-target/jobs-sol`
 and at least 6 GiB free RAM. The first check took 3m 23s in the fresh target;
-the replay onto integration `807210f` passed in 18.23s; the final anonymous-link
-projection correction passed in 6.04s. All engine patches compared equal across
-the replay; the guide conflict was resolved by retaining both agents' entries.
+the replay onto integration `807210f` passed in 18.23s; the anonymous-link
+projection correction passed in 6.04s. The final engine tip `9f267ba`, including
+atomic-staffing and completion adapters on integration `0482b2a`, passed in
+19.03s with 12.05 GiB free RAM at start. All engine patches compared equal across
+that last rebase; only the guide's insertion context changed, retaining upstream
+entries. The staffing adapters were agreed with outage-astra, the completion
+tool adapter with mcp-astra, and the default mail option with the coordinator.
 No unit-test suite, independent review round, engine build, push, install or
 restart is part of this prototype hand-in.
