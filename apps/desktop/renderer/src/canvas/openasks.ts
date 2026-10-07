@@ -37,18 +37,21 @@ export function openAsks(tree: Pick<TreePayload, 'asks'> | null | undefined,
   return openCards(tree, nodes).filter(a => !askSubmitted(a.id))
 }
 
-/** How many of the tree's `asks_open` rows sit behind cards the user has
- *  just submitted. `asks_open` counts one per open store row (question,
- *  credit request, scope request), and a batch card resolves one row of each
- *  store it carries, which is exactly its `revs` keys. The header bell takes
- *  these off its count and glow, so an answer clears it on the click
- *  (user addendum 2026-09-30) instead of on the next tree read. */
+/** How many header request rows sit behind cards just submitted. Rust has
+ *  one row per request; legacy headers may have separate question, credit
+ *  and scope rows. Count their IDs, not tabs or CAS revision keys. The bell
+ *  clears these immediately, before the next server snapshot arrives. */
 export function submittedOpenCount(tree: Pick<TreePayload, 'asks'> | null | undefined,
   nodes: Iterable<TreeNode>): number {
   let n = 0
   for (const a of openCards(tree, nodes)) {
     if (!askSubmitted(a.id)) continue
-    n += a.kind === 'batch' ? Math.max(1, Object.keys(a.revs ?? {}).length) : 1
+    // Count the same request rows as asks_open. Rust stores all tabs/kinds
+    // in one row; legacy headers can contain separate question/credit/scope
+    // rows. CAS revision keys are not a row count in the Rust engine.
+    const ids = new Set((tree?.asks ?? [])
+      .filter(row => row.node === a.node && askIsOpen(row)).map(row => row.id))
+    n += ids.size || (a.kind === 'batch' ? Math.max(1, Object.keys(a.revs ?? {}).length) : 1)
   }
   return n
 }

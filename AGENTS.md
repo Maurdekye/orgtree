@@ -23,6 +23,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   2026-10-07; `docs/rust-engine/boot-credential-warning.md`; user warn-only ruling
   12:33Z, credential bridge separately requested 12:40Z]
 
+- Attached ask cards are grouped by request ID and ticket, never tab text.
+  `asks::attached_tabs` preserves tab indices and filters exact ticket links;
+  the docket reader repairs duplicate attachment lists from earlier builds.
+  The full batch remains the answering form. Optimistic question counts use
+  actual header request IDs, not revision keys. [verified from source and
+  synthetic smoke: 2026-10-07; `docs/rust-engine/attached-ask-cards.md`]
+
 - Cost labels show only `$X.XX`, including partial nonzero totals; unknown zero
   stays `$?`. Partial/estimated explanations stay in the existing hover titles.
   [recorded-decision: user 2026-10-07 09:49Z; verified-from-source:
