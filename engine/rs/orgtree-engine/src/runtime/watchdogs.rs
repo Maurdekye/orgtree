@@ -5,7 +5,8 @@
 //! through lock-free maps: pausing or removing a watchdog cancels its token,
 //! and activity dogs listen on a per-agent fan-out the actor publishes to.
 
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,6 +31,10 @@ pub const MAX_PER_ORG: i64 = 32;
 /// The pause an archive writes and a rehire undoes.
 pub const ARCHIVE_PAUSE: &str = "its owner was archived";
 const NOT_BELOW: &str = "its activity target is no longer itself or a descendant";
+// 3.x `_wd_owner_lost` wording: why an armed dog lost the authority it runs with
+const NO_BASH: &str = "its owner no longer holds bash — the hands it runs with";
+const NO_BASH_EXE: &str = "it was created with shell='bash' and no bash exists on this machine any more — running it in cmd.exe instead would silently match nothing (re-create it with shell='native' and a cmd target, or reinstall Git)";
+const NO_FOLDER: &str = "its owner no longer holds the folder it watches";
 const FLOOR_S: i64 = 15;
 const STREAM_FLOOR_S: i64 = 5;
 const COMMAND_TIMEOUT_S: u64 = 60;
@@ -295,6 +300,14 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
         pause(engine, &dog, ARCHIVE_PAUSE).await?;
         return Ok(None);
     }
+    // authority is checked on every tick, not only at create (3.x)
+    if let Some(why) = authority_lost(engine, &dog).await? {
+        pause(engine, &dog, why).await?;
+        return Ok(None);
+    }
+    if dog.kind == "file" {
+        dog.target = file_target(&scratch_dir(engine, &dog), &dog.target).to_string_lossy().into_owned();
+    }
     let cwd = workdir(engine, &dog);
     let (events, alive) = check(&mut dog, cwd.as_deref()).await;
     note_life(&mut dog.run, alive);
@@ -490,11 +503,102 @@ fn silence_line(dog: &Dog) -> String {
 
 /// The owner's working folder, where command and stream dogs run.
 fn workdir(engine: &Engine, dog: &Dog) -> Option<PathBuf> {
-    let p = match &dog.workdir {
-        Some(d) => PathBuf::from(d),
-        None => engine.cfg.scratch_root(&engine.orgs.by_id(dog.org_id)?.slug).join(&dog.owner_name),
-    };
+    let p = scratch_dir(engine, dog);
     p.is_dir().then_some(p)
+}
+
+/// The owner's working folder, whether or not it exists yet.
+#[logged]
+fn scratch_dir(engine: &Engine, dog: &Dog) -> PathBuf {
+    owner_scratch(engine, dog.org_id, &dog.owner_name, dog.workdir.as_deref())
+}
+
+#[logged]
+fn owner_scratch(engine: &Engine, org_id: i64, owner_name: &str, dir: Option<&str>) -> PathBuf {
+    match dir {
+        Some(d) => PathBuf::from(d),
+        None => engine.cfg.scratch_root(&engine.orgs.by_id(org_id).map(|o| o.slug.clone()).unwrap_or_default()).join(owner_name),
+    }
+}
+
+/// A file dog's target: relative paths start in the owner's working folder.
+#[logged]
+fn file_target(scratch: &Path, target: &str) -> PathBuf {
+    let t = Path::new(target);
+    real_path(&if t.is_absolute() { t.to_path_buf() } else { scratch.join(t) })
+}
+
+/// `p` made real as 3.x `os.path.realpath` does: `.` and `..` folded, links
+/// resolved as far as the path exists, and the missing rest appended.
+#[logged]
+fn real_path(p: &Path) -> PathBuf {
+    let mut norm = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::ParentDir => {
+                norm.pop();
+            }
+            Component::CurDir => {}
+            other => norm.push(other.as_os_str()),
+        }
+    }
+    let mut head = norm.clone();
+    let mut rest: Vec<OsString> = Vec::new();
+    loop {
+        if let Ok(c) = std::fs::canonicalize(&head) {
+            let mut out = crate::config::strip_verbatim(&c);
+            for r in rest.iter().rev() {
+                out.push(r);
+            }
+            return out;
+        }
+        let Some(name) = head.file_name().map(|n| n.to_os_string()) else { return norm };
+        rest.push(name);
+        head.pop();
+    }
+}
+
+/// Is `target` (already real) inside a tree a file dog of `owner` may read:
+/// its working folder, the org workspace, or a folder its effective scope
+/// holds? One rule for create and for every tick (3.x `wd_file_contained`).
+#[logged]
+async fn file_contained(engine: &Engine, org_id: i64, owner: i64, scratch: &Path, target: &Path) -> Result<bool> {
+    let eff = effective_scope(engine, owner).await?;
+    let mut roots = vec![real_path(scratch)];
+    if let Some(o) = engine.orgs.by_id(org_id) {
+        roots.push(real_path(&engine.cfg.workspace_dir(&o.slug)));
+    }
+    for d in eff["add_dirs"].as_array().into_iter().flatten() {
+        if let Some(p) = d["path"].as_str() {
+            roots.push(real_path(Path::new(p)));
+        }
+    }
+    let full = target.to_string_lossy();
+    Ok(roots.iter().any(|r| scope::path_within(&full, &r.to_string_lossy())))
+}
+
+/// Why an armed dog must stop because its owner lost the hands it runs
+/// with, or None (3.x `_wd_owner_lost`; liveness is checked by the callers).
+#[logged]
+async fn authority_lost(engine: &Engine, dog: &Dog) -> Result<Option<&'static str>> {
+    match dog.kind.as_str() {
+        "command" | "stream" => {
+            if !holds_bash(engine, dog.owner).await? {
+                return Ok(Some(NO_BASH));
+            }
+            if dog.shell.as_deref() == Some("bash") && resolve_bash().is_none() {
+                return Ok(Some(NO_BASH_EXE));
+            }
+        }
+        "file" => {
+            let scratch = scratch_dir(engine, dog);
+            if !file_contained(engine, dog.org_id, dog.owner, &scratch, &file_target(&scratch, &dog.target)).await? {
+                return Ok(Some(NO_FOLDER));
+            }
+        }
+        _ => {}
+    }
+    Ok(None)
 }
 
 // ------------------------------------------------------------ shells
@@ -643,6 +747,10 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
         // an exited stream respawns only on resume; a silence dog keeps its clock
         return if dog.silence() { silence_clock(engine, &dog.uid, cancel).await } else { Ok(()) };
     }
+    if let Some(why) = authority_lost(engine, &dog).await? {
+        pause(engine, &dog, why).await?;
+        return Ok(());
+    }
     let re = dog.regex();
     let cwd = workdir(engine, &dog);
     let spawned = shell_cmd(&dog.target, dog.shell.as_deref(), cwd.as_deref()).and_then(|mut c| {
@@ -676,6 +784,7 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
     let mut dirty = false;
     let mut matched_at: Option<DateTime<Utc>> = None;
     let mut last_save = Instant::now();
+    let mut last_auth = Instant::now();
     let mut d = dog;
     while !(ea && eb) {
         let line = tokio::select! {
@@ -727,6 +836,14 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
             }
             dirty = false;
             last_save = Instant::now();
+        }
+        if last_auth.elapsed() >= Duration::from_secs(FLOOR_S as u64) {
+            last_auth = Instant::now();
+            if let Some(why) = authority_lost(engine, &d).await? {
+                pause(engine, &d, why).await?;
+                let _ = child.start_kill();
+                return Ok(());
+            }
         }
         if d.due_in().map(|s| s <= 0).unwrap_or(false) {
             if fire(engine, &d, &[silence_line(&d)], " WENT QUIET —").await? {
@@ -1133,6 +1250,13 @@ async fn may_manage(engine: &Engine, actor: Option<i64>, owner: i64) -> Result<b
 /// Does `agent` hold bash, all the way up its chain?
 #[logged]
 async fn holds_bash(engine: &Engine, agent: i64) -> Result<bool> {
+    Ok(effective_scope(engine, agent).await?["tools"]["bash"].as_bool().unwrap_or(false))
+}
+
+/// `agent`'s effective scope: its configured scope clamped by every
+/// superior's, up to the org's folders.
+#[logged]
+async fn effective_scope(engine: &Engine, agent: i64) -> Result<Value> {
     let client = engine.db.get().await?;
     let org: Value = client
         .query_one("SELECT o.settings FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1", &[&agent])
@@ -1153,7 +1277,7 @@ async fn holds_bash(engine: &Engine, agent: i64) -> Result<bool> {
     for s in &chain {
         eff = scope::clamp(&s.get::<_, Value>(0), &eff);
     }
-    Ok(eff["tools"]["bash"].as_bool().unwrap_or(false))
+    Ok(eff)
 }
 
 /// What the target says right now, through the same spawn the runner uses.
@@ -1272,10 +1396,23 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if target.is_empty() {
         refuse!(BadRequest, "target is required — the path, command, agent, or pid:N / port:N to watch");
     }
+    let mut target = target;
     let client = engine.db.get().await?;
     let owner_row = client.query_one("SELECT name, scratch_dir FROM ot.agents WHERE id = $1", &[&owner]).await?;
     let owner_name: String = owner_row.get(0);
     let owner_dir: Option<String> = owner_row.get(1);
+    let scratch = owner_scratch(engine, org_id, &owner_name, owner_dir.as_deref());
+    if kind == "file" {
+        // only trees the owner holds are watchable; relative paths start in its folder
+        let full = file_target(&scratch, &target);
+        if !file_contained(engine, org_id, owner, &scratch, &full).await? {
+            refuse!(
+                Forbidden,
+                "cannot watch {target} — only files in your working folder, the workspace, or a folder you hold are watchable (orgtree_request_scope can ask for more)"
+            );
+        }
+        target = full.to_string_lossy().into_owned();
+    }
     if (kind == "command" || kind == "stream") && !holds_bash(engine, owner).await? {
         refuse!(
             Forbidden,
@@ -1359,13 +1496,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         "process" => memo["run"]["up"] = json!(target_up(&target).await),
         _ => {}
     }
-    let cwd = {
-        let p = match &owner_dir {
-            Some(d) => PathBuf::from(d),
-            None => engine.cfg.scratch_root(&engine.orgs.by_id(org_id).map(|o| o.slug.clone()).unwrap_or_default()).join(&owner_name),
-        };
-        p.is_dir().then_some(p)
-    };
+    let cwd = scratch.is_dir().then_some(scratch);
     let smoked = smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await;
     let id = uid("wd");
     let client = engine.db.get().await?;
