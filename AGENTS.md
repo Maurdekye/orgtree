@@ -93,6 +93,12 @@ PID, reason and OS status (or explicit uncertainty). [verified: `runtime/actor.r
 
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
+- **Open request cards (2026-10-07):** emit `kind: batch` with typed `tabs`, even for
+  question-only or single-tab requests, as 3.x did. That selects the existing renderer's
+  next-unanswered-tab navigation; multi-select and typing do not advance. Recompose
+  already-open Rust rows on read; keep stored kinds for resolved-card history.
+  [verified: `src/domain/asks.rs::compose`, `src/domain/tree.rs::ask_card`, renderer
+  `canvas/asks.tsx::BatchAsk`]
 - **No global locks of any kind.** State is owned, not shared: each running agent's state belongs
   to its actor and changes only through messages on its channel; each org's feed is one task;
   registries are lock-free maps. Database transactions are short, lock only the rows they change,
@@ -100,6 +106,8 @@ PID, reason and OS status (or explicit uncertainty). [verified: `runtime/actor.r
   list read has a `LIMIT`. [PLAN §2.2]
 - **`#[logged]` on every engine method.** Put `#[logged]` on each free function and inherent
   `impl` block; it logs every call with its arguments and its return value under one invocation id.
+  Do not put it on an individual associated function inside an impl: that expands as a free
+  function and fails to resolve its generated helper. [verified 2026-10-07: macro source, cargo check]
   Mark only extremely hot methods (per-token streaming, per-record feed rebuilding, tiny helpers)
   `#[nolog]`. Verbose logging is off by default in packaged builds and on in development builds.
 - **Never derive `Serialize` on a struct that holds a secret** (a key, token, password or
