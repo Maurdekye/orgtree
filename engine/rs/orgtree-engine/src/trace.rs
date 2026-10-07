@@ -1,10 +1,10 @@
 //! The engine log (decision 34): every engine method's calls and returns,
-//! each line under its request id, its client and its invocation id, in the
+//! each line under its Tokio task id, request id, client and invocation id, in the
 //! galaxy-star style:
 //!
 //! ```text
-//! INFO     [2026-10-06 17:36:53.394512] RQ1a2b3c4d user EX5e6f7a8b http.nodes.message@EX0a1b2c3d domain.mail.send(org_id=3, out=…)
-//! INFO     [2026-10-06 17:36:53.406871] RQ1a2b3c4d user EX5e6f7a8b domain.mail.send(...) [12.359 ms] -> Ok(Sent { … })
+//! INFO     [2026-10-06 17:36:53.394512] T42 RQ1a2b3c4d user EX5e6f7a8b http.nodes.message@EX0a1b2c3d domain.mail.send(org_id=3, out=…)
+//! INFO     [2026-10-06 17:36:53.406871] T42 RQ1a2b3c4d user EX5e6f7a8b domain.mail.send(...) [12.359 ms] -> Ok(Sent { … })
 //! ```
 //!
 //! One file per engine start, named with the start time; rolled over (gzip)
@@ -25,7 +25,7 @@ use tracing_subscriber::registry::LookupSpan;
 
 /// A line longer than this is brought under it (see `fit`; decision 36).
 pub const LINE_CAP: usize = 8 * 1024;
-/// Room kept for the line's prefix (level, time, request, client, frame, caller).
+/// Room kept for the line's prefix (level, time, task, request, client, frame, caller).
 const PREFIX_ROOM: usize = 256;
 /// What the message part of a line may use.
 const BUDGET: usize = LINE_CAP - PREFIX_ROOM;
@@ -828,12 +828,12 @@ where
             let client = g.client.unwrap_or_else(|| "engine".into());
             if let Some(cause) = &g.cause {
                 // a request another one caused says so once, at its start
-                let line = format!(
-                    "{:<8} [{}] RQ{:08x} {client} begins (caused by {cause})\n",
-                    "INFO",
-                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.6f"),
-                    rq as u32
-                );
+                let mut line = format!("{:<8} [{}]", "INFO", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.6f"));
+                match tokio::task::try_id() {
+                    Some(id) => { let _ = write!(line, " T{id}"); }
+                    None => line.push_str(" T-"),
+                }
+                let _ = writeln!(line, " RQ{:08x} {client} begins (caused by {cause})", rq as u32);
                 let mut w = self.file.clone();
                 let _ = w.write_all(line.as_bytes());
             }
@@ -880,6 +880,12 @@ where
         msg.push_str(&g.message);
         msg.push_str(&g.fields);
         let mut prefix = format!("{:<8} [{}]", level_name(meta.level()), chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.6f"));
+        // Read the emitting task, not an inherited request span or the writer
+        // thread. No logging wrapper here: formatting must not log recursively.
+        match tokio::task::try_id() {
+            Some(id) => { let _ = write!(prefix, " T{id}"); }
+            None => prefix.push_str(" T-"),
+        }
         if let Some((rq, client)) = &rq {
             let _ = write!(prefix, " RQ{rq:08x} {client}");
         }
