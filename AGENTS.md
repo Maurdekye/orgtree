@@ -46,6 +46,13 @@ plan and this file. Read both before you change anything. All entries below: 202
   and instrument async futures instead of holding an entered span across an await.
   [verified from source: 2026-10-07, `src/runtime/`; measured log audit and limits:
   `docs/rust-engine/agent-log-context.md`; user clarification of DECISIONS 34]
+- Request parity: questions allow 4 per call and 8 accumulated; overflow refuses without
+  dropping pending tabs. Credits use `ceil(round(total, 2))`; an already-held total removes
+  only the credit tab, and zero chain/cap headroom refuses. Scope items merge by identity
+  (8 maximum), omit capabilities already held after ancestor clamps, and require a reason.
+  Question docket links pass the existing agent read gate before card creation or routing.
+  [verified from source: 2026-10-07, `domain/asks.rs`, `domain/scope.rs`; Python baseline
+  `4ddbfb1:engine/backend/orgtree/ledger.py`; parity P18–P20/P29]
 - Accounts: every account has its own active checkbox in App settings › Providers, the
   native sign-in included; an inactive account serves no new turn and its agents' mail waits.
   [decided: user 2026-10-07, DECISIONS 41]
