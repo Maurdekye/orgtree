@@ -129,9 +129,10 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // User 2026-09-30: swap Focus and Open desk. The copy entry still precedes
   // these, and every other entry keeps its existing position.
   entries.push({ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk })
+  const deskEntries: MenuEntry[] = []
   const openEntries: MenuEntry[] = []
   const temporary = h.onOpenTemporary
-  if (temporary) openEntries.push({
+  if (temporary) deskEntries.push({
     label: 'Open desk',
     title: `read ${node.id}'s desk in a modal without changing the focused `
       + 'agent, pinning it, or opening a window — closing puts everything back',
@@ -183,21 +184,22 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     }
   }
   const pin = h.onPin, showPin = h.onShowPin
-  if (pin && !s.pinned) openEntries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
-  if (s.pinned && showPin) openEntries.push({ label: 'Show pinned window', onSelect: () => showPin() })
   // …and the OS window beside the in-app one. "Open desk in a new window" and
   // not the bare "Open in new window" every pinnable panel uses (modalpin.tsx,
   // popout.tsx): there the object IS the surface, here the object is an agent
   // and what pops out is its desk.
   const popout = h.onPopout, showWindow = h.onShowWindow
   if (popout && !s.detached) {
-    openEntries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
+    deskEntries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
   }
   if (s.detached && showWindow) {
-    openEntries.push({ label: 'Show desk window', onSelect: () => showWindow() })
+    deskEntries.push({ label: 'Show desk window', onSelect: () => showWindow() })
   }
+  if (pin && !s.pinned) deskEntries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
+  if (s.pinned && showPin) deskEntries.push({ label: 'Show pinned window', onSelect: () => showPin() })
   entries.splice(1, 0, {
-    label: 'Open', submenuOnly: true, onSelect: () => {}, children: openEntries,
+    label: 'Open', submenuOnly: true, onSelect: () => {},
+    children: [...deskEntries, ...(deskEntries.length ? ['sep' as const] : []), ...openEntries],
   })
   const hire = h.onHire
   if (canHire && hire) {
