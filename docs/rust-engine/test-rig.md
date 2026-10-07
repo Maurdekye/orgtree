@@ -1,0 +1,121 @@
+# The test rig: a scratch engine you can drive end to end
+
+`tools/rig` runs the real Rust engine against a throwaway data root with its own PostgreSQL
+cluster, plays scripted CLI output through a fake Claude Code CLI, calls any `orgtree_*` tool as a
+chosen agent, and tears everything down. Use it to prove a change through the real path instead
+of labelling it "inferred". Node 24 built-ins only; no `npm install` needed (the desktop smoke
+runs an existing `electron.exe` in place).
+
+## Quick start
+
+```bash
+export CARGO_TARGET_DIR='E:\cargo-target\<you>'      # team rule: your own folder on E:
+node tools/rig/rig.mjs build                          # debug engine + fake CLI (needs >= 6 GB free RAM)
+node tools/rig/rig.mjs up                             # ~20 s: run + basic fixture; prints url, token, org
+node tools/rig/rig.mjs tool alice orgtree_chart '{}'  # any tool, as any live agent
+node tools/rig/rig.mjs mail user carol "hello"        # desk mail from the user (wakes carol)
+node tools/rig/rig.mjs sql "select name, frozen from ot.agents"
+node tools/rig/rig.mjs fakelog carol --kind turn      # what the fake CLI was sent and played
+node tools/rig/rig.mjs down                           # graceful stop, then the run is deleted
+```
+
+Scripted runs: `node tools/rig/rig.mjs run tools/rig/proofs/turn-recovery.mjs` brings a run up,
+calls the script's default export with a `Rig` handle (`tools/rig/lib.mjs`), and always tears the
+run down (also on Ctrl-C). `tools/rig/proofs/` holds worked examples; `proof.mjs` records
+pass/fail checks and evidence under `<rig home>\evidence\<proof>-<time>\`, which outlives the run.
+
+## What keeps it safe
+
+- **Rig mode in the engine** (`src/rig.rs`) is compiled into debug builds only. It switches on
+  only with `ORGTREE_ENGINE_SAFE_START=1`, `ORGTREE_ENGINE_RIG=1`, the marker file
+  `.orgtree-rig-root` in the data root, and a root outside `%APPDATA%\Orgtree v2`; asking for it
+  anywhere else (or from a release build) refuses to start before anything is written. In rig
+  mode every home-folder lookup goes to `<root>\rig-home` (a fake profile: the real `~/.claude`,
+  `~/.codex`, `~/.orgtree` are never read or written), provider CLIs come only from
+  `ORGTREE_CLAUDE_BIN`/`ORGTREE_CODEX_BIN`/`ORGTREE_AGY_BIN`, no usage probe or OpenRouter call
+  is made (canned readings may be dropped into `rig-home\rig-usage\<lane>.json`), and one
+  test-only route exists: `POST /api/rig/tool {org, agent, tool, args}`.
+- **Without rig mode a SAFE_START engine is not isolated**: it reads the real user's sign-ins and,
+  every few minutes, runs the real usage probes (HTTPS with the real Claude token,
+  `codex app-server`, `agy --print /usage`). Do not run scratch engines without the rig.
+- **The rig home** (`ORGTREE_RIG_HOME`, default `E:\orgtree-rig`) is refused inside the live data
+  folder or the repository. PostgreSQL binaries are copied there once (never run from the
+  installed app, whose files an installer must be able to replace). Each run gets a copy of a
+  cached `initdb` template (the engine's own `initdb` path: `up --initdb`).
+- **Processes**: a detached keeper (`keeper.mjs`) is the engine's parent. `rig down`, 20 minutes
+  without a rig command touching the run (`--ttl`), or 120 minutes in all (`--max`) stop it
+  gracefully. If the keeper dies the engine shuts down, and the engine's kill-on-close job takes
+  PostgreSQL and every fake CLI with it. `rig cleanup` deletes stopped runs and kills anything
+  under the rig home that no live run owns (`--mine` also stops your live runs). The engine gets
+  a clean environment: none of the host agent's `ORGTREE_*`, `CLAUDE*`, credential or Codex
+  variables.
+
+## Fixtures
+
+`up --fixture <name|file|none>` (default `tools/rig/fixtures/basic.json`): boss (opus) → alice
+(sonnet) → bob (haiku), and carol (haiku) under boss; one docket item `rig-smoke-item` created by
+boss and owned by alice; one passive note alice → boss. Format:
+
+```json
+{
+  "org": { "name": "Rig Org", "dirs": [], "settings": {} },
+  "agents": [ { "name": "boss", "tier": "opus", "grant": 24, "charter": "..." },
+              { "name": "alice", "parent": "boss", "tier": "sonnet" } ],
+  "docket": [ { "as": "boss", "args": { "title": "...", "objective": "...", "owner": "alice" } } ],
+  "mail": [ { "from": "alice", "to": "boss", "body": "...", "notice": true },
+            { "from": "user", "to": "carol", "body": "..." } ],
+  "scenario": { "default": { "turns": [ { "steps": [ { "text": "OK." } ] } ] } }
+}
+```
+
+Agents are hired with the real `ops` route (any `hire` field works), docket items and agent mail go
+through `orgtree_work`/`orgtree_message` as the named agent, user mail through the desk route.
+Assigning a docket item wakes its owner, so the owner runs one fake turn during seeding.
+
+## The fake CLI and its scenario
+
+`tools/rig/fakecli` (`orgtree-fakecli.exe`, copied into each run as `claude.exe`) is launched by
+the engine exactly like Claude Code. It answers `initialize`, connects the in-process `orgtree`
+MCP server (initialize, tools/list), runs `orgtree_*` calls through `mcp_message`, fires the
+PostToolUse hook after every tool use (that is where the engine hands over mid-turn mail), and
+writes session transcripts under the fake home so `--resume` works.
+
+At every turn it re-reads `<run>\fakecli\scenario.json` (`rig scenario <file>` or
+`rig.scenario({...})`) and plays the first turn script whose `match` substrings all occur in the
+prompt (case-insensitive; `unless` excludes), trying `agents.<name>.turns` before
+`default.turns`; `once: true` / `times: n` limit a script's uses (counted in
+`fakecli\state\<agent>.json`, so they survive CLI restarts). No match: it answers "OK.".
+
+| Step | Effect |
+|---|---|
+| `{"text": "...", "chunk": 24, "delay_ms": 0}` | text deltas, then the assistant message |
+| `{"thinking": "..."}` | thinking deltas and block |
+| `{"tool": "orgtree_x", "args": {...}, "expect": "substr", "expect_error": false}` | a real tool call through the engine; the result and the expectation are logged |
+| `{"tool": "Bash", "args": {...}, "result": "...", "is_error": false, "run_ms": 0}` | any other tool: announced and answered from the script |
+| `{"poll_mail": {"every_ms": 2000, "timeout_ms": 30000}}` | tool boundaries until the hook hands mail over |
+| `{"sleep_ms": n}` / `{"hang": true}` | silence (an interrupt ends either) |
+| `{"exit": 1}` | the CLI dies mid-turn |
+| `{"result": {"is_error": true, "text": "...", "api_error_status": 401}}` | ends the turn with this result (fields merged into the result line) |
+| `{"usage": {...}, "cost_usd": 0.02}` | this turn's usage and cost |
+| `{"system": {"subtype": "task_notification", ...}}` | a system event (background tasks, compaction) |
+| `{"rate_limit": {...}}` / `{"raw": {...}}` | a rate-limit event / any line as is |
+
+`fakecli\log\<agent>.jsonl` holds every line received and sent plus `turn` (script and prompt),
+`tool_result` (with `ok` for expectations), `hook_mail` (mail handed over mid-turn), `exit` and
+`interrupted` entries. The real CLI's result for a rejected credential carries
+`api_error_status` (seen in the Claude Code 2.1 binary, not with a live 401).
+
+## Tool calls as an agent
+
+`POST /api/rig/tool {org, agent, tool, args, tool_use_id?}` → `{ok, text, json}` calls
+`tools::call_tool` as that live agent, exactly what its CLI's `mcp_message` reaches (permissions,
+visibility and side effects included). `rig.tool(agent, tool, args)` in scripts,
+`rig tool <agent> <tool> '<json>'` on the command line; assert on the result and on the database
+with `rig.sql()` (psql against the run's cluster, rows as JSON).
+
+## Traps
+
+- Git Bash rewrites `/api/...` arguments into `C:/Program Files/Git/api/...`; `rig api` undoes it,
+  other tools need `MSYS_NO_PATHCONV=1`.
+- A turn's prompt is long (ORG STATE, mail envelopes); match on a token you put in the mail.
+- Timers are real: a connection retry waits 30 s, the unread-mail notice 45 s.
