@@ -1,6 +1,6 @@
 {
   "name": "orgtree",
-  "version": "4.0.0-alpha.13",
+  "version": "4.0.0",
   "private": true,
   "description": "Orgtree desktop application",
   "license": "MIT",
