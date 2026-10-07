@@ -65,6 +65,10 @@ plan and this file. Read both before you change anything. All entries below: 202
   it imports the 3.2 per-org databases **read-only**; the old databases and files are never
   changed. [verified: `src/pg.rs`; PLAN §3, §8]
 - Engine log: one file per start, `<data>\diagnostics\logs\<start time>.log`, kept 30 days.
+  Every line prefixes the emitting Tokio task as `T<id>`, or `T-` outside a task;
+  this is read at emission, independent of inherited request/client/frame spans.
+  [verified-from-source: 2026-10-07, `src/trace.rs`, Tokio 1.53.2 `task::try_id`;
+  recorded-decision: user 2026-10-07 07:46Z, DECISIONS 34]
   [verified: `src/trace.rs`; decided: user, DECISIONS 34–36]
 - Agent log context must cross spawned tasks and channel messages: use `agent:<id>/<name>`
   for actor work and `dog:<uid>/<owner name>` for watchdog work. Keep actual UI requests as

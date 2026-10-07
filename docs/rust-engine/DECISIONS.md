@@ -140,10 +140,15 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - Every line carries a request id prefix, a client id prefix (`user`, `desktop`,
       `agent:<id>/<name>` or `engine`) and a method invocation id prefix: one id per stack frame,
       shared between that method's call line and its return line.
+    - Every line also carries the emitting Tokio task id `T<id>` before the request id
+      (user 2026-10-07 07:46Z: the green thread id). `T-` means no Tokio task context,
+      including startup and a runtime's root `block_on` future. Read it at emission,
+      not from the request span: spawned tasks have their own id even with inherited
+      request/client/invocation context. File and console prefixes use the same value.
     - Log lines have sub-millisecond timestamps.
     - Each engine start writes its own log file, named with the start time.
     - Log files are kept for 30 days.
-    - The style is borrowed from the galaxy-star backend (nick-pc): `LEVEL [time] RQ… EX… message`
+    - The style is borrowed from the galaxy-star backend (nick-pc): `LEVEL [time] T… RQ… EX… message`
       lines, `module.fn(args)` call lines and `module.fn(...) -> value` return lines (`!!` for an
       error), REQUEST/HEADERS/RESPONSE lines per HTTP request, `*****` for sensitive fields,
       multiline messages split into prefixed lines, and daily/size rollover to gzip archives.
