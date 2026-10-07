@@ -259,7 +259,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
         o.insert("last_error".into(), Value::Null);
     }
     // an idle agent (no actor running) forecasts from its last cache receipt
-    if let Some(f) = stored_forecast(raw, ctx.now) {
+    if let Some(f) = stored_forecast(raw, ctx.now, cc_occ) {
         o.insert("cache_forecast".into(), f);
     }
     // a secondary account wears its card whether or not a turn is running
@@ -281,7 +281,17 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
 /// receipt its last turn left: ready until the entry's lifetime ends (the
 /// desk decays it on time itself), expired after. The prompt-prefix check
 /// needs the agent's actor and is made when one runs.
-pub fn stored_forecast(raw: &Value, now: DateTime<Utc>) -> Option<Value> {
+#[logged]
+pub fn stored_forecast(raw: &Value, now: DateTime<Utc>, threshold: Option<f64>) -> Option<Value> {
+    let action = cold_turn_action(
+        threshold,
+        raw["occupancy"].as_i64(),
+        raw["context_window"].as_i64().or_else(|| catalog::tier(raw["tier"].as_str().unwrap_or("")).and_then(|t| t.context).map(i64::from)),
+        !raw["occupancy_est"].as_bool().unwrap_or(true) && !raw["compacted_unrun"].as_bool().unwrap_or(false),
+        raw["state"] == "live" && raw["frozen"].is_null() && raw["halt"].is_null()
+            && !raw["limit_locked"].as_bool().unwrap_or(false),
+        raw["session_id"].as_str().is_some(),
+    );
     let rec = raw.pointer("/x_extra/cache_receipt")?;
     let at = rec["at"].as_str().and_then(parse_ts)?;
     let ttl = rec["ttl"].as_i64()?;
@@ -299,13 +309,32 @@ pub fn stored_forecast(raw: &Value, now: DateTime<Utc>) -> Option<Value> {
         json!({ "generation": generation, "state": "expired_known_entry", "readiness": "not_ready",
                 "readiness_cause": "receipt_expired", "reason": "the cache entry has expired",
                 "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at),
-                "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": "miss_expected" })
+                "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": action })
     } else {
         json!({ "generation": generation, "state": "compatible_observed", "readiness": "ready",
                 "readiness_cause": "receipt_valid", "reason": "the cache entry was observed and has not expired",
                 "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at), "ttl_seconds": ttl,
-                "expires_at": iso(expires), "precompact_action": "not_applicable" })
+                "expires_at": iso(expires), "precompact_action": "not_applicable", "precompact_on_expiry": action })
     })
+}
+
+/// Shared by next-turn admission and both forecast sources. Estimated or
+/// already-reset context cannot justify another reset (3.x parity).
+#[logged]
+pub fn cold_turn_action(
+    threshold: Option<f64>, used: Option<i64>, window: Option<i64>,
+    measured: bool, eligible: bool, has_session: bool,
+) -> &'static str {
+    let (Some(used), Some(window)) = (used, window) else { return "not_applicable" };
+    if !measured || !has_session || used <= 0 || window <= 0 {
+        return "not_applicable";
+    }
+    let ratio = used as f64 / window as f64;
+    match threshold {
+        Some(limit) if eligible && ratio >= limit => "will_compact",
+        None if ratio > 0.25 => "miss_expected",
+        _ => "not_applicable",
+    }
 }
 
 /// What the overlay fields read while no actor is running for the agent.

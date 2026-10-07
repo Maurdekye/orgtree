@@ -128,6 +128,10 @@ struct Ctx {
     /// "reset a session before a known-cold turn" (agent override, else the
     /// org's): the context occupancy above which it applies
     cold_reset: Option<f64>,
+    occupancy: Option<i32>,
+    context_window: Option<i32>,
+    context_measured: bool,
+    limit_locked: bool,
     /// the earlier session could not be carried over: why (the next turn
     /// starts with a handoff note)
     handoff_due: Option<String>,
@@ -763,6 +767,7 @@ impl Actor {
             }
             AgentMsg::Reconfigured => {
                 self.reconfigured = self.proc.is_some();
+                self.replace_idle_process().await;
                 self.update_forecast().await;
                 self.publish();
             }
@@ -837,6 +842,21 @@ impl Actor {
                 tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "not warmed");
                 false
             }
+        }
+    }
+
+    /// Reconfiguration waits for a busy turn, but never for the next mail.
+    /// A local CLI replacement does not erase a provider cache receipt.
+    async fn replace_idle_process(&mut self) {
+        if !self.reconfigured || self.proc.is_none() || self.turn.is_some() || self.stopping {
+            return;
+        }
+        self.keep_until = None;
+        self.close_proc().await;
+        self.reconfigured = false;
+        self.publish();
+        if super::warming_allowed(&self.engine) && super::memory_for_warming() {
+            self.warm().await;
         }
     }
 
@@ -967,7 +987,8 @@ impl Actor {
                         a.extra->>'harness', a.extra->>'handoff_due',
                         a.team_charter, p.name,
                         EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
-                                   AND au.grantor = '@extern' AND au.revoked_at IS NULL)
+                                   AND au.grantor = '@extern' AND au.revoked_at IS NULL),
+                        a.occupancy, a.context_window, a.occupancy_est, a.compacted_unrun, a.limit_locked
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    LEFT JOIN ot.agents p ON p.id = a.parent_id
                   WHERE a.id = $1",
@@ -1060,6 +1081,10 @@ impl Actor {
             harness,
             compact_at,
             cold_reset,
+            occupancy: r.get(25),
+            context_window: r.get::<_, Option<i32>>(26).or_else(|| catalog::tier(&r.get::<_, String>(2)).and_then(|t| t.context).map(|c| c as i32)),
+            context_measured: !r.get::<_, bool>(27) && !r.get::<_, bool>(28),
+            limit_locked: r.get(29),
             handoff_due: r.get(21),
             own_team_charter: r.get(22),
             superior: r.get(23),
@@ -1304,22 +1329,15 @@ impl Actor {
     /// the whole old one at full price. An unknown forecast never resets.
     /// Returns the note the turn's prompt starts with.
     async fn cold_reset(&mut self, ctx: &mut Ctx) -> Result<Option<String>> {
-        let Some(occ) = ctx.cold_reset else { return Ok(None) };
         let Some(session) = ctx.session_id.clone() else { return Ok(None) };
-        let state = self.forecast_for(ctx)["state"].as_str().unwrap_or("").to_string();
-        if state != "expired_known_entry" && state != "known_incompatible" {
+        if self.forecast_for(ctx)["precompact_action"] != "will_compact" {
             return Ok(None);
         }
+        // load_ctx just sampled these facts for this admission; use the same
+        // measured-context gate as the desk's forecast.
+        let used = ctx.occupancy.unwrap_or_default();
+        let window = ctx.context_window.unwrap_or_default();
         let client = self.engine.db.get().await?;
-        let r = client
-            .query_one("SELECT occupancy, context_window, last_status FROM ot.agents WHERE id = $1", &[&self.id])
-            .await?;
-        let used: Option<i32> = r.get(0);
-        let window: Option<i32> = r.get::<_, Option<i32>>(1).or_else(|| catalog::tier(&ctx.tier).and_then(|t| t.context).map(|c| c as i32));
-        let (Some(used), Some(window)) = (used, window) else { return Ok(None) };
-        if window <= 0 || (used as f64) < occ * window as f64 {
-            return Ok(None);
-        }
         // the whole conversation stays readable in the agent's folder (sign-off I2)
         let saved = match convo::save_history(&client, self.id, &ctx.scratch).await {
             Ok(p) => Some(p),
@@ -1337,7 +1355,8 @@ impl Actor {
         .await?;
         client
             .execute(
-                "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true, row_version = row_version + 1
+                "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true,
+                        extra = extra - 'cache_receipt', row_version = row_version + 1
                   WHERE id = $1",
                 &[&self.id],
             )
@@ -1355,6 +1374,13 @@ impl Actor {
         drop(client);
         tracing::info!(agent = %self.name, used, window, "cheap compact before a cold-cache turn");
         ctx.session_id = None;
+        ctx.occupancy = None;
+        ctx.context_measured = false;
+        self.receipt = None;
+        self.sent_print = None;
+        self.forecast = self.forecast_for(ctx);
+        self.publish();
+        self.changed(vec![Change::Agent(self.id)]);
         self.close_proc().await;
         self.reconfigured = true;
         Ok(Some(note))
@@ -3577,6 +3603,8 @@ impl Actor {
             self.close_proc().await;
             let _ = self.engine.accounts.reload(&self.engine).await;
             crate::accounts::publish(&self.engine);
+        } else if self.reconfigured {
+            self.replace_idle_process().await;
         } else if self.engine.settings.keep_warm() && self.proc.is_some() {
             self.park();
         } else {
@@ -3860,6 +3888,12 @@ impl Actor {
             p if p == catalog::GOOGLE => "antigravity",
             _ => "claude",
         };
+        let action = crate::domain::tree::cold_turn_action(
+            ctx.cold_reset, ctx.occupancy.map(i64::from), ctx.context_window.map(i64::from),
+            ctx.context_measured,
+            ctx.state == "live" && !ctx.halted && !ctx.frozen && !ctx.killswitch && !ctx.limit_locked,
+            ctx.session_id.is_some(),
+        );
         let generation = format!("{}", ctx.generation);
         let receipt_at = self.receipt.map(|(t, _)| iso(t));
         let Some(sent) = &self.sent_print else {
@@ -3875,7 +3909,7 @@ impl Actor {
                            "readiness_cause": "prefix_changed", "reason": "the prompt prefix changed since the last turn",
                            "source": "authoritative_receipt", "lane": lane, "changed_inputs": changed,
                            "last_receipt_at": receipt_at, "ttl_seconds": null, "expires_at": null,
-                           "precompact_action": "not_applicable" });
+                           "precompact_action": action });
         }
         let Some((at, ttl)) = self.receipt else {
             return json!({ "generation": generation, "state": "uncertain", "readiness": "not_ready",
@@ -3888,12 +3922,12 @@ impl Actor {
             return json!({ "generation": generation, "state": "expired_known_entry", "readiness": "not_ready",
                            "readiness_cause": "receipt_expired", "reason": "the cache entry has expired",
                            "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at),
-                           "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": "miss_expected" });
+                           "ttl_seconds": ttl, "expires_at": iso(expires), "precompact_action": action });
         }
         json!({ "generation": generation, "state": "compatible_observed", "readiness": "ready",
                 "readiness_cause": "receipt_valid", "reason": "the cache entry was observed and has not expired",
                 "source": "authoritative_receipt", "lane": lane, "last_receipt_at": iso(at), "ttl_seconds": ttl,
-                "expires_at": iso(expires), "precompact_action": "not_applicable" })
+                "expires_at": iso(expires), "precompact_action": "not_applicable", "precompact_on_expiry": action })
     }
 }
 
