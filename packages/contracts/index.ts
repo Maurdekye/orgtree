@@ -140,6 +140,8 @@ export interface DesktopBridge {
   setPendingAttention?(ids: string[], items?: { org: string; id: string }[]): Promise<void>
   openHarnessLink(harness: 'claude' | 'codex' | 'antigravity'): Promise<void>
   openCharterFolder?(): Promise<{ ok: boolean; path?: string; error?: string }>
+  /** Open the current engine's log directory in the OS file manager. */
+  openLogsFolder?(): Promise<{ ok: boolean; error?: string }>
   /** Reveal an absolute local file in the OS file manager — Explorer opens
    *  with the file SELECTED and nothing is launched. Deliberately not an
    *  "open" (user ruling, 2026-09-13): links come from agent-written markdown,

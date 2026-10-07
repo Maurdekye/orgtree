@@ -65,6 +65,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     setPendingAttention: (ids, items) => ipcRenderer.invoke('desktop:pending-attention', ids, items),
     openHarnessLink: id => ipcRenderer.invoke('desktop:open-harness', id),
     openCharterFolder: () => ipcRenderer.invoke('desktop:open-charter-folder'),
+    openLogsFolder: () => ipcRenderer.invoke('desktop:open-logs-folder'),
     revealFile: (path: string) => ipcRenderer.invoke('desktop:reveal-file', path),
     getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
     getUpdateCapability: () => ipcRenderer.invoke('desktop:update-capability'),

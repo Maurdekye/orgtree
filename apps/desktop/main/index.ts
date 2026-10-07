@@ -1677,6 +1677,24 @@ else {
       if (typeof id !== 'string' || !Object.hasOwn(HARNESS_LINKS, id)) throw new Error('Unknown harness')
       return shell.openExternal(HARNESS_LINKS[id as keyof typeof HARNESS_LINKS])
     })
+    handleApp('desktop:open-logs-folder', async () => {
+      // These are the same options used for both managed startup and verified
+      // background-host attachment, including a custom ORGTREE_V2_DATA root.
+      const root = engineRestartOptions?.dataRoot
+      if (!root) return { ok: false, error: 'The engine data folder is not available yet.' }
+      const dir = path.join(root, 'diagnostics', 'logs') // Rust trace::init
+      try {
+        // openPath is safe for this directory-only action. Never pass a file
+        // through it, even if the expected log directory was replaced.
+        if (!(await fs.promises.stat(dir)).isDirectory()) {
+          return { ok: false, error: 'The engine log path is not a directory.' }
+        }
+        const error = await shell.openPath(dir)
+        return error ? { ok: false, error } : { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    })
     handleApp('desktop:open-charter-folder', async () => {
       const dir = path.join(os.homedir(), '.orgtree', 'charters')
       try {
