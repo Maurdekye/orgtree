@@ -45,6 +45,12 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<(String, 
     Ok(Json(json!({ "item": docket::user_get(&e, &o, &wid).await? })))
 }
 
+#[logged]
+pub async fn page(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<docket::PageQuery>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(docket::user_page(&e, &o, &q).await?))
+}
+
 #[derive(Deserialize, Debug, Default)]
 pub struct ReferenceQuery {
     #[serde(default)]

@@ -583,6 +583,122 @@ async fn load(client: &impl GenericClient, org_id: i64, slug: &str, lock: bool) 
     }
 }
 
+/// One bounded user-visible docket group. Filters are applied before paging,
+/// so search and agent/team views never mistake an unloaded row for absence.
+#[derive(Debug, serde::Deserialize, Default)]
+pub struct PageQuery {
+    #[serde(default)] pub group: String,
+    #[serde(default)] pub offset: i64,
+    #[serde(default)] pub query: String,
+    #[serde(default)] pub sort: String,
+    #[serde(default)] pub agent: String,
+    #[serde(default)] pub team: String,
+    #[serde(default)] pub attention: String,
+    #[serde(default)] pub revision: String,
+    pub at: Option<String>,
+}
+
+#[logged]
+pub async fn user_page(engine: &Engine, org: &OrgHandle, q: &PageQuery) -> Result<Value> {
+    let group = if q.group.is_empty() { "items" } else { &q.group };
+    if !["items", "archived", "backlogged"].contains(&group) || q.offset < 0 {
+        refuse!(BadRequest, "invalid docket page");
+    }
+    let revision = format!("{}-{}", engine.boot.id, org.docket.load(std::sync::atomic::Ordering::Relaxed));
+    if !q.revision.is_empty() && q.revision != revision {
+        return Ok(json!({ "format": "orgtree.work-page/v1", "reset": true }));
+    }
+    let now = match &q.at {
+        Some(at) => match DateTime::parse_from_rfc3339(at) {
+            Ok(at) => at.with_timezone(&Utc),
+            Err(_) => refuse!(BadRequest, "invalid page time"),
+        },
+        None => Utc::now(),
+    };
+    let client = engine.db.get().await?;
+    let mut context = ctx(&**client, org).await?;
+    context.now = now;
+    let asked: Vec<String> = context.questions.keys().cloned().collect();
+    let mut owners = Vec::new();
+    if !q.team.is_empty() {
+        owners = client.query(
+            "WITH RECURSIVE team(id, name) AS (
+               SELECT id, name FROM ot.agents WHERE org_id=$1 AND name=$2 AND state <> 'deleted'
+               UNION SELECT a.id, a.name FROM ot.agents a JOIN team t ON a.parent_id=t.id
+                 WHERE a.org_id=$1 AND a.state <> 'deleted') SELECT name FROM team",
+            &[&org.id, &q.team],
+        ).await?.iter().map(|r| r.get::<_, String>(0)).collect();
+        if owners.is_empty() { owners.push(q.team.clone()); }
+    }
+    let terms: Vec<String> = q.query.to_lowercase().split_whitespace().map(str::to_owned).collect();
+    // Keep these fields aligned with renderer searchText: no historical text,
+    // evidence, owners, or hidden groups enter the user's search.
+    let mut base = "WITH source AS (
+      SELECT w.*, (manual_attention IS NOT NULL OR slug=ANY($2)) AS attention,
+        lower(concat_ws(E'\\n',title,slug,objective,
+          (SELECT string_agg(value,E'\\n') FROM jsonb_array_elements_text(done_so_far)),
+          (SELECT string_agg(value,E'\\n') FROM jsonb_array_elements_text(working_on_next)))) AS hay
+      FROM ot.work_items w WHERE org_id=$1 AND NOT coalesce((extra->>'deleted')::boolean,false)
+        AND ($4::text='' OR owner->>'node'=$4 OR reviewer->>'node'=$4)
+        AND (cardinality($5::text[])=0 OR owner->>'node'=ANY($5))
+    ), grouped AS (
+      SELECT source.*, CASE
+        WHEN NOT attention AND (archived_at IS NOT NULL OR status='dropped' OR
+          (status IN ('done','superseded') AND coalesce(docket_at,updated_at,created_at) < $3::timestamptz - interval '1 hour'))
+          THEN 'archived'
+        WHEN status='backlogged' AND NOT attention THEN 'backlogged'
+        ELSE 'items' END AS group_name,
+        NOT EXISTS(SELECT 1 FROM unnest($6::text[]) term WHERE position(term in hay)=0) AS matches
+      FROM source)".to_string();
+    if q.attention == "1" {
+        base = base.replace("WHERE org_id=$1 AND NOT", "WHERE (manual_attention IS NOT NULL OR slug=ANY($2)) AND org_id=$1 AND NOT");
+    }
+    let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&org.id, &asked, &now, &q.agent, &owners, &terms];
+    let counts_sql = format!("{base} SELECT group_name, count(*)::bigint,
+      count(*) FILTER(WHERE matches)::bigint,
+      count(*) FILTER(WHERE attention)::bigint,
+      count(*) FILTER(WHERE status NOT IN ('done','dropped','superseded','backlogged'))::bigint,
+      count(*) FILTER(WHERE owner->>'node'=$4 AND NOT coalesce((owner->>'deleted')::boolean,false)
+        AND status NOT IN ('done','archived','dropped','superseded','backlogged','blocked')
+        AND coalesce(superseded_by,'')='')::bigint
+      FROM grouped GROUP BY group_name");
+    let mut totals = json!({"items":0,"archived":0,"backlogged":0});
+    let mut matched = totals.clone();
+    let mut attention = 0_i64;
+    let mut active = 0_i64;
+    let mut assigned = 0_i64;
+    for r in client.query(&counts_sql, params).await? {
+        let name: String = r.get(0);
+        totals[&name] = json!(r.get::<_,i64>(1));
+        matched[&name] = json!(r.get::<_,i64>(2));
+        attention += r.get::<_,i64>(3);
+        if name == "items" {
+            active += r.get::<_,i64>(4);
+            if context.agents.get(&q.agent).map(|a| a.1 == "live").unwrap_or(false) {
+                assigned += r.get::<_,i64>(5);
+            }
+        }
+    }
+    let clock = match q.sort.as_str() {
+        "created" => "created_at", "status" => "coalesce(status_at,created_at)",
+        _ => "coalesce(docket_at,updated_at)",
+    };
+    let sql = format!("{base} SELECT {COLS} FROM grouped WHERE group_name=$7 AND matches
+                         ORDER BY {clock} DESC, slug DESC LIMIT 100 OFFSET $8");
+    let rows = client.query(&sql, &[&org.id,&asked,&now,&q.agent,&owners,&terms,&group,&q.offset]).await?;
+    let items: Vec<Value> = rows.iter().map(|r| list_row(&view(&item_of(r), &context, None))).collect();
+    let next = q.offset + items.len() as i64;
+    let total = matched[group].as_i64().unwrap_or(0);
+    // Do not publish a page assembled across a docket mutation. The caller
+    // resets its first page rather than mixing revisions.
+    if revision != format!("{}-{}", engine.boot.id, org.docket.load(std::sync::atomic::Ordering::Relaxed)) {
+        return Ok(json!({"format":"orgtree.work-page/v1","reset":true}));
+    }
+    Ok(json!({"format":"orgtree.work-page/v1","group":group,"rows":items,
+      "total":total,"totals":totals,"matched":matched,"assigned_count":assigned,
+      "counts":{"active":active,"attention":attention,"archived":totals["archived"],"backlogged":totals["backlogged"]},
+      "next_offset":if next < total {Some(next)} else {None}, "revision":revision,"at":iso(now)}))
+}
 /// Resolve only the named docket links, never the full archive. User-only
 /// HTTP callers have the same visibility as user_get; missing/deleted names
 /// are omitted so the renderer can distinguish absence from request failure.
