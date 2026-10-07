@@ -208,6 +208,11 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         )
         .await?;
     let Some(target) = target else {
+        if let Some(address) = bare_external(engine, out.to.trim())? {
+            drop(client);
+            out.to = address;
+            return Box::pin(crate::domain::orginbox::send_extern(engine, org_id, &out)).await;
+        }
         refuse!(NotFound, "no agent named {to} in this organization; nothing was sent");
     };
     let target_id: i64 = target.get(0);
@@ -266,6 +271,26 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
         }
     }
     Ok(Sent { uid: mail_uid, to, recipient_state: state, delivery, deferred })
+}
+
+/// A bare recipient is resolved only when no internal agent has that name.
+#[logged]
+fn bare_external(engine: &Engine, to: &str) -> Result<Option<String>> {
+    if to.starts_with('@') || to.is_empty() { return Ok(None); }
+    crate::net::resolve_bare(to, engine.orgs.get(to).is_some(), &crate::net::remote_peers(engine))
+}
+
+/// Attachment staging needs the transport before choosing its file policy.
+/// Resolve once to an explicit address, then send through the ordinary gate.
+#[logged]
+pub async fn attachment_recipient(engine: &Engine, org_id: i64, to: &str) -> Result<String> {
+    let to = to.trim();
+    if to.starts_with('@') || to == "user" || to.starts_with("org:") || to.starts_with("net:") { return Ok(to.into()); }
+    let client = engine.db.get().await?;
+    let internal = client.query_opt("SELECT 1 FROM ot.agents WHERE org_id=$1 AND name=$2 AND state <> 'deleted'", &[&org_id, &to]).await?.is_some();
+    drop(client);
+    if internal { return Ok(to.into()); }
+    Ok(bare_external(engine, to)?.unwrap_or_else(|| to.into()))
 }
 
 /// Linked replies use stored identity/metadata, never body-prefix recognition.

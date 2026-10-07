@@ -16,6 +16,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Bare mail recipients preserve 3.x precedence: internal agent, exact local
+  org slug, then a unique hub full slug or first name segment. Ambiguity names
+  candidates; resolution never bypasses org-inbox authority. Discovery includes
+  the current org (`you`) and `transports`, with hub peers in `orgs` and the
+  retained 4.0 `remote` alias. [verified-from-source: 2026-10-07; F03;
+  `docs/rust-engine/bare-mail-routing.md`]
+
 - No credential banners, annotations, tray/menu warnings or success notices.
   Engine diagnostic fields and log lines remain; agents explain tool failures
   to the user. [recorded-decision: user 2026-10-07 16:12Z, superseding the

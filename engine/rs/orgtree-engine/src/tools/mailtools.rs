@@ -53,7 +53,8 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
     let attachments = args["attachments"].as_array().cloned().unwrap_or_default();
     if attachments.len() > 10 { crate::refuse!(BadRequest, "at most 10 attachments"); }
     if !attachments.is_empty() {
-        let network = to.trim().trim_start_matches('@').starts_with("net:");
+        out.to = mail::attachment_recipient(engine, me.org_id, &to).await?;
+        let network = out.to.trim().trim_start_matches('@').starts_with("net:");
         if !to_user && !network {
             crate::refuse!(BadRequest, "attachments ride mail to the user or @net: peers; for local recipients use paths");
         }

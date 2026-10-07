@@ -1018,13 +1018,12 @@ async fn knows_peer(engine: &Engine, org_id: i64, peer: &str) -> bool {
 /// Every remote org the rosters know (for `orgtree_list_orgs`).
 #[logged]
 pub fn remote_peers(engine: &Engine) -> Vec<Value> {
-    let own: HashSet<String> = engine.net.parts.load().iter().map(|p| p.net_slug.clone()).collect();
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for (_, roster) in engine.net.rosters.pin().iter() {
         for r in roster.iter() {
             let Some(s) = r["slug"].as_str() else { continue };
-            if own.contains(s) || !seen.insert(s.to_string()) {
+            if s.is_empty() || !seen.insert(s.to_string()) {
                 continue;
             }
             out.push(json!({ "slug": format!("@net:{s}"), "address": format!("@net:{s}"), "name": r["org_name"].as_str().filter(|n| !n.is_empty()).unwrap_or(s),
@@ -1033,6 +1032,43 @@ pub fn remote_peers(engine: &Engine) -> Vec<Value> {
         }
     }
     out
+}
+
+/// Called only after an internal agent failed to match. Local exact slugs
+/// outrank hub full slugs or leading name segments, as in 3.x.
+#[logged]
+pub fn resolve_bare(name: &str, local: bool, peers: &[Value]) -> Result<Option<String>> {
+    if name.is_empty() || name.starts_with('@') { return Ok(None); }
+    if local { return Ok(Some(format!("@org:{name}"))); }
+    let mut candidates = std::collections::BTreeSet::new();
+    for peer in peers {
+        let slug = peer["slug"].as_str().unwrap_or("").trim_start_matches("@net:");
+        if !slug.is_empty() && (slug == name || slug.split('.').next() == Some(name)) {
+            candidates.insert(format!("@net:{slug}"));
+        }
+    }
+    if candidates.len() > 1 {
+        crate::refuse!(BadRequest, "'{name}' is ambiguous — it could be any of: {}. Address the full form to pick one.", candidates.into_iter().collect::<Vec<_>>().join(", "));
+    }
+    Ok(candidates.into_iter().next())
+}
+
+/// The same public local identities and cached roster used by bare-name sends.
+/// Keep `remote` as a 4.0 alias, while restoring 3.x's combined `orgs` list.
+#[logged]
+pub fn discovery_rows(current: &str, locals: &[(String, String, Option<String>)], mut peers: Vec<Value>) -> Value {
+    let roster: HashSet<String> = peers.iter().filter_map(|p| p["slug"].as_str()).map(|s| s.trim_start_matches("@net:").to_string()).collect();
+    let local_net: HashSet<&str> = locals.iter().filter_map(|(_, _, net)| net.as_deref()).collect();
+    for peer in &mut peers {
+        let slug = peer["slug"].as_str().unwrap_or("").trim_start_matches("@net:");
+        peer["transports"] = if local_net.contains(slug) { json!(["org", "net"]) } else { json!(["net"]) };
+    }
+    let mut orgs: Vec<Value> = locals.iter().map(|(slug, name, net)| {
+        let transports = if net.as_ref().map(|n| roster.contains(n)).unwrap_or(false) { json!(["org", "net"]) } else { json!(["org"]) };
+        json!({"slug":slug,"name":name,"you":slug == current,"address":format!("@org:{slug}"),"transports":transports})
+    }).collect();
+    orgs.extend(peers.iter().cloned());
+    json!({"orgs":orgs,"remote":peers})
 }
 
 // ------------------------------------------------------------ what the UI reads

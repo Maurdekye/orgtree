@@ -315,15 +315,11 @@ pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
 
 #[logged]
 pub async fn list_orgs(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
-    let orgs: Vec<Value> = engine
-        .orgs
-        .all()
-        .into_iter()
-        .filter(|o| o.id != caller.org_id)
-        .map(|o| json!({ "slug": o.slug, "name": o.name.load().as_str(), "address": format!("@org:{}", o.slug) }))
-        .collect();
-    let remote = crate::net::remote_peers(engine);
-    Done::json(&json!({ "orgs": orgs, "remote": remote }))
+    let client = engine.db.get().await?;
+    // Public metadata only: never select the identity secret or full net blob.
+    let rows = client.query("SELECT slug, name, net->'identity'->>'slug' FROM ot.orgs WHERE state='active' ORDER BY slug", &[]).await?;
+    let locals: Vec<(String, String, Option<String>)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect();
+    Done::json(&crate::net::discovery_rows(&caller.org_slug, &locals, crate::net::remote_peers(engine)))
 }
 
 #[logged]
