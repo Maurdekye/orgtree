@@ -16,6 +16,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- The Windows credential bridge serves git HTTPS and PATH-resolved gh from
+  signed-in Electron main. Local named-pipe PID/SID/logon proof binds the broker;
+  agent generation plus CLI PID/creation time binds revocable helper authority.
+  Its HTTP routes bypass all wire body/header logging. Never persist bridge
+  secrets or pass the desktop token to agents. No separate startup helper.
+  [recorded-decision and verified-from-source: 2026-10-07; DECISIONS 51;
+  `docs/rust-engine/credential-bridge.md`]
+
 - Windows boot credential detection is advisory: the boot task remains S4U.
   Session 0/batch-token warnings survive later interactive sign-in; a successful
   empty Credential Manager query does not prove old DPAPI secrets decrypt. No

@@ -85,6 +85,7 @@ pub fn codex_effort(level: &str) -> String {
 
 #[logged]
 impl CodexProc {
+    #[nolog]
     pub async fn spawn(engine: Arc<Engine>, spec: CodexSpec, caller: Caller, actor: AgentTx) -> Result<CodexProc> {
         let mut cmd = Command::new(&spec.exe);
         // `-c` overrides are global options: they precede the subcommand

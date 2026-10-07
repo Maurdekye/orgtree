@@ -214,3 +214,15 @@ All entries are dated 2026-10-06 unless stated otherwise.
     nothing. User actions retain the top-level cap. Single and batch moves transfer the
     existing subtree stake between reporting paths below their common ancestor; a batch
     validates its final net grants before committing. Details: `credit-cascade-boundary.md`.
+
+
+51. **Boot git/GitHub access uses the signed-in desktop credential bridge**
+    (user 2026-10-07 12:40Z; coordinator design/startup approval 12:47Z). Keep
+    BootTrigger/S4U unchanged and do not hold or restart agents. Electron main
+    brokers on-demand git HTTPS and gh credentials over an authenticated local
+    channel, with revocable per-agent capabilities and same-SID interactive
+    ownership proof. Secrets are never logged or persisted by Orgtree. The
+    desktop starts at login by default; when that preference is off, the user
+    opens Orgtree to restore access. No separate logon helper. SSH, absolute-path
+    gh and general Credential Manager/DPAPI access are outside this bridge.
+    Details and verification limits: `credential-bridge.md`.

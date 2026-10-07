@@ -37,6 +37,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
     let api = Router::new()
         // desktop launcher / tray
         .route("/api/desktop/identity", get(desktop::identity))
+        .route("/api/desktop/credential-bridge", post(crate::credential_bridge::dispatch))
+        .route("/api/agent-credential", post(crate::credential_bridge::dispatch))
         .route("/api/desktop/alive", get(desktop::alive))
         .route("/api/desktop/status", get(desktop::status))
         .route("/api/desktop/shutdown", post(desktop::shutdown))
@@ -241,6 +243,9 @@ async fn api_not_found(req: Request) -> Response {
 /// the request's id. Each request is logged as its own request (decision 34):
 /// REQUEST and RESPONSE lines with masked bodies, and HEADERS when verbose.
 async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> Response {
+    if crate::credential_bridge::route(req.uri().path()) {
+        return crate::credential_bridge::dispatch(State(engine), req).await;
+    }
     let client = if req.uri().path().starts_with("/api/desktop/") { "desktop" } else { "user" };
     tracing::Instrument::instrument(guarded(engine, req, next), crate::trace::request(client)).await
 }

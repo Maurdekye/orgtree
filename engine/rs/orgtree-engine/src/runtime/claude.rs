@@ -87,6 +87,7 @@ fn req_id(prefix: &str) -> String {
 
 #[logged]
 impl ClaudeProc {
+    #[nolog]
     pub async fn spawn(
         engine: Arc<Engine>,
         spec: SpawnSpec,

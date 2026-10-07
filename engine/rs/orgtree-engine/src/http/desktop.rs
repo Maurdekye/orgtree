@@ -14,7 +14,7 @@ use crate::http::error::ApiResult;
 #[logged]
 pub async fn identity(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(json!({ "protocol": 1, "pid": e.boot.pid, "dataRootId": e.cfg.data_root_id,
-        "credentialContext": &**e.credentials.state.load() }))
+        "credentialContext": e.credentials.view(e.credential_bridge.ready()) }))
 }
 
 #[logged]
@@ -34,7 +34,7 @@ pub async fn status(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
         "totalAgents": total,
         "idle": active == 0 && waiting == 0,
         "mailhub": e.hub.status(),
-        "credentialWarning": e.credentials.state.load().warning,
+        "credentialWarning": e.credentials.view(e.credential_bridge.ready())["warning"],
     });
     if let Some(m) = crate::http::orgs::maintenance_request(&e) {
         v["maintenance"] = m;

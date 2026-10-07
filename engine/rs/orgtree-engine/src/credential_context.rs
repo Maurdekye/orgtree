@@ -6,8 +6,8 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use serde::Serialize;
 
-const BOOT_WARNING: &str = "Agents started before Windows sign-in can't use your saved git/GitHub credentials. Sign in and restart Orgtree's engine from the tray. Agents will keep running until you do.";
-const VAULT_WARNING: &str = "Orgtree can't access Windows Credential Manager in this engine session. Agents may not be able to use your saved git/GitHub credentials. Sign in and restart Orgtree's engine from the tray. Agents will keep running until you do.";
+const BOOT_WARNING: &str = "Agents started before Windows sign-in can't use your saved git/GitHub credentials. Sign in and open Orgtree to restore git/GitHub access. Agents keep running; no engine restart is needed.";
+const VAULT_WARNING: &str = "Orgtree can't access Windows Credential Manager in this engine session. Agents may not be able to use your saved git/GitHub credentials. Sign in and open Orgtree to restore git/GitHub access. Agents keep running; no engine restart is needed.";
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Status {
@@ -34,6 +34,14 @@ impl CredentialContext {
     }
 
     /// Called before CLI launch/admission and when a session change is seen.
+    pub fn view(&self, bridge: bool) -> serde_json::Value {
+        let mut value = serde_json::to_value(&**self.state.load()).unwrap_or_default();
+        value["bridge_ready"] = serde_json::json!(bridge);
+        value["general_vault_isolated"] = serde_json::json!(value["warning"].is_string());
+        if bridge { value["warning"] = serde_json::Value::Null; }
+        value
+    }
+
     pub fn refresh(&self) {
         let next = probe();
         if **self.state.load() != next {
@@ -62,10 +70,14 @@ pub fn start(engine: &Arc<crate::engine::Engine>) {
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(std::time::Duration::from_secs(30));
         timer.tick().await;
+        let mut was_bridged = engine.credential_bridge.ready();
         loop {
             tokio::select! {
                 _ = engine.shutdown.cancelled() => break,
                 _ = timer.tick() => {
+                    let bridged = engine.credential_bridge.ready();
+                    if was_bridged && !bridged { tracing::warn!("{}", crate::credential_bridge::UNAVAILABLE); }
+                    was_bridged = bridged;
                     // WTS facts are cheap; no vault enumeration on unchanged ticks.
                     let old = engine.credentials.state.load_full();
                     let (process, console, own_user, console_user) = sessions();

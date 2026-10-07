@@ -17,6 +17,7 @@ mod bridge;
 mod changes;
 mod config;
 mod credential_context;
+mod credential_bridge;
 mod domain;
 mod engine;
 mod events;
@@ -57,9 +58,13 @@ use crate::engine::{Boot, Engine};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if std::env::current_exe().ok().and_then(|p|p.file_name().map(|n|n.to_string_lossy().to_lowercase())) == Some("gh.exe".into()) {
+        return credential_bridge::cli("gh", &args[1..]);
+    }
     match args.get(1).map(String::as_str) {
         None | Some("serve") => serve(),
         Some("host") => host::run(),
+        Some("credential-helper") => credential_bridge::cli("git", &args[2..]),
         Some("mcp-bridge") => bridge::run(&args[2..]),
         Some("agy-hook") => bridge::hook(&args[2..]),
         Some("agy-steer") => bridge::steer(&args[2..]),
@@ -176,6 +181,7 @@ async fn run_with_cluster(
         db: pool,
         boot,
         credentials: credential_context::CredentialContext::new(),
+        credential_bridge: crate::credential_bridge::Bridge::new(),
         shutdown: CancellationToken::new(),
         stopping: AtomicBool::new(false),
         orgs: orgs::OrgDirectory::default(),

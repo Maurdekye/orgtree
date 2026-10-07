@@ -77,6 +77,7 @@ impl Drop for AgyProc {
 
 #[logged]
 impl AgyProc {
+    #[nolog]
     pub async fn spawn(engine: Arc<Engine>, spec: AgySpec, caller: Caller, actor: AgentTx) -> Result<AgyProc> {
         let pipe = CancellationToken::new();
         let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone())?;

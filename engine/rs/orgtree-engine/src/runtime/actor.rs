@@ -1360,6 +1360,7 @@ impl Actor {
         Ok(Some(note))
     }
 
+    #[nolog]
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
         // Warn only: an S4U boot context must not silently look credential-ready.
         self.engine.credentials.refresh();
@@ -1413,6 +1414,7 @@ impl Actor {
             // the org's compaction threshold (Org settings › Basic)
             ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
         ];
+        env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
         let mut env_remove: Vec<String> = vec![
             "ORGTREE_V2_TOKEN".into(),
             "ORGTREE_DATA".into(),
@@ -1511,6 +1513,7 @@ impl Actor {
                 )
                 .await?;
         }
+        self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Claude(proc));
         self.proc_print = Some(plan.print);
         self.proc_effort = effort;
@@ -1529,6 +1532,7 @@ impl Actor {
     }
 
     /// Start (or keep) the agent's Codex app-server on its thread.
+    #[nolog]
     async fn ensure_codex(&mut self, ctx: &Ctx, route: Option<&OrRoute>) -> Result<()> {
         if route.is_none() && !self.engine.settings.provider_enabled(catalog::OPENAI) {
             return Err(anyhow!("OpenAI is turned off in App settings"));
@@ -1630,6 +1634,7 @@ impl Actor {
             may_shell: on("bash"),
             env: {
                 let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
+                env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
                 if let Some(r) = route {
                     env.push((crate::openrouter::KEY_ENV.into(), r.key.clone()));
                 }
@@ -1655,6 +1660,7 @@ impl Actor {
                 )
                 .await?;
         }
+        self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Codex(proc));
         self.proc_print = Some(plan.print);
         self.proc_effort = Some(ctx.effort.clone());
@@ -1665,6 +1671,7 @@ impl Actor {
     }
 
     /// Start (or keep) the agent's Antigravity process on its conversation.
+    #[nolog]
     async fn ensure_agy(&mut self, ctx: &Ctx) -> Result<()> {
         if !self.engine.settings.provider_enabled(catalog::GOOGLE) {
             return Err(anyhow!("Antigravity is turned off in App settings"));
@@ -1716,16 +1723,17 @@ impl Actor {
             edit: on("edit") && pm != "plan",
             web: on("web"),
             subagents: on("subagents"),
-            env: vec![
+            env: { let mut env = self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation); env.extend(vec![
                 ("ORGTREE_AGENT".into(), ctx.name.clone()),
                 ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
                 ("ORGTREE_AGY_STEER_DIR".into(), agyrt::steer_dir(&ctx.scratch).to_string_lossy().to_string()),
-            ],
+            ]); env },
             turn_timeout_s: self.engine.settings.turn_timeout_s(),
         };
         self.agy_steer_dir = Some(agyrt::steer_dir(&ctx.scratch));
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = AgyProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        self.engine.credential_bridge.bind(self.id,proc.pid);
         self.proc = Some(Proc::Agy(proc));
         self.proc_print = Some(plan.print);
         self.proc_effort = Some(ctx.effort.clone());
@@ -1945,6 +1953,7 @@ impl Actor {
     }
 
     async fn close_proc(&mut self) {
+        self.engine.credential_bridge.revoke(self.id);
         self.unpark();
         if let Some(mut p) = self.proc.take() {
             p.close().await;
@@ -1954,6 +1963,7 @@ impl Actor {
     }
 
     async fn kill_proc(&mut self) {
+        self.engine.credential_bridge.revoke(self.id);
         self.unpark();
         if let Some(mut p) = self.proc.take() {
             p.kill().await;
@@ -3219,6 +3229,7 @@ impl Actor {
             tracing::info!(agent = self.id, %process, reason, "ignored exit from replaced CLI");
             return Ok(());
         }
+        self.engine.credential_bridge.revoke(self.id);
         let status = self.proc.as_mut().unwrap().exit_status(reason).await;
         self.proc = None;
         self.proc_print = None;
