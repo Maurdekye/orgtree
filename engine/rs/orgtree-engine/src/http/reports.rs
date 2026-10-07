@@ -152,3 +152,28 @@ pub async fn crash_reports(State(e): State<Arc<Engine>>, Query(q): Query<CrashLi
     }
     Ok(Json(json!({ "reports": out })))
 }
+
+/// Bounded, content-free renderer timing; the existing authenticated HTTP/log path.
+#[derive(Deserialize, Debug)]
+pub struct UiOpen {
+    action: UiOpenAction,
+    sample: u64,
+    commit_ms: f64,
+    frame_ms: f64,
+    hidden: bool,
+    focused: bool,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
+enum UiOpenAction { Mail, MailItem, Docket, Archive, Ticket }
+
+#[logged]
+pub async fn ui_open(Json(v): Json<UiOpen>) -> ApiResult<Json<Value>> {
+    if crate::trace::verbose() && v.commit_ms.is_finite() && v.frame_ms.is_finite()
+        && v.commit_ms >= 0.0 && v.frame_ms >= v.commit_ms && v.frame_ms < 3_600_000.0 {
+        tracing::info!("UI_OPEN action={:?} sample={} commit_ms={:.3} frame_ms={:.3} hidden={} focused={}",
+            v.action, v.sample, v.commit_ms, v.frame_ms, v.hidden, v.focused);
+    }
+    Ok(Json(json!({"ok":true})))
+}

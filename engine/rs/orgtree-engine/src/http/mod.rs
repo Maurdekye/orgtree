@@ -46,6 +46,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/net/probe", get(desktop::net_probe))
         .route("/api/desktop/notifications", get(reports::notifications))
         .route("/api/crash-report", post(reports::crash_report))
+        .route("/api/diagnostics/ui-open", post(reports::ui_open))
         .route("/api/crash-reports", get(reports::crash_reports))
         .route("/api/host", get(desktop::host))
         .route("/api/diagnostics/engine-stats", get(desktop::engine_stats))
@@ -321,6 +322,8 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     if let Some(v) = rq.and_then(|r| HeaderValue::from_str(&r).ok()) {
         res.headers_mut().insert("x-orgtree-request", v);
     }
+    res.headers_mut().insert("x-orgtree-verbose",
+        HeaderValue::from_static(if crate::trace::verbose() { "1" } else { "0" }));
     let status = res.status();
     let phrase = status.canonical_reason().unwrap_or("");
     let json = res
