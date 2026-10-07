@@ -79,6 +79,11 @@ plan and this file. Read both before you change anything. All entries below: 202
   [decided: user 2026-10-07, DECISIONS 48; verified: `http/settings.rs`, `appfeed.rs`,
   renderer `canvas/accounts.tsx`, `enterkey.ts`, `composerkeys.ts`]
 
+- Transcript auto-follow releases on upward wheel/keyboard input before the scroll
+  event arrives, and resumes only on downward movement to the bottom or jump-to-bottom.
+  Resize must not re-enable it; retain 3.x's row anchors, paging and context-menu hold.
+  [decided: user 2026-10-07; verified-from-source: renderer `canvas/desk.tsx`]
+
 - Limit marks: fresh successful provider probes may clear an older mark for the
   same account/pool; cached, failed, missing or incomplete readings cannot. A
   successful turn uses its captured admission account/time, never a later rebind.
