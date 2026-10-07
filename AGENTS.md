@@ -16,6 +16,13 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Staffing effort choices describe launch-time model capabilities, not the
+  `live_effort` flag for mid-turn controls. Codex choices come from background
+  `model/list` discovery; menu reads never spawn a CLI. Claude/OpenRouter keep
+  all five levels; Antigravity uses its tier-specific vocabulary. Forward the
+  selected value at launch, including Haiku and OpenRouter's Claude harness.
+  [verified from source: 2026-10-07; `docs/rust-engine/staffing-effort-parity.md`]
+
 - Staffing composites use `ops::run_in_tx` and publish deferred `Effects` only
   after the caller commits. Busy model/account switches persist intents and
   apply at settlement; admission locks the agent row before claiming mail.
