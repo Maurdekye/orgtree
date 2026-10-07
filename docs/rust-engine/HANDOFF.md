@@ -26,23 +26,26 @@ things stand.
 Both change every agent's cached prompt prefix once; that is expected. Ship them together with
 `e12b3c0` as the next alpha.
 
-## Open bug (reported by maurdekye-works, not yet verified)
+## Imported freeze recovery (resolved in the org hand-in)
 
-A frozen agent (session limit, imported 3.x freeze record with `schedule_kind: probe`) stayed
-frozen ~7 h past its wake until a manual unstick. The rust-engine session's first look:
+The historical report was an imported subscription-limit freeze that stayed frozen
+about seven hours past its reset. The original repair landed as `8cc8a77` and
+`da10249` on 2026-10-07, before alpha.11. This handoff previously left the report
+marked open after that merge.
 
-- `runtime::recover` has called `freeze::recover` since the first runtime commit, so "no
-  recover call in the logs" of the alpha.0 and alpha.2 runs is most likely verbose logging being
-  off (method traces are only written with verbose logging on), not a missing call. Check before
-  assuming.
-- `freeze::schedule` wakes an overdue freeze at once, but its timer only thaws when the org's
-  `auto_resume` is on (`auto_resume_on`); with it off nothing happens and nothing is logged. 3.x's
-  `probe` schedule kind looks like it checked the account rather than waiting for auto-resume:
-  compare with 3.x before choosing.
-- A `Wake` to a frozen agent returns without a turn and without saying why (`Actor::on_wake`);
-  the reporters ask for at least a log line.
-- `schedule` reads `frozen.until` as RFC 3339; confirm the importer converts 3.x's `until_ts`
-  (epoch) for imported freezes.
+The original logs showed a display string in `frozen.until`, with the real epoch
+deadline in `until_ts`. The old Rust parser returned before scheduling anything.
+The shared deadline reader now accepts existing imported records, and both the
+3.x and 2.x importers normalize future imports. Recovery schedules overdue and
+future freezes; nonverbose logs explain scheduling, blocked wakes and disabled
+auto-resume. A stale timer compares the complete freeze record before clearing.
+
+For subscription limits, 3.x's `probe` did not bypass the org's auto-resume
+setting. Rust keeps that consent gate and the 60-second reset grace. Pure
+connection retries can resume with auto-resume off. A disabled timer rechecks
+every 30 seconds, so enabling the setting does not require a restart.
+
+Current verification and its limits: [freeze recovery](freeze-recovery.md).
 
 ## Decisions waiting on the user
 
