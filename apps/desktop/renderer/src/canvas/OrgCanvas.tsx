@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import type { AudienceGrant, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
+import { ringReorderSlot, type RingReorderSlot } from './ringreorder'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
@@ -1152,6 +1153,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const nodeDrag = useRef<{
     id: string; sx: number; sy: number
     bases: Map<string, Pt>; moved: boolean
+    reorder?: RingReorderSlot
   } | null>(null)     // {id, sx, sy, ox, oy, moved}
   // mobile pointer bookkeeping (spec §2-⑥): a real per-pointerId map — the
   // desktop path keeps its single panRef untouched. Two pointers = pinch;
@@ -2629,7 +2631,18 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       const s = springs.current.get(k)
       if (s) { s.x = b.x + dx; s.y = b.y + dy; s.vx = 0; s.vy = 0 }
     }
-    setDropId(dropTargetAt(toWorld(e), id))
+    const drop = dropTargetAt(toWorld(e), id)
+    setDropId(drop)
+    d.reorder = undefined
+    const parent = mapRef.current.get(id)?.parent
+    if (chartLayout === 'circular' && (!drop || drop === parent)) {
+      const pile = pileOfRef.current.get(id)
+      const members = new Set(pile?.kind === 'a' && pile.front === id ? pile.list : [id])
+      const sibs = (mapRef.current.get(parent!)?.children ?? []).map(c => c.id)
+        .filter(k => k !== DRAFT && !members.has(k) && !hiddenRef.current.has(k))
+      const eye = targetRef.current.get(USER), point = springs.current.get(id)
+      if (eye && point) d.reorder = ringReorderSlot(sibs, targetRef.current, eye, point)
+    }
   }
   const abortNodeDrag = (_e: React.PointerEvent<HTMLDivElement>, id: string) => {
     // pointercancel path: restore the recorded bases and commit NOTHING —
@@ -2649,8 +2662,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     node: CanvasNode, focused: boolean) => {
     const d = nodeDrag.current
     if (!d || d.id !== id) return
+    // Include the release coordinates even if its last pointermove was coalesced.
+    if (d.moved) moveNodeDrag(e, id)
     nodeDrag.current = null
-    const drop = dropId
+    const drop = dropTargetAt(toWorld(e), id)
     setDropId(null)
     if (!d.moved) {                       // a plain click → walk to the desk
       if (!focused && id !== USER && node.state !== 'draft') centerOn(id)
@@ -2696,7 +2711,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         .catch(() => {}).finally(finish)
       return
     }
-    // no (new) target → cosmetic reorder among the current cohort by dropped x
+    // no (new) target → reorder by angle on a ring, by dropped x in a row
     const cohort = (mapRef.current.get(parent!)?.children ?? [])
       .map((c) => c.id).filter((k) => k !== DRAFT)
     // RETIRED STACK (user note 2026-08-06): dragging the front drags the
@@ -2718,7 +2733,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       : { before: sibs.find((k) => cohort.indexOf(k) > oldIdx) ?? sibs[0]! }
     const x = springs.current.get(id)?.x ?? 0
     const beforeSib = sibs.find((k) => (targetRef.current.get(k)?.x ?? 0) > x)
-    const req = beforeSib ? { before: beforeSib } : { after: sibs[sibs.length - 1] }
+    const req = chartLayout === 'circular' ? d.reorder?.request
+      : beforeSib ? { before: beforeSib } : { after: sibs[sibs.length - 1] }
+    if (!req) { finish(); return }
     const chain = async (lead: { before?: string; after?: string }) => {
       let prev: string | null = null
       for (const m of block) {
@@ -3528,6 +3545,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
       }}>
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
+          {nodeDrag.current?.reorder && <circle
+            data-reorder-before={'before' in nodeDrag.current.reorder.request
+              ? nodeDrag.current.reorder.request.before : undefined}
+            data-reorder-after={'after' in nodeDrag.current.reorder.request
+              ? nodeDrag.current.reorder.request.after : undefined}
+            cx={nodeDrag.current.reorder.point.x + NODE_W / 2}
+            cy={nodeDrag.current.reorder.point.y + NODE_H / 2}
+            r={8 / view.z} fill="none" stroke="var(--accent)" strokeWidth={2 / view.z}
+            pointerEvents="none" />}
           {/* the wire list (built above). Under WebGL2 only `svgOnly` wires
               stay here; otherwise this is the whole layer, as it always was */}
           {wires.map((w) => (glWires.active && !w.svgOnly) ? null

@@ -241,6 +241,11 @@ not creation time. [verified: `main/windows.ts`, renderer `canvas/deskhosts.tsx`
 Move previews assign destination max(live sibling order) + 1, as Rust `move_node`
 does; same-parent moves keep their order. [decided: rust-engine session via coordinator,
 2026-10-06; verified: renderer `canvas/shared.ts`, Rust `domain/ops.rs`]
+Ring drag reorders use the mirrored full-circle angle around the eye, unwrapped
+in sibling order; only the open last-to-first gap separates the list ends.
+The insertion marker and reorder request share that slot. Row ordering and
+ring layout/hire-arrow direction stay unchanged. [verified from source:
+2026-10-07, renderer `canvas/ringreorder.ts`, `canvas/OrgCanvas.tsx`]
 
 **Engine priority and agent build caches (2026-10-07).** The boot task requests Normal
 CPU priority (Task Scheduler value 5), matching desktop launches. Runtime's "Agent build
