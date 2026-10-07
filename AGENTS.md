@@ -104,6 +104,15 @@ so a replaced CLI cannot finish its successor's turn. Exit observations log the 
 PID, reason and OS status (or explicit uncertainty). [verified: `runtime/actor.rs`, `sched.rs`,
 `claude.rs`, `codex.rs`, `agy.rs`; details: `docs/rust-engine/turn-slot-lifecycle.md`]
 
+**Typed mail (2026-10-07).** Retained operations mint canonical `ev` at their producer;
+never recover an event type by matching prose. Carry it unchanged through inbox/chat and
+`prompt::Mail.ev`; passive lifecycle/access/policy notices use `@system` plus `notice=true`.
+Keep legacy decoders even for removed operations. In 4.0, review outcomes are statuses and
+old sessions are not rehireable bearers, so their agent text must not offer removed actions.
+The renderer assignment status now includes `approved`; do not overwrite that extension
+with the frozen Python generator. [verified from source / recorded coordinator ruling:
+2026-10-07; inventory and remaining parity gaps: `docs/rust-engine/typed-message-parity.md`]
+
 **Engine code rules** [decided: user, DECISIONS 5, 34–36; verified: `engine/rs/orgtree-logged/src/lib.rs`,
 `src/trace.rs`]
 - **Open request cards (2026-10-07):** emit `kind: batch` with typed `tabs`, even for
