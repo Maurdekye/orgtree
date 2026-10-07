@@ -7779,3 +7779,4 @@ main:has(> .orgbar.native-header) > .error {
 .edbg-table th:first-child, .edbg-table td:first-child,
 .edbg-table th:nth-child(2), .edbg-table td:nth-child(2) { text-align: left; }
 .edbg-self td { color: var(--accent, #61afef); }
+:root .rainbow-theme-option { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }

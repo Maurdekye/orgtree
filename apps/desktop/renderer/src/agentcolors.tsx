@@ -50,6 +50,20 @@ function refreshAgentText() {
   const selected = value('--accent'), accent = hex(selected) ? selected : '#d97757'
   const measured = ['--bg', '--side', '--panel', '--panel-2', '--input'].map(value).filter(hex)
   const surfaces = measured.length ? measured : ['#1f1f1f', '#181818', '#252526', '#2d2d30', '#313131']
+  if (root.classList.contains('rainbow-theme')) {
+    // Bound the whole spectrum with black/white rather than recomputing
+    // contrast on each animation frame. The resulting CSS tint follows hue.
+    const backgrounds = [...surfaces, ...surfaces.flatMap(bg => [blend('#000000', bg, .21), blend('#ffffff', bg, .21)])]
+    const minimum = (color: string) => Math.min(...backgrounds.map(bg => ratio(color, bg)))
+    const light = minimum('#ffffff') >= minimum('#000000')
+    const bound = readableAgentAccent(light ? '#000000' : '#ffffff', backgrounds).text
+    const tint = light ? channels(bound)[0]! / 255 : 1 - channels(bound)[0]! / 255
+    root.style.setProperty('--org-agent-text', `color-mix(in srgb, var(--rainbow-accent) ${(1 - tint) * 100}%, ${light ? 'white' : 'black'})`)
+    root.style.setProperty('--org-agent-ink', 'var(--rainbow-ink)')
+    const panel = value('--panel-2')
+    root.style.setProperty('--org-agent-count-ink', contrastingInk(hex(panel) ? panel : '#2d2d30'))
+    return
+  }
   // Selected/urgent rows also wash the surface with up to 21% accent.
   const colors = readableAgentAccent(accent, [...surfaces, ...surfaces.map(bg => blend(accent, bg, .21))])
   root.style.setProperty('--org-agent-text', colors.text)

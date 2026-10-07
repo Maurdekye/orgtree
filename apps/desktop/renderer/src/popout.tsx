@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom'
 import { isMobile } from './mobile'
 import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pendingRestart, registerWindow, reloadWindows, returnWindows, subscribeWindows, windowRevision } from './windowlife'
 import type { BorrowedSurface } from './windowlife'
+import { followRainbowWindow } from './rainbow'
 
 interface SurfaceContextValue {
   document: Document
@@ -560,9 +561,17 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         }
       }
       syncStyles()
-      const observer = new MutationObserver(() => {
+      cleanups.current.push(followRainbowWindow(w))
+      const observer = new MutationObserver(records => {
         if (transaction !== epoch.current) return
-        try { syncStyles() } catch { recover(STYLING_FAILED) }   // failure route (1)
+        try {
+          // Theme animation only mutates a root token. Mirror those attributes
+          // directly; do not clone/compare every stylesheet thirty times a second.
+          if (records.every(record => record.target === document.documentElement)) {
+            d.documentElement.className = document.documentElement.className
+            d.documentElement.style.cssText = document.documentElement.style.cssText
+          } else syncStyles()
+        } catch { recover(STYLING_FAILED) }   // failure route (1)
       })
       observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true })
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })

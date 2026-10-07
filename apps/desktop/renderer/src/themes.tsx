@@ -4,6 +4,8 @@ import { getProviders } from './api'
 import { SetGroup, SetRow } from './canvas/settingskit'
 import { ContrastSetting } from './contrast'
 import { AgentColorSetting } from './agentcolors'
+import { applyRainbow, stopRainbow, startRainbowSync, watchRainbow, saveRainbow, hueGesture, RAINBOW_OFF } from './rainbow'
+import type { RainbowPreference } from './rainbow'
 import { isVisualTheme, isCustomTheme, VISUAL_THEMES } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contracts/visual-theme'
 
@@ -41,6 +43,7 @@ export function customTheme(color: string) {
 }
 
 export function applyTheme(value: unknown) {
+  stopRainbow()
   const selected = isVisualTheme(value) ? value : DEFAULT_THEME
   const theme = isCustomTheme(selected) ? customTheme(selected.slice(7)) : THEMES[selected]
   document.documentElement.dataset.visualTheme = selected
@@ -54,6 +57,7 @@ export function applyTheme(value: unknown) {
   style.setProperty('--org-accent', theme.accent)
   style.setProperty('--org-accent-hover', theme.hover)
   style.setProperty('--org-accent-soft', theme.soft)
+  applyRainbow(selected)
   window.dispatchEvent(new window.CustomEvent('orgtree:visual-theme-changed', { detail: selected }))
 }
 
@@ -78,6 +82,7 @@ function resolveDefault(apply: (theme: VisualTheme) => void, stillCurrent: () =>
 
 /** Main process preferences persist independently of the engine's changing port. */
 export function startThemeSync(): () => void {
+  const stopMode = startRainbowSync(() => applyTheme(document.documentElement.dataset.visualTheme))
   const bridge = desktop()
   if (!bridge) {
     let alive = true
@@ -101,7 +106,7 @@ export function startThemeSync(): () => void {
       }
     }
     window.addEventListener('storage', sync)
-    return () => { alive = false; window.removeEventListener('storage', sync) }
+    return () => { alive = false; window.removeEventListener('storage', sync); stopMode() }
   }
 
   applyTheme(DEFAULT_THEME)
@@ -125,7 +130,7 @@ export function startThemeSync(): () => void {
     if (explicit) { applyTheme(explicit); notifyNative(bridge, explicit) }
     else { applyTheme(DEFAULT_THEME); notifyNative(bridge, DEFAULT_THEME); detect(initial) }
   }).catch(() => {})
-  return () => { alive = false; unsubscribe() }
+  return () => { alive = false; unsubscribe(); stopMode() }
 }
 
 export function ThemeSetting() {
@@ -134,6 +139,21 @@ export function ThemeSetting() {
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [rainbow, setRainbow] = useState(RAINBOW_OFF)
+  const [savingRainbow, setSavingRainbow] = useState(false)
+  const gesture = useRef(hueGesture())
+  const revealPending = useRef(false)
+  const colorSave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const pendingColor = useRef<string | null>(null)
+  const commitColor = useRef<() => void>(() => {})
+  useEffect(() => () => commitColor.current(), [])
+  useEffect(() => watchRainbow(setRainbow), [])
+  const updateRainbow = async (value: RainbowPreference) => {
+    setSavingRainbow(true)
+    try { await saveRainbow(value); setRainbow(value); setError('') }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setSavingRainbow(false); revealPending.current = false }
+  }
   // Refs bridge the asynchronous provider probe and the event handlers. A
   // delayed probe must not be allowed to overwrite a choice made meanwhile.
   const revisionRef = useRef(0)
@@ -200,17 +220,46 @@ export function ThemeSetting() {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
   }
+  commitColor.current = () => {
+    clearTimeout(colorSave.current)
+    const color = pendingColor.current
+    pendingColor.current = null
+    if (color) void change(`custom:${color}`)
+  }
   return <SetGroup title="Appearance">
     <SetRow label="visual theme" hint="Choose an accent for the desk. Provider badges and work status keep their own colors.">
-      <select aria-label="Visual theme" value={isCustomTheme(theme) ? 'custom' : theme} disabled={!ready || busy} onChange={e => void change(e.target.value === 'custom' ? `custom:${customColor}` : e.target.value)}>
+      <select aria-label="Visual theme" value={isCustomTheme(theme) ? 'custom' : theme} disabled={!ready || busy} onChange={e => {
+        clearTimeout(colorSave.current); pendingColor.current = null
+        void change(e.target.value === 'custom' ? `custom:${customColor}` : e.target.value)
+      }}>
         {VISUAL_THEMES.map(id => <option key={id} value={id}>{THEMES[id].label}</option>)}
         <option value="custom">Custom</option>
       </select>
     </SetRow>
     {isCustomTheme(theme) && <SetRow label="custom color">
       <input type="color" aria-label="Custom theme color" value={customColor}
-        disabled={!ready || busy} onChange={e => {setCustomColor(e.target.value); void change(`custom:${e.target.value}`)}} />
+        disabled={!ready} onBlur={() => commitColor.current()} onInput={e => {
+          if (!rainbow.revealed && !revealPending.current && gesture.current(e.currentTarget.value, performance.now())) {
+            revealPending.current = true
+            void updateRainbow({ ...rainbow, revealed: true })
+          }
+        }} onChange={e => {
+          const color = e.target.value
+          setCustomColor(color)
+          // Native input emits throughout a drag. Persist the settled color,
+          // not one IPC request per pointer movement, and keep its picker open.
+          clearTimeout(colorSave.current)
+          pendingColor.current = color
+          colorSave.current = setTimeout(() => commitColor.current(), 250)
+        }} />
       <span>{customColor}</span>
+    </SetRow>}
+    {rainbow.revealed && <SetRow label="">
+      <label className="rainbow-theme-option">
+        <input type="checkbox" aria-label="RGB rainbow mode" checked={rainbow.enabled} disabled={savingRainbow}
+          onChange={e => void updateRainbow({ revealed: true, enabled: e.target.checked, epoch: Date.now() })} />
+        <span aria-hidden="true">{[...'RGB rainbow mode'].map((letter, i) => <span key={i} style={{ color: `hsl(${i * 360 / 16} 80% 60%)` }}>{letter}</span>)}</span>
+      </label>
     </SetRow>}
     {error && <p role="alert">Could not save theme: {error}</p>}
     <ContrastSetting />
