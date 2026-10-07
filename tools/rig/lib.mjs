@@ -460,21 +460,29 @@ const me = () => process.env.ORGTREE_AGENT || os.userInfo().username
 
 /** Stop and delete every run whose keeper is gone; with mine=true also this
  * agent's live runs, with everyone=true every live run (other agents' too). */
-export async function cleanup({ mine = false, everyone = false } = {}) {
+export async function cleanup({ mine = false, everyone = false, dryRun = false } = {}) {
   const out = []
   const live = []
   for (const { dir, run } of listRuns()) {
     const up = run?.keeperPid && alive(run.keeperPid) && ['ready', 'starting'].includes(run.status)
     const stop = !up || everyone || (mine && run?.by === me())
     if (!stop) { live.push(dir); out.push({ dir, kept: `live (${run?.by ?? '?'})` }); continue }
-    out.push(await stopRun(dir, { keep: false, timeout: 30000 }))
+    out.push(dryRun ? { dir, wouldStop: true } : await stopRun(dir, { keep: false, timeout: 30000 }))
   }
-  // anything still running from the rig home that no live run owns (a
-  // crashed run's postgres runs from the shared binary cache)
-  const strays = processesUnder(rigHome()).filter(p => {
-    const text = `${p.ExecutablePath ?? ''} ${p.CommandLine ?? ''}`.toLowerCase()
-    return !live.some(dir => text.includes(lower(dir)))
-  })
-  for (const p of strays) killTree(p.ProcessId)
-  return { runs: out, strays: strays.map(p => ({ pid: p.ProcessId, exe: p.ExecutablePath })) }
+  // Anything still running from the rig home that no live run owns (a
+  // crashed run's postgres runs from the shared binary cache). Ownership
+  // follows the process tree: a postgres backend's command line names no data
+  // folder, only its postmaster's does, so a live run's backends must be
+  // recognised through their parents or they would be killed.
+  const procs = processesUnder(rigHome())
+  const byPid = new Map(procs.map(p => [p.ProcessId, p]))
+  const mentions = p => { const t = `${p.ExecutablePath ?? ''} ${p.CommandLine ?? ''}`.toLowerCase(); return live.some(d => t.includes(lower(d))) }
+  const owned = p => {
+    for (let q = p, hops = 0; q && hops < 16; q = byPid.get(q.ParentProcessId), hops++) if (mentions(q)) return true
+    return false
+  }
+  // only the roots of stray trees: killing a root takes its children
+  const strays = procs.filter(p => !owned(p) && !byPid.has(p.ParentProcessId))
+  if (!dryRun) for (const p of strays) killTree(p.ProcessId)
+  return { runs: out, strays: strays.map(p => ({ pid: p.ProcessId, exe: p.ExecutablePath, cmd: (p.CommandLine ?? '').slice(0, 200) })) }
 }

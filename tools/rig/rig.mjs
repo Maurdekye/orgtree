@@ -5,7 +5,7 @@
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
 //                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb]
 //   node tools/rig/rig.mjs status|down [--run id] [--keep]
-//   node tools/rig/rig.mjs cleanup [--mine|--everyone]
+//   node tools/rig/rig.mjs cleanup [--mine|--everyone] [--dry-run]
 //   node tools/rig/rig.mjs tool <agent> <orgtree_tool> [json args]
 //   node tools/rig/rig.mjs mail <user|agent> <to> <text> [--notice]
 //   node tools/rig/rig.mjs api <METHOD> <path> [json body]
@@ -89,7 +89,7 @@ async function main() {
       return print(listRuns().map(({ dir, run }) => ({ id: path.basename(dir), status: run?.status, by: run?.by, url: run?.url, org: run?.org, created: run?.created })))
     }
     case 'down': return print(await stopRun(rig().dir, { keep: !!flags.keep }))
-    case 'cleanup': return print(await cleanup({ mine: !!flags.mine, everyone: !!flags.everyone }))
+    case 'cleanup': return print(await cleanup({ mine: !!flags.mine, everyone: !!flags.everyone, dryRun: !!flags['dry-run'] }))
     case 'tool': return print(await rig().tool(pos[0], pos[1], json(pos[2]) ?? {}))
     case 'mail': {
       const r = rig()
