@@ -16,6 +16,11 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
 
 ## Orgtree 4.0.0 (Rust engine): read this first
 
+- Desk document metadata is newest presentation/update first (`at DESC, id
+  DESC`), including replacements of old documents; the desk takes its first
+  four entries. Keep the separate total count unchanged. [verified-from-source
+  and disposable PostgreSQL smoke: 2026-10-07; feed/compute.rs, canvas/desk.tsx]
+
 - App and Org settings checkboxes use `SetToggle`: checkbox left, label/hint,
   on/off state right. Its optional `labelContent` preserves decorative text
   with a plain accessible name; `action` keeps independent right-side controls
