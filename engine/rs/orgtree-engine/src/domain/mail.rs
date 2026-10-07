@@ -312,11 +312,19 @@ async fn authorize(
 /// A wake-up from the engine itself (crash recovery, watchdogs, freezes ending).
 #[logged]
 pub async fn system_wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64, text: &str) -> Result<()> {
+    system_event(engine, org_id, agent_id, text, false, None).await
+}
+
+/// A typed engine message; passive notices never independently admit a turn.
+#[logged]
+pub async fn system_event(engine: &Arc<Engine>, org_id: i64, agent_id: i64, text: &str, notice: bool, ev: Option<Value>) -> Result<()> {
     let client = engine.db.get().await?;
     let name: String = client.query_one("SELECT name FROM ot.agents WHERE id = $1", &[&agent_id]).await?.get(0);
     drop(client);
     let mut out = Outgoing::new(From::System, &name, text);
     out.kind = "system".into();
+    out.notice = notice;
+    out.ev = ev;
     send(engine, org_id, out).await?;
     Ok(())
 }
