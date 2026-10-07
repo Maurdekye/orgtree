@@ -39,7 +39,7 @@ const TOOLS_SUBAGENT: &[&str] = &["invoke_subagent", "manage_subagents", "browse
 pub const HOOK_DENIED: &str = "tool call denied by pre-tool hook: orgtree:";
 
 /// What one Antigravity process is launched with.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AgySpec {
     pub exe: PathBuf,
     pub cwd: PathBuf,
@@ -56,6 +56,15 @@ pub struct AgySpec {
     pub subagents: bool,
     pub env: Vec<(String, String)>,
     pub turn_timeout_s: u64,
+}
+
+impl std::fmt::Debug for AgySpec {
+    #[nolog]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgySpec").field("exe", &self.exe).field("cwd", &self.cwd)
+            .field("model", &self.model).field("effort", &self.effort)
+            .field("env", &"<redacted>").field("servers", &self.servers.len()).finish()
+    }
 }
 
 /// A running `agy` process. Dropping it ends the process tree and its tool pipe.

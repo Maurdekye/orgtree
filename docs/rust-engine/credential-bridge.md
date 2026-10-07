@@ -11,10 +11,14 @@ commands ask signed-in Electron main for the user's configured credentials.
   channel on the existing five-second tray poll. No renderer IPC carries secrets.
 - Engine verifies loopback origin, desktop authentication and the actual pipe
   server PID (GetNamedPipeServerProcessId). The process token must have the same
-  SID as the engine operator and interactive/cached-interactive/remote-interactive
-  logon type in a nonzero Windows session. PID alone or console presence is not
+  SID as the engine operator, an enabled well-known INTERACTIVE group, and a
+  nonzero Windows session. This queries the process token directly and does not
+  require cross-logon LsaGetLogonSessionData access. PID alone or console presence is not
   authority. Every credential lookup rechecks this pipe ownership.
-- Each launched CLI receives a random credential-only capability in its process
+- Only an engine with an isolated/unavailable credential context injects adapters.
+  A normal signed-in engine returns an empty environment delta before creating
+  any adapter or grant: no helper override, PATH shim, or Codex override.
+- Each adapted CLI receives a random credential-only capability in its process
   environment. Engine keeps one grant per agent, binds its generation/org and
   provider PID plus OS creation time, and checks live ownership before and after
   lookup. Replacing, closing, killing or exiting the CLI revokes the capability.
@@ -27,8 +31,10 @@ commands ask signed-in Electron main for the user's configured credentials.
   allows 16 concurrent requests, bounds bodies/results to 64 KiB and lookup time
   to ten seconds. Broker commands have six-second timeouts and no interactive
   credential prompts. Failures never echo tool stderr or credential bytes.
-- Git gets process-local GIT_CONFIG_* entries resetting credential.helper to the
-  Orgtree adapter; no gitconfig edit. The adapter supports HTTPS get only; store
+- Git gets one process-local GIT_CONFIG_* helper entry appended to its normal
+  helper chain; no empty helper reset and no gitconfig edit. Existing helpers
+  retain precedence. An unavailable broker returns an empty successful helper
+  answer, allowing later helpers to continue; it never disables native helpers. The adapter supports HTTPS get only; store
   and erase do nothing. Desktop runs its real git credential fill with the exact
   host/path/username and its own normal helper configuration, from its home
   directory, removing recursive adapter/askpass overrides. Only username/password
@@ -39,15 +45,20 @@ commands ask signed-in Electron main for the user's configured credentials.
   host from GH_HOST, repository origin or explicit hostname/repository arguments,
   requests gh auth token for that host, and sets the corresponding token only in
   that command child's environment. Explicit GH_TOKEN/GITHUB_TOKEN or enterprise
-  equivalents keep precedence. Tokens never go in argv. Static adapters contain
+  equivalents keep precedence. When no broker answers, the original gh executes
+  without an injected token and uses its normal authentication. Real-executable
+  lookup skips all credential-adapters directories, including an inherited outer
+  shim, preventing recursive shim launch. A missing executable produces an explicit installation/
+  PATH-refresh error. Tokens never go in argv. Static adapters contain
   no secret and live in a per-engine-boot directory.
 
 ## Availability and limits
 
 Desktop startup at sign-in is already on by default. When disabled, the user must
-open Orgtree. No new startup registration, scheduled-task edit, engine restart or
-turn hold is introduced. Before a broker is available, requests fail with an
-instruction to sign in and open Orgtree. Lease expiration restores the warning.
+open Orgtree. The warning says exactly that. No new startup registration, scheduled-task edit, engine restart or
+turn hold is introduced. Before a broker is available, adapters preserve native
+credential behavior while the app/tray warning asks the user to sign in and open
+Orgtree. Lease expiration restores the warning.
 The app reports restored git/GitHub access separately from the general Windows
 vault, which stays isolated. This applies to all orgs on the same engine.
 
@@ -58,6 +69,21 @@ These limits are part of the coordinator-approved design. Adapters take effect
 when this build launches a CLI; they do not modify an old process's environment.
 Installing the build naturally replaces old engine processes; thereafter a
 sign-in or desktop open requires no engine/agent restart.
+
+The capability is delegation within the same Windows user, not an OS sandbox
+between that user's agents: same-user processes may read another process's
+capability. Grants still fence agent identity, generation, CLI PID/creation and
+revocation; they never grant the desktop administrative token.
+
+Codex gets the environment-only capability as ORGTREE_CREDENTIAL_AUTH and
+explicit shell_environment_policy.set.GIT_CONFIG_KEY_n overrides for the
+nonsecret Git key names. No secret is put into CLI arguments and default secret
+filtering is not disabled. This keeps helper key/count pairs intact even on Codex
+versions that apply the usual KEY/TOKEN/SECRET exclusions.
+
+All registration, failed-ping and lease-expiry notifications pass through
+credential_bridge::publish_availability. Only a readiness boolean is published;
+watchdog event hooks can attach there without receiving broker or grant data.
 
 ## Verification
 
@@ -72,8 +98,33 @@ An isolated Rust executable compiled the actual source capability comparison,
 target validators and process-stamp function against Win32. It passed stable live
 PID/creation identity and dead/nonexistent PID refusal without touching the engine.
 
-Source-checked: Windows pipe server PID/SID/interactive proof, process creation
-identity, bounded same-agent/generation SQL, launch/reuse/revocation seams for
-Claude/Codex/Antigravity, and total bypass of wire tracing. A real interactive
-credential round trip is not claimed: the development agent runs in session 0;
-no live engine, Windows tasks or real credentials were changed for verification.
+Measured review correction checks (2026-10-07):
+- Actual-source Windows identity proof, executed by the session-0 worker, accepts
+  the existing same-user session-1 desktop; rejects the worker's own batch token
+  and an invalid PID. The old cross-session LSA call returned success on this
+  machine, so the review's suspected LSA access failure was not reproduced.
+- Actual-source environment builder and gate: normal mode adds nothing; isolated
+  mode adds one nonempty helper entry, AUTH/URL/agent capability context and PATH.
+  Real Git credential fill with synthetic helpers confirms native helpers remain
+  intact and an empty adapter answer allows a later helper to fill credentials.
+- Actual-source gh command builder: no broker gives the installed real gh the same
+  exit/stdout/stderr for --version; explicit tokens win; only a successful lookup
+  adds a token; malformed synthetic token data is refused. Outer shim paths are
+  excluded from executable resolution.
+- Installed Codex was driven with a local synthetic Responses server (no remote
+  model or credential access) through its real exec_command tool, not standalone
+  command/exec. Both its default and explicit-key-override launches preserved
+  GIT_CONFIG_KEY_0, GIT_CONFIG_COUNT and synthetic AUTH/TOKEN variables. The
+  suspected filtering failure is therefore not reproduced on this installed CLI;
+  the narrow key override protects versions/configurations with default filters.
+- Agent-route token and agent-ID headers are checked with an O(1) grant lookup
+  before acquiring a request slot or reading a body. AgySpec's entire environment
+  is redacted; Claude's redaction includes credential-prefixed names.
+
+Source-checked: bounded same-agent/generation SQL, launch/reuse/revocation seams
+for Claude/Codex/Antigravity, and total bypass of wire tracing. A real interactive
+credential round trip remains a post-install user check, per coordinator ruling
+2026-10-07 13:24Z. The attempted same-user interactive smoke launch was refused by
+Windows (1314); no task, privilege, live data or desktop state was changed. A local
+bare push is not accepted as credential-helper evidence. The meaningful local
+Git check above uses credential fill with synthetic credentials only.

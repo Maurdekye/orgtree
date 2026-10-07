@@ -1617,6 +1617,8 @@ impl Actor {
             let tid = tid.clone();
             let _ = tokio::task::spawn_blocking(move || codexrt::ensure_rollout(&tid, home.as_deref(), &others)).await;
         }
+        let bridge_env=self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation);
+        config.extend(crate::credential_bridge::codex_overrides(&bridge_env));
         let spec = CodexSpec {
             exe,
             cwd: ctx.scratch.clone(),
@@ -1634,7 +1636,7 @@ impl Actor {
             may_shell: on("bash"),
             env: {
                 let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
-                env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
+                env.extend(bridge_env);
                 if let Some(r) = route {
                     env.push((crate::openrouter::KEY_ENV.into(), r.key.clone()));
                 }

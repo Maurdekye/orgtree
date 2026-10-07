@@ -9,7 +9,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::{
     sync::{
-        atomic::{AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -37,6 +37,7 @@ pub struct Bridge {
     broker: ArcSwapOption<Broker>,
     grants: papaya::HashMap<i64, Arc<Grant>>,
     slots: tokio::sync::Semaphore,
+    reported_ready: AtomicBool,
 }
 #[nolog]
 impl Bridge {
@@ -45,6 +46,7 @@ impl Bridge {
             broker: ArcSwapOption::empty(),
             grants: papaya::HashMap::new(),
             slots: tokio::sync::Semaphore::new(16),
+            reported_ready: AtomicBool::new(false),
         }
     }
     pub fn ready(&self) -> bool {
@@ -71,7 +73,10 @@ impl Bridge {
         org: i64,
         generation: i32,
     ) -> Vec<(String, String)> {
-        if !cfg!(windows) {
+        if !needs_adapter(
+            cfg!(windows),
+            engine.credentials.state.load().warning.is_some(),
+        ) {
             return vec![];
         }
         let Ok(exe) = std::env::current_exe() else {
@@ -112,51 +117,110 @@ impl Bridge {
                 created: AtomicU64::new(0),
             }),
         );
-        let old_path = std::env::var_os("PATH").unwrap_or_default();
-        let real_gh = std::env::split_paths(&old_path)
-            .map(|p| p.join("gh.exe"))
-            .find(|p| p.is_file());
-        let path =
-            std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&old_path)))
-                .unwrap_or(old_path);
-        let n = std::env::var("GIT_CONFIG_COUNT")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|v| *v < 128)
-            .unwrap_or(0);
-        let quoted = exe
-            .to_string_lossy()
-            .replace('\\', "/")
-            .replace('\'', "'\\''");
-        let mut env = vec![
-            ("ORGTREE_CREDENTIAL_TOKEN".into(), secret),
-            (
-                "ORGTREE_CREDENTIAL_URL".into(),
-                format!("http://127.0.0.1:{}{REQUEST}", engine.boot.port),
-            ),
-            ("ORGTREE_CREDENTIAL_AGENT".into(), agent.to_string()),
-            ("PATH".into(), path.to_string_lossy().into_owned()),
-            ("GIT_CONFIG_COUNT".into(), (n + 2).to_string()),
-            (format!("GIT_CONFIG_KEY_{n}"), "credential.helper".into()),
-            (format!("GIT_CONFIG_VALUE_{n}"), String::new()),
-            (
-                format!("GIT_CONFIG_KEY_{}", n + 1),
-                "credential.helper".into(),
-            ),
-            (
-                format!("GIT_CONFIG_VALUE_{}", n + 1),
-                format!("!'{}' credential-helper", quoted),
-            ),
-            ("GIT_TERMINAL_PROMPT".into(), "0".into()),
-        ];
-        if let Some(real) = real_gh {
-            env.push((
-                "ORGTREE_REAL_GH".into(),
-                real.to_string_lossy().into_owned(),
+        adapter_environment(&exe, dir, agent, engine.boot.port, secret)
+    }
+}
+
+#[nolog]
+fn adapter_environment(
+    exe: &std::path::Path,
+    dir: std::path::PathBuf,
+    agent: i64,
+    port: u16,
+    secret: String,
+) -> Vec<(String, String)> {
+    let old_path = std::env::var_os("PATH").unwrap_or_default();
+    let real_gh = std::env::split_paths(&old_path)
+        .map(|p| p.join("gh.exe"))
+        .find(|p| p.is_file() && !adapter_path(p));
+    let path = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&old_path)))
+        .unwrap_or(old_path);
+    let n = std::env::var("GIT_CONFIG_COUNT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v < 128)
+        .unwrap_or(0);
+    let quoted = exe
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "'\\''");
+    let mut env = vec![
+        ("ORGTREE_CREDENTIAL_AUTH".into(), secret),
+        (
+            "ORGTREE_CREDENTIAL_URL".into(),
+            format!("http://127.0.0.1:{}{REQUEST}", port),
+        ),
+        ("ORGTREE_CREDENTIAL_AGENT".into(), agent.to_string()),
+        ("PATH".into(), path.to_string_lossy().into_owned()),
+        ("GIT_CONFIG_COUNT".into(), (n + 1).to_string()),
+        (format!("GIT_CONFIG_KEY_{n}"), "credential.helper".into()),
+        (
+            format!("GIT_CONFIG_VALUE_{n}"),
+            format!("!'{}' credential-helper", quoted),
+        ),
+        ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+    ];
+    if let Some(real) = real_gh {
+        env.push((
+            "ORGTREE_REAL_GH".into(),
+            real.to_string_lossy().into_owned(),
+        ));
+    }
+    env
+}
+
+/// All registration, failed-ping and lease-expiry availability notifications
+/// pass here. Payload is a boolean; never publish broker or grant contents.
+#[nolog]
+pub fn publish_availability(engine: &Engine) {
+    let ready = engine.credential_bridge.ready();
+    if engine
+        .credential_bridge
+        .reported_ready
+        .swap(ready, Ordering::SeqCst)
+        == ready
+    {
+        return;
+    }
+    if ready {
+        tracing::info!("Signed-in desktop git/GitHub credential bridge ready; general Windows vault remains isolated");
+    } else {
+        tracing::warn!("{UNAVAILABLE}");
+    }
+}
+
+/// Preserve Git's nonsecret config KEY names on Codex versions that apply
+/// the *KEY* shell filter. The opaque capability uses AUTH (not *TOKEN*) and
+/// remains environment-only; never put it in -c argv or config files.
+#[nolog]
+pub fn codex_overrides(env: &[(String, String)]) -> Vec<String> {
+    if !env.iter().any(|(k, _)| k == "ORGTREE_CREDENTIAL_AUTH") {
+        return vec![];
+    }
+    let mut entries: std::collections::BTreeMap<String, String> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("GIT_CONFIG_KEY_"))
+        .collect();
+    entries.extend(
+        env.iter()
+            .filter(|(k, _)| k.starts_with("GIT_CONFIG_KEY_"))
+            .cloned(),
+    );
+    let mut args = Vec::new();
+    for (key, value) in entries {
+        if key
+            .strip_prefix("GIT_CONFIG_KEY_")
+            .map(|n| n.parse::<u8>().is_ok())
+            .unwrap_or(false)
+        {
+            args.push("-c".into());
+            args.push(format!(
+                "shell_environment_policy.set.{}={}",
+                key,
+                toml::Value::String(value)
             ));
         }
-        env
     }
+    args
 }
 
 #[nolog]
@@ -188,11 +252,6 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
 }
 #[nolog]
 async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
-    let _slot = engine
-        .credential_bridge
-        .slots
-        .try_acquire()
-        .map_err(|_| ())?;
     let peer = req
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -216,6 +275,27 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
     {
         return Err(());
     }
+    let header_agent = req
+        .headers()
+        .get("x-orgtree-credential-agent")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<i64>().ok());
+    if !register {
+        let agent = header_agent.ok_or(())?;
+        let grants = engine.credential_bridge.grants.pin();
+        if !grants
+            .get(&agent)
+            .map(|g| equal(&token, &g.secret))
+            .unwrap_or(false)
+        {
+            return Err(());
+        }
+    }
+    let _slot = engine
+        .credential_bridge
+        .slots
+        .try_acquire()
+        .map_err(|_| ())?;
     let bytes = axum::body::to_bytes(req.into_body(), MAX)
         .await
         .map_err(|_| ())?;
@@ -247,17 +327,17 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
         if exchange(&broker, json!({"kind":"ping"})).await? != b"ready" {
             return Err(());
         }
-        let was = engine.credential_bridge.ready();
         engine
             .credential_bridge
             .broker
             .store(Some(Arc::new(broker)));
-        if !was {
-            tracing::info!("Signed-in desktop git/GitHub credential bridge ready; general Windows vault remains isolated");
-        }
+        publish_availability(engine);
         return Ok(b"ready".to_vec());
     }
     let agent = value["agent"].as_i64().ok_or(())?;
+    if header_agent != Some(agent) {
+        return Err(());
+    }
     let grant = engine
         .credential_bridge
         .grants
@@ -315,7 +395,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
                     .map(|b| Arc::ptr_eq(b, &broker))
                     .unwrap_or(false)
                 {
-                    tracing::warn!("{UNAVAILABLE}");
+                    publish_availability(engine);
                 }
             }
             return Err(());
@@ -348,6 +428,31 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, ()> {
         return Err(());
     }
     Ok(answer)
+}
+#[nolog]
+fn needs_adapter(windows: bool, isolated: bool) -> bool {
+    windows && isolated
+}
+#[nolog]
+fn adapter_path(path: &std::path::Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("credential-adapters")
+    })
+}
+#[nolog]
+fn find_gh() -> Option<std::path::PathBuf> {
+    let cached = std::env::var_os("ORGTREE_REAL_GH")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute() && p.is_file() && !adapter_path(p));
+    cached.or_else(|| {
+        std::env::var_os("PATH").and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("gh.exe"))
+                .find(|p| p.is_absolute() && p.is_file() && !adapter_path(p))
+        })
+    })
 }
 #[nolog]
 fn equal(a: &str, b: &str) -> bool {
@@ -439,8 +544,7 @@ fn process_stamp(_: u32) -> Option<u64> {
 #[nolog]
 fn interactive_same_user(pid: u32) -> bool {
     use windows_sys::Win32::{
-        Foundation::*, Security::Authentication::Identity::*, Security::*,
-        System::RemoteDesktop::*, System::Threading::*,
+        Foundation::*, Security::*, System::RemoteDesktop::*, System::Threading::*,
     };
     unsafe {
         let mut session = 0;
@@ -464,27 +568,58 @@ fn interactive_same_user(pid: u32) -> bool {
         }
         let a = token_sid(token);
         let b = token_sid(ours);
-        let mut stats: TOKEN_STATISTICS = std::mem::zeroed();
-        let mut len = 0;
-        let mut interactive = false;
-        if GetTokenInformation(
-            token,
-            TokenStatistics,
-            (&mut stats as *mut TOKEN_STATISTICS).cast(),
-            std::mem::size_of_val(&stats) as u32,
-            &mut len,
-        ) != 0
-        {
-            let mut data = std::ptr::null_mut();
-            if LsaGetLogonSessionData(&stats.AuthenticationId, &mut data) == 0 && !data.is_null() {
-                interactive = matches!((*data).LogonType, 2 | 10 | 11 | 12);
-                LsaFreeReturnBuffer(data.cast());
-            }
-        }
+        let interactive = token_interactive(token);
         CloseHandle(token);
         CloseHandle(ours);
         interactive && a.is_some() && a == b
     }
+}
+#[cfg(windows)]
+#[nolog]
+unsafe fn token_interactive(token: windows_sys::Win32::Foundation::HANDLE) -> bool {
+    use windows_sys::Win32::Security::*;
+    let mut len = 0;
+    GetTokenInformation(token, TokenGroups, std::ptr::null_mut(), 0, &mut len);
+    if len == 0 || len > 65536 {
+        return false;
+    }
+    let mut buffer = vec![0u64; (len as usize + 7) / 8];
+    if GetTokenInformation(
+        token,
+        TokenGroups,
+        buffer.as_mut_ptr().cast(),
+        len,
+        &mut len,
+    ) == 0
+    {
+        return false;
+    }
+    const SE_GROUP_ENABLED: u32 = 0x00000004; // winnt.h
+    let groups = &*(buffer.as_ptr() as *const TOKEN_GROUPS);
+    let offset = groups.Groups.as_ptr() as usize - buffer.as_ptr() as usize;
+    if offset + groups.GroupCount as usize * std::mem::size_of::<SID_AND_ATTRIBUTES>()
+        > len as usize
+    {
+        return false;
+    }
+    let mut sid = [0u64; 9];
+    let mut size = std::mem::size_of_val(&sid) as u32;
+    if CreateWellKnownSid(
+        WinInteractiveSid,
+        std::ptr::null_mut(),
+        sid.as_mut_ptr().cast(),
+        &mut size,
+    ) == 0
+    {
+        return false;
+    }
+    // INTERACTIVE is stamped into a genuine interactive logon token (also RDP).
+    // Querying TokenGroups needs TOKEN_QUERY, not cross-logon LSA privileges.
+    std::slice::from_raw_parts(groups.Groups.as_ptr(), groups.GroupCount as usize)
+        .iter()
+        .any(|g| {
+            g.Attributes & SE_GROUP_ENABLED != 0 && EqualSid(g.Sid, sid.as_mut_ptr().cast()) != 0
+        })
 }
 #[cfg(windows)]
 #[nolog]
@@ -518,6 +653,7 @@ pub fn cli(kind: &str, args: &[String]) -> std::process::ExitCode {
     };
     match rt.block_on(cli_async(kind, args)) {
         Ok(code) => std::process::ExitCode::from(code),
+        Err(_) if kind == "git" => std::process::ExitCode::SUCCESS,
         Err(_) => {
             eprintln!("{UNAVAILABLE}");
             std::process::ExitCode::FAILURE
@@ -526,6 +662,15 @@ pub fn cli(kind: &str, args: &[String]) -> std::process::ExitCode {
 }
 #[nolog]
 async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
+    let real = if kind == "gh" {
+        let Some(real) = find_gh() else {
+            eprintln!("GitHub CLI (gh.exe) is not on this process's PATH. Install it and reopen the agent process to refresh PATH.");
+            return Ok(127);
+        };
+        Some(real)
+    } else {
+        None
+    };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut host = std::env::var("GH_HOST").unwrap_or_else(|_| "github.com".into());
     let mut path = String::new();
@@ -610,42 +755,51 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
     let answer = if explicit {
         vec![]
     } else {
-        let endpoint = std::env::var("ORGTREE_CREDENTIAL_URL").map_err(|_| ())?;
-        let url = reqwest::Url::parse(&endpoint).map_err(|_| ())?;
-        if url.scheme() != "http"
-            || url.host_str() != Some("127.0.0.1")
-            || url.path() != REQUEST
-            || !url.username().is_empty()
-            || url.query().is_some()
-        {
-            return Err(());
-        }
-        let agent = std::env::var("ORGTREE_CREDENTIAL_AGENT")
-            .map_err(|_| ())?
-            .parse::<i64>()
-            .map_err(|_| ())?;
-        let token = std::env::var("ORGTREE_CREDENTIAL_TOKEN").map_err(|_| ())?;
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|_| ())?;
-        let response = client
+        // Broker absence never disables the native credential path. An empty
+        // Git helper answer allows the configured chain to continue; gh runs
+        // its real executable below without an injected token.
+        let lookup =
+            async {
+                let endpoint = std::env::var("ORGTREE_CREDENTIAL_URL").map_err(|_| ())?;
+                let url = reqwest::Url::parse(&endpoint).map_err(|_| ())?;
+                if url.scheme() != "http"
+                    || url.host_str() != Some("127.0.0.1")
+                    || url.path() != REQUEST
+                    || !url.username().is_empty()
+                    || url.query().is_some()
+                {
+                    return Err(());
+                }
+                let agent = std::env::var("ORGTREE_CREDENTIAL_AGENT")
+                    .map_err(|_| ())?
+                    .parse::<i64>()
+                    .map_err(|_| ())?;
+                let token = std::env::var("ORGTREE_CREDENTIAL_AUTH").map_err(|_| ())?;
+                let client = reqwest::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(Duration::from_secs(10))
+                    .build()
+                    .map_err(|_| ())?;
+                let response = client
             .post(url)
             .header("x-orgtree-credential-token", token)
+            .header("x-orgtree-credential-agent", agent.to_string())
             .json(&json!({"agent":agent,"kind":kind,"host":host,"path":path,"username":username}))
             .send()
             .await
             .map_err(|_| ())?;
-        if !response.status().is_success() {
-            return Err(());
-        }
-        let result = response.bytes().await.map_err(|_| ())?;
-        if result.is_empty() || result.len() > MAX {
-            return Err(());
-        }
-        result.to_vec()
+                if !response.status().is_success() {
+                    return Err(());
+                }
+                let result = response.bytes().await.map_err(|_| ())?;
+                if result.is_empty() || result.len() > MAX {
+                    return Err(());
+                }
+                Ok::<Vec<u8>, ()>(result.to_vec())
+            }
+            .await;
+        lookup.unwrap_or_default()
     };
     if kind == "git" {
         tokio::io::stdout()
@@ -654,23 +808,33 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
             .map_err(|_| ())?;
         return Ok(0);
     }
-    let real = std::env::var_os("ORGTREE_REAL_GH").ok_or(())?;
-    if !std::path::Path::new(&real).is_absolute() {
-        return Err(());
-    }
-    let mut cmd = tokio::process::Command::new(real);
-    cmd.args(args);
-    if !explicit {
-        let token = String::from_utf8(answer).map_err(|_| ())?;
-        if !safe_field(token.trim()) {
-            return Err(());
-        }
-        cmd.env(token_env, token.trim());
-    }
+    let native = gh_command(&real.ok_or(())?, args, token_env, &answer, explicit)?;
+    let mut cmd = tokio::process::Command::from(native);
     #[cfg(windows)]
     {
         cmd.creation_flags(crate::winproc::CREATE_NO_WINDOW);
     }
     let status = cmd.status().await.map_err(|_| ())?;
     Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
+}
+
+/// Keep native gh unchanged when the broker is absent or an explicit token wins.
+#[nolog]
+fn gh_command(
+    real: &std::path::Path,
+    args: &[String],
+    token_env: &str,
+    answer: &[u8],
+    explicit: bool,
+) -> Result<std::process::Command, ()> {
+    let mut cmd = std::process::Command::new(real);
+    cmd.args(args);
+    if !explicit && !answer.is_empty() {
+        let token = std::str::from_utf8(answer).map_err(|_| ())?;
+        if !safe_field(token.trim()) {
+            return Err(());
+        }
+        cmd.env(token_env, token.trim());
+    }
+    Ok(cmd)
 }

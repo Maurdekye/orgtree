@@ -46,7 +46,7 @@ impl std::fmt::Debug for SpawnSpec {
             .env
             .iter()
             .map(|(k, v)| {
-                let secret = ["KEY", "TOKEN", "SECRET", "PASSWORD"].iter().any(|w| k.to_ascii_uppercase().contains(w));
+                let secret = ["KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"].iter().any(|w| k.to_ascii_uppercase().contains(w));
                 (k.clone(), if secret { "*****".to_string() } else { v.clone() })
             })
             .collect();

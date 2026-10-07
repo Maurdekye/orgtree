@@ -70,14 +70,11 @@ pub fn start(engine: &Arc<crate::engine::Engine>) {
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(std::time::Duration::from_secs(30));
         timer.tick().await;
-        let mut was_bridged = engine.credential_bridge.ready();
         loop {
             tokio::select! {
                 _ = engine.shutdown.cancelled() => break,
                 _ = timer.tick() => {
-                    let bridged = engine.credential_bridge.ready();
-                    if was_bridged && !bridged { tracing::warn!("{}", crate::credential_bridge::UNAVAILABLE); }
-                    was_bridged = bridged;
+                    crate::credential_bridge::publish_availability(&engine);
                     // WTS facts are cheap; no vault enumeration on unchanged ticks.
                     let old = engine.credentials.state.load_full();
                     let (process, console, own_user, console_user) = sessions();

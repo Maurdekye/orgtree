@@ -226,3 +226,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     opens Orgtree to restore access. No separate logon helper. SSH, absolute-path
     gh and general Credential Manager/DPAPI access are outside this bridge.
     Details and verification limits: `credential-bridge.md`.
+
+    Review clarification (coordinator 2026-10-07 13:24Z): normal signed-in engines
+    inject no credential adapters. Isolated engines preserve native git helpers
+    and execute real gh without a token when the desktop broker is unavailable.
+    The interactive credential round trip is verified after alpha.9 installation;
+    local source/isolated smoke checks must prove the normal-mode environment is
+    unchanged. Same-user capabilities are not an OS isolation boundary.
