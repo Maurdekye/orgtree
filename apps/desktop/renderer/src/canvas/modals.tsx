@@ -865,12 +865,11 @@ export function savePopups(
   return r?.warnings ?? []
 }
 
-type NodeConfigTab = 'charter' | 'model' | 'scope' | 'agent'
+type NodeConfigTab = 'charter' | 'model' | 'scope'
 const NODE_CONFIG_TABS = [
   { id: 'charter', label: 'Charter' },
   { id: 'model', label: 'Model' },
   { id: 'scope', label: 'Scope' },
-  { id: 'agent', label: 'Agent' },
 ] satisfies { id: NodeConfigTab; label: string }[]
 
 interface NodeConfigProps {
@@ -1153,6 +1152,54 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             live={node.proc_live} relaunch={node.proc_relaunch}
             reason={node.proc_relaunch_reason} busy={node.busy} tier={node.tier} />}
           {tierLabel(node.tier ?? '')} · configuration</div>
+        {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
+            working folder and session all move; history keeps the old name
+            (the warning rides the toast). Refused while mid-turn. */}
+        {!node.isBearerOf && (
+          <div className="row agent-identity-row">
+            <input style={{ width: '14em' }} placeholder="rename…"
+              value={val('rename', node.id)}
+              onChange={(e) => set('rename', node.id)(e.target.value)} />
+            {val('rename', node.id) !== node.id && (
+              <button onClick={() =>
+                op({ op: 'rename', node: node.id,
+                     name: String(val('rename', node.id)) })
+                  .then((r) => {
+                    toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
+                           ...((r?.warnings as string[] | undefined) ?? [])])
+                    close()
+                  })
+                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
+                rename</button>
+            )}
+          </div>
+        )}
+
+        <div className="row agent-identity-row">
+          {/* retire asks too (user bug 2026-08-09) — it sat as the one
+              seat-freeing action firing straight off the click, beside a
+              dissolve button that asks */}
+          {node.state === 'live' && !node.children.some((c) => c.state !== 'archived') &&
+            <button className="danger" onClick={() => setAsking('retire')}>
+              retire · {fmtCredits(node.seat! + node.grant!)}</button>}
+          {node.state === 'live' && node.children.some((c) => c.state !== 'archived') &&
+            <button className="danger" onClick={() => setAsking('dissolve')}>
+              dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
+          {node.state === 'archived' &&
+            <button className="primary" onClick={() =>
+              op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
+              rehire (context intact)</button>}
+          {/* FR-22: rescind — retire whose freed stake is CLAWED BACK from the
+              superior's grant (user-only; agents have no verb). Only where a
+              superior exists to claw from: top-level rescind degrades to a
+              plain retire and earns no separate button. */}
+          {node.state === 'live' && node.parent && node.parent !== USER &&
+            <button className="danger" onClick={() => setAsking('rescind')}>
+              rescind</button>}
+          <button className="danger delete"
+            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
+        </div>
+
         {node.state === 'live' && node.id !== USER && !node.isBearerOf &&
           <CreditGrant key={`${node.id}:${node.generation}`} node={node} map={map} tree={tree} op={op} />}
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
@@ -1421,57 +1468,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           <option value="acceptEdits">acceptEdits — the normal seat</option>
           <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
         </select>
-
-        </SettingsTabPanel>
-        <SettingsTabPanel id="agent" idBase={tabId} active={tab === 'agent'}>
-        {/* FULL identity rename (user ruling 2026-08-05): id, mailbox,
-            working folder and session all move; history keeps the old name
-            (the warning rides the toast). Refused while mid-turn. */}
-        {!node.isBearerOf && (
-          <div className="row">
-            <input style={{ width: '14em' }} placeholder="rename…"
-              value={val('rename', node.id)}
-              onChange={(e) => set('rename', node.id)(e.target.value)} />
-            {val('rename', node.id) !== node.id && (
-              <button onClick={() =>
-                op({ op: 'rename', node: node.id,
-                     name: String(val('rename', node.id)) })
-                  .then((r) => {
-                    toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
-                           ...((r?.warnings as string[] | undefined) ?? [])])
-                    close()
-                  })
-                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                rename</button>
-            )}
-          </div>
-        )}
-
-        <div className="row">
-          {/* retire asks too (user bug 2026-08-09) — it sat as the one
-              seat-freeing action firing straight off the click, beside a
-              dissolve button that asks */}
-          {node.state === 'live' && !node.children.some((c) => c.state !== 'archived') &&
-            <button className="danger" onClick={() => setAsking('retire')}>
-              retire · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'live' && node.children.some((c) => c.state !== 'archived') &&
-            <button className="danger" onClick={() => setAsking('dissolve')}>
-              dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
-          {node.state === 'archived' &&
-            <button className="primary" onClick={() =>
-              op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
-              rehire (context intact)</button>}
-          {/* FR-22: rescind — retire whose freed stake is CLAWED BACK from the
-              superior's grant (user-only; agents have no verb). Only where a
-              superior exists to claw from: top-level rescind degrades to a
-              plain retire and earns no separate button. */}
-          {node.state === 'live' && node.parent && node.parent !== USER &&
-            <button className="danger" onClick={() => setAsking('rescind')}>
-              rescind</button>}
-          <span style={{ flex: 1 }} />
-          <button className="danger delete"
-            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
-        </div>
 
         </SettingsTabPanel>
         {/* D-106: the cascade preview, BEFORE the save (user ruling) — the
