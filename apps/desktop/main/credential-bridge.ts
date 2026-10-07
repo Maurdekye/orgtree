@@ -29,31 +29,42 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
   const search = Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] || ''
   return search.split(path.delimiter).filter(dir => !dir.split(/[\\/]/).some(part => part.toLowerCase() === 'credential-adapters')).map(dir => path.join(dir, name + '.exe')).find(p => path.isAbsolute(p) && fs.existsSync(p))
 }
-function run(exe: string, args: string[], input: string, env: NodeJS.ProcessEnv): Promise<string> {
+/** Coarse, secret-free failure code. Never carries tool stdout/stderr. */
+class LookupFailure extends Error { constructor(readonly code: string) { super(code) } }
+function run(tool: string, exe: string, args: string[], input: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(exe, args, {cwd: os.homedir(), env, windowsHide: true, timeout: 6000, maxBuffer: MAX, encoding: 'utf8'},
-      (error, stdout) => error ? reject(new Error('credential lookup failed')) : resolve(stdout))
+      (error, stdout) => {
+        if (!error) return resolve(stdout)
+        const e = error as NodeJS.ErrnoException & {killed?: boolean; code?: string | number}
+        reject(new LookupFailure(e.killed ? `${tool}-timeout`
+          : e.code === 'ENOENT' ? `${tool}-missing`
+          : typeof e.code === 'number' ? `${tool}-exit-${Math.max(-1, Math.min(255, e.code))}`
+          : e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `${tool}-too-large` : `${tool}-failed`))
+      })
     child.stdin?.on('error', () => {})
     child.stdin?.end(input)
   })
 }
 async function lookup(value: Record<string, unknown>): Promise<string> {
   if (value.kind === 'ping') return 'ready'
-  if (!hostOK(value.host) || !safe(value.path ?? '') || !safe(value.username ?? '')) throw Error('invalid request')
+  if (!hostOK(value.host) || !safe(value.path ?? '') || !safe(value.username ?? '')) throw new LookupFailure('invalid-request')
   const env = lookupEnv()
   if (value.kind === 'gh') {
-    const gh = executable('gh', env); if (!gh) throw Error('unavailable')
-    const token = (await run(gh, ['auth', 'token', '--hostname', value.host], '', env)).trim()
-    if (!token || !safe(token)) throw Error('unavailable')
+    const gh = executable('gh', env); if (!gh) throw new LookupFailure('gh-missing')
+    const token = (await run('gh', gh, ['auth', 'token', '--hostname', value.host], '', env)).trim()
+    if (!token) throw new LookupFailure('gh-empty')
+    if (!safe(token)) throw new LookupFailure('gh-malformed')
     return token
   }
-  if (value.kind !== 'git') throw Error('invalid request')
-  const git = executable('git', env); if (!git) throw Error('unavailable')
+  if (value.kind !== 'git') throw new LookupFailure('invalid-request')
+  const git = executable('git', env); if (!git) throw new LookupFailure('git-missing')
   const input = `protocol=https\nhost=${value.host}\n${value.path ? `path=${value.path}\n` : ''}${value.username ? `username=${value.username}\n` : ''}\n`
-  const answer = await run(git, ['credential', 'fill'], input, env)
+  const answer = await run('git', git, ['credential', 'fill'], input, env)
   const fields = new Map(answer.trim().split(/\r?\n/).map(line => {const at=line.indexOf('=');return [line.slice(0,at),line.slice(at+1)]}))
   const username=fields.get('username'), password=fields.get('password')
-  if (!safe(username) || !safe(password) || !password) throw Error('unavailable')
+  if (!password) throw new LookupFailure('git-empty')
+  if (!safe(username) || !safe(password)) throw new LookupFailure('git-malformed')
   return `username=${username}\npassword=${password}\n\n`
 }
 
@@ -79,15 +90,23 @@ export class CredentialBridge {
         const end=raw.indexOf(10); if(end<0)return
         handled=true
         void (async()=>{
+          let authorized=false, diagnostics=false
           try {
             const value=JSON.parse(raw.subarray(0,end).toString('utf8')) as Record<string,unknown>
             raw.fill(0)
             if(typeof value.secret!=='string')throw Error('unauthorized')
             const given=Buffer.from(value.secret), expected=Buffer.from(this.secret)
             if(given.length!==expected.length || !timingSafeEqual(given,expected))throw Error('unauthorized')
+            authorized=true; diagnostics=value.diagnostics===1
             const result=await lookup(value)
             if(!socket.destroyed)socket.end(result)
-          } catch {socket.destroy()} // never echo lookup errors, which can contain secrets
+          } catch (error) {
+            // Only a fixed failure code goes back, and only to the authenticated
+            // engine that asked for it. Tool output and messages never leave.
+            if(authorized && diagnostics && !socket.destroyed)socket.end(`orgtree-credential-error ${error instanceof LookupFailure ? error.code : 'broker-failed'}
+`)
+            else socket.destroy()
+          }
         })()
       })
     })
