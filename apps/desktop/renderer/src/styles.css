@@ -526,7 +526,10 @@ main {
    holding it near half height; the width stays capped so it still reads as a
    panel over the canvas rather than a takeover. */
 .tempdesk-over {
-  position: fixed; inset: 0; z-index: 60;
+  /* Above the pin layer (16), canvas controls (17) and drawer (19), below
+     ordinary dialogs (30), nested dialogs (31), pickers (60) and menus (90).
+     A temporary desk is a desk host; its own actions must open above it. */
+  position: fixed; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   backdrop-filter: blur(2px);

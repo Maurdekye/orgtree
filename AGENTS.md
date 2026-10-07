@@ -216,6 +216,13 @@ DECISIONS changes them.
 desk frame, then map its CSS rectangle through the owner's native content origin and browser
 zoom. Windows cross-display mapping goes through physical pixels; content bounds exclude
 invisible frame allowances. Lifecycle restores still use saved standalone placement.
+
+**Temporary desks (2026-10-07, verified from source and browser smoke).** Their jump
+cards use normal desk navigation; an explicit jump closes the temporary host. Keep
+the host at layer 20, below dialogs (30/31). Canvas-owned dialogs must also escape
+the viewport through `ModalOverPins`: z-index alone cannot escape its stacking
+context. The temporary host yields keyboard focus to portaled dialogs, menus and
+listboxes, including dialogs without `aria-modal`.
 Forced Chromium DPR does not change Windows frame DPI: compare `GetDpiForWindow` before
 claiming native DPI coverage. Rust sibling ties use the numeric database id (wire `ord`),
 not creation time. [verified: `main/windows.ts`, renderer `canvas/deskhosts.tsx`,

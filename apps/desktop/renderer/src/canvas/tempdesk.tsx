@@ -82,7 +82,9 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
       // A Desk can open its own dialog or menu. Let its handler consume Tab
       // first, and leave focus alone while another modal owns it.
       const active = doc.activeElement
-      const dialog = active?.closest('[role="dialog"][aria-modal="true"]')
+      // PinFrame dialogs do not all declare aria-modal. Menus and pickers
+      // also portal outside this panel and must keep their own keyboard focus.
+      const dialog = active?.closest('.overlay, [role="dialog"], [role="menu"], [role="listbox"]')
       if (dialog && dialog !== root) return
       const targets = Array.from(root.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex], [contenteditable="true"]',

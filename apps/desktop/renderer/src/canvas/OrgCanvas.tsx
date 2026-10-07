@@ -4045,10 +4045,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           `visibility: hidden` under the Attention stage). The world wrapper is
           `display: contents`, so moving its end changes no layout at all; it
           only stops these dialogs being put away with the canvas. */}
-      {/* every overlay rides MaybePortal (mobile wave §2-②): `.viewport`
-          carries touch-action:none, and a scroller nested inside it can
-          never scroll by touch — the portal moves the overlay out of that
-          DOM subtree ON MOBILE ONLY; desktop renders exactly as before. */}
+      {/* Canvas-owned dialogs must escape the viewport's stacking context,
+          including when a temporary desk opens them. MaybePortal is a no-op
+          on desktop; use the same document-aware portal as desk confirmations.
+          Keep it mounted so dialog drafts survive canvas/desk changes. */}
+      <ModalOverPins>
       {configId && map.get(configId) && (
         /* §4.8: an archived seat arrives summarised and this panel needs its
            `scope`, so it waits for the detail fetch rather than throwing */
@@ -4231,6 +4232,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             }} />
         </MaybePortal>
       )}
+      </ModalOverPins>
     </div>
     {/* THE TEMPORARY DESK — inside `DeskHosts`, because its `borrow` slot has
         to register in the ONE desk registry; that is what lets it take the
@@ -4257,10 +4259,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           maxTop: tree.max_top_grant ?? 1000,
           pxc: pxPerCredit,
           onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView,
-          // ⚠ NO `onJump`/`onRecenter`. Those move the camera, and this surface
-          // exists precisely because a glance must not. The desk simply offers
-          // no such control here rather than being handed one that would
-          // contradict the feature.
+          // Opening a glance leaves the camera alone. An explicit jump uses
+          // the normal desk navigation and dismisses the glance so the target
+          // is visible, including hidden retired reports revealed by centerOn.
+          onJump: (id) => { setTempDeskId(null); centerOn(id) },
           onLineage: () => toggleNodeSurface('lineage', tempDeskId, setLineageId),
           onConfig: () => toggleConfig(tempDeskId),
         }} />
