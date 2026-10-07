@@ -113,7 +113,10 @@ async function main() {
     }
     case 'run': {
       const script = path.resolve(pos[0])
-      const info = await up(flags)
+      const mod = await import(pathToFileURL(script).href)
+      // a script may shape its own run: `export async function setup(flags)`
+      // returns up options (e.g. { legacy: <dir>, fixture: 'none' })
+      const info = await up({ ...flags, ...(mod.setup ? await mod.setup(flags) : {}) })
       const r = Rig.attach(info.run)
       let failed = false
       const stop = async () => {
@@ -124,7 +127,6 @@ async function main() {
       }
       process.once('SIGINT', () => { console.error('interrupted: stopping the run'); stop().finally(() => process.exit(130)) })
       try {
-        const mod = await import(pathToFileURL(script).href)
         const out = await mod.default(r, { flags, args: pos.slice(1) })
         print(out ?? { ok: true })
         if (out && out.passed === false) { failed = true; process.exitCode = 1 }
