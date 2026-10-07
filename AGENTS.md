@@ -25,6 +25,14 @@ repository has no `CLAUDE.md`, so **do not add a root `CLAUDE.md`**. [decided: u
   [recorded-decision and verified-from-source: 2026-10-07; DECISIONS 51;
   `docs/rust-engine/credential-bridge.md`]
 
+- Cold-turn admission and forecasts share the measured-context threshold gate.
+  Compatible receipts carry an expiry verdict for the composer's shared clock;
+  reset clears the old receipt before publishing. Idle reconfiguration replaces
+  the CLI at once (busy waits for turn end), under existing warming guards; a
+  local process replacement alone does not invalidate a provider receipt.
+  [verified-from-source and isolated smoke: 2026-10-07;
+  `docs/rust-engine/cold-turn-warning.md`]
+
 - Windows boot credential detection is advisory: the boot task remains S4U.
   Session 0/batch-token warnings survive later interactive sign-in; a successful
   empty Credential Manager query does not prove old DPAPI secrets decrypt. No
