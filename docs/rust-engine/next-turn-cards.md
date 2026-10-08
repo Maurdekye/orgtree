@@ -1,9 +1,9 @@
 # Queued next-turn cards
 
 A queued account, model or effort change keeps the current card and adds
-`next turn ? <target>` beside it. Ambient account aliases display as `default`.
+`next turn -> <target>` beside it. Ambient account aliases display as `default`.
 Hover text is `<agent>'s <kind> will change from <current> to <next> next turn`.
-These are the user's 2026-10-08 09:03?09:06Z rulings.
+These are the user's 2026-10-08 09:03-09:06Z rulings.
 
 `canvas/nextturn.tsx` owns the card and tooltip. Model cards use `tierLabel`,
 including the independent Antigravity labels. Account cards prefer the serving
@@ -30,3 +30,5 @@ uses two fake Codex accounts and a long-running Luna turn. It verifies the
 current cards, all queued values and exact tooltip text, a retarget to default,
 cancellation, the retool path, and the pinned header's single copy of each queued card. It
 captures before/after desk and zoom-card PNGs under the rig evidence folder.
+A long Antigravity target label also exercises wrapping; every zoom-card badge
+and the agent name must remain inside the card bounds.
