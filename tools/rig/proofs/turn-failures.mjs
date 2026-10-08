@@ -11,6 +11,10 @@
 //   carol: (Claude) the same rule on the Claude lane.
 //   lee:   turns the idle limit kills count as failures: two in a row, the
 //          superior is told once.
+//   quinn: a Codex provider that keeps failing: once turn/start is accepted
+//          the mail is delivered, so each turn is given only its own mail.
+//   rex:   a refused turn/start gives the mail back; it rides with the next
+//          turn.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-failures.mjs
 
 import { Proof } from '../proof.mjs'
@@ -36,12 +40,16 @@ export default async function (rig) {
         { result: { is_error: true, text: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}' } },
       ] }] },
       lee: { turns: [{ name: 'stuck', match: 'PROOF-HANG', steps: [{ text: 'Thinking it over.' }, { hang: true }] }] },
+      quinn: { turns: [{ name: 'broken', match: 'PROOF-BROKEN', steps: [
+        { error: { message: 'unexpected status 401 Unauthorized: Missing bearer or basic authentication in header', codexErrorInfo: 'unauthorized' } },
+      ] }] },
+      rex: { turns: [{ name: 'refused', match: 'PROOF-REFUSE', once: true, steps: [{ start_error: 'the server could not start the turn' }] }] },
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   rig.scenario(scenario(Math.floor(Date.now() / 1000) + 7200))
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
-  for (const name of ['kim', 'hana', 'ivy', 'lee']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
+  for (const name of ['kim', 'hana', 'ivy', 'lee', 'quinn', 'rex']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
   const log = (agent, kind) => rig.fakeLog(agent).filter(l => !kind || l.kind === kind)
   const boss = rig.agentRow('boss').id
   const reports = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${boss} AND sender = '@system'
@@ -108,6 +116,33 @@ export default async function (rig) {
     && lt.length === 2 && lt.every(t => t.killed && /produced nothing for too long/.test(t.error ?? '')),
     { reports: reports('lee'), turns: lt.map(t => ({ killed: t.killed, error: t.error })) })
 
+  // ---------------------------------------------------------------- quinn: a provider that keeps failing
+  for (const n of [1, 2, 3]) {
+    await rig.userMail('quinn', `PROOF-BROKEN ${n}: please try.`)
+    await rig.waitTurns('quinn', n)
+  }
+  const qPrompts = log('quinn', 'turn').map(l => l.prompt ?? '')
+  const qMail = rig.sql(`SELECT body, state, turn_id FROM ot.mail WHERE body LIKE 'PROOF-BROKEN %' ORDER BY id`)
+  p.check('quinn: each failed turn is given only its own mail (the batch does not grow)', qPrompts.length === 3
+    && qPrompts.every((t, i) => [1, 2, 3].every(n => t.includes(`PROOF-BROKEN ${n}:`) === (n === i + 1))),
+    qPrompts.map(t => (t.match(/PROOF-BROKEN \d/g) ?? []).join(',')))
+  p.check('quinn: the mail counts as delivered once turn/start was accepted', qMail.length === 3
+    && qMail.every(m => m.state === 'delivered') && new Set(qMail.map(m => m.turn_id)).size === 3, qMail)
+
+  // ---------------------------------------------------------------- rex: a refused turn/start
+  await rig.userMail('rex', 'PROOF-REFUSE: the first message.')
+  await rig.waitFor(() => log('rex', 'turn_refused').length > 0, { what: 'rex\'s turn/start to be refused' })
+  await new Promise(r => setTimeout(r, 1500))
+  const r1 = rig.one(`SELECT state, turn_id FROM ot.mail WHERE body = 'PROOF-REFUSE: the first message.'`)
+  p.check('rex: a refused turn/start gives the mail back', r1?.state === 'pending' && r1.turn_id === null && rig.turns('rex').length === 0,
+    { mail: r1, turns: rig.turns('rex').length })
+  await rig.userMail('rex', 'The second message.')
+  const rt = await rig.waitTurns('rex', 1)
+  const rPrompt = log('rex', 'turn').at(-1)?.prompt ?? ''
+  const rMail = rig.sql(`SELECT state, turn_id FROM ot.mail WHERE body IN ('PROOF-REFUSE: the first message.', 'The second message.')`)
+  p.check('rex: it rides with the next turn, and both are delivered there', /PROOF-REFUSE: the first message/.test(rPrompt)
+    && /The second message/.test(rPrompt) && rMail.length === 2 && rMail.every(m => m.state === 'delivered' && m.turn_id === rt[0].id), rMail)
+
   // ---------------------------------------------------------------- kim: the wake
   const kr = await rig.waitFor(() => log('kim', 'turn')[1], { what: 'kim\'s automatic wake', timeout: 150000, every: 1000 })
   const woke = (Date.now() / 1000) - resetSoon
@@ -121,6 +156,6 @@ export default async function (rig) {
   p.check('kim: no weekly-Fable notice for a usage-limit reset (not to kim, her superior or her peers)',
     fable.length === 0 && !/weekly Fable/i.test(kr.prompt), fable)
 
-  p.keep(rig, { agents: ['kim', 'hana', 'ivy', 'carol', 'lee'], grep: /freeze|thaw|wake|hard_fail|ending turn/ })
+  p.keep(rig, { agents: ['kim', 'hana', 'ivy', 'carol', 'lee', 'quinn', 'rex'], grep: /freeze|thaw|wake|hard_fail|ending turn/ })
   return p.summary()
 }
