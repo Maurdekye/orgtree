@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
 import { TOKEN_HEADER } from '../lib.mjs'
+import { runDesktop } from '../desktop.mjs'
+import { fileURLToPath } from 'node:url'
 
 export async function setup() {
   return { fixture: { org: { name: 'Attachment limits' },
@@ -55,6 +57,10 @@ export default async function (rig) {
   fs.writeFileSync(path.join(scratch, 'too-large.bin'), Buffer.alloc(257))
   const agent = await rig.tool('rhea', 'orgtree_message', { to: '@net:peer', body: 'File', attachments: ['too-large.bin'] })
   p.check('agent tool rejects oversized attachment before queuing', !agent.ok && agent.text.includes('256 bytes'), agent.text)
+  if (rig.run.ui) {
+    const ui = await runDesktop(rig, fileURLToPath(new URL('../desktop/attachment-limits.cjs', import.meta.url)), { out: path.join(p.dir, 'desktop') })
+    p.check('settings panel saves live upload limit through the real API', ui.ok && (await rig.api('GET', '/api/desktop/hub')).max_attachment_bytes === 128 * MiB, ui)
+  }
   p.note('Canned health documents replace only hub discovery in debug rig mode. HTTP staging, persistent settings and agent tool path are real. Standalone hub streaming/live-limit tests cover the Python side; no hub listener, real identity or end-to-end network delivery is used. Actual 1 GiB transfer is not measured.')
   const result = p.summary()
   if (!result.passed) throw Error(JSON.stringify(result))
