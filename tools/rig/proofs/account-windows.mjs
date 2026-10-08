@@ -117,10 +117,13 @@ export default async function (rig) {
   await rig.op({ op: 'hire', name: 'fio', tier: 'fable', title: 'Window rule agent', account_fallback: true })
   await reread()
   await rig.userMail('ned', 'PROOF-LIMIT: please do the big thing.')
-  const nedAt = await rig.waitFor(() => { const s = seat('ned'); return s?.account || s?.frozen ? s : null }, { what: 'ned to move or freeze', timeout: 30000 })
+  // a limit freezes first; the fallback then searches off the agent's actor
+  const nedAt = await rig.waitFor(() => { const s = seat('ned'); return s?.account ? s : null }, { what: 'ned to move', timeout: 30000 }).catch(() => seat('ned'))
   p.check('fallback: ned (haiku) skips B (no room) and moves to C', nedAt.account === C && !nedAt.frozen, nedAt)
   await rig.userMail('fio', 'PROOF-LIMIT: please do the big thing.')
-  const fioAt = await rig.waitFor(() => { const s = seat('fio'); return s?.account || s?.frozen ? s : null }, { what: 'fio to move or freeze', timeout: 30000 })
+  await rig.waitFor(() => seat('fio')?.frozen, { what: 'fio to freeze', timeout: 30000 })
+  await new Promise(r => setTimeout(r, 8000))  // the search has had its chance
+  const fioAt = seat('fio')
   p.check('fallback: fio (fable) has no proven room anywhere and freezes', !fioAt.account && fioAt.frozen?.limit === true,
     { account: fioAt.account, frozen: fioAt.frozen && { limit: fioAt.frozen.limit, until: fioAt.frozen.until } })
 
