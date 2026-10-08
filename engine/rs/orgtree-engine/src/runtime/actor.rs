@@ -3506,25 +3506,26 @@ impl Actor {
             None => (None, None),
         };
         let mut freeze_rec: Option<Value> = None;
-        let mut moved_to: Option<String> = None;
+        // an opted-in agent may move to another account; that search reads
+        // usage and runs after this turn is settled, off the actor (3.x: the
+        // background scheduler moves frozen agents)
+        let mut fall_back: Option<(String, Option<String>, String)> = None;
         if let Some(until) = limit {
             let ctx = self.load_ctx().await?;
             if ctx.fallback {
-                moved_to = freeze::pick_fallback(&self.engine, &ctx.tier, ctx.account.as_deref(), &ctx.org_slug).await;
+                fall_back = Some((ctx.tier.clone(), ctx.account.clone(), ctx.org_slug.clone()));
             }
-            if moved_to.is_none() {
-                let mut rec = json!({
-                    "at": now_iso(), "until": iso(until), "error": gist(error.as_deref().unwrap_or(""), 300),
-                    "limit": true, "provenance": "observed", "account": ctx.account,
-                });
-                // Codex/Antigravity: the refused request goes out again at the wake
-                if !turn.replay.is_empty() {
-                    rec["resume_texts"] = json!([turn.replay]);
-                }
-                freeze_rec = Some(rec);
-                if let Some(w) = &wall {
-                    self.remember_wall(w).await;
-                }
+            let mut rec = json!({
+                "at": now_iso(), "until": iso(until), "error": gist(error.as_deref().unwrap_or(""), 300),
+                "limit": true, "provenance": "observed", "account": ctx.account,
+            });
+            // Codex/Antigravity: the refused request goes out again at the wake
+            if !turn.replay.is_empty() {
+                rec["resume_texts"] = json!([turn.replay]);
+            }
+            freeze_rec = Some(rec);
+            if let Some(w) = &wall {
+                self.remember_wall(w).await;
             }
             error = None;
         }
@@ -3750,19 +3751,15 @@ impl Actor {
         self.changed(ch);
         if let Some(rec) = &freeze_rec {
             freeze::schedule(&self.engine, self.org_id, self.id, &self.name, rec);
-            return Ok(());
-        }
-        if let Some(acc) = moved_to {
-            let engine = self.engine.clone();
-            let (org_id, id) = (self.org_id, self.id);
-            // continue_on messages this actor; run it off the actor's own loop
-            let span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
-            let replay: Vec<String> = Some(turn.replay.clone()).filter(|r| !r.is_empty()).into_iter().collect();
-            tokio::spawn(tracing::Instrument::instrument(async move {
-                if let Err(e) = freeze::continue_on(&engine, org_id, id, &acc, "account fallback", &replay).await {
-                    tracing::warn!(agent = id, error = %format!("{e:#}"), "account fallback failed");
-                }
-            }, span));
+            if let Some((tier, account, org_slug)) = fall_back {
+                let engine = self.engine.clone();
+                let (org_id, id) = (self.org_id, self.id);
+                // continue_on messages this actor; run it off the actor's own loop
+                let span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
+                tokio::spawn(tracing::Instrument::instrument(async move {
+                    freeze::fall_back(&engine, org_id, id, &tier, account.as_deref(), &org_slug).await;
+                }, span));
+            }
             return Ok(());
         }
         if error.is_none() || !self.followup_mail.is_empty() {

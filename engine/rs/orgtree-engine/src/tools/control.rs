@@ -149,7 +149,7 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     if let Some(until) = acc.limited(chrono::Utc::now()) {
         crate::refuse!(Conflict, "{account} is itself limited until {}; nothing changed", iso(until));
     }
-    let r = freeze::continue_on(engine, me.org_id, t.id, account, &format!("orgtree_continue_on by {}", me.name), &[]).await?;
+    let r = freeze::continue_on(engine, me.org_id, t.id, account, &format!("orgtree_continue_on by {}", me.name)).await?;
     Done::json(&r)
 }
 

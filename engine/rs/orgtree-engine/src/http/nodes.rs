@@ -395,7 +395,7 @@ pub async fn continue_on(
 ) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
-    Ok(Json(freeze::continue_on(&e, org.id, a.id, &b.account, "continue on another account (user)", &[]).await?))
+    Ok(Json(freeze::continue_on(&e, org.id, a.id, &b.account, "continue on another account (user)").await?))
 }
 
 #[logged]

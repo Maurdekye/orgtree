@@ -30,14 +30,13 @@ pub fn replay_tail(text: &str) -> String {
 
 /// The wake for a released freeze, followed by the request the freeze holds
 /// (3.x `resume_texts`: a Codex or Antigravity turn refused for a usage limit
-/// is given again, and so is what an imported 3.x freeze kept) and `extra`.
+/// is given again, and so is what an imported 3.x freeze kept).
 #[logged]
-pub fn with_replay(wake: &str, rec: Option<&Value>, extra: &[String]) -> String {
+pub fn with_replay(wake: &str, rec: Option<&Value>) -> String {
     let mut texts: Vec<&str> = rec
         .and_then(|r| r["resume_texts"].as_array())
         .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    texts.extend(extra.iter().map(String::as_str));
     texts.retain(|t| !t.trim().is_empty());
     if texts.is_empty() {
         return wake.to_string();
@@ -217,7 +216,7 @@ async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expecte
         _ if expected.is_some() => "Your usage limit has reset. Continue where you left off.".to_string(),
         _ => "Your hold was released. Continue where you left off.".to_string(),
     };
-    mail::system_wake(engine, org_id, agent_id, &with_replay(&text, Some(&old), &[])).await?;
+    mail::system_wake(engine, org_id, agent_id, &with_replay(&text, Some(&old))).await?;
     Ok(true)
 }
 
@@ -286,7 +285,11 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
     // room in the login's reading (3.x `account_fallback.capacity`)
     for id in &candidates {
         let Some(a) = view.get(id).filter(|a| !a.is_apikey() && (subs || !crate::accounts::is_ambient(a))).cloned() else { continue };
-        crate::usage::registered(engine, &a, false).await;
+        // a slow or hung provider proves nothing: that login is skipped
+        if tokio::time::timeout(FALLBACK_READ, crate::usage::registered(engine, &a, false)).await.is_err() {
+            tracing::info!(account = %a.id, tier, "account fallback: the usage read timed out; no proven room");
+            continue;
+        }
         if crate::usage::has_room(engine, Some(&a), tier) {
             return Some(a.id);
         }
@@ -295,10 +298,27 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, o
     candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false)).cloned()
 }
 
-/// Move an agent to `account` and let its held work go on (with the request
-/// its freeze held, or `replay`: a limited turn moving accounts at once).
+/// The longest one login's usage read may take when the fallback asks it.
+const FALLBACK_READ: Duration = Duration::from_secs(5);
+
+/// An opted-in agent frozen by a usage limit moves to another account with
+/// proven room, its held request going with it; without one it stays frozen.
+/// Runs off the agent's actor, after its turn is settled.
 #[logged]
-pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str, replay: &[String]) -> Result<Value> {
+pub async fn fall_back(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tier: &str, current: Option<&str>, org_slug: &str) {
+    let Some(acc) = pick_fallback(engine, tier, current, org_slug).await else {
+        tracing::info!(agent = agent_id, tier, "account fallback: no other account can take it; it stays frozen");
+        return;
+    };
+    if let Err(e) = continue_on(engine, org_id, agent_id, &acc, "account fallback").await {
+        tracing::warn!(agent = agent_id, account = %acc, error = %format!("{e:#}"), "account fallback failed; it stays frozen");
+    }
+}
+
+/// Move an agent to `account` and let its held work go on (with the request
+/// its freeze held).
+#[logged]
+pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str) -> Result<Value> {
     let view = engine.accounts.view();
     let slug = engine.orgs.by_id(org_id).map(|o| o.slug.clone());
     let Some(acc) = view.get(account).filter(|a| a.available_to(Some(slug.as_deref().unwrap_or("")))).cloned() else {
@@ -346,7 +366,7 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
         engine,
         org_id,
         agent_id,
-        &with_replay(&format!("You now run on the account {}. Continue where you left off.", acc.display()), old.as_ref(), replay),
+        &with_replay(&format!("You now run on the account {}. Continue where you left off.", acc.display()), old.as_ref()),
     )
     .await?;
     Ok(json!({
