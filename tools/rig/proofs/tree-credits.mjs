@@ -133,6 +133,19 @@ export default async function (rig) {
   p.check('dissolve: qa and her report are archived and boss gets qa\'s stake back', d1.ok && L12.qa.state === 'archived' && L12.ops.state === 'archived'
     && near(L12.boss.free, before2.boss.free + before2.qa.seat + before2.qa.grant) && overdrawn().length === 0, { boss: [before2.boss.free, L12.boss.free] })
 
+  // ---------------------------------------------------------------- an archived agent moves for free
+  const before3 = ledger()
+  const ma = await op({ op: 'move', node: 'ops', new_parent: 'p2' })
+  const L13 = ledger()
+  p.check('an archived agent can be moved: free, no credits change, and it says its rehire cost now falls on the new superior (3.x)', ma.ok
+    && L13.ops.parent === 'p2' && L13.ops.state === 'archived' && Object.keys(before3).every(n => near(before3[n].grant, L13[n].grant))
+    && /archived: moving it is free/.test(JSON.stringify(ma.r?.warnings ?? '')), { ma: ma.r ?? ma.detail })
+  const back = await op({ op: 'rehire', node: 'ops' })
+  const L14 = ledger()
+  p.check('rehired, it comes back under the new superior, whose hold now includes it (raised as needed), with no overdraft', back.ok && L14.ops.state === 'live' && L14.ops.parent === 'p2'
+    && overdrawn().length === 0 && near(L14.p2.grant - L14.p2.free, L13.p2.grant - L13.p2.free + L14.ops.seat + L14.ops.grant),
+  { back: back.ok || back.detail, p2: [L13.p2.grant, L13.p2.free, L14.p2.grant, L14.p2.free] })
+
   p.keep(rig, { agents: [], grep: /reallocate|move|retire|dissolve|swap|subjugat|rehire/i })
   return p.summary()
 }
