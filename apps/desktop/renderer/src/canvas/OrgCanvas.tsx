@@ -3239,11 +3239,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         draftReturn.current = null
         return
       }
-      const settled = [...targetRef.current].every(([id, target]) => {
-        const spring = springs.current.get(id)
-        return spring && atRest(spring, target)
-      })
-      if (!aimed && settled && !panRef.current) {
+      // Aim at once: the focus and fit targets read the layout's TARGET
+      // positions, which already exclude the draft, and a whole-org fit or a
+      // focused desk re-aims by itself if the layout moves again.
+      if (!aimed && !panRef.current) {
         if (saved.intent?.kind === 'org') fitAll()
         else if (saved.intent?.kind === 'focus')
           centerOn(saved.intent.id, saved.intent.z, saved.intent.onCanvas)
