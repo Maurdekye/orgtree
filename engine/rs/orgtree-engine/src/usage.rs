@@ -211,7 +211,11 @@ fn claude_dir(config_dir: Option<&str>) -> PathBuf {
 #[logged]
 pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("claude", config_dir) {
-        // the canned reading stands in for the probe, cache included
+        // the canned reading stands in for the probe, cache included; it may
+        // play a slow provider
+        if let Some(ms) = v["rig_delay_ms"].as_u64() {
+            tokio::time::sleep(Duration::from_millis(ms)).await;
+        }
         engine.usage.put(&claude_key(config_dir), &v);
         return v;
     }
@@ -355,6 +359,9 @@ pub fn codex_key(home: Option<&str>) -> String {
 #[logged]
 pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("openai", home) {
+        if let Some(ms) = v["rig_delay_ms"].as_u64() {
+            tokio::time::sleep(Duration::from_millis(ms)).await;
+        }
         engine.usage.put(&codex_key(home), &v);
         return v;
     }
