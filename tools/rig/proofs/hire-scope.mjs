@@ -7,6 +7,9 @@
 //   it can never take effect.
 //   An agent's hire has no defaults: it states folders, every tool and the
 //   visibility, and cannot pass on a tool it does not hold.
+//   A user's hire asking for a tool or more visibility than the superior
+//   holds is clamped to the superior's, with a warning; an agent asking for
+//   more visibility for its hire than it holds is refused (D-021).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/hire-scope.mjs
 
 import fs from 'node:fs'
@@ -61,6 +64,21 @@ export default async function (rig) {
   const ok = await rig.tool('boss', 'orgtree_hire', { name: 'gus', tier: 'haiku', grant: 0, charter: 'You help boss.',
     add_dirs: [{ path: a, mode: 'ro' }], tools: { ...tools, web: false }, org_visibility: 'team' })
   p.check('boss hiring with everything stated and within his own scope works', ok.ok && dirs('gus') === 'alpha:ro', { text: ok.text?.slice(0, 200), dirs: dirs('gus') })
+
+  // ---------------------------------------------------------------- tools and visibility clamps (D-021)
+  const ivo = await tryOp({ op: 'hire', name: 'ivo', parent: 'boss', tier: 'haiku', title: 'Asks web and full visibility',
+    tools: { web: true }, org_visibility: 'full' })
+  const ivoScope = scopeOf('ivo')
+  const warned = (ivo.r?.warnings ?? []).join(' | ')
+  p.check('user hire asking for a tool boss lacks: the hire is clamped to boss\'s tools, with a warning', ivo.ok && ivoScope?.tools?.web === false
+    && /tool grants clamped to the parent's own: web/.test(warned), { warnings: ivo.r?.warnings, web: ivoScope?.tools?.web })
+  const bossVis = scopeOf('boss')?.org_visibility ?? 'subtree'
+  p.check('user hire asking for more visibility than boss holds: clamped to boss\'s, with a warning', ivoScope?.org_visibility === bossVis
+    && new RegExp(`org_visibility clamped to the parent's own \\(${bossVis}\\)`).test(warned), { vis: ivoScope?.org_visibility, bossVis, warnings: ivo.r?.warnings })
+  const wide = await rig.tool('boss', 'orgtree_hire', { name: 'jon', tier: 'haiku', grant: 0, charter: 'You help boss.',
+    add_dirs: [], tools: { ...tools, web: false }, org_visibility: 'full' })
+  p.check('boss asking for more visibility than he holds for his hire is refused (D-021)', !wide.ok && /exceeds the parent's own/.test(wide.text ?? '')
+    && !scopeOf('jon'), wide.text?.slice(0, 200))
 
   p.keep(rig, { agents: ['ava'], grep: /hire|scope/i })
   return p.summary()
