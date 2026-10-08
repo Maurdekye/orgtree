@@ -19,6 +19,7 @@
 //!   {"usage": {"input": 1200, "cached": 900, "output": 80}}   this turn's tokens
 //!   {"rate_limit": {...}}   an account/rateLimits/updated notification
 //!   {"poll_mail": {"every_ms": 500, "timeout_ms": 30000}}   wait for turn/steer
+//!   {"start_error": "..."}   as a script's first step: turn/start is refused
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, Write};
@@ -177,7 +178,15 @@ fn new_rollout(home: &Path, thread: &str) -> PathBuf {
     dir.join(format!("rollout-{}-{thread}.jsonl", now[..19].replace(':', "-")))
 }
 
-fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<(String, String)>) {
+/// A turn the server accepted, with the script it plays.
+struct Job {
+    turn: String,
+    prompt: String,
+    script: String,
+    steps: Vec<Value>,
+}
+
+fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<Job>) {
     match method {
         "initialize" => srv.respond(id, json!({ "userAgent": VERSION, "codexHome": srv.home })),
         "thread/start" => {
@@ -209,15 +218,22 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<(Str
                 srv.fail(id, -32600, "no thread: start or resume one first");
                 return;
             }
-            let turn = format!("turn-{}", srv.next());
-            *srv.turn.lock().unwrap() = Some(turn.clone());
-            srv.steers.lock().unwrap().clear();
-            let text = p["input"]
+            let prompt = p["input"]
                 .as_array()
                 .map(|a| a.iter().filter_map(|x| x["text"].as_str()).collect::<Vec<_>>().join("\n"))
                 .unwrap_or_default();
+            // the script is chosen here, so a first step can refuse the turn itself
+            let (script, steps) = pick_for(srv.dir.as_deref(), &srv.agent, &prompt);
+            if let Some(msg) = steps.first().and_then(|s| s["start_error"].as_str()) {
+                srv.log("turn_refused", json!({ "script": script, "prompt": prompt, "message": msg }));
+                srv.fail(id, -32603, msg);
+                return;
+            }
+            let turn = format!("turn-{}", srv.next());
+            *srv.turn.lock().unwrap() = Some(turn.clone());
+            srv.steers.lock().unwrap().clear();
             srv.respond(id, json!({ "turn": { "id": turn, "status": "inProgress", "items": [], "error": null } }));
-            let _ = tx.send((turn, text));
+            let _ = tx.send(Job { turn, prompt, script, steps });
         }
         "turn/steer" => {
             let current = srv.turn.lock().unwrap().clone();
@@ -265,7 +281,7 @@ fn handle(srv: &Srv, id: &Value, method: &str, p: &Value, tx: &mpsc::Sender<(Str
     }
 }
 
-fn reader(srv: Arc<Srv>, tx: mpsc::Sender<(String, String)>) {
+fn reader(srv: Arc<Srv>, tx: mpsc::Sender<Job>) {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
@@ -412,9 +428,9 @@ fn command(srv: &Srv, turn: &str, step: &Value) {
     srv.log("tool_result", json!({ "tool": "shell", "command": cmd, "exit_code": code, "text": out }));
 }
 
-fn run_turn(srv: &Srv, turn: &str, prompt: &str, totals: &mut Tokens) {
+fn run_turn(srv: &Srv, job: &Job, totals: &mut Tokens) {
     srv.interrupted.store(false, Ordering::SeqCst);
-    let (script, steps) = pick_for(srv.dir.as_deref(), &srv.agent, prompt);
+    let (turn, prompt, script, steps) = (job.turn.as_str(), job.prompt.as_str(), &job.script, &job.steps);
     let th = srv.thread_id();
     srv.log("turn", json!({ "script": script, "prompt": prompt, "steps": steps.len(), "turn": turn, "thread": th }));
     srv.rollout("response_item", json!({ "type": "message", "role": "user", "content": [{ "type": "input_text", "text": prompt }] }));
@@ -423,7 +439,7 @@ fn run_turn(srv: &Srv, turn: &str, prompt: &str, totals: &mut Tokens) {
     let mut used = Tokens { input: 1200, cached: 900, output: 0 };
     let mut status = "completed".to_string();
     let mut error = Value::Null;
-    for step in &steps {
+    for step in steps.iter() {
         if srv.interrupted.load(Ordering::SeqCst) {
             break;
         }
@@ -549,7 +565,7 @@ pub fn run(raw: &[String]) -> i32 {
     // thread token totals carry over a resume, as Codex keeps them per thread
     let state_file = srv.dir.as_ref().map(|d| d.join("state").join(format!("{agent}.json")));
     // turns run here, one at a time; the reader ends the process when stdin closes
-    for (turn, text) in rx {
+    for job in rx {
         let th = srv.thread_id();
         let saved = state_file.as_ref().and_then(|p| load_json(p)).unwrap_or_else(|| json!({}));
         let t = &saved["codex_tokens"][&th];
@@ -558,7 +574,7 @@ pub fn run(raw: &[String]) -> i32 {
             cached: t["cached"].as_i64().unwrap_or(0),
             output: t["output"].as_i64().unwrap_or(0),
         };
-        run_turn(&srv, &turn, &text, &mut totals);
+        run_turn(&srv, &job, &mut totals);
         if let Some(p) = &state_file {
             let mut s = load_json(p).filter(Value::is_object).unwrap_or_else(|| json!({}));
             if !s["codex_tokens"].is_object() {
