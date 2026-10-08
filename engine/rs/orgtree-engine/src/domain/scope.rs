@@ -64,7 +64,7 @@ pub fn normalize_tools(t: &Value) -> Value {
 }
 
 #[logged]
-fn norm_path(p: &str) -> String {
+pub(crate) fn norm_path(p: &str) -> String {
     // Match 3.x normpath before containment: work/../outside is not inside work.
     let s = p.replace('/', "\\").to_lowercase();
     let unc = s.starts_with("\\\\");

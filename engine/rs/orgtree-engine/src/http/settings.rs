@@ -44,6 +44,85 @@ fn dirs_of(v: &Value) -> (Vec<Value>, Vec<String>) {
     (dirs, warnings)
 }
 
+/// 3.x's org_dirs edit (native storage, `_org_settings_apply`): a folder
+/// taken off the org is revoked from every top-level grant, and one turned
+/// read-only is downgraded there; descendants follow their parent chain.
+/// Adding a folder back, or making it read/write again, reaches only future
+/// hires (an upgrade is granted per agent), never a grant the edit took
+/// away. The workspace is not one of these folders. Returns 3.x's warnings.
+#[logged]
+async fn sweep_top_grants(
+    client: &impl tokio_postgres::GenericClient,
+    org_id: i64,
+    workspace: &str,
+    old: &Value,
+    new: &[Value],
+) -> anyhow::Result<Vec<String>> {
+    let ws = scope::norm_path(workspace);
+    let held = |dirs: &[Value]| -> Vec<(String, String, String)> {
+        dirs.iter()
+            .filter_map(|d| {
+                let p = d["path"].as_str()?;
+                let k = scope::norm_path(p);
+                (k != ws).then(|| (k, p.to_string(), d["mode"].as_str().unwrap_or("rw").to_string()))
+            })
+            .collect()
+    };
+    let old = held(old.as_array().map(Vec::as_slice).unwrap_or_default());
+    let new = held(new);
+    let gone: Vec<&(String, String, String)> = old.iter().filter(|(k, ..)| !new.iter().any(|(n, ..)| n == k)).collect();
+    let down: Vec<&(String, String, String)> = new
+        .iter()
+        .filter(|(k, _, m)| m == "ro" && old.iter().any(|(o, _, om)| o == k && om == "rw"))
+        .collect();
+    if gone.is_empty() && down.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = client
+        .query(
+            "SELECT id, name, scope FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state <> 'deleted'
+              ORDER BY sibling_order, id FOR UPDATE",
+            &[&org_id],
+        )
+        .await?;
+    let mut warnings = Vec::new();
+    let mut downgraded = vec![0usize; down.len()];
+    for r in &rows {
+        let (id, name, mut sc): (i64, String, Value) = (r.get(0), r.get(1), r.get(2));
+        let Some(dirs) = sc.get_mut("add_dirs").and_then(Value::as_array_mut) else { continue };
+        let mut changed = false;
+        for (k, path, _) in &gone {
+            let n = dirs.len();
+            dirs.retain(|d| d["path"].as_str().map(|p| scope::norm_path(p) != *k).unwrap_or(true));
+            if dirs.len() != n {
+                warnings.push(format!("revoked {path} from {name}"));
+                changed = true;
+            }
+        }
+        for d in dirs.iter_mut() {
+            let Some(k) = d["path"].as_str().map(scope::norm_path) else { continue };
+            if let Some(i) = down.iter().position(|(dk, ..)| *dk == k) {
+                if d["mode"].as_str() != Some("ro") {
+                    d["mode"] = json!("ro");
+                    downgraded[i] += 1;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            client.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&id, &sc]).await?;
+        }
+    }
+    for ((_, path, _), n) in down.iter().zip(downgraded) {
+        if n > 0 {
+            warnings.push(format!(
+                "downgraded {path} to read-only on {n} top-level grants; descendant permissions follow their current parent chain"
+            ));
+        }
+    }
+    Ok(warnings)
+}
+
 /// Every running agent of the org restarts its CLI before its next turn.
 #[logged]
 async fn reconfigure_org(engine: &Engine, org_id: i64) -> anyhow::Result<()> {
@@ -74,10 +153,19 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         }
         match k.as_str() {
             "org_dirs" => {
+                // 3.x: a malformed entry is refused, never read as "no folders"
+                let entries = v.as_array().ok_or_else(|| ApiError::unprocessable("org_dirs is a list of folders"))?;
+                if let Some(bad) = entries.iter().find(|d| !(d.is_string() || d.get("path").is_some_and(Value::is_string))) {
+                    return Err(ApiError::unprocessable(format!("org_dirs entries must be a path string or {{path, mode}} — got {bad}")));
+                }
                 let (dirs, w) = dirs_of(v);
                 warnings.extend(w);
                 patch.insert("dirs".into(), Value::Array(dirs));
             }
+            // a negative cap or default grant is ignored, as 3.x did (a cap of 0 is
+            // stored: uncapped, D-014)
+            "max_top_grant" if !v.as_f64().is_some_and(|c| c >= 0.0) => {}
+            "default_top_grant" if !v.as_f64().is_some_and(|g| g >= 0.0) => {}
             "net_autoconnect" | "net_hubs" | "net_hub_address" => {}
             key if ORG_KEYS.contains(&key) => {
                 patch.insert(key.into(), v.clone());
@@ -93,7 +181,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     }
     let mut conn = e.db.get().await?;
     let client = conn.transaction().await?;
-    client.query_one("SELECT id FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&o.id]).await?;
+    let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&o.id]).await?.get(0);
     if patch.get("org_inbox_multi_holder").and_then(Value::as_bool) == Some(false) {
         let holders = crate::domain::orginbox::live_holders(&*client, o.id, true).await?;
         if holders.len() > 1 { return Err(ApiError::bad_request("revoke extra org-inbox holders before disabling multi-holder mode")); }
@@ -105,6 +193,28 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
         )
         .await?;
     let stored: Value = row.get(0);
+    if let Some(Value::Array(dirs)) = patch.get("dirs") {
+        let workspace = e.cfg.workspace_dir(&o.slug).to_string_lossy().to_string();
+        warnings.extend(sweep_top_grants(&*client, o.id, &workspace, &old["dirs"], dirs).await?);
+    }
+    if let Some(cap) = patch.get("max_top_grant").and_then(Value::as_f64).filter(|c| *c > 0.0) {
+        // D-014: existing grants above a lowered cap are kept (the cap binds
+        // increases), and the user is told which (3.x)
+        let over: Vec<String> = client
+            .query(
+                "SELECT name, grant_credits::float8 FROM ot.agents
+                  WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' AND grant_credits > $2::float8
+                  ORDER BY sibling_order, id",
+                &[&o.id, &cap],
+            )
+            .await?
+            .iter()
+            .map(|r| format!("{} (grant {})", r.get::<_, String>(0), crate::util::round2(r.get::<_, f64>(1))))
+            .collect();
+        if !over.is_empty() {
+            warnings.push(format!("top-level grants already above the new cap (kept as-is; the cap binds increases): {}", over.join(", ")));
+        }
+    }
     // the network settings live beside the settings document
     if b.contains_key("net_autoconnect") || b.contains_key("net_hubs") {
         let mut net = Map::new();
