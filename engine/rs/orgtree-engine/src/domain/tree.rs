@@ -89,9 +89,10 @@ pub fn ask_info(raw: &Value, node_name: &str, now: DateTime<Utc>) -> Value {
 pub fn ask_card(raw: &Value, node_name: &str) -> Value {
     let mut o = raw["body"].as_object().cloned().unwrap_or_default();
     let mut kind = raw["kind"].clone();
-    if raw["status"] == "open" && raw["body"]["parts"].is_object() {
+    if raw["status"] == "open" {
         // Recompose at read time too: already-open cards from earlier Rust
-        // builds must recover batch navigation without being asked again.
+        // builds and questions imported from 3.x must recover batch
+        // navigation (and the batch submit) without being asked again.
         let parts = crate::domain::asks::Parts::of(&raw["body"]);
         let (_, body) = crate::domain::asks::compose(
             raw["uid"].as_str().unwrap_or(""), raw["rev"].as_i64().unwrap_or(1) as i32, &parts,

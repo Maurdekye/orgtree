@@ -30,6 +30,11 @@ pub struct Parts {
 #[logged]
 impl Parts {
     pub(crate) fn of(body: &Value) -> Parts {
+        if !body["parts"].is_object() {
+            // A question imported from a 3.x store keeps its tabs at the top
+            // level (`questions`, or the single `question` and its options).
+            return Parts { questions: legacy_questions(body), credit: None, scope: None };
+        }
         Parts {
             questions: body["parts"]["questions"].as_array().cloned().unwrap_or_default(),
             credit: body["parts"].get("credit").filter(|v| !v.is_null()).cloned(),
@@ -39,6 +44,25 @@ impl Parts {
     fn is_empty(&self) -> bool {
         self.questions.is_empty() && self.credit.is_none() && self.scope.is_none()
     }
+}
+
+/// The tabs of a question stored without `parts`: its `questions` list, or
+/// the single `question` with its header, options and multi.
+#[logged]
+pub(crate) fn legacy_questions(body: &Value) -> Vec<Value> {
+    if let Some(list) = body["questions"].as_array().filter(|l| !l.is_empty()) {
+        return list.clone();
+    }
+    if !body["question"].as_str().is_some_and(|q| !q.trim().is_empty()) {
+        return Vec::new();
+    }
+    let mut q = Map::new();
+    for k in ["question", "header", "options", "multi", "work_item"] {
+        if let Some(v) = body.get(k).filter(|v| !v.is_null()) {
+            q.insert(k.into(), v.clone());
+        }
+    }
+    vec![Value::Object(q)]
 }
 
 /// One attachment per ticket for one request, preserving every matching tab
