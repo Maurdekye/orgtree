@@ -527,7 +527,10 @@ export async function cleanup({ mine = false, everyone = false, dryRun = false }
   const out = []
   const live = []
   for (const { dir, run } of listRuns()) {
-    const up = run?.keeperPid && alive(run.keeperPid) && ['ready', 'starting'].includes(run.status)
+    // a run another agent is still creating has no keeper yet (it copies its
+    // cluster first): a young `starting` run is live, not an orphan
+    const young = run?.status === 'starting' && Date.now() - Date.parse(run.created ?? 0) < 5 * 60 * 1000
+    const up = young || (run?.keeperPid && alive(run.keeperPid) && ['ready', 'starting'].includes(run.status))
     const stop = !up || everyone || (mine && run?.by === me())
     if (!stop) { live.push(dir); out.push({ dir, kept: `live (${run?.by ?? '?'})` }); continue }
     out.push(dryRun ? { dir, wouldStop: true } : await stopRun(dir, { keep: false, timeout: 30000 }))
