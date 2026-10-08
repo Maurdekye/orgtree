@@ -456,6 +456,7 @@ struct Actor {
     proc: Option<Proc>,
     proc_print: Option<Fingerprint>,
     proc_effort: Option<String>,
+    pending_effort: Option<String>,
     parked: bool,
     slot: Option<Slot>,
     waiting_since: Option<DateTime<Utc>>,
@@ -536,6 +537,7 @@ impl Actor {
             proc: None,
             proc_print: None,
             proc_effort: None,
+            pending_effort: None,
             parked: false,
             slot: None,
             waiting_since: None,
@@ -820,6 +822,11 @@ impl Actor {
                     }
                     _ => json!({ "effort_delivery": "next_turn" }),
                 };
+                self.pending_effort = if self.turn.is_some()
+                    && r["effort_delivery"] == "next_turn"
+                    && self.proc_effort.as_deref() != Some(level.as_str()) {
+                    Some(level)
+                } else { None };
                 let _ = reply.send(r);
                 self.update_forecast().await;
                 self.publish();
@@ -2174,6 +2181,7 @@ impl Actor {
         self.steer_since = None;
         self.late_told.clear();
         turn.span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
+        self.pending_effort = None;
         self.turn = Some(turn);
         self.keep_until = None;
         self.org.turn_delta(&self.engine, 1);
@@ -2182,6 +2190,7 @@ impl Actor {
 
     fn take_turn(&mut self) -> Option<Turn> {
         let t = self.turn.take();
+        self.pending_effort = None;
         self.steer_since = None;
         self.late_told.clear();
         // Cleanup may fail in the database; a finished turn must never retain a slot.
@@ -4196,6 +4205,8 @@ impl Actor {
         let live = self.proc.is_some();
         json!({
             "busy": busy,
+            "effort_current": if busy { self.proc_effort.clone() } else { None },
+            "pending_effort": if busy { self.pending_effort.clone() } else { None },
             "waiting": self.waiting_since.is_some(),
             "queued_for_slot": queued_for_slot,
             "responding": busy,

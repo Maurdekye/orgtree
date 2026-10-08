@@ -344,6 +344,8 @@ pub fn cold_turn_action(
 pub fn idle_runtime() -> Vec<(String, Value)> {
     vec![
         ("busy".into(), json!(false)),
+        ("effort_current".into(), Value::Null),
+        ("pending_effort".into(), Value::Null),
         ("waiting".into(), json!(false)),
         ("queued_for_slot".into(), Value::Null),
         ("responding".into(), json!(false)),
