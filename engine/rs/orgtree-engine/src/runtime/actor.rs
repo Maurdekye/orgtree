@@ -1330,6 +1330,11 @@ impl Actor {
         if on("web") {
             allowed.extend(["WebSearch".into(), "WebFetch".into()]);
         }
+        if ctx.superior.is_none() {
+            // 3.x user ruling: standing listeners are for top-level agents
+            // only, so only they are allowed Monitor (and TaskStop to end one)
+            allowed.extend(["Monitor".into(), "TaskStop".into()]);
+        }
         let mut add_dirs: Vec<String> = Vec::new();
         let mut deny: Vec<String> = Vec::new();
         for d in ctx.effective["add_dirs"].as_array().cloned().unwrap_or_default() {
