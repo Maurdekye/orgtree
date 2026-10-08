@@ -13,7 +13,7 @@
 // immediately — hub membership is operational state, not a form draft.
 
 import { useState } from 'react'
-import { SetToggle } from './settingskit'
+import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { getOrgNet, probeHub, saveSettings } from '../api'
 import type { NetHub, TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
@@ -80,55 +80,54 @@ export function Connections({ tree, toast, adding, setAdding }: {
     void apply({ net_hubs: settings.filter(x => x.id !== h.id) }, 'Connection removed')
   }
   return <>
-    <div className="field-label">This organization's address</div>
-    <div className="row" style={{ alignItems: 'center' }}>
-      <p className="mono-sm">{address || 'Not connected'}</p>
-      {address && <button type="button" onClick={() => copy(address, 'Organization address copied')}>Copy address</button>}
-    </div>
-    <p className="dim">Peers on any hub reach this organization at this address. It never changes.</p>
-    <div className="row" style={{ alignItems: 'center' }}>
-      {!secret && <button type="button" disabled={!address} onClick={() => {
-        getOrgNet(tree.slug)
-          .then(r => setSecret(r.identity?.secret || '(none)'))
-          .catch(e => toast([`error: ${(e as Error).message}`]))
-      }}>Reveal secret…</button>}
-      {secret && <>
-        <p className="mono-sm">{secret}</p>
-        <button type="button" onClick={() => copy(secret, 'Secret copied')}>Copy</button>
-        <button type="button" onClick={() => setSecret('')}>Hide</button>
-      </>}
-    </div>
-    <p className="dim">The secret IS the address's ownership — losing it loses the address; nobody can restore it. It never reaches an agent. Keep a copy somewhere safe if this organization's address matters to you.</p>
-    <SetToggle label="connect to this computer's mail hub" disabled={busy}
-      checked={hubs.some(h => h.id === 'local')}
-      onChange={next => { void apply({ net_autoconnect: next }, next ? 'Connected to this computer\'s mail hub' : 'Disconnected from this computer\'s mail hub') }}
-      hint="Being connected means peers can mail this organization (and thereby start its agents). Read and send correspondence in Mail." />
-    <div className="field-label">This organization's connections</div>
-    {!hubs.length && <p className="dim">No connections configured.</p>}
-    {hubs.map(h => <section key={h.id} className="connection-row">
-      <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <span className={'oi-dot' + (h.connected ? ' ok' : '')} />
-        <b>{h.name || (h.id === 'local' ? 'This computer' : h.address)}</b>
-        <span className="dim" style={{ flex: 1 }}>{hubStatusText(h)}{h.id === 'local' && h.hidden ? ' · not seen yet' : ''}</span>
-        {h.queued > 0 && <span>{h.queued} queued</span>}
-        {h.id !== 'local' && <>
-          <button title="Remove connection" disabled={busy} onClick={() => remove(h)}><CloseIcon fontSize="inherit" /></button>
+    <SetGroup title="This organization's address">
+      <SetRow label={<span className="mono-sm">{address || 'Not connected'}</span>}
+        hint="Peers on any hub reach this organization at this address. It never changes.">
+        {address && <button type="button" onClick={() => copy(address, 'Organization address copied')}>Copy address</button>}
+      </SetRow>
+      <SetRow label={secret ? <span className="mono-sm">{secret}</span> : 'Secret'}
+        hint="The secret IS the address's ownership — losing it loses the address; nobody can restore it. It never reaches an agent. Keep a copy somewhere safe if this organization's address matters to you.">
+        {!secret && <button type="button" disabled={!address} onClick={() => {
+          getOrgNet(tree.slug)
+            .then(r => setSecret(r.identity?.secret || '(none)'))
+            .catch(e => toast([`error: ${(e as Error).message}`]))
+        }}>Reveal secret…</button>}
+        {secret && <>
+          <button type="button" onClick={() => copy(secret, 'Secret copied')}>Copy</button>
+          <button type="button" onClick={() => setSecret('')}>Hide</button>
         </>}
-      </div>
-      {h.id !== 'local' && <SetToggle label="connection enabled" checked={h.enabled} disabled={busy}
-        hint="Connect to this hub to send and receive mail."
-        onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
-      <div className="dim mono-sm">{h.address}</div>
-      {(h.stuck ?? 0) > 0 && <p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p>}
-      {h.roster?.length ? <ul className="connection-peers">{h.roster.map(p => <li key={p.slug}>
-        <b>{p.org_name || p.slug.split('.')[0]}</b>{peerKindText(p.kind) && <span className="dim">{peerKindText(p.kind)}</span>}
-        {' '}<span className="mono-sm">{p.slug}</span> · {p.online ? 'Online' : 'Offline'}
-        {p.blurb && <span className="dim"> · {p.blurb}</span>}
-      </li>)}</ul> : h.connected ? <p className="dim">No other organizations on this hub yet.</p> : null}
-    </section>)}
+      </SetRow>
+    </SetGroup>
+    <SetGroup title="This computer's mail hub">
+      <SetToggle label="connect to this computer's mail hub" disabled={busy}
+        checked={hubs.some(h => h.id === 'local')}
+        onChange={next => { void apply({ net_autoconnect: next }, next ? "Connected to this computer's mail hub" : "Disconnected from this computer's mail hub") }}
+        hint="Being connected means peers can mail this organization (and thereby start its agents). Read and send correspondence in Mail." />
+    </SetGroup>
+    <SetGroup title="This organization's connections">
+      {!hubs.length && <SetBlock hint="No connections configured." />}
+      {hubs.map(h => <section key={h.id} className="connection-row">
+        <SetRow label={<><span className={'oi-dot' + (h.connected ? ' ok' : '')} />{' '}
+          <b>{h.name || (h.id === 'local' ? 'This computer' : h.address)}</b></>}
+          hint={<>{hubStatusText(h)}{h.id === 'local' && h.hidden ? ' · not seen yet' : ''}
+            {h.id !== 'local' && <> · <span className="mono-sm">{h.address}</span></>}</>}>
+          {h.queued > 0 && <span>{h.queued} queued</span>}
+          {h.id !== 'local' && <button title="Remove connection" disabled={busy} onClick={() => remove(h)}><CloseIcon fontSize="inherit" /></button>}
+        </SetRow>
+        {h.id !== 'local' && <SetToggle label="connection enabled" checked={h.enabled} disabled={busy}
+          hint="Connect to this hub to send and receive mail."
+          onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
+        {(h.stuck ?? 0) > 0 && <SetBlock><p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p></SetBlock>}
+        {h.roster?.length ? <SetBlock><ul className="connection-peers">{h.roster.map(p => <li key={p.slug}>
+          <b>{p.org_name || p.slug.split('.')[0]}</b>{peerKindText(p.kind) && <span className="dim">{peerKindText(p.kind)}</span>}
+          {' '}<span className="mono-sm">{p.slug}</span> · {p.online ? 'Online' : 'Offline'}
+          {p.blurb && <span className="dim"> · {p.blurb}</span>}
+        </li>)}</ul></SetBlock> : h.connected ? <SetBlock hint="No other organizations on this hub yet." /> : null}
+      </section>)}
+    </SetGroup>
     <AddHub slug={tree.slug} address={adding} setAddress={setAdding} toast={toast}
       current={settings} busy={busy} apply={apply} />
-    <p className="dim">Connection changes apply immediately; hub names are discovered on connect.</p>
+    <p className="dim set-foot">Connection changes apply immediately; hub names are discovered on connect.</p>
   </>
 }
 
@@ -154,10 +153,8 @@ export function AddHub({ slug: _slug, address, setAddress, toast, current, busy,
       setProbe(`The test itself failed (${(e as Error).message}) — the address was not changed.`)
     } finally { setProbing(false) }
   }
-  return <section className="connection-setup connect-hub">
-    <h4>Add a mail hub</h4>
-    <p className="dim">A bare host works — http and the standard port 7370 are assumed. A tunneled hub keeps its https address.</p>
-    <form onSubmit={async e => {
+  return <SetGroup title="Add a mail hub">
+    <form className="connection-setup connect-hub" onSubmit={async e => {
       e.preventDefault()
       const trimmed = address.trim()
       if (!trimmed) return
@@ -165,13 +162,16 @@ export function AddHub({ slug: _slug, address, setAddress, toast, current, busy,
         setAddress(''); setProbe('')
       }
     }}>
-      <div className="row" style={{ alignItems: 'center' }}>
-        <label style={{ flex: 1 }}>Hub address<input required value={address} onChange={e => { setAddress(e.target.value); setProbe('') }}
-          placeholder="http://host:7370 or https://hub.example" /></label>
-        <button type="button" disabled={probing || !address.trim()} onClick={() => { void test() }}>{probing ? 'Testing…' : 'Test'}</button>
-        <button type="submit" disabled={busy || !address.trim()}>Add</button>
-      </div>
-      {probe && <p role="status" className="dim">{probe}</p>}
+      <SetBlock label="Hub address"
+        hint="A bare host works — http and the standard port 7370 are assumed. A tunneled hub keeps its https address.">
+        <div className="row" style={{ alignItems: 'center' }}>
+          <input style={{ flex: 1 }} required value={address} aria-label="Hub address" onChange={e => { setAddress(e.target.value); setProbe('') }}
+            placeholder="http://host:7370 or https://hub.example" />
+          <button type="button" disabled={probing || !address.trim()} onClick={() => { void test() }}>{probing ? 'Testing…' : 'Test'}</button>
+          <button type="submit" disabled={busy || !address.trim()}>Add</button>
+        </div>
+      </SetBlock>
+      {probe && <SetBlock hint={<span role="status">{probe}</span>} />}
     </form>
-  </section>
+  </SetGroup>
 }

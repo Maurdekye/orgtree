@@ -480,7 +480,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             <option value="bypassPermissions">bypassPermissions ⚠ unguarded</option>
           </select>
         </SetRow>
-        <SetBlock label="provider account for NEW agents"
+        <SetRow label="provider for NEW agents"
           hint="existing agents keep theirs — change those in the agent's own ⚙">
           <select aria-label="Provider for default account" value={selectedProvider}
             onChange={(e) => {
@@ -491,12 +491,14 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               <option key={provider} value={provider}>{registryProviderName(provider)}</option>
             ))}
           </select>
+        </SetRow>
+        <SetRow label="account for NEW agents"
+          hint={account ? undefined : "Uses each hire's default account."}>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
             host={hostIdentity}
             label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
-          {account ? <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>
-            : <div className="dim">Uses each hire's default account.</div>}
-        </SetBlock>
+          {account && <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>}
+        </SetRow>
       </SetGroup>
 
       {/* the ⚙ panel's own danger row. It is not a hire default, but that

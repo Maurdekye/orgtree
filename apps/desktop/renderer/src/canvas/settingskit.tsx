@@ -183,7 +183,7 @@ export function SetRow({ label, hint, children }: {
 export function SetBlock({ label, hint, children }: {
   label?: ReactNode
   hint?: ReactNode
-  children: ReactNode
+  children?: ReactNode
 }) {
   return (
     <div className="set-block">
