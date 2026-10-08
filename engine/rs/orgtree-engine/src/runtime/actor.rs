@@ -3634,9 +3634,10 @@ impl Actor {
             self.receipt = Some((Utc::now(), ttl as i64));
             self.save_receipt().await;
         }
-        if !turn.interrupted && !turn.killed && !classified {
-            // 3.x `hard_fail_run`: a run of terminal failures is told once;
-            // only a completed turn makes the next failure news again
+        if !turn.interrupted && !classified {
+            // 3.x `hard_fail_run`: a run of terminal failures, a turn the idle
+            // or time limit killed included, is told once; only a completed
+            // turn makes the next failure news again
             let tell = match (&error, &freeze_rec) {
                 (Some(_), None) => recovery::bump(&self.engine, self.id, "hard_fail_run").await.map(|run| run == 1).unwrap_or(true),
                 _ => true,
