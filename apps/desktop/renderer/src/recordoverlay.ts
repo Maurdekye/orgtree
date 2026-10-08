@@ -8,6 +8,7 @@ export interface AgentRuntime extends Pick<FeedCursor, 'org_uuid' | 'incarnation
 }
 export type RuntimeTable = ReadonlyMap<string, Readonly<RuntimeValue>>
 export const agentRuntimeFields = new Set(`busy waiting queued_for_slot responding phase ran_as
+  effort_current pending_effort
   codex_route queued proc_warm proc_live proc_relaunch proc_relaunch_reason
   proc_paused proc_control_enabled proc_control_action proc_control_reason
   mcp_tool_count mcp_tool_count_provider mcp_tool_count_source mcp_tool_count_reason
