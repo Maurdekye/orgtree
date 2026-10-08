@@ -137,6 +137,9 @@ pub async fn reorder(
     Json(mut b): Json<Value>,
 ) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    if !b.is_object() {
+        return Err(ApiError::bad_request("the body must be a JSON object"));
+    }
     b["op"] = json!("reorder");
     b["node"] = json!(nid);
     Ok(Json(ops::run(&e, &o, Actor::User, &b).await?))
@@ -149,6 +152,9 @@ pub async fn account(
     Json(mut b): Json<Value>,
 ) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
+    if !b.is_object() {
+        return Err(ApiError::bad_request("the body must be a JSON object"));
+    }
     b["op"] = json!("account");
     b["node"] = json!(nid);
     Ok(Json(ops::run(&e, &o, Actor::User, &b).await?))

@@ -50,7 +50,16 @@ pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> V
 #[logged]
 async fn call(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or("");
-    let mut args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    // a tool's arguments are a JSON object: anything else is refused here,
+    // before a handler writes into it (writing a key into an array or a
+    // string panics)
+    let mut args = match params.get("arguments") {
+        None | Some(Value::Null) => json!({}),
+        Some(a) if a.is_object() => a.clone(),
+        Some(_) => {
+            return json!({ "content": [{ "type": "text", "text": format!("{name}: the arguments must be a JSON object") }], "isError": true });
+        }
+    };
     if name == "orgtree_send_file" && args["delivery_id"].as_str().filter(|s| !s.is_empty()).is_none() {
         use sha2::{Digest, Sha256};
         let id = match params.pointer("/_meta/claudecode~1toolUseId").and_then(Value::as_str) {
