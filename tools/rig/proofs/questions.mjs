@@ -20,6 +20,10 @@
 //   lex: a malformed tool call leaked the options into the question text:
 //       the question and options are recovered; markup that cannot be
 //       recovered is refused; labels and descriptions are clipped as in 3.x.
+//   olga: the older answer route (/asks/{id}/answer, still called by older
+//       clients) with 3.x's guards: a one-question card's picks all count,
+//       an empty answer is refused, an unstamped answer to an amended card is
+//       refused, and a batch answer needs exactly one answer per tab.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/questions.mjs
 
 import { Proof } from '../proof.mjs'
@@ -29,7 +33,7 @@ const Q_SHIP = 'Ship it today?'
 
 export default async function (rig) {
   const p = new Proof('questions')
-  const agents = ['uma', 'ned', 'wes', 'dot', 'ray', 'cal', 'hal', 'mia', 'lex']
+  const agents = ['uma', 'ned', 'wes', 'dot', 'ray', 'cal', 'hal', 'mia', 'lex', 'olga']
   const scenario = slug => ({
     agents: {
       uma: { turns: [
@@ -244,6 +248,34 @@ export default async function (rig) {
   p.check('lex: an option label is clipped to 60 characters and a description to 300, and a blank option is dropped', long.ok
     && named.length === 2 && named[0].label.length === 60 && named[0].description.length === 300 && named[1].label === 'Short',
   named.map(o => [o.label.length, o.description?.length ?? 0]))
+
+  // ---------------------------------------------------------------- olga: the older answer route
+  const old = (uid, body) => tryApi('POST', `/api/orgs/${rig.org}/asks/${uid}/answer`, body)
+  await rig.tool('olga', 'orgtree_ask', { question: 'Which colours should the logo use?', options: ['Red', 'Green', 'Blue'], multi: true })
+  const o1 = await old(row('olga').uid, { selected: ['Red', 'Blue'], rev: 1 })
+  await settled('olga', 1)
+  p.check('olga: on a one-question card every pick counts (a multi-select keeps both)', o1.ok
+    && /A: Red, Blue/.test(userMail('olga').at(-1)?.body ?? ''), { o1, body: userMail('olga').at(-1)?.body })
+  await rig.tool('olga', 'orgtree_ask', { question: 'What should the release be called?' })
+  const o2 = row('olga')
+  const empty = await old(o2.uid, { selected: [], rev: 1 })
+  const typed = await old(o2.uid, { text: 'Aurora', rev: 1 })
+  await settled('olga', 2)
+  p.check('olga: an answer with no pick and no text is refused; a typed answer is taken', !empty.ok && empty.status === 400
+    && typed.ok && /A: Aurora/.test(userMail('olga').at(-1)?.body ?? ''), { empty, typed: typed.ok })
+  await rig.tool('olga', 'orgtree_ask', { question: 'Ship on Monday?', options: ['Yes', 'No'] })
+  await rig.tool('olga', 'orgtree_ask', { question: 'Tag the release?', options: ['Yes', 'No'] })
+  const o3 = row('olga')
+  const unstamped = await old(o3.uid, { selected: ['Yes', 'No'] })
+  const short = await old(o3.uid, { selected: ['Yes'], rev: 2 })
+  const extra = await old(o3.uid, { selected: ['Yes', 'No', 'Maybe'], rev: 2 })
+  p.check('olga: an unstamped answer to an amended card is refused, and so are a missing and an extra tab answer', o3.rev === 2
+    && !unstamped.ok && unstamped.status === 409 && !short.ok && short.status === 400 && !extra.ok && extra.status === 400
+    && row('olga').status === 'open', { unstamped, short, extra, status: row('olga').status })
+  const whole = await old(o3.uid, { selected: ['Yes', 'No'], rev: 2 })
+  await settled('olga', 3)
+  const ob = userMail('olga').at(-1)?.body ?? ''
+  p.check('olga: a stamped answer with one answer per tab is taken', whole.ok && /Ship on Monday\?\nA: Yes/.test(ob) && /Tag the release\?\nA: No/.test(ob), ob)
 
   p.keep(rig, { agents, grep: /ask|question|request/i })
   return p.summary()
