@@ -120,6 +120,6 @@ pub struct ProbeQuery {
 
 /// `GET /api/net/probe`: does a hub answer at this address right now?
 #[logged]
-pub async fn net_probe(axum::extract::Query(q): axum::extract::Query<ProbeQuery>) -> Json<Value> {
-    Json(crate::net::probe(&q.address).await)
+pub async fn net_probe(State(e): State<Arc<Engine>>, axum::extract::Query(q): axum::extract::Query<ProbeQuery>) -> Json<Value> {
+    Json(crate::net::probe(&e, &q.address).await)
 }

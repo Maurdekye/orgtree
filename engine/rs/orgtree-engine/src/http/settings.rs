@@ -280,11 +280,24 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     // the network settings live beside the settings document
     if b.contains_key("net_autoconnect") || b.contains_key("net_hubs") {
         let mut net = Map::new();
-        if let Some(a) = b.get("net_autoconnect").and_then(Value::as_bool) {
-            net.insert("autoconnect".into(), json!(a));
-        }
         if let Some(h) = b.get("net_hubs").filter(|v| v.is_array()) {
             net.insert("hubs".into(), h.clone());
+        }
+        // 3.x: auto-connect on adds this computer's hub to the org's list
+        // (first), off takes it out
+        if let Some(a) = b.get("net_autoconnect").and_then(Value::as_bool) {
+            net.insert("autoconnect".into(), json!(a));
+            let stored: Option<Value> = client.query_one("SELECT net->'hubs' FROM ot.orgs WHERE id = $1", &[&o.id]).await?.get(0);
+            let mut hubs: Vec<Value> = net.get("hubs").or(stored.as_ref()).and_then(Value::as_array).cloned().unwrap_or_default();
+            let local = json!(crate::net::LOCAL_HUB_ID);
+            let has_local = hubs.iter().any(|h| h["id"] == local);
+            if a && !has_local {
+                hubs.insert(0, json!({ "id": crate::net::LOCAL_HUB_ID, "address": crate::net::local_address(&e), "enabled": true }));
+            } else if !a && has_local {
+                hubs.retain(|h| h["id"] != local);
+                warnings.push("local hub entry removed — the org no longer auto-connects".to_string());
+            }
+            net.insert("hubs".into(), Value::Array(hubs));
         }
         client
             .execute("UPDATE ot.orgs SET net = net || $2 WHERE id = $1", &[&o.id, &Value::Object(net)])

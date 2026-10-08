@@ -76,14 +76,14 @@ pub struct UploadQuery {
 #[logged]
 async fn target_limit(e: &Engine, org_id: i64, to: &str) -> anyhow::Result<crate::net::AttachmentLimit> {
     if to.starts_with("@net:") { crate::net::attachment_limit(e, org_id, to).await }
-    else { Ok(crate::net::AttachmentLimit { bytes: ATTACHMENT_MAX as u64, legacy: false }) }
+    else { Ok(crate::net::AttachmentLimit { bytes: ATTACHMENT_MAX as u64, legacy: false, per_message: false }) }
 }
 
 #[logged]
 pub async fn upload_limit(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<UploadQuery>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let limit = target_limit(&e, o.id, &q.to).await?;
-    Ok(Json(json!({"max_attachment_bytes":limit.bytes,"legacy":limit.legacy,"too_large":limit.message()})))
+    Ok(Json(json!({"max_attachment_bytes":limit.bytes,"legacy":limit.legacy,"per_message":limit.per_message,"too_large":limit.message()})))
 }
 
 /// Stage an attachment for the user's next outside message.

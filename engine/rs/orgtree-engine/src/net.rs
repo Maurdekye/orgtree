@@ -48,15 +48,32 @@ const FILE_TIMEOUT: Duration = Duration::from_secs(3600);
 pub struct AttachmentLimit {
     pub bytes: u64,
     pub legacy: bool,
+    /// a v2 hub's limit bounds a whole message, its text and files together
+    /// (`max_message_bytes`); a v1 hub's bounds each file
+    pub per_message: bool,
 }
 
 #[logged]
 impl AttachmentLimit {
     pub fn from_health(health: &Value) -> Self {
-        match health["max_attachment_bytes"].as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991) {
-            Some(bytes) => Self { bytes, legacy: false },
-            None => Self { bytes: LEGACY_ATTACHMENT_MAX, legacy: true },
+        let per_message = health["max_message_bytes"].as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991);
+        match per_message.or_else(|| health["max_attachment_bytes"].as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991)) {
+            Some(bytes) => Self { bytes, legacy: false, per_message: per_message.is_some() },
+            None => Self { bytes: LEGACY_ATTACHMENT_MAX, legacy: true, per_message: false },
         }
+    }
+    /// A whole message against a per-message limit (a v2 hub): its text and
+    /// its files together.
+    pub fn check_message(&self, body_bytes: u64, file_bytes: u64) -> Result<()> {
+        let total = body_bytes + file_bytes;
+        if self.per_message && total > self.bytes {
+            crate::refuse!(
+                BadRequest,
+                "this message is {total} bytes with its files; the hub takes at most {} bytes per message (text and files together)",
+                self.bytes
+            );
+        }
+        Ok(())
     }
     pub fn message(&self) -> String {
         if self.legacy { "attachment exceeds 25 MB (this hub doesn't state its limit; using 25 MB)".into() }
@@ -216,7 +233,7 @@ fn username() -> String {
 /// Where this machine's own hub answers: the hosted hub, else a configured
 /// default, else the standard address.
 #[logged]
-fn local_address(engine: &Engine) -> String {
+pub fn local_address(engine: &Engine) -> String {
     if let Some(a) = engine.hub.address.load_full() {
         return a.as_str().to_string();
     }
@@ -650,8 +667,26 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
             Err(_) => continue,
         };
         set_roster(&engine, &addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
+        // a member the hub no longer lists was forgotten (an operator's
+        // remove-address, a rebuilt hub): it registers again, as a 401 makes
+        // a poll of its own do (a poll shared by several members answers 401
+        // only when the hub knows none of them)
+        let mut forgotten = Vec::new();
+        if let Some(roster) = data["roster"].as_array().filter(|r| !r.is_empty()) {
+            for (p, hid) in &members {
+                if !roster.iter().any(|x| x["slug"].as_str() == Some(p.net_slug.as_str())) {
+                    forgotten.push(p.org_id);
+                    let _ = set_registered(&engine, p.org_id, hid, None).await;
+                }
+            }
+        }
+        if !forgotten.is_empty() {
+            kick(&engine);
+        }
         for (p, hid) in &members {
-            set_status(&engine, p.org_id, hid, true, None);
+            if !forgotten.contains(&p.org_id) {
+                set_status(&engine, p.org_id, hid, true, None);
+            }
         }
         // inbound: deliver first, then acknowledge custody
         for (p, hid) in &members {
@@ -1174,6 +1209,7 @@ pub async fn queue(
     if !attachments.is_empty() {
         let limit = attachment_limit(engine, org_id, peer).await?;
         for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
+        limit.check_message(body.len() as u64, attachments.iter().map(|a| a["bytes"].as_u64().unwrap_or(0)).sum())?;
     }
     queue_row(engine, org_id, peer, body, by, kind, attachments, reply_to).await
 }
@@ -1398,8 +1434,12 @@ pub async fn reveal(engine: &Engine, org_id: i64, org_slug: &str) -> Result<Valu
 
 /// `GET /api/net/probe`: does a hub answer at this address right now? (a hint)
 #[logged]
-pub async fn probe(address: &str) -> Value {
+pub async fn probe(engine: &Engine, address: &str) -> Value {
     let addr = if address.trim().is_empty() { DEFAULT_HUB_ADDRESS.to_string() } else { normalize_address(address) };
+    // a rig run asks no hub but the one it hosts
+    if crate::rig::active() && !(crate::rig::hub() && engine.hub.address.load_full().as_deref() == Some(&addr)) {
+        return json!({ "ok": false });
+    }
     match crate::mailhub::healthz(&addr, Duration::from_secs(2)).await {
         Some(h) => json!({ "ok": true, "name": h["name"], "version": h["version"] }),
         None => json!({ "ok": false }),
@@ -1418,11 +1458,15 @@ pub fn unregister(engine: &Engine, net: Value) {
         return;
     };
     let auth = format!("{slug}:{secret}");
-    let addrs: Vec<String> = net["hubs"]
+    let mut addrs: Vec<String> = net["hubs"]
         .as_array()
         .map(|hs| hs.iter().filter(|h| h["enabled"].as_bool().unwrap_or(true)).filter_map(|h| h["address"].as_str().map(normalize_address)).collect())
         .unwrap_or_default();
-    let _ = engine;
+    // a rig run reaches the hub it hosts, never another
+    if crate::rig::hub() {
+        let hosted = engine.hub.address.load_full();
+        addrs.retain(|a| hosted.as_deref() == Some(a));
+    }
     tokio::spawn(async move {
         for addr in addrs {
             let _ = HTTP.post(format!("{addr}/api/unregister")).timeout(Duration::from_secs(4)).header("X-Org-Auth", auth.clone()).json(&json!({})).send().await;
