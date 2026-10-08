@@ -11,7 +11,7 @@
 //       amends its tab; he withdraws the card, and answering it is refused.
 //   dot: the user closes her card (every tab skipped): the card is
 //       dismissed, not answered, and she is told; the older dismiss route too.
-//   ray: retired with a card open: the card closes and leaves his item.
+//   ray: retired with a card open: the card closes as moot and leaves his item.
 //   cal: cheap-compacted with a card open: the card survives, and his fresh
 //       session is told he still has it open and must not drop it unread.
 //   hal: halted when the answer lands: no turn; unhalted, the answer wakes him.
@@ -184,7 +184,8 @@ export default async function (rig) {
   const rr = rig.one(`SELECT status, reason FROM ot.asks WHERE uid = '${rayAsk.uid}'`)
   const after2 = await rig.waitFor(async () => { const q = JSON.stringify((await item(raySlug)).questions ?? []); return q.includes('Which database') ? null : q },
     { what: 'ray\'s item to let go', timeout: 15000 }).catch(() => 'still attached')
-  p.check('ray: retiring him closes his open card and his item lets go of it', /Which database/.test(before2) && rr?.status !== 'open'
+  p.check('ray: retiring him closes his open card as moot (not withdrawn: he did not act) and his item lets go of it',
+    /Which database/.test(before2) && rr?.status === 'moot'
     && after2 !== 'still attached' && !(await card('ray')), { row: rr, before: before2.slice(0, 120), after: after2 })
 
   // ---------------------------------------------------------------- cal: cheap compact keeps the card
