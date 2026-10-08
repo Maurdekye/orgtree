@@ -1211,9 +1211,12 @@ async fn move_node(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<
 #[logged]
 async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, credits: &mut MoveCredits, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
-    if n.state != "live" {
+    if n.state == "deleted" {
         refuse!(Conflict, "{} is not live", n.name);
     }
+    // 3.x: an archived (or unrecoverable) agent may be moved too; it holds no
+    // credits, so the move is free, and its rehire cost falls on the new superior
+    let live = n.state == "live";
     authorize(tx, actor, &n, "move").await?;
     let target = match str_arg(req, "new_parent").filter(|p| *p != "user" && *p != "@user") {
         Some(p) => Some(node_by_name(tx, org.id, p).await?),
@@ -1236,7 +1239,7 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     if target.as_ref().map(|t| t.id) == n.parent {
         return Ok(json!({ "node": n.name, "unchanged": true }));
     }
-    let stake = n.seat + n.grant + credits.deltas.get(&n.id).copied().unwrap_or(0.0);
+    let stake = if live { n.seat + n.grant + credits.deltas.get(&n.id).copied().unwrap_or(0.0) } else { 0.0 };
     let old_chain = match n.parent { Some(id) => chain(tx, id).await?, None => Vec::new() };
     let new_chain = match &target { Some(t) => chain(tx, t.id).await?, None => Vec::new() };
     let shared = old_chain.iter().zip(&new_chain).take_while(|(a,b)| a.id == b.id).count();
@@ -1279,7 +1282,12 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     fx.reconfigure.push(n.id);
     fx.reconfigure.extend(subtree(tx, n.id).await?);
     fx.events = true;
-    Ok(json!({ "node": n.name, "cascaded": raised }))
+    let mut out = json!({ "node": n.name, "cascaded": raised });
+    if !live {
+        out["warnings"] = json!([format!("{} is archived: moving it is free, but its rehire cost ({}) now falls on {} (§4.5)",
+            n.name, n.seat + n.grant, target.as_ref().map(|t| t.name.as_str()).unwrap_or("the user"))]);
+    }
+    Ok(out)
 }
 
 #[logged]
