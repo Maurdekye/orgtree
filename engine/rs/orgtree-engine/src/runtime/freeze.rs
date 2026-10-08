@@ -18,6 +18,33 @@ use crate::util::{iso, parse_ts};
 /// Seconds past the stated reset before an automatic wake (clock skew).
 pub const WAKE_GRACE_S: i64 = 60;
 
+/// The end of a replayed request kept in a freeze (3.x kept 8000 characters).
+const REPLAY_CHARS: usize = 8000;
+
+/// What a freeze keeps of the request it replays: its last characters.
+#[logged]
+pub fn replay_tail(text: &str) -> String {
+    let n = text.chars().count();
+    text.chars().skip(n.saturating_sub(REPLAY_CHARS)).collect()
+}
+
+/// The wake for a released freeze, followed by the request the freeze holds
+/// (3.x `resume_texts`: a Codex or Antigravity turn refused for a usage limit
+/// is given again, and so is what an imported 3.x freeze kept) and `extra`.
+#[logged]
+pub fn with_replay(wake: &str, rec: Option<&Value>, extra: &[String]) -> String {
+    let mut texts: Vec<&str> = rec
+        .and_then(|r| r["resume_texts"].as_array())
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    texts.extend(extra.iter().map(String::as_str));
+    texts.retain(|t| !t.trim().is_empty());
+    if texts.is_empty() {
+        return wake.to_string();
+    }
+    format!("{wake}\n\nThe turn that was stopped got no answer. It was given:\n\n{}", texts.join("\n\n"))
+}
+
 /// Read canonical Rust timestamps or the numeric deadlines kept by 2.x/3.x.
 /// Legacy `until` is a display label, never a timestamp. A committed wake is
 /// valid only for the until_ts/reset_src pair for which it was promised.
@@ -190,7 +217,7 @@ async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, expecte
         _ if expected.is_some() => "Your usage limit has reset. Continue where you left off.".to_string(),
         _ => "Your hold was released. Continue where you left off.".to_string(),
     };
-    mail::system_wake(engine, org_id, agent_id, &text).await?;
+    mail::system_wake(engine, org_id, agent_id, &with_replay(&text, Some(&old), &[])).await?;
     Ok(true)
 }
 
@@ -263,9 +290,10 @@ pub fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, org_slu
     sub.or(key).cloned()
 }
 
-/// Move an agent to `account` and let its held work go on.
+/// Move an agent to `account` and let its held work go on (with the request
+/// its freeze held, or `replay`: a limited turn moving accounts at once).
 #[logged]
-pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str) -> Result<Value> {
+pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str, replay: &[String]) -> Result<Value> {
     let view = engine.accounts.view();
     let slug = engine.orgs.by_id(org_id).map(|o| o.slug.clone());
     let Some(acc) = view.get(account).filter(|a| a.available_to(Some(slug.as_deref().unwrap_or("")))).cloned() else {
@@ -273,12 +301,13 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     };
     let client = engine.db.get().await?;
     let was = client
-        .query_opt("SELECT frozen IS NOT NULL FROM ot.agents WHERE id = $1 AND state = 'live'", &[&agent_id])
+        .query_opt("SELECT frozen FROM ot.agents WHERE id = $1 AND state = 'live'", &[&agent_id])
         .await?;
     let Some(was) = was else {
         crate::refuse!(NotFound, "that agent is not live");
     };
-    let was_frozen: bool = was.get(0);
+    let old: Option<Value> = was.get(0);
+    let was_frozen = old.is_some();
     client
         .execute(
             "UPDATE ot.agents SET account = $2, pending_account = NULL, frozen = NULL, limit_locked = false,
@@ -303,7 +332,7 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
         engine,
         org_id,
         agent_id,
-        &format!("You now run on the account {}. Continue where you left off.", acc.display()),
+        &with_replay(&format!("You now run on the account {}. Continue where you left off.", acc.display()), old.as_ref(), replay),
     )
     .await?;
     Ok(json!({

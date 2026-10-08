@@ -237,6 +237,9 @@ struct Turn {
     agy_steer: Option<(String, Vec<i64>, Vec<Value>)>,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
+    /// Codex/Antigravity: the mail this turn was given, without the envelope;
+    /// a usage-limit freeze keeps it for the wake (3.x `resume_texts`)
+    replay: String,
 }
 
 #[logged]
@@ -274,6 +277,7 @@ impl Turn {
             agy_text: HashMap::new(),
             agy_steer: None,
             exited: false,
+            replay: String::new(),
         }
     }
 }
@@ -2202,6 +2206,11 @@ impl Actor {
             .map(|m| m.uid.clone()).collect();
         let rels = self.rels_of(&mails).await;
         let text = prompt::turn_text(&mails, &context, &rels, reset_note.or(handoff).as_deref());
+        // the lanes whose usage-limit freeze replays the request (3.x freeze_provider_limit)
+        let replay = match self.proc.as_ref() {
+            Some(Proc::Codex(_)) | Some(Proc::Agy(_)) => freeze::replay_tail(&prompt::turn_text(&mails, "", &rels, None)),
+            _ => String::new(),
+        };
         let mut codex_turn: Option<String> = None;
         let sent = match self.proc.as_ref() {
             Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
@@ -2238,6 +2247,7 @@ impl Actor {
         turn.serving_tier = ctx.tier.clone();
         turn.codex_turn = codex_turn;
         turn.usage_base = self.codex_total.clone();
+        turn.replay = replay;
         self.begin_turn(turn);
         if !followup.is_empty() {
             tracing::info!(agent = self.id, turn = turn_id, mail_ids = ?followup,
@@ -3461,10 +3471,15 @@ impl Actor {
                 moved_to = freeze::pick_fallback(&self.engine, &ctx.tier, ctx.account.as_deref(), &ctx.org_slug);
             }
             if moved_to.is_none() {
-                freeze_rec = Some(json!({
+                let mut rec = json!({
                     "at": now_iso(), "until": iso(until), "error": gist(error.as_deref().unwrap_or(""), 300),
                     "limit": true, "provenance": "observed", "account": ctx.account,
-                }));
+                });
+                // Codex/Antigravity: the refused request goes out again at the wake
+                if !turn.replay.is_empty() {
+                    rec["resume_texts"] = json!([turn.replay]);
+                }
+                freeze_rec = Some(rec);
             }
             error = None;
         }
@@ -3688,8 +3703,9 @@ impl Actor {
             let (org_id, id) = (self.org_id, self.id);
             // continue_on messages this actor; run it off the actor's own loop
             let span = crate::trace::request_from(&self.client, crate::trace::current_rq().as_deref());
+            let replay: Vec<String> = Some(turn.replay.clone()).filter(|r| !r.is_empty()).into_iter().collect();
             tokio::spawn(tracing::Instrument::instrument(async move {
-                if let Err(e) = freeze::continue_on(&engine, org_id, id, &acc, "account fallback").await {
+                if let Err(e) = freeze::continue_on(&engine, org_id, id, &acc, "account fallback", &replay).await {
                     tracing::warn!(agent = id, error = %format!("{e:#}"), "account fallback failed");
                 }
             }, span));
