@@ -17,7 +17,7 @@ use crate::changes::{self, Change};
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::runtime::AgentMsg;
-use crate::util::{now_iso, slugify};
+use crate::util::now_iso;
 
 #[derive(Deserialize, Debug)]
 pub struct CreateOrg {
@@ -29,24 +29,34 @@ pub struct CreateOrg {
     net_hubs: Vec<String>,
 }
 
+/// 3.x's org slug (ledger.slugify): lower case, every run of anything but
+/// a-z and 0-9 one dash, none at either end, no length cap.
+#[logged]
+fn org_slug(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.trim().to_lowercase().chars() {
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            out.push(ch);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
 #[logged]
 pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> ApiResult<Json<Value>> {
     let name = b.name.trim().to_string();
-    if name.is_empty() {
-        return Err(ApiError::bad_request("an organization needs a name"));
+    let slug = org_slug(&name);
+    if slug.is_empty() {
+        return Err(ApiError::bad_request("name is mandatory and must contain letters or digits (§4.7)"));
     }
-    let base = slugify(&name, 40);
+    // 3.x refuses a name an org already holds (a trashed org frees it)
+    let taken = || ApiError::bad_request(format!("org '{slug}' already exists"));
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
-    let mut slug = base.clone();
-    let mut n = 1;
-    while tx
-        .query_opt("SELECT 1 FROM ot.orgs WHERE slug = $1 AND state = 'active'", &[&slug])
-        .await?
-        .is_some()
-    {
-        n += 1;
-        slug = format!("{base}-{n}");
+    if tx.query_opt("SELECT 1 FROM ot.orgs WHERE slug = $1 AND state = 'active'", &[&slug]).await?.is_some() {
+        return Err(taken());
     }
     let dirs: Vec<Value> = b
         .dirs
@@ -59,13 +69,18 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     let auto = b.net_autoconnect.unwrap_or(true);
     let net = json!({ "autoconnect": auto, "hubs": crate::net::hub_entries(&e, auto, &b.net_hubs) });
     let uuid = uuid::Uuid::new_v4();
-    let id: i64 = tx
+    let id: i64 = match tx
         .query_one(
             "INSERT INTO ot.orgs (uuid, slug, name, settings, net) VALUES ($1, $2, $3, $4, $5) RETURNING id",
             &[&uuid, &slug, &name, &settings, &net],
         )
-        .await?
-        .get(0);
+        .await
+    {
+        Ok(r) => r.get(0),
+        // another create of the name got there first
+        Err(err) if err.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) => return Err(taken()),
+        Err(err) => return Err(err.into()),
+    };
     tx.execute(
         "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'org_created', '@user', $2)",
         &[&id, &json!({ "name": name, "slug": slug })],
@@ -75,8 +90,11 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     // of the name left behind go to the trash first, so the new org starts
     // clean (a refusal rolls the org back)
     sweep_leftovers(&e, &*tx, &slug).await?;
-    let _ = std::fs::create_dir_all(e.cfg.workspace_dir(&slug));
-    let _ = std::fs::create_dir_all(e.cfg.scratch_root(&slug));
+    // a name the file system refuses (a device name, an unwritable data
+    // folder) refuses the org, as in 3.x, rather than leave it without a home
+    std::fs::create_dir_all(e.cfg.workspace_dir(&slug))
+        .and_then(|_| std::fs::create_dir_all(e.cfg.scratch_root(&slug)))
+        .map_err(|err| ApiError::unprocessable(format!("could not create the org's workspace: {err}")))?;
     tx.commit().await?;
     drop(client);
     if let Err(err) = crate::net::ensure_identity(&e, id, &slug).await {
