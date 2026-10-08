@@ -56,6 +56,12 @@ export default async function (rig) {
   // ---------------------------------------------------------------- the accounts
   const homeA = path.join(rig.data, 'rig-home', '.codex')
   const homeB = codexHome(path.join(rig.data, 'rig-home', 'codex-b'), 'rig-b@example.invalid')
+  // B reads as having room: the automatic fallback moves an agent only onto proven room
+  const soon = h => new Date(Date.now() + h * 3600e3).toISOString()
+  fs.mkdirSync(path.join(rig.data, 'rig-home', 'rig-usage'), { recursive: true })
+  fs.writeFileSync(path.join(rig.data, 'rig-home', 'rig-usage', 'openai@codex-b.json'), JSON.stringify({ available: true, limits: [
+    { kind: 'session', group: 'codex', percent: 10, resets_at: soon(3), is_active: false, model: null },
+    { kind: 'weekly_all', group: 'codex', percent: 20, resets_at: soon(72), is_active: false, model: null }] }))
   const B = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported', path: homeB })).id
   const K = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'apikey', key: 'sk-rig-not-a-real-key' })).id
   const accounts = await rig.api('GET', '/api/accounts')

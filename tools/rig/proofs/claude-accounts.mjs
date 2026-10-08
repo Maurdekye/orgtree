@@ -49,6 +49,12 @@ export default async function (rig) {
   // ---------------------------------------------------------------- the accounts
   const homeA = path.join(rig.data, 'rig-home', '.claude')
   const homeB = claudeHome(path.join(rig.data, 'rig-home', 'claude-b'), 'rig-b@example.invalid')
+  // B reads as having room: the automatic fallback moves an agent only onto proven room
+  const soon = h => new Date(Date.now() + h * 3600e3).toISOString()
+  fs.mkdirSync(path.join(rig.data, 'rig-home', 'rig-usage'), { recursive: true })
+  fs.writeFileSync(path.join(rig.data, 'rig-home', 'rig-usage', 'claude@claude-b.json'), JSON.stringify({ available: true, limits: [
+    { kind: 'session', percent: 10, resets_at: soon(3), is_active: false },
+    { kind: 'weekly_all', percent: 20, resets_at: soon(72), is_active: false }] }))
   const B = (await rig.api('POST', '/api/accounts', { provider: 'claude', kind: 'imported', path: homeB })).id
   const K = (await rig.api('POST', '/api/accounts', { provider: 'claude', kind: 'apikey', key: 'sk-ant-api03-rig-not-a-real-key' })).id
   const rowB = rig.one(`SELECT id, kind, auth, identity FROM ot.accounts WHERE id = '${B}'`)
