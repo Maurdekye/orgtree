@@ -7862,7 +7862,7 @@ main:has(> .orgbar.native-header) > .error {
    without squeezing its name away or pushing badges over the status row. */
 .sq:not(.desk) .next-turn,
 .sq:not(.desk):has(.next-turn) .sq-badges .badge {
-  font-size: 7px; padding: 1px 4px;
+  font-size: 7px; line-height: 1.2; padding: 1px 4px;
 }
 .sq:not(.desk):has(.next-turn) .sq-badges { gap: 3px; }
 .sq-title:has(> .next-turn) { flex-wrap: wrap; row-gap: 2px; }
