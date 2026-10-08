@@ -103,14 +103,19 @@ pub fn cli_bin(var: &str) -> Option<(PathBuf, String)> {
 }
 
 /// A usage reading in rig mode, instead of a probe: the rig's canned
-/// `<root>\rig-home\rig-usage\<lane>.json` when it wrote one, else
-/// "unavailable". None outside rig mode (probe as usual).
+/// `<root>\rig-home\rig-usage\<lane>@<folder>.json` for the login whose
+/// folder (Claude config folder, Codex home) is named `<folder>`, else
+/// `<lane>.json`, else "unavailable". None outside rig mode (probe as usual).
 #[logged]
-pub fn usage(lane: &str) -> Option<serde_json::Value> {
+pub fn usage(lane: &str, profile: Option<&str>) -> Option<serde_json::Value> {
     let home = RIG.get().cloned().flatten()?;
-    let canned = std::fs::read(home.join("rig-usage").join(format!("{lane}.json")))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+    let dir = home.join("rig-usage");
+    let named = profile
+        .and_then(|p| std::path::Path::new(p).file_name().map(|n| dir.join(format!("{lane}@{}.json", n.to_string_lossy()))));
+    let canned = named
+        .into_iter()
+        .chain(std::iter::once(dir.join(format!("{lane}.json"))))
+        .find_map(|p| std::fs::read(p).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()));
     Some(canned.unwrap_or_else(|| serde_json::json!({ "available": false, "error": "rig mode: no usage probe" })))
 }
 

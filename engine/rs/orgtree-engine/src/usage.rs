@@ -121,7 +121,9 @@ fn claude_dir(config_dir: Option<&str>) -> PathBuf {
 /// The Claude usage bars of one login (`config_dir` None: the machine's own).
 #[logged]
 pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("claude") {
+    if let Some(v) = crate::rig::usage("claude", config_dir) {
+        // the canned reading stands in for the probe, cache included
+        engine.usage.put(&claude_key(config_dir), &v);
         return v;
     }
     let key = claude_key(config_dir);
@@ -263,7 +265,8 @@ pub fn codex_key(home: Option<&str>) -> String {
 /// One Codex login's rate limits (`home` None: the machine's own `~/.codex`).
 #[logged]
 pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("openai") {
+    if let Some(v) = crate::rig::usage("openai", home) {
+        engine.usage.put(&codex_key(home), &v);
         return v;
     }
     let key = codex_key(home);
@@ -384,7 +387,8 @@ fn codex_limits(raw: &Value) -> Value {
 /// Antigravity's own `/usage` (zero tokens, verified per run), for the machine's login.
 #[logged]
 pub async fn antigravity(engine: &Engine, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("google") {
+    if let Some(v) = crate::rig::usage("google", None) {
+        engine.usage.put("agy", &v);
         return v;
     }
     if !force {
@@ -541,7 +545,7 @@ pub async fn refresh_openrouter(engine: &Engine, force: bool) {
 /// The stored OpenRouter key's credit standing (`GET /api/v1/key`).
 #[logged]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
-    if let Some(v) = crate::rig::usage("openrouter") {
+    if let Some(v) = crate::rig::usage("openrouter", None) {
         return v;
     }
     if !force {
