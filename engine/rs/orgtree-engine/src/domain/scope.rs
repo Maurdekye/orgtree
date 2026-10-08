@@ -11,6 +11,20 @@ fn rank(levels: &[&str], v: &str) -> usize {
     levels.iter().position(|l| *l == v).unwrap_or(0)
 }
 
+/// The narrowest visibility along a chain, from the org's ceiling (full):
+/// what `clamp` makes of it, an unset or unknown value counting as subtree.
+#[logged]
+pub fn narrowest_visibility<'a>(chain: impl IntoIterator<Item = Option<&'a str>>) -> &'static str {
+    let mut eff: &'static str = "full";
+    for v in chain {
+        let v = v.and_then(|s| VIS_LEVELS.iter().find(|l| **l == s).copied()).unwrap_or("subtree");
+        if vis_rank(v) < vis_rank(eff) {
+            eff = v;
+        }
+    }
+    eff
+}
+
 /// The levels as 3.x's refusals name them: `('plan', 'default', …)`.
 #[logged]
 pub fn levels_text(levels: &[&str]) -> String {

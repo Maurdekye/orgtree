@@ -286,7 +286,8 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
     let org_id: i64 = me.get(0);
     let my_name: String = me.get(1);
     let parent: Option<i64> = me.get(2);
-    let vis: String = me.get(3);
+    // the effective visibility (narrowest along the chain), as 3.x org_state_block
+    let vis: String = crate::tools::effective_visibility(&client, agent_id).await?;
     let (seat, grant, hold): (f64, f64, f64) = (me.get(4), me.get(5), me.get(6));
     let sid: Option<String> = me.get(7);
     let occ: i32 = me.get(8);

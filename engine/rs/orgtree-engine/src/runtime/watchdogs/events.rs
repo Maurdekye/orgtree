@@ -131,8 +131,9 @@ fn threshold(v: &Value) -> Result<(bool, i64)> {
 #[logged]
 async fn identity(engine: &Engine, owner: i64) -> Result<crate::tools::Me> {
     let c=engine.db.get().await?;
-    let r=c.query_one("SELECT id,org_id,name,parent_id,generation,coalesce(scope->>'org_visibility','subtree') FROM ot.agents WHERE id=$1 AND state='live'", &[&owner]).await?;
-    Ok(crate::tools::Me{id:r.get(0),org_id:r.get(1),name:r.get(2),parent_id:r.get(3),generation:r.get(4),visibility:r.get(5)})
+    let r=c.query_one("SELECT id,org_id,name,parent_id,generation FROM ot.agents WHERE id=$1 AND state='live'", &[&owner]).await?;
+    let visibility=crate::tools::effective_visibility(&c,owner).await?;
+    Ok(crate::tools::Me{id:r.get(0),org_id:r.get(1),name:r.get(2),parent_id:r.get(3),generation:r.get(4),visibility})
 }
 
 /// One permission snapshot for a drained batch, including its pending delivery.

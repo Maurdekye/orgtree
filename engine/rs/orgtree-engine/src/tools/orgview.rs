@@ -271,14 +271,12 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     }
     tx.commit().await?;
     let own_scope = inspection_scope(caller.agent_id, &scopes, &ceiling)?;
+    // the effective (ancestor-clamped) visibility decides what is shown, as
+    // chart's (3.x capability_scope)
     let visibility = own_scope["org_visibility"].as_str().unwrap_or("team");
-    // Chart's Me reads the stored visibility; keep its exact visible set while
-    // continuing to report effective (ancestor-clamped) scope in the projection.
-    let chart_visibility = scopes.get(&caller.agent_id)
-        .and_then(|(_, scope)| scope["org_visibility"].as_str()).unwrap_or("subtree");
     let mut out = Vec::new();
     for (id, mut row) in records {
-        if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, chart_visibility, &scopes) { continue; }
+        if (!archived && row["state"] != "live") || !inspection_visible(id, caller.agent_id, visibility, &scopes) { continue; }
         if !names.is_empty() && !names.iter().any(|n| row["name"] == *n) { continue; }
         let effective = inspection_scope(id, &scopes, &ceiling)?;
         let provider = catalog::provider_of(row["tier"].as_str().unwrap_or("")).to_string();

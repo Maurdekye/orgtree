@@ -202,13 +202,29 @@ pub struct Me {
 #[logged]
 pub async fn me(client: &Client, caller: &Caller) -> Result<Me> {
     let r = client
-        .query_one(
-            "SELECT id, org_id, name, parent_id, generation, coalesce(scope->>'org_visibility', 'subtree')
-               FROM ot.agents WHERE id = $1",
-            &[&caller.agent_id],
+        .query_one("SELECT id, org_id, name, parent_id, generation FROM ot.agents WHERE id = $1", &[&caller.agent_id])
+        .await?;
+    let visibility = effective_visibility(client, caller.agent_id).await?;
+    Ok(Me { id: r.get(0), org_id: r.get(1), name: r.get(2), parent_id: r.get(3), generation: r.get(4), visibility })
+}
+
+/// How much of the org an agent may see: the narrowest visibility along its
+/// chain (D-021, 3.x `capability_scope`), so a superior narrowed after the
+/// hire, or a move under a narrower one, narrows it too.
+#[logged]
+pub async fn effective_visibility(client: &Client, agent_id: i64) -> Result<String> {
+    let rows = client
+        .query(
+            "WITH RECURSIVE up(id, parent_id, vis, depth) AS (
+               SELECT id, parent_id, scope->>'org_visibility', 0 FROM ot.agents WHERE id = $1
+               UNION ALL
+               SELECT a.id, a.parent_id, a.scope->>'org_visibility', u.depth + 1
+                 FROM ot.agents a JOIN up u ON a.id = u.parent_id WHERE u.depth < 1024)
+             SELECT vis FROM up",
+            &[&agent_id],
         )
         .await?;
-    Ok(Me { id: r.get(0), org_id: r.get(1), name: r.get(2), parent_id: r.get(3), generation: r.get(4), visibility: r.get(5) })
+    Ok(crate::domain::scope::narrowest_visibility(rows.iter().map(|r| r.get::<_, Option<&str>>(0))).to_string())
 }
 
 /// An agent of the caller's org by name (any state but deleted).
@@ -270,7 +286,14 @@ pub async fn visible(client: &Client, me: &Me) -> Result<Option<std::collections
     set.insert(me.id);
     match me.visibility.as_str() {
         "full" => return Ok(None),
-        "self" => return Ok(Some(set)),
+        "self" => {
+            // its own reports, as 3.x's roster names them for self visibility
+            let rows = client
+                .query("SELECT id FROM ot.agents WHERE org_id = $1 AND parent_id = $2 AND state <> 'deleted'", &[&me.org_id, &me.id])
+                .await?;
+            set.extend(rows.iter().map(|r| r.get::<_, i64>(0)));
+            return Ok(Some(set));
+        }
         _ => {}
     }
     // team: superior, peers, reports
