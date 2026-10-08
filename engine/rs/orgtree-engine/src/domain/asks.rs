@@ -815,7 +815,8 @@ async fn publish_decision(engine: &Arc<Engine>, org: &Arc<OrgHandle>, decision: 
     agent
 }
 
-/// `POST /asks/{aid}/answer`: a question card (`selected` is one entry per tab).
+/// `POST /asks/{aid}/answer`: a question card. On a one-question card
+/// `selected` is its picks; on a batch, one entry per tab (as in 3.x).
 #[logged]
 pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body: &Value) -> Result<Value> {
     let mut client = engine.db.get().await?;
@@ -847,17 +848,42 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
         let node = publish_decision(engine, org, decision).await;
         return Ok(json!({ "answered": open.uid, "node": node }));
     }
+    // 3.x's guards: answers are positional, so an unstamped answer to a card
+    // amended after it first rendered may attach to tabs the user never saw
+    if body.get("rev").is_none_or(Value::is_null) && open.rev > 1 {
+        refuse!(Conflict, "this card was amended after it first rendered; read it again and answer what it shows now");
+    }
+    if open.parts.questions.is_empty() {
+        refuse!(Conflict, "that request asks no question");
+    }
     let selected = body["selected"].as_array().cloned().unwrap_or_default();
     let free = body["text"].as_str().unwrap_or("").trim().to_string();
-    let mut lines = Vec::new();
-    for (i, q) in open.parts.questions.iter().enumerate() {
-        let mut a = selected.get(i).cloned().unwrap_or(Value::Null);
-        if i == 0 && !free.is_empty() && (a.is_null() || a.as_str() == Some("")) {
-            a = json!(free);
+    let n = open.parts.questions.len();
+    // one list of picks per tab: on a one-question card `selected` is that
+    // question's picks (several on a multi-select); on a batch, one entry
+    // per tab, each answered
+    let picks: Vec<Vec<String>> = if n > 1 {
+        if selected.len() > n {
+            refuse!(BadRequest, "the answer carried {} items for a {n}-question card; send exactly one per tab", selected.len());
         }
-        lines.push(answer_text(q, &a));
+        let per: Vec<Vec<String>> = (0..n).map(|i| chosen(selected.get(i).unwrap_or(&Value::Null))).collect();
+        let covered = per.iter().filter(|p| !p.is_empty()).count();
+        if covered < n {
+            refuse!(BadRequest, "every tab needs an answer: this card has {n} questions and the answer covered {covered}");
+        }
+        per
+    } else {
+        let sel: Vec<String> = selected.iter().flat_map(chosen).collect();
+        if sel.is_empty() && free.is_empty() {
+            refuse!(BadRequest, "an answer needs selected options or text");
+        }
+        vec![sel]
+    };
+    let mut lines = Vec::new();
+    for (q, p) in open.parts.questions.iter().zip(&picks) {
+        lines.push(answer_text(q, &if p.is_empty() { json!(free) } else { json!(p) }));
     }
-    if open.parts.questions.len() <= 1 && !free.is_empty() && selected.first().map(|v| !v.is_null()).unwrap_or(false) {
+    if !free.is_empty() && !(n == 1 && picks[0].is_empty()) {
         lines.push(format!("Note: {free}"));
     }
     let text = format!("The user answered your question:\n\n{}", lines.join("\n\n"));
@@ -865,11 +891,8 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
         .parts
         .questions
         .iter()
-        .enumerate()
-        .map(|(i, q)| {
-            json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""),
-                    "selected": chosen(&selected.get(i).cloned().unwrap_or(Value::Null)) })
-        })
+        .zip(&picks)
+        .map(|(q, p)| json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""), "selected": p }))
         .collect();
     let single = qs.len() <= 1;
     let note = Some(free.as_str()).filter(|f| !f.is_empty());
