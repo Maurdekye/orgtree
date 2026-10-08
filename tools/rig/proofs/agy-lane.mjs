@@ -13,15 +13,22 @@
 //   jen:  an interrupt ends the process tree; the next mail runs a turn.
 //   kai:  the CLI dies mid-turn: connection freeze, the retry resumes the
 //         conversation with the retry banner.
-//   lia:  a quota error: a limit freeze that keeps the request (resume_texts).
+//   lia:  a quota wall: a limit freeze until its own "Resets in" countdown,
+//         keeping the request (resume_texts).
+//   nia:  the same countdown again while its deadline is ahead keeps that
+//         deadline (3.x anchor-once), it does not move it.
+//   ora:  the same countdown again after its deadline passed is stale: only
+//         the 5-minute probe floor; a completed turn forgets the wall.
+//   pia:  "limit" with "quota"/"exceeded" is a usage limit (3.x words).
 //   max:  init names another model than the pinned one: the turn is refused.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/agy-lane.mjs
 
 import { Proof } from '../proof.mjs'
 
-const AGENTS = ['gia', 'hal', 'ivo', 'jen', 'kai', 'lia', 'max']
-// the countdown as 3.x measured it from the CLI (antigravity_limits.classify_countdown)
-const QUOTA = 'You have exhausted your quota on this model. Resets in 2h53m47s.'
+const AGENTS = ['gia', 'hal', 'ivo', 'jen', 'kai', 'lia', 'max', 'nia', 'ora', 'pia']
+// the wall as 3.x measured it from the CLI (supervisor.py, D-209; antigravity_limits)
+const QUOTA = 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h53m47s.'
+const SHORT = 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 3s.'
 
 export default async function (rig) {
   const p = new Proof('agy-lane')
@@ -53,6 +60,10 @@ export default async function (rig) {
       ] },
       lia: { turns: [{ name: 'quota', match: 'PROOF-QUOTA', once: true, steps: [{ text: 'Let me look.' }, { error: QUOTA }] }] },
       max: { turns: [{ name: 'other-model', match: 'PROOF-PIN', once: true, steps: [{ init_model: 'gemini-9-unpinned' }, { text: 'Hello.' }] }] },
+      nia: { turns: [{ name: 'quota', match: 'PROOF-REPEAT', times: 2, steps: [{ text: 'Let me look.' }, { error: QUOTA }] }] },
+      ora: { turns: [{ name: 'quota', match: 'PROOF-STALE', times: 2, steps: [{ text: 'Let me look.' }, { error: SHORT }] }] },
+      pia: { turns: [{ name: 'quota', match: 'PROOF-WORDS', once: true, steps: [{ text: 'Let me look.' },
+        { error: 'Daily quota exceeded for this model; the limit lifts tomorrow.' }] }] },
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
@@ -138,10 +149,40 @@ export default async function (rig) {
   const lf = await rig.waitFor(() => rig.agentRow('lia')?.frozen, { what: 'lia to be frozen', timeout: 30000 }).catch(() => null)
   p.check('lia: a quota error freezes her as a usage limit and keeps the request', lf?.limit === true
     && /PROOF-QUOTA: please do the thing/.test((lf?.resume_texts ?? []).join('\n')), lf && { until: lf.until, at: lf.at, error: lf.error })
-  if (lf) {
-    const hours = (Date.parse(lf.until) - Date.parse(lf.at)) / 3600000
-    p.note(`lia: held for ${hours.toFixed(2)} h; the error said "Resets in 2h53m47s" (2.90 h)`, { at: lf.at, until: lf.until })
+  const held = lf ? (Date.parse(lf.until) - Date.parse(lf.at)) / 1000 : null
+  p.check('lia: held until the countdown the wall named (2h53m47s)', held !== null && Math.abs(held - 10427) <= 5,
+    { held_s: held, until: lf?.until })
+
+  // ---------------------------------------------------------------- nia, ora, pia: the countdown anchored once
+  const freezeOf = name => rig.agentRow(name)?.frozen
+  const nextFreeze = async (name, after) => rig.waitFor(() => { const f = freezeOf(name); return f && f.at !== after ? f : null },
+    { what: `${name} to be frozen`, timeout: 30000 })
+  await rig.userMail('nia', 'PROOF-REPEAT: please do the thing.')
+  const n1 = await nextFreeze('nia')
+  await rig.tool('boss', 'orgtree_unstick', { node: 'nia' })
+  const n2 = await nextFreeze('nia', n1.at)
+  p.check('nia: the same countdown while its deadline is ahead keeps that deadline', n1.until === n2.until
+    && Math.abs((Date.parse(n1.until) - Date.parse(n1.at)) / 1000 - 10427) <= 5, { first: n1.until, again: n2.until })
+  await rig.userMail('ora', 'PROOF-STALE: please do the thing.')
+  const o1 = await nextFreeze('ora')
+  const o1Held = (Date.parse(o1.until) - Date.parse(o1.at)) / 1000
+  if (o1Held > 60) {
+    p.check('ora: a "Resets in 3s" wall holds her for 3 s', false, { held_s: o1Held })
+  } else {
+    await rig.waitFor(() => Date.now() > Date.parse(o1.until) + 1000, { what: "ora's 3 s countdown to pass", timeout: 20000 })
+    await rig.tool('boss', 'orgtree_unstick', { node: 'ora' })
+    const o2 = await nextFreeze('ora', o1.at)
+    const oHeld = (Date.parse(o2.until) - Date.parse(o2.at)) / 1000
+    p.check('ora: the same countdown after its deadline passed is stale: only the probe floor (5 min)', Math.abs(oHeld - 300) <= 5,
+      { first: { at: o1.at, until: o1.until }, again: { at: o2.at, until: o2.until, held_s: oHeld } })
+    await rig.tool('boss', 'orgtree_unstick', { node: 'ora' })
+    const ot = await rig.waitTurns('ora', 3, { timeout: 30000 })
+    p.check('ora: a completed turn forgets the wall', !ot[2].error && rig.agentRow('ora').extra?.last_wall === undefined,
+      { error: ot[2].error, last_wall: rig.agentRow('ora').extra?.last_wall })
   }
+  await rig.userMail('pia', 'PROOF-WORDS: please do the thing.')
+  const pf = await rig.waitFor(() => freezeOf('pia') ?? (rig.turns('pia')[0]?.ended_at ? 'ended' : null), { what: "pia's turn to end" })
+  p.check('pia: "limit" with quota/exceeded is a usage limit (frozen, not a plain failure)', pf?.limit === true, pf === 'ended' ? rig.turns('pia')[0] : pf)
 
   // ---------------------------------------------------------------- max: the model pin
   await rig.userMail('max', 'PROOF-PIN: hello.')
