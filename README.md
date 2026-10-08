@@ -96,47 +96,67 @@ Agents have persistent identities and history. Retirement preserves that context
 
 ## Screenshots
 
-![Canvas: an interactive circular org chart of agents, with the Needs attention list, a Usage panel and an open agent desk](docs/images/orgtree-3-canvas.png)
+Select any image to see it full size.
 
-**Canvas.** The Canvas shows your team as a circular organization chart. Beside it are the "Needs attention" list of tickets and questions waiting for you, a Usage panel, and an agent's desk open for reading its conversation.
-
-![Window with the Work docket and the Usage panel pinned on the left, and the canvas of agents beside them](docs/images/orgtree-3-docket-usage.png)
-
-**Docket and usage beside the canvas.** The Work docket on the left lists tickets grouped by status, and next to it the Usage panel shows how much of each provider account's limits is used and when they reset. The canvas to the right shows the agents, with you at the centre; account emails and the OpenRouter key are blurred in this picture.
-
-![Window with the Work docket pinned on the left showing one ticket's details, and a focused agent desk on the right showing live tool calls and a queued message](docs/images/orgtree-3-focused-desk.png)
-
-**A focused agent desk.** On the left, the Work docket is pinned with one ticket open, showing its description, what is done and what is next. On the right, one agent's desk fills the canvas: its live tool calls and short progress notes scroll by, and a message from another agent waits at the bottom until the agent reaches a safe point to read it.
-
-![Work docket with tickets grouped by status and one ticket's description, progress and next steps open](docs/images/orgtree-3-docket.png)
-
-**The Work docket.** Tickets are grouped by status, including work in progress, blocked work and the backlog. Opening a ticket shows its owner, description, what is done and what comes next.
-
-![Presented documents panel with a list of reports and a PostgreSQL speed audit open for reading](docs/images/orgtree-3-presented.png)
-
-**Presented documents.** Browse reports from your agents and read or download a selected document. Here an agent has presented a PostgreSQL speed audit.
-
-![App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices](docs/images/orgtree-3-providers.png)
-
-**Providers.** App settings lists installed providers, signed-in accounts, model tiers and their seat prices. You can add secondary accounts and manage sign-ins; account emails and local usernames are blurred in this picture.
-
-![Workspace with account usage above two agent desks open side by side, and a coordinator's desk pinned on the right](docs/images/orgtree-3-desks.png)
-
-**Agent desks.** Open several agents' desks side by side and switch between them using tabs. Here two desks share the canvas, with Usage above them and a coordinator's desk pinned on the right.
-
-![Inbox with audience holders, inbox, sent and record tabs, a message list and a selected message with an attachment](docs/images/orgtree-3-inbox.png)
-
-**Your inbox.** See who holds a direct audience with you, browse messages, read attachments and reply in place. The selected message contains an agent's report and a file to download.
-
-![A mail hub window showing message traffic between hosts in a read-only view](docs/images/orgtree-mail-hub.png)
-
-**The mail hub.** A read-only view of message traffic between hosts. Select a host or a message to inspect its delivery status and contents.
-
-### Your organizations
-
-![Home page listing organizations, their capacity counts and a button to create a new organization](docs/images/orgtree-3-homepage.png)
-
-**The home page.** Open an existing organization or create a new one. The list shows each organization's capacity counts and marks organizations that are already open.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-rows-workspace.png"><img src="docs/images/orgtree-3-rows-workspace.png" alt="Workspace in the default rows view, with provider usage across the top and agents arranged beneath their coordinator" width="100%"></a>
+      <p><strong>Rows workspace.</strong> Keep agents beneath their coordinator with account usage above the team.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-canvas.png"><img src="docs/images/orgtree-3-canvas.png" alt="Canvas: an interactive circular org chart of agents, with the Needs attention list, a Usage panel and an open agent desk" width="100%"></a>
+      <p><strong>Canvas.</strong> See the org chart alongside questions, usage and an open agent desk.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-docket-usage.png"><img src="docs/images/orgtree-3-docket-usage.png" alt="Window with the Work docket and the Usage panel pinned on the left, and the canvas of agents beside them" width="100%"></a>
+      <p><strong>Docket and usage.</strong> Track work and account capacity beside the team.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-focused-desk.png"><img src="docs/images/orgtree-3-focused-desk.png" alt="Window with the Work docket pinned on the left showing one ticket's details, and a focused agent desk on the right showing live tool calls and a queued message" width="100%"></a>
+      <p><strong>Focused desk.</strong> Follow live tool calls with the task details in view.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-docket.png"><img src="docs/images/orgtree-3-docket.png" alt="Work docket with tickets grouped by status and one ticket's description, progress and next steps open" width="100%"></a>
+      <p><strong>Work docket.</strong> See each task's owner, status, progress and next steps.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-presented.png"><img src="docs/images/orgtree-3-presented.png" alt="Presented documents panel with a list of reports and a PostgreSQL speed audit open for reading" width="100%"></a>
+      <p><strong>Presented documents.</strong> Read and download plans and reports from your agents.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-providers.png"><img src="docs/images/orgtree-3-providers.png" alt="App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices" width="100%"></a>
+      <p><strong>Providers.</strong> Manage providers, signed-in accounts, model tiers and seat prices.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-desks.png"><img src="docs/images/orgtree-3-desks.png" alt="Workspace with account usage above two agent desks open side by side, and a coordinator's desk pinned on the right" width="100%"></a>
+      <p><strong>Agent desks.</strong> Follow several agents side by side with pinned and tabbed desks.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-inbox.png"><img src="docs/images/orgtree-3-inbox.png" alt="Inbox with audience holders, inbox, sent and record tabs, a message list and a selected message with an attachment" width="100%"></a>
+      <p><strong>Inbox.</strong> Read messages and attachments, then reply in place.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-mail-hub.png"><img src="docs/images/orgtree-mail-hub.png" alt="A mail hub window showing message traffic between hosts in a read-only view" width="100%"></a>
+      <p><strong>Mail hub.</strong> Inspect message traffic and delivery status between hosts.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-3-homepage.png"><img src="docs/images/orgtree-3-homepage.png" alt="Home page listing organizations, their capacity counts and a button to create a new organization" width="100%"></a>
+      <p><strong>Your organizations.</strong> Open a team or create a new one from the home page.</p>
+    </td>
+    <td></td>
+  </tr>
+</table>
 
 ## Updates and background operation
 
