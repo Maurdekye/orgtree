@@ -13,6 +13,8 @@
 //   Create keeps 3.x's name rules: a name an org holds is refused (no
 //   silent -2), as is one with no letter or digit; the slug has no length
 //   cap; a name the file system refuses is refused with nothing created.
+//   A restart after the delete leaves the deleted org alone: no turn, no
+//   restart mail, and no attempt to wake or notify its agents.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-ops.mjs
 
 import { spawn } from 'node:child_process'
@@ -174,7 +176,11 @@ export default async function (rig) {
   // the restart path ran (it closes the turn the delete stopped), and nothing else touched X
   p.check('a restart leaves the deleted org alone: no turn starts and no restart mail is written for its agents', open0 === 1 && open1 === 0
     && xTurns.length === turns0 && xMail() === mail0, { open: `${open0} -> ${open1}`, turns: `${turns0} -> ${xTurns.length}`, mail: `${mail0} -> ${xMail()}` })
+  // nor tried: a restart wake or notice to a deleted org's agent fails (its org is not loaded) and logs a warning per agent, every start
+  const failedSends = rig.engineLog().split(/\r?\n/).filter(l => /restart (wake|notice) could not be sent/.test(l))
+  p.check('the restart does not try to wake or notify the deleted org\'s agents', failedSends.length === 0,
+    { failedSends: failedSends.length, first: failedSends[0]?.slice(0, 240) })
 
-  p.keep(rig, { agents: ['kit'], grep: /killswitch|trash|org_created|dissolve|could not be moved/i })
+  p.keep(rig, { agents: ['kit'], grep: /killswitch|trash|org_created|dissolve|could not be (moved|sent)/i })
   return p.summary()
 }
