@@ -1,0 +1,5 @@
+{ "agents": { "carol": { "turns": [ { "name": "rows", "match": "PROOF-ROWS", "steps": [
+  { "tool": "Bash", "id": "toolu_d1", "args": { "command": "cd /e/Libraries/Desktop/orgtree && grep -n \"export async function prep\" tools/rig/proofs/import-3x.mjs", "description": "See how the rig builds a 3.2 store and how the importer finds it" }, "result": "12: export async function prep" },
+  { "tool": "Bash", "id": "toolu_d2", "args": { "command": "ls /e/Libraries/Desktop/orgtree/docs" }, "result": "a.md\nb.md" },
+  { "text": "Done." } ] } ] } },
+  "default": { "turns": [ { "name": "default", "steps": [ { "text": "OK." } ] } ] } }
