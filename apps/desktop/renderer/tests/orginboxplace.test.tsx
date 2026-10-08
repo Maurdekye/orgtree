@@ -14,6 +14,7 @@ import path from 'node:path'
 import { cardFurniture, DRAFT, draftOpeningGrant, INBOX, INBOX_CLEAR, INBOX_H, layout, NODE_H, NODE_W, orgPxc, placeOrgInbox, sizeOf, USER, USER_W, withDraftTree } from '../src/canvas/shared'
 import type { Box, CanvasNode, ChartLayout, DraftState } from '../src/canvas/shared'
 import { DraftNode } from '../src/canvas/cards'
+import { recentDocumentChips } from '../src/canvas/docs'
 import type { TreePayload } from '../src/types'
 
 type Pt = { x: number; y: number }
@@ -296,7 +297,9 @@ test('the furniture numbers are the stylesheet\'s and the components\' own', () 
   assert.match(rule('.doc-chips'), /left: calc\(100% \+ 3px\); top: 26px;[\s\S]*gap: 3px;/, '.doc-chips column')
   assert.match(rule('.doc-chip'), /width: 21px; height: 21px;/, '21px chips')
   const docs = readFileSync(path.join(__SRC_DIR__, 'canvas', 'docs.tsx'), 'utf8')
-  assert.match(docs, /docs\.slice\(-4\)\.map/, 'at most four chips')
+  assert.match(docs, /recentDocumentChips\(docs\)\.map/, 'chips use the shared selection')
+  const presented = Array.from({ length: 20 }, (_, i) => ({ id: String(i), title: `Report ${i}`, at: '' }))
+  assert.deepEqual(recentDocumentChips(presented), presented.slice(0, 4), 'at most four chips, newest first')
   const cards = readFileSync(path.join(__SRC_DIR__, 'canvas', 'cards.tsx'), 'utf8')
   assert.match(cards, /const len = Math\.max\(6, \(seat \+ cur\) \* pxc\)/, 'bar length = max(6, (seat + grant)·pxc)')
   assert.match(cards, /live && !node\.isBearerOf && lod !== 'mini' && \(\s*<CreditBar seat=\{seat\} grant=\{grant\}/, 'live non-bearer cards draw it')

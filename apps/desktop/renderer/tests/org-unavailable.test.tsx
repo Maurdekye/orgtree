@@ -34,6 +34,10 @@ test('Retry sends one lifecycle request and success makes the row normal', async
   let finish!: (r: Response) => void
   const requests: [string, string | undefined][] = []
   globalThis.fetch = ((url, init) => {
+    // OrgRows now reads import-failure notices through the shared app feed.
+    // This fixture has no feed; keep its read separate from lifecycle writes.
+    if (String(url) === '/api/app/records') return Promise.resolve(
+      new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } }))
     requests.push([String(url), init?.method])
     return new Promise<Response>(resolve => { finish = resolve })
   }) as typeof fetch
