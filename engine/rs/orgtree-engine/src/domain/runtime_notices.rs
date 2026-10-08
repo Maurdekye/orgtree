@@ -35,6 +35,34 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
     Ok(())
 }
 
+/// A turn that failed before its provider ran (3.x `_turn_abandoned` from the
+/// terminal belt). Nothing retries it: a launch that cannot start would fail
+/// the same way again. So the agent gets its own copy, which waits for its
+/// next turn without waking it, and its superior (the user at the top level)
+/// is told and can act. `tell` false: a failure in a run already reported;
+/// its event still fires.
+#[logged]
+pub async fn launch_failed(engine: &Arc<Engine>, org_id: i64, agent_id: i64, door: &str, err: &str, tell: bool) -> Result<()> {
+    crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));
+    if !tell { return Ok(()) }
+    let c=engine.db.get().await?;
+    let r=c.query_one("SELECT a.name,a.generation,p.name,o.slug,a.session_id FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=a.parent_id AND p.state='live' WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
+    drop(c);
+    let name:String=r.get(0);
+    let parent:Option<String>=r.get(2);
+    let org:String=r.get(3);
+    let session=json!({"kind":"session","org":org,"node":name,"session_id":r.get::<_,Option<String>>(4).unwrap_or_default()});
+    let own=crate::events::typed("runtime.turn_failed_terminal","@system",session,json!({"door":door,"err":err}));
+    mail::system_event(engine,org_id,agent_id,&format!("Your turn could not start: {err}"),true,Some(own)).await?;
+    let audience=if parent.is_some(){"superior"}else{"user"};
+    let mut out=Outgoing::new(From::System,parent.as_deref().unwrap_or("user"),&format!("{name}'s turn could not start: {err}"));
+    out.kind="status".into();
+    out.ev=Some(crate::events::typed("runtime.report_stalled","@system",crate::events::node_ref(&org,&name,r.get::<_,i32>(1) as i64),
+        json!({"report":name,"report_name":name,"audience":audience,"cause":"terminal","attempts":null,"classified":null,"door":door,"err":err})));
+    mail::send(engine,org_id,out).await?;
+    Ok(())
+}
+
 #[logged]
 pub fn build_ref(engine: &Engine) -> Value {
     let commit=option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine");

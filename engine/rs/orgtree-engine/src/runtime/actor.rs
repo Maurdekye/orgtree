@@ -1065,11 +1065,41 @@ impl Actor {
                         )
                         .await;
                 }
+                self.launch_failed(&format!("{e:#}")).await;
                 self.publish();
                 self.changed(vec![Change::Agent(self.id)]);
             }
         }
         Ok(())
+    }
+
+    /// 3.x's terminal belt (SH-4, user ruling 2026-09-12) for a turn that
+    /// failed before its provider ran: its mail is back in the mailbox and
+    /// nothing retries it, so the agent and its superior are told once per
+    /// run of failures (`hard_fail_run`, cleared by a completed turn). A
+    /// freeze, halt, limit lock, killswitch, a seat that is not live and an
+    /// engine shutdown own the stopped state and are never announced.
+    async fn launch_failed(&self, err: &str) {
+        if self.stopping || self.engine.is_stopping() {
+            return;
+        }
+        let Ok(client) = self.engine.db.get().await else { return };
+        let owned = client
+            .query_opt(
+                "SELECT a.state <> 'live' OR a.halt IS NOT NULL OR a.frozen IS NOT NULL OR a.limit_locked OR o.killswitch IS NOT NULL
+                   FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
+                &[&self.id],
+            )
+            .await;
+        drop(client);
+        if !matches!(owned, Ok(Some(ref r)) if !r.get::<_, bool>(0)) {
+            return;
+        }
+        let tell = recovery::bump(&self.engine, self.id, "hard_fail_run").await.map(|run| run == 1).unwrap_or(true);
+        let door = "the turn could not start: its CLI did not start or did not take the turn";
+        if let Err(e) = crate::domain::runtime_notices::launch_failed(&self.engine, self.org_id, self.id, door, err, tell).await {
+            tracing::warn!(agent = self.id, error = %format!("{e:#}"), "the failed launch could not be reported");
+        }
     }
 
     async fn load_ctx(&self) -> Result<Ctx> {
@@ -1518,13 +1548,27 @@ impl Actor {
         std::fs::create_dir_all(&ctx.scratch)?;
         let (identity_file, settings_file, mcp_file) =
             claude::write_launch_files(&ctx.scratch, &plan.identity, &plan.settings, &plan.mcp)?;
+        // Essential-traffic mode (decision 53): agents share the user's global
+        // CLI, so none of them checks for or applies an update mid-run. It also
+        // turns off the CLI's server-side feature flags. Those are read from the
+        // account's cache instead, the flags the user's own CLI runs with.
         let mut env: Vec<(String, String)> = vec![
             ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
+            ("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF".into(), "1".into()),
             ("ORGTREE_AGENT".into(), ctx.name.clone()),
+            // 3.x's name for it: hooks and tools that run inside a CLI tell an
+            // orgtree agent by it (the mail hub's SessionStart hook stands down)
+            ("ORGTREE_NODE".into(), ctx.name.clone()),
             ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
             // the org's compaction threshold (Org settings › Basic)
             ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
         ];
+        // The identity promises Bash and PowerShell with the terminal switch
+        // on. With the feature flags off, the CLI offers PowerShell beside Git
+        // Bash only when asked. A keepalive asks too: its tool list must match.
+        if ctx.effective["tools"].get("bash").and_then(Value::as_bool).unwrap_or(true) {
+            env.push(("CLAUDE_CODE_USE_POWERSHELL_TOOL".into(), "1".into()));
+        }
         // a keepalive runs no tool, so it needs no git/GitHub credentials
         if !keepalive {
             env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
@@ -1784,7 +1828,8 @@ impl Actor {
             may_write,
             may_shell: on("bash"),
             env: {
-                let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
+                let mut env = vec![("ORGTREE_AGENT".into(), ctx.name.clone()), ("ORGTREE_NODE".into(), ctx.name.clone()),
+                                   ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
                 env.extend(bridge_env);
                 if let Some(r) = route {
                     env.push((crate::openrouter::KEY_ENV.into(), r.key.clone()));
@@ -1875,6 +1920,7 @@ impl Actor {
             subagents: on("subagents"),
             env: { let mut env = self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation); env.extend(vec![
                 ("ORGTREE_AGENT".into(), ctx.name.clone()),
+                ("ORGTREE_NODE".into(), ctx.name.clone()),
                 ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
                 ("ORGTREE_AGY_STEER_DIR".into(), agyrt::steer_dir(&ctx.scratch).to_string_lossy().to_string()),
             ]); env },
@@ -2311,6 +2357,7 @@ impl Actor {
             _ => String::new(),
         };
         let mut codex_turn: Option<String> = None;
+        let mut refused: Option<String> = None;
         let sent = match self.proc.as_ref() {
             Some(Proc::Claude(p)) => p.send_user(&text, images_for(&mails)),
             Some(Proc::Agy(p)) => p.send_user(&text),
@@ -2321,6 +2368,7 @@ impl Actor {
                 }
                 Err(e) => {
                     tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "turn/start failed");
+                    refused = Some(format!("{e:#}"));
                     false
                 }
             },
@@ -2329,7 +2377,8 @@ impl Actor {
         if !sent {
             self.return_mail(turn_id, true).await;
             self.close_proc().await;
-            return Err(anyhow!("the {} process did not accept the turn", catalog::provider_label(&ctx.provider)));
+            let why = refused.map(|r| format!(": {r}")).unwrap_or_default();
+            return Err(anyhow!("the {} process did not accept the turn{why}", catalog::provider_label(&ctx.provider)));
         }
         if let Some(r) = envelope_record {
             // D-223: the agent now holds this snapshot; later turns may point at it
