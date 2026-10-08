@@ -25,7 +25,10 @@ the mailbox and its error goes to `last_error`, as before. A Codex refusal now
 carries the app-server's reason. In addition, as 3.x did:
 
 - The agent gets its own copy, `runtime.turn_failed_terminal`, as a notice. It
-  waits for the agent's next turn and does not wake it.
+  waits for the agent's next turn and does not wake it. It is stored with no
+  wake at all: a live agent is otherwise sent a wake for a notice too, and with
+  the failed turn's mail back in the mailbox, that wake would retry the launch at
+  once. The rig measured that retry before this was fixed.
 - Its superior is told with `runtime.report_stalled` (cause `terminal`), which
   wakes the superior. With no superior, the user is told. Both carry how the
   turn died and the error.
