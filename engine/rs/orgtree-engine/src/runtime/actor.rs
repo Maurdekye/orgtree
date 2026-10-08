@@ -1346,7 +1346,7 @@ impl Actor {
         };
         let note = convo::handoff_note(&client, self.id, &why, saved.as_deref()).await?;
         client
-            .execute("UPDATE ot.agents SET extra = extra - 'handoff_due' WHERE id = $1", &[&self.id])
+            .execute("UPDATE ot.agents SET extra = extra - 'handoff_due' - 'mooted_ask' WHERE id = $1", &[&self.id])
             .await?;
         tracing::info!(agent = %self.name, why = %why, "handoff note for a fresh session");
         Ok(Some(note))

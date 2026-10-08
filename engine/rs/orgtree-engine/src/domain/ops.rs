@@ -1297,6 +1297,9 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             &[&n.id],
         )
         .await?;
+        if crate::domain::asks::moot_for_fresh_session(tx, n.id, "the asking session was replaced by a provider switch; the fresh session never posed it").await? {
+            fx.pulses.extend([crate::changes::Change::Asks, crate::changes::Change::Docket]);
+        }
         stamp_harness(engine, tx, n.id, &tier, true).await?;
         warnings.push(format!(
             "{} moved from {} to {}: it continues on a fresh session that starts with a summary of its conversation (the whole conversation is saved in its folder)",

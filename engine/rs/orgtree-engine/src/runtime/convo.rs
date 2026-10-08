@@ -316,39 +316,31 @@ pub async fn save_history(client: &Client, agent_id: i64, dir: &std::path::Path)
 
 /// The request the agent posed to the user and still has open, told to a
 /// fresh session that does not remember posing it (3.x told the session a
-/// cheap compact started; the request survives it). Empty when none is open.
+/// cheap compact started; the request survives it), or the one closed as
+/// moot when this fresh session replaced the one that posed it (a provider
+/// switch, a removed Codex or Antigravity account). Empty when neither.
 #[logged]
 async fn standing_request(client: &Client, agent_id: i64) -> Result<String> {
-    let Some(row) = client
+    let open = client
         .query_opt("SELECT body FROM ot.asks WHERE agent_id = $1 AND status = 'open' ORDER BY id DESC LIMIT 1", &[&agent_id])
         .await?
-    else {
-        return Ok(String::new());
-    };
-    let parts = crate::domain::asks::Parts::of(&row.get::<_, Value>(0));
-    let mut what = Vec::new();
-    if let Some(first) = parts.questions.first().and_then(|q| q["question"].as_str()) {
-        let first = crate::util::gist(first, 160);
-        what.push(match parts.questions.len() {
-            1 => format!("a question: \"{first}\""),
-            n => format!("{n} questions, the first: \"{first}\""),
-        });
+        .and_then(|r| crate::domain::asks::describe(&crate::domain::asks::Parts::of(&r.get::<_, Value>(0))));
+    if let Some(what) = open {
+        return Ok(format!(
+            "You still have a request open with the user from your earlier conversation ({what}). It is still on the user's \
+             screen, and the answer will arrive as mail addressed to you. Read your earlier conversation for what it was asked \
+             for before you act on it, and do not withdraw or replace it merely because you do not remember posing it.\n\n"
+        ));
     }
-    if let Some(c) = &parts.credit {
-        what.push(format!("a credit request ({} → {})", c["old"], c["new"]));
-    }
-    if let Some(s) = &parts.scope {
-        what.push(format!("a scope request ({} item(s))", s["items"].as_array().map(Vec::len).unwrap_or(0)));
-    }
-    if what.is_empty() {
-        return Ok(String::new());
-    }
-    Ok(format!(
-        "You still have a request open with the user from your earlier conversation ({}). It is still on the user's \
-         screen, and the answer will arrive as mail addressed to you. Read your earlier conversation for what it was asked \
-         for before you act on it, and do not withdraw or replace it merely because you do not remember posing it.\n\n",
-        what.join("; ")
-    ))
+    let mooted: Option<String> = client.query_one("SELECT extra->>'mooted_ask' FROM ot.agents WHERE id = $1", &[&agent_id]).await?.get(0);
+    Ok(mooted
+        .map(|what| {
+            format!(
+                "The request you had open with the user ({what}) was closed when this fresh session replaced the one that \
+                 posed it, so no answer will come. Pose it again if it still matters.\n\n"
+            )
+        })
+        .unwrap_or_default())
 }
 
 /// What a fresh session starts with when the agent's earlier session could

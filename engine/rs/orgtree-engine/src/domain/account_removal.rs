@@ -98,7 +98,7 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
         }
     }
     for (org_id, ids) in &out.agents {
-        let mut ch = vec![Change::Events];
+        let mut ch = vec![Change::Events, Change::Asks, Change::Docket];
         ch.extend(ids.iter().flat_map(|id| [Change::Agent(*id), Change::History(*id)]));
         changes::notify_id(engine, *org_id, ch);
     }
@@ -178,6 +178,8 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
                 &[&aid, &bound, &Some(next_pa).filter(|v| !v.is_null()), &Some(next_ps).filter(|v| !v.is_null()), &thaw, &boundary]).await?;
             if boundary {
                 tx.execute("UPDATE ot.agent_sessions SET ended_at = coalesce(ended_at, now()), end_reason = coalesce(end_reason, 'account removed') WHERE agent_id = $1 AND ended_at IS NULL", &[&aid]).await?;
+                crate::domain::asks::moot_for_fresh_session(&tx, aid,
+                    "the asking session was replaced when its account was removed; the fresh session never posed it").await?;
             }
             let detail = json!({"node": name, "removed_account": id, "account": primary,
                 "binding_rebound": bound, "session_boundary": boundary, "thawed": thaw,

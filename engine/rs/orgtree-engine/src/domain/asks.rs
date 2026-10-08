@@ -46,6 +46,48 @@ impl Parts {
     }
 }
 
+/// A request's parts in a few words, for notes to its agent: `a question:
+/// "…"`, `3 questions, the first: "…"`, a credit request, a scope request.
+#[logged]
+pub(crate) fn describe(parts: &Parts) -> Option<String> {
+    let mut what = Vec::new();
+    if let Some(first) = parts.questions.first().and_then(|q| q["question"].as_str()) {
+        let first = gist(first, 160);
+        what.push(match parts.questions.len() {
+            1 => format!("a question: \"{first}\""),
+            n => format!("{n} questions, the first: \"{first}\""),
+        });
+    }
+    if let Some(c) = &parts.credit {
+        what.push(format!("a credit request ({} → {})", c["old"], c["new"]));
+    }
+    if let Some(s) = &parts.scope {
+        what.push(format!("a scope request ({} item(s))", s["items"].as_array().map(Vec::len).unwrap_or(0)));
+    }
+    (!what.is_empty()).then(|| what.join("; "))
+}
+
+/// A fresh session replaced the one that posed the agent's open request (a
+/// provider switch, or the removal of the Codex or Antigravity account it ran
+/// on). As in 3.x the request is moot, since the new session never posed it,
+/// and the handoff note tells the agent to pose it again if it still matters.
+/// Returns whether a request was open.
+#[logged]
+pub(crate) async fn moot_for_fresh_session(tx: &Transaction<'_>, agent_id: i64, why: &str) -> Result<bool> {
+    let rows = tx
+        .query(
+            "UPDATE ot.asks SET status = 'moot', resolved_at = now(), reason = $2 WHERE agent_id = $1 AND status = 'open' RETURNING body",
+            &[&agent_id, &why],
+        )
+        .await?;
+    let Some(row) = rows.first() else { return Ok(false) };
+    if let Some(what) = describe(&Parts::of(&row.get::<_, Value>(0))) {
+        tx.execute("UPDATE ot.agents SET extra = jsonb_set(extra, '{mooted_ask}', to_jsonb($2::text)) WHERE id = $1", &[&agent_id, &what])
+            .await?;
+    }
+    Ok(true)
+}
+
 /// The tabs of a question stored without `parts`: its `questions` list, or
 /// the single `question` with its header, options and multi.
 #[logged]
