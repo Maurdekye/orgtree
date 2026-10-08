@@ -38,6 +38,7 @@ const env = {
   ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
 }
 if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
+if (run.recover) env.ORGTREE_RIG_RECOVER = '1'
 
 log('keeper', process.pid, 'starting engine for', dir)
 const engine = spawn(path.join(dir, 'bin', 'orgtree-engine.exe'), ['serve'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })

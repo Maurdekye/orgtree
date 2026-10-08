@@ -308,6 +308,16 @@ export class Rig {
     return this.refresh()
   }
 
+  /** Kill the engine at once, as an install or a crash does (its job takes
+   * PostgreSQL and the CLIs with it); the keeper notes it and exits.
+   * `restart()` brings the run back on the same data. */
+  async crash({ timeout = 30000 } = {}) {
+    const run = this.refresh()
+    killTree(run.enginePid)
+    await this.waitFor(() => !alive(run.keeperPid), { what: 'the keeper to see the engine die', timeout })
+    return this.refresh()
+  }
+
   /** Poll until fn() returns a truthy value (an empty array counts as
    * nothing yet); that value is returned. */
   async waitFor(fn, { timeout = 60000, every = 500, what = 'condition' } = {}) {
@@ -413,6 +423,8 @@ export async function startRun(opts = {}) {
   writeRun(dir, {
     id, created: new Date().toISOString(), status: 'starting', dir, data, pgBin: pg, ui, engineSource: engine,
     token: crypto.randomBytes(32).toString('hex'), ttlMin: opts.ttlMin ?? 20, maxMin: opts.maxMin ?? 120, by: me(),
+    // the engine's restart path (closing turns, waking agents) runs at every start
+    recover: !!opts.recover,
   })
   touch(dir)
   await launchKeeper(dir, opts.timeout)
