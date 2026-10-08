@@ -1,3 +1,4 @@
+import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { toggleAgentHalt } from './haltcontrol'
 // canvas/cards.tsx — the canvas's card components: the overseer eye
@@ -24,7 +25,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, queuedAccountTitle, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -1597,9 +1598,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       <div data-copy-agent-name={node.id} className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
           <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
-          {node.pending_switch &&
-            <span className="queued-mark" title={queuedSwitchTitle(node)}>
-              →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
+          <QueuedModelBadge node={node} />
           <MapModeIndicator node={node} />
           {(dogs ?? 0) > 0 && <span className={'map-dogs' + ((oneShotDogs ?? 0) > 0 ? ' oneshot' : '')}
             aria-label={`${dogs} watchdog${dogs === 1 ? '' : 's'}${(oneShotDogs ?? 0) > 0
@@ -1680,9 +1679,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             stealing the context wheel's hit area. */}
         <div className="sq-title">
           <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
-          {node.pending_switch &&
-            <span className="queued-mark" title={queuedSwitchTitle(node)}>
-              →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
+          <QueuedModelBadge node={node} />
           <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
           {fullNameAt && (
             <span className="name-full" aria-hidden="true"
@@ -1835,12 +1832,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               waits — not only in the dialog at the moment of action. It names
               the target, and it clears with the field: applied, cancelled, or
               replaced (then it names the new target). */}
-          {node.pending_switch &&
-            <span className="badge queued" title={queuedSwitchTitle(node)}>
-              → {tierLabel(node.pending_switch.tier)} next turn</span>}
-          {node.pending_account &&
-            <span className="badge queued" title={queuedAccountTitle(node)}>
-              account → next turn</span>}
           {node.limit_locked && <span className="badge dim"><LockIcon fontSize="inherit" /> limit</span>}
           {/* item 12 (user spec 2026-09-04): the pool a luna is ACTUALLY on,
               on the card's second row as on the desk's — same component,
@@ -1859,6 +1850,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               asserted in usageaccountcard.test.tsx rather than left to the
               gate above happening to stay where it is. */}
           <ServingAccountBadge account={node.serving_account} />
+          <QueuedAccountBadge node={node} />
           {/* NON-DEFAULT THINKING EFFORT (docket
               `show-non-default-effort-level-on-agent-headers`), on the card's
               badge row as on the desk's — the SAME component, reading the same

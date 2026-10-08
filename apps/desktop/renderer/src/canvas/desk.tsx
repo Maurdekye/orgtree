@@ -1,3 +1,4 @@
+import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
@@ -11,7 +12,7 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
-import { EFFORT_CHANGE_HELP, EFFORT_LEVELS, effortChangeToast } from './effort'
+import { EFFORT_CHANGE_HELP, EFFORT_LEVELS, effortChangeToast, EffortLevelBadge } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
@@ -58,7 +59,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -3250,12 +3251,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               would be a quiet trap for the next caller to pass centerOn
               straight in. */}
           <AgentName id={node.id} tier={node.tier} atDestination={!bare}
+            afterTier={<QueuedModelBadge node={node} />}
             why={bare ? undefined
               : (node.charter || '').split('\n')[0] || node.id}
             onFocus={onJump ? (id: string) => onJump(id) : undefined} />
-          {node.pending_switch &&
-            <span className="queued-mark" title={queuedSwitchTitle(node)}>
-              →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
           <span className="cc-context-seat">
             <ContextWheel occ={contextOccupancy} cw={node.context_window}
               est={contextEstimated} compactAt={compactAt} persistent
@@ -3425,6 +3424,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             on a provider where more than one account is signed in. The desk
             is never far-zoom, so there is no exclusion to apply here. */}
         <ServingAccountBadge account={node.serving_account} />
+        <QueuedAccountBadge node={node} />
+        {node.pending_effort && <EffortLevelBadge node={node} />}
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is

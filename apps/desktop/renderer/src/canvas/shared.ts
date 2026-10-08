@@ -791,6 +791,8 @@ export interface CanvasNode {
    *  default, else "" (no --effort flag). Derived server-side so the control
    *  cannot disagree with the runtime — ledger.Org.effective_effort */
   effort_effective?: string
+  effort_current?: string | null
+  pending_effort?: string | null
   cost_usd?: number
   occupancy?: number | null
   /** …and it was estimated, not measured (post-compaction, pre-next-turn) */

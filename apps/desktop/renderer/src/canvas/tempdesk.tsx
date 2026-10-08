@@ -1,3 +1,4 @@
+import { QueuedModelBadge } from './nextturn'
 // canvas/tempdesk.tsx — read another agent's desk without rearranging anything.
 //
 // THE PROBLEM (docket `open-an-agent-desk-temporarily-as-a-modal`). Every way
@@ -139,7 +140,8 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
         role="dialog" aria-modal="true"
         aria-label={`${node.id} · desk, opened temporarily`}>
         <div className="tempdesk-head pinwin-title" data-copy-agent-name={node.id}>
-          <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name" />
+          <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name"
+          afterTier={<QueuedModelBadge node={node} />} />
           <span className="spacer" />
           {onPin && (
             <button className="tempdesk-pin pinwin-unpin" onClick={() => {

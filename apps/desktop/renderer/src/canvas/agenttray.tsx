@@ -1,3 +1,4 @@
+import { QueuedModelBadge } from './nextturn'
 // canvas/agenttray.tsx — THE AGENTS LIST, one component for every place it shows.
 //
 // The canvas's Agents List (the tray) and the Attention view's agents drawer
@@ -15,7 +16,7 @@
 import type { HTMLAttributes, MouseEvent as ReactMouseEvent, ReactNode, Ref } from 'react'
 import type { NodeStatus } from '../types'
 import type { CanvasNode } from './shared'
-import { ago, DRAFT, providerOf, queuedSwitchTitle, TIER_LETTER, USER } from './shared'
+import { ago, DRAFT, providerOf, TIER_LETTER, USER } from './shared'
 import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
 import { Written } from './reflinks'
@@ -111,9 +112,7 @@ export function AgentTray({
               <button type="button" className="tray-main" title={`go to ${n.id}`}
                 {...mainProps?.(n)}>
                 <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
-                {n.pending_switch &&
-                  <span className="queued-mark" title={queuedSwitchTitle(n)}>
-                    →{TIER_LETTER[n.pending_switch.tier] ?? '?'}</span>}
+                <QueuedModelBadge node={n} />
                 <span className="tray-name"
                   title={charterLine(n) || n.id}>{n.id}</span>
                 <ContextWheel occ={n.occupancy} cw={n.context_window}

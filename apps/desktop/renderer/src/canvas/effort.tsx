@@ -1,7 +1,9 @@
+import { NextTurnBadge } from './nextturn'
 // canvas/effort.tsx — ONE answer to "has this agent's thinking effort been
 // set explicitly, and what level is it actually running at", used by the
 // zoomed-out canvas card (cards.tsx). The full desk header carries no effort
-// tag (user ruling 2026-10-01).
+// tag except for the current/next pair while an effort change is queued
+// (user ruling 2026-10-08).
 //
 // CURRENT RULE (user ruling 2026-10-02): the tag shows whenever the agent's
 // OWN `scope.effort` is a supported level — even when it equals the org
@@ -168,15 +170,17 @@ export function explicitEffort(
  * The control that CHANGES the level stays where it was, in the composer, on
  * the open desk.
  *
- * Mounted in the canvas card's `.sq-badges` only; the desk header carries no
- * effort tag (user ruling 2026-10-01). It appears whenever the agent's own
+ * Mounted in the zoom card; the desk header also shows the current/next
+ * pair while a change is queued (user ruling 2026-10-08). It appears whenever the agent's own
  * effort is set, whatever the org default is, and a live change to the
  * agent's effort re-renders it.
  */
 export function EffortLevelBadge({ node }: {
-  node: Pick<CanvasNode, 'scope' | 'effort_effective'>
+  node: Pick<CanvasNode, 'id' | 'scope' | 'effort_effective' | 'effort_current' | 'pending_effort'>
 }) {
-  const level = explicitEffort(node)
+  const pending = validLevel(node.pending_effort) && validLevel(node.effort_current)
+    && node.pending_effort !== node.effort_current ? node.pending_effort : null
+  const level = pending ? node.effort_current : explicitEffort(node)
   // `level` is non-null only once explicitEffort has validated it.
   if (!level) return null
   // ⚠ THE NAME, AND NOTHING ELSE. The first candidate also carried the
@@ -190,12 +194,13 @@ export function EffortLevelBadge({ node }: {
   // medium" → "medium"); the tooltip and the accessible name still say what
   // the word is.
   const detail = `thinking effort — ${level}`
-  return (
+  return (<>
     <span className="badge effort-level" data-effort-level={level}
       title={detail} aria-label={detail}>
       {level}
     </span>
-  )
+    {pending && <NextTurnBadge agent={node.id} kind="effort" current={level} next={pending} />}
+  </>)
 }
 
 /** Help for controls that change an individual agent's effort. */

@@ -1,3 +1,4 @@
+import { QueuedModelBadge } from './nextturn'
 import { toggleAgentHalt } from './haltcontrol'
 import { captureDraftDeskFocus, restoreDraftDeskKeyboard, type DraftDeskFocus } from './draftfocus'
 import { useAppRead } from '../appfeed'
@@ -30,7 +31,7 @@ import {
 } from '../icons'
 import {
   ago, ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
-  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
+  cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
 import type {
@@ -4078,9 +4079,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           onClick={() => centerOn(e.n.id)}>
           {e.side === 'l' && <ChevronLeftIcon fontSize="inherit" />}
           <span className={'tier t-' + e.n.tier}>{TIER_LETTER[e.n.tier!] ?? '?'}</span>
-          {e.n.pending_switch &&
-            <span className="queued-mark" title={queuedSwitchTitle(e.n)}>
-              →{TIER_LETTER[e.n.pending_switch.tier] ?? '?'}</span>}
+          <QueuedModelBadge node={e.n} />
           <span className="ej-name">{e.n.id}</span>
           {e.n.busy && <DestinationBusy tier={e.n.tier} />}
           {(e.n.mail_pending ?? 0) > 0 &&

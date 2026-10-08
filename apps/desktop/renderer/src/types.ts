@@ -431,6 +431,9 @@ export interface TreeNode {
    *  applied, was cancelled, or the node was idle when asked */
   pending_switch?: PendingSwitch | null
   pending_account?: PendingAccount | null
+  /** Actor effort evidence while a turn is running; deferred changes only. */
+  effort_current?: string | null
+  pending_effort?: string | null
   last_denials: Denial[]
   /** codex lane (2026-09-05): last turn's APPROVED escalations, same row
    *  shape as last_denials; absent when the lane cannot report it */

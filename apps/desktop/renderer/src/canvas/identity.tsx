@@ -66,8 +66,9 @@ export interface AgentNameProps {
    *  attribution, so the sigil is part of the click target rather than
    *  stranded beside it. */
   prefix?: string
-  /** extra classes for the name element, for call sites with their own
-   *  truncation rules (docket's `docket-actor-name`). */
+  /** A queued model card, immediately beside the current model chip. */
+  afterTier?: ReactNode
+  /** Extra classes for the name element. */
   nameClass?: string
 }
 
@@ -79,7 +80,7 @@ export interface AgentNameProps {
  * already produces — so this is a consolidation, not a restyle.
  */
 export function AgentName({
-  id, tier, why, onFocus, atDestination, prefix, nameClass,
+  id, tier, why, onFocus, atDestination, prefix, nameClass, afterTier,
 }: AgentNameProps): ReactNode {
   const label = (prefix ?? '') + id
   const extra = nameClass ? ' ' + nameClass : ''
@@ -87,6 +88,7 @@ export function AgentName({
     return (
       <>
         <TierChip tier={tier} agentName={id} />
+        {afterTier}
         <span data-copy-agent-name={id} className={'cc-name' + extra} title={why ?? undefined}>{label}</span>
       </>
     )
@@ -94,6 +96,7 @@ export function AgentName({
   return (
     <>
       <TierChip tier={tier} agentName={id} />
+      {afterTier}
       {/* type="button": this is embedded inside forms, where the default
           submit behaviour would be wrong */}
       {/* ⚠ THE MARKER GOES ON THE NAVIGATING BRANCH ONLY. This `if` is

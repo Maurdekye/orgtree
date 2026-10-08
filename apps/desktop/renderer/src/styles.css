@@ -7852,3 +7852,9 @@ main:has(> .orgbar.native-header) > .error {
 :root { --tier-agy-sonnet: var(--tier-sonnet); --tier-agy-opus: var(--tier-opus); }
 .sq.prov-google.desk.tier-agy-sonnet { border-top-color: var(--tier-sonnet); }
 .sq.prov-google.desk.tier-agy-opus { border-top-color: var(--tier-opus); }
+
+/* Queued values stay beside the value serving this turn. A pinned/temporary
+   desk already renders the model pair in its own title bar. */
+.next-turn { white-space: nowrap; flex: none; }
+.pinwin-body .cc-head-left > [data-next-turn="model"],
+.tempdesk-panel .cc-head-left > [data-next-turn="model"] { display: none; }
