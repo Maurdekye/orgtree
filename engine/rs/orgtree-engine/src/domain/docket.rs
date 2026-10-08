@@ -211,13 +211,15 @@ impl Item {
 
 // ------------------------------------------------------------ reading
 
+/// The org's agents (not deleted) by name: (id, state, parent).
+pub(crate) type Agents = HashMap<String, (i64, String, Option<i64>)>;
+
 /// What a view needs beyond the row itself.
 #[derive(Debug, Default)]
 pub struct Ctx {
     org: String,
     now: DateTime<Utc>,
-    /// the org's agents (not deleted) by name: (id, state, parent)
-    agents: HashMap<String, (i64, String, Option<i64>)>,
+    agents: Agents,
     /// open questions attached to each item
     questions: HashMap<String, Vec<Value>>,
     /// every item's (title, status), for dependency and parent rows
@@ -322,6 +324,76 @@ fn holder_state(h: &Option<Value>, ctx: &Ctx) -> (bool, Value) {
     }
 }
 
+/// Is the agent an item names live and still the same agent? Not when it
+/// is retired, deleted, or a later hire reusing a gone agent's name (the
+/// item's recorded row id differs): 3.x `_work_identity_state`.
+#[nolog]
+fn still_live(name: &str, reference: &Value, id: Option<i64>, agents: &Agents) -> bool {
+    if reference["deleted"].as_bool().unwrap_or(false) {
+        return false;
+    }
+    agents.get(name).is_some_and(|(aid, state, _)| state == "live" && id.map_or(true, |id| id == *aid))
+}
+
+/// 3.x `_work_deploy_recipient`: who may take a release-stage action on a
+/// live owner's item: its nearest live superior, or the owner itself at the
+/// top of the org or when no superior is live. None when the owner is not
+/// live (abandoned-owner recovery takes it) or its chain is broken.
+#[nolog]
+fn deploy_recipient(owner: &str, reference: &Value, owner_id: Option<i64>, agents: &Agents) -> Option<String> {
+    if !still_live(owner, reference, owner_id, agents) {
+        return None;
+    }
+    let mut parent = agents.get(owner)?.2;
+    // a parent cycle cannot hold the walk: no chain is longer than the org
+    for _ in 0..=agents.len() {
+        let Some(pid) = parent else { return Some(owner.to_string()) };
+        let (name, (_, state, up)) = agents.iter().find(|(_, a)| a.0 == pid)?;
+        if state == "live" {
+            return Some(name.clone());
+        }
+        parent = *up;
+    }
+    None
+}
+
+/// 3.x `_work_next_recipient`: who owes an open item's next action, and the
+/// role that answer was reached by. An item in `review` is owed by its
+/// reviewer; with none named, by the owner as `unassigned_review` (naming one
+/// is the next step, never reviewing its own work); with a named reviewer no
+/// longer live, by the owner as `stale_reviewer`. A `deploy_ready` item is
+/// owed by the owner's nearest live superior as `deployer` (an implementer
+/// is not woken as if it could publish); a top-level owner keeps it. Every
+/// other status is owed by the owner. The reminder sweep and the item's
+/// `next_action` both ask this.
+#[nolog]
+pub(crate) fn next_recipient(
+    status: &str,
+    owner: Option<&Value>,
+    owner_id: Option<i64>,
+    reviewer: Option<&Value>,
+    reviewer_id: Option<i64>,
+    agents: &Agents,
+) -> (Option<String>, &'static str) {
+    let owner_name = owner.and_then(|o| o["node"].as_str());
+    let owned = owner_name.map(str::to_string);
+    if status == "review" {
+        return match reviewer.and_then(|r| r["node"].as_str().map(|n| (n, r))) {
+            Some((rv, reference)) if still_live(rv, reference, reviewer_id, agents) => (Some(rv.to_string()), "reviewer"),
+            Some(_) => (owned, "stale_reviewer"),
+            None => (owned, "unassigned_review"),
+        };
+    }
+    if status == "deploy_ready" {
+        if let (Some(o), Some(reference)) = (owner_name, owner) {
+            if let Some(release) = deploy_recipient(o, reference, owner_id, agents).filter(|r| r != o) {
+                return (Some(release), "deployer");
+            }
+        }
+    }
+    (owned, "owner")
+}
+
 fn agent_state(name: &str, ctx: &Ctx) -> &'static str {
     match ctx.agents.get(name).map(|a| a.1.as_str()) {
         Some("live") => "live",
@@ -350,14 +422,9 @@ pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value
     let is_archived = archived(it, ctx);
     let (owner_current, owner_state) = holder_state(&it.owner, ctx);
     let questions = ctx.questions.get(&it.slug).cloned().unwrap_or_default();
-    let next_action = if it.closed() {
-        Value::Null
-    } else if it.status == "review" && it.reviewer_name().is_some() {
-        json!({ "node": it.reviewer_name(), "role": "reviewer" })
-    } else if let Some(o) = it.owner_name() {
-        json!({ "node": o, "role": if it.status == "deploy_ready" { "deployer" } else { "owner" } })
-    } else {
-        Value::Null
+    let next_action = match next_recipient(&it.status, it.owner.as_ref(), it.owner_id, it.reviewer.as_ref(), it.reviewer_id, &ctx.agents) {
+        (Some(node), role) if !it.closed() => json!({ "node": node, "role": role }),
+        _ => Value::Null,
     };
     let mut recipients: Vec<Value> = Vec::new();
     if let Some(o) = it.owner_name() {
