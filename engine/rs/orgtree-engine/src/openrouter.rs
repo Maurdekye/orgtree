@@ -506,12 +506,15 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
         match key_info(engine, force).await {
             Ok(d) => {
                 connected = true;
+                // a field the key check did not answer stays null (indexing a
+                // Map panics on a missing key: /credits may refuse a key, and
+                // openrouter.ai decides which /key fields it sends)
                 for k in ["limit", "limit_remaining", "limit_reset", "usage", "usage_daily", "usage_weekly", "usage_monthly",
                           "is_free_tier", "total_credits", "total_usage"] {
-                    credits[k] = d[k].clone();
+                    credits[k] = d.get(k).cloned().unwrap_or(Value::Null);
                 }
                 credits["checked_at"] = json!(iso(chrono::Utc::now()));
-                if let Some(l) = d["label"].as_str() {
+                if let Some(l) = d.get("label").and_then(Value::as_str) {
                     label = json!(l);
                 }
             }
