@@ -1,9 +1,9 @@
-# Hosting mail hub v2 in Orgtree 4.0.2 — proposal
+# Hosting mail hub v2 in Orgtree 4.0.2
 
-Status: PROPOSAL (mail hub v2.0.0 Phase 1, docket item
-`mail-hub-v2-0-rewrite-in-rust-with-postgres-stor`). Nothing here is wired yet;
-the item says to propose the hosting and leave it at that until Phase 1 is
-reviewed. Branch: `mailhub-opus/4.0.2-hub-v2`.
+Status: BUILT on branch `mailhub-opus/4.0.2-hub-v2` (mail hub v2.0.0 Phase 2,
+slice 8; docket item `mail-hub-v2-0-rewrite-in-rust-with-postgres-stor`). The
+proposal below was approved as written on 2026-10-08 (coordinator, 16:17Z);
+"As built" at the end records what was built and every place it differs.
 
 ## The problem
 
@@ -119,3 +119,74 @@ not moved.
   - read receipts are already restored (`hub-mail-parity`).
 - Orgtree stays a shared-secret v1 client: it does not become a "device" in
   the per-device key scheme unless asked.
+
+## As built (Orgtree 4.0.2)
+
+Rulings of 8 October that changed the proposal: mail is kept until its owners
+delete it unless the user chose a number of days, and an idle address stays
+listed. So the engine never passes `HUB_ORG_RETENTION_DAYS`, and passes
+`HUB_RETENTION_DAYS` only when the user picked a number of days in App settings
+→ Mail hub (the 36500-day "forever" is gone). Client scope for 4.0.2: reply_to
+both ways (the org inbox panel's Reply and an optional `reply_to` on
+`orgtree_message`), the person kind, long `@net:` mail fetched whole, and (user
+request) the hub's version shown; not the directory search, not resumable
+uploads (that waits for the transfers item).
+
+**Engine** (`src/mailhub.rs`, `src/net.rs`, `src/domain/orginbox.rs`,
+`src/domain/mail.rs`, `src/tools/`, `src/runtime/envelope.rs`):
+
+- `mailhub::prepare_database` runs before the hub's first start: the role and
+  database `orgtree_mailhub` (role password in `credentials.json`, made once and
+  re-set if the role exists without it), `REVOKE CONNECT ON DATABASE
+  orgtree_engine FROM PUBLIC`. A failure is shown on the settings page as the
+  hub's error and never stops the engine.
+- `hub_binary()`: `ORGTREE_HUB_BIN`, else `orgtree-mailhub.exe` beside the
+  engine, else the submodule's own `target/release` build. The child gets the
+  v1 variables plus `HUB_DATABASE_URL`, `HUB_DATABASE_PASSWORD` (environment
+  only) and `HUB_DB_POOL=8`. `hosting()` adds `v2_import` (the hub's
+  `v2-import-report.json`) and `status.hub_version`.
+- Replies. `orgtree_message` takes `reply_to`: the id of mail the agent received
+  or sent (every mail's FROM line now ends `· id <uid>`; `orgtree_inbox` lists
+  them too) or of an outside message it sent. Internal recipients get the
+  existing `↩ IN REPLY TO` quote and the typed `reply.mail` link; `@org:`
+  recipients get the quote; over a hub the payload's `reply_to` is the answered
+  message's hub id, when that message came over a hub (otherwise the agent is
+  told the reply goes without a link). `POST /api/orgs/{slug}/org_inbox/send`
+  takes `reply_to` (an org-inbox row id) for the panel's Reply. Inbound hub
+  mail with `reply_to` is quoted from this org's own record of that message
+  (`ot.org_inbox`, sent or received; two index-backed lookups), else kept as
+  the bare reference; holders read "↩ IN REPLY TO your message …" when they
+  wrote it. New column `ot.org_inbox.reply_to` (migration 0014).
+- Long mail. When a v2 hub's poll gives a preview with `body_bytes`, the
+  engine fetches `GET /api/messages/{id}/body` (the id as an encoded path
+  segment): up to 64 KiB the whole text replaces the preview; above that it is
+  attached as `message.txt` beside the 20,000-character preview. A failed fetch
+  is noted in the body.
+- The limit is per message on a v2 hub (`max_message_bytes`): a send whose
+  text and files together exceed it is refused at once instead of retrying at
+  the hub for ever.
+- The hub's version: read from every answer that names a hub (register, poll,
+  roster); shown per hub in the Connections data, by the address probe, and
+  per remote peer in `orgtree_list_orgs` (`hubs`: address, name, version;
+  "unknown" for a v1 hub).
+- Rig: `ORGTREE_RIG_HUB=1` (`rig up --hub [exe]`) hosts the hub inside a rig
+  run on a free loopback port; the run's network mail, the address probe and
+  org deletion's unregister reach that hub and no other. Without it a rig run
+  stays offline as before, and the probe answers "not reachable" without
+  asking anything.
+
+**Desktop:** the person kind labelled; the hub's version in Connections, the
+mailservers tab, the status bar chip and App settings → Mail hub; the org
+inbox's Reply on inbound outside mail, and the quote on rows that answer
+something; the v2 import report and "Until it is deleted" retention wording.
+
+**Packaging (needs the submodule pin moved to the v2 commit, the
+coordinator's call):** `package.json` ships
+`engine/mailhub/target/release/orgtree-mailhub.exe` as
+`resources/engine/orgtree-mailhub.exe` and no longer copies the submodule's
+sources; `package-preflight.mjs` requires that binary; `build.mjs` hashes it
+into build-info; the submodule probes (`preflight-lib.mjs`,
+`tests/test_mailhub_repo.py`) look for v2's files. Inferred, not run: no
+package was built.
+
+**Proof:** `tools/rig/proofs/mailhub-v2.mjs` (in `docs/rust-engine/test-rig.md`).
