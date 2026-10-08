@@ -1,4 +1,3 @@
-import { QueuedModelBadge } from './nextturn'
 // canvas/pins.tsx — a desk PINNED TO SCREENSPACE (FR-3, user spec 2026-09-04):
 // "a pin button for desk views, which detaches them from the canvas and pins
 // them to screenspace (they don't move when dragging the canvas anymore) and
@@ -647,7 +646,6 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
             became a drag repositions the window instead (see the contract
             above the gesture refs) */}
         <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name"
-          afterTier={<QueuedModelBadge node={node} />}
           onFocus={(id, e) => {
             // keyboard only: a mouse activation is the gesture's, and this
             // handler must not double-fire it (nor fire when capture

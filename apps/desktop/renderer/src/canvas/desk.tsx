@@ -3251,7 +3251,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               would be a quiet trap for the next caller to pass centerOn
               straight in. */}
           <AgentName id={node.id} tier={node.tier} atDestination={!bare}
-            afterTier={<QueuedModelBadge node={node} />}
             why={bare ? undefined
               : (node.charter || '').split('\n')[0] || node.id}
             onFocus={onJump ? (id: string) => onJump(id) : undefined} />
@@ -3425,6 +3424,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             is never far-zoom, so there is no exclusion to apply here. */}
         <ServingAccountBadge account={node.serving_account} />
         <QueuedAccountBadge node={node} />
+        <QueuedModelBadge node={node} />
         {node.pending_effort && <EffortLevelBadge node={node} />}
         </div>
       </div>

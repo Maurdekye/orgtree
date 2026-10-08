@@ -1598,7 +1598,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       <div data-copy-agent-name={node.id} className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
           <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
-          <QueuedModelBadge node={node} />
           <MapModeIndicator node={node} />
           {(dogs ?? 0) > 0 && <span className={'map-dogs' + ((oneShotDogs ?? 0) > 0 ? ' oneshot' : '')}
             aria-label={`${dogs} watchdog${dogs === 1 ? '' : 's'}${(oneShotDogs ?? 0) > 0
@@ -1612,6 +1611,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ) : (
           <LastTurnAge turn={lastTurn} busy={node.busy} variant="map" />
         )}
+        {node.pending_switch && <div className="sq-badges"><QueuedModelBadge node={node} /></div>}
       </div>
     )
   }
@@ -1679,7 +1679,6 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             stealing the context wheel's hit area. */}
         <div className="sq-title">
           <span className={'tier t-' + node.tier}>{TIER_LETTER[node.tier!] ?? '?'}</span>
-          <QueuedModelBadge node={node} />
           <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
           {fullNameAt && (
             <span className="name-full" aria-hidden="true"
@@ -1851,6 +1850,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               gate above happening to stay where it is. */}
           <ServingAccountBadge account={node.serving_account} />
           <QueuedAccountBadge node={node} />
+          <QueuedModelBadge node={node} />
           {/* NON-DEFAULT THINKING EFFORT (docket
               `show-non-default-effort-level-on-agent-headers`), on the card's
               badge row as on the desk's — the SAME component, reading the same
