@@ -52,8 +52,14 @@ pub async fn launch_failed(engine: &Arc<Engine>, org_id: i64, agent_id: i64, doo
     let parent:Option<String>=r.get(2);
     let org:String=r.get(3);
     let session=json!({"kind":"session","org":org,"node":name,"session_id":r.get::<_,Option<String>>(4).unwrap_or_default()});
-    let own=crate::events::typed("runtime.turn_failed_terminal","@system",session,json!({"door":door,"err":err}));
-    mail::system_event(engine,org_id,agent_id,&format!("Your turn could not start: {err}"),true,Some(own)).await?;
+    // never a wake: the mail the failed turn held is back in the mailbox, so a
+    // wake would retry the launch at once (3.x: the failing agent is never driven)
+    let mut own=Outgoing::new(From::System,&name,&format!("Your turn could not start: {err}"));
+    own.kind="system".into();
+    own.notice=true;
+    own.wake=false;
+    own.ev=Some(crate::events::typed("runtime.turn_failed_terminal","@system",session,json!({"door":door,"err":err})));
+    mail::send(engine,org_id,own).await?;
     let audience=if parent.is_some(){"superior"}else{"user"};
     let mut out=Outgoing::new(From::System,parent.as_deref().unwrap_or("user"),&format!("{name}'s turn could not start: {err}"));
     out.kind="status".into();
