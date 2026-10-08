@@ -884,10 +884,11 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     Ok(json!({ "node": name, "cascaded": raised, "warnings": warnings }))
 }
 
-/// Closed seats cannot leave actionable request cards behind.
+/// Closed seats cannot leave actionable request cards behind. The card reads
+/// "moot — the agent left" as in 3.x, not "withdrawn": the agent did not act.
 #[logged]
 async fn moot_asks(tx: &Transaction<'_>, ids: &[i64], fx: &mut Effects) -> Result<()> {
-    tx.execute("UPDATE ot.asks SET status = 'withdrawn', resolved_at = now(), reason = 'requester is no longer live' WHERE agent_id = ANY($1) AND status = 'open'", &[&ids]).await?;
+    tx.execute("UPDATE ot.asks SET status = 'moot', resolved_at = now(), reason = 'the asking agent left before an answer arrived' WHERE agent_id = ANY($1) AND status = 'open'", &[&ids]).await?;
     fx.pulses.extend([crate::changes::Change::Asks, crate::changes::Change::Docket]);
     Ok(())
 }

@@ -950,6 +950,9 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     let mut fx = DecisionEffects::default();
     let mut sections = Vec::new();
     let mut cards: Vec<Value> = Vec::new();
+    // as in 3.x, a submit that decides nothing (every tab skipped: the
+    // card's close) closes the card as dismissed, not answered
+    let mut decided_any = false;
     // questions
     let answers = body["answers"].as_array().cloned().unwrap_or_default();
     let mut asked = Vec::new();
@@ -957,6 +960,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         let a = answers.get(i).cloned().unwrap_or(Value::Null);
         sections.push(answer_text(q, &a));
         let picked = chosen(&a);
+        decided_any |= !picked.is_empty();
         asked.push(json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""),
                            "answer": if picked.is_empty() { Value::Null } else { json!(picked.join(" · ")) } }));
     }
@@ -970,11 +974,13 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         let wanted = c["new"].as_f64().unwrap_or(0.0);
         if let Some(g) = cd["granted"].as_f64() {
             let g = credit_total(g)?;
+            decided_any = true;
             grant_credits(engine, org, &tx, &open.agent, g, &mut fx.credits).await?;
             sections.push(format!("Credits: granted — your grant is now {g} (you asked for {}).", c["new"]));
             cards.push(json!({ "kind": "credit", "outcome": if (g - wanted).abs() < 1e-9 { "approved" } else { "counter" },
                                "old": old, "asked": wanted, "granted": g, "now": g }));
         } else if cd["deny"].as_bool().unwrap_or(false) {
+            decided_any = true;
             sections.push(format!("Credits: denied (you asked for {}).", c["new"]));
             cards.push(json!({ "kind": "credit", "outcome": "denied", "old": old, "asked": wanted, "granted": null, "now": old }));
         } else {
@@ -996,6 +1002,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
                 "deny" => "denied",
                 _ => "not decided",
             }));
+            decided_any |= d != "skip";
             decided.push(json!({ "label": item_label(it), "decision": d }));
             lines.push(json!(format!("- {} → {}", item_label(it), match d {
                 "approve" => "GRANTED — live from your next turn",
@@ -1013,7 +1020,8 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     }
     let text = format!("The user resolved your request:\n\n{}", sections.join("\n\n"));
     let ev = crate::events::answer_batch(&org.slug, &open.uid, &open.agent, cards);
-    let decision = settle(org, tx, &open, "answered", body.clone(), text, Some(ev), fx).await?;
+    let status = if decided_any { "answered" } else { "dismissed" };
+    let decision = settle(org, tx, &open, status, body.clone(), text, Some(ev), fx).await?;
     drop(client);
     let node = publish_decision(engine, org, decision).await;
     Ok(json!({ "resolved": open.uid, "node": node }))
