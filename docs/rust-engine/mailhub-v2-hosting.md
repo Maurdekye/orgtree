@@ -176,9 +176,11 @@ uploads (that waits for the transfers item).
   asking anything.
 
 **Desktop:** the person kind labelled; the hub's version in Connections, the
-mailservers tab, the status bar chip and App settings → Mail hub; the org
-inbox's Reply on inbound outside mail, and the quote on rows that answer
-something; the v2 import report and "Until it is deleted" retention wording.
+mailservers tab, the status bar chip, the canvas org inbox tile and App
+settings → Mail hub; the org inbox's Reply on inbound outside mail (with
+files, staged the org inbox's way; no notice toggle), and the quote on rows
+that answer something; the v2 import report and "Until it is deleted"
+retention wording.
 
 **Packaging (needs the submodule pin moved to the v2 commit, the
 coordinator's call):** `package.json` ships
@@ -189,4 +191,7 @@ into build-info; the submodule probes (`preflight-lib.mjs`,
 `tests/test_mailhub_repo.py`) look for v2's files. Inferred, not run: no
 package was built.
 
-**Proof:** `tools/rig/proofs/mailhub-v2.mjs` (in `docs/rust-engine/test-rig.md`).
+**Proof:** `tools/rig/proofs/mailhub-v2.mjs` (the engine through the real net
+client: 36/36, 38/38 with `--big`) and `tools/rig/proofs/mailhub-v2-desktop.mjs`
+(the org inbox panel in the real renderer: 8/8), measured 2026-10-08; both in
+`docs/rust-engine/test-rig.md`.
