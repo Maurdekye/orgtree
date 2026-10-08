@@ -252,3 +252,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     use short, plain labels/descriptions; preserve behavior and keep the visual
     restyle in a separate commit. Wording list and details:
     `agent-settings-refresh.md`.
+
+53. **Agent CLIs run in essential-traffic mode, with PowerShell and the cached feature flags**
+    (coordinator 2026-10-08 19:09Z, after the neoja report that agents lost PowerShell).
+    Every Claude CLI the engine starts gets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+    It has been set since the first engine commit, but nobody wrote down why. The reason:
+    agents share the user's global CLI, and the switch stops each of them from checking
+    for or applying an update mid-run. It also stops telemetry and error reports. 3.x never
+    set it, because it ran its own pinned copy of the CLI. The switch also turns off the
+    CLI's server-side feature flags. On Windows with Git Bash installed, CLI 2.1.280 to
+    2.1.292 offer the PowerShell tool only behind the flag `tengu_cobalt_ridge` or
+    `CLAUDE_CODE_USE_POWERSHELL_TOOL`. So 4.0 agents lost a tool that 3.x agents had,
+    and that their identity text still promised. The engine therefore also sets
+    `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` whenever the agent's terminal switch is on. It
+    sets `CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1` too, so the other flags follow
+    the account's cached values, the ones the user's own CLI runs with. Details:
+    `cli-environment.md`.
