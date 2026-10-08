@@ -53,7 +53,7 @@ export default async function (rig) {
   // quiet: no turn running and no waking mail waiting for a live, unhalted agent
   // (a notice waits for the next turn by design)
   const busy = () => rig.sql(`SELECT a.name, 'turn ' || t.id AS what FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
-      WHERE a.org_id = ${orgId} AND t.ended_at IS NULL
+      WHERE a.org_id = ${orgId} AND t.ended_at IS NULL AND a.state = 'live'
       UNION ALL SELECT a.name, 'mail ' || m.id || ' ' || m.state || ' from ' || m.sender || ': ' || left(m.body, 80)
       FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
       WHERE a.org_id = ${orgId} AND m.state IN ('pending', 'delivering') AND NOT m.notice AND a.halt IS NULL AND a.state = 'live'`)
@@ -91,6 +91,8 @@ export default async function (rig) {
   await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'alice', reason: 'proof: may ask the user' })
   const asked = await rig.tool('alice', 'orgtree_ask', { question: 'Should this item wait for you?', work_item: slug.A5, options: ['Yes', 'No'] })
   for (const name of ['bob', 'frank', 'gina']) await rig.tool(name, 'orgtree_status', { status: 'working', summary: 'working on it' })
+  // dave's review request runs a turn: let it end before he is retired
+  await settle('dave\'s turn to end')
   await rig.op({ op: 'retire', node: 'dave' })
   await settle('the arranging turns to settle')
   await rig.api('POST', `/api/orgs/${rig.org}/nodes/erin/halt`)
