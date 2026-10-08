@@ -14,7 +14,8 @@ module.exports = async (page, { args }) => {
   await page.screenshot('document-header')
   await page.click('.desk-docs .doc-badge')
   await page.waitFor(() => document.querySelector('.gallery-modal')?.textContent.includes('Unique report body 6.'))
-  await page.click('.gallery-modal .modalpin-x')
+  await page.press('Escape')
+  await page.waitFor('.gallery-modal', { gone: true })
   for (let n = 0; n < 8; n++) {
     await page.click('button[title="zoom out"]')
     await page.sleep(350)
