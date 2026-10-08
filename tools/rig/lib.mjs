@@ -372,6 +372,11 @@ export function fakeHome(data) {
   // signed in, as far as discovery can tell; no token, so no usage call can be made
   fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), '{}')
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'rig@example.invalid' } }))
+  // the Codex login, as discovery reads it: a ChatGPT sign-in with an unsigned id token naming the email
+  fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+  const b64 = v => Buffer.from(JSON.stringify(v)).toString('base64url')
+  const idToken = `${b64({ alg: 'none', typ: 'JWT' })}.${b64({ email: 'rig@example.invalid' })}.rig`
+  fs.writeFileSync(path.join(home, '.codex', 'auth.json'), JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: idToken } }))
   return home
 }
 

@@ -22,6 +22,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
 
+mod codex;
+
 const VERSION: &str = "2.1.999 (Claude Code fake)";
 
 fn now_ms() -> u128 {
@@ -233,12 +235,17 @@ fn matches(rule: &Value, prompt: &str) -> bool {
 /// order; the first whose `match` fits the prompt and whose `times` is not
 /// used up. Returns (where it came from, steps).
 fn pick(cli: &Cli, prompt: &str) -> (String, Vec<Value>) {
+    pick_for(cli.dir.as_deref(), &cli.agent, prompt)
+}
+
+/// `pick` for any process kind: the scenario folder and the agent's name.
+fn pick_for(dir: Option<&Path>, agent: &str, prompt: &str) -> (String, Vec<Value>) {
     let fallback = || ("builtin".to_string(), vec![json!({ "text": "OK." })]);
-    let Some(dir) = cli.dir.clone() else { return fallback() };
+    let Some(dir) = dir.map(Path::to_path_buf) else { return fallback() };
     let Some(scn) = load_json(&dir.join("scenario.json")) else { return fallback() };
-    let state_file = dir.join("state").join(format!("{}.json", cli.agent));
+    let state_file = dir.join("state").join(format!("{agent}.json"));
     let mut state = load_json(&state_file).unwrap_or_else(|| json!({}));
-    let lists = [("agent", scn.pointer(&format!("/agents/{}/turns", cli.agent)).cloned()), ("default", scn.pointer("/default/turns").cloned())];
+    let lists = [("agent", scn.pointer(&format!("/agents/{agent}/turns")).cloned()), ("default", scn.pointer("/default/turns").cloned())];
     for (whose, list) in lists {
         let Some(list) = list.and_then(|l| l.as_array().cloned()) else { continue };
         for (i, t) in list.iter().enumerate() {
@@ -714,16 +721,19 @@ fn claude(raw: &[String]) -> i32 {
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let code = match raw.first().map(String::as_str) {
-        Some("--version") | Some("-v") => {
-            println!("{VERSION}");
-            0
-        }
-        Some("app-server") => {
-            eprintln!("orgtree-fakecli: the Codex app-server stand-in is not built yet");
-            3
-        }
-        _ => claude(&raw),
+    // started as codex.exe (the rig copies this binary to both names), or
+    // with the app-server subcommand anywhere (`-c` overrides come first)
+    let as_codex = std::env::args()
+        .next()
+        .map(|a0| Path::new(&a0).file_stem().map(|s| s.to_string_lossy().eq_ignore_ascii_case("codex")).unwrap_or(false))
+        .unwrap_or(false);
+    let code = if raw.iter().any(|a| a == "app-server") {
+        codex::run(&raw)
+    } else if matches!(raw.first().map(String::as_str), Some("--version") | Some("-v")) {
+        println!("{}", if as_codex { codex::VERSION } else { VERSION });
+        0
+    } else {
+        claude(&raw)
     };
     std::process::exit(code);
 }
