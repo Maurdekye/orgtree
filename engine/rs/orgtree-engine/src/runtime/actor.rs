@@ -3325,8 +3325,32 @@ impl Actor {
         Ok(())
     }
 
-    /// The usage limit this failure reports, if it is one: when it lifts.
-    fn limit_of(&self, error: &str) -> Option<DateTime<Utc>> {
+    /// The last wall whose own countdown set a freeze (3.x `last_wall`): it
+    /// outlives the release and a completed turn drops it (`clear_runs`).
+    async fn last_wall(&self) -> Value {
+        let Ok(client) = self.engine.db.get().await else { return Value::Null };
+        client
+            .query_one("SELECT extra->'last_wall' FROM ot.agents WHERE id = $1", &[&self.id])
+            .await
+            .ok()
+            .and_then(|r| r.get::<_, Option<Value>>(0))
+            .unwrap_or(Value::Null)
+    }
+
+    async fn remember_wall(&self, wall: &Value) {
+        let Ok(client) = self.engine.db.get().await else { return };
+        if let Err(e) = client
+            .execute("UPDATE ot.agents SET extra = jsonb_set(extra, '{last_wall}', $2) WHERE id = $1", &[&self.id, wall])
+            .await
+        {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the usage-limit wall could not be kept");
+        }
+    }
+
+    /// The usage limit this failure reports, if it is one: when it lifts, and
+    /// the wall to remember when its own countdown said so (`prior`: the last
+    /// one, for 3.x's anchor-once rule).
+    fn limit_of(&self, error: &str, prior: &Value) -> Option<(DateTime<Utc>, Option<Value>)> {
         let lower = error.to_lowercase();
         let rejected = self
             .rate_limit
@@ -3337,7 +3361,8 @@ impl Actor {
             || lower.contains("hit your limit")
             || lower.contains("limit reached")
             || lower.contains("rate limit")
-            || lower.contains("resets");
+            || lower.contains("resets")
+            || recovery::worded_limit(error);
         if !rejected && !worded {
             return None;
         }
@@ -3355,12 +3380,21 @@ impl Actor {
             })
             .and_then(|t| DateTime::from_timestamp(t, 0))
             .filter(|t| *t > Utc::now());
+        if let Some(t) = from_info {
+            return Some((t, None));
+        }
+        // the wall's own "Resets in 2h53m47s", anchored once (3.x)
+        if let Some(secs) = recovery::reset_in_seconds(error) {
+            let (kind, until) = recovery::countdown_until(secs, prior, Utc::now());
+            tracing::info!(agent = %self.name, countdown = kind, secs, until = %iso(until), "usage limit countdown");
+            return Some((until, Some(json!({ "secs": secs, "until": iso(until) }))));
+        }
         let from_text = error
             .split('|')
             .nth(1)
             .and_then(|s| s.trim().parse::<i64>().ok())
             .and_then(|t| DateTime::from_timestamp(t, 0));
-        Some(from_info.or(from_text).unwrap_or_else(|| Utc::now() + chrono::Duration::hours(1)))
+        Some((from_text.unwrap_or_else(|| Utc::now() + chrono::Duration::hours(1)), None))
     }
 
     /// Close the turn: mail settled, ledger written, slot freed.
@@ -3462,7 +3496,15 @@ impl Actor {
         denials.extend(turn.denials.iter().cloned());
         let session = res.get("session_id").and_then(Value::as_str).map(str::to_string);
         // a usage limit freezes the agent (or moves it to another account)
-        let limit = error.as_deref().and_then(|e| self.limit_of(e));
+        // the last wall this agent hit, for the anchor-once countdown rule
+        let prior_wall = match &error {
+            Some(_) => self.last_wall().await,
+            None => Value::Null,
+        };
+        let (limit, wall) = match error.as_deref().and_then(|e| self.limit_of(e, &prior_wall)) {
+            Some((until, wall)) => (Some(until), wall),
+            None => (None, None),
+        };
         let mut freeze_rec: Option<Value> = None;
         let mut moved_to: Option<String> = None;
         if let Some(until) = limit {
@@ -3480,6 +3522,9 @@ impl Actor {
                     rec["resume_texts"] = json!([turn.replay]);
                 }
                 freeze_rec = Some(rec);
+                if let Some(w) = &wall {
+                    self.remember_wall(w).await;
+                }
             }
             error = None;
         }

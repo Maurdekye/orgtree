@@ -57,6 +57,65 @@ pub fn looks_like_connection_failure(blob: &str) -> bool {
     .any(|p| b.contains(p))
 }
 
+/// 3.x `_looks_like_usage_limit`: "limit" beside a wall word, or "exceed"
+/// naming the account or its rate limit (a bare "exceed" is a context
+/// overflow, which no reset ends).
+#[logged]
+pub fn worded_limit(blob: &str) -> bool {
+    let b = blob.to_lowercase();
+    if !b.contains("limit") {
+        return false;
+    }
+    ["usage", "weekly", "reached", "exceeded", "quota", "hit your", "resets", "session"].iter().any(|w| b.contains(w))
+        || (b.contains("exceed") && (b.contains("account") || b.contains("rate limit")))
+}
+
+/// Seconds until a wall's `Resets in 2h53m47s` (3.x `reset_in_seconds`).
+#[logged]
+pub fn reset_in_seconds(text: &str) -> Option<i64> {
+    let lower = text.to_lowercase();
+    let at = regex::Regex::new(r"\bresets?\s+in\s+").ok()?.find(&lower)?;
+    let mut rest = &lower[at.end()..];
+    let mut total = 0_i64;
+    loop {
+        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 {
+            break;
+        }
+        let n: i64 = rest[..digits].parse().ok()?;
+        let after = rest[digits..].trim_start();
+        let unit = after.chars().take_while(|c| c.is_ascii_alphabetic()).count();
+        let secs = match &after[..unit] {
+            "d" | "day" | "days" => 86_400,
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3_600,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60,
+            "s" | "sec" | "secs" | "second" | "seconds" => 1,
+            _ => break,
+        };
+        total = total.checked_add(n.checked_mul(secs)?)?;
+        rest = after[unit..].trim_start();
+        rest = rest.strip_prefix(',').unwrap_or(rest).trim_start();
+        rest = rest.strip_prefix("and ").unwrap_or(rest);
+    }
+    (total > 0).then_some(total)
+}
+
+/// 3.x `classify_countdown` (anchor once): a countdown that differs from the
+/// last wall's (`prior`: `{secs, until}`) is this turn's evidence; the same
+/// countdown keeps the deadline it set while that is still ahead, and once
+/// it has passed the sentence describes no present wall (the CLI was measured
+/// repeating one for 13 hours), so only the probe floor is honest.
+#[logged]
+pub fn countdown_until(secs: i64, prior: &Value, now: chrono::DateTime<Utc>) -> (&'static str, chrono::DateTime<Utc>) {
+    if prior["secs"].as_i64() != Some(secs) {
+        return ("fresh", now + chrono::Duration::seconds(secs));
+    }
+    match prior["until"].as_str().and_then(crate::util::parse_ts) {
+        Some(until) if until > now => ("repeat", until),
+        _ => ("stale", now + chrono::Duration::seconds(PROBE_FLOOR_S)),
+    }
+}
+
 /// Decide the class once (3.x "WHICH CLASS, decided ONCE"). On the OpenRouter
 /// lane a typed HTTP status chooses exclusively; elsewhere the status is read
 /// only for 401, and prose or the turn's shape decides a transient failure.
@@ -113,15 +172,16 @@ pub async fn bump(engine: &Engine, agent_id: i64, key: &str) -> Result<i64> {
     Ok(row.get::<_, Option<i64>>(0).unwrap_or(1))
 }
 
-/// A turn completed: every failure run of this agent is over.
+/// A turn completed: every failure run of this agent is over, and so is its
+/// last usage-limit wall (3.x `_forget_wall`).
 #[logged]
 pub async fn clear_runs(engine: &Engine, agent_id: i64) -> Result<()> {
     let client = engine.db.get().await?;
     client
         .execute(
-            "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run'
+            "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run' - 'last_wall'
               WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run'
-                                 OR extra ? 'hard_fail_run')",
+                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall')",
             &[&agent_id],
         )
         .await?;
