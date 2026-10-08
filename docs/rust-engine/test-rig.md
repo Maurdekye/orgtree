@@ -216,8 +216,8 @@ restart path (cut turns closed, their mail settled, the restart message and noti
 re-armed, waiting mail woken) is started with `recover` (`up --recover`, or `{ recover: true }`
 from a script's `setup()`). A safe start also never runs the automatic wakes (working checkups,
 idle docket reminders, abandoned docket recovery); `reminders` (`up --reminders [seconds]`, or
-`{ reminders: true }`) starts that sweep on a 5 s cycle (or every N seconds, up to the product's
-60), and the working cache keeper with it; `reminderPauseMs` holds each wake between its
+`{ reminders: true }`) starts that sweep on a 5 s cycle (or every N seconds; the product's is
+20), the working cache keeper included; `reminderPauseMs` holds each wake between its
 reservation and its mail, so a script can start real work in that window. The wakes fire after 20 minutes without activity, so a script back-dates the agents' turns,
 status and wake stamps with `rig.exec` rather than waiting (see `reminders.mjs`).
 
