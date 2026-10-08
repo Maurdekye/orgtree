@@ -308,8 +308,8 @@ export const noteTierModels = (
  *  remembered tier→model table, else (a tier nothing has ever described)
  *  the slug without its `or-` prefix. */
 export const tierLabel = (tier: string): string => {
-  if (tier === 'agy-sonnet') return 'Claude Sonnet 5.5'
-  if (tier === 'agy-opus') return 'Claude Opus 5.5'
+  if (tier === 'agy-sonnet') return 'sonnet (antigravity)'
+  if (tier === 'agy-opus') return 'opus (antigravity)'
   if (!isOpenRouterTier(tier)) return tier
   const t = openrouterTier(tier)
   if (t) return t.label ?? modelLabel(t.model)
@@ -1107,7 +1107,7 @@ export const queuedSwitchTitle = (n: {
   const p = n.pending_switch
   if (!p) return ''
   const who = p.by === USER ? 'the user' : p.by
-  return `model switch QUEUED by ${who}: ${n.tier ?? '?'} → ${p.tier} applies `
+  return `model switch QUEUED by ${who}: ${tierLabel(n.tier ?? '?')} → ${tierLabel(p.tier)} applies `
     + 'when the current turn ends — interrupt the turn to apply it now'
 }
 

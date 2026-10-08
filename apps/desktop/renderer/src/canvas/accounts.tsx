@@ -36,7 +36,7 @@ import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
-  legacyMark, optInLegacyHidden, TIER_LETTER,
+  legacyMark, optInLegacyHidden, TIER_LETTER, tierLabel,
   setChartLayout, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
@@ -97,7 +97,7 @@ export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
           <span className={'tier t-' + t.tier
             + (t.available ? '' : ' acct-chip-dim')}>
             {TIER_LETTER[t.tier] ?? t.tier.slice(0, 1).toUpperCase()}</span>
-          <span className="acct-tier-name">{t.tier + legacyMark(t.tier)}</span>
+          <span className="acct-tier-name">{tierLabel(t.tier) + legacyMark(t.tier)}</span>
           {t.available
             ? <span className="acct-tier-ok">has capacity</span>
             : <span className="acct-tier-wait">
@@ -752,7 +752,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
           <div className='acct-provider-tier-title'>Model tiers</div>
           {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
             <span className={'tier t-' + t.tier}>{t.letter}</span>
-            <span className='acct-provider-tier-name'>{(t.name ?? t.tier) + legacyMark(t.tier)}</span>
+            <span className='acct-provider-tier-name'>{(t.name ?? tierLabel(t.tier)) + legacyMark(t.tier)}</span>
             <span className='acct-provider-tier-model'>{t.model}</span>
             <span className='acct-provider-tier-seat'>seat {t.seat}</span>
           </div>)}

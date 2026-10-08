@@ -4646,7 +4646,7 @@ function MailFrom({ from, nameClass }: { from: string; nameClass?: string }) {
   // way a docket actor line's does — same ruling and the same sentence as a
   // prose mention (workrefs.tsx). An unknown current tier draws NO chip
   // rather than a guess; TierChip already refuses a null.
-  const why = (agent.tier ? `${from} — current model, ${agent.tier}.`
+  const why = (agent.tier ? `${from} — current model, ${tierLabel(agent.tier)}.`
     : `${from} — current model not known.`)
     + (atDest ? ' This is its own desk.'
       : dir?.onFocus ? ' Go to its desk.' : '')

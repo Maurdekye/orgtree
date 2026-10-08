@@ -3,7 +3,8 @@
 The optional `agy-sonnet` and `agy-opus` tiers run on the Google/Antigravity
 provider and native `agy` sign-in. They are independent of Claude Code tiers.
 The user approved seats of 2 and 4 respectively on 2026-10-07. Their names are
-Claude Sonnet 5.5 and Claude Opus 5.5; only the existing model colours are shared.
+`sonnet (antigravity)` and `opus (antigravity)` (user, 2026-10-08); they run
+Claude Sonnet 5.5 and Claude Opus 5.5. Only the existing model colours are shared.
 Provider styling, hire grouping, account selection and runtime stay Antigravity.
 
 App settings > Runtime > Antigravity models enables both tiers. The setting

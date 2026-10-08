@@ -1209,7 +1209,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
               onChange={(e) => setModelVersion(e.target.value)}>
               <option value="">{`latest (${versions[0]})`}</option>
               {versions.map((v) => (
-                <option key={v} value={v}>{`${model} ${v}`}</option>
+                <option key={v} value={v}>{`${tierLabel(model)} ${v}`}</option>
               ))}
             </select></SetRow>
           </>
@@ -1269,7 +1269,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             tier (the ledger's cancel door). An unchanged save does NOT cancel:
             saving scope must never silently withdraw a switch. */}
         {node.pending_switch && (
-          <SetRow label="Pending model change" hint={`Switch to ${node.pending_switch.tier} when the current turn ends.`}>
+          <SetRow label="Pending model change" hint={`Switch to ${tierLabel(node.pending_switch.tier)} when the current turn ends.`}>
             <button
               onClick={() => op({ op: 'switch_model', node: node.id,
                 tier: node.tier ?? '' })
@@ -1391,7 +1391,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       {asking === 'crossprovider' && (
         <ConfirmModal
           title={midTurn
-            ? `queue ${node.id}'s switch to ${model}?`
+            ? `queue ${node.id}'s switch to ${tierLabel(model)}?`
             : `move ${node.id} from ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} to ${PROVIDER_LABEL[providerOf(model)]}?`}
           // names what is SPENT and what SURVIVES. Only naming the loss reads
           // as more destructive than it is, and someone would avoid a switch
@@ -1400,14 +1400,14 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           // escape hatch, because the user's stated way to get an immediate
           // switch is to interrupt first; there is no separate control.
           body={(midTurn
-            ? `${node.id} is MID-TURN. A model switch asked for mid-turn is QUEUED, not applied: nothing changes until this turn ends, then ${model} applies from its next turn. To switch it now, interrupt the turn first (⏸ on its desk), then save.${crossProvider ? ' ' : ''}`
+            ? `${node.id} is MID-TURN. A model switch asked for mid-turn is QUEUED, not applied: nothing changes until this turn ends, then ${tierLabel(model)} applies from its next turn. To switch it now, interrupt the turn first (⏸ on its desk), then save.${crossProvider ? ' ' : ''}`
             : '')
             + (crossProvider
-              ? `${node.id} is running on ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} and ${model} runs on ${PROVIDER_LABEL[providerOf(model)]}. Its conversation CANNOT move between providers, so ${midTurn ? 'when the switch applies it' : 'it'} will be reset from its next turn and it will not remember this conversation. The conversation is not lost: its current self is archived in place as the knowledge bearer ${node.id}@${node.generation ?? 0} — readable from the lineage panel, and rehireable there on ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} to consult it. Its scratch files, breadcrumbs.md and mail all survive, and it is told to read them to pick up where it left off.`
+              ? `${node.id} is running on ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} and ${tierLabel(model)} runs on ${PROVIDER_LABEL[providerOf(model)]}. Its conversation CANNOT move between providers, so ${midTurn ? 'when the switch applies it' : 'it'} will be reset from its next turn and it will not remember this conversation. The conversation is not lost: its current self is archived in place as the knowledge bearer ${node.id}@${node.generation ?? 0} — readable from the lineage panel, and rehireable there on ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} to consult it. Its scratch files, breadcrumbs.md and mail all survive, and it is told to read them to pick up where it left off.`
               : '')}
           confirmLabel={midTurn
-            ? `queue the switch to ${model}`
-            : `switch to ${model} and reset the conversation`}
+            ? `queue the switch to ${tierLabel(model)}`
+            : `switch to ${tierLabel(model)} and reset the conversation`}
           onConfirm={doSave}
           close={() => setAsking(null)} />
       )}

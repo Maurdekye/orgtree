@@ -1837,7 +1837,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               replaced (then it names the new target). */}
           {node.pending_switch &&
             <span className="badge queued" title={queuedSwitchTitle(node)}>
-              → {node.pending_switch.tier} next turn</span>}
+              → {tierLabel(node.pending_switch.tier)} next turn</span>}
           {node.pending_account &&
             <span className="badge queued" title={queuedAccountTitle(node)}>
               account → next turn</span>}
