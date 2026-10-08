@@ -1005,22 +1005,32 @@ pub async fn credit_decide(engine: &Arc<Engine>, org: &Arc<OrgHandle>, body: &Va
     let Some(c) = open.parts.credit.clone() else { refuse!(Conflict, "that request asks for no credits") };
     let asked = c["new"].as_f64().unwrap_or(0.0);
     let granted = credit_total(body["granted"].as_f64().unwrap_or(asked))?;
-    let mut warnings = Vec::new();
-    if action != "deny" {
-        let held: f64 = tx
-            .query_one(
-                "SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c JOIN ot.agents a ON a.id = c.parent_id
-                  WHERE a.org_id = $1 AND a.name = $2 AND c.state = 'live'",
-                &[&org.id, &open.agent],
-            )
-            .await?
-            .get(0);
-        if granted < held {
-            warnings.push(format!("{} holds {held:.2} credits for its reports; a grant below that strands them", open.agent));
-        }
-    }
+    let warnings: Vec<String> = Vec::new();
     if dry {
+        // As 3.x's preview did: an approval the commit would refuse (past the
+        // top-level cap, or below what the agent's reports hold) says so up
+        // front, rather than warning of stranded reports it never strands.
+        let r = tx
+            .query_one(
+                "SELECT a.grant_credits::float8, a.parent_id IS NULL, o.settings,
+                        (SELECT coalesce(sum(c.seat + c.grant_credits), 0)::float8 FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live')
+                   FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
+                &[&open.agent_id],
+            )
+            .await?;
         tx.rollback().await?;
+        let (now, top, held): (f64, bool, f64) = (r.get(0), r.get(1), r.get(3));
+        let cap = crate::feed::groups::effective_settings(&r.get::<_, Value>(2), &engine.settings.defaults())["max_top_grant"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .trunc();
+        if action != "deny" && granted > now && top && cap > 0.0 && granted > cap {
+            return Ok(json!({ "ok": false, "warnings": [format!("{granted} is past the top-level grant cap of {cap}")] }));
+        }
+        if action != "deny" && granted < now && now - held < now - granted {
+            return Ok(json!({ "ok": false, "warnings": [
+                format!("{} has only {} unused; the rest is committed", open.agent, crate::util::round2(now - held))] }));
+        }
         return Ok(json!({ "ok": true, "warnings": warnings }));
     }
     let text;
