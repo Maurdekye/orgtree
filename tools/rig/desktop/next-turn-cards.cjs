@@ -32,6 +32,14 @@ module.exports=async(page,{args})=>{
  }
  await page.waitFor(card+' .sq-badges');
  const zoomCard=await check();
+ const overflow=await page.eval(()=>{
+  const card=document.querySelector('[data-first-use-agent="rhea"]');
+  const bounds=card.getBoundingClientRect();
+  return [...card.querySelectorAll('[data-next-turn], .sq-badges .badge, .sq-title .name')]
+   .filter(e=>{const r=e.getBoundingClientRect();return r.right>bounds.right+1||r.bottom>bounds.bottom+1;})
+   .map(e=>e.textContent);
+ });
+ if(overflow.length)throw Error('card content overflows: '+JSON.stringify(overflow));
  await page.screenshot(args.stage+'-zoom-card');
  let pinned=null;
  if(args.stage==='queued'){
