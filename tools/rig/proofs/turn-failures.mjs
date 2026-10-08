@@ -1,12 +1,16 @@
 // Proof: what happens after a turn fails (3.x parity).
 //   kim:   a Codex turn stopped by a usage limit is frozen with its request
-//          kept; the automatic wake at the reset gives the request again.
+//          kept; the automatic wake at the reset gives the request again,
+//          with no weekly-Fable notice to anyone (that is the org-wide
+//          Fable halt's).
 //   hana:  the same, released by hand (orgtree_unstick).
 //   ivy:   (Codex) consecutive failed turns are reported to the superior
 //          once; a completed turn makes the next failure news again. (A
 //          turn that failed before any output gives its mail back, so the
 //          next turn carries it too: the plain turn is told not to fail.)
 //   carol: (Claude) the same rule on the Claude lane.
+//   lee:   turns the idle limit kills count as failures: two in a row, the
+//          superior is told once.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-failures.mjs
 
 import { Proof } from '../proof.mjs'
@@ -31,12 +35,13 @@ export default async function (rig) {
         { text: 'Trying.' },
         { result: { is_error: true, text: 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}' } },
       ] }] },
+      lee: { turns: [{ name: 'stuck', match: 'PROOF-HANG', steps: [{ text: 'Thinking it over.' }, { hang: true }] }] },
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   rig.scenario(scenario(Math.floor(Date.now() / 1000) + 7200))
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
-  for (const name of ['kim', 'hana', 'ivy']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
+  for (const name of ['kim', 'hana', 'ivy', 'lee']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
   const log = (agent, kind) => rig.fakeLog(agent).filter(l => !kind || l.kind === kind)
   const boss = rig.agentRow('boss').id
   const reports = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${boss} AND sender = '@system'
@@ -87,6 +92,22 @@ export default async function (rig) {
   p.check('carol (Claude lane): two failed turns in a row, her superior is told once', reports('carol') === 1 && ct.every(t => t.error),
     { reports: reports('carol'), errors: ct.map(t => String(t.error).slice(0, 60)) })
 
+  // ---------------------------------------------------------------- lee: killed by the idle limit
+  await rig.api('PUT', '/api/app-settings/runtime', { turn_idle_s: 5 })
+  try {
+    for (const n of [1, 2]) {
+      await rig.userMail('lee', `PROOF-HANG ${n}: think it over.`)
+      await rig.waitTurns('lee', n, { timeout: 60000 })
+    }
+  } finally {
+    await rig.api('PUT', '/api/app-settings/runtime', { turn_idle_s: 600 })
+  }
+  await new Promise(r => setTimeout(r, 1500))
+  const lt = rig.turns('lee')
+  p.check('lee: two turns killed by the idle limit, his superior is told once', reports('lee') === 1
+    && lt.length === 2 && lt.every(t => t.killed && /produced nothing for too long/.test(t.error ?? '')),
+    { reports: reports('lee'), turns: lt.map(t => ({ killed: t.killed, error: t.error })) })
+
   // ---------------------------------------------------------------- kim: the wake
   const kr = await rig.waitFor(() => log('kim', 'turn')[1], { what: 'kim\'s automatic wake', timeout: 150000, every: 1000 })
   const woke = (Date.now() / 1000) - resetSoon
@@ -95,7 +116,11 @@ export default async function (rig) {
     { after_reset_s: Math.round(woke), prompt: String(kr.prompt).slice(-500) })
   const kt = await rig.waitTurns('kim', 2)
   p.check('kim: the replayed turn completed and the freeze is gone', !kt[1].error && !rig.agentRow('kim').frozen, kt[1].error)
+  const fable = rig.sql(`SELECT recipient_name AS "to", left(body, 90) AS body FROM ot.mail
+    WHERE ev->>'variant' = 'policy.limit_reset' OR body LIKE '%weekly-Fable%' OR body LIKE '%weekly Fable%'`)
+  p.check('kim: no weekly-Fable notice for a usage-limit reset (not to kim, her superior or her peers)',
+    fable.length === 0 && !/weekly Fable/i.test(kr.prompt), fable)
 
-  p.keep(rig, { agents: ['kim', 'hana', 'ivy', 'carol'], grep: /freeze|thaw|wake|hard_fail/ })
+  p.keep(rig, { agents: ['kim', 'hana', 'ivy', 'carol', 'lee'], grep: /freeze|thaw|wake|hard_fail|ending turn/ })
   return p.summary()
 }
