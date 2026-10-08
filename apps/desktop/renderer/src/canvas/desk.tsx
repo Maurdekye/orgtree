@@ -3779,7 +3779,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               ? 'reply-event' : 'msg live ' + (row.kind === 'error' ? 'desk-error' : row.role === 'user' ? 'user' : 'assistant')}>
             {['thinking', 'thinking_start', 'thought'].includes(row.kind)
               ? (row.event_id === convo.thinkingEventId && thinking || row.text
-                ? <div className="msg live thinking">{row.event_id === convo.thinkingEventId && thinking ? thinking : row.text}</div>
+                ? <div className="msg live thinking md" dangerouslySetInnerHTML={md(row.event_id === convo.thinkingEventId && thinking ? thinking : row.text, undefined, false, true)} />
                 : <div className="msg live thinking sealed"><PsychologyIcon fontSize="inherit" />{' '}thinking…
                     {thinkSecs !== null && thinkSecs > 0 ? ` for ${thinkSecs}s` : ''}</div>)
               // render-inline-html-custom-responses: these transient rows are
@@ -3798,7 +3798,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           {thinkingMark && <div className="reply-event"
             data-reply-event={convo.thinkingEventId ?? ''} data-reply-quote={convo.thinkingReplyQuote} onContextMenu={e => openReply(e, { event_id: convo.thinkingEventId })}>{(thinking
             // haiku streams its reasoning: the text IS the indicator
-            ? <div className="msg live thinking">{thinking}</div>
+            ? <div className="msg live thinking md" dangerouslySetInnerHTML={md(thinking, undefined, false, true)} />
             // opus/sonnet seal it: nothing to show but the fact and the clock,
             // which beats the blank panel this replaces
             : <div className="msg live thinking sealed">
@@ -4865,7 +4865,7 @@ function ThoughtLine({ text, secs, sealed, foldKey }:
         <PsychologyIcon fontSize="inherit" />
         {' '}thought for {dur} {open ? '▾' : '▸'}
       </button>
-      {open && <div className="thoughtbody">{text}</div>}
+      {open && <div className="thoughtbody md" dangerouslySetInnerHTML={md(text)} />}
     </div>
   )
 }

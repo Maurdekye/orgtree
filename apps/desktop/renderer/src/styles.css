@@ -5607,9 +5607,11 @@ svg.MuiSvgIcon-root {
 .thoughtbody {
   color: var(--dim); font-style: italic; font-size: 12px; line-height: 1.45;
   border-left: 2px solid var(--line); padding: 4px 10px; margin: 4px 0 6px;
-  white-space: pre-wrap; overflow-wrap: anywhere;
+  overflow-wrap: anywhere;
   max-height: 320px; overflow-y: auto;
 }
+/* thoughts are markdown now; a plain thought's single newlines still break */
+.thoughtbody p, .msg.thinking p { white-space: pre-wrap; }
 /* org-change notices reuse the collapse shape but are FACTS, not musings —
    upright rather than italic so they never read as the agent thinking */
 .noticeline, .noticebody { font-style: normal; }

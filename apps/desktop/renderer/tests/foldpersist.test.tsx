@@ -66,7 +66,7 @@ const chip = (m: Mounted, arg: string) =>
 const shownResults = (m: Mounted) =>
   [...m.el.querySelectorAll('.respre')].map(p => p.textContent ?? '')
 const shownThoughts = (m: Mounted) =>
-  [...m.el.querySelectorAll('.thoughtbody')].map(p => p.textContent ?? '')
+  [...m.el.querySelectorAll('.thoughtbody')].map(p => (p.textContent ?? '').trim())
 const shownSummaries = (m: Mounted) =>
   [...m.el.querySelectorAll('.msg.sys .filepre')].map(p => p.textContent ?? '')
 
@@ -150,6 +150,28 @@ test('§2 an open THOUGHT survives the same re-key', async () => {
       thinking_event_id: 'th-1', think_secs: 3 }
     await m.poll()
     assert.deepEqual(shownThoughts(m), ['THE-REASONING'], 'the thought re-folded itself')
+  } finally { await m.unmount() }
+})
+
+test('§2a markdown in a thought renders, plain text stays plain', async () => {
+  const m = await desk([
+    { role: 'assistant', text: 'done', seq: 0, assistant_id: 'as-1',
+      assistant_revision: 1, assistant_state: 'partial', assistant_pending: true,
+      assistant_scope: 'turn', thinking: '**Checking command location**\n\n- one\n- two',
+      thinking_event_id: 'th-md', think_secs: 2 },
+    { role: 'assistant', text: 'ok', seq: 1, assistant_id: 'as-2',
+      assistant_revision: 1, assistant_state: 'partial', assistant_pending: true,
+      assistant_scope: 'turn', thinking: 'just plain words', thinking_event_id: 'th-pl',
+      think_secs: 1 },
+  ])
+  try {
+    for (const l of [...m.el.querySelectorAll('.thoughtline')]) await click(l, 'a thought line')
+    const bodies = [...m.el.querySelectorAll('.thoughtbody')]
+    assert.equal(bodies[0]!.querySelector('strong')?.textContent, 'Checking command location')
+    assert.equal(bodies[0]!.querySelectorAll('li').length, 2)
+    assert.equal(bodies[0]!.textContent!.includes('**'), false)
+    assert.equal(bodies[1]!.textContent!.trim(), 'just plain words')
+    assert.equal(bodies[1]!.querySelector('strong'), null)
   } finally { await m.unmount() }
 })
 
