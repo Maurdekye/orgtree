@@ -79,6 +79,13 @@ async fn attachment_limit_at(address: &str) -> AttachmentLimit {
 
 #[logged]
 pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Result<AttachmentLimit> {
+    // Debug rig uses canned health documents, never a real hub or identity.
+    #[cfg(debug_assertions)]
+    if crate::rig::active() {
+        let health = std::fs::read(engine.cfg.path("rig-hub-limits.json"))
+            .ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
+        return Ok(AttachmentLimit::from_health(&health[peer]));
+    }
     if offline() { return Ok(AttachmentLimit::from_health(&Value::Null)); }
     let parts = participants(engine).await?;
     let Some(p) = parts.iter().find(|p| p.org_id == org_id) else { crate::refuse!(BadRequest, "no mail hub is configured for this organization"); };
