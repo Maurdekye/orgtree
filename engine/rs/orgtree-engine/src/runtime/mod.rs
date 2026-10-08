@@ -321,6 +321,7 @@ pub async fn recover(engine: &Arc<Engine>) {
     let interrupted = client
         .query(
             "UPDATE ot.agents SET inflight_at = NULL WHERE inflight_at IS NOT NULL AND state = 'live'
+                AND org_id IN (SELECT id FROM ot.orgs WHERE state = 'active')
              RETURNING id, org_id, name",
             &[],
         )
@@ -335,7 +336,7 @@ pub async fn recover(engine: &Arc<Engine>) {
     // A passive build notice also reaches idle seats, without waking them.
     let mut after=0_i64;
     loop {
-        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND id>$1 ORDER BY id LIMIT 200", &[&after]).await {
+        let rows=match client.query("SELECT id,org_id FROM ot.agents WHERE state='live' AND id>$1 AND org_id IN (SELECT id FROM ot.orgs WHERE state='active') ORDER BY id LIMIT 200", &[&after]).await {
             Ok(rows)=>rows, Err(e)=>{ tracing::warn!(error=%e,"restart notice page failed"); break; }
         };
         if rows.is_empty(){break;}
