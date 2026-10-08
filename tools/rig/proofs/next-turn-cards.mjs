@@ -20,8 +20,8 @@ export default async function(rig) {
  rig.scenario({agents:{rhea:{turns:[{match:'LONG',steps:[{text:'Working while changes wait.'},{sleep_ms:600000}]}]}},default:{turns:[{steps:[{text:'OK.'}]}]}});
  await rig.userMail('rhea','LONG work');
  await rig.waitFor(()=>rig.fakeLog('rhea').some(x=>x.kind==='turn'&&JSON.stringify(x).includes('LONG'))||rig.sql("SELECT 1 FROM ot.turns WHERE ended_at IS NULL").length>0,{what:'long turn',timeout:30000});
- const capture=async(stage,account)=>{
-  const result=await runDesktop(rig,path.join(here,'../desktop/next-turn-cards.cjs'),{args:{stage,current,target:account},out:path.join(evidence,stage),timeout:60000});
+ const capture=async(stage,account,model='sol')=>{
+  const result=await runDesktop(rig,path.join(here,'../desktop/next-turn-cards.cjs'),{args:{stage,current,target:account,model},out:path.join(evidence,stage),timeout:60000});
   if(!result.ok)throw Error(JSON.stringify(result));
   return result.value;
  };
@@ -41,5 +41,9 @@ export default async function(rig) {
  await rig.op({op:'switch_model',node:'rhea',tier:'sol'});
  await rig.op({op:'retool',node:'rhea',effort:'high'});
  const retool=await capture('retool',target);
- return {ok:true,evidence,current,target,before,queued,ambient,cancelled,retool};
+ await rig.op({op:'account',node:'rhea',account:'primary'});
+ await rig.api('PUT','/api/app-settings/runtime',{antigravity_claude_enabled:true});
+ await rig.op({op:'switch_model',node:'rhea',tier:'agy-sonnet',account:'primary'});
+ const longLabel=await capture('long-label','default','sonnet (antigravity)');
+ return {ok:true,evidence,current,target,before,queued,ambient,cancelled,retool,longLabel};
 }

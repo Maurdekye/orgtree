@@ -10,7 +10,7 @@ module.exports=async(page,{args})=>{
  const check=async()=>{
   const badges=await page.eval(read);
   if(args.target){
-   for(const [kind,next,from] of [['account',args.target,args.current],['model','sol','luna'],['effort','high','medium']]){
+   for(const [kind,next,from] of [['account',args.target,args.current],['model',args.model||'sol','luna'],['effort','high','medium']]){
     const b=badges.find(b=>b.kind===kind);
     if(!b||b.text!==`next turn \u2192 ${next}`||b.title!==`rhea's ${kind} will change from ${from} to ${next} next turn`)throw Error(JSON.stringify({kind,next,b,badges}));
    }
