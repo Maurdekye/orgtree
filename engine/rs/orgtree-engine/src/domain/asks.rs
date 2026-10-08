@@ -551,6 +551,13 @@ fn item_key(item: &Value) -> String {
 #[logged]
 async fn held_scope(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Value> {
     let client = engine.db.get().await?;
+    held_scope_in(&**client, engine, org_id, agent_id).await
+}
+
+/// The agent's effective scope as `client` sees it (inside a transaction:
+/// with that transaction's own changes).
+#[logged]
+async fn held_scope_in(client: &impl tokio_postgres::GenericClient, engine: &Engine, org_id: i64, agent_id: i64) -> Result<Value> {
     let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
     let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
     let rows = client.query(
@@ -569,6 +576,24 @@ async fn held_scope(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Value
         effective = scope::clamp(&row.get::<_, Value>(0), &effective);
     }
     Ok(effective)
+}
+
+/// What the agent actually holds for this item, as a comparable label (3.x
+/// `_scope_item_state`): a clamp meets rather than annihilates, so a
+/// read-write folder can land read-only.
+#[logged]
+fn item_state(held: &Value, item: &Value) -> String {
+    let path = item["path"].as_str().unwrap_or("");
+    match item["kind"].as_str() {
+        Some("dir") => held["add_dirs"]
+            .as_array()
+            .and_then(|dirs| dirs.iter().find(|d| d["path"] == item["path"]))
+            .map(|d| format!("{path} ({})", d["mode"].as_str().unwrap_or("rw")))
+            .unwrap_or_else(|| "nothing".into()),
+        Some("tool") | Some("mcp") if holds_item(held, item) => item_label(item),
+        Some("tool") | Some("mcp") => "nothing".into(),
+        _ => format!("permission mode {}", held["permission_mode"].as_str().unwrap_or("acceptEdits")),
+    }
 }
 
 #[logged]
@@ -1111,32 +1136,47 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
     // scope items, decided one by one
     let items: Vec<Value> = open.parts.scope.as_ref().and_then(|s| s["items"].as_array().cloned()).unwrap_or_default();
     if !items.is_empty() {
-        let decisions = body["scope"].as_array().cloned().unwrap_or_default();
-        let mut approved = Vec::new();
-        let mut decided = Vec::new();
-        let mut lines = vec![json!("[SCOPE REQUEST decided]")];
-        for (i, it) in items.iter().enumerate() {
-            let d = decisions[i].as_str().unwrap().trim();
-            sections.push(format!("{}: {}", item_label(it), match d {
-                "approve" => "granted",
-                "deny" => "denied",
-                _ => "not decided",
-            }));
-            decided_any |= d != "skip";
-            decided.push(json!({ "label": item_label(it), "decision": d }));
-            lines.push(json!(format!("- {} → {}", item_label(it), match d {
-                "approve" => "GRANTED — live from your next turn",
-                "deny" => "denied",
-                _ => "skipped (undecided — you may re-ask)",
-            })));
-            if d == "approve" {
-                approved.push(it.clone());
-            }
-        }
-        cards.push(json!({ "kind": "scope", "decisions": decided, "lines": lines }));
+        let decisions: Vec<String> = body["scope"].as_array().into_iter().flatten()
+            .map(|d| d.as_str().unwrap_or("").trim().to_string()).collect();
+        let approved: Vec<Value> = items.iter().zip(&decisions).filter(|(_, d)| *d == "approve").map(|(it, _)| it.clone()).collect();
+        // As in 3.x the verdict is measured, not assumed: the organization's
+        // folders cap every grant, so an approved item may land short of the
+        // request (a read-only folder) or not at all. Compare what the agent
+        // holds before and after the grant, inside this transaction.
+        let before = held_scope_in(&*tx, engine, org.id, open.agent_id).await?;
         if !approved.is_empty() {
             fx.scope = Some(apply_scope(org, &tx, &open.agent, &approved).await?);
         }
+        let after = held_scope_in(&*tx, engine, org.id, open.agent_id).await?;
+        let mut decided = Vec::new();
+        let mut lines = vec![json!("[SCOPE REQUEST decided]")];
+        for (it, d) in items.iter().zip(&decisions) {
+            decided_any |= d != "skip";
+            let (decision, verdict, summary) = match d.as_str() {
+                "approve" if holds_item(&after, it) => ("approve".to_string(), "GRANTED — live from your next turn".to_string(), "granted".to_string()),
+                "approve" if item_state(&after, it) == item_state(&before, it) => (
+                    "approve (clamped — not in effect)".to_string(),
+                    "approved by the user, but it was CLAMPED — NOT in effect: the organization's settings (its folders) do not allow it"
+                        .to_string(),
+                    "approved, but clamped: not in effect".to_string(),
+                ),
+                "approve" => {
+                    let now = item_state(&after, it);
+                    (
+                        "approve (partial)".to_string(),
+                        format!("approved by the user, then PARTIALLY clamped — you now hold {now}, which is real and live from your next \
+                                 turn, but less than you asked for"),
+                        format!("approved, partially clamped: you now hold {now}"),
+                    )
+                }
+                "deny" => ("deny".to_string(), "denied".to_string(), "denied".to_string()),
+                _ => ("skip".to_string(), "skipped (undecided — you may re-ask)".to_string(), "not decided".to_string()),
+            };
+            sections.push(format!("{}: {summary}", item_label(it)));
+            decided.push(json!({ "label": item_label(it), "decision": decision }));
+            lines.push(json!(format!("- {} → {verdict}", item_label(it))));
+        }
+        cards.push(json!({ "kind": "scope", "decisions": decided, "lines": lines }));
     }
     let text = format!("The user resolved your request:\n\n{}", sections.join("\n\n"));
     let ev = crate::events::answer_batch(&org.slug, &open.uid, &open.agent, cards);
