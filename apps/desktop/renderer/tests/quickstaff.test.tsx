@@ -411,6 +411,8 @@ test('real docket rows load Staff only for backlog and submit the previewed sele
 })
 
 
+// Rows are labelled as the hire flow labels them (tierLabel): an OpenRouter tier
+// without a registry entry reads as its slug minus `or-`; the tier SENT stays raw.
 test('every rendered row is selectable, in Request and in Direct alike', async t => {
   // ⚠ REWRITTEN FOR THE OMISSION RULE (2026-09-15). This used to assert that
   // Direct DREW its unstaffable rows greyed out; the payload no longer carries
@@ -431,17 +433,30 @@ test('every rendered row is selectable, in Request and in Direct alike', async t
     const view = await mountView(<Fixture entries={[menu]} />, h => h)
     try {
       await open(); await key(named('Staff…'), 'ArrowRight')
-      assert.ok(named('haiku')); assert.ok(named('or-vendor-live'))
+      assert.ok(named('haiku')); assert.ok(named('vendor-live'))
       // the tier the backend withheld is nowhere, in either mode
-      assert.equal(named('or-vendor-history'), undefined)
+      assert.equal(named('vendor-history'), undefined)
       // the MODEL rows specifically: the Staff… root is legitimately
       // non-actionable in Direct, and always was
-      assert.deepEqual(['haiku', 'or-vendor-live'].map(n => named(n).getAttribute('aria-disabled')),
+      assert.deepEqual(['haiku', 'vendor-live'].map(n => named(n).getAttribute('aria-disabled')),
                        [null, null])
-      await inAct(() => { named('or-vendor-live').click() }); await flush()
+      await inAct(() => { named('vendor-live').click() }); await flush()
       assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
     } finally { await view.unmount() }
   }
+})
+
+test('Antigravity Claude tiers are labelled as the hire flow labels them', async t => {
+  captureFetch(t)
+  const p = preview()
+  p.models = [{ tier: 'agy-sonnet', seat: 1, efforts: [] }, { tier: 'agy-opus', seat: 2, efforts: [] }]
+  const entry = quickStaffEntry('org', 'agy-labels', p, () => {})
+  const view = await mountView(<Fixture entries={[entry]} />, h => h)
+  try {
+    await open(); await key(named('Staff…'), 'ArrowRight')
+    assert.ok(named('sonnet (antigravity)')); assert.ok(named('opus (antigravity)'))
+    assert.equal(named('agy-sonnet'), undefined)
+  } finally { await view.unmount() }
 })
 
 test('OpenRouter quick staffing exposes all standard efforts and forwards the choice', async t => {
@@ -453,8 +468,8 @@ test('OpenRouter quick staffing exposes all standard efforts and forwards the ch
   const view = await mountView(<Fixture entries={[entry]} />, h => h)
   try {
     await open(); await key(named('Staff\u2026'), 'ArrowRight')
-    await hover('or-vendor-live')
-    assert.deepEqual(rowsUnder('or-vendor-live'), ['low', 'medium', 'high', 'xhigh', 'max'])
+    await hover('vendor-live')
+    assert.deepEqual(rowsUnder('vendor-live'), ['low', 'medium', 'high', 'xhigh', 'max'])
     await inAct(() => { named('max').click() }); await flush()
     assert.equal(sent.at(-1)!.tier, 'or-vendor-live')
     assert.equal(sent.at(-1)!.effort, 'max')
