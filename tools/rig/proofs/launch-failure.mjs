@@ -49,7 +49,7 @@ export default async function (rig) {
 
   // ---- lu: a refused turn/start
   await rig.userMail('lu', 'REFUSE one: please work.')
-  await rig.waitFor(() => refusals('lu') >= 1 && /overloaded/.test(runOf('lu')?.last_error ?? ''), { what: 'lu\'s first refusal' })
+  await rig.waitFor(() => refusals('lu') >= 1 && runOf('lu')?.last_error, { what: 'lu\'s first refusal' })
   await rig.waitFor(() => stalled(toAgent('boss', 'runtime.report_stalled'), 'lu').length >= 1, { what: 'the first announcement', timeout: 20000 }).catch(() => null)
   const r1 = runOf('lu')
   p.check('lu: its last error carries the refusal', /did not accept the turn: .*overloaded/.test(r1?.last_error ?? ''), r1?.last_error)
