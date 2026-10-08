@@ -292,6 +292,9 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
 /// (3.x stored `events.render_agent(ev)`), so the desk shows what was sent.
 #[logged]
 async fn send(engine: &Arc<Engine>, org_id: i64, to: &str, ev: Value) -> Result<()> {
+    if let Some(pause) = crate::rig::reminder_pause() {
+        tokio::time::sleep(pause).await;
+    }
     let body = crate::runtime::event_text::render_agent(&ev).ok_or_else(|| anyhow::anyhow!("the reminder event has no text"))?;
     let mut out = Outgoing::new(From::System, to, &body);
     out.kind = "system".into();

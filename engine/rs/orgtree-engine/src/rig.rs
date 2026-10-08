@@ -108,6 +108,18 @@ pub fn reminder_sweep_s() -> Option<u64> {
     Some(every.filter(|n| (1..=60).contains(n)).unwrap_or(60))
 }
 
+/// A rig run's pause between an automatic wake's reservation and its mail
+/// (`ORGTREE_RIG_REMINDER_PAUSE_MS`, up to 30 s), so a proof can put real
+/// work in the window a lost idle race needs. None outside rig mode.
+#[logged]
+pub fn reminder_pause() -> Option<std::time::Duration> {
+    if reminder_sweep_s().is_none() {
+        return None;
+    }
+    let ms = std::env::var("ORGTREE_RIG_REMINDER_PAUSE_MS").ok().and_then(|s| s.trim().parse::<u64>().ok())?;
+    Some(std::time::Duration::from_millis(ms.min(30_000)))
+}
+
 /// Every home-folder lookup: the rig's fake home in rig mode, else the
 /// user's profile folder.
 #[logged]
