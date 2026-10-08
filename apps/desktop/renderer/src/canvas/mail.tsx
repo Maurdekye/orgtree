@@ -1906,7 +1906,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
           <input ref={fileRef} type="file" multiple hidden
             onChange={(e) => {
               for (const f of [...(e.target.files ?? [])].slice(0, 10)) {
-                orgInboxUpload(slug, f)
+                orgInboxUpload(slug, f, dests)
                   .then((r) => setStaged((s) => [...s, { id: r.id, name: r.name }]))
                   .catch((err: Error) => toast([`upload failed: ${err.message}`]))
               }

@@ -1059,12 +1059,19 @@ export const orgInboxSend = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ to, body, attachments }),
   })
-export const orgInboxUpload = (
-  slug: string, file: File,
-): Promise<{ id: string; name: string; bytes: number }> =>
-  req(`/api/orgs/${slug}/org_inbox/upload?name=${encodeURIComponent(file.name)}`, {
+export const orgInboxUpload = async (
+  slug: string, file: File, recipients: string[] = [],
+): Promise<{ id: string; name: string; bytes: number }> => {
+  const limits = await Promise.all((recipients.length ? recipients : ['']).map(async to => ({
+    to, ...await req<{ max_attachment_bytes: number; too_large: string }>(
+      `/api/orgs/${slug}/org_inbox/upload_limit?to=${encodeURIComponent(to)}`),
+  })))
+  const limit = limits.reduce((a, b) => a.max_attachment_bytes <= b.max_attachment_bytes ? a : b)
+  if (file.size > limit.max_attachment_bytes) throw Error(limit.too_large)
+  return req(`/api/orgs/${slug}/org_inbox/upload?name=${encodeURIComponent(file.name)}&to=${encodeURIComponent(limit.to)}`, {
     method: 'POST', body: file,
   })
+}
 // F-06: the network-identity reveal — loopback admin only; the ONE call that
 // returns the org secret (the settings panel's reveal/export)
 export const getOrgNet = (slug: string): Promise<OrgNetReveal> =>

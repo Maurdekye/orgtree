@@ -24,6 +24,7 @@ export interface HubHosting {
   name: string
   retention_days: number | null
   org_retention_days: number
+  max_attachment_bytes?: number
   public_listener: boolean
   public_listener_port: number
   status: { running: boolean; healthy: boolean; address: string; exposed: boolean;
@@ -42,6 +43,7 @@ export const readHosting = (value: HubHosting): HubHosting => {
   return {
     version: 2, port: value.port, bind: value.bind, name: value.name,
     retention_days: value.retention_days, org_retention_days: value.org_retention_days,
+    max_attachment_bytes: value.max_attachment_bytes ?? 1024 ** 3,
     public_listener: value.public_listener, public_listener_port: value.public_listener_port,
     status: value.status, error: value.error, migrated: value.migrated,
     data_migration: value.data_migration,
@@ -101,14 +103,19 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
         const next = readHosting(await req<HubHosting>(route, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ version: 2, port: config.port, bind: config.bind,
             name: config.name.trim(), retention_days: config.retention_days,
+            max_attachment_bytes: config.max_attachment_bytes,
             public_listener: config.public_listener }) }))
-        setConfig(next); setSaved('Hosting settings saved. The hub restarted with them.')
+        setConfig(next); setSaved('Hosting settings saved.')
       } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
     }}>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
         <label>Hub name<input aria-label="Mail hub name" value={config.name} placeholder="this computer's name"
           onChange={e => setConfig({ ...config, name: e.target.value })} /></label>
         <p className="dim">Shown to everyone who connects, and on the hub's own mail page.</p>
+        <label>Maximum attachment size (MiB)<input aria-label="Maximum attachment size (MiB)" type="number" min="1" step="1" required
+          value={(config.max_attachment_bytes ?? 1024 ** 3) / 1024 ** 2}
+          onChange={e => setConfig({ ...config, max_attachment_bytes: Number(e.target.value) * 1024 ** 2 })} /></label>
+        <p className="dim">Defaults to 1024 MiB (1 GB). Changing only this limit applies to new uploads immediately, without restarting the hub.</p>
         <label>Port<input aria-label="Mail hub port" type="number" min="1" max="65535" required value={config.port}
           onChange={e => setConfig({ ...config, port: Number(e.target.value) })} /></label>
         <label>Listen on<select aria-label="Mail hub listen interface" value={config.bind}
