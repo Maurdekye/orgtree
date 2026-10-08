@@ -925,8 +925,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const accMode = val('accMode',
     srvAcc == null ? '' : srvAcc.enabled ? 'on' : 'off')
   const setAccMode = set<string>('accMode', accMode)
+  // an agent without its own occupancy inherits the org's (25% unless the
+  // org sets one), so that is what the field starts at
   const accOcc = val<number | string>('accOcc',
-    Math.round((srvAcc?.occ ?? 0.5) * 100))
+    Math.round((srvAcc?.occ ?? tree.auto_cheap_compact?.occ ?? 0.25) * 100))
   const setAccOcc = set('accOcc', accOcc)
   // D-106: who this pending grant would raise, recomputed as the form changes
   const cascade = useMemo(
@@ -995,7 +997,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     charter, team_charter: teamCharter, effort,
     auto_cheap_compact: accMode === '' ? {}
       : { enabled: accMode === 'on',
-          occ: (+accOcc || 50) / 100 },
+          occ: (+accOcc || 25) / 100 },
     model_version: versions.includes(modelVersion)
       ? modelVersion : '',
     ...fallbackPayload }

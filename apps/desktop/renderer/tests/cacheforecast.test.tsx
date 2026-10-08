@@ -526,7 +526,7 @@ test('the mid-turn warning is gated on measured context by the compactor policy'
       <CacheForecastWarning {...armed} cheapCompactOn={false}
         cheapCompactOcc={null} contextRatio={0.1} />, false],
     // compactor ON: the node's OWN threshold, inclusive (the destructive
-    // gate's minimum) — not the 25% floor, and not a hard-coded 50%
+    // gate's minimum) — not the 25% floor, and not the hard-coded default
     ['on, threshold 0.5, 49% → shut',
       <CacheForecastWarning {...armed} cheapCompactOn
         cheapCompactOcc={0.5} contextRatio={0.49} />, false],
@@ -539,12 +539,12 @@ test('the mid-turn warning is gated on measured context by the compactor policy'
     ['on, threshold 0.9, 95% → open',
       <CacheForecastWarning {...armed} cheapCompactOn
         cheapCompactOcc={0.9} contextRatio={0.95} />, true],
-    ['on, threshold unreported → the compactor default 0.5 (49% shut)',
+    ['on, threshold unreported → the compactor default 0.25 (24% shut)',
       <CacheForecastWarning {...armed} cheapCompactOn
-        cheapCompactOcc={undefined} contextRatio={0.49} />, false],
-    ['on, threshold unreported → the compactor default 0.5 (50% open)',
+        cheapCompactOcc={undefined} contextRatio={0.24} />, false],
+    ['on, threshold unreported → the compactor default 0.25 (25% open)',
       <CacheForecastWarning {...armed} cheapCompactOn
-        cheapCompactOcc={undefined} contextRatio={0.5} />, true],
+        cheapCompactOcc={undefined} contextRatio={0.25} />, true],
     // compactor UNREPORTED (older backend): the 25% floor, the lower bar
     ['unreported, 20% → shut',
       <CacheForecastWarning {...armed} cheapCompactOn={undefined}

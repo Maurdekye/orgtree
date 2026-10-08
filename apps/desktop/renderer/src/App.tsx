@@ -2875,8 +2875,10 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const acc = tree.auto_cheap_compact ?? null
   const accOn = val('accOn', !!acc?.enabled)
   const setAccOn = set('accOn', accOn)
+  // the engine reports the effective value; 25% is its default (user
+  // 2026-10-08), the fallback for an engine that reports none
   const accOcc = val<number | string>('accOcc',
-    Math.round(((acc?.occ ?? 0.5) as number) * 100))
+    Math.round(((acc?.occ ?? 0.25) as number) * 100))
   const setAccOcc = set('accOcc', accOcc)
   // ── the Hire defaults tab (user 2026-09-11, was the eye's ⚙ modal).
   // ⚠ EVERY KEY HERE IS PREFIXED `hire.`, and that prefix is load-bearing:
@@ -3141,7 +3143,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
                   cascade_alloc: cascadeAlloc,
                   org_inbox_multi_holder: multiHolder,
                   auto_cheap_compact: { enabled: accOn,
-                    occ: (+accOcc || 50) / 100 },
+                    occ: (+accOcc || 25) / 100 },
                   // Hire defaults' ADMIN half, unchanged from the ⚙ panel:
                   // the org's folder holdings and the born-with permission
                   // mode ride /settings. Only

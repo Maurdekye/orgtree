@@ -1429,13 +1429,13 @@ export function CacheForecastMark({ forecast, busy }: {
  *
  * Compactor ON without a reported threshold cannot come from a backend that
  * emits `cheap_compact_on` at all — api.py sets both fields from one config
- * read — so the 0.5 there is `_auto_cheap_cfg`'s own default, not a guess.
- * An UNREPORTED compactor (older backend) gets the 25% floor: it is the lower
- * of the two bars, and both policies agree nothing shows beneath it. */
+ * read — so the 0.25 there is the engine's own default (25%, user
+ * 2026-10-08; 3.x's was 50%), not a guess. An UNREPORTED compactor (older
+ * backend) gets the 25% floor: both policies agree nothing shows beneath it. */
 const steerWarningGateOpen = (ratio: number | null, on: boolean | undefined,
   occ: number | null | undefined): boolean => {
   if (ratio == null || !Number.isFinite(ratio)) return false
-  if (on === true) return ratio >= (typeof occ === 'number' ? occ : 0.5)
+  if (on === true) return ratio >= (typeof occ === 'number' ? occ : 0.25)
   return ratio > 0.25
 }
 
