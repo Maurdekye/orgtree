@@ -303,7 +303,12 @@ async fn copy_sections(
         .query("SELECT path, mode FROM orgtree.org_dirs ORDER BY ord", &[])
         .await?
         .iter()
-        .map(|r| json!({ "path": r.get::<_, String>(0), "mode": r.get::<_, Option<String>>(1).unwrap_or_else(|| "rw".into()) }))
+        // a row without a path names no folder (and reading its NULL as a
+        // String would panic the engine at every start)
+        .filter_map(|r| {
+            let path = r.get::<_, Option<String>>(0)?;
+            Some(json!({ "path": path, "mode": r.get::<_, Option<String>>(1).unwrap_or_else(|| "rw".into()) }))
+        })
         .collect();
     let mut settings = Map::new();
     let mut put = |k: &str, v: Value| {
@@ -630,7 +635,7 @@ async fn copy_sections(
                     answer_mail, extra,
                     (SELECT coalesce(json_agg(json_build_object('label', o.label, 'description', o.description) ORDER BY o.pos), '[]'::json)
                        FROM orgtree.ask_options o WHERE o.asks_id = k.id) AS options,
-                    (SELECT coalesce(array_agg(w.value ORDER BY w.pos), '{}') FROM orgtree.ask_work_items w WHERE w.asks_id = k.id) AS work
+                    (SELECT coalesce(array_agg(w.value ORDER BY w.pos) FILTER (WHERE w.value IS NOT NULL), '{}') FROM orgtree.ask_work_items w WHERE w.asks_id = k.id) AS work
                FROM orgtree.asks k
               WHERE status IN ('open', 'pending') OR k.id IN (SELECT id FROM orgtree.asks ORDER BY id DESC LIMIT 40)
               ORDER BY id",
@@ -700,8 +705,8 @@ async fn copy_sections(
                 {}, {}, {}, {}, w.created_by_is,
                 (SELECT coalesce(json_agg(d.value ORDER BY d.pos), '[]'::json) FROM orgtree.work_item_done d WHERE d.item_id = w.id) AS done,
                 (SELECT coalesce(json_agg(n.value ORDER BY n.pos), '[]'::json) FROM orgtree.work_item_next n WHERE n.item_id = w.id) AS next,
-                (SELECT coalesce(array_agg(p.value ORDER BY p.pos), '{{}}') FROM orgtree.work_item_participants p WHERE p.item_id = w.id) AS participants,
-                (SELECT coalesce(array_agg(x.value ORDER BY x.pos), '{{}}') FROM orgtree.work_item_dependencies x WHERE x.item_id = w.id) AS deps,
+                (SELECT coalesce(array_agg(p.value ORDER BY p.pos) FILTER (WHERE p.value IS NOT NULL), '{{}}') FROM orgtree.work_item_participants p WHERE p.item_id = w.id) AS participants,
+                (SELECT coalesce(array_agg(x.value ORDER BY x.pos) FILTER (WHERE x.value IS NOT NULL), '{{}}') FROM orgtree.work_item_dependencies x WHERE x.item_id = w.id) AS deps,
                 (to_jsonb(w)->>'notification_attention_epoch')::bigint,
                 (to_jsonb(w)->>'notification_attention_active')::boolean
            FROM orgtree.work_items w WHERE w.slug IS NOT NULL ORDER BY w.id",
