@@ -76,7 +76,15 @@ export default async function (rig) {
     const marker2 = r2.sql(`SELECT key FROM ot.meta WHERE key = 'import_v1'`)
     p.check('damaged store: no import_v1 marker, so the next start retries', marker2.length === 0, marker2)
     const failed = r2.engineLog().split(/\r?\n/).filter(l => /2\.x organization import failed/.test(l))
-    p.check('damaged store: the failure is logged with its cause', failed.length >= 1 && /log_l/.test(failed[0]), failed.map(l => l.slice(0, 300)))
+    p.check('damaged store: the failure is logged with its table', failed.length >= 1 && /table=log_l\b/.test(failed[0]), failed.map(l => l.slice(0, 300)))
+    // every importer tells the user the same way: a line in the org list
+    const rec = r2.one(`SELECT value FROM ot.kv WHERE key = 'import_failures'`)?.value?.[`2.x:${LEGACY_SLUG}`]
+    p.check('damaged store: the failure is recorded for the org list (source 2.x, org name, table log_l)', rec?.source === '2.x' && rec?.name === 'Legacy Org'
+      && rec?.table === 'log_l' && rec?.tries === 1, rec)
+    const seen = await runDesktop(r2, path.join(RIG_DIR, 'desktop', 'org-list.cjs'), { preset: 'short', org: '', args: { shot: 'damaged-org-list' }, out: path.join(p.dir, 'damaged-org-list') })
+    const line = seen.ok ? seen.value.failures.map(f => f.text).join(' | ') : ''
+    p.check('damaged store: the org list shows "Import from 2.x failed (log_l)"',
+      seen.ok && /Import from 2\.x failed \(log_l\)\. Your 2\.x data is untouched; Orgtree retries at every start\./.test(line), seen.ok ? seen.value : seen.error)
   } finally { await r2.down() }
   return p.summary()
 }

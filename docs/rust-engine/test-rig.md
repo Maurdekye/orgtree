@@ -33,8 +33,9 @@ the run.
 | `background-and-mail.mjs` | stopped and orphaned background tasks (P33), the 45 s unread notice (P36), mid-turn mail through the PostToolUse hook |
 | `docket-rules.mjs` | docket read/update permissions and stale `expected_rev` refusals, checked in the database |
 | `batch-halt.mjs` | Halt subtree / Unhalt all / Halt all (with a turn running) / Unhalt subtree from the menus, in the real renderer |
-| `import-2x.mjs` | first-start import of a synthetic 2.x store, section by section; a damaged store fails loudly |
-| `import-3x.mjs` | first-start import of a synthetic 3.2 store built with the 3.x migrations; a dropped column; an older schema level |
+| `import-2x.mjs` | first-start import of a synthetic 2.x store, section by section; a damaged store keeps nothing, retries, and shows its line in the org list |
+| `import-30.mjs` | first-start import of a synthetic 3.1.0 store (the `orgtree` database the released 3.0.9/3.1.0 leave, migrations from git at `v3.1.0`); an unmarked org stays out; a broken org keeps nothing, is named in the org list, retries without restoring an account the user removed, and imports once repaired |
+| `import-3x.mjs` | first-start import of a synthetic 3.2 store (the 3.2 alpha layout) with a row in every section; an older alpha schema (0015) imports in full; a broken store keeps nothing, is named in the log, ot.kv, the app feed and the org list, retries, and imports in full once repaired |
 | `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
 
 ## What keeps it safe
@@ -124,7 +125,14 @@ prompt (case-insensitive; `unless` excludes), trying `agents.<name>.turns` befor
 `tools::call_tool` as that live agent, exactly what its CLI's `mcp_message` reaches (permissions,
 visibility and side effects included). `rig.tool(agent, tool, args)` in scripts,
 `rig tool <agent> <tool> '<json>'` on the command line; assert on the result and on the database
-with `rig.sql()` (psql against the run's cluster, rows as JSON).
+with `rig.sql(query, { db })` (psql against any database of the run's cluster, rows as JSON).
+`rig.exec(statements, { db })` runs statements (DDL, writes) on the run's cluster, and
+`await rig.restart()` stops the engine gracefully and starts it again on the same data root and
+cluster, which is what quitting and reopening the app does to the engine.
+
+Before and after: `ORGTREE_RIG_ENGINE=<exe>` makes every run of a script (and the runs it starts)
+use that engine instead of your build, so keep a copy of the integration build's debug engine and
+run the same proof on it to show the "before".
 
 ## Desktop smoke
 
@@ -141,11 +149,14 @@ desktop does (`session.webRequest`). A page script is a CommonJS module
 `consoleErrors`. A target is a CSS selector or `{ selector, text, regex }` (the innermost visible
 element whose text matches). Clicks, keys and text go through CDP `Input.dispatch*`, so the page
 sees trusted events. Examples: `desktop/menu-action.cjs` (walk a card's context-menu path and
-confirm it), `desktop/explore.cjs` (screenshot plus a card summary), `desktop/watch-crash.cjs`.
+confirm it), `desktop/explore.cjs` (screenshot plus a card summary), `desktop/watch-crash.cjs`,
+`desktop/frozen-card.cjs` (a frozen agent's card and desk), `desktop/org-list.cjs` (the org list on
+`/`; pass `org: ''`).
 
 The renderer bundle defaults to this worktree's `dist/renderer`, else the installed app's `ui`;
 `node tools/rig/build-ui.mjs [--dev]` builds this worktree's renderer into the rig home for
-`up --ui <dir>` (`--dev`: unminified React with source maps, so a crash names its component).
+`up --ui <dir>` or `ORGTREE_RIG_UI=<dir>` (which also covers the runs a script starts; `--dev`:
+unminified React with source maps, so a crash names its component).
 
 What it cannot test, and does not pretend to: the desktop main process (tray, pop-out windows,
 native menus, window controls, notifications, the preload bridge: the renderer runs as it does in
@@ -158,10 +169,16 @@ screenshots see), not a native window size.
 
 `tools/rig/legacy2x.mjs` writes a synthetic 2.x data folder (`orgs/<slug>.db`); pass its folder
 as `up --legacy <dir>` (copied into the new data root before the engine's first start).
-`tools/rig/legacy32.mjs` builds a 3.2 store (`orgtree_app` + `orgtree_org_1`) in the run's own
-cluster with the 3.x engine's migrations, as a `prepare` hook; `level` stops at an older org
-migration and `damage` runs SQL after seeding. Migrated templates are cached per level under
-`<rig home>\pg\template32-*` (the first build takes several minutes).
+`tools/rig/legacy30.mjs` builds a 3.0/3.1 store as the released 3.0.9 and 3.1.0 leave it: one
+`orgtree` database made by the `v3.1.0` migrations (read from git and recorded in
+`schema_migrations` as 3.x did), each org in an `org_<id>` schema holding the 2.x seam's five
+tables, 3.x's `<data>\orgs\<slug>.pg` markers and `accounts-registry.json`; a `prepare` hook with
+`variant: 'full' | 'no-log_l'`.
+`tools/rig/legacy32.mjs` builds a 3.2 store (`orgtree_app` + `orgtree_org_1`, the layout of the 3.2
+alphas) in the run's own cluster with the 3.x engine's migrations and one row in every section the
+importer reads, as a `prepare` hook; `level` stops at an older org migration and `damage` runs SQL
+after seeding. Migrated templates are cached under `<rig home>\pg\template30-*` and
+`template32-*` (the first build of one takes up to a few minutes).
 
 ## Traps
 
