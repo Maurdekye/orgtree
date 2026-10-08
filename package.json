@@ -1,6 +1,6 @@
 {
   "name": "orgtree",
-  "version": "4.0.0",
+  "version": "4.0.1-alpha.1",
   "private": true,
   "description": "Orgtree desktop application",
   "license": "MIT",
@@ -83,7 +83,10 @@
       {
         "from": "tools/pypg",
         "to": "tools/pypg",
-        "filter": ["pgimport.py", "cutover_verify.py"]
+        "filter": [
+          "pgimport.py",
+          "cutover_verify.py"
+        ]
       },
       {
         "from": "dist/renderer",
