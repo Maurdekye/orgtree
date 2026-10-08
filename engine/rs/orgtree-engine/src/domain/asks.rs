@@ -240,6 +240,49 @@ async fn amend(engine: &Arc<Engine>, org: &OrgHandle, agent_id: i64, f: impl FnO
     Ok(uid)
 }
 
+/// A caller's own malformed tool call can arrive with its options swallowed
+/// into the question text (`…</question>\n<parameter name="options">[{…}]`,
+/// measured in 3.x 2026-08-30). As 3.x did: recover the question and the
+/// options when the embedded list parses, and refuse a question that still
+/// carries tool-call markup rather than show the user a garbled card.
+#[logged]
+fn recover_leaked(question: &str, options: Option<&Value>) -> Result<(String, Option<Value>)> {
+    static LEAKED: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r#"(?i)</(?:question|header|options|multi|questions)>\s*<(?:\w+:)?parameter\s+name="options">"#).unwrap()
+    });
+    static MARKUP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r#"(?i)</(?:question|header|options|multi|questions|parameter|invoke)>|<(?:\w+:)?parameter\s+name="|<(?:\w+:)?invoke\s+name=""#)
+            .unwrap()
+    });
+    let Some(m) = LEAKED.find(question) else {
+        if options.is_none() && MARKUP.is_match(question) {
+            refuse!(
+                BadRequest,
+                "this question's text contains what looks like a leaked tool-call fragment (e.g. '</question>' or \
+                 '<parameter name=\"...\">') rather than a clean question; your call arrived malformed. Nothing was asked: \
+                 retry the ask (a shorter question and shorter option descriptions are less likely to trip it)"
+            );
+        }
+        return Ok((question.to_string(), options.cloned()));
+    };
+    let head = question[..m.start()].trim();
+    if head.is_empty() {
+        refuse!(BadRequest, "this question's text is only a leaked tool-call fragment, with no question left once it is stripped; retry the ask");
+    }
+    match serde_json::Deserializer::from_str(question[m.end()..].trim()).into_iter::<Value>().next() {
+        Some(Ok(Value::Array(list))) if !list.is_empty() => Ok((head.to_string(), Some(Value::Array(list)))),
+        Some(Ok(_)) => refuse!(
+            BadRequest,
+            "this question's text contains a leaked tool-call fragment, and the options in it are not a non-empty list; retry the ask"
+        ),
+        _ => refuse!(
+            BadRequest,
+            "this question's text contains a leaked tool-call fragment ('<parameter name=\"options\">...'), and the options in it \
+             do not parse as JSON; retry the ask"
+        ),
+    }
+}
+
 /// Normalize one question (or tab) from a tool's arguments.
 #[logged]
 fn question_of(v: &Value) -> Result<Value> {
@@ -247,24 +290,36 @@ fn question_of(v: &Value) -> Result<Value> {
     if q.is_empty() {
         refuse!(BadRequest, "a question needs its text");
     }
+    let (q, options) = recover_leaked(q, v.get("options").filter(|o| !o.is_null()))?;
     let mut out = json!({ "question": q });
     if let Some(h) = v["header"].as_str().filter(|h| !h.trim().is_empty()) {
         out["header"] = json!(gist(h, 24));
     }
-    if let Some(opts) = v["options"].as_array() {
+    // as in 3.x: a label is at most 60 characters, a description 300, and
+    // an option without a label is dropped
+    let clip = |s: &str, n: usize| s.trim().chars().take(n).collect::<String>();
+    if let Some(opts) = options.as_ref().and_then(Value::as_array) {
         let opts: Vec<Value> = opts
             .iter()
             .take(4)
-            .filter_map(|o| match o {
-                Value::String(s) => Some(json!({ "label": s })),
-                Value::Object(m) => ["label", "text", "value", "name"].iter().find_map(|k| m.get(*k).and_then(Value::as_str)).map(|l| {
-                    let mut x = json!({ "label": l });
-                    if let Some(d) = m.get("description").and_then(Value::as_str) {
-                        x["description"] = json!(d);
-                    }
-                    x
-                }),
-                _ => None,
+            .filter_map(|o| {
+                let (label, description) = match o {
+                    Value::String(s) => (s.as_str(), None),
+                    Value::Object(m) => (
+                        ["label", "text", "value", "name"].iter().find_map(|k| m.get(*k).and_then(Value::as_str))?,
+                        m.get("description").and_then(Value::as_str),
+                    ),
+                    _ => return None,
+                };
+                let label = clip(label, 60);
+                if label.is_empty() {
+                    return None;
+                }
+                let mut x = json!({ "label": label });
+                if let Some(d) = description.map(|d| clip(d, 300)).filter(|d| !d.is_empty()) {
+                    x["description"] = json!(d);
+                }
+                Some(x)
             })
             .collect();
         if !opts.is_empty() {
