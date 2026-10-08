@@ -405,6 +405,7 @@ export async function startRun(opts = {}) {
   fs.copyFileSync(engine, path.join(dir, 'bin', 'orgtree-engine.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
+  fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
   fs.mkdirSync(path.join(dir, 'fakecli', 'log'), { recursive: true })
   if (!fs.existsSync(path.join(dir, 'fakecli', 'scenario.json'))) {
     fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify({ default: { turns: [{ steps: [{ text: 'OK.' }] }] } }, null, 2))

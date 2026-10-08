@@ -22,6 +22,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
 
+mod agy;
 mod codex;
 
 const VERSION: &str = "2.1.999 (Claude Code fake)";
@@ -721,17 +722,20 @@ fn claude(raw: &[String]) -> i32 {
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    // started as codex.exe (the rig copies this binary to both names), or
-    // with the app-server subcommand anywhere (`-c` overrides come first)
-    let as_codex = std::env::args()
+    // started as codex.exe or agy.exe (the rig copies this binary to every
+    // name), or with the app-server subcommand anywhere (`-c` overrides come first)
+    let stem = std::env::args()
         .next()
-        .map(|a0| Path::new(&a0).file_stem().map(|s| s.to_string_lossy().eq_ignore_ascii_case("codex")).unwrap_or(false))
-        .unwrap_or(false);
+        .and_then(|a0| Path::new(&a0).file_stem().map(|s| s.to_string_lossy().to_lowercase()))
+        .unwrap_or_default();
+    let version = matches!(raw.first().map(String::as_str), Some("--version") | Some("-v"));
     let code = if raw.iter().any(|a| a == "app-server") {
         codex::run(&raw)
-    } else if matches!(raw.first().map(String::as_str), Some("--version") | Some("-v")) {
-        println!("{}", if as_codex { codex::VERSION } else { VERSION });
+    } else if version {
+        println!("{}", match stem.as_str() { "codex" => codex::VERSION, "agy" => agy::VERSION, _ => VERSION });
         0
+    } else if stem == "agy" {
+        agy::run(&raw)
     } else {
         claude(&raw)
     };
