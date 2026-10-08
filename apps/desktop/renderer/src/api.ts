@@ -1070,7 +1070,7 @@ export const orgInboxUpload = async (
   if (file.size > limit.max_attachment_bytes) throw Error(limit.too_large)
   return req(`/api/orgs/${slug}/org_inbox/upload?name=${encodeURIComponent(file.name)}&to=${encodeURIComponent(limit.to)}`, {
     method: 'POST', body: file,
-  })
+  }, 60 * 60 * 1000)
 }
 // F-06: the network-identity reveal — loopback admin only; the ONE call that
 // returns the org secret (the settings panel's reveal/export)
