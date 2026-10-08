@@ -228,23 +228,25 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
             }
         }
         let span = crate::trace::request_from(&crate::trace::agent_client(a.id, &a.name), crate::trace::current_rq().as_deref());
-        let result = if sw.checkups && a.working && !actionable.is_empty() {
-            tracing::Instrument::instrument(checkup(engine, org, a, now), span.clone()).await
-        } else if sw.idle {
-            // 3.x `work_docket_reminder_items` with the blocked option: purely additive
-            let items: Vec<&WorkRow> = if !actionable.is_empty() || !sw.blocked || !all_blocked {
-                actionable
-            } else {
-                work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status == "blocked").collect()
-            };
-            if items.is_empty() {
-                continue;
-            }
-            tracing::Instrument::instrument(idle_reminder(engine, org, a, &items, now), span.clone()).await
+        // 3.x `work_docket_reminder_items` with the blocked option: purely additive
+        let items: Vec<&WorkRow> = if !actionable.is_empty() || !sw.blocked || !all_blocked {
+            actionable.clone()
         } else {
-            continue;
+            work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status == "blocked").collect()
         };
-        if let Err(e) = result {
+        // 3.x `_auto_wake_keeper_pass`: the docket reminder first, because it
+        // names the work; the generic checkup only for an agent the reminder
+        // passes over. Either one is waking mail, so nobody is woken twice.
+        let wake = async {
+            if sw.idle && !items.is_empty() && idle_reminder(engine, org, a, &items, now).await? {
+                return Ok(());
+            }
+            if sw.checkups && a.working && !actionable.is_empty() {
+                checkup(engine, org, a, now).await?;
+            }
+            anyhow::Ok(())
+        };
+        if let Err(e) = tracing::Instrument::instrument(wake, span.clone()).await {
             let _entered = span.enter();
             tracing::warn!(org = %org.slug, agent = %a.name, error = %format!("{e:#}"), "reminder failed");
         }
@@ -289,19 +291,20 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
     send(engine, org.id, &a.name, CHECKUP_TEXT.to_string(), ev).await
 }
 
-/// 3.x `_idle_docket_reminder_decision` + its reservation body.
+/// 3.x `_idle_docket_reminder_decision` + its reservation body. True when
+/// the reminder was sent.
 #[logged]
-async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: &[&WorkRow], now: DateTime<Utc>) -> Result<()> {
+async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: &[&WorkRow], now: DateTime<Utc>) -> Result<bool> {
     match a.activity.into_iter().chain(a.reminded).max() {
         None => {
             claim(engine, a.id, "docket_reminder_at", now).await?;
-            return Ok(());
+            return Ok(false);
         }
-        Some(t) if (now - t).num_seconds() <= AFTER_S => return Ok(()),
+        Some(t) if (now - t).num_seconds() <= AFTER_S => return Ok(false),
         _ => {}
     }
     if !claim(engine, a.id, "docket_reminder_at", now).await? {
-        return Ok(());
+        return Ok(false);
     }
     let shown = &items[..items.len().min(MAX_ITEMS)];
     let mut lines: Vec<String> =
@@ -313,7 +316,8 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
     let rows: Vec<Value> =
         shown.iter().map(|w| json!({ "slug": w.slug, "title": w.title, "status": w.status, "role": w.role })).collect();
     let ev = crate::events::reminder_idle_docket(&org.slug, &a.name, a.generation as i64, rows, (items.len() - shown.len()) as i64);
-    send(engine, org.id, &a.name, body, ev).await
+    send(engine, org.id, &a.name, body, ev).await?;
+    Ok(true)
 }
 
 #[logged]
