@@ -34,8 +34,8 @@ the run.
 | `docket-rules.mjs` | docket read/update permissions and stale `expected_rev` refusals, checked in the database |
 | `batch-halt.mjs` | Halt subtree / Unhalt all / Halt all (with a turn running) / Unhalt subtree from the menus, in the real renderer |
 | `import-2x.mjs` | first-start import of a synthetic 2.x store, section by section; a damaged store keeps nothing, retries, and shows its line in the org list |
-| `import-30.mjs` | first-start import of a synthetic 3.1.0 store (the `orgtree` database the released 3.0.9/3.1.0 leave, migrations from git at `v3.1.0`); an unmarked org stays out; a broken org keeps nothing, is named in the org list, retries without restoring an account the user removed, and imports once repaired |
-| `import-3x.mjs` | first-start import of a synthetic 3.2 store (the 3.2 alpha layout) with a row in every section; an older alpha schema (0015) imports in full; a broken store keeps nothing, is named in the log, ot.kv, the app feed and the org list, retries, and imports in full once repaired |
+| `import-30.mjs` | first-start import of a synthetic 3.1.0 store (the `orgtree` database the released 3.0.9/3.1.0 leave, migrations from git at `v3.1.0`); an unmarked org stays out; a broken org keeps nothing, is named in the org list, retries without restoring an account the user removed, and imports once repaired; an unreadable `public.orgs` never stops the engine |
+| `import-3x.mjs` | first-start import of a synthetic 3.2 store (the 3.2 alpha layout) with a row in every section; an older alpha schema (0015) imports in full; a broken store keeps nothing, is named in the log, ot.kv, the app feed and the org list, retries, and imports in full once repaired; an unreadable registry never stops the engine |
 | `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
 
 ## What keeps it safe

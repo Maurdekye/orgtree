@@ -9,7 +9,9 @@
 //      ot.kv and in the app feed, the org list shows it, the next start
 //      retries it, and once the store is repaired it imports in full and the
 //      line goes (finding F2: it used to import without those sections and
-//      set the marker, with nothing said).
+//      set the marker, with nothing said);
+//   4. a registry (orgtree_app) the import cannot read: the engine still
+//      starts, says so in the org list, retries, and imports once repaired.
 // The org-list check needs a renderer with the import line: build one with
 // `node tools/rig/rig.mjs build-ui` and pass it with ORGTREE_RIG_UI=<dir>.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/import-3x.mjs
@@ -17,6 +19,7 @@
 import path from 'node:path'
 
 import { runDesktop } from '../desktop.mjs'
+import { unreadableRegistry } from '../importcheck.mjs'
 import { SLUG32, prepare32 } from '../legacy32.mjs'
 import { RIG_DIR, startRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
@@ -153,5 +156,13 @@ export default async function (rig) {
     p.check('repaired store: imported once (one org row, two agents)', r3.sql(`SELECT 1 FROM ot.orgs WHERE slug = '${SLUG32}'`).length === 1
       && r3.sql(`SELECT 1 FROM ot.agents WHERE org_id = ${ORG}`).length === 2)
   } finally { await r3.down() }
+
+  // 4. the registry itself cannot be read: the engine starts anyway
+  await unreadableRegistry(p, {
+    label: 'unreadable 3.2 registry', source: '3.2', name: 'Your 3.2 organizations', table: 'orgs',
+    start: () => startRun({ name: 'import3x-registry', prepare: ctx => prepare32({ ...ctx, appDamage: ['ALTER TABLE orgtree.orgs RENAME COLUMN slug TO slug_unreadable'] }) }),
+    repair: r => r.exec('ALTER TABLE orgtree.orgs RENAME COLUMN slug_unreadable TO slug', { db: 'orgtree_app' }),
+    imported: r => r.sql(`SELECT 1 FROM ot.orgs WHERE slug = '${SLUG32}'`).length === 1,
+  })
   return p.summary()
 }

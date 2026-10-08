@@ -8,7 +8,8 @@
 //
 //   level   the last org migration applied ('0015' = an older 3.2 database;
 //           default: all of them)
-//   damage  SQL run on orgtree_org_1 after seeding (e.g. a dropped column)
+//   damage     SQL run on orgtree_org_1 after seeding (e.g. a dropped column)
+//   appDamage  SQL run on the registry orgtree_app after seeding
 //
 // Applying the migrations takes minutes on this machine, so the migrated (empty)
 // cluster is cached per level under <rig home>\pg\template32-<level> and
@@ -76,7 +77,7 @@ export async function template32(base, pgBin, level) {
   return dir
 }
 
-export async function prepare32({ data, pgBin, level, damage = [] }) {
+export async function prepare32({ data, pgBin, level, damage = [], appDamage = [] }) {
   const cluster = path.join(data, 'pg', 'cluster')
   const tpl = await template32(cluster, pgBin, level)
   fs.rmSync(cluster, { recursive: true, force: true })
@@ -151,6 +152,7 @@ export async function prepare32({ data, pgBin, level, damage = [] }) {
       INSERT INTO orgtree.org_inbox (ord, public_id, dir, peer, body, at) VALUES (0, 'x32', 'in', '@org:other', 'LEGACY32 org mail', ${at(15)});`],
     'seed every section')
     for (const sql of damage) psql('orgtree_org_1', ['-c', sql], `damage: ${sql}`)
+    for (const sql of appDamage) psql('orgtree_app', ['-c', sql], `registry damage: ${sql}`)
   })
   fs.rmSync(path.join(cluster, 'data', 'postmaster.pid'), { force: true })
 }

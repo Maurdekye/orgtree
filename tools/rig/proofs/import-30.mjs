@@ -9,7 +9,9 @@
 //      feed and in the org list; the user removes the account the org's agent
 //      used; the next start retries without bringing that account back; and
 //      once the store is repaired the org imports in full, its agent on the
-//      default account, and the line goes.
+//      default account, and the line goes;
+//   3. a registry (public.orgs) the import cannot read: the engine still
+//      starts, says so in the org list, retries, and imports once repaired.
 // The org-list checks need a renderer with the import line: build one with
 // `node tools/rig/rig.mjs build-ui` and pass it with ORGTREE_RIG_UI=<dir>.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/import-30.mjs
@@ -17,6 +19,7 @@
 import path from 'node:path'
 
 import { runDesktop } from '../desktop.mjs'
+import { unreadableRegistry } from '../importcheck.mjs'
 import { ACCOUNT30, ORPHAN30, SLUG30, prepare30, repairLogL } from '../legacy30.mjs'
 import { RIG_DIR, startRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
@@ -116,5 +119,13 @@ export default async function (rig) {
       && seen2.value.rows.some(r => /Legacy 3\.1 Org/.test(r.text)), seen2.ok ? seen2.value : seen2.error)
     p.check('repaired store: the unmarked org still stays out', r2.sql(`SELECT 1 FROM ot.orgs WHERE slug = '${ORPHAN30}'`).length === 0)
   } finally { await r2.down() }
+
+  // 3. the registry itself cannot be read: the engine starts anyway
+  await unreadableRegistry(p, {
+    label: 'unreadable 3.0/3.1 registry', source: '3.0/3.1', name: 'Your 3.0/3.1 organizations', table: 'orgs',
+    start: () => startRun({ name: 'import30-registry', prepare: ctx => prepare30({ ...ctx, damage: ['ALTER TABLE public.orgs RENAME COLUMN deleted_at TO deleted_at_unreadable'] }) }),
+    repair: r => r.exec('ALTER TABLE public.orgs RENAME COLUMN deleted_at_unreadable TO deleted_at', { db: 'orgtree' }),
+    imported: r => r.sql(`SELECT 1 FROM ot.orgs WHERE slug = '${SLUG30}'`).length === 1,
+  })
   return p.summary()
 }

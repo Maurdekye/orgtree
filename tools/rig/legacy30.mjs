@@ -14,6 +14,7 @@
 //   variant 'full'      everything above
 //   variant 'no-log_l'  org 1 without its log_l table: the import must keep
 //                       nothing of the org and say so
+//   damage              SQL run on the orgtree database after seeding
 //
 // The migrated (empty) cluster is cached under <rig home>\pg\template30-*.
 
@@ -101,7 +102,7 @@ export function repairLogL() {
     `CREATE INDEX ix_log_l ON org_1.log_l (sect, seq);`, ...rows].join('\n')
 }
 
-export async function prepare30({ data, pgBin, variant = 'full' }) {
+export async function prepare30({ data, pgBin, variant = 'full', damage = [] }) {
   const cluster = path.join(data, 'pg', 'cluster')
   const tpl = await template30(cluster, pgBin)
   fs.rmSync(cluster, { recursive: true, force: true })
@@ -121,6 +122,7 @@ export async function prepare30({ data, pgBin, variant = 'full' }) {
     fs.rmSync(file, { force: true })
     // on its own: the seed's deferred triggers have fired by now
     if (variant === 'no-log_l') psql('orgtree', ['-c', 'DROP TABLE org_1.log_l'], 'drop log_l')
+    for (const sql of damage) psql('orgtree', ['-c', sql], `damage: ${sql}`)
   })
   fs.rmSync(path.join(cluster, 'data', 'postmaster.pid'), { force: true })
   // 3.x's own rule: an org is active when its marker names its org_id
