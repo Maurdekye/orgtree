@@ -3490,7 +3490,7 @@ impl Actor {
                 }
                 Some(recovery::Class::Auth) => {
                     classified = true;
-                    freeze_rec = Some(recovery::auth_freeze(e, account));
+                    freeze_rec = Some(recovery::auth_freeze(e, account, openrouter));
                     parked = Some("auth");
                 }
                 Some(recovery::Class::Balance) => {

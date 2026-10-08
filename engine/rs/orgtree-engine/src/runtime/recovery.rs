@@ -160,10 +160,12 @@ fn retry_banner(kind: &str, run: i64) -> String {
 #[logged]
 pub fn balance_freeze(run: i64, error: &str, account: Option<&str>) -> (Value, bool) {
     if run >= NET_RETRY_MAX {
+        // a park has no reset time, so `until` carries the remedy (3.x shape):
+        // the desk badge and the org banner show it
+        let remedy = format!("balance refused {run} turns running — check balance or in-flight requests, then resume manually");
         let rec = json!({
-            "at": now_iso(), "until": null, "error": gist(error, 300), "limit": false, "cause": "balance",
-            "provenance": "observed", "account": account, "parked": true,
-            "label": format!("balance refused {run} turns running — check balance or in-flight requests, then resume manually"),
+            "at": now_iso(), "until": remedy, "error": gist(error, 300), "limit": false, "cause": "balance",
+            "provenance": "observed", "account": account, "parked": true, "label": remedy,
         });
         return (rec, true);
     }
@@ -178,12 +180,18 @@ pub fn balance_freeze(run: i64, error: &str, account: Option<&str>) -> (Value, b
 }
 
 /// A rejected credential: parked with no reset time (no timer can fix it).
+/// `until` carries the remedy (3.x shape): the desk badge and the org banner
+/// show it. An OpenRouter key is replaced in the app, not with a CLI login.
 #[logged]
-pub fn auth_freeze(error: &str, account: Option<&str>) -> Value {
+pub fn auth_freeze(error: &str, account: Option<&str>, openrouter: bool) -> Value {
+    let remedy = if openrouter {
+        "credential rejected — replace the OpenRouter key in App settings → Providers, then resume"
+    } else {
+        "credential rejected — replace it, then resume"
+    };
     json!({
-        "at": now_iso(), "until": null, "error": gist(error, 300), "limit": false, "cause": "auth",
-        "provenance": "observed", "account": account, "parked": true,
-        "label": "credential rejected — replace it, then resume manually",
+        "at": now_iso(), "until": remedy, "error": gist(error, 300), "limit": false, "cause": "auth",
+        "provenance": "observed", "account": account, "parked": true, "label": remedy,
     })
 }
 
