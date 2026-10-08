@@ -54,13 +54,18 @@ pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupt
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await
 }
 
+/// A freeze was released. By hand: the agent's `unstick` notice. By its timer:
+/// no notice, the wake mail says it (`limit_reset` is the org-wide
+/// weekly-Fable halt's notice, as in 3.x).
 #[logged]
 pub async fn released(engine:&Arc<Engine>,org_id:i64,agent_id:i64,automatic:bool)->Result<()> {
-    let mut c=engine.db.get().await?;
-    let tx=c.transaction().await?;
-    let ids=super::lifecycle::record(&tx,org_id,if automatic{"limit_reset"}else{"unstick"},"@system",Some(agent_id),&json!({})).await?;
-    tx.commit().await?;
-    drop(c);
+    let mut ids=Vec::new();
+    if !automatic {
+        let mut c=engine.db.get().await?;
+        let tx=c.transaction().await?;
+        ids=super::lifecycle::record(&tx,org_id,"unstick","@system",Some(agent_id),&json!({})).await?;
+        tx.commit().await?;
+    }
     crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("agent.unfrozen",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));
     crate::changes::notify_id(engine,org_id,ids.into_iter().map(crate::changes::Change::Mailbox).collect());
     Ok(())
