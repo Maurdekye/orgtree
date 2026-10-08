@@ -17,6 +17,9 @@
 //   hal: halted when the answer lands: no turn; unhalted, the answer wakes him.
 //   mia: answered while her turn is still running: the answer reaches her
 //       mid-turn, and no extra turn runs for it.
+//   lex: a malformed tool call leaked the options into the question text:
+//       the question and options are recovered; markup that cannot be
+//       recovered is refused; labels and descriptions are clipped as in 3.x.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/questions.mjs
 
 import { Proof } from '../proof.mjs'
@@ -26,7 +29,7 @@ const Q_SHIP = 'Ship it today?'
 
 export default async function (rig) {
   const p = new Proof('questions')
-  const agents = ['uma', 'ned', 'wes', 'dot', 'ray', 'cal', 'hal', 'mia']
+  const agents = ['uma', 'ned', 'wes', 'dot', 'ray', 'cal', 'hal', 'mia', 'lex']
   const scenario = slug => ({
     agents: {
       uma: { turns: [
@@ -224,6 +227,23 @@ export default async function (rig) {
   p.check('mia: the answer reaches her mid-turn, and no extra turn runs for it', mres.ok && /Proceed with plan B\?\n→ Yes/.test(hook)
     && log('mia', 'poll_mail').at(-1)?.delivered === true && rig.turns('mia').length === 1,
   { hook: hook.slice(0, 300), turns: rig.turns('mia').length })
+
+  // ---------------------------------------------------------------- lex: a malformed call
+  const tab = () => (row('lex')?.body?.parts?.questions ?? []).map(q => ({ q: q.question, o: (q.options ?? []).map(o => o.label + (o.description ? `=${o.description}` : '')) }))
+  const leak = await rig.tool('lex', 'orgtree_ask', {
+    question: 'Which region should host the cluster?</question>\n<parameter name="options">[{"label": "EU", "description": "Frankfurt"}, {"label": "US"}]' })
+  p.check('lex: options leaked into the question text are recovered into a clean question with its options', leak.ok
+    && JSON.stringify(tab()) === JSON.stringify([{ q: 'Which region should host the cluster?', o: ['EU=Frankfurt', 'US'] }]), { text: leak.text?.slice(0, 120), tabs: tab() })
+  const broken = await rig.tool('lex', 'orgtree_ask', { question: 'Deploy now?</question>\n<parameter name="options">[{"label": "Yes", ' })
+  const markup = await rig.tool('lex', 'orgtree_ask', { question: 'Merge it?</question><parameter name="multi">true' })
+  p.check('lex: a leaked fragment that cannot be recovered is refused, and the card is unchanged', !broken.ok && !markup.ok
+    && /leaked tool-call fragment/.test(broken.text ?? '') && /leaked tool-call fragment/.test(markup.text ?? '') && tab().length === 1,
+  { broken: broken.text?.slice(0, 160), markup: markup.text?.slice(0, 160), tabs: tab().length })
+  const long = await rig.tool('lex', 'orgtree_ask', { question: 'Pick a name?', options: [{ label: 'L'.repeat(80), description: 'D'.repeat(400) }, { label: '   ' }, 'Short'] })
+  const named = row('lex')?.body?.parts?.questions?.find(q => q.question === 'Pick a name?')?.options ?? []
+  p.check('lex: an option label is clipped to 60 characters and a description to 300, and a blank option is dropped', long.ok
+    && named.length === 2 && named[0].label.length === 60 && named[0].description.length === 300 && named[1].label === 'Short',
+  named.map(o => [o.label.length, o.description?.length ?? 0]))
 
   p.keep(rig, { agents, grep: /ask|question|request/i })
   return p.summary()
