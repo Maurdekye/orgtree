@@ -39,6 +39,7 @@ the run.
 | `openrouter-lane.mjs` | agents on the OpenRouter lane (key and favorite carried over from a 3.x `openrouter\state.json`; the gateway's key check scripted through `rig-home\rig-usage\openrouter-key.json`): a 401 parks with the OpenRouter remedy and the panel stops saying "connected" at once; the fourth 402 parks with the balance remedy; a key check without credit fields does not crash the panel's document |
 | `input-panics.mjs` | inputs from outside that used to panic the engine: non-object tool arguments, NULLs in a 3.2 store's folder and list tables, a foreign file name in `diagnostics\logs` |
 | `turn-failures.mjs` | after a failed turn (3.x parity): a Codex turn stopped by a usage limit keeps its mail in the freeze (`resume_texts`) and is given it again at the automatic wake and after `orgtree_unstick`, and its reset sends nobody a weekly-Fable notice; consecutive failed turns (Codex and Claude, and turns the idle limit killed) are reported to the superior once, and a completed turn makes the next failure news again; a Codex turn's mail is delivered once `turn/start` was accepted (a provider that keeps failing does not get a growing batch), while a refused `turn/start` gives it back |
+| `agy-lane.mjs` | flash agents on the fake `agy`: a normal turn (an orgtree tool through the engine's mcp-bridge, a native tool, tokens summed over responses), mid-turn mail through the PostInvocation hook, a seat without shell rights denied by the PreToolUse hook, an interrupt, the CLI dying mid-turn (the retry resumes the conversation), a quota error (limit freeze keeping the request), a refused model pin, the conversation resumed after an engine restart |
 | `codex-accounts.mjs` | Codex agents across accounts: an imported Codex home (B) and an API-key account (K) added through the accounts route; agents hired on B run with its `CODEX_HOME`, on K with the key in the key's own home; a usage limit with account fallback moves an agent to B at once (thread carried into B's home and resumed, the stopped request given again); `orgtree_continue_on` does the same for a frozen agent; B turned off holds its agents' mail until it is back; B removed puts its agents back on the primary with a fresh thread and the handoff note |
 | `codex-lane.mjs` | luna agents on the fake `codex app-server`: a normal turn (reasoning, message, a dynamic `orgtree_*` tool, an approval, tokens as a difference of the thread's totals), the thread resumed after an engine restart, mid-turn mail through `turn/steer`, an interrupt, the app-server dying mid-turn (connection freeze, the retry resumes the thread), `usageLimitExceeded` (a limit freeze until the turn's own reset), `unauthorized` (superior told, no park), the sandbox runner hint |
 | `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
@@ -93,12 +94,12 @@ Assigning a docket item wakes its owner, so the owner runs one fake turn during 
 
 ## The fake CLI and its scenario
 
-`tools/rig/fakecli` (`orgtree-fakecli.exe`, copied into each run as `claude.exe` and
-`codex.exe`) is launched by the engine exactly like Claude Code. It answers `initialize`, connects
-the in-process `orgtree` MCP server (initialize, tools/list), runs `orgtree_*` calls through
-`mcp_message`, fires the PostToolUse hook after every tool use (that is where the engine hands over
-mid-turn mail), and writes session transcripts under the fake home so `--resume` works. As
-`codex.exe` it plays the Codex app-server instead (below).
+`tools/rig/fakecli` (`orgtree-fakecli.exe`, copied into each run as `claude.exe`, `codex.exe`
+and `agy.exe`) is launched by the engine exactly like Claude Code. It answers `initialize`,
+connects the in-process `orgtree` MCP server (initialize, tools/list), runs `orgtree_*` calls
+through `mcp_message`, fires the PostToolUse hook after every tool use (that is where the engine
+hands over mid-turn mail), and writes session transcripts under the fake home so `--resume` works.
+As `codex.exe` it plays the Codex app-server, as `agy.exe` the Antigravity CLI (below).
 
 At every turn it re-reads `<run>\fakecli\scenario.json` (`rig scenario <file>` or
 `rig.scenario({...})`) and plays the first turn script whose `match` substrings all occur in the
@@ -150,6 +151,27 @@ be hired. A turn plays the same scenarios, with these differences:
 
 `exit`, `hang`, `sleep_ms` and `raw` work as above. The engine's account and model probes run
 without an agent name and log to `fakecli\log\probe.jsonl`.
+
+### As `agy` (Antigravity)
+
+As `agy.exe` (`ORGTREE_AGY_BIN`; the lane reads as installed and signed in, so `flash` agents can
+be hired) it plays print mode with stream-json both ways (`src/runtime/agy.rs`): one process,
+one turn per `{"event":"user"}` line, answered with `init` (the conversation id; `--conversation`
+resumes it), `step_update`s and a `result`. It works from the agent's folder like the CLI:
+`orgtree_*` tools go to the MCP server named in `.agents\plugins\orgtree\mcp_config.json` (the
+engine's `mcp-bridge` over the agent's named pipe), every tool first passes the `PreToolUse` hooks
+and every model invocation ends with the `PostInvocation` hooks from `.agents\hooks.json` (the
+engine's `agy-hook` rights check and `agy-steer` mail handoff, run as commands with their JSON on
+stdin; their answers are logged as `hook` and `hook_mail`).
+
+| Step | Effect on the Antigravity wire |
+|---|---|
+| `text` | an `agent_response` step: deltas, then DONE with its tokens |
+| `{"tool": "orgtree_x", ...}` / `{"tool": "run_command", "args": {...}, "result": "..."}` | a `tool` step; a denied call ends in ERROR with the hook's reason |
+| `{"poll_mail": {...}}` | runs the PostInvocation hooks until one hands over mail |
+| `{"usage": {"input": 3000, "cached": 2000, "output": 50}}` | the tokens of the following responses |
+| `{"error": "..."}` / `{"result": {"status": "ERROR", "error": "..."}}` | ends the turn with that result |
+| `{"init_model": "..."}` (a first step) | `init` names this model instead of the pinned one |
 
 ## Tool calls as an agent
 
