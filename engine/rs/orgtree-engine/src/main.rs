@@ -27,6 +27,7 @@ mod http;
 mod import2x;
 mod import30;
 mod import_dogmemo;
+mod import_failures;
 mod importer;
 mod launch;
 mod mailhub;
@@ -208,6 +209,8 @@ async fn run_with_cluster(
     credential_context::start(&engine);
     orgs::load_all(&engine).await?;
     appfeed::start(&engine, app_inbox);
+    // orgs a first-start import could not copy: one line each in the org list
+    import_failures::publish(&engine).await;
     accounts::start(&engine).await;
     openrouter::import_legacy(&engine).await;
     providers::start(&engine);

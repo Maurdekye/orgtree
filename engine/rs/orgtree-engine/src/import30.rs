@@ -21,6 +21,7 @@ use tokio_postgres::{Client, NoTls};
 
 use crate::config::Config;
 use crate::import2x;
+use crate::import_failures::{self, Section};
 use crate::pg::Cluster;
 
 /// Newest rows kept per log section (None = all); the same bounds as 2.x.
@@ -71,11 +72,18 @@ pub async fn run(
             }
             .await;
             match outcome {
-                Ok(Some(n)) => tracing::info!(org = %slug, agents = n, "imported 3.0/3.1 organization"),
-                Ok(None) => {}
+                Ok(n) => {
+                    if let Some(n) = n {
+                        tracing::info!(org = %slug, agents = n, "imported 3.0/3.1 organization");
+                    }
+                    import_failures::clear(dst, "3.0/3.1", &slug).await;
+                }
                 Err(e) => {
                     failed += 1;
-                    tracing::error!(org = %slug, error = %format!("{e:#}"), "3.0/3.1 organization import failed")
+                    let table = import_failures::section_of(&e).unwrap_or("-");
+                    tracing::error!(org = %slug, table, error = %format!("{e:#}"),
+                                    "3.0/3.1 organization import failed: nothing of it was kept; retried next start");
+                    import_failures::record(dst, "3.0/3.1", &slug, None, &e).await;
                 }
             }
         }
@@ -110,8 +118,8 @@ async fn read_org(src: &Client, org_id: i64, slug: &str) -> Result<import2x::Sou
         let pairs = |rows: Vec<tokio_postgres::Row>| -> Vec<(String, String)> {
             rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, String>(1))).collect()
         };
-        let doc = pairs(src.query(&format!("SELECT key, val FROM {s}.doc"), &[]).await.context("doc")?);
-        let nodes = pairs(src.query(&format!("SELECT id, val FROM {s}.nodes ORDER BY ord"), &[]).await.context("nodes")?);
+        let doc = pairs(src.query(&format!("SELECT key, val FROM {s}.doc"), &[]).await.context(Section("doc"))?);
+        let nodes = pairs(src.query(&format!("SELECT id, val FROM {s}.nodes ORDER BY ord"), &[]).await.context(Section("nodes"))?);
         let mail_log = pairs(
             src.query(
                 &format!(
@@ -122,7 +130,7 @@ async fn read_org(src: &Client, org_id: i64, slug: &str) -> Result<import2x::Sou
                 &[&MAIL_LOG_PER_AGENT],
             )
             .await
-            .context("mail_log")?,
+            .context(Section("log_d"))?,
         );
         let mut logs: HashMap<String, Vec<String>> = HashMap::new();
         for (sect, limit) in LOGS {
@@ -134,7 +142,7 @@ async fn read_org(src: &Client, org_id: i64, slug: &str) -> Result<import2x::Sou
                     &[sect, &limit.unwrap_or(i64::MAX)],
                 )
                 .await
-                .with_context(|| format!("log {sect}"))?;
+                .context(Section("log_l"))?;
             logs.insert(sect.to_string(), rows.iter().map(|r| r.get::<_, String>(0)).collect());
         }
         Ok::<_, anyhow::Error>(import2x::build(slug, doc, nodes, mail_log, logs))

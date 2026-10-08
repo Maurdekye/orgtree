@@ -33,6 +33,7 @@ use tokio_postgres::Transaction;
 
 use crate::config::Config;
 use crate::domain::asks::{compose, Parts};
+use crate::import_failures::{self, Section};
 use crate::providers::catalog;
 use crate::util::{parse_ts, uid};
 
@@ -74,11 +75,18 @@ pub async fn run(cfg: &Config, dst: &mut deadpool_postgres::Object, progress: &d
     for (slug, path) in &sources {
         progress(&format!("database-import {slug}"));
         match import_org(cfg, dst, slug, path, &staging).await {
-            Ok(Some(n)) => tracing::info!(org = %slug, agents = n, "imported 2.x organization"),
-            Ok(None) => {}
+            Ok(n) => {
+                if let Some(n) = n {
+                    tracing::info!(org = %slug, agents = n, "imported 2.x organization");
+                }
+                import_failures::clear(dst, "2.x", slug).await;
+            }
             Err(e) => {
                 failed += 1;
-                tracing::error!(org = %slug, error = %format!("{e:#}"), "2.x organization import failed")
+                let table = import_failures::section_of(&e).unwrap_or("-");
+                tracing::error!(org = %slug, table, error = %format!("{e:#}"),
+                                "2.x organization import failed: nothing of it was kept; retried next start");
+                import_failures::record(dst, "2.x", slug, None, &e).await;
             }
         }
     }
@@ -236,19 +244,21 @@ fn read_sqlite(slug: &str, c: &rusqlite::Connection) -> Result<Source> {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(out)
     };
-    let doc = rows("SELECT key, val FROM doc", &[])?;
-    let nodes = rows("SELECT id, val FROM nodes ORDER BY ord", &[])?;
+    let doc = rows("SELECT key, val FROM doc", &[]).context(Section("doc"))?;
+    let nodes = rows("SELECT id, val FROM nodes ORDER BY ord", &[]).context(Section("nodes"))?;
     let mail_log = rows(
         "SELECT owner, val FROM (SELECT seq, owner, val, row_number() OVER (PARTITION BY owner ORDER BY seq DESC) AS rn
                                    FROM log_d WHERE sect = 'mail_log') WHERE rn <= ?1 ORDER BY seq",
         &[&(MAIL_LOG_PER_AGENT as i64)],
-    )?;
+    )
+    .context(Section("log_d"))?;
     let mut logs = HashMap::new();
     for (sect, limit) in LOGS {
         let got = rows(
             "SELECT '', val FROM (SELECT seq, val FROM log_l WHERE sect = ?1 ORDER BY seq DESC LIMIT ?2) ORDER BY seq",
             &[sect, &limit.unwrap_or(-1)],
-        )?;
+        )
+        .context(Section("log_l"))?;
         logs.insert(sect.to_string(), got.into_iter().map(|(_, v)| v).collect());
     }
     Ok(build(slug, doc, nodes, mail_log, logs))

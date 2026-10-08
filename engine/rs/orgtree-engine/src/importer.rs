@@ -2,10 +2,14 @@
 //! database) into the new schema. The old databases are opened read-only
 //! and never changed, so going back to the old build always works.
 //!
-//! One transaction per org: a failed org leaves nothing behind and is
-//! retried on the next start; imported orgs are skipped (matched by uuid).
+//! One transaction per org, all or nothing: a section that cannot be read
+//! fails the whole org, which leaves nothing behind, is named in the log and
+//! in the org list (`import_failures`), and is retried on the next start;
+//! imported orgs are skipped (matched by uuid). 3.2 alphas left org
+//! databases at different migration levels: a column or table a later
+//! migration added is read as empty where it is missing (`SourceSchema`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -14,6 +18,7 @@ use serde_json::{json, Map, Value};
 use tokio_postgres::{Client, NoTls, Transaction};
 
 use crate::config::Config;
+use crate::import_failures::{self, Section};
 use crate::pg::Cluster;
 use crate::providers::catalog;
 use crate::util::{iso, uid};
@@ -71,14 +76,22 @@ pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progres
                 .await?
                 .is_some();
             if already {
+                import_failures::clear(&dst, "3.2", &slug).await;
                 continue;
             }
             progress(&format!("database-import {slug}"));
             match import_org(cfg, cluster, &mut dst, &slug, &uuid, &db).await {
-                Ok(n) => tracing::info!(org = %slug, agents = n, "imported organization"),
+                Ok(n) => {
+                    tracing::info!(org = %slug, agents = n, "imported organization");
+                    import_failures::clear(&dst, "3.2", &slug).await;
+                }
                 Err(e) => {
                     failed += 1;
-                    tracing::error!(org = %slug, error = %format!("{e:#}"), "organization import failed")
+                    let table = import_failures::section_of(&e).unwrap_or("-");
+                    tracing::error!(org = %slug, table, error = %format!("{e:#}"),
+                                    "organization import failed: nothing of it was kept; retried next start");
+                    let name = org_name(cluster, &db).await;
+                    import_failures::record(&dst, "3.2", &slug, name.as_deref(), &e).await;
                 }
             }
         }
@@ -94,12 +107,72 @@ pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progres
         }
     }
     import_app_settings(cfg, &dst).await?;
+    import_failures::clear_all(&dst).await?;
     dst.execute(
         "INSERT INTO ot.meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
         &[&MARKER, &json!({ "at": iso(Utc::now()) })],
     )
     .await?;
     Ok(())
+}
+
+/// A 3.2 org's display name for the user's line, read on its own (best
+/// effort: its import just failed, maybe on this very table).
+#[logged]
+async fn org_name(cluster: &Cluster, db: &str) -> Option<String> {
+    let (c, conn) = cluster.connect_config(db).connect(NoTls).await.ok()?;
+    let task = tokio::spawn(conn);
+    let name = c
+        .query_opt("SELECT name FROM orgtree.org_settings LIMIT 1", &[])
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.try_get::<_, Option<String>>(0).ok().flatten());
+    drop(c);
+    task.abort();
+    name
+}
+
+/// The source org database's tables and their columns (schema `orgtree`).
+/// A column or table a later 3.2 migration added is optional: an older
+/// database lacks it and never held its data, so it reads as NULL (or the
+/// section as empty). Anything else missing fails the org.
+struct SourceSchema(HashMap<String, HashSet<String>>);
+
+#[logged]
+impl SourceSchema {
+    async fn read(src: &Client) -> Result<SourceSchema> {
+        let rows = src
+            .query(
+                "SELECT c.relname::text, a.attname::text FROM pg_attribute a
+                   JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+                  WHERE n.nspname = 'orgtree' AND c.relkind IN ('r', 'p', 'v') AND a.attnum > 0 AND NOT a.attisdropped",
+                &[],
+            )
+            .await?;
+        let mut m: HashMap<String, HashSet<String>> = HashMap::new();
+        for r in &rows {
+            m.entry(r.get(0)).or_default().insert(r.get(1));
+        }
+        Ok(SourceSchema(m))
+    }
+
+    fn table(&self, table: &str) -> bool {
+        self.0.contains_key(table)
+    }
+
+    fn has(&self, table: &str, col: &str) -> bool {
+        self.0.get(table).map(|c| c.contains(col)).unwrap_or(false)
+    }
+
+    /// `alias.col`, or a NULL of the column's type where it is missing.
+    fn opt(&self, table: &str, alias: &str, col: &str, ty: &str) -> String {
+        if self.has(table, col) {
+            format!("{alias}.{col}")
+        } else {
+            format!("NULL::{ty}")
+        }
+    }
 }
 
 fn opt_s(row: &tokio_postgres::Row, i: &str) -> Option<String> {
@@ -136,7 +209,7 @@ async fn import_org(
     let result = async {
         let tx = dst.transaction().await?;
         let n = copy_org(cfg, &src, &tx, slug, uuid, db).await?;
-        import_org_accounts(&src, &tx, slug).await?;
+        import_org_accounts(&src, &tx, slug).await.context(Section("org_accounts"))?;
         tx.commit().await?;
         Ok::<usize, anyhow::Error>(n)
     }
@@ -146,9 +219,29 @@ async fn import_org(
     result
 }
 
+/// Copy one org's sections. Whatever fails (a read or a write) fails the org
+/// with the section it was copying as the error's outermost context.
 #[logged]
 async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, uuid: &str, db: &str) -> Result<usize> {
+    let mut at = Section("schema");
+    let res = copy_sections(cfg, src, tx, slug, uuid, db, &mut at).await;
+    res.map_err(|e| e.context(at))
+}
+
+#[logged]
+async fn copy_sections(
+    cfg: &Config,
+    src: &Client,
+    tx: &Transaction<'_>,
+    slug: &str,
+    uuid: &str,
+    db: &str,
+    at: &mut Section,
+) -> Result<usize> {
+    let sch = SourceSchema::read(src).await?;
+
     // ---- org row ----
+    *at = Section("org_settings");
     let s = src
         .query_one(
             "SELECT name, created, permission_mode, default_visibility, default_effort,
@@ -160,8 +253,8 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                FROM orgtree.org_settings LIMIT 1",
             &[],
         )
-        .await
-        .context("org_settings")?;
+        .await?;
+    *at = Section("org_dirs");
     let dirs: Vec<Value> = src
         .query("SELECT path, mode FROM orgtree.org_dirs ORDER BY ord", &[])
         .await?
@@ -195,26 +288,25 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     put("headless", if headless.is_boolean() { headless } else { Value::Null });
     let name = opt_s(&s, "name").unwrap_or_else(|| slug.to_string());
     let created = opt_t(&s, "created").unwrap_or_else(Utc::now);
+    *at = Section("net_hubs");
     let hubs: Vec<Value> = src
         .query("SELECT public_id, address, enabled, name FROM orgtree.net_hubs ORDER BY ord", &[])
-        .await
-        .map(|rows| {
-            rows.iter()
-                .map(|r| {
-                    json!({ "id": r.get::<_, Option<String>>(0).unwrap_or_else(|| uid("h")),
-                            "address": r.get::<_, Option<String>>(1),
-                            "enabled": r.get::<_, Option<bool>>(2).unwrap_or(true),
-                            "name": r.get::<_, Option<String>>(3) })
-                })
-                .collect()
+        .await?
+        .iter()
+        .map(|r| {
+            json!({ "id": r.get::<_, Option<String>>(0).unwrap_or_else(|| uid("h")),
+                    "address": r.get::<_, Option<String>>(1),
+                    "enabled": r.get::<_, Option<bool>>(2).unwrap_or(true),
+                    "name": r.get::<_, Option<String>>(3) })
         })
-        .unwrap_or_default();
+        .collect();
     let net = json!({
         "autoconnect": opt_b(&s, "net_autoconnect").unwrap_or(true),
         "identity": opt_j(&s, "net_identity"),
         "hubs": hubs,
     });
     let killswitch = opt_j(&s, "killswitch");
+    *at = Section("org_settings");
     let org_id: i64 = tx
         .query_one(
             "INSERT INTO ot.orgs (uuid, slug, name, created_at, settings, killswitch, net)
@@ -226,13 +318,16 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     tx.execute("INSERT INTO ot.docket_versions (org_id, version) VALUES ($1, 1)", &[&org_id]).await?;
 
     // ---- tier prices (OpenRouter tiers carry their own) ----
+    *at = Section("org_tier_prices");
     let prices: HashMap<String, f64> = src
         .query("SELECT key, value::float8 FROM orgtree.org_tier_prices", &[])
-        .await
-        .map(|rows| rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, Option<f64>>(1).unwrap_or(1.0))).collect())
-        .unwrap_or_default();
+        .await?
+        .iter()
+        .map(|r| (r.get::<_, String>(0), r.get::<_, Option<f64>>(1).unwrap_or(1.0)))
+        .collect();
 
     // ---- agents ----
+    *at = Section("agents");
     let rows = src
         .query(
             "SELECT a.id, a.name, a.parent_id, a.state, a.title, a.model, a.credit_grant::float8 AS grant,
@@ -257,8 +352,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
               ORDER BY a.id",
             &[],
         )
-        .await
-        .context("agents")?;
+        .await?;
     let scratch_root = cfg.scratch_root(slug);
     let mut map: HashMap<i64, i64> = HashMap::new();
     let mut names: HashMap<i64, String> = HashMap::new();
@@ -387,6 +481,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     let id_by_name: HashMap<String, i64> = names.iter().filter_map(|(old, n)| map.get(old).map(|id| (n.clone(), *id))).collect();
 
     // ---- recent turns (what the cards show) ----
+    *at = Section("agent_turns");
     let turns = src
         .query(
             "SELECT agent_id, at, cost, ms, toks, denials, approvals, killed, estimated, cost_source FROM (
@@ -394,8 +489,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
               WHERE rn <= 8 ORDER BY id",
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for t in &turns {
         let Some(agent) = agent_of(t.get::<_, Option<i64>>(0)) else { continue };
         tx.execute(
@@ -418,18 +512,19 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- mail: pending per agent, recent delivered history ----
+    *at = Section("mail");
     let pending = src
         .query(
             r#"SELECT agent_id, public_id, "from", kind, body, at, relationship, ev FROM orgtree.mail ORDER BY agent_id, idx"#,
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for m in &pending {
         let Some(agent) = agent_of(m.get::<_, Option<i64>>(0)) else { continue };
         let to = names.iter().find(|(o, _)| map.get(o) == Some(&agent)).map(|(_, n)| n.clone()).unwrap_or_default();
         insert_mail(tx, org_id, &m, "agent", Some(agent), &to, "pending", &id_by_name).await?;
     }
+    *at = Section("mail_log");
     let delivered = src
         .query(
             r#"SELECT agent_id, public_id, "from", kind, body, at, relationship, ev FROM (
@@ -437,43 +532,42 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                 WHERE rn <= 100 ORDER BY id"#,
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for m in &delivered {
         let Some(agent) = agent_of(m.get::<_, Option<i64>>(0)) else { continue };
         let to = names.iter().find(|(o, _)| map.get(o) == Some(&agent)).map(|(_, n)| n.clone()).unwrap_or_default();
         insert_mail(tx, org_id, &m, "agent", Some(agent), &to, "delivered", &id_by_name).await?;
     }
     // the user's inbox (unread), read log and sent mail
+    *at = Section("user_inbox");
     let unread = src
         .query(
             r#"SELECT NULL::bigint, public_id, "from", kind, body, at, NULL::text, ev FROM orgtree.user_inbox ORDER BY ord"#,
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for m in &unread {
         insert_mail(tx, org_id, m, "user", None, "@user", "pending", &id_by_name).await?;
     }
+    *at = Section("user_mail_log");
     let read = src
         .query(
             r#"SELECT NULL::bigint, public_id, "from", kind, body, at, NULL::text, ev, urgent, urgent_reason
                  FROM orgtree.user_mail_log ORDER BY ord DESC LIMIT 500"#,
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for m in read.iter().rev() {
         insert_mail(tx, org_id, m, "user", None, "@user", "read", &id_by_name).await?;
     }
+    *at = Section("user_outbox");
     let sent = src
         .query(
             r#"SELECT NULL::bigint, public_id, "from", kind, body, at, relationship, ev, "to"
                  FROM orgtree.user_outbox ORDER BY ord DESC LIMIT 500"#,
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for m in sent.iter().rev() {
         let to: Option<String> = m.get(8);
         let to = to.unwrap_or_default();
@@ -482,6 +576,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- asks: open, and the newest resolved ones ----
+    *at = Section("asks");
     let asks = src
         .query(
             "SELECT public_id, node, kind, question, questions, at, header, rev, status, reason, answer, resolved_at,
@@ -494,8 +589,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
               ORDER BY id",
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for k in &asks {
         let node: Option<String> = k.get(1);
         let Some(agent) = node.as_ref().and_then(|n| id_by_name.get(n)).copied() else { continue };
@@ -546,25 +640,36 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- docket ----
-    let items = src
-        .query(
-            "SELECT w.id, w.slug, w.rev, w.kind, w.title, w.objective, w.status, w.blocked_reason, w.dropped_reason,
-                    w.waiting_reason, w.owner_node, w.owner_generation, w.owner_born, w.reviewer_node, w.reviewer_generation,
-                    w.reviewer_born, w.created_by_node, w.created_by_generation, w.last_updater_node,
-                    w.last_updater_generation, w.at, w.updated_at, w.docket_at, w.status_at, w.archived_at, w.parent,
-                    w.superseded_by, w.attention_reason, w.attention_at, w.attention_by_name, w.attention_by_generation,
-                    w.attention_set_rev, w.accepted_at, w.accepted_by_name, w.accepted_note, w.created_by_is,
-                    (SELECT coalesce(json_agg(d.value ORDER BY d.pos), '[]'::json) FROM orgtree.work_item_done d WHERE d.item_id = w.id) AS done,
-                    (SELECT coalesce(json_agg(n.value ORDER BY n.pos), '[]'::json) FROM orgtree.work_item_next n WHERE n.item_id = w.id) AS next,
-                    (SELECT coalesce(array_agg(p.value ORDER BY p.pos), '{}') FROM orgtree.work_item_participants p WHERE p.item_id = w.id) AS participants,
-                    (SELECT coalesce(array_agg(x.value ORDER BY x.pos), '{}') FROM orgtree.work_item_dependencies x WHERE x.item_id = w.id) AS deps,
-                    (to_jsonb(w)->>'notification_attention_epoch')::bigint,
-                    (to_jsonb(w)->>'notification_attention_active')::boolean
-               FROM orgtree.work_items w WHERE w.slug IS NOT NULL ORDER BY w.id",
-            &[],
-        )
-        .await
-        .context("work_items")?;
+    *at = Section("work_items");
+    // the attention and acceptance columns came with org migration 0016
+    // (2026-10-04): a database from an earlier 3.2 alpha has none of them
+    let wo = |col: &str, ty: &str| sch.opt("work_items", "w", col, ty);
+    let items_sql = format!(
+        "SELECT w.id, w.slug, w.rev, w.kind, w.title, w.objective, w.status, w.blocked_reason, w.dropped_reason,
+                w.waiting_reason, w.owner_node, w.owner_generation, w.owner_born, w.reviewer_node, w.reviewer_generation,
+                w.reviewer_born, w.created_by_node, w.created_by_generation, w.last_updater_node,
+                w.last_updater_generation, w.at, w.updated_at, w.docket_at, w.status_at, w.archived_at, w.parent,
+                w.superseded_by, {}, {}, {}, {},
+                {}, {}, {}, {}, w.created_by_is,
+                (SELECT coalesce(json_agg(d.value ORDER BY d.pos), '[]'::json) FROM orgtree.work_item_done d WHERE d.item_id = w.id) AS done,
+                (SELECT coalesce(json_agg(n.value ORDER BY n.pos), '[]'::json) FROM orgtree.work_item_next n WHERE n.item_id = w.id) AS next,
+                (SELECT coalesce(array_agg(p.value ORDER BY p.pos), '{{}}') FROM orgtree.work_item_participants p WHERE p.item_id = w.id) AS participants,
+                (SELECT coalesce(array_agg(x.value ORDER BY x.pos), '{{}}') FROM orgtree.work_item_dependencies x WHERE x.item_id = w.id) AS deps,
+                (to_jsonb(w)->>'notification_attention_epoch')::bigint,
+                (to_jsonb(w)->>'notification_attention_active')::boolean
+           FROM orgtree.work_items w WHERE w.slug IS NOT NULL ORDER BY w.id",
+        wo("attention_reason", "text"),
+        wo("attention_at", "timestamptz"),
+        wo("attention_by_name", "text"),
+        wo("attention_by_generation", "bigint"),
+        wo("attention_set_rev", "bigint"),
+        wo("accepted_at", "timestamptz"),
+        wo("accepted_by_name", "text"),
+        wo("accepted_note", "text"),
+    );
+    let items = src.query(&items_sql, &[]).await?;
+    // per-item history came with org migration 0010
+    let has_history = sch.table("work_item_events");
     let actor = |node: Option<String>, gen: Option<i64>, born: Option<String>| -> Value {
         match node {
             Some(n) if n == "@user" || n == "user" => json!("user"),
@@ -579,6 +684,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
         }
     };
     for w in &items {
+        *at = Section("work_items");
         let old_item: i64 = w.get(0);
         let slug_w: String = w.get(1);
         let mut status: String = w.get::<_, Option<String>>(6).unwrap_or_else(|| "open".into());
@@ -671,10 +777,11 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
             .with_context(|| format!("work item {slug_w}"))?
             .map(|r| r.get::<_, i64>(0))
             .unwrap_or(0);
-        if new_item == 0 || archived_at.is_some() {
+        if new_item == 0 || archived_at.is_some() || !has_history {
             continue;
         }
         // history of active items (bounded)
+        *at = Section("work_item_events");
         let events = src
             .query(
                 "SELECT at, by_node, by_generation, kind, content, history_op, history_status_from, history_status_to,
@@ -682,8 +789,7 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
                    FROM orgtree.work_item_events WHERE item_id = $1 ORDER BY seq DESC LIMIT 200",
                 &[&old_item],
             )
-            .await
-            .unwrap_or_default();
+            .await?;
         for e in events.iter().rev() {
             let by = actor(e.get(1), e.get(2), None);
             let op = e.get::<_, Option<String>>(5).or(e.get::<_, Option<String>>(3)).unwrap_or_else(|| "update".into());
@@ -702,13 +808,13 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- documents ----
+    *at = Section("documents");
     let docs = src
         .query(
             "SELECT public_id, node, title, body, at, format, bytes FROM orgtree.documents ORDER BY ord",
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for d in &docs {
         let node: String = d.get::<_, Option<String>>(1).unwrap_or_default();
         let body: Option<String> = d.get(3);
@@ -732,20 +838,19 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- watchdogs ----
+    *at = Section("watchdogs");
     const DOG_SQL: &str = "SELECT public_id, owner, name, kind, target, pattern, interval_s, state, at, fired, last_check, last_fired,
                     once, shell, fire_mode, quiet_period_s, silence_since";
     const DOG_FROM: &str = " FROM orgtree.watchdogs WHERE state IN ('armed', 'paused') ORDER BY ord";
     // the progress columns too; a store without them still imports the dogs
-    let full = src
-        .query(
-            &format!("{DOG_SQL}, notice, high_water::jsonb, checks_run, last_output, paused_why, last_exit{DOG_FROM}"),
-            &[],
-        )
-        .await;
-    let has_memo = full.is_ok();
-    let dogs = match full {
-        Ok(rows) => rows,
-        Err(_) => src.query(&format!("{DOG_SQL}{DOG_FROM}"), &[]).await.unwrap_or_default(),
+    let has_memo = ["notice", "high_water", "checks_run", "last_output", "paused_why", "last_exit"]
+        .iter()
+        .all(|c| sch.has("watchdogs", c));
+    let dogs = if has_memo {
+        src.query(&format!("{DOG_SQL}, notice, high_water::jsonb, checks_run, last_output, paused_why, last_exit{DOG_FROM}"), &[])
+            .await?
+    } else {
+        src.query(&format!("{DOG_SQL}{DOG_FROM}"), &[]).await?
     };
     for w in &dogs {
         let owner: String = w.get::<_, Option<String>>(1).unwrap_or_default();
@@ -792,10 +897,10 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- audiences ----
+    *at = Section("audience_grants");
     let grants = src
         .query("SELECT grantee, grantor, granted_at, reason FROM orgtree.audience_grants ORDER BY ord", &[])
-        .await
-        .unwrap_or_default();
+        .await?;
     for g in &grants {
         tx.execute(
             "INSERT INTO ot.audiences (org_id, grantee, grantor, granted_at, reason) VALUES ($1, $2, $3, $4, $5)",
@@ -809,10 +914,10 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
         )
         .await?;
     }
+    *at = Section("audience_requests");
     let reqs = src
         .query("SELECT node, target, reason, at FROM orgtree.audience_requests WHERE status = 'pending' OR status IS NULL", &[])
-        .await
-        .unwrap_or_default();
+        .await?;
     for q in &reqs {
         tx.execute(
             "INSERT INTO ot.audience_requests (org_id, requester, target, reason, at) VALUES ($1, $2, $3, $4, $5)",
@@ -828,10 +933,10 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- events (the newest 5000) ----
+    *at = Section("events");
     let events = src
         .query("SELECT op, actor, at, detail FROM orgtree.events ORDER BY ord DESC LIMIT 5000", &[])
-        .await
-        .unwrap_or_default();
+        .await?;
     for e in events.iter().rev() {
         let detail: Value = e.get::<_, Option<Value>>(3).unwrap_or(json!({}));
         let subject = detail
@@ -855,13 +960,13 @@ async fn copy_org(cfg: &Config, src: &Client, tx: &Transaction<'_>, slug: &str, 
     }
 
     // ---- org inbox ----
+    *at = Section("org_inbox");
     let inbox = src
         .query(
             "SELECT public_id, dir, peer, body, at, by, state, state_at, net_id FROM orgtree.org_inbox ORDER BY ord DESC LIMIT 2000",
             &[],
         )
-        .await
-        .unwrap_or_default();
+        .await?;
     for m in inbox.iter().rev() {
         tx.execute(
             "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, at, by_name, state, state_at, net_id, read)
@@ -1048,10 +1153,15 @@ async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
         )
         .await?;
     }
-    let marks = app
-        .query("SELECT account_id, pool, until, \"window\", provenance FROM orgtree.account_marks", &[])
-        .await
-        .unwrap_or_default();
+    // limit marks expire on their own: an unreadable table costs only those,
+    // but it is said, never dropped in silence
+    let marks = match app.query("SELECT account_id, pool, until, \"window\", provenance FROM orgtree.account_marks", &[]).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "account limit marks not imported");
+            Vec::new()
+        }
+    };
     for m in &marks {
         let until: Option<f64> = m.get(2);
         let Some(until) = until.and_then(|u| DateTime::from_timestamp(u as i64, 0)) else { continue };
