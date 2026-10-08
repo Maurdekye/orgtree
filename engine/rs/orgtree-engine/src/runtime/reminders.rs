@@ -14,7 +14,6 @@
 //! cooldown, as in 3.x. Texts, timings, setting keys and defaults are the
 //! 3.x engine's (dev: supervisor.py, ledger.py, appsettings.py).
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +21,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
+use crate::domain::docket::{self, Agents};
 use crate::domain::mail::{self, From, Outgoing};
 use crate::engine::Engine;
 use crate::orgs::OrgHandle;
@@ -133,7 +133,7 @@ struct WorkRow {
     slug: String,
     title: String,
     status: String,
-    /// next-action recipient and the role it was reached by (3.x `_work_next_recipient`)
+    /// next-action recipient and the role it was reached by (`docket::next_recipient`)
     to: Option<String>,
     role: &'static str,
     /// manual attention flag or an open question attached
@@ -185,15 +185,17 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
     if agents.is_empty() {
         return Ok(());
     }
-    let live: HashMap<String, ()> = client
-        .query("SELECT name FROM ot.agents WHERE org_id = $1 AND state = 'live' LIMIT $2", &[&org.id, &MAX_AGENTS])
+    // every agent but the deleted, for the reviewer's liveness and the owner's superior chain
+    let everyone: Agents = client
+        .query("SELECT name, id, state, parent_id FROM ot.agents WHERE org_id = $1 AND state <> 'deleted' LIMIT $2", &[&org.id, &MAX_AGENTS])
         .await?
         .iter()
-        .map(|r| (r.get::<_, String>(0), ()))
+        .map(|r| (r.get(0), (r.get(1), r.get(2), r.get(3))))
         .collect();
     let work: Vec<WorkRow> = client
         .query(
-            "SELECT w.slug, w.title, w.status, w.owner->>'node', w.reviewer->>'node', w.manual_attention IS NOT NULL,
+            "SELECT w.slug, w.title, w.status, w.owner, w.owner_agent_id, w.reviewer, w.reviewer_agent_id,
+                    w.manual_attention IS NOT NULL,
                     EXISTS (SELECT 1 FROM ot.asks k WHERE k.org_id = w.org_id AND k.status = 'open' AND w.slug = ANY (k.work_items))
                FROM ot.work_items w
               WHERE w.org_id = $1 AND w.archived_at IS NULL AND NOT coalesce((w.extra->>'deleted')::boolean, false)
@@ -205,18 +207,10 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
         .iter()
         .map(|r| {
             let status: String = r.get(2);
-            let owner: Option<String> = r.get(3);
-            let reviewer: Option<String> = r.get(4);
-            let (to, role) = if status == "review" {
-                match reviewer {
-                    Some(rv) if live.contains_key(&rv) => (Some(rv), "reviewer"),
-                    Some(_) => (owner, "stale_reviewer"),
-                    None => (owner, "unassigned_review"),
-                }
-            } else {
-                (owner, "owner")
-            };
-            WorkRow { slug: r.get(0), title: r.get(1), status, to, role, attention: r.get::<_, bool>(5) || r.get::<_, bool>(6) }
+            let owner: Option<Value> = r.get(3);
+            let reviewer: Option<Value> = r.get(5);
+            let (to, role) = docket::next_recipient(&status, owner.as_ref(), r.get(4), reviewer.as_ref(), r.get(6), &everyone);
+            WorkRow { slug: r.get(0), title: r.get(1), status, to, role, attention: r.get::<_, bool>(7) || r.get::<_, bool>(8) }
         })
         .collect();
     drop(client);
