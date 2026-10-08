@@ -1585,7 +1585,7 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
 /// team charter and scope; each agent keeps its identity, session, charter,
 /// tier and mailbox. Only the tier's seat price moves with the agent.
 #[logged]
-async fn swap(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+async fn swap(_engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let a = node_by_name(tx, org.id, str_arg(req, "a").unwrap_or("")).await?;
     let b = node_by_name(tx, org.id, str_arg(req, "b").unwrap_or("")).await?;
     if a.id == b.id {
@@ -1599,14 +1599,46 @@ async fn swap(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     if matches!(actor, Actor::Agent { .. }) && (a.parent.is_none() || b.parent.is_none()) {
         refuse!(Forbidden, "only the user reseats the top level");
     }
-    let caps = caps(engine, tx, org.id).await?;
-    // the superior of each seat now holds the other agent's seat price
-    let mut raised = Vec::new();
-    if b.seat > a.seat {
-        raised.extend(ensure_room(tx, actor, a.parent.filter(|p| *p != b.id), b.seat - a.seat, caps.cascade_alloc, caps.max_top, fx).await?);
-    }
-    if a.seat > b.seat {
-        raised.extend(ensure_room(tx, actor, b.parent.filter(|p| *p != a.id), a.seat - b.seat, caps.cascade_alloc, caps.max_top, fx).await?);
+    // As in 3.x, grants ride the seats: a same-tier exchange, or one between
+    // siblings, is budget-neutral at every agent, and a cross-tier exchange
+    // surfaces exactly the seat-price difference at the boundary payers. It
+    // must fit their free credits, or the swap is refused before anything
+    // changes ("reallocate first"); nobody's grant is raised for it.
+    let raised: Vec<String> = Vec::new();
+    let siblings = a.parent.is_some() && a.parent == b.parent;
+    if (a.seat - b.seat).abs() > 1e-9 && !siblings {
+        // the commander of a nested pair first
+        let (top, low) = if within(tx, b.id, a.id).await? { (&b, &a) } else { (&a, &b) };
+        let direct = low.parent == Some(top.id);
+        let free = |n: &Node| {
+            let (id, grant) = (n.id, n.grant);
+            async move { Ok::<f64, anyhow::Error>(grant - hold(tx, id).await?) }
+        };
+        let short = |payer: &str, have: f64, need: f64| {
+            format!("seating it costs {need} more than {payer}'s free ({have}) — reallocate first (§4.6)")
+        };
+        if let Some(pid) = top.parent {
+            let p = node_by_id(tx, pid).await?;
+            let have = free(&p).await?;
+            if have + top.seat - low.seat < -1e-9 {
+                refuse!(Conflict, "\"{}\" ({}, seat {}) where \"{}\" ({}, seat {}) sat: {}", low.name, low.tier, low.seat,
+                    top.name, top.tier, top.seat, short(&p.name, have, low.seat - top.seat));
+            }
+        }
+        if direct {
+            let have = free(top).await?;
+            if have + low.seat - top.seat < -1e-9 {
+                refuse!(Conflict, "\"{}\" would fund \"{}\"'s seat ({}) out of the exchanged grant with free {} — the seat-cost difference does not fit; reallocate first (§4.6)",
+                    low.name, top.name, top.seat, have + low.seat - top.seat);
+            }
+        } else if let Some(pid) = low.parent {
+            let p = node_by_id(tx, pid).await?;
+            let have = free(&p).await?;
+            if have + low.seat - top.seat < -1e-9 {
+                refuse!(Conflict, "\"{}\" ({}, seat {}) where \"{}\" ({}, seat {}) sat: {}", top.name, top.tier, top.seat,
+                    low.name, low.tier, low.seat, short(&p.name, have, top.seat - low.seat));
+            }
+        }
     }
     let a_parent = if b.parent == Some(a.id) { Some(b.id) } else { b.parent };
     let b_parent = if a.parent == Some(b.id) { Some(a.id) } else { a.parent };
