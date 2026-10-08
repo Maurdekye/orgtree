@@ -2,80 +2,52 @@
 
 # Orgtree
 
-**A desktop workspace for running a persistent team of coding agents.**
+**Put a team of AI agents to work. Keep control of the job.**
 
-Give agents jobs, see what they are doing, and keep their conversations, files and work organized in one place. Orgtree shows your team as an interactive organization chart: you sit at the top, agents work beneath you, and they can delegate and communicate with one another within the permissions you give them.
+Orgtree is a desktop power tool for running persistent teams of AI agents. Give them a project, divide the work, and follow it through to delivery. Assign roles, set limits, inspect the work and keep the decisions in one place.
+
+It is a substantial tool, with a learning curve to match. You will need to learn its controls and give clear direction. Start with one agent and a small job. As you gain experience, build a team that can investigate, implement and review different parts of a project in parallel. In practiced hands, one person can keep several lines of work moving at once.
 
 **[Download the latest Windows installer](https://github.com/Maurdekye/orgtree/releases/latest)** | [Release notes](https://github.com/Maurdekye/orgtree/releases) | [Report an issue](https://github.com/Maurdekye/orgtree/issues)
-
-## Screenshots
 
 ![Workspace in the default rows view, with provider usage across the top and agents arranged beneath their coordinator](docs/images/orgtree-3-rows-workspace.png)
 
 **A workspace in the default rows view.** Agents sit in rows beneath their coordinator, with provider usage across the top.
 
-![Canvas: an interactive circular org chart of agents, with the Needs attention list, a Usage panel and an open agent desk](docs/images/orgtree-3-canvas.png)
+## Built to carry the work
 
-**Canvas.** The Canvas shows your team as a circular organization chart. Beside it are the "Needs attention" list of tickets and questions waiting for you, a Usage panel, and an agent's desk open for reading its conversation.
+A project needs more than a conversation. It needs an owner, a clear brief, a record of decisions and a way to tell what is finished.
 
-![Window with the Work docket and the Usage panel pinned on the left, and the canvas of agents beside them](docs/images/orgtree-3-docket-usage.png)
+- **Give every job an owner.** The shared Work docket holds requirements, status, progress, evidence and attachments. Hand a task to another agent without losing its record.
+- **Put specialists under a coordinator.** Each agent has a role and standing instructions. Agents can hire, delegate and retire reports within the capacity and permissions you give them.
+- **See the work at the desk.** Read live conversations and tool calls. Open several desks side by side, send a correction while an agent works, and return to retained history later.
+- **Get decisions and deliverables back.** Agents send mail, ask questions on cards, present plans and reports, and deliver files you can download. The Needs attention list brings together questions, urgent mail and flagged tickets.
 
-**Docket and usage beside the canvas.** The Work docket on the left lists tickets grouped by status, and next to it the Usage panel shows how much of each provider account's limits is used and when they reset. The canvas to the right shows the agents, with you at the centre; account emails and the OpenRouter key are blurred in this picture.
+For example: give a coordinator a project, assign a specialist to investigate one part, and have another agent review the result. Keep the brief, decisions and evidence on the docket. You direct the work and judge the result; the team handles the steps you delegate.
 
-![Window with the Work docket pinned on the left showing one ticket's details, and a focused agent desk on the right showing live tool calls and a queued message](docs/images/orgtree-3-focused-desk.png)
+## Built for work that lasts beyond a session
 
-**A focused agent desk.** On the left, the Work docket is pinned with one ticket open, showing its description, what is done and what is next. On the right, one agent's desk fills the canvas: its live tool calls and short progress notes scroll by, and a message from another agent waits at the bottom until the agent reaches a safe point to read it.
+The local Rust engine stores your organization, mail, docket and retained conversations in bundled PostgreSQL. Those records outlive the agent process. Retire an agent to free its capacity, then rehire it with its history when you need it again.
 
-![Work docket with tickets grouped by status and one ticket's description, progress and next steps open](docs/images/orgtree-3-docket.png)
+Recovery is part of the machinery. The desktop can restart an unresponsive engine. After an engine restart or crash, interrupted agents receive a continuation message and pending mail is recovered for delivery. Orgtree does not verify the outcome of tool calls interrupted in flight; agents may need to check what completed before continuing.
 
-**The Work docket.** Tickets are grouped by status, including work in progress, blocked work and the backlog. Opening a ticket shows its owner, description, what is done and what comes next.
+Keep the engine running in the system tray while you step away. Persistent **watchdogs** can wake an agent when a file changes, a process stops, command output matches, or an Orgtree event occurs. Agents can wait for the event that matters instead of repeatedly checking for it.
 
-![Presented documents panel with a list of reports and a PostgreSQL speed audit open for reading](docs/images/orgtree-3-presented.png)
+## Capacity you can put to use
 
-**Presented documents.** Browse reports from your agents and read or download a selected document. Here an agent has presented a PostgreSQL speed audit.
+Run agents through **Claude Code, OpenAI Codex, Google Antigravity or OpenRouter**. Choose the model and working instructions for each role. Adjust thinking effort as the job demands; supported Claude agents can take effort changes during a turn, while other providers apply them from the next turn.
 
-![App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices](docs/images/orgtree-3-providers.png)
+The **Usage** board shows each account's reported limits and reset times. Use multiple supported accounts, choose which account serves an agent, and let agents use the readings to spread work across them. Disable accounts individually. Optional [account fallback](#account-fallback) lets eligible agents continue on another account when a usage limit is reached.
 
-**Providers.** App settings lists installed providers, signed-in accounts, model tiers and their seat prices. You can add secondary accounts and manage sign-ins; account emails and local usernames are blurred in this picture.
+Orgtree is designed for organizations with hundreds of agents. The Rust engine handles agents concurrently, desks load recent conversation history first, and the docket fetches tasks in pages. Set how many turns may run at once in **App settings > Runtime**; the default is **16**. Actual working capacity depends on your machine, providers and account allowances.
 
-![Workspace with account usage above two agent desks open side by side, and a coordinator's desk pinned on the right](docs/images/orgtree-3-desks.png)
+Organizations can exchange mail on the same machine or through a shared **mail hub**. Keep separate teams for separate projects and connect them when the work calls for it.
 
-**Agent desks.** Open several agents' desks side by side and switch between them using tabs. Here two desks share the canvas, with Usage above them and a coordinator's desk pinned on the right.
+## Controls within reach
 
-![Inbox with audience holders, inbox, sent and record tabs, a message list and a selected message with an attachment](docs/images/orgtree-3-inbox.png)
+Set folder access, available tools and delegation budgets for each agent. Halt work, change a model, move an agent to another team or bring a retired specialist back. Agents can use your desktop's Git and GitHub sign-in for repository work.
 
-**Your inbox.** See who holds a direct audience with you, browse messages, read attachments and reply in place. The selected message contains an agent's report and a file to download.
-
-![A mail hub window showing message traffic between hosts in a read-only view](docs/images/orgtree-mail-hub.png)
-
-**The mail hub.** A read-only view of message traffic between hosts. Select a host or a message to inspect its delivery status and contents.
-
-### Your organizations
-
-![Home page listing organizations, their capacity counts and a button to create a new organization](docs/images/orgtree-3-homepage.png)
-
-**The home page.** Open an existing organization or create a new one. The list shows each organization's capacity counts and marks organizations that are already open.
-
-## Key features
-
-- **An org chart of agents.** You sit at the centre or top; a coordinator and specialists work beneath you. Agents can hire, delegate and retire reports inside the capacity and permissions you give them.
-- **Several providers and models.** Run agents through Claude Code, Codex and Antigravity, or pick models through OpenRouter. Each agent has a role (its *charter*), a model and its own working instructions.
-- **Live desks.** Read each agent's conversation and tool activity as it happens, send follow-up messages while it works, open several desks side by side, and return to retained history later.
-- **Adjustable thinking effort.** Change an agent's effort while it works. Claude Code agents on Opus, Sonnet and Fable apply it mid-turn; Codex and other harnesses apply it from the next turn.
-- **A shared docket.** Tickets track ownership, status, progress and evidence, with images and files attached, so work stays connected to its context. A "Needs attention" list gathers flagged tickets, urgent mail and open questions for you.
-- **Mail and notices.** Agents exchange mail, request decisions, ask you questions on cards and deliver files. You have an inbox, and an *audience* gives an agent a direct line to you or another agent.
-- **Presented documents.** Agents present reports and plans you can read, and download, in the app.
-- **Watchdogs.** Free, persistent watchers that wake an agent when a file, command, process or output stream matches, or when the engine itself reports an event such as a turn finishing, new mail, a ticket change, an account hitting its limit or the number of active agents crossing a threshold.
-- **Credits and seats.** A capacity budget that limits how many agents the organization can hold and how much each can manage beneath it (see below).
-- **Usage board and account balancing.** See each signed-in account's limits and reset times, run several accounts per provider, enable or disable them individually, and let agents spread work across them. Optionally let agents switch account when a limit is hit.
-- **Git and GitHub for agents.** Agents use your desktop's git and GitHub login, even when Orgtree started before you signed in to Windows.
-- **A mail hub between organizations.** Organizations on the same machine, or on a shared hub, can send each other mail. A read-only hub window shows message traffic.
-- **Control over access.** Set folder permissions, tools and delegation budgets per agent.
-- **A workspace that scales.** Rows and circular canvas layouts, pinned and pop-out panels, themes, context menus on agents (copy, focus, hire, open, halt, cheap compact, retire), and one window per organization. It stays responsive with hundreds of agents.
-- **Runs in the background.** Closing the main window can leave the engine running in the system tray, so a team keeps working between visits. Retiring an agent preserves its history so it can be brought back later.
-- **Your choice of Enter behaviour.** In **App settings > Display > Typing**, choose whether Enter sends a message or adds a new line.
-
-A typical workflow: give a coordinator a project, have a specialist investigate one part, ask another agent to review the result, and keep the decisions and deliverables on the project's tickets.
+Arrange the workspace around the job: rows or a circular org chart, pinned panels, pop-out windows and multiple desks. Each organization has its own window. Open the detail when you need it; use the docket and attention list to keep track of the larger job.
 
 ## Install
 
@@ -122,6 +94,50 @@ An agent's charter describes its job; its folder and tool permissions determine 
 
 Agents have persistent identities and history. Retirement preserves that context; permanent deletion is a separate action.
 
+## Screenshots
+
+![Canvas: an interactive circular org chart of agents, with the Needs attention list, a Usage panel and an open agent desk](docs/images/orgtree-3-canvas.png)
+
+**Canvas.** The Canvas shows your team as a circular organization chart. Beside it are the "Needs attention" list of tickets and questions waiting for you, a Usage panel, and an agent's desk open for reading its conversation.
+
+![Window with the Work docket and the Usage panel pinned on the left, and the canvas of agents beside them](docs/images/orgtree-3-docket-usage.png)
+
+**Docket and usage beside the canvas.** The Work docket on the left lists tickets grouped by status, and next to it the Usage panel shows how much of each provider account's limits is used and when they reset. The canvas to the right shows the agents, with you at the centre; account emails and the OpenRouter key are blurred in this picture.
+
+![Window with the Work docket pinned on the left showing one ticket's details, and a focused agent desk on the right showing live tool calls and a queued message](docs/images/orgtree-3-focused-desk.png)
+
+**A focused agent desk.** On the left, the Work docket is pinned with one ticket open, showing its description, what is done and what is next. On the right, one agent's desk fills the canvas: its live tool calls and short progress notes scroll by, and a message from another agent waits at the bottom until the agent reaches a safe point to read it.
+
+![Work docket with tickets grouped by status and one ticket's description, progress and next steps open](docs/images/orgtree-3-docket.png)
+
+**The Work docket.** Tickets are grouped by status, including work in progress, blocked work and the backlog. Opening a ticket shows its owner, description, what is done and what comes next.
+
+![Presented documents panel with a list of reports and a PostgreSQL speed audit open for reading](docs/images/orgtree-3-presented.png)
+
+**Presented documents.** Browse reports from your agents and read or download a selected document. Here an agent has presented a PostgreSQL speed audit.
+
+![App settings on the Providers page, showing installed providers, signed-in accounts, model tiers and seat prices](docs/images/orgtree-3-providers.png)
+
+**Providers.** App settings lists installed providers, signed-in accounts, model tiers and their seat prices. You can add secondary accounts and manage sign-ins; account emails and local usernames are blurred in this picture.
+
+![Workspace with account usage above two agent desks open side by side, and a coordinator's desk pinned on the right](docs/images/orgtree-3-desks.png)
+
+**Agent desks.** Open several agents' desks side by side and switch between them using tabs. Here two desks share the canvas, with Usage above them and a coordinator's desk pinned on the right.
+
+![Inbox with audience holders, inbox, sent and record tabs, a message list and a selected message with an attachment](docs/images/orgtree-3-inbox.png)
+
+**Your inbox.** See who holds a direct audience with you, browse messages, read attachments and reply in place. The selected message contains an agent's report and a file to download.
+
+![A mail hub window showing message traffic between hosts in a read-only view](docs/images/orgtree-mail-hub.png)
+
+**The mail hub.** A read-only view of message traffic between hosts. Select a host or a message to inspect its delivery status and contents.
+
+### Your organizations
+
+![Home page listing organizations, their capacity counts and a button to create a new organization](docs/images/orgtree-3-homepage.png)
+
+**The home page.** Open an existing organization or create a new one. The list shows each organization's capacity counts and marks organizations that are already open.
+
 ## Updates and background operation
 
 Right-click Orgtree's **system-tray icon** to check for updates, see download progress and choose **Update now** when the download is ready. The update can be completed from that menu.
@@ -160,7 +176,7 @@ cargo check --manifest-path engine/rs/Cargo.toml
 
 Keep development separate from your installed app and its organizations by pointing it at its own profile and data folder (`ORGTREE_V2_PROFILE`, `ORGTREE_V2_DATA`) before `npm start`. Renderer checks run with `npm run test:renderer`.
 
-Build a Windows installer with `npm run package:win`. To produce the canonical, locally verified release candidate, use `npm run release:windows -- <version>`; publication is a separate explicit `--publish` phase. See [the Windows release workflow](docs/windows-release.md). To install an in-development build locally without publishing anything, use `npm run package:dev` — see [local development builds](docs/dev-builds.md).
+Build a Windows installer with `npm run package:win`. For the documented Windows release workflow, use `npm run release:windows -- <version>`; publication is a separate explicit `--publish` phase. See [the Windows release workflow](docs/windows-release.md). For the separate development packaging workflow, see [local development builds](docs/dev-builds.md).
 
 More technical notes: [engine boundary](docs/engine-contract.md), [engine plan and decisions](docs/rust-engine/PLAN.md), [event watchdogs](docs/rust-engine/event-watchdogs.md), [credential bridge](docs/rust-engine/credential-bridge.md), [onboarding and charter presets](docs/v2-onboarding.md), [themes](docs/v2-visual-themes.md) and [history retention](docs/v2-history-retention.md). Consult the [release notes](https://github.com/Maurdekye/orgtree/releases) for published changes.
 
