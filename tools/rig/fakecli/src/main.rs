@@ -445,13 +445,17 @@ fn finish(cli: &Cli, turn: &mut Turn, state_cost: &mut f64) {
     cli.emit(Value::Object(res));
 }
 
-fn transcript(cli: &Cli, role: &str, text: &str) {
-    let base = std::env::var("CLAUDE_CONFIG_DIR")
+/// The CLI's config folder: `CLAUDE_CONFIG_DIR`, else the fake home's `.claude`.
+fn config_base() -> Option<PathBuf> {
+    std::env::var("CLAUDE_CONFIG_DIR")
         .ok()
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::var("ORGTREE_FAKECLI_HOME").ok().filter(|s| !s.is_empty()).map(|h| PathBuf::from(h).join(".claude")));
-    let Some(base) = base else { return };
+        .or_else(|| std::env::var("ORGTREE_FAKECLI_HOME").ok().filter(|s| !s.is_empty()).map(|h| PathBuf::from(h).join(".claude")))
+}
+
+fn transcript(cli: &Cli, role: &str, text: &str) {
+    let Some(base) = config_base() else { return };
     let dir = base.join("projects").join(project_dir(&cli.cwd));
     let _ = std::fs::create_dir_all(&dir);
     let line = if role == "user" {
@@ -666,7 +670,21 @@ fn claude(raw: &[String]) -> i32 {
                               "model": args.model, "permission_mode": args.permission_mode, "effort": args.effort,
                               "add_dirs": args.add_dirs, "unknown_args": args.unknown,
                               "org": std::env::var("ORGTREE_ORG").ok(),
-                              "config_dir_set": std::env::var("CLAUDE_CONFIG_DIR").is_ok() }));
+                              "config_dir_set": std::env::var("CLAUDE_CONFIG_DIR").is_ok(),
+                              "config_dir": std::env::var("CLAUDE_CONFIG_DIR").ok(),
+                              "api_key_set": std::env::var("ANTHROPIC_API_KEY").map(|k| !k.is_empty()).unwrap_or(false),
+                              "oauth_token_set": std::env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok() }));
+    // like the real CLI: --resume finds its transcript under this config folder or fails
+    if let Some(sid) = &args.resume {
+        if let Some(base) = config_base() {
+            let file = base.join("projects").join(project_dir(&cwd)).join(format!("{sid}.jsonl"));
+            if !file.is_file() {
+                eprintln!("No conversation found with session ID: {sid}");
+                cli.log("exit", json!({ "code": 1, "why": "no transcript for --resume", "looked": file }));
+                return 1;
+            }
+        }
+    }
     let (tx, rx) = mpsc::channel();
     {
         let cli = cli.clone();
