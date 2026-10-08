@@ -21,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::Engine;
 
 pub const DEFAULT_PORT: u16 = 7370;
+pub const DEFAULT_ATTACHMENT_MAX: u64 = 1024 * 1024 * 1024;
 /// fixed by `mailhub.serve` (the relay-only public listener)
 pub const PUBLIC_LISTENER_PORT: u16 = 7371;
 /// "keep forever", expressed as configuration
@@ -81,7 +82,7 @@ pub fn safe_start() -> bool {
 
 fn default_config() -> Value {
     json!({ "version": 2, "port": DEFAULT_PORT, "bind": "127.0.0.1", "name": "", "retention_days": null,
-            "org_retention_days": 45, "public_listener": false })
+            "org_retention_days": 45, "public_listener": false, "max_attachment_bytes": DEFAULT_ATTACHMENT_MAX })
 }
 
 /// The hosting settings on the hub's own model: port, bind, name, retention.
@@ -118,8 +119,13 @@ pub fn validate(raw: &Value) -> Result<Value, String> {
         None => false,
         Some(v) => v.as_bool().ok_or("public_listener must be a boolean")?,
     };
+    let attachment_max = match o.get("max_attachment_bytes") {
+        None => DEFAULT_ATTACHMENT_MAX,
+        Some(v) => v.as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991)
+            .ok_or("max_attachment_bytes must be a positive safe integer number of bytes")?,
+    };
     let mut out = json!({ "version": 2, "port": port, "bind": bind, "name": name, "retention_days": retention,
-                          "org_retention_days": org_retention, "public_listener": public });
+                          "org_retention_days": org_retention, "public_listener": public, "max_attachment_bytes": attachment_max });
     if let Some(m) = o.get("migrated").filter(|m| m.is_object()) {
         out["migrated"] = m.clone();
     }
@@ -156,6 +162,15 @@ fn save_config(engine: &Engine, config: &Value) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, serde_json::to_string_pretty(config).unwrap_or_default() + "\n")?;
     std::fs::rename(&tmp, &path)
+}
+
+/// Shared with the child through a path, never a remotely writable admin route.
+#[logged]
+fn save_upload_limit(engine: &Engine, config: &Value) -> std::io::Result<()> {
+    let path = engine.cfg.path("mailhub-upload-limit.json");
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, json!({"max_attachment_bytes":config["max_attachment_bytes"]}).to_string())?;
+    std::fs::rename(tmp, path)
 }
 
 /// The hub's interpreter and package: beside the engine in a package
@@ -218,6 +233,10 @@ async fn start_now(engine: &Arc<Engine>) {
         hub.set(|s| s.error = Some("the mail hub is not hosted while the engine runs in safe start".into()));
         return;
     }
+    if let Err(e) = save_upload_limit(engine, &cfg) {
+        hub.set(|s| s.error = Some(format!("could not save the hub upload limit: {e}")));
+        return;
+    }
     let (python, hub_dir) = match hub_runtime() {
         Ok(p) => p,
         Err(e) => {
@@ -251,6 +270,8 @@ async fn start_now(engine: &Arc<Engine>) {
         .env("HUB_NAME", cfg["name"].as_str().unwrap_or(""))
         .env("HUB_RETENTION_DAYS", retention.to_string())
         .env("HUB_ORG_RETENTION_DAYS", cfg["org_retention_days"].as_i64().unwrap_or(45).to_string())
+        .env("HUB_MAX_FILE_BYTES", cfg["max_attachment_bytes"].to_string())
+        .env("HUB_RUNTIME_CONFIG_FILE", engine.cfg.path("mailhub-upload-limit.json"))
         .env("PYTHONPATH", &hub_dir)
         .env_remove("ORGTREE_V2_TOKEN")
         .env_remove("ORGTREE_DATA")
@@ -359,6 +380,7 @@ pub async fn hosting(engine: &Arc<Engine>) -> Value {
     let mut out = json!({
         "version": 2, "port": port, "bind": cfg["bind"], "name": cfg["name"], "retention_days": cfg["retention_days"],
         "org_retention_days": cfg["org_retention_days"], "public_listener": cfg["public_listener"],
+        "max_attachment_bytes": cfg["max_attachment_bytes"],
         "public_listener_port": PUBLIC_LISTENER_PORT,
         "status": {
             "running": st.running, "healthy": health.is_some(), "address": address,
@@ -394,6 +416,19 @@ pub async fn configure(engine: &Arc<Engine>, raw: &Value) -> Result<Value, Strin
         }
     }
     let config = validate(&Value::Object(merged))?;
+    let mut before = previous.as_object().cloned().unwrap_or_default();
+    let mut after = config.as_object().cloned().unwrap_or_default();
+    before.remove("max_attachment_bytes");
+    after.remove("max_attachment_bytes");
+    if before == after {
+        save_upload_limit(engine, &config).map_err(|e| format!("could not apply the hub upload limit: {e}"))?;
+        if let Err(e) = save_config(engine, &config) {
+            let _ = save_upload_limit(engine, &previous);
+            return Err(format!("could not save the hub settings: {e}"));
+        }
+        engine.hub.config.store(Arc::new(config));
+        return Ok(hosting(engine).await);
+    }
     stop(engine).await;
     engine.hub.config.store(Arc::new(config.clone()));
     save_config(engine, &config).map_err(|e| format!("could not save the hub settings: {e}"))?;

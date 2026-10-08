@@ -26,6 +26,8 @@ use anyhow::Result;
 use arc_swap::ArcSwap;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::changes::{self, Change};
@@ -39,6 +41,52 @@ const BACKOFF_MAX_S: f64 = 30.0;
 /// inbound older than this gets the "sent N hours ago" note
 const STALE_AFTER_S: i64 = 3600;
 const STATES: [&str; 4] = ["queued", "sent", "delivered", "read"];
+pub const LEGACY_ATTACHMENT_MAX: u64 = 25 * 1024 * 1024;
+const FILE_TIMEOUT: Duration = Duration::from_secs(3600);
+
+#[derive(Clone, Copy, Debug)]
+pub struct AttachmentLimit {
+    pub bytes: u64,
+    pub legacy: bool,
+}
+
+#[logged]
+impl AttachmentLimit {
+    pub fn from_health(health: &Value) -> Self {
+        match health["max_attachment_bytes"].as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991) {
+            Some(bytes) => Self { bytes, legacy: false },
+            None => Self { bytes: LEGACY_ATTACHMENT_MAX, legacy: true },
+        }
+    }
+    pub fn message(&self) -> String {
+        if self.legacy { "attachment exceeds 25 MB (this hub doesn't state its limit; using 25 MB)".into() }
+        else { format!("attachment exceeds hub limit of {} bytes", self.bytes) }
+    }
+    pub fn check(&self, bytes: u64) -> Result<()> {
+        if bytes > self.bytes { crate::refuse!(BadRequest, "{}", self.message()); }
+        Ok(())
+    }
+}
+
+#[logged]
+async fn attachment_limit_at(address: &str) -> AttachmentLimit {
+    let health = async {
+        HTTP.get(format!("{address}/healthz")).timeout(Duration::from_secs(5)).send().await?
+            .error_for_status()?.json::<Value>().await
+    }.await.unwrap_or(Value::Null);
+    AttachmentLimit::from_health(&health)
+}
+
+#[logged]
+pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Result<AttachmentLimit> {
+    if offline() { return Ok(AttachmentLimit::from_health(&Value::Null)); }
+    let parts = participants(engine).await?;
+    let Some(p) = parts.iter().find(|p| p.org_id == org_id) else { crate::refuse!(BadRequest, "no mail hub is configured for this organization"); };
+    let Some((_, address)) = pick_hub(engine, p, peer.trim().trim_start_matches("@net:")) else {
+        crate::refuse!(BadRequest, "no mail hub is enabled for this organization");
+    };
+    Ok(attachment_limit_at(&address).await)
+}
 
 static HTTP: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
@@ -638,28 +686,37 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
         for a in atts {
             let name = a["name"].as_str().unwrap_or("file");
             let safe: String = std::path::Path::new(name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
-            let fetched = async {
+            let short: String = mid.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
+            let path = dir.join(format!("net-{short}-{safe}"));
+            let fetched: Result<u64> = async {
                 let r = HTTP
                     .get(format!("{addr}/api/attachments/{}", a["id"].as_str().unwrap_or("")))
-                    .timeout(Duration::from_secs(120))
+                    .timeout(FILE_TIMEOUT)
                     .header("X-Org-Auth", p.auth())
                     .send()
                     .await?
                     .error_for_status()?;
-                r.bytes().await
+                let mut file = tokio::fs::File::create(&path).await?;
+                let mut chunks = r.bytes_stream();
+                let mut size = 0;
+                while let Some(chunk) = chunks.next().await {
+                    let chunk = chunk?;
+                    file.write_all(&chunk).await?;
+                    size += chunk.len() as u64;
+                }
+                file.flush().await?;
+                Ok(size)
             }
             .await;
             match fetched {
                 Ok(bytes) => {
-                    let short: String = mid.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
-                    let path = dir.join(format!("net-{short}-{safe}"));
-                    if std::fs::write(&path, &bytes).is_ok() {
-                        attachments.push(json!({ "name": safe, "path": path.to_string_lossy(), "bytes": bytes.len() }));
-                    } else {
-                        body.push_str(&format!("\n[attachment {name:?} could not be saved]"));
-                    }
+                    attachments.push(json!({ "name": safe, "path": path.to_string_lossy(), "bytes": bytes }));
                 }
-                Err(e) => body.push_str(&format!("\n[attachment {name:?} could not be fetched from the hub: {}]", short_error(&e))),
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&path).await;
+                    let detail = e.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| e.to_string());
+                    body.push_str(&format!("\n[attachment {name:?} could not be fetched from the hub: {detail}]"));
+                }
             }
         }
     }
@@ -776,7 +833,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
                 continue;
             }
             let Some(path) = a["path"].as_str() else { continue };
-            let data = match tokio::fs::read(path).await {
+            let file = match tokio::fs::File::open(path).await {
                 Ok(d) => d,
                 Err(_) => {
                     vanished.push(a["name"].as_str().unwrap_or("?").to_string());
@@ -784,12 +841,19 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
                     continue;
                 }
             };
+            let bytes = file.metadata().await?.len();
+            let limit = attachment_limit_at(&addr).await;
+            if bytes > limit.bytes {
+                broken = Some(limit.message());
+                break;
+            }
             let up = HTTP
                 .post(format!("{addr}/api/attachments"))
-                .timeout(Duration::from_secs(300))
+                .timeout(FILE_TIMEOUT)
                 .query(&[("name", a["name"].as_str().unwrap_or("file"))])
                 .header("X-Org-Auth", p.auth())
-                .body(data)
+                .header(reqwest::header::CONTENT_LENGTH, bytes)
+                .body(reqwest::Body::wrap_stream(tokio_util::io::ReaderStream::new(file.take(bytes))))
                 .send()
                 .await;
             match up {
@@ -990,6 +1054,10 @@ pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by
             Unprocessable,
             "no organization @net:{peer} is registered on any hub this organization uses (a new registration appears within a minute; orgtree_list_orgs lists the known ones)"
         );
+    }
+    if !attachments.is_empty() {
+        let limit = attachment_limit(engine, org_id, peer).await?;
+        for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
     }
     queue_row(engine, org_id, peer, body, by, kind, attachments).await
 }

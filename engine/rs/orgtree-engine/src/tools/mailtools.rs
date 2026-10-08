@@ -61,9 +61,10 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
         let org = engine.orgs.by_id(me.org_id).ok_or_else(|| anyhow::anyhow!("organization not open"))?;
         let presenter = crate::domain::docs::presenter(engine, &org, me.id).await?;
         if to_user && !presenter.may_present { crate::refuse!(Forbidden, "mail to the user needs a user audience"); }
+        let limit = if network { Some(crate::net::attachment_limit(engine, me.org_id, &out.to).await?) } else { None };
         for a in attachments {
             let Some(path) = a.as_str() else { crate::refuse!(BadRequest, "attachment paths must be strings"); };
-            out.attachments.push(crate::domain::docs::snapshot(&presenter, path, network)?);
+            out.attachments.push(crate::domain::docs::snapshot(&presenter, path, limit.as_ref())?);
         }
     }
     let sent = mail::send(engine, me.org_id, out).await?;

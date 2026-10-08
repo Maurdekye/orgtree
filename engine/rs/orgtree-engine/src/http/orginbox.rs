@@ -3,12 +3,14 @@
 
 use std::sync::Arc;
 
-use axum::body::Bytes;
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use futures::StreamExt;
+use tokio::io::AsyncWriteExt;
 
 use crate::changes::{self, Change};
 use crate::domain::mail::{From, Outgoing};
@@ -67,15 +69,28 @@ pub async fn read(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Api
 pub struct UploadQuery {
     #[serde(default)]
     name: String,
+    #[serde(default)]
+    to: String,
+}
+
+#[logged]
+async fn target_limit(e: &Engine, org_id: i64, to: &str) -> anyhow::Result<crate::net::AttachmentLimit> {
+    if to.starts_with("@net:") { crate::net::attachment_limit(e, org_id, to).await }
+    else { Ok(crate::net::AttachmentLimit { bytes: ATTACHMENT_MAX as u64, legacy: false }) }
+}
+
+#[logged]
+pub async fn upload_limit(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<UploadQuery>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    let limit = target_limit(&e, o.id, &q.to).await?;
+    Ok(Json(json!({"max_attachment_bytes":limit.bytes,"legacy":limit.legacy,"too_large":limit.message()})))
 }
 
 /// Stage an attachment for the user's next outside message.
 #[logged]
-pub async fn upload(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<UploadQuery>, body: Bytes) -> ApiResult<Json<Value>> {
+pub async fn upload(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<UploadQuery>, body: Body) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
-    if body.len() > ATTACHMENT_MAX {
-        return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "attachment exceeds 25 MB"));
-    }
+    let limit = target_limit(&e, o.id, &q.to).await?;
     let base = std::path::Path::new(&q.name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let clean: String = base
         .chars()
@@ -89,16 +104,32 @@ pub async fn upload(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Quer
     let dir = e.cfg.path("uploads").join(&o.slug).join("@org-inbox");
     tokio::fs::create_dir_all(&dir).await.map_err(|err| ApiError::internal(err.to_string()))?;
     let path = dir.join(format!("{id}-{clean}"));
-    tokio::fs::write(&path, &body).await.map_err(|err| ApiError::internal(err.to_string()))?;
+    let written: ApiResult<u64> = async {
+        let mut file = tokio::fs::File::create(&path).await.map_err(|err| ApiError::internal(err.to_string()))?;
+        let mut chunks = body.into_data_stream();
+        let mut size = 0;
+        while let Some(chunk) = chunks.next().await {
+            let chunk = chunk.map_err(|err| ApiError::bad_request(err.to_string()))?;
+            size += chunk.len() as u64;
+            if size > limit.bytes { return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, limit.message())); }
+            file.write_all(&chunk).await.map_err(|err| ApiError::internal(err.to_string()))?;
+        }
+        file.flush().await.map_err(|err| ApiError::internal(err.to_string()))?;
+        Ok(size)
+    }.await;
+    let size = match written {
+        Ok(size) => size,
+        Err(err) => { let _ = tokio::fs::remove_file(&path).await; return Err(err); }
+    };
     let p = path.to_string_lossy().to_string();
     let client = e.db.get().await?;
     client
         .execute(
             "INSERT INTO ot.uploads (id, org_id, agent_id, name, path, bytes) VALUES ($1, $2, NULL, $3, $4, $5)",
-            &[&id, &o.id, &clean, &p, &(body.len() as i64)],
+            &[&id, &o.id, &clean, &p, &(size as i64)],
         )
         .await?;
-    Ok(Json(json!({ "id": id, "name": clean, "bytes": body.len() })))
+    Ok(Json(json!({ "id": id, "name": clean, "bytes": size })))
 }
 
 #[derive(Deserialize, Debug)]

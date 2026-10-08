@@ -91,16 +91,16 @@ pub(crate) fn readable(p: &Presenter, raw: &str) -> Result<PathBuf> {
 
 /// Copy a checked file to a fresh outbox directory, even if the source is already in outbox.
 #[logged]
-pub(crate) fn snapshot(p: &Presenter, raw: &str, network: bool) -> Result<Value> {
+pub(crate) fn snapshot(p: &Presenter, raw: &str, network: Option<&crate::net::AttachmentLimit>) -> Result<Value> {
     let src = readable(p, raw)?;
     if !src.is_file() { refuse!(BadRequest, "attachment is not a file"); }
     let size = std::fs::metadata(&src)?.len();
-    if network {
+    if let Some(limit) = network {
         let scratch = crate::config::strip_verbatim(&std::fs::canonicalize(&p.scratch)?);
         if !scope::path_within(&src.to_string_lossy(), &scratch.to_string_lossy()) {
             refuse!(Forbidden, "network attachments must be inside your working folder");
         }
-        if size > 25 * 1024 * 1024 { refuse!(BadRequest, "attachment over 25 MB"); }
+        limit.check(size)?;
     }
     let name = src.file_name().ok_or_else(|| anyhow::anyhow!("file has no name"))?.to_string_lossy().to_string();
     let outbox = p.scratch.join("outbox");
@@ -115,9 +115,11 @@ pub(crate) fn snapshot(p: &Presenter, raw: &str, network: bool) -> Result<Value>
     let dest = folder.join(&name);
     std::fs::copy(&src, &dest)?;
     let bytes = std::fs::metadata(&dest)?.len();
-    if network && bytes > 25 * 1024 * 1024 {
-        std::fs::remove_file(&dest)?;
-        refuse!(BadRequest, "attachment over 25 MB");
+    if let Some(limit) = network {
+        if let Err(e) = limit.check(bytes) {
+            std::fs::remove_file(&dest)?;
+            return Err(e);
+        }
     }
     Ok(json!({ "name": name, "path": dest.to_string_lossy(), "bytes": bytes }))
 }
@@ -231,7 +233,7 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
             refuse!(BadRequest, "{raw} is {} MB, over the {} MB cap", size / (1024 * 1024), SEND_MAX / (1024 * 1024));
         }
     }
-    let copy = snapshot(p, raw, false)?;
+    let copy = snapshot(p, raw, None)?;
     let name = copy["name"].as_str().unwrap().to_string();
     let path = copy["path"].as_str().unwrap().to_string();
     let bytes = copy["bytes"].as_u64().unwrap() as i64;
