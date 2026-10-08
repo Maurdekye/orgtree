@@ -12,7 +12,7 @@ module.exports = async page => {
     const s = document.querySelector('.msgs')
     const rect = e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height } }
     return { transcript: rect(s), scrollHeight: s.scrollHeight, scrollTop: s.scrollTop,
-      lastRow: rect(s.lastElementChild), chips: rect(document.querySelector('.desk-nav')),
+      lastRow: rect(s.lastElementChild), chips: rect([...document.querySelectorAll('.desk-nav')].at(-1)),
       composer: rect(document.querySelector('.cc-composer')) }
   }
   const shown = await page.eval(measure)
@@ -22,7 +22,7 @@ module.exports = async page => {
     return { position: getComputedStyle(b).position, outsideScroller: !s.contains(b),
       insideTranscript: r.top >= sr.top && r.bottom <= sr.bottom,
       clickable: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === b,
-      aboveChips: r.bottom <= document.querySelector('.desk-nav').getBoundingClientRect().top,
+      aboveChips: r.bottom <= [...document.querySelectorAll('.desk-nav')].at(-1).getBoundingClientRect().top,
       aboveComposer: r.bottom <= document.querySelector('.cc-composer').getBoundingClientRect().top }
   })
   if (overlay.position !== 'absolute' || Object.values(overlay).some(v => v === false)) throw Error(JSON.stringify(overlay))
