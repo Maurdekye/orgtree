@@ -12,7 +12,9 @@
 //   PowerShell, reading cached flags, and its init lists Bash and PowerShell.
 //   quiet (terminal off): neither shell, and PowerShell is not asked for.
 //   Both carry ORGTREE_NODE (3.x's name for the agent), by which the mail
-//   hub's SessionStart hook tells an orgtree agent and stands down.
+//   hub's SessionStart hook tells an orgtree agent and stands down. Only boss,
+//   at the top level, is allowed Monitor and TaskStop (3.x user ruling:
+//   standing listeners are for top-level agents).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/cli-environment.mjs
 
 import fs from 'node:fs'
@@ -53,6 +55,11 @@ export default async function (rig) {
 
   p.check('both carry ORGTREE_NODE, their names (3.x)', b?.env?.ORGTREE_NODE === 'boss' && q?.env?.ORGTREE_NODE === 'quiet',
     { boss: b?.env?.ORGTREE_NODE, quiet: q?.env?.ORGTREE_NODE })
+  // 3.x user ruling: standing listeners (Monitor) are for top-level agents only
+  const allowed = s => (s?.args ?? [])[(s?.args ?? []).indexOf('--allowedTools') + 1]?.split(',') ?? []
+  p.check('boss (top level) is allowed Monitor and TaskStop; quiet (a report) is not',
+    allowed(b).includes('Monitor') && allowed(b).includes('TaskStop') && !allowed(q).includes('Monitor') && !allowed(q).includes('TaskStop'),
+    { boss: allowed(b).filter(t => !t.startsWith('mcp__')), quiet: allowed(q).filter(t => !t.startsWith('mcp__')) })
 
   p.keep(rig, { agents: ['boss', 'quiet'] })
   return p.summary()
