@@ -33,7 +33,7 @@ pub struct State {
     pub codex: CliStatus,
     pub agy: CliStatus,
     /// OpenRouter favorites: (tier, seat, model id, label, color)
-    pub openrouter: Vec<(String, f64, String, String, String)>,
+    pub openrouter: Vec<(String, f64, String, String, String, String)>,
     /// models the Antigravity account lists (conditional tiers)
     pub agy_models: Vec<String>,
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
@@ -56,7 +56,7 @@ pub struct McpRegistry {
 #[logged]
 impl Providers {
     pub fn openrouter_tiers(&self) -> Vec<(String, f64, String)> {
-        self.state.load().openrouter.iter().map(|(t, s, m, _, _)| (t.clone(), *s, m.clone())).collect()
+        self.state.load().openrouter.iter().map(|(t, s, m, _, _, _)| (t.clone(), *s, m.clone())).collect()
     }
     pub fn claude_path(&self) -> Option<PathBuf> {
         self.state.load().claude.path.clone()
@@ -293,7 +293,7 @@ pub fn set_agy_email(engine: &Engine, email: &str) {
 
 /// The OpenRouter favorites as offered tiers: (tier, seat, model, label, color).
 #[logged]
-fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, String)> {
+fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, String, String)> {
     engine
         .settings
         .get()
@@ -309,6 +309,16 @@ fn openrouter_favorites(engine: &Engine) -> Vec<(String, f64, String, String, St
                         f.get("model")?.as_str()?.to_string(),
                         f.get("label").and_then(Value::as_str).unwrap_or("").to_string(),
                         f.get("color").and_then(Value::as_str).unwrap_or("#888888").to_string(),
+                        // the favourite's own letter (first letter of its label), never the provider's
+                        f.get("letter")
+                            .and_then(Value::as_str)
+                            .filter(|l| !l.is_empty())
+                            .map(str::to_string)
+                            .or_else(|| {
+                                f.get("label").and_then(Value::as_str).and_then(|l| l.chars().find(|c| c.is_alphanumeric()))
+                                    .map(|c| c.to_ascii_uppercase().to_string())
+                            })
+                            .unwrap_or_else(|| "R".to_string()),
                     ))
                 })
                 .collect()
@@ -385,8 +395,8 @@ pub fn payload(engine: &Engine) -> Value {
         let tiers: Vec<Value> = st
             .openrouter
             .iter()
-            .map(|(t, s, m, label, color)| {
-                json!({ "tier": t, "provider": catalog::OPENROUTER, "seat": s, "model": m, "letter": "R",
+            .map(|(t, s, m, label, color, letter)| {
+                json!({ "tier": t, "provider": catalog::OPENROUTER, "seat": s, "model": m, "letter": letter,
                         "label": label, "color": color })
             })
             .collect();
