@@ -29,7 +29,7 @@ export default async function(rig) {
  await rig.op({op:'account',node:'rhea',account:target});
  await rig.op({op:'switch_model',node:'rhea',tier:'sol'});
  const effort=await rig.api('POST',`/api/orgs/${rig.org}/nodes/rhea/scope`,{effort:'high'});
- if(effort.effort_delivery!=='next_turn')throw Error('effort not deferred: '+JSON.stringify(effort));
+ if(effort.effort_delivery?.delivery!=='next_turn')throw Error('effort not deferred: '+JSON.stringify(effort));
  const queued=await capture('queued',target);
  await rig.op({op:'account',node:'rhea',account:'primary'});
  const ambient=await capture('default','default');
