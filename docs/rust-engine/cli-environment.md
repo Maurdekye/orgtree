@@ -17,6 +17,14 @@ gets these:
 With the terminal switch off, the launch keeps `--disallowed-tools` with Bash and
 PowerShell and does not ask for PowerShell.
 
+The cached flags also bring back Monitor (a standing background watcher) and
+PushNotification (a mobile push to the user's Claude app, unless that is off in
+the CLI's /config). 3.x agents had both. As in 3.x, only top-level agents are
+allowed Monitor and TaskStop up front (`--allowedTools`), following the user's
+ruling that standing listeners are for top-level agents. Other agents see the
+tool but cannot get approval for it. PushNotification is not denied, as in 3.x
+(coordinator 2026-10-08 19:26Z).
+
 Every lane (Claude, Codex, Antigravity) also gets `ORGTREE_NODE`, the agent's
 name, beside `ORGTREE_AGENT`. 3.x set it, and hooks and tools that run inside an
 agent's CLI use it to tell an orgtree agent. The mail hub's SessionStart hook
@@ -52,6 +60,11 @@ back.
 - Rig: `node tools/rig/rig.mjs run tools/rig/proofs/cli-environment.mjs`. The fake
   CLI models the gate above, and the rig home caches the flag as on. It reports
   each launch's tool list and these variables in its `start` log line.
-- Real CLI: launched with the engine's environment, the init event's tool list
-  has PowerShell. Without it, the list does not. The tool list is read before the
-  model answers.
+- Real CLI: `tools/measure_cli_tools.py` starts claude.exe per environment and
+  reads the tool list from the init event, cutting the request before the model
+  answers. Measured on 2.1.292, 2026-10-08:
+  - 4.0.1's environment: 28 tools, Bash only, and the hub hook's registration
+    instructions injected.
+  - The fixed environment: 31 tools, adding PowerShell, Monitor and
+    PushNotification, and the hook stands down.
+  - The cached flags alone, without asking for PowerShell: the same 31.

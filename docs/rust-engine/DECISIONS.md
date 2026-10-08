@@ -266,5 +266,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
     and that their identity text still promised. The engine therefore also sets
     `CLAUDE_CODE_USE_POWERSHELL_TOOL=1` whenever the agent's terminal switch is on. It
     sets `CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1` too, so the other flags follow
-    the account's cached values, the ones the user's own CLI runs with. Details:
+    the account's cached values, the ones the user's own CLI runs with. These bring
+    back Monitor and PushNotification, as 3.x had them. As in 3.x, only top-level
+    agents are allowed Monitor and TaskStop up front (the user's 3.x ruling that
+    standing listeners are for top-level agents), and PushNotification is not
+    denied (coordinator 19:26Z). Details:
     `cli-environment.md`.
