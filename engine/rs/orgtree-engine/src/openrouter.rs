@@ -535,14 +535,17 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
     })
 }
 
+/// What the key check says when openrouter.ai refuses the stored key.
+pub const KEY_REFUSED: &str = "the stored key was rejected by openrouter.ai; replace it in App settings › Providers";
+
 /// A key's standing, as 3.x read it: `GET /api/v1/key` (label, spend, the
 /// optional spend cap and its renewal) plus `GET /api/v1/credits` (the
 /// prepaid balance, `total_credits` − `total_usage`; it answers a normal
 /// inference key, measured in 3.x). Err((true, _)): openrouter.ai refused the
 /// key. Not logged: it holds the key.
 pub async fn key_standing(key: &str) -> std::result::Result<Map<String, Value>, (bool, String)> {
-    if crate::rig::active() {
-        return Err((false, "rig mode: no network".into()));
+    if let Some(canned) = crate::rig::openrouter_key() {
+        return canned;
     }
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -557,7 +560,7 @@ pub async fn key_standing(key: &str) -> std::result::Result<Map<String, Value>, 
         .map_err(|e| (false, format!("could not reach openrouter.ai: {e}")))?;
     let status = r.status().as_u16();
     if status == 401 || status == 403 {
-        return Err((true, "the stored key was rejected by openrouter.ai; replace it in App settings › Providers".into()));
+        return Err((true, KEY_REFUSED.into()));
     }
     if status != 200 {
         return Err((false, format!("openrouter.ai answered {status} for the key check")));

@@ -114,6 +114,26 @@ pub fn usage(lane: &str) -> Option<serde_json::Value> {
     Some(canned.unwrap_or_else(|| serde_json::json!({ "available": false, "error": "rig mode: no usage probe" })))
 }
 
+/// The OpenRouter key check in rig mode: what
+/// `<root>\rig-home\rig-usage\openrouter-key.json` says — `{"status": 200,
+/// "data": {...}}` (the key is accepted) or `{"status": 401}` (refused) — and
+/// no network when there is no such file. None outside rig mode (the real check).
+#[logged]
+pub fn openrouter_key() -> Option<std::result::Result<serde_json::Map<String, serde_json::Value>, (bool, String)>> {
+    let home = RIG.get().cloned().flatten()?;
+    let canned = std::fs::read(home.join("rig-usage").join("openrouter-key.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+    Some(match canned {
+        None => Err((false, "rig mode: no network".into())),
+        Some(v) => match v["status"].as_u64() {
+            Some(200) => v["data"].as_object().cloned().ok_or_else(|| (false, "rig mode: the canned key check has no data".into())),
+            Some(401 | 403) => Err((true, crate::openrouter::KEY_REFUSED.into())),
+            other => Err((false, format!("openrouter.ai answered {} for the key check", other.unwrap_or(0)))),
+        },
+    })
+}
+
 #[cfg(debug_assertions)]
 pub use routes::tool;
 
