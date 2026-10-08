@@ -86,7 +86,8 @@ pub async fn run(cfg: &Config, dst: &mut deadpool_postgres::Object, progress: &d
                 let table = import_failures::section_of(&e).unwrap_or("-");
                 tracing::error!(org = %slug, table, error = %format!("{e:#}"),
                                 "2.x organization import failed: nothing of it was kept; retried next start");
-                import_failures::record(dst, "2.x", slug, None, &e).await;
+                let name = org_name(path);
+                import_failures::record(dst, "2.x", slug, name.as_deref(), &e).await;
             }
         }
     }
@@ -145,6 +146,24 @@ fn find_orgs(dir: &Path) -> Vec<(String, PathBuf)> {
     }
     out.sort();
     out
+}
+
+/// The org's display name for the user's line (best effort: its import just
+/// failed), read the way `load` reads the file, never written.
+#[logged]
+fn org_name(path: &Path) -> Option<String> {
+    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        return v.get("name")?.as_str().map(str::to_string);
+    }
+    let uri = format!("file:{}?immutable=1", path.to_string_lossy().replace('\\', "/").replace('?', "%3f").replace('#', "%23"));
+    let c = rusqlite::Connection::open_with_flags(
+        &uri,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    let val: String = c.query_row("SELECT val FROM doc WHERE key = 'name'", [], |r| r.get(0)).ok()?;
+    serde_json::from_str::<Value>(&val).ok()?.as_str().map(str::to_string)
 }
 
 /// A stable import uuid from the org's identifying text: the same source org

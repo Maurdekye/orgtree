@@ -83,7 +83,8 @@ pub async fn run(
                     let table = import_failures::section_of(&e).unwrap_or("-");
                     tracing::error!(org = %slug, table, error = %format!("{e:#}"),
                                     "3.0/3.1 organization import failed: nothing of it was kept; retried next start");
-                    import_failures::record(dst, "3.0/3.1", &slug, None, &e).await;
+                    let name = org_name(&src, org_id).await;
+                    import_failures::record(dst, "3.0/3.1", &slug, name.as_deref(), &e).await;
                 }
             }
         }
@@ -97,6 +98,15 @@ pub async fn run(
         tracing::error!(error = %format!("{e:#}"), "3.0/3.1 account import failed");
     }
     Ok(failed)
+}
+
+/// The org's display name for the user's line, read on its own (best
+/// effort: its import just failed, maybe on this very table).
+#[logged]
+async fn org_name(src: &Client, org_id: i64) -> Option<String> {
+    let row = src.query_opt(&format!("SELECT val FROM org_{org_id}.doc WHERE key = 'name'"), &[]).await.ok()??;
+    let val: String = row.try_get(0).ok()?;
+    serde_json::from_str::<serde_json::Value>(&val).ok()?.as_str().map(str::to_string)
 }
 
 /// Does `<orgs>/<slug>.pg` name this org_id? (3.x's marker rule.)
