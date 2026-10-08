@@ -10,8 +10,10 @@
 //! the agent's session; every tool it tries is denied. 3.x runs the checkup or
 //! this keeper, never both.
 //!
-//! This pass only finds candidates; the agent's actor decides and runs the
-//! read (`Actor::start_keepalive`), because it owns the agent's runtime state.
+//! The pass runs in the automatic wakes' tick, after the docket reminder
+//! (`reminders.rs`), and only finds candidates; the agent's actor decides and
+//! runs the read (`Actor::start_keepalive`), because it owns the agent's
+//! runtime state.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -32,8 +34,6 @@ use crate::runtime::AgentMsg;
 pub const SUBSCRIPTION_S: i64 = 3000;
 /// 3.x WORKING_CACHE_API_KEY_S: an API-key turn gets five minutes; read after 4.
 pub const API_KEY_S: i64 = 240;
-/// 3.x WORKING_CACHE_POLL_S.
-const POLL_S: u64 = 20;
 /// 3.x WORKING_CACHE_TIMEOUT_S: a read that takes longer is killed.
 pub const TIMEOUT_S: u64 = 180;
 /// 3.x WORKING_CACHE_RETRY_BASE_S / _MAX_S: a failed read backs off, doubling.
@@ -92,40 +92,11 @@ pub fn slots() -> Arc<Semaphore> {
     SLOTS.get_or_init(|| Arc::new(Semaphore::new(2))).clone()
 }
 
-/// The keeper's own loop (3.x polls every 20 s: a 4-minute interval must
-/// not slip past a 5-minute cache).
-#[logged]
-pub fn start(engine: &Arc<Engine>) {
-    let engine = engine.clone();
-    tokio::spawn(async move {
-        let every = crate::rig::reminder_sweep_s().unwrap_or(POLL_S).min(POLL_S);
-        let mut tick = tokio::time::interval(Duration::from_secs(every));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        tick.tick().await;
-        loop {
-            tokio::select! {
-                _ = engine.shutdown.cancelled() => break,
-                _ = tick.tick() => {}
-            }
-            // the checkup and the keeper are one switch's two modes
-            if crate::runtime::reminders::switches(&engine).checkups {
-                continue;
-            }
-            for org in engine.orgs.all() {
-                let span = crate::trace::request(&format!("keepalive:{}", org.slug));
-                if let Err(e) = tracing::Instrument::instrument(pass(&engine, &org), span).await {
-                    tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "cache keeper pass failed");
-                }
-            }
-        }
-    });
-}
-
 /// Ask each due agent's actor: a live, reported-working Claude agent with a
 /// session, not halted, frozen or limit-locked, no turn running, no
 /// automatic wake waiting, and no request for its lane's interval.
 #[logged]
-async fn pass(engine: &Arc<Engine>, org: &Arc<OrgHandle>) -> Result<()> {
+pub async fn pass(engine: &Arc<Engine>, org: &Arc<OrgHandle>) -> Result<()> {
     let client = engine.db.get().await?;
     let ks: Option<Value> = client.query_opt("SELECT killswitch FROM ot.orgs WHERE id = $1", &[&org.id]).await?.and_then(|r| r.get(0));
     if ks.is_some() {

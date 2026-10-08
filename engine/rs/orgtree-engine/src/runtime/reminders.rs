@@ -2,7 +2,11 @@
 //! working checkup, the idle-docket reminder and its blocked-docket option.
 //! Each is a switch in App settings › Runtime.
 //!
-//! One task sweeps every org once a minute. Per org it reads, in small
+//! One task sweeps every org every 20 seconds (3.x `_auto_wake_keeper_pass`
+//! on its WORKING_CACHE_POLL_S tick), in 3.x's order: the abandoned docket
+//! recovery, then the docket reminder and the working checkup, then, with
+//! checkups off, the cache keeper (`keepalive.rs`), so a reminder is sent
+//! before a keepalive could take the agent. Per org it reads, in small
 //! bounded queries, the live agents that could be woken (not halted, frozen,
 //! limit-locked or mid-turn, no waking mail waiting, org not killswitched)
 //! and the org's unfinished docket items. A notice is not waking mail: it
@@ -30,8 +34,9 @@ use crate::util::iso;
 
 /// 3.x WORKING_CHECKUP_AFTER_S / IDLE_DOCKET_REMINDER_AFTER_S: more than this, not exactly.
 const AFTER_S: i64 = 20 * 60;
-/// How often the sweep runs.
-const SWEEP_S: u64 = 60;
+/// How often the sweep runs (3.x WORKING_CACHE_POLL_S: a 4-minute
+/// keepalive interval must not slip past a 5-minute cache).
+const SWEEP_S: u64 = 20;
 /// 3.x IDLE_DOCKET_REMINDER_MAX_ITEMS.
 const MAX_ITEMS: usize = 20;
 /// Bounds on the per-org reads.
@@ -65,8 +70,6 @@ pub fn switches(engine: &Engine) -> Switches {
 
 #[logged]
 pub fn start(engine: &Arc<Engine>) {
-    start_recovery(engine);
-    crate::runtime::keepalive::start(engine);
     let engine = engine.clone();
     tokio::spawn(async move {
         let every = crate::rig::reminder_sweep_s().unwrap_or(SWEEP_S);
@@ -79,17 +82,32 @@ pub fn start(engine: &Arc<Engine>) {
                 _ = tick.tick() => {}
             }
             let sw = switches(&engine);
-            if !sw.checkups && !sw.idle {
-                continue;
-            }
             for org in engine.orgs.all() {
                 let span = crate::trace::request(&format!("reminders:{}", org.slug));
-                if let Err(e) = tracing::Instrument::instrument(sweep_org(&engine, &org, sw), span).await {
-                    tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "reminder sweep failed");
-                }
+                tracing::Instrument::instrument(tick_org(&engine, &org, sw), span).await;
             }
         }
     });
+}
+
+/// One org's automatic wakes for this tick, in 3.x's order. Recovery is
+/// independent of the optional switches, as in the 3.x keeper.
+#[logged]
+async fn tick_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) {
+    if let Err(e) = crate::domain::docket::recover_abandoned(engine, org).await {
+        tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "abandoned docket recovery failed; retry next pass");
+    }
+    if sw.checkups || sw.idle {
+        if let Err(e) = sweep_org(engine, org, sw).await {
+            tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "reminder sweep failed");
+        }
+    }
+    // the checkup and the keeper are one switch's two modes
+    if !sw.checkups {
+        if let Err(e) = crate::runtime::keepalive::pass(engine, org).await {
+            tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "cache keeper pass failed");
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -197,9 +215,11 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
         // 3.x `work_idle_reminder_items`: owed by this agent, not blocked, not waiting on the user
         let actionable: Vec<&WorkRow> =
             work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status != "blocked" && !w.attention).collect();
+        // 3.x `_working_cache_idle`: a turn, a wait for a slot or a running
+        // cache keepalive defers the wake to a later sweep, nothing stamped
         if let Some(h) = engine.agents.get(a.id) {
             let v = h.view.load();
-            if v["busy"].as_bool() == Some(true) || v["waiting"].as_bool() == Some(true) {
+            if ["busy", "waiting", "cache_keepalive"].iter().any(|k| v[*k].as_bool() == Some(true)) {
                 continue;
             }
         }
@@ -319,22 +339,4 @@ async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value) -> Result
     changes::notify_id(engine, org_id, vec![Change::Mailbox(a.id)]);
     tracing::info!(agent = %a.name, withdrawn, "automatic wake refused (the agent is not idle); its mail is withdrawn");
     Ok(())
-}
-
-/// Recovery is independent of optional reminder switches, as in the 3.x keeper.
-#[logged]
-fn start_recovery(engine: &Arc<Engine>) {
-    let engine = engine.clone();
-    tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(20));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            tokio::select! { _ = engine.shutdown.cancelled() => break, _ = tick.tick() => {} }
-            for org in engine.orgs.all() {
-                if let Err(e) = crate::domain::docket::recover_abandoned(&engine, &org).await {
-                    tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "abandoned docket recovery failed; retry next pass");
-                }
-            }
-        }
-    });
 }
