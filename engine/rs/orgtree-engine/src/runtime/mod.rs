@@ -326,7 +326,7 @@ pub async fn recover(engine: &Arc<Engine>) {
     // Also repairs old mid-turn receipts left counted as unread. Run before
     // waking actors, and never discard an unconsumed later handoff merely
     // because its owning turn's opening prompt was sent.
-    if let Err(err) = crate::domain::mail::recover_deliveries(&client).await {
+    if let Err(err) = crate::domain::mail::recover_deliveries(engine, &client).await {
         tracing::error!(error = %format!("{err:#}"), "mail recovery failed; automatic admission stays stopped");
         return;
     }

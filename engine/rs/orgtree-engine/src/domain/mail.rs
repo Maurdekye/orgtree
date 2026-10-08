@@ -19,33 +19,58 @@ pub const UNREAD_STATES: &str = "('pending','delivering')";
 
 /// A positive provider/hook acknowledgement settles only this exact delivery.
 #[logged]
-pub async fn acknowledge(client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<Vec<(String,String)>> {
-    Ok(client.query(
+pub async fn acknowledge(engine: &Engine, client: &tokio_postgres::Client, agent: i64, turn: i64, ids: &[i64]) -> Result<Vec<(String,String)>> {
+    let rows = client.query(
         "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now())
-          WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering' RETURNING uid,kind",
+          WHERE recipient_agent_id = $1 AND turn_id = $2 AND id = ANY($3) AND state = 'delivering'
+          RETURNING uid,kind,org_id,net_id,net_hub",
         &[&agent, &turn, &ids],
-    ).await?.iter().map(|r|(r.get(0),r.get(1))).collect())
+    ).await?;
+    Ok(consumed(engine, &rows))
+}
+
+/// A successful turn completion settles all remaining claimed mail.
+#[logged]
+pub async fn acknowledge_turn(engine: &Engine, client: &tokio_postgres::Client, turn: i64) -> Result<Vec<(String,String)>> {
+    let rows = client.query(
+        "UPDATE ot.mail SET state = 'delivered', delivered_at = coalesce(delivered_at, now())
+          WHERE turn_id = $1 AND state = 'delivering' RETURNING uid,kind,org_id,net_id,net_hub", &[&turn],
+    ).await?;
+    Ok(consumed(engine, &rows))
+}
+
+/// Only rows returned by a committed positive delivery transition get receipts.
+#[logged]
+fn consumed(engine: &Engine, rows: &[tokio_postgres::Row]) -> Vec<(String,String)> {
+    for row in rows {
+        if let (Some(mid), Some(hub)) = (row.get::<_, Option<String>>(3), row.get::<_, Option<String>>(4)) {
+            crate::net::note_read(engine, row.get(2), &[(mid, hub)]);
+        }
+    }
+    rows.iter().map(|r| (r.get(0), r.get(1))).collect()
 }
 
 /// Startup-only repair of old unsettled deliveries. A turn timestamp alone
 /// cannot prove a later hook handoff was consumed: require this message in a
 /// durable conversation receipt from that turn. Unproven rows go back to mail.
 #[logged]
-pub async fn recover_deliveries(client: &tokio_postgres::Client) -> Result<()> {
+pub async fn recover_deliveries(engine: &Engine, client: &tokio_postgres::Client) -> Result<()> {
     loop {
         let ids: Vec<i64> = client.query(
             "SELECT id FROM ot.mail WHERE state = 'delivering' ORDER BY id LIMIT 256", &[],
         ).await?.into_iter().map(|r| r.get(0)).collect();
         if ids.is_empty() { return Ok(()) }
-        client.execute(
+        let proven = client.query(
             "UPDATE ot.mail m SET state = 'delivered', delivered_at = coalesce(m.delivered_at, now())
               FROM ot.turns t WHERE m.id = ANY($1) AND m.turn_id = t.id AND m.state = 'delivering'
                 AND t.agent_id = m.recipient_agent_id AND t.sent_at IS NOT NULL
                 AND EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id = m.recipient_agent_id
                   AND c.at >= t.started_at AND c.body->>'role' = 'user'
                   AND jsonb_typeof(c.body->'mail_ids') = 'array'
-                  AND (c.body->'mail_ids') ? m.uid)", &[&ids],
+                  AND (c.body->'mail_ids') ? m.uid)
+              RETURNING m.uid,m.kind,m.org_id,m.net_id,m.net_hub", &[&ids],
         ).await?;
+        consumed(engine, &proven);
         client.execute(
             "UPDATE ot.mail SET state = 'pending', turn_id = NULL
               WHERE id = ANY($1) AND state = 'delivering'", &[&ids],
@@ -98,6 +123,9 @@ pub struct Outgoing {
     pub reply_to: Option<Value>,
     pub client_op: Option<String>,
     pub ev: Option<Value>,
+    /// Receipt identity supplied only by the inbound hub transport.
+    pub net_id: Option<String>,
+    pub net_hub: Option<String>,
     /// Automatic notices use existing rights without granting a reply audience.
     pub grant_reply_audience: bool,
     /// false: store the mail and leave the recipient's wake to the caller
@@ -120,6 +148,8 @@ impl Outgoing {
             reply_to: None,
             client_op: None,
             ev: None,
+            net_id: None,
+            net_hub: None,
             grant_reply_audience: true,
             wake: true,
         }
@@ -235,12 +265,12 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     client
         .execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state)
-             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')",
+                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub)
+             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18)",
             &[
                 &mail_uid, &org_id, &sender_name, &sender_agent, &sender_gen, &target_id, &to, &out.kind, &out.notice,
                 &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent,
-                &out.urgent_reason, &out.client_op,
+                &out.urgent_reason, &out.client_op, &out.net_id, &out.net_hub,
             ],
         )
         .await?;

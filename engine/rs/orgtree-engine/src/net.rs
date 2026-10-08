@@ -100,6 +100,9 @@ pub struct Net {
     backoff: papaya::HashMap<String, (Instant, u32)>,
     /// receipts owed: (org id, hub message id, state) → hub address
     owed: papaya::HashMap<(i64, String, &'static str), String>,
+    /// Confirmed consumption may arrive before participants load at startup.
+    /// Keep the hub id until a sender pass can resolve its address.
+    read_owed: papaya::HashMap<(i64, String), String>,
     /// running long polls: hub address → (its registered members, stop token)
     pollers: papaya::HashMap<String, (String, CancellationToken)>,
     /// the participants of the last pass
@@ -824,13 +827,11 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             stamp(engine, org_id, row_id, last_err.as_deref(), &err, true).await?;
             continue;
         }
-        let at: chrono::DateTime<chrono::Utc> = r.get(4);
         let res = HTTP
             .post(format!("{addr}/api/send"))
             .timeout(Duration::from_secs(30))
             .header("X-Org-Auth", p.auth())
-            .json(&json!({ "id": net_id, "to": peer, "body": r.get::<_, String>(3), "kind": r.get::<_, String>(8),
-                           "sent_at": crate::util::iso(at), "from": p.net_slug, "attachments": att_ids }))
+            .json(&outgoing_payload(&r, &net_id, &p.net_slug, att_ids))
             .send()
             .await;
         match res {
@@ -870,6 +871,15 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
     Ok(())
 }
 
+/// The exact hub wire payload, shared with the isolated engine proof.
+#[logged]
+fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachments: Vec<String>) -> Value {
+    let at: chrono::DateTime<chrono::Utc> = row.get(4);
+    json!({ "id": net_id, "to": row.get::<_, String>(2).trim_start_matches("@net:"),
+        "body": row.get::<_, String>(3), "kind": row.get::<_, String>(8),
+        "sent_at": crate::util::iso(at), "from": from, "attachments": attachments })
+}
+
 /// Note why an outgoing row is still queued (a `try` counts an attempt;
 /// a skip only says why). Written only when the reason changes or a try ran.
 #[logged]
@@ -895,6 +905,17 @@ async fn stamp(engine: &Engine, org_id: i64, row_id: i64, prev: Option<&str>, er
 /// Send the delivered/read receipts we owe (best effort: a failure keeps them).
 #[logged]
 async fn flush_receipts(engine: &Engine, parts: &[Part]) {
+    {
+        let pending = engine.net.read_owed.pin();
+        let owed = engine.net.owed.pin();
+        for ((org, mid), hub) in pending.iter() {
+            if let Some(addr) = parts.iter().find(|p| p.org_id == *org)
+                .and_then(|p| p.hubs.iter().find(|(id, _)| id == hub).map(|(_, addr)| addr)) {
+                owed.insert((*org, mid.clone(), "read"), addr.clone());
+                pending.remove(&(*org, mid.clone()));
+            }
+        }
+    }
     let owed: Vec<((i64, String, &'static str), String)> = engine.net.owed.pin().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     if owed.is_empty() {
         return;
@@ -929,16 +950,14 @@ async fn flush_receipts(engine: &Engine, parts: &[Part]) {
     }
 }
 
-/// The user read the org inbox: tell each sender's hub.
+/// An agent delivery was positively acknowledged: tell the originating hub.
+/// Human inbox read state never calls this. Startup repair can queue before
+/// the hub participants exist; the sender resolves those hub ids later.
 #[logged]
-pub async fn note_read(engine: &Engine, org_id: i64, read: &[(String, String)]) {
-    let parts = engine.net.parts.load_full();
-    let Some(p) = parts.iter().find(|p| p.org_id == org_id) else { return };
-    let owed = engine.net.owed.pin();
+pub fn note_read(engine: &Engine, org_id: i64, read: &[(String, String)]) {
+    let owed = engine.net.read_owed.pin();
     for (mid, hub) in read {
-        if let Some((_, addr)) = p.hubs.iter().find(|(id, _)| id == hub) {
-            owed.insert((org_id, mid.clone(), "read"), addr.clone());
-        }
+        owed.insert((org_id, mid.clone()), hub.clone());
     }
     drop(owed);
     kick(engine);
@@ -972,6 +991,12 @@ pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by
             "no organization @net:{peer} is registered on any hub this organization uses (a new registration appears within a minute; orgtree_list_orgs lists the known ones)"
         );
     }
+    queue_row(engine, org_id, peer, body, by, kind, attachments).await
+}
+
+/// Persist only; callers perform the transport/audience checks first.
+#[logged]
+async fn queue_row(engine: &Engine, org_id: i64, peer: &str, body: &str, by: &str, kind: &str, attachments: &[Value]) -> Result<(String, String)> {
     let uid = crate::util::uid("x");
     let net_id = uuid::Uuid::new_v4().simple().to_string();
     let to = format!("@net:{peer}");
@@ -986,6 +1011,27 @@ pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by
     drop(client);
     kick(engine);
     Ok((uid, to))
+}
+
+/// Focused rig check: no identity registration, listener or network request.
+#[cfg(debug_assertions)]
+#[logged]
+pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str) -> Result<Value> {
+    anyhow::ensure!(crate::rig::active(), "rig mode required");
+    let (uid, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", kind, &[]).await?;
+    let client = engine.db.get().await?;
+    let row = client.query_one(
+        "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind FROM ot.org_inbox WHERE uid=$1", &[&uid],
+    ).await?;
+    Ok(outgoing_payload(&row, &row.get::<_, String>(6), "sender.rig", vec![]))
+}
+
+#[cfg(debug_assertions)]
+#[logged]
+pub fn rig_read_receipts(engine: &Engine, org_id: i64) -> Value {
+    let pending = engine.net.read_owed.pin();
+    json!(pending.iter().filter(|((org, _), _)| *org == org_id)
+        .map(|((_, mid), hub)| json!({"id":mid,"hub":hub,"state":"read"})).collect::<Vec<_>>())
 }
 
 /// Is `peer` on a roster this org can reach? The cache answers first; a

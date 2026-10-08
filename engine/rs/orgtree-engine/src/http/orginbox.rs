@@ -53,19 +53,12 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> Api
 pub async fn read(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
-    let rows = client
-        .query("UPDATE ot.org_inbox SET read = true WHERE org_id = $1 AND dir = 'in' AND NOT read RETURNING net_id, hub", &[&o.id])
+    let changed = client
+        .execute("UPDATE ot.org_inbox SET read = true WHERE org_id = $1 AND dir = 'in' AND NOT read", &[&o.id])
         .await?;
     drop(client);
-    if !rows.is_empty() {
+    if changed > 0 {
         changes::notify(&e, &o, vec![Change::OrgInbox]);
-        let read: Vec<(String, String)> = rows
-            .iter()
-            .filter_map(|r| Some((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))
-            .collect();
-        if !read.is_empty() {
-            crate::net::note_read(&e, o.id, &read).await;
-        }
     }
     Ok(Json(json!({ "ok": true })))
 }

@@ -647,7 +647,7 @@ impl Actor {
     async fn acknowledge_opening(&mut self) -> Result<()> {
         let Some(t) = self.turn.as_ref().filter(|t| t.activity && !t.opening_mail.is_empty()) else { return Ok(()) };
         let client = self.engine.db.get().await?;
-        let delivered = crate::domain::mail::acknowledge(&client, self.id, t.id, &t.opening_mail).await?;
+        let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, t.id, &t.opening_mail).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         if let Some(t) = self.turn.as_mut() { t.opening_mail.clear(); }
         self.changed(vec![Change::Mailbox(self.id)]);
@@ -1913,7 +1913,7 @@ impl Actor {
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
-        let delivered = crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
         let mut committed = row;
@@ -1991,7 +1991,7 @@ impl Actor {
         let client = self.engine.db.get().await?;
         let row = mail_row(&raw, Some("Delivered into the running turn."));
         let seq = self.convo.append(&client, row.clone()).await?;
-        let delivered = crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
         let mut committed = row;
@@ -2398,12 +2398,7 @@ impl Actor {
                     .await;
                 let _ = client.execute("DELETE FROM ot.turns WHERE id = $1 AND sent_at IS NULL", &[&turn_id]).await;
             } else {
-                let _ = client
-                    .execute(
-                        "UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering'",
-                        &[&turn_id],
-                    )
-                    .await;
+                let _ = crate::domain::mail::acknowledge_turn(&self.engine, &client, turn_id).await;
             }
             let _ = client
                 .execute("UPDATE ot.agents SET inflight_at = NULL, row_version = row_version + 1 WHERE id = $1", &[&self.id])
@@ -2440,7 +2435,7 @@ impl Actor {
         let row = mail_row(&raw, Some("Delivered after a tool call."));
         let seq = self.convo.append(&client, row.clone()).await?;
         let ids: Vec<i64> = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
-        let delivered = crate::domain::mail::acknowledge(&client, self.id, turn_id, &ids).await?;
+        let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
         drop(client);
         let mut committed = row;
@@ -3874,8 +3869,8 @@ impl Actor {
                 )
                 .await?;
         } else {
-            let rows=client.query("UPDATE ot.mail SET state = 'delivered', delivered_at = now() WHERE turn_id = $1 AND state = 'delivering' RETURNING uid, kind", &[&turn.id]).await?;
-            for row in rows {if row.get::<_,String>(1)=="watchdog"{continue;} crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("mail.delivered",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id,"mail_id":row.get::<_,String>(0)})));}
+            let delivered = crate::domain::mail::acknowledge_turn(&self.engine, &client, turn.id).await?;
+            crate::runtime::watchdogs::events::mail_delivered(&self.engine, self.org_id, self.id, delivered);
         }
         // Account captured at admission: a rebind during the turn cannot move
         // this turn's spend, refusal, or successful recovery to another account.

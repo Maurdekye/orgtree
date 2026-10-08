@@ -192,6 +192,8 @@ pub async fn deliver_inbound(
     for h in &holders {
         let mut m = Outgoing::new(From::Extern(peer.to_string()), h, body);
         m.attachments = attachments.clone();
+        m.net_id = Some(net_id.to_string());
+        m.net_hub = Some(hub.to_string());
         if let Err(e) = mail::send(engine, org_id, m).await {
             tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
         }

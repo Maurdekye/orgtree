@@ -188,7 +188,10 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .fallback(api_not_found);
     // test-only: debug builds in rig mode (tools/rig), never a release build
     #[cfg(debug_assertions)]
-    let api = if crate::rig::active() { api.route("/api/rig/tool", post(crate::rig::tool)) } else { api };
+    let api = if crate::rig::active() {
+        api.route("/api/rig/tool", post(crate::rig::tool))
+            .route("/api/rig/hub-mail", post(crate::rig::hub_mail))
+    } else { api };
 
     Router::new()
         .merge(api)

@@ -85,6 +85,29 @@ pub fn active() -> bool {
     RIG.get().map(Option::is_some).unwrap_or(false)
 }
 
+/// Engine-level hub parity proof. Transport remains offline in rig mode.
+#[cfg(debug_assertions)]
+#[logged]
+pub async fn hub_mail(
+    axum::extract::State(e): axum::extract::State<std::sync::Arc<crate::engine::Engine>>,
+    axum::Json(b): axum::Json<serde_json::Value>,
+) -> crate::http::error::ApiResult<axum::Json<serde_json::Value>> {
+    use serde_json::json;
+    use crate::http::error::ApiError;
+    if !active() { return Err(ApiError::not_found("no route: rig mode is off")); }
+    let o = crate::http::orgs::org(&e, b["org"].as_str().unwrap_or(""))?;
+    let result = match b["op"].as_str().unwrap_or("") {
+        "outgoing" => crate::net::rig_outgoing(&e, o.id, b["kind"].as_str().unwrap_or("message")).await?,
+        "inbound" => json!({"fresh":crate::domain::orginbox::deliver_inbound(
+            &e, o.id, "@net:peer.rig", b["body"].as_str().unwrap_or("hub proof"), vec![],
+            b["id"].as_str().unwrap_or("proof"), "rig-hub",
+        ).await?}),
+        "receipts" => crate::net::rig_read_receipts(&e, o.id),
+        _ => return Err(ApiError::not_found("unknown hub proof operation")),
+    };
+    Ok(axum::Json(result))
+}
+
 /// A rig run that asked for the restart path (`ORGTREE_RIG_RECOVER=1`):
 /// what a safe start holds back (waking agents at start, re-arming every
 /// watchdog, watchdog mail that wakes) runs there as it does for real; only
