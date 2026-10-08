@@ -216,6 +216,7 @@ async fn run_with_cluster(
     providers::start(&engine);
     usage::start(&engine);
     runtime::sched::start(&engine, sched_inbox);
+    mailhub::prepare_database(&engine, cluster).await;
     mailhub::start(&engine).await;
     net::start(&engine);
     runtime::recover(&engine).await;

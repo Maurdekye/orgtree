@@ -108,6 +108,16 @@ pub async fn hub_mail(
     Ok(axum::Json(result))
 }
 
+/// A rig run that hosts its own mail hub (`ORGTREE_RIG_HUB=1`, `rig up
+/// --hub`): the engine hosts the hub binary the rig named inside the run (on
+/// the run's cluster and data root, on a port the rig chose), and its network
+/// mail reaches that loopback hub and nothing else. Without it a rig run's
+/// network mail stays off. False outside rig mode.
+#[nolog]
+pub fn hub() -> bool {
+    active() && std::env::var("ORGTREE_RIG_HUB").as_deref() == Ok("1")
+}
+
 /// A rig run that asked for the restart path (`ORGTREE_RIG_RECOVER=1`):
 /// what a safe start holds back (waking agents at start, re-arming every
 /// watchdog, watchdog mail that wakes) runs there as it does for real; only

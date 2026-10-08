@@ -1,8 +1,11 @@
-//! The bundled mail hub: the pinned orgtree-mailhub product, run as the
-//! standalone hub runs (`python -m mailhub.serve`, configured through its own
-//! `HUB_*` variables), as a child of this engine. Its settings live in
-//! `<data>/mailhub-hosting.json` and its store in `<data>/mailhub`: the same
-//! files the 3.x engine used, so a hub's mail and settings carry over.
+//! The bundled mail hub: the pinned orgtree-mailhub product (v2: one binary,
+//! `orgtree-mailhub.exe serve`, configured through its own `HUB_*`
+//! variables), run as a child of this engine. Its records live in its own
+//! database of the engine's PostgreSQL cluster (role and database
+//! `orgtree_mailhub`, made once, docs/rust-engine/mailhub-v2-hosting.md);
+//! its settings in `<data>/mailhub-hosting.json` and its files in
+//! `<data>/mailhub`: the same folder the earlier hubs used, whose
+//! `hub.sqlite3` v2 imports at its first start (keeping the file).
 //!
 //! The engine's job object ends the child with the engine. A pid file is
 //! never used to kill anything: in a copied data folder it names someone
@@ -22,11 +25,31 @@ use crate::engine::Engine;
 
 pub const DEFAULT_PORT: u16 = 7370;
 pub const DEFAULT_ATTACHMENT_MAX: u64 = 1024 * 1024 * 1024;
-/// fixed by `mailhub.serve` (the relay-only public listener)
+/// the hub's relay-only public listener (its default `HUB_PUBLIC_PORT`)
 pub const PUBLIC_LISTENER_PORT: u16 = 7371;
-/// "keep forever", expressed as configuration
+/// the longest retention the settings accept
 const KEEP_FOREVER_DAYS: i64 = 36500;
 const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
+/// The hub's own login role and database in the engine's cluster.
+pub const HUB_ROLE: &str = "orgtree_mailhub";
+pub const HUB_DB: &str = "orgtree_mailhub";
+/// Connections the hub may hold (the cluster allows 200; the engine's pool
+/// keeps the rest).
+const HUB_DB_POOL: &str = "8";
+
+/// Where the hub keeps its records: the connection URL (no password in it)
+/// and the role's password, which only ever travels in the child's
+/// environment. Never printed whole.
+pub struct HubDb {
+    url: String,
+    password: String,
+}
+
+impl std::fmt::Debug for HubDb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HubDb").field("url", &self.url).field("password", &"*****").finish()
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct HubState {
@@ -50,6 +73,10 @@ pub struct MailHub {
     run: ArcSwapOption<Run>,
     /// where the hub answers once healthy: the org client's local hub
     pub address: ArcSwapOption<String>,
+    /// the hub's database, prepared once at the engine's start
+    db: ArcSwapOption<HubDb>,
+    /// why it could not be prepared, for the settings page
+    db_error: ArcSwapOption<String>,
 }
 
 #[logged]
@@ -78,6 +105,74 @@ impl MailHub {
 #[logged]
 pub fn safe_start() -> bool {
     std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() == Ok("1")
+}
+
+/// Whether this run hosts the hub: never in a safe start, except a rig run
+/// that asked for its own loopback hub (`rig::hub`).
+#[logged]
+pub fn hosts() -> bool {
+    !safe_start() || crate::rig::hub()
+}
+
+/// Before the hub's first start: its login role and its own database in the
+/// engine's cluster, made once (the engine holds the cluster's admin role),
+/// the role's password kept with the cluster's other secrets. Any other
+/// login role is kept out of the engine's database. A failure is shown in
+/// the hub's settings, never stops the engine.
+#[nolog]
+pub async fn prepare_database(engine: &Engine, cluster: &crate::pg::Cluster) {
+    if !hosts() {
+        return;
+    }
+    match ensure_database(cluster).await {
+        Ok(db) => engine.hub.db.store(Some(Arc::new(db))),
+        Err(e) => {
+            tracing::warn!(error = %format!("{e:#}"), "the mail hub's database could not be prepared");
+            engine.hub.db_error.store(Some(Arc::new(format!("the mail hub's database could not be prepared: {e:#}"))));
+        }
+    }
+}
+
+#[nolog]
+async fn ensure_database(cluster: &crate::pg::Cluster) -> anyhow::Result<HubDb> {
+    let creds_file = cluster.cluster_dir.join("secrets").join("credentials.json");
+    let mut creds: Value =
+        std::fs::read_to_string(&creds_file).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+    let stored = creds.get(HUB_ROLE).and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_string);
+    let (client, conn) = cluster.connect_config("postgres").connect(tokio_postgres::NoTls).await?;
+    let task = tokio::spawn(conn);
+    let made = async {
+        let role = client.query_opt("SELECT 1 FROM pg_roles WHERE rolname = $1", &[&HUB_ROLE]).await?.is_some();
+        let password = match (stored, role) {
+            (Some(p), true) => p,
+            _ => {
+                let p = crate::util::random_hex(32);
+                // kept before the role takes it: a start cut short in between
+                // sets it again next time
+                creds[HUB_ROLE] = json!(p);
+                let tmp = creds_file.with_extension("tmp");
+                std::fs::write(&tmp, serde_json::to_vec_pretty(&creds)?)?;
+                std::fs::rename(&tmp, &creds_file)?;
+                // hex, so no quoting is needed (PASSWORD takes no parameter)
+                let verb = if role { "ALTER" } else { "CREATE" };
+                client.batch_execute(&format!("{verb} ROLE {HUB_ROLE} LOGIN PASSWORD '{p}'")).await?;
+                p
+            }
+        };
+        if client.query_opt("SELECT 1 FROM pg_database WHERE datname = $1", &[&HUB_DB]).await?.is_none() {
+            client
+                .batch_execute(&format!(
+                    "CREATE DATABASE {HUB_DB} OWNER {HUB_ROLE} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'"
+                ))
+                .await?;
+        }
+        client.batch_execute(&format!("REVOKE CONNECT ON DATABASE {} FROM PUBLIC", crate::pg::ENGINE_DB)).await?;
+        anyhow::Ok(HubDb { url: format!("postgres://{HUB_ROLE}@127.0.0.1:{}/{HUB_DB}", cluster.port), password })
+    }
+    .await;
+    drop(client);
+    task.abort();
+    made
 }
 
 fn default_config() -> Value {
@@ -173,28 +268,20 @@ fn save_upload_limit(engine: &Engine, config: &Value) -> std::io::Result<()> {
     std::fs::rename(tmp, path)
 }
 
-/// The hub's interpreter and package: beside the engine in a package
-/// (`resources/engine/runtime`, `resources/engine/mailhub`), the checkout's
-/// `engine/` folder in development, or `ORGTREE_HUB_PYTHON`/`ORGTREE_HUB_DIR`.
+/// The hub's binary: `ORGTREE_HUB_BIN`, beside the engine in a package
+/// (`resources/engine/orgtree-mailhub.exe`), or the pinned submodule's own
+/// release build in development (`engine/mailhub/target/release`).
 #[logged]
-fn hub_runtime() -> Result<(PathBuf, PathBuf), String> {
+fn hub_binary() -> Result<PathBuf, String> {
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
     let up = |d: &PathBuf| d.join("..").join("..").join("..");
-    let python = std::env::var_os("ORGTREE_HUB_PYTHON")
+    std::env::var_os("ORGTREE_HUB_BIN")
         .map(PathBuf::from)
         .into_iter()
-        .chain(exe_dir.iter().map(|d| d.join("runtime").join("python.exe")))
-        .chain(exe_dir.iter().map(|d| up(d).join("runtime").join("python.exe")))
+        .chain(exe_dir.iter().map(|d| d.join("orgtree-mailhub.exe")))
+        .chain(exe_dir.iter().map(|d| up(d).join("mailhub").join("target").join("release").join("orgtree-mailhub.exe")))
         .find(|p| p.is_file())
-        .ok_or("the mail hub's Python runtime was not found beside the engine")?;
-    let hub = std::env::var_os("ORGTREE_HUB_DIR")
-        .map(PathBuf::from)
-        .into_iter()
-        .chain(exe_dir.iter().map(|d| d.join("mailhub")))
-        .chain(exe_dir.iter().map(|d| up(d).join("mailhub")))
-        .find(|p| p.join("mailhub").join("serve.py").is_file())
-        .ok_or("the mail hub (orgtree-mailhub) was not found beside the engine")?;
-    Ok((python, hub))
+        .ok_or_else(|| "the mail hub (orgtree-mailhub.exe) was not found beside the engine".to_string())
 }
 
 #[logged]
@@ -229,7 +316,7 @@ async fn start_now(engine: &Arc<Engine>) {
     hub.set(|s| {
         *s = HubState { running: false, healthy: false, port, exposed: bind == "0.0.0.0", error: None };
     });
-    if safe_start() {
+    if !hosts() {
         hub.set(|s| s.error = Some("the mail hub is not hosted while the engine runs in safe start".into()));
         return;
     }
@@ -237,12 +324,17 @@ async fn start_now(engine: &Arc<Engine>) {
         hub.set(|s| s.error = Some(format!("could not save the hub upload limit: {e}")));
         return;
     }
-    let (python, hub_dir) = match hub_runtime() {
+    let bin = match hub_binary() {
         Ok(p) => p,
         Err(e) => {
             hub.set(|s| s.error = Some(e.clone()));
             return;
         }
+    };
+    let Some(db) = hub.db.load_full() else {
+        let why = hub.db_error.load_full().map(|e| e.as_str().to_string()).unwrap_or_else(|| "the mail hub's database is not ready".into());
+        hub.set(|s| s.error = Some(why.clone()));
+        return;
     };
     let data = data_dir(engine);
     if let Err(e) = std::fs::create_dir_all(&data) {
@@ -260,19 +352,22 @@ async fn start_now(engine: &Arc<Engine>) {
             return;
         }
     };
-    let retention = cfg["retention_days"].as_i64().unwrap_or(KEEP_FOREVER_DAYS);
-    let mut cmd = Command::new(&python);
-    cmd.args(["-m", "mailhub.serve"])
-        .current_dir(&hub_dir)
+    let mut cmd = Command::new(&bin);
+    cmd.arg("serve")
+        .current_dir(&data)
         .env("HUB_DATA", &data)
         .env("HUB_PORT", port.to_string())
         .env("HUB_BIND", &bind)
         .env("HUB_NAME", cfg["name"].as_str().unwrap_or(""))
-        .env("HUB_RETENTION_DAYS", retention.to_string())
-        .env("HUB_ORG_RETENTION_DAYS", cfg["org_retention_days"].as_i64().unwrap_or(45).to_string())
         .env("HUB_MAX_FILE_BYTES", cfg["max_attachment_bytes"].to_string())
         .env("HUB_RUNTIME_CONFIG_FILE", engine.cfg.path("mailhub-upload-limit.json"))
-        .env("PYTHONPATH", &hub_dir)
+        .env("HUB_DATABASE_URL", &db.url)
+        .env("HUB_DATABASE_PASSWORD", &db.password)
+        .env("HUB_DB_POOL", HUB_DB_POOL)
+        // mail is kept until its owners delete it unless the user chose a
+        // number of days, and an idle address stays listed (rulings 8 October)
+        .env_remove("HUB_RETENTION_DAYS")
+        .env_remove("HUB_ORG_RETENTION_DAYS")
         .env_remove("ORGTREE_V2_TOKEN")
         .env_remove("ORGTREE_DATA")
         .env_remove("ELECTRON_RUN_AS_NODE")
@@ -285,6 +380,9 @@ async fn start_now(engine: &Arc<Engine>) {
         Err(_) => {
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
         }
+    }
+    if let Some(days) = cfg["retention_days"].as_i64() {
+        cmd.env("HUB_RETENTION_DAYS", days.to_string());
     }
     if cfg["public_listener"].as_bool().unwrap_or(false) {
         cmd.env("HUB_PUBLIC", "1");
@@ -304,7 +402,7 @@ async fn start_now(engine: &Arc<Engine>) {
     hub.run.store(Some(run.clone()));
     hub.set(|s| s.running = true);
     let pid = child.id().unwrap_or(0);
-    tracing::info!(pid, port, python = %python.display(), hub = %hub_dir.display(), "mail hub started");
+    tracing::info!(pid, port, bin = %bin.display(), "mail hub started");
     // the watcher owns the child: it ends it on stop, and notices an exit
     let eng = engine.clone();
     let watch = run.clone();
@@ -400,6 +498,13 @@ pub async fn hosting(engine: &Arc<Engine>) -> Value {
     {
         out["data_migration"] = r;
     }
+    // v2's first start imported the earlier hub's store (kept untouched)
+    if let Some(r) = std::fs::read_to_string(data_dir(engine).join("v2-import-report.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    {
+        out["v2_import"] = r;
+    }
     out
 }
 
@@ -411,7 +516,7 @@ pub async fn configure(engine: &Arc<Engine>, raw: &Value) -> Result<Value, Strin
     let previous = engine.hub.config.load_full();
     let mut merged: Map<String, Value> = previous.as_object().cloned().unwrap_or_default();
     for (k, v) in patch {
-        if !["status", "error", "data_migration", "public_listener_port"].contains(&k.as_str()) {
+        if !["status", "error", "data_migration", "v2_import", "public_listener_port"].contains(&k.as_str()) {
             merged.insert(k.clone(), v.clone());
         }
     }
@@ -435,7 +540,7 @@ pub async fn configure(engine: &Arc<Engine>, raw: &Value) -> Result<Value, Strin
     start_now(engine).await;
     let failed = engine.hub.state.load().error.clone();
     if let Some(err) = failed {
-        if !safe_start() {
+        if hosts() {
             stop(engine).await;
             engine.hub.config.store(previous.clone());
             let _ = save_config(engine, &previous);

@@ -79,9 +79,10 @@ async fn attachment_limit_at(address: &str) -> AttachmentLimit {
 
 #[logged]
 pub async fn attachment_limit(engine: &Engine, org_id: i64, peer: &str) -> Result<AttachmentLimit> {
-    // Debug rig uses canned health documents, never a real hub or identity.
+    // Debug rig uses canned health documents, never a real hub or identity
+    // (unless it hosts its own loopback hub).
     #[cfg(debug_assertions)]
-    if crate::rig::active() {
+    if crate::rig::active() && !crate::rig::hub() {
         let health = std::fs::read(engine.cfg.path("rig-hub-limits.json"))
             .ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).unwrap_or(Value::Null);
         return Ok(AttachmentLimit::from_health(&health[peer]));
@@ -169,7 +170,7 @@ pub struct Net {
 /// identities: it must never reach a real hub as them).
 #[logged]
 pub fn offline() -> bool {
-    crate::mailhub::safe_start() || std::env::var("ORGTREE_NET_OFFLINE").as_deref() == Ok("1")
+    (crate::mailhub::safe_start() && !crate::rig::hub()) || std::env::var("ORGTREE_NET_OFFLINE").as_deref() == Ok("1")
 }
 
 /// Wake the sender now (a send queued a row, settings changed, the hub came up).
@@ -323,7 +324,7 @@ async fn participants(engine: &Engine) -> Result<Vec<Part>> {
                 net["hubs"] = hubs;
             }
         }
-        let hubs: Vec<(String, String)> = net["hubs"]
+        let mut hubs: Vec<(String, String)> = net["hubs"]
             .as_array()
             .map(|hs| {
                 hs.iter()
@@ -336,6 +337,10 @@ async fn participants(engine: &Engine) -> Result<Vec<Part>> {
                     .collect()
             })
             .unwrap_or_default();
+        // a rig run reaches the hub it hosts, never another
+        if crate::rig::hub() {
+            hubs.retain(|(_, a)| hosted.as_deref() == Some(a.as_str()));
+        }
         // a registration counts only for the address it was earned against
         let state = net["state"].as_object().cloned().unwrap_or_default();
         let current: std::collections::HashMap<&str, &str> = hubs.iter().map(|(i, a)| (i.as_str(), a.as_str())).collect();
