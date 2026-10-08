@@ -62,6 +62,9 @@ struct Args {
     permission_mode: String,
     resume: Option<String>,
     session_id: Option<String>,
+    /// `--fork-session` (with `--resume`): continue on a new session id
+    fork: bool,
+    max_turns: Option<u32>,
     effort: Option<String>,
     add_dirs: Vec<String>,
     unknown: Vec<String>,
@@ -78,6 +81,8 @@ fn parse_args(raw: &[String]) -> Args {
             "--permission-mode" => { a.permission_mode = val(i); i += 1; }
             "--resume" => { a.resume = Some(val(i)); i += 1; }
             "--session-id" => { a.session_id = Some(val(i)); i += 1; }
+            "--fork-session" => { a.fork = true; }
+            "--max-turns" => { a.max_turns = val(i).parse().ok(); i += 1; }
             "--effort" => { a.effort = Some(val(i)); i += 1; }
             "--add-dir" => { a.add_dirs.push(val(i)); i += 1; }
             "--input-format" | "--output-format" | "--append-system-prompt-file" | "--settings" | "--mcp-config"
@@ -101,7 +106,8 @@ struct Cli {
     out: Mutex<std::io::Stdout>,
     log: Mutex<Option<std::fs::File>>,
     waiters: Mutex<HashMap<String, mpsc::Sender<Value>>>,
-    hook_ids: Mutex<Vec<String>>,
+    /// (hook event, callback id) as `initialize` registered them
+    hook_ids: Mutex<Vec<(String, String)>>,
     interrupted: AtomicBool,
     seq: AtomicU64,
     agent: String,
@@ -356,6 +362,24 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
     cli.stream(json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use", "stop_sequence": null },
                        "usage": { "output_tokens": 40 } }));
     cli.stream(json!({ "type": "message_stop" }));
+    // PreToolUse: a hook may deny the tool before it runs (the engine's keepalive denies every one)
+    let ids = cli.hook_ids.lock().unwrap().clone();
+    for (_, cb) in ids.iter().filter(|(e, _)| e == "PreToolUse") {
+        let input = json!({ "session_id": cli.session, "cwd": cli.cwd, "hook_event_name": "PreToolUse",
+                            "tool_name": full, "tool_input": args });
+        let resp = cli.request(json!({ "subtype": "hook_callback", "callback_id": cb, "input": input, "tool_use_id": tid }),
+                               Duration::from_secs(60));
+        let out = resp.as_ref().map(|r| r["response"]["hookSpecificOutput"].clone()).unwrap_or(Value::Null);
+        if out["permissionDecision"].as_str() == Some("deny") {
+            let why = out["permissionDecisionReason"].as_str().unwrap_or("denied by a PreToolUse hook").to_string();
+            cli.log("tool_denied", json!({ "tool": short, "args": args, "reason": why }));
+            cli.emit(json!({ "type": "user", "parent_tool_use_id": null,
+                             "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": tid,
+                                                                          "content": [{ "type": "text", "text": why }],
+                                                                          "is_error": true }] } }));
+            return None;
+        }
+    }
     let (text, is_error) = if orgtree {
         let rpc = json!({ "jsonrpc": "2.0", "id": cli.next(), "method": "tools/call",
                           "params": { "name": short, "arguments": args, "_meta": { "claudecode/toolUseId": tid } } });
@@ -393,8 +417,7 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
     cli.log("tool_result", check);
     // PostToolUse: the engine hands waiting mail over here
     let mut context = None;
-    let ids = cli.hook_ids.lock().unwrap().clone();
-    for cb in ids {
+    for (_, cb) in ids.into_iter().filter(|(e, _)| e != "PreToolUse") {
         let input = json!({ "session_id": cli.session, "cwd": cli.cwd, "hook_event_name": "PostToolUse",
                             "tool_name": full, "tool_input": args, "tool_response": { "text": text } });
         let resp = cli.request(json!({ "subtype": "hook_callback", "callback_id": cb, "input": input, "tool_use_id": tid }),
@@ -603,11 +626,11 @@ fn reader(cli: Arc<Cli>, tx: mpsc::Sender<Msg>) {
                     Some("initialize") => {
                         let mut ids = Vec::new();
                         if let Some(hooks) = req["hooks"].as_object() {
-                            for list in hooks.values().filter_map(Value::as_array) {
+                            for (event, list) in hooks.iter().filter_map(|(e, l)| l.as_array().map(|l| (e, l))) {
                                 for m in list {
                                     for cb in m["hookCallbackIds"].as_array().cloned().unwrap_or_default() {
                                         if let Some(s) = cb.as_str() {
-                                            ids.push(s.to_string());
+                                            ids.push((event.clone(), s.to_string()));
                                         }
                                     }
                                 }
@@ -652,7 +675,9 @@ fn claude(raw: &[String]) -> i32 {
         let _ = std::fs::create_dir_all(&p);
         std::fs::OpenOptions::new().create(true).append(true).open(p.join(format!("{agent}.jsonl"))).ok()
     });
-    let session = args.resume.clone().or(args.session_id.clone()).unwrap_or_else(|| format!("fake-{}", now_ms()));
+    let resumed = args.resume.clone().or(args.session_id.clone()).unwrap_or_else(|| format!("fake-{}", now_ms()));
+    // --fork-session: like the real CLI, a copy of the resumed transcript under a new id
+    let session = if args.fork && args.resume.is_some() { format!("fork-{}-{}", now_ms(), std::process::id()) } else { resumed.clone() };
     let cli = Arc::new(Cli {
         out: Mutex::new(std::io::stdout()),
         log: Mutex::new(log),
@@ -667,6 +692,7 @@ fn claude(raw: &[String]) -> i32 {
         dir,
     });
     cli.log("start", json!({ "args": raw, "cwd": cwd, "session": session, "resumed": args.resume.is_some(),
+                              "forked_from": if args.fork { args.resume.clone() } else { None }, "max_turns": args.max_turns,
                               "model": args.model, "permission_mode": args.permission_mode, "effort": args.effort,
                               "add_dirs": args.add_dirs, "unknown_args": args.unknown,
                               "org": std::env::var("ORGTREE_ORG").ok(),
@@ -682,6 +708,9 @@ fn claude(raw: &[String]) -> i32 {
                 eprintln!("No conversation found with session ID: {sid}");
                 cli.log("exit", json!({ "code": 1, "why": "no transcript for --resume", "looked": file }));
                 return 1;
+            }
+            if session != *sid {
+                let _ = std::fs::copy(&file, file.with_file_name(format!("{session}.jsonl")));
             }
         }
     }
