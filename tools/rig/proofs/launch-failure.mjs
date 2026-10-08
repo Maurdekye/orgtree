@@ -15,6 +15,8 @@
 import { Proof } from '../proof.mjs'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+// a refused start returns only once its app-server is closed (up to 5 s)
+const SETTLE = 7000
 
 export default async function (rig) {
   const p = new Proof('launch-failure')
@@ -48,7 +50,7 @@ export default async function (rig) {
   // ---- lu: a refused turn/start
   await rig.userMail('lu', 'REFUSE one: please work.')
   await rig.waitFor(() => refusals('lu') >= 1 && /overloaded/.test(runOf('lu')?.last_error ?? ''), { what: 'lu\'s first refusal' })
-  await sleep(1500)
+  await rig.waitFor(() => stalled(toAgent('boss', 'runtime.report_stalled'), 'lu').length >= 1, { what: 'the first announcement', timeout: 20000 }).catch(() => null)
   const r1 = runOf('lu')
   p.check('lu: its last error carries the refusal', /did not accept the turn: .*overloaded/.test(r1?.last_error ?? ''), r1?.last_error)
   p.check('lu: the mail is back in its mailbox, waiting', pending('lu').length === 1, pending('lu'))
@@ -61,13 +63,13 @@ export default async function (rig) {
     sup1.length === 1 && sup1[0].ev?.cause === 'terminal' && /could not start/.test(sup1[0].ev?.door ?? '') && /overloaded/.test(sup1[0].ev?.err ?? ''),
     sup1.map(r => ({ cause: r.ev?.cause, door: r.ev?.door, err: r.ev?.err, audience: r.ev?.audience })))
   const turnsAfter1 = rig.turns('lu').length
-  await sleep(4000)
-  p.check('lu: nothing retried it (no new start, no turn)', refusals('lu') === 1 && rig.turns('lu').length === turnsAfter1,
+  await sleep(SETTLE)
+  p.check('lu: nothing retried it, its own copy included (no new start, no turn)', refusals('lu') === 1 && rig.turns('lu').length === turnsAfter1,
     { refusals: refusals('lu'), turns: rig.turns('lu').length })
 
   await rig.userMail('lu', 'REFUSE two: please work.')
   await rig.waitFor(() => refusals('lu') >= 2, { what: 'lu\'s second refusal' })
-  await sleep(1500)
+  await sleep(SETTLE)
   p.check('lu: a second refusal in the same run tells nobody again',
     toAgent('lu', 'runtime.turn_failed_terminal').length === 1 && stalled(toAgent('boss', 'runtime.report_stalled'), 'lu').length === 1
       && runOf('lu')?.run === 2, { run: runOf('lu')?.run })
@@ -79,7 +81,7 @@ export default async function (rig) {
     { pending: pending('lu'), run: runOf('lu')?.run })
   await rig.userMail('lu', 'DENY three: please work.')
   await rig.waitFor(() => refusals('lu') >= 3, { what: 'lu\'s third refusal' })
-  await sleep(1500)
+  await rig.waitFor(() => stalled(toAgent('boss', 'runtime.report_stalled'), 'lu').length >= 2, { what: 'the next announcement', timeout: 20000 }).catch(() => null)
   p.check('lu: the next refusal starts a new run and is told again',
     toAgent('lu', 'runtime.turn_failed_terminal').length === 2 && stalled(toAgent('boss', 'runtime.report_stalled'), 'lu').length === 2,
     { own: toAgent('lu', 'runtime.turn_failed_terminal').length, boss: stalled(toAgent('boss', 'runtime.report_stalled'), 'lu').length })
@@ -87,7 +89,7 @@ export default async function (rig) {
   // ---- solo: no superior, so the user is told
   await rig.userMail('solo', 'REFUSE: please work.')
   await rig.waitFor(() => refusals('solo') >= 1, { what: 'solo\'s refusal' })
-  await sleep(1500)
+  await rig.waitFor(() => stalled(toUser('runtime.report_stalled'), 'solo').length >= 1, { what: 'the user\'s announcement', timeout: 20000 }).catch(() => null)
   const user = stalled(toUser('runtime.report_stalled'), 'solo')
   p.check('solo (top level): the user is told', user.length === 1 && user[0].ev?.audience === 'user' && /overloaded/.test(user[0].ev?.err ?? ''),
     user.map(r => ({ audience: r.ev?.audience, door: r.ev?.door, err: r.ev?.err })))
@@ -96,7 +98,8 @@ export default async function (rig) {
   await rig.api('PUT', '/api/app-settings/runtime', { antigravity_claude_enabled: false })
   await rig.userMail('ag', 'Please work.')
   await rig.waitFor(() => /turned off/.test(runOf('ag')?.last_error ?? ''), { what: 'ag\'s refused launch' })
-  await sleep(1500)
+  await rig.waitFor(() => stalled(toAgent('boss', 'runtime.report_stalled'), 'ag').length >= 1, { what: 'ag\'s announcement', timeout: 20000 }).catch(() => null)
+  await sleep(SETTLE)
   const ag = stalled(toAgent('boss', 'runtime.report_stalled'), 'ag')
   p.check('ag: a launch refused before its process started is told to boss once',
     ag.length === 1 && /turned off/.test(ag[0].ev?.err ?? '') && toAgent('ag', 'runtime.turn_failed_terminal').length === 1,
