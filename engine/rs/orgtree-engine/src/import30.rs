@@ -45,16 +45,22 @@ pub async fn run(
     progress: &dyn Fn(&str),
 ) -> Result<usize> {
     progress("database-import");
-    let (src, conn) = cluster.connect_config("orgtree").connect(NoTls).await.context("open orgtree")?;
-    let task = tokio::spawn(conn);
+    // an unreadable registry skips the 3.0/3.1 import for this start (the
+    // next start retries it): it never stops the engine
+    let (src, task, orgs) = match open_registry(cluster).await {
+        Ok(r) => {
+            import_failures::clear(dst, "3.0/3.1", import_failures::ALL).await;
+            r
+        }
+        Err(e) => {
+            let table = import_failures::section_of(&e).unwrap_or("-");
+            tracing::error!(table, error = %format!("{e:#}"),
+                            "3.0/3.1 organization registry unreadable: no 3.0/3.1 organization imported; retried next start");
+            import_failures::record(dst, "3.0/3.1", import_failures::ALL, Some("Your 3.0/3.1 organizations"), &e).await;
+            return Ok(1);
+        }
+    };
     let result = async {
-        src.batch_execute("SET default_transaction_read_only = on").await?;
-        let orgs = src
-            .query(
-                "SELECT org_id, slug, created_at FROM public.orgs WHERE deleted_at IS NULL ORDER BY org_id",
-                &[],
-            )
-            .await?;
         let mut failed = 0;
         for o in &orgs {
             let org_id: i64 = o.get(0);
@@ -98,6 +104,29 @@ pub async fn run(
         tracing::error!(error = %format!("{e:#}"), "3.0/3.1 account import failed");
     }
     Ok(failed)
+}
+
+/// The `orgtree` database, opened read-only, and its orgs (`public.orgs`).
+#[logged]
+async fn open_registry(
+    cluster: &Cluster,
+) -> Result<(Client, tokio::task::JoinHandle<std::result::Result<(), tokio_postgres::Error>>, Vec<tokio_postgres::Row>)> {
+    let (src, conn) = cluster.connect_config("orgtree").connect(NoTls).await.context(Section("orgtree"))?;
+    let task = tokio::spawn(conn);
+    let orgs = async {
+        src.batch_execute("SET default_transaction_read_only = on").await?;
+        src.query("SELECT org_id, slug, created_at FROM public.orgs WHERE deleted_at IS NULL ORDER BY org_id", &[]).await
+    }
+    .await
+    .context(Section("orgs"));
+    match orgs {
+        Ok(rows) => Ok((src, task, rows)),
+        Err(e) => {
+            drop(src);
+            task.abort();
+            Err(e)
+        }
+    }
 }
 
 /// The org's display name for the user's line, read on its own (best

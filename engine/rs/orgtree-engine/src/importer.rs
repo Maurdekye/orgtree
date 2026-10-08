@@ -56,16 +56,22 @@ pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progres
     }
     if has_app {
         progress("database-import");
-        let (app, conn) = cluster.connect_config("orgtree_app").connect(NoTls).await?;
-        let task = tokio::spawn(conn);
-        app.batch_execute("SET default_transaction_read_only = on").await?;
-        let orgs = app
-            .query(
-                "SELECT org_id, slug, org_uuid::text, database, created_at FROM orgtree.orgs
-                  WHERE state = 'active' ORDER BY org_id",
-                &[],
-            )
-            .await?;
+        // an unreadable registry skips the 3.2 import for this start (the
+        // next start retries it): it never stops the engine
+        let (app, task, orgs) = match open_registry(cluster).await {
+            Ok(r) => {
+                import_failures::clear(&dst, "3.2", import_failures::ALL).await;
+                r
+            }
+            Err(e) => {
+                let table = import_failures::section_of(&e).unwrap_or("-");
+                tracing::error!(table, error = %format!("{e:#}"),
+                                "3.2 organization registry unreadable: no 3.2 organization imported; retried next start");
+                import_failures::record(&dst, "3.2", import_failures::ALL, Some("Your 3.2 organizations"), &e).await;
+                import_app_settings(cfg, &dst).await?;
+                return Ok(());
+            }
+        };
         let mut failed = 0;
         for o in &orgs {
             let slug: String = o.get(1);
@@ -114,6 +120,34 @@ pub async fn run_if_needed(cfg: &Config, cluster: &Cluster, pool: &Pool, progres
     )
     .await?;
     Ok(())
+}
+
+/// The 3.2 registry (`orgtree_app`), opened read-only, and its active orgs.
+#[logged]
+async fn open_registry(
+    cluster: &Cluster,
+) -> Result<(Client, tokio::task::JoinHandle<std::result::Result<(), tokio_postgres::Error>>, Vec<tokio_postgres::Row>)> {
+    let (app, conn) = cluster.connect_config("orgtree_app").connect(NoTls).await.context(Section("orgtree_app"))?;
+    let task = tokio::spawn(conn);
+    let orgs = async {
+        app.batch_execute("SET default_transaction_read_only = on").await?;
+        app.query(
+            "SELECT org_id, slug, org_uuid::text, database, created_at FROM orgtree.orgs
+              WHERE state = 'active' ORDER BY org_id",
+            &[],
+        )
+        .await
+    }
+    .await
+    .context(Section("orgs"));
+    match orgs {
+        Ok(rows) => Ok((app, task, rows)),
+        Err(e) => {
+            drop(app);
+            task.abort();
+            Err(e)
+        }
+    }
 }
 
 /// A 3.2 org's display name for the user's line, read on its own (best

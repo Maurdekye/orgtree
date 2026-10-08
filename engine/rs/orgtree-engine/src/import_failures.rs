@@ -15,6 +15,10 @@ use crate::util::{gist, now_iso};
 
 const KEY: &str = "import_failures";
 
+/// The "org" of a record for a whole store whose org registry could not be
+/// read (no org of that version was imported).
+pub(crate) const ALL: &str = "*";
+
 /// The source table (or step) an org import was copying when it failed:
 /// added as the outermost context of the org's error, named in the log and
 /// in the user's line.
