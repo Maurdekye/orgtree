@@ -612,9 +612,12 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
 /// the top level, the organization's). A folder the superior does not hold,
 /// or holds read-only when read/write is asked, is refused (3.x №30) rather
 /// than stored where it can never take effect, and an agent cannot pass on
-/// a tool or MCP server the hire's superior does not hold.
+/// a tool or MCP server the hire's superior does not hold. A user's hire (or
+/// a default) is clamped to the superior's tools and visibility instead,
+/// with a warning; an agent asking for more visibility than the superior
+/// holds is refused (D-021). Returns the warnings.
 #[logged]
-async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&Node>, caps: &OrgCaps, req: &Value, sc: &mut Value) -> Result<()> {
+async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&Node>, caps: &OrgCaps, req: &Value, sc: &mut Value) -> Result<Vec<String>> {
     let agent = matches!(actor, Actor::Agent { .. });
     if agent {
         let mut missing = Vec::new();
@@ -676,8 +679,45 @@ async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&N
             }
         }
     }
+    let mut warnings = Vec::new();
+    if let Some(h) = &holder {
+        if !agent {
+            let mut lost: Vec<String> = Vec::new();
+            for k in ["bash", "web", "edit", "subagents"] {
+                if sc["tools"][k] == json!(true) && h["tools"][k] != json!(true) {
+                    sc["tools"][k] = json!(false);
+                    lost.push(k.to_string());
+                }
+            }
+            let held: Vec<Value> = h["tools"]["mcp"].as_array().cloned().unwrap_or_default();
+            if !held.contains(&json!("*")) {
+                let want: Vec<Value> = sc["tools"]["mcp"].as_array().cloned().unwrap_or_default();
+                if want.contains(&json!("*")) {
+                    sc["tools"]["mcp"] = json!(held);
+                } else {
+                    lost.extend(want.iter().filter(|s| !held.contains(s)).filter_map(Value::as_str).map(|s| format!("mcp:{s}")));
+                    sc["tools"]["mcp"] = json!(want.into_iter().filter(|s| held.contains(s)).collect::<Vec<_>>());
+                }
+            }
+            if !lost.is_empty() {
+                warnings.push(format!("tool grants clamped to the parent's own: {}", lost.join(", ")));
+            }
+        }
+        let want = sc["org_visibility"].as_str().unwrap_or("subtree").to_string();
+        let own = h["org_visibility"].as_str().unwrap_or("full");
+        if scope::vis_rank(&want) > scope::vis_rank(own) {
+            if agent && str_arg(req, "org_visibility").is_some() {
+                refuse!(
+                    Forbidden,
+                    "org_visibility '{want}' exceeds the parent's own '{own}' — visibility is a capability and only shrinks downward"
+                );
+            }
+            sc["org_visibility"] = json!(own);
+            warnings.push(format!("org_visibility clamped to the parent's own ({own})"));
+        }
+    }
     *sc = scope::normalize(sc);
-    Ok(())
+    Ok(warnings)
 }
 
 #[logged]
@@ -736,6 +776,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             Vec::new()
         }
     };
+    let mut warnings: Vec<String> = Vec::new();
     let sc = if let Some(a) = &anchor {
         if a.state != "live" { refuse!(Conflict, "superior insertion needs a live target"); }
         insertion_authority(tx, actor, a).await?;
@@ -748,7 +789,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         inherited
     } else {
         let mut sc = hire_scope(&caps, req);
-        hire_scope_rules(tx, actor, parent.as_ref(), &caps, req, &mut sc).await?;
+        warnings = hire_scope_rules(tx, actor, parent.as_ref(), &caps, req, &mut sc).await?;
         sc
     };
     // An omitted choice uses only a valid compatible org default, never the
@@ -818,7 +859,11 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     fx.events = true;
     fx.warm.push(id);
     fx.scratch.push(scratch);
-    Ok(json!({ "node": name, "cascaded": raised }))
+    let mut out = json!({ "node": name, "cascaded": raised });
+    if !warnings.is_empty() {
+        out["warnings"] = json!(warnings);
+    }
+    Ok(out)
 }
 
 #[logged]
