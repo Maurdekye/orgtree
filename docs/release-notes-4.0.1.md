@@ -32,6 +32,8 @@ Orgtree 4.0.1 is a fix-and-polish release on top of 4.0.0. It adds optional Clau
   - Organization names follow the 3.x rules again.
 - **Question cards.** Multiple-choice answers are complete, a dismissed card reads as dismissed rather than answered, and folder approvals report what was actually granted.
 - **Document chips** beside an agent's node match the four shown in its desk header.
+- **Tool calls show their description.** When a tool call carries a description, the transcript row shows it instead of the shortened command; expanding the row still shows the full input.
+- **Quick staff** names models the same way as the normal staffing flow.
 
 ## Fixed
 
