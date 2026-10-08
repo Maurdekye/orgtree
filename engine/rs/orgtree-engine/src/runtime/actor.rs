@@ -3525,10 +3525,12 @@ impl Actor {
             }
         }
         // the CLI holds the prompt once it produced anything: settle the mail
-        // as delivered; a turn that never started gives its mail back
+        // as delivered; a turn that never started gives its mail back. A Codex
+        // thread holds it once turn/start was accepted (3.x), so a provider
+        // that keeps failing never re-sends a growing batch.
         let succeeded = error.is_none() && limit.is_none() && !turn.limit_signal
             && !turn.interrupted && !turn.killed && !turn.compact && !res.is_null();
-        let requeue = error.is_some() && !turn.activity;
+        let requeue = error.is_some() && !turn.activity && turn.codex_turn.is_none();
         let client = self.engine.db.get().await?;
         if let Some((_, ids, _)) = &turn.agy_steer {
             // A failed hook settlement is not delivery. Return these rows
