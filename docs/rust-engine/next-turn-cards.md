@@ -22,3 +22,11 @@ The zoom card retains the current effort while a target waits. A desk that
 normally has no effort tag shows the current/next pair during that wait.
 The renderer runtime overlay must admit both effort fields; otherwise the
 engine evidence is dropped before it reaches the cards.
+
+## Rig proof
+
+`node tools/rig/rig.mjs run tools/rig/proofs/next-turn-cards.mjs --ui <bundle>`
+uses two fake Codex accounts and a long-running Luna turn. It verifies the
+current cards, all queued values and exact tooltip text, a retarget to default,
+cancellation, and the pinned header's single copy of each queued card. It
+captures before/after desk and zoom-card PNGs under the rig evidence folder.
