@@ -538,6 +538,18 @@ pub async fn doc(engine: &Engine, force: bool) -> Value {
 /// What the key check says when openrouter.ai refuses the stored key.
 pub const KEY_REFUSED: &str = "the stored key was rejected by openrouter.ai; replace it in App settings › Providers";
 
+/// A turn on the OpenRouter lane was refused with a 401: check the key again
+/// now and push the lane's document and usage, so the providers panel stops
+/// saying "connected" beside an agent the gateway just refused (3.x
+/// `forget_key_status`). Off the caller's path: the check is a request.
+#[logged]
+pub fn key_refused(engine: &Arc<Engine>) {
+    let eng = engine.clone();
+    crate::trace::spawn(async move {
+        crate::usage::refresh_openrouter(&eng, true).await;
+    });
+}
+
 /// A key's standing, as 3.x read it: `GET /api/v1/key` (label, spend, the
 /// optional spend cap and its renewal) plus `GET /api/v1/credits` (the
 /// prepaid balance, `total_credits` − `total_usage`; it answers a normal

@@ -525,6 +525,19 @@ fn agy_log_email(log: &str) -> Option<String> {
 
 // ------------------------------------------------------------ OpenRouter
 
+/// Read the OpenRouter lane again and push it: its usage (when a key is
+/// stored) and the panel's document, whose `connected` is the key check.
+/// The usage loop does this every 5 minutes; a refused turn at once.
+#[logged]
+pub async fn refresh_openrouter(engine: &Engine, force: bool) {
+    let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
+    if key_set {
+        let v = openrouter(engine, force).await;
+        publish(engine, "openrouter", &v);
+    }
+    crate::openrouter::publish(engine).await;
+}
+
 /// The stored OpenRouter key's credit standing (`GET /api/v1/key`).
 #[logged]
 pub async fn openrouter(engine: &Engine, force: bool) -> Value {
@@ -740,13 +753,8 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         }
         last.insert("google", Instant::now());
     }
-    let key_set = engine.settings.get().pointer("/openrouter/key_set").and_then(Value::as_bool).unwrap_or(false);
     if due(last, "openrouter", 300) {
-        if key_set {
-            let v = openrouter(engine, false).await;
-            publish(engine, "openrouter", &v);
-        }
-        crate::openrouter::publish(engine).await;
+        refresh_openrouter(engine, false).await;
         last.insert("openrouter", Instant::now());
     }
     if due(last, "usage_history_prune", 3600) {

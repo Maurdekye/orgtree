@@ -3492,6 +3492,10 @@ impl Actor {
                     classified = true;
                     freeze_rec = Some(recovery::auth_freeze(e, account, openrouter));
                     parked = Some("auth");
+                    if openrouter {
+                        // the panel's "connected" must not outlive the refusal
+                        crate::openrouter::key_refused(&self.engine);
+                    }
                 }
                 Some(recovery::Class::Balance) => {
                     classified = true;
