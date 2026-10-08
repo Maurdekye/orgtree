@@ -427,6 +427,7 @@ export async function startRun(opts = {}) {
     recover: !!opts.recover,
     // the automatic wakes a safe start holds back, swept every N seconds (true: 5)
     reminders: opts.reminders || null,
+    reminderPauseMs: opts.reminderPauseMs || null,
   })
   touch(dir)
   await launchKeeper(dir, opts.timeout)

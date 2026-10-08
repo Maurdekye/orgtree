@@ -43,6 +43,8 @@ if (run.recover) env.ORGTREE_RIG_RECOVER = '1'
 if (run.reminders) {
   env.ORGTREE_RIG_REMINDERS = '1'
   env.ORGTREE_RIG_REMINDER_SWEEP_S = String(run.reminders === true ? 5 : run.reminders)
+  // a pause between a wake's reservation and its mail, for a proof of the lost idle race
+  if (run.reminderPauseMs) env.ORGTREE_RIG_REMINDER_PAUSE_MS = String(run.reminderPauseMs)
 }
 
 log('keeper', process.pid, 'starting engine for', dir)
