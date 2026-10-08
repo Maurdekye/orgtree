@@ -92,7 +92,8 @@ pub fn start(engine: &Arc<Engine>) {
     start_recovery(engine);
     let engine = engine.clone();
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(SWEEP_S));
+        let every = crate::rig::reminder_sweep_s().unwrap_or(SWEEP_S);
+        let mut tick = tokio::time::interval(Duration::from_secs(every));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         tick.tick().await; // the first tick is immediate: let startup settle
         loop {

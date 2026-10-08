@@ -94,6 +94,20 @@ pub fn recovers() -> bool {
     active() && std::env::var("ORGTREE_RIG_RECOVER").as_deref() == Ok("1")
 }
 
+/// A rig run that asked for the automatic wakes (`ORGTREE_RIG_REMINDERS=1`):
+/// the reminder sweep a safe start holds back (working checkups, idle docket
+/// reminders, abandoned docket recovery) runs, every
+/// `ORGTREE_RIG_REMINDER_SWEEP_S` seconds (1 to 60, else the product's 60)
+/// so a proof need not wait a minute for each sweep. None outside rig mode.
+#[logged]
+pub fn reminder_sweep_s() -> Option<u64> {
+    if !active() || std::env::var("ORGTREE_RIG_REMINDERS").as_deref() != Ok("1") {
+        return None;
+    }
+    let every = std::env::var("ORGTREE_RIG_REMINDER_SWEEP_S").ok().and_then(|s| s.trim().parse::<u64>().ok());
+    Some(every.filter(|n| (1..=60).contains(n)).unwrap_or(60))
+}
+
 /// Every home-folder lookup: the rig's fake home in rig mode, else the
 /// user's profile folder.
 #[logged]
