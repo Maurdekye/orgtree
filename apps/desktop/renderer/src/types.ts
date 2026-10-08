@@ -212,6 +212,9 @@ export interface OrgInboxEntry {
   tries?: number
   last_err?: string
   attachments?: { name: string; bytes: number }[]
+  /** the message this one answers: its quote (who, when, a gist) and the
+   *  org-inbox row it links to; only `net_id` when this org never had it */
+  reply_to?: { id?: string; kind?: 'mail'; box?: 'org'; from?: string; at?: string; gist?: string; net_id?: string }
 }
 
 // F-06: net.py status_block — hub config + live connectivity (never secrets)
@@ -222,7 +225,7 @@ export interface NetPeer {
   blurb?: string | null
   online: boolean
   last_seen?: string | null
-  kind?: 'org' | 'chat'        // FR-06: independent chats are clients too
+  kind?: 'org' | 'chat' | 'person'  // FR-06: independent chats are clients too; person: a Hubchat user (mail hub v2)
   /** user spec 2026-08-05: which transports resolve this recipient —
    *  derived server-side from the same data the bare-name resolver uses */
   transports?: string[]
@@ -232,6 +235,9 @@ export interface NetHub {
   address: string
   enabled: boolean
   name?: string | null         // discovered on connect, never typed
+  /** the version the hub reports (mail hub v2); none from a v1 hub, which
+   *  the app shows as unknown */
+  version?: string | null
   connected: boolean
   /** the implicit local entry before the hub has EVER answered — passive
    *  surfaces (chip, dot, network section, compose roster) render nothing;

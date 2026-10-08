@@ -28,10 +28,13 @@ export interface HubHosting {
   public_listener: boolean
   public_listener_port: number
   status: { running: boolean; healthy: boolean; address: string; exposed: boolean;
-    hub_name?: string | null; orgs?: number | null; queued?: number | null }
+    hub_name?: string | null; hub_version?: string | null; orgs?: number | null; queued?: number | null }
   error?: string
   migrated?: { from: string; at: string; notes: string[] }
   data_migration?: { messages: number; attachments: number; orgs_copied: number; orgs_skipped: string[] }
+  /** mail hub v2's first start: the earlier hub's store (hub.sqlite3, kept)
+   *  imported into the hub's own database */
+  v2_import?: { orgs: number; messages: number; attachments: number; imported_at?: string; source?: string }
 }
 const route = '/api/desktop/hub'
 export const readHosting = (value: HubHosting): HubHosting => {
@@ -46,7 +49,7 @@ export const readHosting = (value: HubHosting): HubHosting => {
     max_attachment_bytes: value.max_attachment_bytes ?? 1024 ** 3,
     public_listener: value.public_listener, public_listener_port: value.public_listener_port,
     status: value.status, error: value.error, migrated: value.migrated,
-    data_migration: value.data_migration,
+    data_migration: value.data_migration, v2_import: value.v2_import,
   }
 }
 
@@ -85,6 +88,7 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
     <p className="dim">This computer's mail hub carries correspondence between organizations here and on other machines. Organizations connect to it from their own Connections tab.</p>
     {config && <p role="status">
       {running ? <>Running at <span className="mono-sm">{config.status.address}</span>
+        {' '}· hub version {config.status.hub_version || 'unknown'}
         {typeof config.status.orgs === 'number' && <> · {config.status.orgs} registered, {config.status.queued ?? 0} queued</>}</>
         : config.status.running ? 'Starting…' : 'Stopped'}
     </p>}
@@ -94,6 +98,9 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
     </div> : null}
     {config?.data_migration && <p className="dim">
       Mail from the previous hub was migrated: {config.data_migration.messages} message(s), {config.data_migration.attachments} attachment(s). The old store is kept untouched as a backup.
+    </p>}
+    {config?.v2_import && <p className="dim">
+      The hub's earlier mail was moved into its new database: {config.v2_import.orgs} address(es), {config.v2_import.messages} message(s), {config.v2_import.attachments} attachment(s). The old store (hub.sqlite3) is kept untouched as a backup.
     </p>}
     {error && <p role="alert" className="ask-warn">{error}</p>}
     {!config && <button disabled={busy} onClick={() => { void load() }}>{busy ? 'Loading hosting settings...' : 'Retry hosting settings'}</button>}
@@ -126,14 +133,14 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
         {exposed && <p className="ask-warn">Anyone who can reach the hub can read ALL mail on its page — that page is the operator view and has no login. Share it only on a network where every machine is trusted. The hub does not provide TLS; put a reverse proxy in front if you need encryption.</p>}
         <label>Keep mail<select aria-label="Mail retention" value={config.retention_days === null ? 'forever' : 'days'}
           onChange={e => setConfig({ ...config, retention_days: e.target.value === 'forever' ? null : keepDays })}>
-          <option value="forever">Forever</option>
+          <option value="forever">Until it is deleted</option>
           <option value="days">A limited number of days</option>
         </select></label>
         {config.retention_days !== null && <>
           <label>Days to keep mail<input aria-label="Days to keep mail" type="number" min="1" max="36500" required
             value={config.retention_days}
             onChange={e => { const d = Number(e.target.value); setKeepDays(d); setConfig({ ...config, retention_days: d }) }} /></label>
-          <p className="dim">Mail and attachments older than this are deleted hourly — read or not. The standalone hub's own default is 30 days; this installation keeps mail forever unless changed here.</p>
+          <p className="dim">Mail and attachments older than this are deleted hourly — read or not. Without a number of days, the hub keeps mail until the people and organizations it belongs to delete it.</p>
         </>}
         <SetToggle label={`Also serve a relay-only door on port ${config.public_listener_port || 7371}`}
           checked={config.public_listener}

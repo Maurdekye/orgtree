@@ -33,9 +33,17 @@ export function ConnectionsPanel({ tree, toast, close }: {
 /** One hub row's status, in words. The ladder is the V1 hub's own:
  *  connected / retrying — why / connecting… / disabled. */
 export const hubStatusText = (h: NetHub): string =>
-  h.connected ? 'Connected'
+  h.connected ? `Connected · ${hubVersionText(h)}`
     : !h.enabled ? 'Disabled'
       : h.error ? `Retrying — ${h.error}` : 'Connecting…'
+
+/** The version a connected hub reports (user request 2026-10-08); a hub that
+ *  reports none (mail hub v1) reads as unknown. */
+export const hubVersionText = (h: NetHub): string => `hub version ${h.version || 'unknown'}`
+
+/** A roster entry's client kind, when it is not an organization. */
+export const peerKindText = (kind?: string): string =>
+  kind === 'chat' ? ' (chat)' : kind === 'person' ? ' (person)' : ''
 
 export function Connections({ tree, toast, adding, setAdding }: {
   tree: TreePayload; toast: ToastFn; adding: string; setAdding: (value: string) => void
@@ -113,7 +121,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
       <div className="dim mono-sm">{h.address}</div>
       {(h.stuck ?? 0) > 0 && <p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p>}
       {h.roster?.length ? <ul className="connection-peers">{h.roster.map(p => <li key={p.slug}>
-        <b>{p.org_name || p.slug.split('.')[0]}</b>{p.kind === 'chat' && <span className="dim"> (chat)</span>}
+        <b>{p.org_name || p.slug.split('.')[0]}</b>{peerKindText(p.kind) && <span className="dim">{peerKindText(p.kind)}</span>}
         {' '}<span className="mono-sm">{p.slug}</span> · {p.online ? 'Online' : 'Offline'}
         {p.blurb && <span className="dim"> · {p.blurb}</span>}
       </li>)}</ul> : h.connected ? <p className="dim">No other organizations on this hub yet.</p> : null}

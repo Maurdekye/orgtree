@@ -89,7 +89,7 @@ export function OrgStatusBar({ tree, orgs, error, onOpenConnections, appVersion 
               if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenConnections() }
             }}
             title={hubs.map((h) =>
-              `${h.name || h.address}: ${h.connected ? 'connected' : h.error || 'connecting…'}`).join(' · ')
+              `${h.name || h.address}: ${h.connected ? `connected, hub version ${h.version || 'unknown'}` : h.error || 'connecting…'}`).join(' · ')
               + ' — click to open Connections'}>
             <LanIcon fontSize="inherit" /> {hubLabel}
             {up === 0 ? ': offline' : ''}

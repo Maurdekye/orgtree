@@ -1051,13 +1051,15 @@ export const getOrgInbox = (slug: string): Promise<{
 export const orgInboxRead = (slug: string): Promise<{ ok: boolean }> =>
   req(`/api/orgs/${slug}/org_inbox/read`, { method: 'POST' })
 // F-06: the user composes extern mail from the mailbox UI (admin only)
+// `replyTo`: the org-inbox row this answers (the panel's Reply); over the
+// mail hub the reply carries a link to it, between orgs here its quote
 export const orgInboxSend = (
-  slug: string, to: string, body: string, attachments: string[] = [],
+  slug: string, to: string, body: string, attachments: string[] = [], replyTo?: string,
 ): Promise<{ id: string; warnings: string[] }> =>
   req(`/api/orgs/${slug}/org_inbox/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to, body, attachments }),
+    body: JSON.stringify(replyTo ? { to, body, attachments, reply_to: replyTo } : { to, body, attachments }),
   })
 export const orgInboxUpload = async (
   slug: string, file: File, recipients: string[] = [],

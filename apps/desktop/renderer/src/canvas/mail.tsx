@@ -70,6 +70,13 @@ export interface MailListProps {
   /** `notice` is set only when the reply box's notice toggle was armed at
    *  send; the host forwards it to its own send call. */
   onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean) => void
+  /** Which rows may be answered from here. Default: incoming mail from a
+   *  plain agent id (the @-sentinels route elsewhere). The org inbox opens
+   *  its outside senders (@net:/@org:), whose answer goes back out. */
+  canReply?: (m: MailRow) => boolean
+  /** The reply box without attachments or the notice toggle (an outside
+   *  recipient: the host's own send carries neither). */
+  replyPlain?: boolean
   onRetract?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
@@ -148,7 +155,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
-  outgoing, onRead, onReply, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
+  outgoing, onRead, onReply, canReply: canReplyTo, replyPlain, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
@@ -384,8 +391,8 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // reply from where you read (№11): only for incoming mail whose sender is a
   // plain agent id — @-sentinels (@user/@system/@ext:/@org:/@mcp:) route
   // elsewhere, and slugify guarantees no agent name starts with '@'
-  const replyable = Boolean(onReply && cur && !outgoing && !cur._ask
-    && !String(party(cur) ?? '').startsWith('@'))
+  const answerable = (m: MailRow) => canReplyTo ? canReplyTo(m) : !String(party(m) ?? '').startsWith('@')
+  const replyable = Boolean(onReply && cur && !outgoing && !cur._ask && answerable(cur))
   // THE ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07). One menu for the
   // whole list; the pressed row's entries are built on open. Every entry is
   // something the row or the reading pane already does: select, reply (the
@@ -415,8 +422,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
         ? { label: 'Close', onSelect: () => { leave(cur); setSelId(null) } }
         : { label: 'Open', onSelect: select },
     ]
-    const canReply = Boolean(onReply && !outgoing && !m._ask
-      && !String(party(m) ?? '').startsWith('@'))
+    const canReply = Boolean(onReply && !outgoing && !m._ask && answerable(m))
     if (canReply) entries.push({ label: 'Reply', onSelect: () => { select(); setReplyFocus(keyOf(m)) } })
     if (m._wait && m.id && !m._ask && onRead) {
       entries.push({ label: 'Mark as read', onSelect: () => onRead(m) })
@@ -556,6 +562,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onReply={replyable
               ? (text, attachments, notice) => onReply!(cur, text, attachments, notice)
               : undefined}
+            replyPlain={replyPlain}
             toast={toast} />
         )}
         {!cur && (
@@ -720,7 +727,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, toast }: {
+  outgoing, customSender, waitLabel, custom, onReply, replyPlain, toast }: {
   cur: MailRow
   /** a folded run of system notices, newest first; one entry = no run */
   members?: MailRow[]
@@ -739,6 +746,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
    *  (asks: the response form IS the body) */
   custom?: ReactNode | null
   onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  /** the reply box without attachments or the notice toggle */
+  replyPlain?: boolean
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -839,7 +848,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
            so the user's paperclip was permanently grey (reported
            2026-09-17). NOT `?? ''` like the head: an absent org must stay
            ABSENT so the composer degrades the way its `slug?:` contract says. */
-        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast}
+        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={replyPlain ? undefined : org ?? refs?.world.org} toast={toast}
+          notice={!replyPlain}
           onSend={(text, attachments, notice) => onReply(text, attachments, notice)} />
       )}
     </>
@@ -1480,7 +1490,20 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     attachments: e.attachments?.map((a) => ({ ...a, path: a.name })),
     relationship: e.dir === 'in'
       ? 'outside party — addressed to the whole org' : undefined,
+    // the quote of what it answers; a bare hub reference (a message this
+    // org never had) shows nothing
+    reply_to: e.reply_to?.gist ? { id: e.reply_to.id ?? '', kind: 'mail', box: 'org', org: slug,
+      from: e.reply_to.from ?? '', at: e.reply_to.at ?? '', gist: e.reply_to.gist } : undefined,
   }))
+  // the panel's Reply (rulings 2026-10-08): an outside sender is answered as
+  // the organization, and the reply names what it answers (over the mail
+  // hub as a link, between orgs here as its quote)
+  const reply = (m: MailRow, text: string) => {
+    if (!m.id) return
+    return orgInboxSend(slug, m.from, text, [], m.id)
+      .then(() => { toast([`replied to ${m.from}`]); setReload((n) => n + 1) })
+      .catch((e: Error) => { toast([`reply failed: ${e.message}`]); throw e })
+  }
   const inn = rows.filter((r) => r.kind === 'message')
   const out = rows.filter((r) => r.kind === 'reply')
   const markRead = () => {
@@ -1590,6 +1613,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     delivered={inn.filter((r) => !r._wait0)}
                     waitLabel="unread" onRead={markRead} jumpTo={jumpTo}
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
+                    onReply={(m, text) => { void reply(m, text) }} replyPlain
+                    canReply={(m) => /^@(net|org):/.test(m.from)}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
                        PROVENANCE, AND A NAME MATCH IS NOT EVIDENCE OTHERWISE.
@@ -1751,7 +1776,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
       for (const r of h.roster) {
         put(r.slug.split('.')[1] ?? h.name ?? '?',
           { addr: `@net:${r.slug}`, name: r.org_name || r.slug.split('.')[0]!,
-            kind: r.kind === 'chat' ? 'chat' : 'org', online: !!r.online,
+            kind: r.kind === 'chat' || r.kind === 'person' ? r.kind : 'org', online: !!r.online,
             via: r.transports ?? ['net'], lastSeen: r.last_seen })
       }
     }
@@ -1878,7 +1903,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
                   {!o.online && o.lastSeen && (
                     <span className="dim">{peerAgeLabel(o.lastSeen)}</span>
                   )}
-                  {o.kind === 'chat' && <span className="dim">chat</span>}
+                  {(o.kind === 'chat' || o.kind === 'person') && <span className="dim">{o.kind}</span>}
                   <span className="dim">{(o.via ?? [o.kind]).join('·')}</span>
                 </button>
               ))}
@@ -1950,7 +1975,7 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
             <b>{h.name || 'unnamed hub'}</b>
             <span className="dim mono-sm">{h.address}</span>
             <span className="dim">
-              {h.connected ? 'connected' : h.enabled
+              {h.connected ? `connected · hub version ${h.version || 'unknown'}` : h.enabled
                 ? (h.error ? `retrying — ${h.error}` : 'connecting…')
                 : 'disabled'}
               {h.queued > 0 ? ` · ${h.queued} queued outbound` : ''}
@@ -1983,8 +2008,8 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
                         + (r.transports ?? ['net']).join(', ')}>
                       <span className={'oi-dot' + (r.online ? ' ok' : '')} />
                       {r.org_name || r.slug.split('.')[0]}
-                      {r.kind === 'chat' &&
-                        <span className="dim"> (chat)</span>}
+                      {(r.kind === 'chat' || r.kind === 'person') &&
+                        <span className="dim"> ({r.kind})</span>}
                       <span className="dim mono-sm">·{r.slug.split('.').pop()}</span>
                       <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
                     </span>
