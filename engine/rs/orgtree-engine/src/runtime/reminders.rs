@@ -4,8 +4,9 @@
 //!
 //! One task sweeps every org once a minute. Per org it reads, in small
 //! bounded queries, the live agents that could be woken (not halted, frozen,
-//! limit-locked or mid-turn, no mail waiting, org not killswitched) and the
-//! org's unfinished docket items. An agent is due when its last activity
+//! limit-locked or mid-turn, no waking mail waiting, org not killswitched)
+//! and the org's unfinished docket items. A notice is not waking mail: it
+//! rides the next turn and never holds a wake back (3.x `waking_mail`). An agent is due when its last activity
 //! (latest turn, latest status report, latest automatic wake) is more than
 //! 20 minutes old. A due agent's stamp is written first, in one short
 //! UPDATE that re-checks the gates, and then the reminder is sent as system
@@ -159,7 +160,8 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
               WHERE a.org_id = $1 AND a.state = 'live' AND a.halt IS NULL AND a.frozen IS NULL AND NOT a.limit_locked
                 AND a.inflight_at IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = a.id AND t.ended_at IS NULL)
-                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state IN ('pending', 'delivering'))
+                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id
+                                 AND (m.state = 'delivering' OR (m.state = 'pending' AND NOT m.notice)))
               ORDER BY a.id LIMIT $2",
             &[&org.id, &MAX_AGENTS],
         )
@@ -257,7 +259,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) -> 
 }
 
 /// Write `key` = now on a still-wakeable agent; false when the gates changed
-/// since the read (it was halted, frozen, started a turn, got mail).
+/// since the read (it was halted, frozen, started a turn, got waking mail).
 #[logged]
 async fn claim(engine: &Engine, agent: i64, key: &str, now: DateTime<Utc>) -> Result<bool> {
     let client = engine.db.get().await?;
@@ -266,7 +268,8 @@ async fn claim(engine: &Engine, agent: i64, key: &str, now: DateTime<Utc>) -> Re
             "UPDATE ot.agents SET extra = jsonb_set(extra, ARRAY[$2::text], to_jsonb($3::text)), row_version = row_version + 1
               WHERE id = $1 AND state = 'live' AND halt IS NULL AND frozen IS NULL AND NOT limit_locked AND inflight_at IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = $1 AND t.ended_at IS NULL)
-                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $1 AND m.state IN ('pending', 'delivering'))",
+                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = $1
+                                 AND (m.state = 'delivering' OR (m.state = 'pending' AND NOT m.notice)))",
             &[&agent, &key, &iso(now)],
         )
         .await?;
