@@ -2208,7 +2208,7 @@ impl Actor {
         let text = prompt::turn_text(&mails, &context, &rels, reset_note.or(handoff).as_deref());
         // the lanes whose usage-limit freeze replays the request (3.x freeze_provider_limit)
         let replay = match self.proc.as_ref() {
-            Some(Proc::Codex(_)) | Some(Proc::Agy(_)) => freeze::replay_tail(&prompt::turn_text(&mails, "", &rels, None)),
+            Some(Proc::Codex(_)) | Some(Proc::Agy(_)) => freeze::replay_tail(&prompt::replay_text(&mails, &rels)),
             _ => String::new(),
         };
         let mut codex_turn: Option<String> = None;

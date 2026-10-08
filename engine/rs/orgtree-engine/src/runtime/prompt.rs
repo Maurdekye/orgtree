@@ -56,6 +56,17 @@ pub fn turn_text(mail: &[Mail], context: &str, rels: &HashMap<String, String>, h
     s
 }
 
+/// The mail a turn was given, without the envelope or the org notices: what
+/// a usage-limit freeze gives again at the wake.
+#[logged]
+pub fn replay_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
+    let (_, mail) = envelope::split_notices(mail, None);
+    if mail.is_empty() {
+        return String::new();
+    }
+    envelope::mail_block(&mail, rels, true)
+}
+
 /// Mail handed over mid-turn, after a tool call (3.x's mid-task wrapper).
 #[logged]
 pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
