@@ -606,6 +606,80 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
     scope::normalize(&out)
 }
 
+/// 3.x's hire rules for a new hire's scope (PLAN I6, hire defaults kept). An
+/// agent's hire has no defaults: it states its folders, every tool and its
+/// visibility. A user's hire that names no folders gets its superior's (at
+/// the top level, the organization's). A folder the superior does not hold,
+/// or holds read-only when read/write is asked, is refused (3.x №30) rather
+/// than stored where it can never take effect, and an agent cannot pass on
+/// a tool or MCP server the hire's superior does not hold.
+#[logged]
+async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&Node>, caps: &OrgCaps, req: &Value, sc: &mut Value) -> Result<()> {
+    let agent = matches!(actor, Actor::Agent { .. });
+    if agent {
+        let mut missing = Vec::new();
+        if !req["add_dirs"].is_array() {
+            missing.push("add_dirs (explicit list of {path, mode}; [] is valid)");
+        }
+        if !req["tools"].is_object() || ["bash", "web", "edit", "subagents", "mcp"].iter().any(|k| req["tools"].get(*k).is_none()) {
+            missing.push("tools (bash, web, edit, subagents, mcp — each stated explicitly)");
+        }
+        if str_arg(req, "org_visibility").is_none() {
+            missing.push("org_visibility (self|team|subtree|full)");
+        }
+        if str_arg(req, "charter").map(str::trim).filter(|c| !c.is_empty()).is_none() {
+            missing.push("charter (the hire's role and standing instructions — write it in full)");
+        }
+        if !missing.is_empty() {
+            refuse!(BadRequest, "agent hires have no defaults — specify exactly: {}", missing.join("; "));
+        }
+    }
+    let holder = match parent {
+        Some(p) => Some(capability(tx, p.id, &caps.settings).await?),
+        None => None,
+    };
+    match (req["add_dirs"].as_array(), &holder) {
+        (None, Some(h)) => sc["add_dirs"] = h["add_dirs"].clone(),
+        (None, None) => sc["add_dirs"] = caps.settings["dirs"].clone(),
+        (Some(list), Some(h)) => {
+            for d in list {
+                let path = d["path"].as_str().unwrap_or("");
+                let mut held: Option<&str> = None;
+                for x in h["add_dirs"].as_array().into_iter().flatten() {
+                    if scope::path_within(path, x["path"].as_str().unwrap_or("")) {
+                        held = Some(if held == Some("rw") || x["mode"] == "rw" { "rw" } else { "ro" });
+                    }
+                }
+                match held {
+                    None => refuse!(Forbidden, "cannot grant dirs the parent does not hold (№30): [{path}]"),
+                    Some("ro") if d["mode"].as_str().unwrap_or("rw") == "rw" => {
+                        refuse!(Forbidden, "the parent holds {path} read-only; cannot grant read/write (№30)")
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (Some(_), None) => {}
+    }
+    if let (true, Some(h), Some(t)) = (agent, &holder, req["tools"].as_object()) {
+        for k in ["bash", "web", "edit", "subagents"] {
+            if t.get(k) == Some(&json!(true)) && h["tools"][k] != json!(true) {
+                refuse!(Forbidden, "the parent does not hold '{k}'; cannot grant it");
+            }
+        }
+        let held: Vec<&str> = h["tools"]["mcp"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        if !held.contains(&"*") {
+            let extra: Vec<&str> = t.get("mcp").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str)
+                .filter(|s| *s != "*" && !held.contains(s)).collect();
+            if !extra.is_empty() {
+                refuse!(Forbidden, "the parent does not hold MCP server(s) {extra:?}; cannot grant");
+            }
+        }
+    }
+    *sc = scope::normalize(sc);
+    Ok(())
+}
+
 #[logged]
 async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
@@ -672,7 +746,11 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         let mut inherited = hire_scope(&caps, req);
         for k in ["add_dirs", "tools", "org_visibility", "permission_mode"] { inherited[k] = target_scope[k].clone(); }
         inherited
-    } else { hire_scope(&caps, req) };
+    } else {
+        let mut sc = hire_scope(&caps, req);
+        hire_scope_rules(tx, actor, parent.as_ref(), &caps, req, &mut sc).await?;
+        sc
+    };
     // An omitted choice uses only a valid compatible org default, never the
     // parent's bound account. Explicit empty/primary means provider primary.
     let explicit = req.get("account").and_then(Value::as_str);
