@@ -361,6 +361,45 @@ async fn reply_event(client: &tokio_postgres::Client, org_id: i64, org: &str, wh
     }
 }
 
+/// The message an agent answers (`orgtree_message` `reply_to`): mail it
+/// received or sent (the id that ends its FROM line; orgtree_inbox lists
+/// them), or an outside message it sent from the org inbox (the id
+/// orgtree_message reported). The quote is what the recipient sees above the
+/// reply; `net_id` is what a reply over the mail hub carries.
+#[logged]
+pub async fn agent_reply_quote(engine: &Engine, org_id: i64, agent_id: i64, agent: &str, reference: &str) -> Result<Value> {
+    let id = reference.trim().trim_start_matches("@mail:").trim();
+    if id.is_empty() {
+        refuse!(BadRequest, "reply_to needs the id of the message you are answering");
+    }
+    let client = engine.db.get().await?;
+    let r = client
+        .query_opt(
+            "SELECT uid, sender, created_at, body, recipient_kind, recipient_name, net_id FROM ot.mail
+              WHERE org_id = $1 AND uid = $2 AND (recipient_agent_id = $3 OR sender_agent_id = $3)",
+            &[&org_id, &id, &agent_id],
+        )
+        .await?;
+    if let Some(r) = r {
+        let mut q = json!({ "kind": "mail", "id": r.get::<_, String>(0), "from": r.get::<_, String>(1),
+                            "at": crate::util::iso(r.get(2)), "gist": gist(&r.get::<_, String>(3), 600) });
+        if r.get::<_, String>(4) == "user" {
+            q["box"] = json!("user");
+        } else {
+            q["box"] = json!("node");
+            q["node"] = json!(r.get::<_, String>(5));
+        }
+        if let Some(n) = r.get::<_, Option<String>>(6) {
+            q["net_id"] = json!(n);
+        }
+        return Ok(q);
+    }
+    if let Some(q) = crate::domain::orginbox::sent_quote(&client, org_id, id, agent).await? {
+        return Ok(q);
+    }
+    refuse!(NotFound, "reply_to: no message {id} among the mail you received or sent (the id ends its FROM line; orgtree_inbox lists them)");
+}
+
 /// May agent `from` write to agent `to`? Superior, any descendant, peers,
 /// and anyone who granted it an audience. Writing to a non-child descendant
 /// grants that descendant an audience to reply.

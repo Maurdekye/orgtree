@@ -139,6 +139,9 @@ pub struct SendBody {
     body: String,
     #[serde(default)]
     attachments: Vec<String>,
+    /// the org-inbox row this answers (the panel's Reply)
+    #[serde(default)]
+    reply_to: Option<String>,
 }
 
 /// The user writes outside as the organization (no audience needed).
@@ -176,6 +179,9 @@ pub async fn send(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     drop(client);
     let mut out = Outgoing::new(From::User, to, &b.body);
     out.attachments = atts;
+    if let Some(r) = b.reply_to.as_deref().filter(|r| !r.is_empty()) {
+        out.reply_to = Some(orginbox::quote_of(&e, o.id, r).await?);
+    }
     let sent = orginbox::send_extern(&e, o.id, &out).await?;
     Ok(Json(json!({ "id": sent.uid, "warnings": [], "delivery": sent.delivery })))
 }

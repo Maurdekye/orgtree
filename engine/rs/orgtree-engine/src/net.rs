@@ -152,6 +152,8 @@ pub struct Net {
     rosters: papaya::HashMap<String, Arc<Vec<Value>>>,
     /// hub address → the name it gave itself
     names: papaya::HashMap<String, String>,
+    /// hub address → the version it reports (a v1 hub reports none)
+    versions: papaya::HashMap<String, String>,
     /// hub address → (not before, consecutive failures)
     backoff: papaya::HashMap<String, (Instant, u32)>,
     /// receipts owed: (org id, hub message id, state) → hub address
@@ -413,15 +415,29 @@ fn set_status(engine: &Engine, org_id: i64, hub_id: &str, connected: bool, error
     }
 }
 
-/// Adopt a roster (and the hub's name); every org on that hub sees it.
+/// Adopt a roster (and the hub's name and version); every org on that hub
+/// sees it.
 #[logged]
-fn set_roster(engine: &Engine, addr: &str, name: Option<&str>, roster: Vec<Value>) {
+fn set_roster(engine: &Engine, addr: &str, name: Option<&str>, version: Option<&str>, roster: Vec<Value>) {
     let mut changed = false;
     if let Some(n) = name.filter(|n| !n.is_empty()) {
         let names = engine.net.names.pin();
         if names.get(addr).map(String::as_str) != Some(n) {
             names.insert(addr.to_string(), n.to_string());
             changed = true;
+        }
+    }
+    // every answer that names a v2 hub gives its version: one that names
+    // itself without one is a v1 hub
+    if name.is_some() {
+        let versions = engine.net.versions.pin();
+        match version.filter(|v| !v.is_empty()) {
+            Some(v) if versions.get(addr).map(String::as_str) != Some(v) => {
+                versions.insert(addr.to_string(), v.to_string());
+                changed = true;
+            }
+            None if versions.remove(addr).is_some() => changed = true,
+            _ => {}
         }
     }
     let rosters = engine.net.rosters.pin();
@@ -515,7 +531,7 @@ async fn register_pending(engine: &Arc<Engine>, parts: &[Part]) {
             match res {
                 Ok(r) if r.status().is_success() => {
                     let data: Value = r.json().await.unwrap_or(Value::Null);
-                    set_roster(engine, addr, data["name"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
+                    set_roster(engine, addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
                     if let Err(e) = set_registered(engine, p.org_id, hid, Some(addr)).await {
                         tracing::warn!(error = %format!("{e:#}"), "registration could not be recorded");
                         continue;
@@ -633,7 +649,7 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
             Ok(v) => v,
             Err(_) => continue,
         };
-        set_roster(&engine, &addr, data["name"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
+        set_roster(&engine, &addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
         for (p, hid) in &members {
             set_status(&engine, p.org_id, hid, true, None);
         }
@@ -689,11 +705,30 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     }
     let from = m["from"].as_str().unwrap_or("unknown");
     let mut body = m["body"].as_str().unwrap_or("").to_string();
+    let dir = engine.cfg.path("uploads").join(&p.slug).join("@org-inbox");
+    let mut attachments = Vec::new();
+    // a long body (a v2 hub sends its first 20,000 characters and the whole
+    // size) comes down whole: in the message up to 64 KiB, beside it as a
+    // text file above that; a failed fetch is noted, never a lost message
+    if let Some(total) = m["body_bytes"].as_u64() {
+        let _ = std::fs::create_dir_all(&dir);
+        let long: String = mid.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect();
+        match whole_body(p, addr, mid, &dir.join(format!("netbody-{long}.txt"))).await {
+            Ok(WholeBody::Text(text)) => body = text,
+            Ok(WholeBody::File(file)) => {
+                let preview = body.rfind(CONTINUES).map_or(body.as_str(), |i| &body[..i]).to_string();
+                body = format!("{preview}\n\n[this message is {total} bytes long: the whole of it is attached as message.txt]");
+                attachments.push(file);
+            }
+            Err(e) => {
+                let detail = e.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| e.to_string());
+                body.push_str(&format!("\n[the rest of this message could not be fetched from the hub: {detail}]"));
+            }
+        }
+    }
     // attachments come down into the org inbox's folder; a failed fetch is
     // noted in the body, never a lost message
-    let mut attachments = Vec::new();
     if let Some(atts) = m["attachments"].as_array().filter(|a| !a.is_empty()) {
-        let dir = engine.cfg.path("uploads").join(&p.slug).join("@org-inbox");
         let _ = std::fs::create_dir_all(&dir);
         for a in atts {
             let name = a["name"].as_str().unwrap_or("file");
@@ -739,11 +774,62 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
             body = format!("[arrived via the mail hub — sent {}, {unit} ago; the sender may have moved on]\n\n{body}", m["sent_at"].as_str().unwrap_or(""));
         }
     }
-    let fresh = crate::domain::orginbox::deliver_inbound(engine, p.org_id, &format!("@net:{from}"), &body, attachments, mid, hub_id).await?;
+    let reply_to = m["reply_to"].as_str().filter(|r| !r.is_empty());
+    let fresh = crate::domain::orginbox::deliver_inbound(engine, p.org_id, &format!("@net:{from}"), &body, attachments, mid, hub_id, reply_to).await?;
     if fresh {
         engine.net.owed.pin().insert((p.org_id, mid.to_string(), "delivered"), addr.to_string());
     }
     Ok(Some(mid.to_string()))
+}
+
+/// Where a v1 route's long-body preview ends: the hub's own line saying how
+/// long the whole message is.
+const CONTINUES: &str = "\n\n[message continues: ";
+/// The whole of a long body arrives in the message up to this size, and as
+/// a file beside it above (an agent reads it from there).
+const WHOLE_BODY_INLINE: u64 = 64 * 1024;
+
+/// A long hub message's whole body.
+#[derive(Debug)]
+enum WholeBody {
+    Text(String),
+    File(Value),
+}
+
+/// Fetch a long message's whole body (`GET /api/messages/{id}/body`) into
+/// `path`; kept there as a file when it is longer than the inline size.
+#[logged]
+async fn whole_body(p: &Part, addr: &str, mid: &str, path: &std::path::Path) -> Result<WholeBody> {
+    // the id is the sender's: a path segment of its own, encoded
+    let mut url = reqwest::Url::parse(addr)?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow::anyhow!("the hub address cannot carry a path"))?
+        .pop_if_empty()
+        .extend(["api", "messages", mid, "body"]);
+    let r = HTTP.get(url).timeout(FILE_TIMEOUT).header("X-Org-Auth", p.auth()).send().await?.error_for_status()?;
+    let mut size = 0u64;
+    let written: Result<()> = async {
+        let mut file = tokio::fs::File::create(path).await?;
+        let mut chunks = r.bytes_stream();
+        while let Some(chunk) = chunks.next().await {
+            let chunk = chunk?;
+            file.write_all(&chunk).await?;
+            size += chunk.len() as u64;
+        }
+        file.flush().await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = written {
+        let _ = tokio::fs::remove_file(path).await;
+        return Err(e);
+    }
+    if size <= WHOLE_BODY_INLINE {
+        let bytes = tokio::fs::read(path).await?;
+        let _ = tokio::fs::remove_file(path).await;
+        return Ok(WholeBody::Text(String::from_utf8_lossy(&bytes).into_owned()));
+    }
+    Ok(WholeBody::File(json!({ "name": "message.txt", "path": path.to_string_lossy(), "bytes": size })))
 }
 
 /// The hub's receipts advance our outgoing rows (never backwards).
@@ -806,7 +892,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         let client = engine.db.get().await?;
         client
             .query(
-                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind FROM ot.org_inbox
+                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind, reply_to FROM ot.org_inbox
                   WHERE dir = 'out' AND state = 'queued' AND org_id = ANY($1) ORDER BY id LIMIT 100",
                 &[&ids],
             )
@@ -951,9 +1037,15 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
 #[logged]
 fn outgoing_payload(row: &tokio_postgres::Row, net_id: &str, from: &str, attachments: Vec<String>) -> Value {
     let at: chrono::DateTime<chrono::Utc> = row.get(4);
-    json!({ "id": net_id, "to": row.get::<_, String>(2).trim_start_matches("@net:"),
+    let mut payload = json!({ "id": net_id, "to": row.get::<_, String>(2).trim_start_matches("@net:"),
         "body": row.get::<_, String>(3), "kind": row.get::<_, String>(8),
-        "sent_at": crate::util::iso(at), "from": from, "attachments": attachments })
+        "sent_at": crate::util::iso(at), "from": from, "attachments": attachments });
+    // a reply names the hub id of the message it answers (when that came
+    // over a hub); the hub carries it to the recipient
+    if let Some(answers) = row.get::<_, Option<Value>>(9).as_ref().and_then(|q| q["net_id"].as_str()) {
+        payload["reply_to"] = json!(answers);
+    }
+    payload
 }
 
 /// Note why an outgoing row is still queued (a `try` counts an attempt;
@@ -1043,8 +1135,20 @@ pub fn note_read(engine: &Engine, org_id: i64, read: &[(String, String)]) {
 
 /// Queue one `@net:` message from the org inbox (the send itself is the
 /// sender's job). Refuses when no hub is enabled or no hub knows the peer.
+/// `reply_to` is the quote of the message it answers (its `net_id` rides
+/// the payload).
+#[allow(clippy::too_many_arguments)]
 #[logged]
-pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by: &str, kind: &str, attachments: &[Value]) -> Result<(String, String)> {
+pub async fn queue(
+    engine: &Arc<Engine>,
+    org_id: i64,
+    peer: &str,
+    body: &str,
+    by: &str,
+    kind: &str,
+    attachments: &[Value],
+    reply_to: Option<&Value>,
+) -> Result<(String, String)> {
     if offline() {
         crate::refuse!(Unprocessable, "network mail (@net:) is paused for this run (the engine started in safe start)");
     }
@@ -1071,21 +1175,32 @@ pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by
         let limit = attachment_limit(engine, org_id, peer).await?;
         for a in attachments { limit.check(a["bytes"].as_u64().unwrap_or(0))?; }
     }
-    queue_row(engine, org_id, peer, body, by, kind, attachments).await
+    queue_row(engine, org_id, peer, body, by, kind, attachments, reply_to).await
 }
 
 /// Persist only; callers perform the transport/audience checks first.
+#[allow(clippy::too_many_arguments)]
 #[logged]
-async fn queue_row(engine: &Engine, org_id: i64, peer: &str, body: &str, by: &str, kind: &str, attachments: &[Value]) -> Result<(String, String)> {
+async fn queue_row(
+    engine: &Engine,
+    org_id: i64,
+    peer: &str,
+    body: &str,
+    by: &str,
+    kind: &str,
+    attachments: &[Value],
+    reply_to: Option<&Value>,
+) -> Result<(String, String)> {
     let uid = crate::util::uid("x");
     let net_id = uuid::Uuid::new_v4().simple().to_string();
     let to = format!("@net:{peer}");
+    let reply = reply_to.map(|r| crate::util::pg_json(r).into_owned());
     let client = engine.db.get().await?;
     client
         .execute(
-            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind)
-             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8)",
-            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind],
+            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind, reply_to)
+             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8, $9)",
+            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind, &reply],
         )
         .await?;
     drop(client);
@@ -1098,10 +1213,10 @@ async fn queue_row(engine: &Engine, org_id: i64, peer: &str, body: &str, by: &st
 #[logged]
 pub async fn rig_outgoing(engine: &Engine, org_id: i64, kind: &str) -> Result<Value> {
     anyhow::ensure!(crate::rig::active(), "rig mode required");
-    let (uid, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", kind, &[]).await?;
+    let (uid, _) = queue_row(engine, org_id, "peer.rig", "payload proof", "agent", kind, &[], None).await?;
     let client = engine.db.get().await?;
     let row = client.query_one(
-        "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind FROM ot.org_inbox WHERE uid=$1", &[&uid],
+        "SELECT id,org_id,peer,body,at,attachments,net_id,last_err,kind,reply_to FROM ot.org_inbox WHERE uid=$1", &[&uid],
     ).await?;
     Ok(outgoing_payload(&row, &row.get::<_, String>(6), "sender.rig", vec![]))
 }
@@ -1133,7 +1248,7 @@ async fn knows_peer(engine: &Engine, org_id: i64, peer: &str) -> bool {
         let Ok(v) = r.json::<Value>().await else { continue };
         let roster = v["roster"].as_array().cloned().unwrap_or_default();
         let found = roster.iter().any(|x| x["slug"].as_str() == Some(peer));
-        set_roster(engine, addr, v["name"].as_str(), roster);
+        set_roster(engine, addr, v["name"].as_str(), v["version"].as_str(), roster);
         if found {
             return true;
         }
@@ -1141,20 +1256,33 @@ async fn knows_peer(engine: &Engine, org_id: i64, peer: &str) -> bool {
     false
 }
 
-/// Every remote org the rosters know (for `orgtree_list_orgs`).
+/// Every remote org the rosters know (for `orgtree_list_orgs`), with the
+/// hubs it is reached through: each hub's address, name and version
+/// ("unknown" for a hub that reports none).
 #[logged]
 pub fn remote_peers(engine: &Engine) -> Vec<Value> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for (_, roster) in engine.net.rosters.pin().iter() {
+    let names = engine.net.names.pin();
+    let versions = engine.net.versions.pin();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut out: Vec<Value> = Vec::new();
+    for (addr, roster) in engine.net.rosters.pin().iter() {
+        let hub = json!({ "address": addr, "name": names.get(addr), "version": versions.get(addr).map_or("unknown", String::as_str) });
         for r in roster.iter() {
             let Some(s) = r["slug"].as_str() else { continue };
-            if s.is_empty() || !seen.insert(s.to_string()) {
+            if s.is_empty() {
                 continue;
             }
+            if let Some(&i) = seen.get(s) {
+                if let Some(hubs) = out[i]["hubs"].as_array_mut() {
+                    hubs.push(hub.clone());
+                }
+                continue;
+            }
+            seen.insert(s.to_string(), out.len());
             out.push(json!({ "slug": format!("@net:{s}"), "address": format!("@net:{s}"), "name": r["org_name"].as_str().filter(|n| !n.is_empty()).unwrap_or(s),
                              "online": r["online"].as_bool().unwrap_or(false), "last_seen": r["last_seen"],
-                             "kind": r["kind"].as_str().unwrap_or("org"), "blurb": r["blurb"].as_str().unwrap_or("") }));
+                             "kind": r["kind"].as_str().unwrap_or("org"), "blurb": r["blurb"].as_str().unwrap_or(""),
+                             "hubs": [hub.clone()] }));
         }
     }
     out
@@ -1222,6 +1350,7 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
     let status = engine.net.status.pin();
     let rosters = engine.net.rosters.pin();
     let names = engine.net.names.pin();
+    let versions = engine.net.versions.pin();
     let first_enabled = hubs.iter().position(|h| h["enabled"].as_bool().unwrap_or(true));
     let out: Vec<Value> = hubs
         .iter()
@@ -1239,6 +1368,8 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
             let mut v = json!({
                 "id": id, "address": h["address"], "enabled": h["enabled"].as_bool().unwrap_or(true),
                 "name": h["name"].as_str().map(str::to_string).or_else(|| names.get(&addr).cloned()),
+                // the version the hub reports; none from a v1 hub
+                "version": versions.get(&addr).cloned(),
                 "connected": st.connected,
                 // the implicit local hub stays out of sight until it has answered once
                 "hidden": id == LOCAL_HUB_ID && !(st.connected || registered),
@@ -1270,7 +1401,7 @@ pub async fn reveal(engine: &Engine, org_id: i64, org_slug: &str) -> Result<Valu
 pub async fn probe(address: &str) -> Value {
     let addr = if address.trim().is_empty() { DEFAULT_HUB_ADDRESS.to_string() } else { normalize_address(address) };
     match crate::mailhub::healthz(&addr, Duration::from_secs(2)).await {
-        Some(h) => json!({ "ok": true, "name": h["name"] }),
+        Some(h) => json!({ "ok": true, "name": h["name"], "version": h["version"] }),
         None => json!({ "ok": false }),
     }
 }

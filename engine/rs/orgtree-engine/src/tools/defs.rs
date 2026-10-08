@@ -133,6 +133,7 @@ fn all() -> Vec<Value> {
                                  "description": "files to send, relative to your working folder or absolute" },
                 "urgent": { "type": "boolean", "description": "RARELY; mail to the user only: their inbox pulses until read. Requires urgent_reason." },
                 "urgent_reason": { "type": "string", "description": "one line for the user: why this interrupts them now" },
+                "reply_to": { "type": "string", "description": "optional: the id of the message you are answering (the id that ends its FROM line; orgtree_inbox lists them). The recipient sees it quoted; over the mail hub (@net:) the reply also carries a link to it" },
             }),
             &["to", "body"],
         ),

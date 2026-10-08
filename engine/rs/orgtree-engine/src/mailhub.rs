@@ -483,7 +483,7 @@ pub async fn hosting(engine: &Arc<Engine>) -> Value {
         "status": {
             "running": st.running, "healthy": health.is_some(), "address": address,
             "exposed": cfg["bind"] == json!("0.0.0.0"),
-            "hub_name": h["name"], "orgs": h["orgs"], "queued": h["queued"],
+            "hub_name": h["name"], "hub_version": h["version"], "orgs": h["orgs"], "queued": h["queued"],
         },
     });
     if let Some(e) = &st.error {

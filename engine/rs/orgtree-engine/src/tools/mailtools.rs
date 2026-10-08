@@ -67,9 +67,17 @@ pub async fn message(engine: &Arc<Engine>, caller: &Caller, args: &Value, force_
             out.attachments.push(crate::domain::docs::snapshot(&presenter, path, limit.as_ref())?);
         }
     }
+    if let Some(r) = arg_str(args, "reply_to") {
+        out.reply_to = Some(mail::agent_reply_quote(engine, me.org_id, me.id, &me.name, r).await?);
+    }
+    // a reply over the hub links to what it answers only when that came over a hub
+    let local_reply = out.reply_to.as_ref().is_some_and(|q| q.get("net_id").is_none());
     let sent = mail::send(engine, me.org_id, out).await?;
     let box_name = if to_user { "user_inbox".to_string() } else { sent.to.clone() };
-    let text = format!("Sent to {} (id {}). {}", sent.to, sent.uid, sent.delivery);
+    let mut text = format!("Sent to {} (id {}). {}", sent.to, sent.uid, sent.delivery);
+    if local_reply && sent.to.starts_with("@net:") {
+        text.push_str(" The message it answers did not come over the mail hub, so the recipient gets the reply without a link to it.");
+    }
     Ok(Done { text, card: Some(json!({ "mail": { "id": sent.uid, "to": box_name } })) })
 }
 

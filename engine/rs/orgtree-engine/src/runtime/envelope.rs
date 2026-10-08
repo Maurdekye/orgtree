@@ -647,10 +647,12 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         let tag = if m.sender == "@user" { " ⚠ THE USER — user instructions outrank your chain" } else { "" };
         let rel = relationship(m, rels);
         let at = iso(m.at);
+        // the id an answer names (orgtree_message `reply_to`)
+        let id = if m.uid.is_empty() { String::new() } else { format!(" · id {}", m.uid) };
         let mut b = if m.notice {
-            format!("NOTICE FROM {from} ({rel}{tag}) · {at} — informational, delivered passively; no reply is expected")
+            format!("NOTICE FROM {from} ({rel}{tag}) · {at}{id} — informational, delivered passively; no reply is expected")
         } else {
-            format!("FROM {from} ({rel}{tag}) · {} · {at}", m.kind)
+            format!("FROM {from} ({rel}{tag}) · {} · {at}{id}", m.kind)
         };
         if m.urgent {
             b.push_str(" · URGENT");
