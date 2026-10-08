@@ -928,14 +928,17 @@ fn owned(name: &str) -> bool {
             13 | 16 => *c == b'-',
             _ => c.is_ascii_digit(),
         })
-        && &name[19..23] == ".log";
+        && &b[19..23] == b".log";
     if !stamp {
         return false;
     }
-    let rest = &name[23..];
+    // bytes, not str slices: a foreign file name in this folder may put a
+    // multi-byte character across these offsets (slicing a str there panics,
+    // and this runs at every start)
+    let rest = &b[23..];
     rest.is_empty()
-        || (rest.starts_with('.') && rest[1..].chars().all(|c| c.is_ascii_digit()) && rest.len() > 1)
-        || (rest.len() == 1 + 32 + 3 && rest.starts_with('.') && rest.ends_with(".gz") && rest[1..33].chars().all(|c| c.is_ascii_hexdigit()))
+        || (rest.len() > 1 && rest[0] == b'.' && rest[1..].iter().all(u8::is_ascii_digit))
+        || (rest.len() == 1 + 32 + 3 && rest[0] == b'.' && rest.ends_with(b".gz") && rest[1..33].iter().all(u8::is_ascii_hexdigit))
 }
 
 /// Remove owned logs last written before the retention window.
