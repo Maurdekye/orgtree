@@ -66,6 +66,7 @@ pub fn switches(engine: &Engine) -> Switches {
 #[logged]
 pub fn start(engine: &Arc<Engine>) {
     start_recovery(engine);
+    crate::runtime::keepalive::start(engine);
     let engine = engine.clone();
     tokio::spawn(async move {
         let every = crate::rig::reminder_sweep_s().unwrap_or(SWEEP_S);

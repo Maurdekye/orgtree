@@ -38,6 +38,10 @@ pub struct SpawnSpec {
     pub new_session: String,
     pub env: Vec<(String, String)>,
     pub env_remove: Vec<String>,
+    /// a disposable prompt-cache read (3.x working cache keeper): the resumed
+    /// session is forked (`--fork-session --max-turns 1`), a PreToolUse hook
+    /// denies every tool in place of the mail hook, and no orgtree tool runs
+    pub keepalive: bool,
 }
 
 impl std::fmt::Debug for SpawnSpec {
@@ -63,6 +67,7 @@ impl std::fmt::Debug for SpawnSpec {
             .field("new_session", &self.new_session)
             .field("env", &env)
             .field("env_remove", &self.env_remove)
+            .field("keepalive", &self.keepalive)
             .finish()
     }
 }
@@ -123,6 +128,9 @@ impl ClaudeProc {
         let session_id = match &spec.resume {
             Some(sid) => {
                 cmd.args(["--resume", sid]);
+                if spec.keepalive {
+                    cmd.args(["--fork-session", "--max-turns", "1"]);
+                }
                 sid.clone()
             }
             None => {
@@ -188,18 +196,19 @@ impl ClaudeProc {
         ));
         let (wtx, wrx) = mpsc::unbounded_channel();
         let writer = tx.clone();
-        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, writer, wrx), proc_span));
+        let keepalive = spec.keepalive;
+        tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, writer, wrx, keepalive), proc_span));
         let proc = ClaudeProc { pid, process, stdin: tx, waiters: wtx, child: Some(child), job, session_id };
-        // Register the in-process MCP server and the mail hook before any turn.
+        // Register the in-process MCP server and the mail hook before any turn
+        // (a keepalive: the same server, so the request lists the same tools,
+        // and a hook that denies every tool instead of the mail hook).
+        let hooks = if keepalive {
+            json!({ "PreToolUse": [{ "matcher": null, "hookCallbackIds": [KEEPALIVE_DENY] }] })
+        } else {
+            json!({ "PostToolUse": [{ "matcher": null, "hookCallbackIds": ["orgtree_mail"] }] })
+        };
         let init = proc
-            .request(
-                json!({
-                    "subtype": "initialize",
-                    "hooks": { "PostToolUse": [{ "matcher": null, "hookCallbackIds": ["orgtree_mail"] }] },
-                    "sdkMcpServers": ["orgtree"],
-                }),
-                Duration::from_secs(60),
-            )
+            .request(json!({ "subtype": "initialize", "hooks": hooks, "sdkMcpServers": ["orgtree"] }), Duration::from_secs(60))
             .await;
         if let Err(e) = init {
             tracing::warn!(error = %e, "claude initialize did not answer");
@@ -227,6 +236,12 @@ impl ClaudeProc {
             Ok(Err(_)) => Err(anyhow!("the Claude process closed")),
             Err(_) => Err(anyhow!("no answer within {timeout:?}")),
         }
+    }
+
+    /// A user message with no session id (the keepalive's one prompt, as 3.x
+    /// `_user_event` wrote it: a forked process names its own session).
+    pub fn send_plain(&self, text: &str) -> bool {
+        self.write(&json!({ "type": "user", "message": { "role": "user", "content": [{ "type": "text", "text": text }] } }))
     }
 
     /// Start a turn (or queue a follow-up, if one is running) with this text
@@ -304,6 +319,7 @@ async fn read_stdout(
     process: uuid::Uuid,
     writer: mpsc::UnboundedSender<String>,
     mut waiters_rx: mpsc::UnboundedReceiver<(String, oneshot::Sender<Value>)>,
+    keepalive: bool,
 ) {
     let mut lines = BufReader::with_capacity(1 << 16, stdout).lines();
     // owned only by this task: request id -> its waiter
@@ -350,7 +366,7 @@ async fn read_stdout(
                 // every control request (tool call, hook) is its own request
                 let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
                 tokio::spawn(tracing::Instrument::instrument(async move {
-                    let response = answer_control(&engine, &caller, &actor, &req).await;
+                    let response = if keepalive { Ok(answer_keepalive(&req)) } else { answer_control(&engine, &caller, &actor, &req).await };
                     let line = match response {
                         Ok(r) => json!({ "type": "control_response",
                                          "response": { "subtype": "success", "request_id": id, "response": r } }),
@@ -395,6 +411,33 @@ async fn answer_control(
         }
         Some("can_use_tool") => Ok(json!({ "behavior": "allow", "updatedInput": req["input"] })),
         other => Err(anyhow!("unsupported control request {other:?}")),
+    }
+}
+
+/// The keepalive's PreToolUse hook callback id.
+const KEEPALIVE_DENY: &str = "orgtree_keepalive_deny";
+const KEEPALIVE_DENIED: &str = "Automated prompt-cache keepalive: tool execution is disabled.";
+
+/// A keepalive's control requests (3.x `cachedeny.py`, fail closed): the MCP
+/// handshake and tool list are answered as for a real turn, so the request
+/// keeps the real turn's prefix; a tool call, a hook or a permission prompt
+/// is refused, so nothing runs on this machine.
+#[logged]
+fn answer_keepalive(req: &Value) -> Value {
+    match req["subtype"].as_str() {
+        Some("mcp_message") => {
+            let msg = &req["message"];
+            let resp = match msg["method"].as_str() {
+                Some("tools/call") => json!({ "jsonrpc": "2.0", "id": msg["id"],
+                    "result": { "content": [{ "type": "text", "text": KEEPALIVE_DENIED }], "isError": true } }),
+                _ => crate::tools::mcp_handshake(msg),
+            };
+            json!({ "mcp_response": resp })
+        }
+        Some("hook_callback") => json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse",
+            "permissionDecision": "deny", "permissionDecisionReason": KEEPALIVE_DENIED } }),
+        Some("can_use_tool") => json!({ "behavior": "deny", "message": KEEPALIVE_DENIED }),
+        _ => json!({}),
     }
 }
 

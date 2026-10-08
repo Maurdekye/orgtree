@@ -14,6 +14,7 @@ pub mod event_text;
 pub mod freeze;
 pub mod history;
 pub mod identity;
+pub mod keepalive;
 pub mod prompt;
 pub mod recovery;
 pub mod reminders;
@@ -46,6 +47,9 @@ pub enum AgentMsg {
     /// an automatic wake (checkup, docket reminder): start a turn only if the
     /// agent is idle; replies whether it asked for one
     WakeIdle(oneshot::Sender<bool>),
+    /// the working cache keeper: keep this reported-working Claude agent's
+    /// prompt cache warm with a disposable read, if it is due
+    CacheKeepalive,
     /// the scheduler granted this agent a turn slot
     Slot(sched::Slot),
     Interrupt(oneshot::Sender<Value>),

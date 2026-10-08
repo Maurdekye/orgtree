@@ -22,6 +22,19 @@ use crate::runtime::{AgentMsg, Caller};
 /// One JSON-RPC message from the CLI → the response it gets.
 #[logged]
 pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> Value {
+    if msg["method"].as_str() == Some("tools/call") {
+        if let Some(id) = msg.get("id").cloned().filter(|i| !i.is_null()) {
+            return json!({ "jsonrpc": "2.0", "id": id, "result": call(engine, caller, &msg["params"]).await });
+        }
+    }
+    mcp_handshake(msg)
+}
+
+/// The in-process server's answers that run nothing (every method but
+/// `tools/call`): the handshake and the tool list. A prompt-cache keepalive
+/// answers with these, so its request lists exactly the real turn's tools.
+#[logged]
+pub fn mcp_handshake(msg: &Value) -> Value {
     let id = msg.get("id").cloned();
     let method = msg["method"].as_str().unwrap_or("");
     let Some(id) = id.filter(|i| !i.is_null()) else {
@@ -36,7 +49,6 @@ pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> V
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": defs::list() })),
-        "tools/call" => Ok(call(engine, caller, &msg["params"]).await),
         "resources/list" => Ok(json!({ "resources": [] })),
         "prompts/list" => Ok(json!({ "prompts": [] })),
         other => Err(json!({ "code": -32601, "message": format!("method not found: {other}") })),

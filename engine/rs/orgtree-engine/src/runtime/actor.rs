@@ -25,7 +25,7 @@ use crate::runtime::agy::{self as agyrt, AgyProc, AgySpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
-use crate::runtime::{freeze, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
+use crate::runtime::{freeze, keepalive, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
 use crate::util::{gist, iso, now_iso};
 
 /// What `/chat` needs from a running actor.
@@ -186,6 +186,34 @@ struct Plan {
     add_dirs: Vec<String>,
     external: Vec<String>,
     print: Fingerprint,
+}
+
+/// A running prompt-cache keepalive (`keepalive.rs`): a forked CLI making one
+/// disposable read of the agent's session prefix.
+struct Keepalive {
+    proc: ClaudeProc,
+    process: uuid::Uuid,
+    /// the session it forked
+    session: String,
+    /// the fork the CLI made, once it says (its transcript is removed after)
+    fork: Option<String>,
+    started: Instant,
+    /// the CLI's folder of session transcripts for this agent
+    sessions_dir: PathBuf,
+    account: Option<String>,
+    apikey: bool,
+    print: Fingerprint,
+    result: Option<Value>,
+    _slot: tokio::sync::OwnedSemaphorePermit,
+}
+
+/// How a keepalive ended.
+enum KeepaliveEnd {
+    /// its CLI answered (well or not)
+    Done,
+    /// real work needed the agent (not a failure: no backoff)
+    Cancelled,
+    Failed(&'static str),
 }
 
 struct Turn {
@@ -468,6 +496,8 @@ struct Actor {
     steer_since: Option<Instant>,
     /// mail whose sender was already told it waits unread (this turn)
     late_told: std::collections::HashSet<i64>,
+    /// the running prompt-cache keepalive, if any
+    keepalive: Option<Keepalive>,
 }
 
 // Opaque to the logging macro: connection internals are never log arguments.
@@ -533,6 +563,7 @@ impl Actor {
             tasks: Default::default(),
             steer_since: None,
             late_told: Default::default(),
+            keepalive: None,
         })
     }
 
@@ -545,6 +576,12 @@ impl Actor {
                 msg = rx.recv() => {
                     let Some(env) = msg else { break };
                     let res = match env.msg {
+                        // a keepalive's CLI is not the agent's: its lines end the keepalive
+                        AgentMsg::Claude(process, v) if self.keepalive.as_ref().map(|k| k.process) == Some(process) => {
+                            let span = self.span.clone();
+                            tracing::Instrument::instrument(self.on_keepalive_event(v), span).await;
+                            Ok(())
+                        }
                         // the CLI's stream runs under its turn's request
                         AgentMsg::Claude(process, v) => {
                             if !self.owns_process(process) { continue; }
@@ -599,7 +636,7 @@ impl Actor {
 
     #[nolog]
     fn dormant(&self) -> bool {
-        self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none()
+        self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none() && self.keepalive.is_none()
     }
 
     /// One acknowledgement at the first positive activity boundary, not at
@@ -635,6 +672,9 @@ impl Actor {
         if let (Some(_), Some(s)) = (&self.turn, self.steer_since) {
             d = d.min(s + Duration::from_secs(recovery::STEER_LATE_AFTER_S as u64));
         }
+        if let Some(k) = &self.keepalive {
+            d = d.min(k.started + Duration::from_secs(keepalive::TIMEOUT_S));
+        }
         if self.dormant() {
             d = d.min(self.idle_since + ACTOR_IDLE_EXIT + Duration::from_millis(50));
         }
@@ -643,6 +683,9 @@ impl Actor {
 
     #[nolog]
     async fn on_timer(&mut self) -> Result<()> {
+        if self.keepalive.as_ref().is_some_and(|k| k.started.elapsed() >= Duration::from_secs(keepalive::TIMEOUT_S)) {
+            self.end_keepalive(KeepaliveEnd::Failed("the keepalive timed out (its CLI was killed)")).await;
+        }
         if let Some(k) = self.keep_until {
             if Instant::now() >= k && self.turn.is_none() {
                 self.keep_until = None;
@@ -686,12 +729,14 @@ impl Actor {
                 self.on_wake().await?
             }
             AgentMsg::WakeIdle(reply) => {
-                let idle = !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none();
+                let idle = !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none()
+                    && self.keepalive.is_none();
                 if idle {
                     self.on_wake().await?;
                 }
                 let _ = reply.send(idle && self.waiting_since.is_some());
             }
+            AgentMsg::CacheKeepalive => self.start_keepalive().await?,
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
             AgentMsg::Claude(process, v) => {
                 if self.owns_process(process) { self.on_claude(v).await?; }
@@ -731,6 +776,7 @@ impl Actor {
                 let _ = reply.send(r);
             }
             AgentMsg::Halt(reply) => {
+                self.cancel_keepalive().await;
                 let r = self.halt().await?;
                 let _ = reply.send(r);
             }
@@ -746,6 +792,7 @@ impl Actor {
                 self.on_wake().await?;
             }
             AgentMsg::Command(text, reply) => {
+                self.cancel_keepalive().await;
                 let r = match self.command(&text).await {
                     Ok(v) => v,
                     Err(e) => json!({ "started": false, "reason": format!("{e:#}") }),
@@ -778,6 +825,7 @@ impl Actor {
                 self.publish();
             }
             AgentMsg::Process { action, reply } => {
+                self.cancel_keepalive().await;
                 let r = self.process_control(&action).await;
                 self.publish();
                 let _ = reply.send(r);
@@ -798,6 +846,7 @@ impl Actor {
                 if self.waiting_since.take().is_some() {
                     self.engine.sched.cancel(self.id);
                 }
+                self.cancel_keepalive().await;
                 self.kill_proc().await;
                 let _ = self.take_turn();
                 self.slot = None;
@@ -1423,35 +1472,11 @@ impl Actor {
         Ok(Some(note))
     }
 
-    async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
-        // The S4U boot warning comes from the cached credential context
-        // (probed at start and on session change), never a probe per spawn.
-        let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
-        self.account_gate(ctx, route.as_ref())?;
-        if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
-            return self.ensure_codex(ctx, route.as_ref()).await;
-        }
-        if ctx.provider == catalog::GOOGLE {
-            return self.ensure_agy(ctx).await;
-        }
-        if ctx.provider != catalog::CLAUDE && route.is_none() {
-            return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
-        }
-        if route.is_none() && !self.engine.settings.provider_enabled(catalog::CLAUDE) {
-            return Err(anyhow!("Claude is turned off in App settings"));
-        }
-        let plan = self.plan(ctx);
-        let reuse = match self.proc.as_mut() {
-            Some(p) => {
-                !p.is_codex() && !p.is_agy() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
-            }
-            None => false,
-        };
-        if reuse {
-            return Ok(());
-        }
-        self.close_proc().await;
-        self.reconfigured = false;
+    /// The Claude CLI launch for this agent's next turn: binary, launch
+    /// files, environment and session. `keepalive`: the same launch as a
+    /// disposable prompt-cache read (`SpawnSpec::keepalive`). Also returns the
+    /// config folder the CLI keeps its sessions under (None: the default).
+    async fn claude_spec(&self, ctx: &Ctx, route: Option<&OrRoute>, plan: &Plan, keepalive: bool) -> Result<(SpawnSpec, Option<String>)> {
         let view = self.engine.accounts.view();
         // an OpenRouter seat bills the stored key: no account, no subscription
         let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
@@ -1476,7 +1501,10 @@ impl Actor {
             // the org's compaction threshold (Org settings › Basic)
             ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
         ];
-        env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
+        // a keepalive runs no tool, so it needs no git/GitHub credentials
+        if !keepalive {
+            env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
+        }
         let mut env_remove: Vec<String> = vec![
             "ORGTREE_V2_TOKEN".into(),
             "ORGTREE_DATA".into(),
@@ -1550,7 +1578,43 @@ impl Actor {
             new_session: uuid::Uuid::new_v4().to_string(),
             env,
             env_remove,
+            keepalive,
         };
+        Ok((spec, config_dir))
+    }
+
+    async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
+        // The S4U boot warning comes from the cached credential context
+        // (probed at start and on session change), never a probe per spawn.
+        let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
+        self.account_gate(ctx, route.as_ref())?;
+        if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
+            return self.ensure_codex(ctx, route.as_ref()).await;
+        }
+        if ctx.provider == catalog::GOOGLE {
+            return self.ensure_agy(ctx).await;
+        }
+        if ctx.provider != catalog::CLAUDE && route.is_none() {
+            return Err(anyhow!("{} agents cannot run on this engine build yet", catalog::provider_label(&ctx.provider)));
+        }
+        if route.is_none() && !self.engine.settings.provider_enabled(catalog::CLAUDE) {
+            return Err(anyhow!("Claude is turned off in App settings"));
+        }
+        let plan = self.plan(ctx);
+        let reuse = match self.proc.as_mut() {
+            Some(p) => {
+                !p.is_codex() && !p.is_agy() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive()
+            }
+            None => false,
+        };
+        if reuse {
+            return Ok(());
+        }
+        self.close_proc().await;
+        self.reconfigured = false;
+        let (spec, _) = self.claude_spec(ctx, route.as_ref(), &plan, false).await?;
+        let resume = spec.resume.clone();
+        let effort = spec.effort.clone();
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
         let session_id = proc.session_id.clone();
@@ -2130,6 +2194,8 @@ impl Actor {
 
     /// Claim waiting mail, make sure the CLI runs, send the opening message.
     async fn start_turn(&mut self) -> Result<bool> {
+        // real work comes first (3.x `_cancel_working_cache`)
+        self.cancel_keepalive().await;
         let admitted_at = Utc::now();
         let mut ctx = self.load_ctx().await?;
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
@@ -3305,11 +3371,206 @@ impl Actor {
     }
 
     #[nolog]
+    /// 3.x `_launch_working_cache_read` + `_working_cache_read`: one
+    /// disposable read of a reported-working Claude agent's prompt prefix,
+    /// when nothing else owns the agent, working checkups are off, and its
+    /// lane's interval has passed since its last real request.
+    async fn start_keepalive(&mut self) -> Result<()> {
+        if self.stopping || self.turn.is_some() || self.waiting_since.is_some() || self.slot.is_some() || self.keepalive.is_some() {
+            return Ok(());
+        }
+        if !keepalive::retry_due(self.id) {
+            return Ok(());
+        }
+        if crate::runtime::reminders::switches(&self.engine).checkups || !self.engine.settings.provider_enabled(catalog::CLAUDE) {
+            return Ok(());
+        }
+        let ctx = self.load_ctx().await?;
+        if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch || ctx.limit_locked || ctx.provider != catalog::CLAUDE {
+            return Ok(());
+        }
+        let Some(session) = ctx.session_id.clone() else { return Ok(()) };
+        let client = self.engine.db.get().await?;
+        let row = client
+            .query_one(
+                "SELECT a.last_status->>'status' = 'working', a.extra->>'cache_keepalive_at',
+                        (SELECT greatest(t.started_at, t.ended_at) FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1),
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending'
+                                   AND m.ev->>'variant' LIKE 'reminder.%')
+                   FROM ot.agents a WHERE a.id = $1",
+                &[&self.id],
+            )
+            .await?;
+        drop(client);
+        // 3.x `_working_cache_due`: still working, and no automatic wake waits beside it
+        if row.get::<_, Option<bool>>(0) != Some(true) || row.get::<_, bool>(3) {
+            return Ok(());
+        }
+        let account = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).cloned());
+        let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
+        let interval = keepalive::interval(apikey);
+        let Some(last) = keepalive::last_request(row.get::<_, Option<String>>(1).as_deref(), row.get(2)) else { return Ok(()) };
+        if (Utc::now() - last).num_seconds() < interval {
+            return Ok(());
+        }
+        let Ok(slot) = keepalive::slots().try_acquire_owned() else { return Ok(()) };
+        let plan = self.plan(&ctx);
+        let (spec, config_dir) = self.claude_spec(&ctx, None, &plan, true).await?;
+        // a session with no transcript has no prefix to read
+        if spec.resume.as_deref() != Some(session.as_str()) {
+            return Ok(());
+        }
+        let sessions_dir = config_dir
+            .map(PathBuf::from)
+            .unwrap_or_else(claude::default_config_dir)
+            .join("projects")
+            .join(claude::project_dir(&ctx.scratch));
+        let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        let proc = ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone()).await?;
+        let process = proc.process;
+        let sent = proc.send_plain(keepalive::PROMPT);
+        tracing::info!(agent = %self.name, %process, session = %session, apikey, "prompt-cache keepalive started");
+        self.keepalive = Some(Keepalive {
+            proc,
+            process,
+            session,
+            fork: None,
+            started: Instant::now(),
+            sessions_dir,
+            account: ctx.account.clone(),
+            apikey,
+            print: plan.print,
+            result: None,
+            _slot: slot,
+        });
+        if !sent {
+            self.end_keepalive(KeepaliveEnd::Failed("the keepalive CLI took no prompt")).await;
+        }
+        self.publish();
+        Ok(())
+    }
+
+    /// A line from the keepalive's CLI: the fork's session id, then its result.
+    async fn on_keepalive_event(&mut self, v: Value) {
+        let Some(k) = self.keepalive.as_mut() else { return };
+        if let Some(sid) = v["session_id"].as_str().filter(|s| !s.is_empty() && *s != k.session) {
+            k.fork = Some(sid.to_string());
+        }
+        if v["type"].as_str() == Some("result") {
+            k.result = Some(v);
+            self.end_keepalive(KeepaliveEnd::Done).await;
+        }
+    }
+
+    /// Real work comes first: a running keepalive is killed (3.x
+    /// `_cancel_working_cache`), with no backoff.
+    async fn cancel_keepalive(&mut self) {
+        if self.keepalive.is_some() {
+            tracing::info!(agent = %self.name, "prompt-cache keepalive cancelled: the agent has real work");
+            self.end_keepalive(KeepaliveEnd::Cancelled).await;
+        }
+    }
+
+    /// The keepalive is over (3.x `_working_cache_read`'s finally): its CLI is
+    /// closed and its fork's transcript removed, so nothing of it stays in the
+    /// agent's sessions; its cost is banked; a good read refreshes the cache
+    /// receipt (the prefix is warm again); a failed one backs the next off.
+    async fn end_keepalive(&mut self, end: KeepaliveEnd) {
+        let Some(mut k) = self.keepalive.take() else { return };
+        match end {
+            KeepaliveEnd::Done => k.proc.close().await,
+            _ => k.proc.kill().await,
+        }
+        if let Some(fork) = k.fork.as_deref() {
+            let file = k.sessions_dir.join(format!("{fork}.jsonl"));
+            if let Err(e) = std::fs::remove_file(&file) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(agent = %self.name, file = %file.display(), error = %e, "the keepalive's fork transcript could not be removed");
+                }
+            }
+        }
+        let res = k.result.take().unwrap_or(Value::Null);
+        let cost = res["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0).unwrap_or(0.0);
+        let ok = matches!(end, KeepaliveEnd::Done) && !res["is_error"].as_bool().unwrap_or(false) && k.fork.is_some();
+        if let Err(e) = self.bank_keepalive(&k, &res, cost, ok).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the keepalive's cost or receipt was not recorded");
+        }
+        match (&end, ok) {
+            (_, true) => {
+                keepalive::clear_failure(self.id);
+                tracing::info!(agent = %self.name, cost, "prompt-cache keepalive done");
+            }
+            (KeepaliveEnd::Cancelled, _) => {}
+            (KeepaliveEnd::Failed(why), _) => self.keepalive_failed(why),
+            (KeepaliveEnd::Done, _) => self.keepalive_failed("the read did not succeed"),
+        }
+        self.publish();
+    }
+
+    #[nolog]
+    fn keepalive_failed(&self, why: &str) {
+        let (failures, wait) = keepalive::note_failure(self.id);
+        // advisory, deliberately not last_error: the agent itself is not broken
+        tracing::warn!(agent = %self.name, why, failures, retry_in_s = wait.as_secs(), "prompt-cache keepalive skipped");
+    }
+
+    /// The keepalive's spend on the agent and its account; after a good read
+    /// on the session it forked, the stamp the keeper counts from and the
+    /// cache receipt the next turn's forecast reads.
+    async fn bank_keepalive(&mut self, k: &Keepalive, res: &Value, cost: f64, ok: bool) -> Result<()> {
+        let client = self.engine.db.get().await?;
+        if cost > 0.0 {
+            client.execute("UPDATE ot.agents SET cost_usd = cost_usd + $2::float8::numeric WHERE id = $1", &[&self.id, &cost]).await?;
+            if let Some(acc) = &k.account {
+                client
+                    .execute(
+                        "INSERT INTO ot.account_spend (account, usd_total, turns) VALUES ($1, $2::float8::numeric, 0)
+                         ON CONFLICT (account) DO UPDATE SET usd_total = ot.account_spend.usd_total + EXCLUDED.usd_total, updated_at = now()",
+                        &[acc, &cost],
+                    )
+                    .await?;
+            }
+        }
+        if !ok {
+            return Ok(());
+        }
+        let stamped = client
+            .execute(
+                "UPDATE ot.agents SET extra = jsonb_set(extra, '{cache_keepalive_at}', to_jsonb($3::text)) WHERE id = $1 AND session_id = $2",
+                &[&self.id, &k.session, &iso(Utc::now())],
+            )
+            .await?;
+        drop(client);
+        let usage = &res["usage"];
+        let n = |p: &str| usage.pointer(p).and_then(Value::as_i64).unwrap_or(0);
+        if stamped == 1 && n("/cache_read_input_tokens") + n("/cache_creation_input_tokens") > 0 {
+            // a read refreshes the entry it hit, at the tier it was written with
+            let ttl = if n("/cache_creation/ephemeral_1h_input_tokens") > 0 {
+                3600
+            } else if n("/cache_creation/ephemeral_5m_input_tokens") > 0 {
+                300
+            } else {
+                self.receipt.map(|r| r.1).unwrap_or(if k.apikey { 300 } else { 3600 })
+            };
+            self.receipt = Some((Utc::now(), ttl));
+            self.sent_print = Some(k.print.clone());
+            self.save_receipt().await;
+            self.update_forecast().await;
+        }
+        self.changed(vec![Change::Agent(self.id)]);
+        Ok(())
+    }
+
     fn owns_process(&self, process: uuid::Uuid) -> bool {
         self.proc.as_ref().map(Proc::process) == Some(process)
     }
 
     async fn on_exit(&mut self, process: uuid::Uuid, reason: &str) -> Result<()> {
+        if self.keepalive.as_ref().map(|k| k.process) == Some(process) {
+            tracing::info!(agent = %self.name, %process, reason, "the keepalive CLI exited before its result");
+            self.end_keepalive(KeepaliveEnd::Failed("the keepalive CLI exited before its result")).await;
+            return Ok(());
+        }
         if !self.owns_process(process) {
             tracing::info!(agent = self.id, %process, reason, "ignored exit from replaced CLI");
             return Ok(());
@@ -3943,6 +4204,7 @@ impl Actor {
             "codex_route": Value::Null,
             "queued": 0,
             "proc_warm": live && !busy,
+            "cache_keepalive": self.keepalive.is_some(),
             "proc_live": live,
             "proc_relaunch": self.reconfigured && live,
             "proc_relaunch_reason": if self.reconfigured && live { json!("settings changed; the next turn starts a fresh process") } else { Value::Null },
