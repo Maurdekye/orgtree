@@ -82,7 +82,24 @@ fn efforts(t: &catalog::Tier, state: &crate::providers::State) -> Vec<&'static s
     }
 }
 
-/// Accounts that can run `provider` now: enabled, signed in, not at a limit.
+/// The login a hire that names no account runs on: the org's default
+/// account when it can serve `tier`, else the provider's own sign-in (None).
+#[logged]
+fn default_login(engine: &Engine, org_default: Option<&str>, tier: &str) -> Option<crate::accounts::AccountInfo> {
+    let crate::accounts::Choice::Account(id) = crate::accounts::choice(org_default) else { return None };
+    engine.accounts.view().get(&id).filter(|a| a.provider == catalog::provider_of(tier)).cloned()
+}
+
+/// The org's hire default account (`settings.default_account`), if any.
+#[logged]
+async fn org_default(engine: &Engine, org: &OrgHandle) -> Result<Option<String>> {
+    let client = engine.db.get().await?;
+    let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
+    Ok(settings["default_account"].as_str().map(str::to_string))
+}
+
+/// Accounts that can run `provider` now: enabled, signed in, not at a limit
+/// (no mark, and no window the tier spends at 100% in the latest reading).
 #[logged]
 fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> {
     let provider = catalog::provider_of(tier);
@@ -97,6 +114,7 @@ fn eligible_accounts(engine: &Engine, tier: &str, org_slug: &str) -> Vec<Value> 
                 && crate::accounts::active(engine, provider, Some(a))
                 && a.auth != "signed_out"
                 && a.limited_for(tier, now).is_none()
+                && crate::usage::at_limit(engine, Some(a), tier).is_none()
         })
         .map(|a| json!({ "value": a.id, "id": a.id, "provider": a.provider, "ambient": false, "email": a.email }))
         .collect();
@@ -136,13 +154,17 @@ async fn quick_context(engine: &Engine, org: &OrgHandle, slug: &str) -> Result<(
 pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Result<Value> {
     let (_item, mut ctx) = quick_context(engine, org, slug).await?;
     let request = ctx["mode"] == "request";
+    let org_default = org_default(engine, org).await?;
     let models: Vec<Value> = runnable_tiers(engine)
         .into_iter()
         .filter_map(|t| {
             let mut m = json!({ "tier": t.tier, "seat": t.seat, "efforts": t.efforts });
             if !request {
                 let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, &t.tier, &org.slug) };
-                let host = host_ready(engine, t.provider);
+                // the user's hard rule: never a model on a login whose window it spends is at 100%
+                let host = host_ready(engine, t.provider)
+                    && (t.provider == catalog::OPENROUTER
+                        || crate::usage::at_limit(engine, default_login(engine, org_default.as_deref(), &t.tier).as_ref(), &t.tier).is_none());
                 if accounts.is_empty() && !host {
                     return None;
                 }
@@ -209,6 +231,22 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
         if let Some(e) = effort {
             if !info.efforts.contains(&e) {
                 refuse!(Unprocessable, "That effort is not currently supported by this model. Reopen Staff….");
+            }
+        }
+        // the commit asks the menu's question again (3.x staffcache): never a
+        // model on a login whose window it spends is at 100%
+        if mode != "request" && info.provider != catalog::OPENROUTER {
+            match account {
+                Some(a) if !eligible_accounts(engine, t, &org.slug).iter().any(|x| x["id"].as_str() == Some(a)) => {
+                    refuse!(Conflict, "{a} cannot run {t} right now: it is signed out, off or at its limit. Reopen Staff….");
+                }
+                None => {
+                    let dflt = default_login(engine, org_default(engine, org).await?.as_deref(), t);
+                    if let Some(why) = crate::usage::at_limit(engine, dflt.as_ref(), t) {
+                        refuse!(Conflict, "The default account for {t} is at 100% ({why}). Choose another account or wait for the reset.");
+                    }
+                }
+                _ => {}
             }
         }
     }

@@ -301,13 +301,22 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     };
     let client = engine.db.get().await?;
     let was = client
-        .query_opt("SELECT frozen FROM ot.agents WHERE id = $1 AND state = 'live'", &[&agent_id])
+        .query_opt("SELECT frozen, tier FROM ot.agents WHERE id = $1 AND state = 'live'", &[&agent_id])
         .await?;
     let Some(was) = was else {
         crate::refuse!(NotFound, "that agent is not live");
     };
     let old: Option<Value> = was.get(0);
+    let tier: String = was.get(1);
     let was_frozen = old.is_some();
+    // every door (the user's, the agent tool's, the automatic fallback): never
+    // onto a login this org saw walled, or whose window the tier spends reads 100%
+    if let Some(until) = acc.limited_for(&tier, Utc::now()) {
+        crate::refuse!(Conflict, "{account} is itself limited for {tier} until {}; nothing changed", iso(until));
+    }
+    if let Some(why) = crate::usage::at_limit(engine, Some(&acc), &tier) {
+        crate::refuse!(Conflict, "{account} is at its limit for {tier} right now: {why}; nothing changed");
+    }
     client
         .execute(
             "UPDATE ot.agents SET account = $2, pending_account = NULL, frozen = NULL, limit_locked = false,

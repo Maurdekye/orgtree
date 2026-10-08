@@ -43,6 +43,95 @@ pub fn antigravity_limit(engine: &Engine, tier: &str) -> Option<String> {
         l["group"].as_str().unwrap_or("usage"), l["resets_at"].as_str().unwrap_or("the provider resets it")))
 }
 
+// ------------------------------------------------------------ the 100% rule
+
+/// The cached reading of one login (never a fetch): `None` is the
+/// provider's own sign-in, a row its folder's; an API key has none.
+#[logged]
+fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts::AccountInfo>) -> Option<Value> {
+    use crate::providers::catalog;
+    if account.is_some_and(|a| a.is_apikey()) {
+        return None;
+    }
+    let folder = account.and_then(|a| a.config_dir.as_deref());
+    let key = match provider {
+        catalog::CLAUDE => claude_key(folder),
+        catalog::OPENAI => codex_key(folder),
+        catalog::GOOGLE => "agy".to_string(),
+        _ => return None,
+    };
+    let v = engine.usage.peek(&key, provider);
+    v["available"].as_bool().unwrap_or(false).then_some(v)
+}
+
+/// Whether `tier` spends this reading window (the user's rule, 2026-09-12):
+/// Claude: the session and the standard weekly window for every tier, and a
+/// model-scoped weekly window only for the model it names (so fable needs
+/// both weekly windows and the lower tiers ignore Fable's); Codex: the plan
+/// pool (its unnamed windows, 3.x `codex_route.pool_of_window`); Antigravity:
+/// the tier's model group.
+#[logged]
+fn spends(provider: &str, tier: &str, w: &Value) -> bool {
+    use crate::providers::catalog;
+    match provider {
+        catalog::CLAUDE => match w["kind"].as_str().unwrap_or("") {
+            "session" | "weekly_all" => true,
+            "weekly_scoped" => w["model"].as_str().is_some_and(|m| m.to_lowercase().contains(&tier.to_lowercase())),
+            _ => false,
+        },
+        catalog::OPENAI => w["model"].as_str().map(str::trim).unwrap_or("").is_empty(),
+        catalog::GOOGLE => {
+            let pool = catalog::antigravity_pool(tier);
+            w["group"].as_str().is_some_and(|g| g == format!("{pool}-5h") || g == format!("{pool}-weekly"))
+        }
+        _ => false,
+    }
+}
+
+/// 3.x `account_fallback.exhausted`: positive evidence that this login cannot
+/// run `tier` now, a window the tier spends reading 100% (why, for the
+/// refusal). Silence is never evidence: no reading, a failed one, or a
+/// percent it cannot read. A passed reset does not free a full window
+/// (staleness weakens evidence, never frees).
+#[logged]
+pub fn at_limit(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> Option<String> {
+    let provider = crate::providers::catalog::provider_of(tier);
+    let v = reading_of(engine, provider, account)?;
+    v["limits"].as_array()?.iter().filter(|w| spends(provider, tier, w)).find_map(|w| {
+        let p = w["percent"].as_f64().filter(|p| p.is_finite() && *p >= 100.0)?;
+        let window = w["label"].as_str().or(w["kind"].as_str()).unwrap_or("usage");
+        Some(format!("its latest reading shows the {window} window at {}% (resets {})", p.round() as i64,
+                     w["resets_at"].as_str().unwrap_or("at an unreported time")))
+    })
+}
+
+/// 3.x `account_fallback.available`: positive proof of room, which a move
+/// nobody asked for needs: every window `tier` spends reads under 100%, is
+/// not active and resets ahead, and none is missing (Claude: the session and
+/// the standard weekly, and Fable's own weekly for fable).
+#[logged]
+pub fn has_room(engine: &Engine, account: Option<&crate::accounts::AccountInfo>, tier: &str) -> bool {
+    use crate::providers::catalog;
+    let provider = catalog::provider_of(tier);
+    let Some(v) = reading_of(engine, provider, account) else { return false };
+    let Some(limits) = v["limits"].as_array() else { return false };
+    let spent: Vec<&Value> = limits.iter().filter(|w| spends(provider, tier, w)).collect();
+    let needed: &[&str] = match (provider, tier) {
+        (catalog::CLAUDE, "fable") => &["session", "weekly_all", "weekly_scoped"],
+        (catalog::CLAUDE, _) => &["session", "weekly_all"],
+        _ => &[],
+    };
+    if spent.is_empty() || needed.iter().any(|k| !spent.iter().any(|w| w["kind"].as_str() == Some(*k))) {
+        return false;
+    }
+    let now = Utc::now();
+    spent.iter().all(|w| {
+        w["percent"].as_f64().is_some_and(|p| p.is_finite() && (0.0..100.0).contains(&p))
+            && !w["is_active"].as_bool().unwrap_or(false)
+            && w["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t > now)
+    })
+}
+
 #[derive(Clone)]
 struct Cached {
     at: Instant,
