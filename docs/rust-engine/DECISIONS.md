@@ -272,3 +272,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
     standing listeners are for top-level agents), and PushNotification is not
     denied (coordinator 19:26Z). Details:
     `cli-environment.md`.
+
+54. **The cold-turn reset defaults to 25%** (user 2026-10-08 22:05Z: "reduce the default cold
+    turn compact threshold to 25%"). "Reset a session before a known-cold turn"
+    (`auto_cheap_compact.occ`) resets only above this share of the context window. Its default
+    was 3.x's 50%; it is now 25% wherever neither the agent, the org nor the app defaults name
+    one (`settings::CHEAP_COMPACT_OCC`, and the desktop's fallbacks). A stored occupancy is
+    unchanged. `compact_at` (the CLI's own compaction, 80%) is a different setting and stays.

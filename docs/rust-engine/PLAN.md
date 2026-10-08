@@ -380,7 +380,7 @@ toast saying this engine does not support it.
 | # | Today | After the rewrite |
 |---|---|---|
 | I1 | Org settings: folders, grants, compact threshold, default tools/visibility/account/permission mode/effort, auto-resume | Kept. The compact threshold is handed to the CLI: Claude Code compacts at it (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`) and Codex at that share of its context window (`model_auto_compact_token_limit`); a running CLI keeps the value it started with. Antigravity has no such setting |
-| I2 | Org settings: auto cheap compact (before a known-cold turn) | Kept: before a turn whose prompt cache is known to be cold (expired, or the prompt prefix changed) and whose context is above the setting's occupancy, the agent continues on a fresh session seeded with a summary of the old one. An unknown forecast never resets |
+| I2 | Org settings: auto cheap compact (before a known-cold turn) | Kept: before a turn whose prompt cache is known to be cold (expired, or the prompt prefix changed) and whose context is above the setting's occupancy, the agent continues on a fresh session seeded with a summary of the old one. An unknown forecast never resets. The default occupancy is 25% (user 2026-10-08; 3.x 50%), and an agent's override merges key by key over the org's setting, as in 3.x |
 | I2b | Org settings: account fallback default, org-inbox multi-holder, network hubs and autoconnect | Kept |
 | I2c | Org settings: cheap-compact before auto-resume, headless | Inert |
 | I3 | Runtime: max concurrent turns, turn time limits | Kept |
