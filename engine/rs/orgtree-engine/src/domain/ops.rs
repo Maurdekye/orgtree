@@ -1044,6 +1044,12 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         _ => authorize(tx, actor, &n, "retire").await?,
     }
     // a seat with live reports takes its whole team with it
+    let reports: Vec<String> = tx
+        .query("SELECT name FROM ot.agents WHERE parent_id = $1 AND state = 'live' ORDER BY sibling_order, id", &[&n.id])
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
     let mut ids = team.clone();
     ids.push(n.id);
     let rows = tx
@@ -1081,7 +1087,16 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     fx.stop.push(n.id);
     fx.stop.extend(kids.iter().copied());
     fx.events = true;
-    Ok(json!({ "node": n.name, "freed": n.seat + n.grant }))
+    let mut out = json!({ "node": n.name, "freed": n.seat + n.grant });
+    if !reports.is_empty() {
+        // 3.x said so: the retire was a dissolve of the whole subtree
+        out["warnings"] = json!([format!(
+            "{} had live reports [{}] — retire became dissolve (the whole subtree is archived)",
+            n.name,
+            reports.join(", ")
+        )]);
+    }
+    Ok(out)
 }
 
 #[logged]
