@@ -3867,16 +3867,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               permissions to write to …, but you haven't granted it yet").
               The banner restated that, pinned below even undelivered pending
               mail, so a past event sorted under a future one. */}
-          {/* sticky INSIDE the scroller (not a wrapper): the desk's flex chain
-              is documented as fragile, and sticky needs no new layout box. It
-              is the last child, so it rides the bottom edge of the scrollport
-              while the reader is up in the scrollback. */}
+        </div>
+          {/* Overlay the existing scrollport wrapper, like the pinned user
+              message, so showing this button adds no transcript row or gap. */}
           {showJump && (
             <button className="jumpbottom" onClick={toBottom}
               title="jump to the newest message">
               ↓ jump to bottom
             </button>)}
-        </div></div>
+        </div>
       )}
       {view === 'history' && <HistoryView slug={slug} nid={node.id} refs={deskRefs} />}
       {view === 'files' && <FilesView slug={slug} nid={node.id} />}

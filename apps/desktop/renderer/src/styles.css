@@ -2001,12 +2001,9 @@ button.cc-name:hover {
   color: var(--ink-strong); text-decoration-style: solid; outline: none;
 }
 .loadolder-end { align-self: center; font-size: 10.5px; }
-/* "jump to bottom" — appears only once the reader has left the sticky zone.
-   position:sticky keeps it on the bottom edge of the scrollport without a
-   wrapper element (the desk's flex chain is fragile by documented history);
-   align-self keeps it from stretching to the column's full width. */
+/* Float over the existing transcript wrapper: no row, gap or scroll height. */
 .jumpbottom {
-  position: sticky; bottom: 4px; align-self: center; z-index: 3;
+  position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); z-index: 3;
   font-size: 11px; padding: 3px 10px; border-radius: 999px;
   background: var(--panel); color: var(--ink);
   border: 1px solid var(--line); box-shadow: var(--shadow); cursor: pointer;
