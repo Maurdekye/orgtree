@@ -141,6 +141,12 @@ impl AppSettings {
     }
 }
 
+/// The default context occupancy above which a known-cold turn first resets
+/// the session ("reset a session before a known-cold turn", `auto_cheap_compact.occ`):
+/// 25% (user 2026-10-08 22:05Z; 3.x used 50%). It applies wherever neither
+/// the agent, the org nor the app defaults name an occupancy.
+pub const CHEAP_COMPACT_OCC: f64 = 0.25;
+
 /// 3.x's cheap-compaction setting: only `enabled` (true or false) and `occ`
 /// (a fraction of the context window, kept within 5–95%). An org or app
 /// write fills what a partial write leaves out from `old` (`merge`); an
@@ -169,7 +175,7 @@ pub fn cheap_compact(acc: &Value, old: &Value, merge: bool) -> std::result::Resu
     let mut out = Map::new();
     if merge {
         out.insert("enabled".into(), json!(enabled.or_else(|| old.get("enabled").and_then(Value::as_bool)).unwrap_or(false)));
-        let occ = occ.or_else(|| old.get("occ").and_then(Value::as_f64)).unwrap_or(0.5).clamp(0.05, 0.95);
+        let occ = occ.or_else(|| old.get("occ").and_then(Value::as_f64)).unwrap_or(CHEAP_COMPACT_OCC).clamp(0.05, 0.95);
         out.insert("occ".into(), json!(occ));
     } else {
         if let Some(e) = enabled {

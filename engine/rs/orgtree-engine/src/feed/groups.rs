@@ -39,7 +39,7 @@ pub fn setting_defaults() -> Value {
         "default_effort": "",
         "auto_resume": true,
         "auto_resume_compact": false,
-        "auto_cheap_compact": { "enabled": false, "occ": 0.5 },
+        "auto_cheap_compact": { "enabled": false, "occ": crate::settings::CHEAP_COMPACT_OCC },
         "account_fallback_default": false,
         "cascade_hire": true,
         "cascade_alloc": true,

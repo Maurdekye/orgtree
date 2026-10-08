@@ -132,7 +132,7 @@ pub(crate) fn cheap_compact(scope: &Value, org: &Value) -> (bool, Option<f64>) {
     let node = scope.get("auto_cheap_compact").filter(|v| v.is_object() && !v.as_object().unwrap().is_empty());
     let cfg = node.or_else(|| org.get("auto_cheap_compact")).cloned().unwrap_or(Value::Null);
     let on = cfg.get("enabled").and_then(Value::as_bool).unwrap_or(false);
-    let occ = cfg.get("occ").and_then(Value::as_f64).unwrap_or(0.5);
+    let occ = cfg.get("occ").and_then(Value::as_f64).unwrap_or(crate::settings::CHEAP_COMPACT_OCC);
     (on, if on { Some(occ) } else { None })
 }
 
