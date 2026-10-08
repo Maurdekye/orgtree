@@ -425,6 +425,8 @@ export async function startRun(opts = {}) {
     token: crypto.randomBytes(32).toString('hex'), ttlMin: opts.ttlMin ?? 20, maxMin: opts.maxMin ?? 120, by: me(),
     // the engine's restart path (closing turns, waking agents) runs at every start
     recover: !!opts.recover,
+    // the automatic wakes a safe start holds back, swept every N seconds (true: 5)
+    reminders: opts.reminders || null,
   })
   touch(dir)
   await launchKeeper(dir, opts.timeout)

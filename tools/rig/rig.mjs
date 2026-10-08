@@ -48,7 +48,7 @@ async function up(flags) {
   await cleanup().catch(e => console.error('cleanup before up failed:', e.message))
   const rig = await startRun({ name: flags.name, ttlMin: flags.ttl && Number(flags.ttl), maxMin: flags.max && Number(flags.max),
     ui: flags.ui, engine: flags.engine, legacy: flags.legacy && path.resolve(flags.legacy), initdb: !!flags.initdb, prepare: flags.prepare,
-    recover: !!flags.recover })
+    recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)) })
   let made = null
   if (flags.fixture !== 'none') {
     try { made = await seed(rig, loadFixture(flags.fixture === true ? undefined : flags.fixture)) } catch (e) {

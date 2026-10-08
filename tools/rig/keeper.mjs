@@ -39,6 +39,11 @@ const env = {
 }
 if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
 if (run.recover) env.ORGTREE_RIG_RECOVER = '1'
+// the automatic wakes (checkups, idle docket reminders), swept every `reminders` seconds (true: 5)
+if (run.reminders) {
+  env.ORGTREE_RIG_REMINDERS = '1'
+  env.ORGTREE_RIG_REMINDER_SWEEP_S = String(run.reminders === true ? 5 : run.reminders)
+}
 
 log('keeper', process.pid, 'starting engine for', dir)
 const engine = spawn(path.join(dir, 'bin', 'orgtree-engine.exe'), ['serve'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
