@@ -387,12 +387,14 @@ pub fn clip(text: &str, max: usize) -> (String, bool) {
 /// The short argument a tool chip shows beside the tool name.
 #[logged]
 pub fn tool_arg(_name: &str, input: &Value) -> String {
-    // the most identifying argument IS the line (`Bash ls /e/…`): the first
-    // of these that is a non-empty string, else any string, whitespace
-    // collapsed and at most 90 characters — never the input dumped as JSON
+    // a call's own human-readable `description` is the line when it has one
+    // (user 2026-10-08); otherwise the most identifying argument IS the line
+    // (`Bash ls /e/…`): the first of these that is a non-empty string, else
+    // any string, whitespace collapsed and at most 90 characters — never the
+    // input dumped as JSON
     let Some(o) = input.as_object() else { return String::new() };
     let flat = |s: &str| -> String { s.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect() };
-    for k in ["command", "file_path", "path", "pattern", "query", "url", "description", "prompt", "name", "text", "to", "body"] {
+    for k in ["description", "command", "file_path", "path", "pattern", "query", "url", "prompt", "name", "text", "to", "body"] {
         match o.get(k) {
             Some(Value::String(s)) if !s.trim().is_empty() => return flat(s),
             // Codex passes a command as its argument list
