@@ -73,12 +73,17 @@
           "**/*",
           "!**/__pycache__/**",
           "!native/**/target/**",
-          "!rs/**"
+          "!rs/**",
+          "!mailhub/**"
         ]
       },
       {
         "from": "engine/rs/target/release/orgtree-engine.exe",
         "to": "engine/orgtree-engine.exe"
+      },
+      {
+        "from": "engine/mailhub/target/release/orgtree-mailhub.exe",
+        "to": "engine/orgtree-mailhub.exe"
       },
       {
         "from": "tools/pypg",

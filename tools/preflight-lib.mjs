@@ -53,7 +53,8 @@ export function assertNoUpdateFixture(info, bundle = 'dist/main/index.cjs', io =
  *  is `git submodule status -- engine/mailhub` output; `head` is the
  *  submodule checkout's actual HEAD. */
 export function assertMailhubSubmodule(info, status, head, io = fs) {
-  for (const probe of ['engine/mailhub/mailhub/app.py', 'engine/mailhub/mailhub/serve.py', 'engine/mailhub/hubtool.py']) {
+  // mail hub v2: the Rust hub (hub/), its client hubtool.py and its contract
+  for (const probe of ['engine/mailhub/hub/src/main.rs', 'engine/mailhub/hubtool.py', 'engine/mailhub/docs/v2.md']) {
     if (!io.existsSync(probe)) {
       throw new Error('Packaging refuses an absent or uninitialized orgtree-mailhub submodule ('
         + probe + ' is missing). Run: git submodule update --init')

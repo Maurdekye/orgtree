@@ -49,9 +49,9 @@ def git(*args: str) -> str:
 
 
 def _submodule_present() -> None:
-    for probe in ("mailhub/app.py", "mailhub/db.py", "mailhub/serve.py",
-                  "hubtool.py", "Dockerfile", "docs/PROVENANCE.md",
-                  "tests/test_hub.py"):
+    # mail hub v2: the Rust hub (hub/), its client and its contract
+    for probe in ("hub/src/main.rs", "Cargo.toml", "hubtool.py", "Dockerfile",
+                  "docs/PROVENANCE.md", "docs/v2.md", "tests/test_hubtool.py"):
         assert os.path.isfile(os.path.join(SUB, probe)), (
             f"engine/mailhub/{probe} is missing — the submodule is absent "
             f"or uninitialized. Run: git submodule update --init")
@@ -133,8 +133,8 @@ check("submodule clean and exactly at the pinned commit",
       _submodule_clean_and_pinned)
 check("no second tracked copy of hub-server logic; V2 hub stays removed",
       _no_second_tracked_copy)
-check("pinned product suite: test_hub.py passes in the embedded checkout",
-      lambda: _pinned_suite("test_hub.py"))
+# v2's own server suites are Rust and need PostgreSQL (docs/v2.md
+# "Verification"); hubtool's run here, against the v1 hub from git history
 check("pinned product suite: test_hubtool.py passes in the embedded "
       "checkout", lambda: _pinned_suite("test_hubtool.py"))
 check("pinned product suite: test_hubtool_migration.py passes in the "

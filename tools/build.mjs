@@ -65,7 +65,7 @@ try {
 } catch { /* preflight fails the package when the submodule is absent. */ }
 const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html',
   ...fs.readdirSync('dist/renderer/assets').map(name => 'dist/renderer/assets/' + name),
-  'engine/launch.py', 'engine/mailhub/mailhub/app.py', 'engine/mailhub/mailhub/serve.py',
+  'engine/launch.py', 'engine/mailhub/target/release/orgtree-mailhub.exe',
   'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json',
   'engine/postgres-runtime-manifest.json', 'engine/pg-custodian.exe', 'tools/pypg/pgimport.py',
   'tools/pypg/cutover_verify.py']

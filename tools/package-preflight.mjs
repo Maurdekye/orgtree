@@ -15,6 +15,15 @@ assertPackageInputsPresent()
   if (version.includes('(dev)')) throw new Error(`The Rust engine is a development build (${version}); rebuild it with ORGTREE_RELEASE_BUILD=1`)
   console.log('Rust engine present:', version)
 }
+// Mail hub v2 ships as resources/engine/orgtree-mailhub.exe beside the
+// engine (src/mailhub.rs `hub_binary`): the pinned submodule's release build.
+{
+  const hub = 'engine/mailhub/target/release/orgtree-mailhub.exe'
+  if (!fs.existsSync(hub)) throw new Error('Package is incomplete: ' + hub + '. Build it with cargo build --release in engine/mailhub.')
+  const version = execFileSync(hub, ['--version'], { encoding: 'utf8' }).trim()
+  if (!/^orgtree-mailhub \d/.test(version)) throw new Error(`${hub} is not the mail hub binary (${version})`)
+  console.log('Mail hub present:', version)
+}
 // The complete package layout, not just file existence: 2.1.4-RC4 passed the
 // input list with its site-packages staged one level above where the
 // interpreter's ._pth looks, and shipped an app that could not start.
