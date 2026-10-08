@@ -874,9 +874,10 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         authorize(tx, actor, &n, "rehire").await?;
         return Ok(json!({ "node": n.name, "cost": 0, "warnings": [format!("{} is already live — nothing to do", n.name)] }));
     }
-    if n.state == "unrecoverable" {
-        refuse!(Conflict, "{} cannot be rehired: its session is lost", n.name);
-    }
+    // 3.x re-seeded an unrecoverable agent (one whose session is lost, as
+    // imported 3.x agents may be): it comes back on a fresh session, which
+    // here starts with the handoff note (decision 43)
+    let fresh = n.state == "unrecoverable";
     authorize(tx, actor, &n, "rehire").await?;
     let caps = caps(engine, tx, org.id).await?;
     let anchor = if str_arg(req, "hire_type") == Some("superior") {
@@ -1000,6 +1001,24 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     fx.warm.push(n.id);
     let woke = crate::runtime::watchdogs::resume_owned(tx, n.id).await?;
     let mut warnings = Vec::new();
+    if fresh {
+        tx.execute(
+            "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true,
+                    extra = jsonb_set(extra, '{handoff_due}', to_jsonb('your earlier session could not be recovered'::text)),
+                    row_version = row_version + 1 WHERE id = $1",
+            &[&n.id],
+        )
+        .await?;
+        tx.execute(
+            "UPDATE ot.agent_sessions SET ended_at = coalesce(ended_at, now()), end_reason = coalesce(end_reason, 'unrecoverable')
+              WHERE agent_id = $1 AND ended_at IS NULL",
+            &[&n.id],
+        )
+        .await?;
+        warnings.push(format!(
+            "{name} was unrecoverable (its earlier session is lost): it starts on a fresh session with a handoff note"
+        ));
+    }
     if !woke.is_empty() {
         warnings.push(format!(
             "{} watchdog(s) paused by the archive are armed again: {}",
