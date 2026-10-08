@@ -822,11 +822,6 @@ impl Actor {
                     }
                     _ => json!({ "effort_delivery": "next_turn" }),
                 };
-                self.pending_effort = if self.turn.is_some()
-                    && r["effort_delivery"] == "next_turn"
-                    && self.proc_effort.as_deref() != Some(level.as_str()) {
-                    Some(level)
-                } else { None };
                 let _ = reply.send(r);
                 self.update_forecast().await;
                 self.publish();
@@ -4277,10 +4272,16 @@ impl Actor {
         }
     }
 
-    /// Will the next turn hit the provider's prompt cache?
+    /// Refresh next-turn presentation from current settings. This also covers
+    /// agent retool and org-default edits, which arrive as Reconfigured.
     async fn update_forecast(&mut self) {
         self.forecast = match self.load_ctx().await {
-            Ok(ctx) => self.forecast_for(&ctx),
+            Ok(ctx) => {
+                self.pending_effort = self.proc_effort.as_ref()
+                    .filter(|current| self.turn.is_some() && *current != &ctx.effort)
+                    .map(|_| ctx.effort.clone());
+                self.forecast_for(&ctx)
+            },
             Err(_) => Value::Null,
         };
     }
