@@ -149,7 +149,7 @@ test('§1 Far-zoom node renders model token + state icon and omits secondary met
     // 2. All secondary interior elements must be explicitly absent
     assert.equal(card.querySelector('.name'), null, 'agent name is absent')
     assert.equal(card.querySelector('.sq-title'), null, 'title row is absent')
-    assert.equal(card.querySelector('.queued-mark'), null, 'queued-switch mark is absent')
+    assert.equal(card.querySelector('[data-next-turn]'), null, 'queued-switch mark is absent')
     assert.equal(card.querySelector('.sq-meta'), null, 'meta container is absent')
     assert.equal(card.querySelector('.sq-workstate'), null, 'workstate container is absent')
     assert.equal(card.querySelector('.sq-idle'), null, 'written state label is absent')

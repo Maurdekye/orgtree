@@ -84,10 +84,10 @@ test('D-234: the queued card wears "→ <tier> next turn"; the plain card wears 
     assert.ok(badge, '§1 the queued card wears no badge')
     assert.match(badge!.textContent ?? '', /flash/, '§1 the badge does not name the target tier')
     assert.match(badge!.textContent ?? '', /next turn/, '§1 the badge does not say WHEN')
-    assert.match(badge!.title, /interrupt/i, '§1 the hover does not name the interrupt')
-    assert.ok(q!.querySelector('.queued-mark'), '§2 no compact mark beside the tier letter')
+    assert.equal(badge!.title, "queued's model will change from opus to flash next turn")
+    assert.ok(q!.querySelector('[data-next-turn="model"]'), '§2 no compact mark beside the tier letter')
     assert.equal(p!.querySelector('.badge.queued'), null,
       '§3 the plain card wears a badge it has no right to')
-    assert.equal(p!.querySelector('.queued-mark'), null,
+    assert.equal(p!.querySelector('[data-next-turn="model"]'), null,
       '§3 the plain card wears a mark it has no right to')
   })

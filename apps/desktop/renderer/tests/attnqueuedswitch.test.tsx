@@ -16,7 +16,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { CanvasNode } from '../src/canvas/shared'
-import { queuedSwitchTitle, USER } from '../src/canvas/shared'
+import { USER } from '../src/canvas/shared'
 import type { OpFn, TreePayload } from '../src/types'
 import { forgetAttentionMode } from '../src/attention/mode'
 import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
@@ -58,12 +58,12 @@ test('the agents list marks a queued model switch, and only that row', async () 
     const row = (id: string) => v.el.querySelector(`[data-attn-agent="${id}"]`) as HTMLElement | null
     assert.ok(row('alpha') && row('beta'), 'both rows are drawn')
     // §1
-    const mark = row('alpha')!.querySelector('.queued-mark')
+    const mark = row('alpha')!.querySelector('[data-next-turn="model"]')
     assert.ok(mark, 'the switching agent wears the queued mark')
-    assert.equal(mark!.textContent, '→S')
-    assert.equal(mark!.getAttribute('title'), queuedSwitchTitle(switching))
+    assert.equal(mark!.textContent, 'next turn \u2192 sonnet')
+    assert.equal(mark!.getAttribute('title'), "alpha's model will change from opus to sonnet next turn")
     assert.ok(row('alpha')!.querySelector('.tier.t-opus'), 'and still shows the model it is on now')
     // §2
-    assert.equal(row('beta')!.querySelector('.queued-mark'), null, 'no switch, no mark')
+    assert.equal(row('beta')!.querySelector('[data-next-turn="model"]'), null, 'no switch, no mark')
   } finally { await v.unmount() }
 })
