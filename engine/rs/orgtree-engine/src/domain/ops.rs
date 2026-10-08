@@ -618,6 +618,14 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
 /// holds is refused (D-021). Returns the warnings.
 #[logged]
 async fn hire_scope_rules(tx: &Transaction<'_>, actor: &Actor, parent: Option<&Node>, caps: &OrgCaps, req: &Value, sc: &mut Value) -> Result<Vec<String>> {
+    // 3.x: a visibility or permission mode that is not one of the levels is
+    // refused (an arbitrary string used to reach --permission-mode, D-030)
+    if let Some(v) = str_arg(req, "org_visibility").filter(|v| !scope::VIS_LEVELS.contains(v)) {
+        refuse!(BadRequest, "org_visibility must be one of {} (got '{v}')", scope::levels_text(scope::VIS_LEVELS));
+    }
+    if let Some(m) = str_arg(req, "permission_mode").filter(|m| !scope::PM_LEVELS.contains(m)) {
+        refuse!(BadRequest, "permission_mode must be one of {} (got '{m}')", scope::levels_text(scope::PM_LEVELS));
+    }
     let agent = matches!(actor, Actor::Agent { .. });
     if agent {
         let mut missing = Vec::new();

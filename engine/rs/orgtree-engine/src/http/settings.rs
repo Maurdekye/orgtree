@@ -123,6 +123,58 @@ async fn sweep_top_grants(
     Ok(warnings)
 }
 
+/// 3.x's value checks on an org setting (the Settings body,
+/// set_hire_defaults): a bad value is refused (422) rather than stored,
+/// where it would reach every later hire, or the CLI. `org` is the org whose
+/// legacy org keys may be named (None: the app-wide defaults).
+#[logged]
+fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Value> {
+    let bad = |why: String| Err(ApiError::unprocessable(why));
+    match key {
+        "permission_mode" => match v.as_str() {
+            Some(m) if scope::PM_LEVELS.contains(&m) => Ok(v.clone()),
+            _ => bad(format!("permission_mode must be one of {}", scope::levels_text(scope::PM_LEVELS))),
+        },
+        "default_visibility" => match v.as_str() {
+            Some(m) if scope::VIS_LEVELS.contains(&m) => Ok(v.clone()),
+            _ => bad(format!("default_visibility must be one of {}", scope::levels_text(scope::VIS_LEVELS))),
+        },
+        "default_effort" => match v.as_str() {
+            Some(x) if x.is_empty() || crate::providers::catalog::EFFORTS.contains(&x) => Ok(v.clone()),
+            _ => bad(format!(
+                "default_effort must be '' (the CLI's own default) or one of {}",
+                scope::levels_text(crate::providers::catalog::EFFORTS)
+            )),
+        },
+        "default_account" => match v.as_str().map(str::trim) {
+            None => bad("default_account must be an account id ('' for none)".into()),
+            Some(a) if a.is_empty() || ["primary", "default", "claude/primary", "openai/primary", "google/primary"].contains(&a) => {
+                Ok(json!(a))
+            }
+            Some(a) => match e.accounts.view().get(a) {
+                None => bad(format!("no account '{a}' is registered")),
+                Some(acc) if !acc.available_to(org) => bad(format!(
+                    "account {a} is an org key restricted to its origin organization '{}'",
+                    acc.origin_org.clone().unwrap_or_default()
+                )),
+                Some(_) => Ok(json!(a)),
+            },
+        },
+        "default_tools" if v.is_object() => Ok(scope::normalize_tools(v)),
+        "default_tools" => bad("default_tools is an object of tool switches".into()),
+        "auto_resume" | "auto_resume_compact" | "cascade_hire" | "cascade_alloc" | "org_inbox_multi_holder"
+        | "account_fallback_default" | "headless" => {
+            if v.is_boolean() {
+                Ok(v.clone())
+            } else {
+                bad(format!("{key} must be true or false"))
+            }
+        }
+        "max_top_grant" | "default_top_grant" | "compact_at" if !v.is_number() => bad(format!("{key} must be a number")),
+        _ => Ok(v.clone()),
+    }
+}
+
 /// Every running agent of the org restarts its CLI before its next turn.
 #[logged]
 async fn reconfigure_org(engine: &Engine, org_id: i64) -> anyhow::Result<()> {
@@ -164,15 +216,18 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
             }
             // a negative cap or default grant is ignored, as 3.x did (a cap of 0 is
             // stored: uncapped, D-014)
-            "max_top_grant" if !v.as_f64().is_some_and(|c| c >= 0.0) => {}
-            "default_top_grant" if !v.as_f64().is_some_and(|g| g >= 0.0) => {}
+            "max_top_grant" | "default_top_grant" if v.as_f64().is_some_and(|c| c < 0.0) => {}
             "net_autoconnect" | "net_hubs" | "net_hub_address" => {}
             key if ORG_KEYS.contains(&key) => {
-                patch.insert(key.into(), v.clone());
+                patch.insert(key.into(), checked(&e, Some(&o.slug), key, v)?);
             }
             key if INERT_KEYS.contains(&key) => {}
             other => return Err(ApiError::bad_request(format!("unknown setting {other}"))),
         }
+    }
+    if let Some(acc) = patch.get("auto_cheap_compact") {
+        // checked whole here; merged with the stored value below
+        crate::settings::cheap_compact(acc, &Value::Null, true).map_err(ApiError::unprocessable)?;
     }
     if let Some(c) = patch.get("compact_at").and_then(Value::as_f64) {
         if !(50.0..=95.0).contains(&c) {
@@ -182,6 +237,13 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     let mut conn = e.db.get().await?;
     let client = conn.transaction().await?;
     let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&o.id]).await?.get(0);
+    if let Some(acc) = patch.remove("auto_cheap_compact") {
+        // 3.x: a partial write keeps the other current value; occ stays within 5–95%
+        let current = effective_settings(&old, &e.settings.defaults())["auto_cheap_compact"].clone();
+        if let Some(v) = crate::settings::cheap_compact(&acc, &current, true).map_err(ApiError::unprocessable)? {
+            patch.insert("auto_cheap_compact".into(), v);
+        }
+    }
     if patch.get("org_inbox_multi_holder").and_then(Value::as_bool) == Some(false) {
         let holders = crate::domain::orginbox::live_holders(&*client, o.id, true).await?;
         if holders.len() > 1 { return Err(ApiError::bad_request("revoke extra org-inbox holders before disabling multi-holder mode")); }
@@ -292,6 +354,15 @@ pub async fn save_defaults(State(e): State<Arc<Engine>>, Json(b): Json<Map<Strin
             }
             "net_hub_address" => {
                 top.insert("net_hub_address".into(), v.clone());
+            }
+            "auto_cheap_compact" if !v.is_null() => {
+                let current = effective_settings(&Value::Null, &e.settings.defaults())["auto_cheap_compact"].clone();
+                if let Some(acc) = crate::settings::cheap_compact(v, &current, true).map_err(ApiError::unprocessable)? {
+                    defaults.insert("auto_cheap_compact".into(), acc);
+                }
+            }
+            key if ORG_KEYS.contains(&key) && !v.is_null() => {
+                defaults.insert(key.into(), checked(&e, None, key, v)?);
             }
             key if ORG_KEYS.contains(&key) => {
                 defaults.insert(key.into(), v.clone());

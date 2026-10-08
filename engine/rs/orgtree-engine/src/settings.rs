@@ -141,6 +141,47 @@ impl AppSettings {
     }
 }
 
+/// 3.x's cheap-compaction setting: only `enabled` (true or false) and `occ`
+/// (a fraction of the context window, kept within 5–95%). An org or app
+/// write fills what a partial write leaves out from `old` (`merge`); an
+/// agent's override keeps only what it names. A write naming neither is a
+/// no-op (`None`); a value of the wrong kind is refused.
+#[logged]
+pub fn cheap_compact(acc: &Value, old: &Value, merge: bool) -> std::result::Result<Option<Value>, String> {
+    let Some(a) = acc.as_object() else {
+        return Err("auto_cheap_compact is {enabled, occ}".into());
+    };
+    let enabled = match a.get("enabled") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(_) => return Err("auto_cheap_compact.enabled must be true or false".into()),
+    };
+    let occ = match a.get("occ") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_f64() {
+            Some(f) => Some(f.clamp(0.05, 0.95)),
+            None => return Err("auto_cheap_compact.occ must be a number (a fraction of the context window)".into()),
+        },
+    };
+    if enabled.is_none() && occ.is_none() {
+        return Ok(None);
+    }
+    let mut out = Map::new();
+    if merge {
+        out.insert("enabled".into(), json!(enabled.or_else(|| old.get("enabled").and_then(Value::as_bool)).unwrap_or(false)));
+        let occ = occ.or_else(|| old.get("occ").and_then(Value::as_f64)).unwrap_or(0.5).clamp(0.05, 0.95);
+        out.insert("occ".into(), json!(occ));
+    } else {
+        if let Some(e) = enabled {
+            out.insert("enabled".into(), json!(e));
+        }
+        if let Some(o) = occ {
+            out.insert("occ".into(), json!(o));
+        }
+    }
+    Ok(Some(Value::Object(out)))
+}
+
 pub fn deep_merge(target: &mut Value, patch: &Value) {
     match (target, patch) {
         (Value::Object(t), Value::Object(p)) => {

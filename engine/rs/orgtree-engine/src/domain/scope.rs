@@ -11,6 +11,12 @@ fn rank(levels: &[&str], v: &str) -> usize {
     levels.iter().position(|l| *l == v).unwrap_or(0)
 }
 
+/// The levels as 3.x's refusals name them: `('plan', 'default', …)`.
+#[logged]
+pub fn levels_text(levels: &[&str]) -> String {
+    format!("({})", levels.iter().map(|l| format!("'{l}'")).collect::<Vec<_>>().join(", "))
+}
+
 pub fn pm_rank(v: &str) -> usize {
     rank(PM_LEVELS, v)
 }
@@ -143,11 +149,16 @@ pub fn clamp(child: &Value, parent: &Value) -> Value {
     let child = normalize(child);
     let parent = normalize(parent);
     let mut out: Map<String, Value> = child.as_object().cloned().unwrap_or_default();
-    let cpm = child["permission_mode"].as_str().unwrap_or("acceptEdits");
-    let ppm = parent["permission_mode"].as_str().unwrap_or("bypassPermissions");
+    // a stored value that is not one of the levels counts as unset: it never
+    // reaches the CLI as given (3.x D-030)
+    let level = |v: &Value, levels: &[&'static str], unset: &'static str| -> &'static str {
+        v.as_str().and_then(|s| levels.iter().find(|l| **l == s).copied()).unwrap_or(unset)
+    };
+    let cpm = level(&child["permission_mode"], PM_LEVELS, "acceptEdits");
+    let ppm = level(&parent["permission_mode"], PM_LEVELS, "bypassPermissions");
     out.insert("permission_mode".into(), json!(if pm_rank(cpm) <= pm_rank(ppm) { cpm } else { ppm }));
-    let cv = child["org_visibility"].as_str().unwrap_or("subtree");
-    let pv = parent["org_visibility"].as_str().unwrap_or("full");
+    let cv = level(&child["org_visibility"], VIS_LEVELS, "subtree");
+    let pv = level(&parent["org_visibility"], VIS_LEVELS, "full");
     out.insert("org_visibility".into(), json!(if vis_rank(cv) <= vis_rank(pv) { cv } else { pv }));
     let cdirs = child["add_dirs"].as_array().cloned().unwrap_or_default();
     let pdirs = parent["add_dirs"].as_array().cloned().unwrap_or_default();

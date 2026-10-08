@@ -522,7 +522,15 @@ pub(crate) async fn apply_user_scope_in_tx(
         if v.as_object().map(|o| o.is_empty()).unwrap_or(true) {
             obj.remove("auto_cheap_compact");
         } else {
-            obj.insert("auto_cheap_compact".into(), v.clone());
+            // 3.x FR-24b: only enabled and occ (kept within 5–95%); a write
+            // naming neither leaves the override as it is
+            match crate::settings::cheap_compact(v, &Value::Null, false) {
+                Ok(Some(keep)) => {
+                    obj.insert("auto_cheap_compact".into(), keep);
+                }
+                Ok(None) => {}
+                Err(why) => crate::refuse!(Unprocessable, "{why}"),
+            }
         }
     }
     let charter = b.get("charter").and_then(Value::as_str).map(str::to_string);
