@@ -14,40 +14,29 @@ It is a substantial tool, with a learning curve to match. You will need to learn
 
 **A workspace in the default rows view.** Agents sit in rows beneath their coordinator, with provider usage across the top.
 
-## Built to carry the work
+## What sets it apart
 
-A project needs more than a conversation. It needs an owner, a clear brief, a record of decisions and a way to tell what is finished.
+Orgtree puts the controls for a whole organization around your agent harnesses. These are the tools for dividing the job, managing capacity and keeping the work moving.
 
-- **Give every job an owner.** The shared Work docket holds requirements, status, progress, evidence and attachments. Hand a task to another agent without losing its record.
-- **Put specialists under a coordinator.** Each agent has a role and standing instructions. Agents can hire, delegate and retire reports within the capacity and permissions you give them.
-- **See the work at the desk.** Read live conversations and tool calls. Open several desks side by side, send a correction while an agent works, and return to retained history later.
-- **Get decisions and deliverables back.** Agents send mail, ask questions on cards, present plans and reports, and deliver files you can download. The Needs attention list brings together questions, urgent mail and flagged tickets.
+- **A canvas you can rearrange.** View the team in rows or as a circular org chart, then drag agents to rearrange it. Open any agent's desk to inspect its live conversation and tool calls.
+- **A hierarchy you choose.** Build a flat team, a deep tree of coordinators and specialists, or a mix of both. Move agents between teams as the job changes, within the permissions and capacity you set.
+- **Team charters.** Give each agent its own role, and give a manager standing instructions that apply to its whole team below it. Set the rules once for that subtree and revise them as the work teaches you, without editing every agent.
+- **A shared work docket and tickets.** Give each job an owner, requirements, status and a record of progress. Keep decisions, evidence and attachments with the task when it changes hands.
+- **Credits that control capacity.** Each model has a seat cost, and each agent has a grant it can use to staff a team beneath it. Retiring agents releases that capacity; credits govern team size and delegation, separately from provider billing and token allowances.
+- **Mail for you and your agents.** Exchange typed messages, questions, decisions and attachments through persistent inboxes. Send a follow-up while an agent works, or grant an audience for a direct line outside its reporting chain.
+- **A mail hub across machines.** Connect organizations on different computers through a shared hub and let their agents exchange messages and files. Local organizations can communicate on the same machine, too.
+- **Watchdogs that wait for the right event.** Persistent watchers can wake an agent when a file changes, a process stops, command output matches or an Orgtree event occurs. They survive engine restarts, so agents can wait for a trigger instead of repeatedly checking for it.
+- **Automatic cheap compaction.** Enable a reset before a known-cold turn when context exceeds your chosen threshold. The agent starts a fresh session seeded with a summary, avoiding a full-price reread of the old conversation when its prompt cache is known to be cold.
+- **A concurrent Rust engine with PostgreSQL storage.** Independent agent tasks, short database transactions and paged reads are designed to keep large teams responsive. Your organization, docket, mail and retained conversations are stored locally and outlive the agent processes.
+- **Startup and background operation.** Set Orgtree to start at Windows login and keep the engine working in the system tray when you close its windows. Your team can continue between visits.
+- **Window management for a working desk.** Tile desks side by side, pin panels in place or pop them out into separate windows. Keep the task, conversation and account usage in view together, with a separate window for each organization.
+- **Markdown and HTML presentations.** Agents can present readable reports, plans and HTML mockups inside the app. Open them in the document viewer or download them for use elsewhere.
+- **One Attention view.** The Needs attention list gathers open questions, urgent mail and flagged tickets waiting on you. Handle them in one place without hunting through agents' conversations.
+- **Multiple providers and accounts.** Run Claude Code, OpenAI Codex, Google Antigravity and OpenRouter agents in the same organization, with supported secondary accounts and per-agent account selection. Use reported limits and reset times on the Usage board to balance work across accounts, with optional [account fallback](#account-fallback) when an eligible agent hits a limit.
 
-For example: give a coordinator a project, assign a specialist to investigate one part, and have another agent review the result. Keep the brief, decisions and evidence on the docket. You direct the work and judge the result; the team handles the steps you delegate.
+The architecture is designed for organizations with hundreds of agents; actual working capacity depends on your machine, providers and account allowances. Set the concurrent-turn limit in **App settings > Runtime**; the default is **16**.
 
-## Built for work that lasts beyond a session
-
-The local Rust engine stores your organization, mail, docket and retained conversations in bundled PostgreSQL. Those records outlive the agent process. Retire an agent to free its capacity, then rehire it with its history when you need it again.
-
-Recovery is part of the machinery. The desktop can restart an unresponsive engine. After an engine restart or crash, interrupted agents receive a continuation message and pending mail is recovered for delivery. Orgtree does not verify the outcome of tool calls interrupted in flight; agents may need to check what completed before continuing.
-
-Keep the engine running in the system tray while you step away. Persistent **watchdogs** can wake an agent when a file changes, a process stops, command output matches, or an Orgtree event occurs. Agents can wait for the event that matters instead of repeatedly checking for it.
-
-## Capacity you can put to use
-
-Run agents through **Claude Code, OpenAI Codex, Google Antigravity or OpenRouter**. Choose the model and working instructions for each role. Adjust thinking effort as the job demands; supported Claude agents can take effort changes during a turn, while other providers apply them from the next turn.
-
-The **Usage** board shows each account's reported limits and reset times. Use multiple supported accounts, choose which account serves an agent, and let agents use the readings to spread work across them. Disable accounts individually. Optional [account fallback](#account-fallback) lets eligible agents continue on another account when a usage limit is reached.
-
-Orgtree is designed for organizations with hundreds of agents. The Rust engine handles agents concurrently, desks load recent conversation history first, and the docket fetches tasks in pages. Set how many turns may run at once in **App settings > Runtime**; the default is **16**. Actual working capacity depends on your machine, providers and account allowances.
-
-Organizations can exchange mail on the same machine or through a shared **mail hub**. Keep separate teams for separate projects and connect them when the work calls for it.
-
-## Controls within reach
-
-Set folder access, available tools and delegation budgets for each agent. Halt work, change a model, move an agent to another team or bring a retired specialist back. Agents can use your desktop's Git and GitHub sign-in for repository work.
-
-Arrange the workspace around the job: rows or a circular org chart, pinned panels, pop-out windows and multiple desks. Each organization has its own window. Open the detail when you need it; use the docket and attention list to keep track of the larger job.
+Recovery is part of the machinery. The desktop can restart an unresponsive engine. On restart, the engine recovers pending mail and sends interrupted agents a continuation message. Orgtree does not verify the outcome of tool calls interrupted in flight; agents may need to check what completed before continuing.
 
 ## Install
 
@@ -83,16 +72,6 @@ Orgtree does not include model access. Your provider's subscription, API charges
 5. **Follow up in the workspace.** Read the conversation, answer requests, and use the docket, inbox and presentations to follow the results.
 
 Start with one agent and a small task. Add specialists or a coordinator once you know how you want the team to work.
-
-### What are credits?
-
-Orgtree's **credits are a capacity budget**, separate from provider billing. Each agent occupies a model-dependent seat; its grant is the capacity it can use for agents beneath it. Retiring an agent releases that capacity. Credits do not buy tokens or extend a provider's usage allowance.
-
-### Staying in control
-
-An agent's charter describes its job; its folder and tool permissions determine its access. An *audience* gives an agent an additional communication link, such as a direct line to you. You can inspect and change these settings as the organization develops.
-
-Agents have persistent identities and history. Retirement preserves that context; permanent deletion is a separate action.
 
 ## Screenshots
 
