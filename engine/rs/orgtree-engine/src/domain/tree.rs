@@ -127,12 +127,16 @@ pub fn ask_card(raw: &Value, node_name: &str) -> Value {
     Value::Object(o)
 }
 
-/// Effective cheap-compact setting for a node: its own override, else the org's.
+/// Effective cheap-compact setting for a node (3.x `_auto_cheap_cfg`): its own
+/// override merged key by key over the org's (`org` = the org's effective
+/// settings), so an override naming only `enabled` keeps the org's occupancy.
+/// The occupancy is kept within 5–95%.
 pub(crate) fn cheap_compact(scope: &Value, org: &Value) -> (bool, Option<f64>) {
-    let node = scope.get("auto_cheap_compact").filter(|v| v.is_object() && !v.as_object().unwrap().is_empty());
-    let cfg = node.or_else(|| org.get("auto_cheap_compact")).cloned().unwrap_or(Value::Null);
-    let on = cfg.get("enabled").and_then(Value::as_bool).unwrap_or(false);
-    let occ = cfg.get("occ").and_then(Value::as_f64).unwrap_or(crate::settings::CHEAP_COMPACT_OCC);
+    let node = scope.get("auto_cheap_compact").filter(|v| v.is_object());
+    let base = org.get("auto_cheap_compact").filter(|v| v.is_object());
+    let pick = |k: &str| node.and_then(|n| n.get(k)).filter(|v| !v.is_null()).or_else(|| base.and_then(|b| b.get(k)));
+    let on = pick("enabled").and_then(Value::as_bool).unwrap_or(false);
+    let occ = pick("occ").and_then(Value::as_f64).unwrap_or(crate::settings::CHEAP_COMPACT_OCC).clamp(0.05, 0.95);
     (on, if on { Some(occ) } else { None })
 }
 
