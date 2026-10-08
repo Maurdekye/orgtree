@@ -6,9 +6,12 @@ use serde_json::{json, Value};
 use crate::engine::Engine;
 use super::mail::{self, From, Outgoing};
 
+/// `tell` false: a failure in a run already reported; its event still fires.
 #[logged]
-pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: Option<&str>, freeze: Option<&Value>) -> Result<()> {
+pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: Option<&str>, freeze: Option<&Value>, tell: bool) -> Result<()> {
     if error.is_none() && freeze.is_none() { return Ok(()) }
+    if freeze.is_none() {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));}
+    if !tell { return Ok(()) }
     let c=engine.db.get().await?;
     let r=c.query_one("SELECT a.name,a.generation,p.name,a.account,a.session_id,o.slug FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id LEFT JOIN ot.agents p ON p.id=a.parent_id AND p.state='live' WHERE a.id=$1 AND a.org_id=$2", &[&agent_id,&org_id]).await?;
     drop(c);
@@ -25,7 +28,6 @@ pub async fn end_turn(engine: &Arc<Engine>, org_id: i64, agent_id: i64, error: O
         let err=error.unwrap_or("");
         ("runtime.report_stalled",json!({"report":name,"report_name":name,"audience":audience,"cause":"terminal","attempts":null,"classified":null,"door":null,"err":err}),format!("{name}'s turn ended with an error: {err}"))
     };
-    if freeze.is_none() {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("turn.stalled",crate::runtime::watchdogs::events::Scope::Agent(org_id,agent_id),json!({"agent_id":agent_id})));}
     let mut out=Outgoing::new(From::System,target,&body);
     out.kind="status".into();
     out.ev=Some(crate::events::typed(variant,"@system",object,fields));

@@ -119,8 +119,9 @@ pub async fn clear_runs(engine: &Engine, agent_id: i64) -> Result<()> {
     let client = engine.db.get().await?;
     client
         .execute(
-            "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run'
-              WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run')",
+            "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run'
+              WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run'
+                                 OR extra ? 'hard_fail_run')",
             &[&agent_id],
         )
         .await?;
