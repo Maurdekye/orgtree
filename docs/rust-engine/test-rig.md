@@ -38,6 +38,7 @@ the run.
 | `import-3x.mjs` | first-start import of a synthetic 3.2 store (the 3.2 alpha layout) with a row in every section; an older alpha schema (0015) imports in full; a broken store keeps nothing, is named in the log, ot.kv, the app feed and the org list, retries, and imports in full once repaired; an unreadable registry never stops the engine |
 | `openrouter-lane.mjs` | agents on the OpenRouter lane (key and favorite carried over from a 3.x `openrouter\state.json`; the gateway's key check scripted through `rig-home\rig-usage\openrouter-key.json`): a 401 parks with the OpenRouter remedy and the panel stops saying "connected" at once; the fourth 402 parks with the balance remedy; a key check without credit fields does not crash the panel's document |
 | `input-panics.mjs` | inputs from outside that used to panic the engine: non-object tool arguments, NULLs in a 3.2 store's folder and list tables, a foreign file name in `diagnostics\logs` |
+| `codex-lane.mjs` | luna agents on the fake `codex app-server`: a normal turn (reasoning, message, a dynamic `orgtree_*` tool, an approval, tokens as a difference of the thread's totals), the thread resumed after an engine restart, mid-turn mail through `turn/steer`, an interrupt, the app-server dying mid-turn (connection freeze, the retry resumes the thread), `usageLimitExceeded` (a limit freeze until the turn's own reset), `unauthorized` (superior told, no park), the sandbox runner hint |
 | `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
 
 ## What keeps it safe
@@ -90,11 +91,12 @@ Assigning a docket item wakes its owner, so the owner runs one fake turn during 
 
 ## The fake CLI and its scenario
 
-`tools/rig/fakecli` (`orgtree-fakecli.exe`, copied into each run as `claude.exe`) is launched by
-the engine exactly like Claude Code. It answers `initialize`, connects the in-process `orgtree`
-MCP server (initialize, tools/list), runs `orgtree_*` calls through `mcp_message`, fires the
-PostToolUse hook after every tool use (that is where the engine hands over mid-turn mail), and
-writes session transcripts under the fake home so `--resume` works.
+`tools/rig/fakecli` (`orgtree-fakecli.exe`, copied into each run as `claude.exe` and
+`codex.exe`) is launched by the engine exactly like Claude Code. It answers `initialize`, connects
+the in-process `orgtree` MCP server (initialize, tools/list), runs `orgtree_*` calls through
+`mcp_message`, fires the PostToolUse hook after every tool use (that is where the engine hands over
+mid-turn mail), and writes session transcripts under the fake home so `--resume` works. As
+`codex.exe` it plays the Codex app-server instead (below).
 
 At every turn it re-reads `<run>\fakecli\scenario.json` (`rig scenario <file>` or
 `rig.scenario({...})`) and plays the first turn script whose `match` substrings all occur in the
@@ -120,6 +122,31 @@ prompt (case-insensitive; `unless` excludes), trying `agents.<name>.turns` befor
 `tool_result` (with `ok` for expectations), `hook_mail` (mail handed over mid-turn), `exit` and
 `interrupted` entries. The real CLI's result for a rejected credential carries
 `api_error_status` (seen in the Claude Code 2.1 binary, not with a live 401).
+
+### As `codex app-server`
+
+The same binary is also copied in as `codex.exe`; launched with `app-server` it speaks the
+JSON-RPC the engine drives (`src/runtime/codex.rs`): `initialize`, `thread/start` and
+`thread/resume` (a rollout file under `<CODEX_HOME or rig-home\.codex>\sessions`, so a resume
+finds the thread, also after an engine restart), `turn/start`, `turn/steer`, `turn/interrupt`,
+`model/list` (the five Codex tier models, every effort) and the account reads. The rig's fake home
+carries a Codex login (`rig-home\.codex\auth.json`, an unsigned id token naming
+`rig@example.invalid`), so the openai lane reads as signed in and luna/sol/terra/astra agents can
+be hired. A turn plays the same scenarios, with these differences:
+
+| Step | Effect on the Codex wire |
+|---|---|
+| `text` / `thinking` | an `agentMessage` / `reasoning` item with its deltas |
+| `{"tool": "orgtree_x", ...}` | a `dynamicToolCall` item; the engine answers `item/tool/call` |
+| `{"tool": "shell", "args": {"command": "..."}, "result": "...", "exit_code": 0, "approval": true}` | any other tool: a `commandExecution` item, with `approval` first asking `item/commandExecution/requestApproval` (the decision is logged as `approval`) |
+| `{"poll_mail": {...}}` | waits until a `turn/steer` arrives (mail, or an engine hint) |
+| `{"error": {"message": "...", "codexErrorInfo": "unauthorized"}, "will_retry": false}` | an `error` notification; without `will_retry` the turn completes as `failed` with that error |
+| `{"result": {"status": "failed", "error": {...}}}` | ends the turn with that status |
+| `{"usage": {"input": 5000, "cached": 4000, "output": 120}}` | this turn's tokens (the thread totals carry on across resumes) |
+| `{"rate_limit": {"primary": {"usedPercent": 100, "resetsAt": <epoch s>}}}` | an `account/rateLimits/updated` notification |
+
+`exit`, `hang`, `sleep_ms` and `raw` work as above. The engine's account and model probes run
+without an agent name and log to `fakecli\log\probe.jsonl`.
 
 ## Tool calls as an agent
 
