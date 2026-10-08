@@ -7865,3 +7865,6 @@ main:has(> .orgbar.native-header) > .error {
   font-size: 7px; padding: 1px 4px;
 }
 .sq:not(.desk):has(.next-turn) .sq-badges { gap: 3px; }
+.sq-title:has(> .next-turn) { flex-wrap: wrap; row-gap: 2px; }
+.sq-title:has(> .next-turn) > .name { flex: 1 0 100%; }
+.sq-head:has(.next-turn) { flex-shrink: 0; }
