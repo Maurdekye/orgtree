@@ -292,6 +292,22 @@ export class Rig {
 
   one(query) { return this.sql(query)[0] ?? null }
 
+  /** Run statements (DDL, writes) against a database of the run's cluster. */
+  exec(statements, { db = 'orgtree_engine' } = {}) {
+    touch(this.dir)
+    const { port, password } = this.pgConn()
+    const r = spawnSync(path.join(this.run.pgBin, 'psql.exe'),
+      ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', String(port), '-U', 'orgtree_admin', '-d', db, '-c', statements],
+      { encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, PGPASSWORD: password, PGCLIENTENCODING: 'UTF8', PGCONNECT_TIMEOUT: '10' } })
+    if (r.status !== 0) throw new Error(`sql failed: ${(r.stderr || r.error || '').toString().trim()}\n${statements}`)
+  }
+
+  /** Stop the engine and start it again on the same data (a new keeper). */
+  async restart(opts) {
+    await restartRun(this.dir, opts)
+    return this.refresh()
+  }
+
   /** Poll until fn() returns a truthy value (an empty array counts as
    * nothing yet); that value is returned. */
   async waitFor(fn, { timeout = 60000, every = 500, what = 'condition' } = {}) {
@@ -393,12 +409,20 @@ export async function startRun(opts = {}) {
     token: crypto.randomBytes(32).toString('hex'), ttlMin: opts.ttlMin ?? 20, maxMin: opts.maxMin ?? 120, by: me(),
   })
   touch(dir)
+  await launchKeeper(dir, opts.timeout)
+  return new Rig(dir)
+}
+
+/** Start the run's keeper (which starts the engine) and wait until the
+ * engine is ready. */
+async function launchKeeper(dir, timeout = 240000) {
+  const id = path.basename(dir)
   const log = fs.openSync(path.join(dir, 'keeper.log'), 'a')
   const keeper = spawn(process.execPath, [path.join(RIG_DIR, 'keeper.mjs'), dir], { detached: true, stdio: ['ignore', log, log], windowsHide: true, env: cleanEnv() })
   keeper.unref()
   fs.closeSync(log)
   writeRun(dir, { keeperPid: keeper.pid })
-  const end = Date.now() + (opts.timeout ?? 240000)
+  const end = Date.now() + timeout
   for (;;) {
     const run = readRun(dir)
     if (run?.status === 'ready') break
@@ -407,6 +431,16 @@ export async function startRun(opts = {}) {
     if (Date.now() > end) { await stopRun(dir, { keep: true }); throw new Error(`rig run ${id} did not become ready in time; kept for inspection at ${dir}`) }
     await sleep(300)
   }
+}
+
+/** Stop a run's engine gracefully and start it again on the same data root
+ * and cluster (what quitting and reopening the app does to the engine). */
+export async function restartRun(dir, { timeout = 240000 } = {}) {
+  await stopRun(dir, { keep: true })
+  fs.rmSync(path.join(dir, 'stop'), { force: true })
+  writeRun(dir, { status: 'starting', restarts: (readRun(dir)?.restarts ?? 0) + 1, error: null })
+  touch(dir)
+  await launchKeeper(dir, timeout)
   return new Rig(dir)
 }
 

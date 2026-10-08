@@ -32,7 +32,7 @@ const freePort = () => new Promise((resolve, reject) => {
 })
 
 /** Run `body(psql)` against a temporarily started postgres on `cluster`. */
-async function withPostgres(cluster, pgBin, body) {
+export async function withPostgres(cluster, pgBin, body) {
   const pgdata = path.join(cluster, 'data')
   const password = JSON.parse(fs.readFileSync(path.join(cluster, 'secrets', 'credentials.json'), 'utf8')).orgtree_admin
   const port = await freePort()
@@ -53,7 +53,7 @@ async function withPostgres(cluster, pgBin, body) {
 }
 
 /** The migrated, empty 3.2 cluster for `level` (cached). */
-async function template32(base, pgBin, level) {
+export async function template32(base, pgBin, level) {
   const dir = path.join(rigHome(), 'pg', `template32-${PG_VERSION}-${level ?? 'all'}`)
   if (fs.existsSync(path.join(dir, 'data', 'PG_VERSION'))) return dir
   const staging = dir + '.partial'
@@ -105,6 +105,51 @@ export async function prepare32({ data, pgBin, level, damage = [] }) {
         VALUES (1, 0, 'hire', '@user', ${at(1)}, '{"node":"dev","parent":"lead"}');
       INSERT INTO orgtree.documents (id, ord, public_id, node, title, body, at, format) OVERRIDING SYSTEM VALUE
         VALUES (1, 0, 'd32', 'lead', 'LEGACY32 plan', '# Plan', ${at(8)}, 'markdown');`], 'seed org')
+    // one row in every other section the importer reads, so every typed
+    // column read of the import runs (a type mismatch there would stop the
+    // engine at every start)
+    psql('orgtree_org_1', ['-c', `
+      INSERT INTO orgtree.org_dirs (ord, path, mode) VALUES (0, 'E:/work/legacy32', 'ro');
+      INSERT INTO orgtree.net_hubs (ord, public_id, address, enabled, name) VALUES (0, 'h32', 'hub.example.invalid:443', false, 'LEGACY32 hub');
+      INSERT INTO orgtree.org_tier_prices (ord, key, value) VALUES (0, 'opus', 3.5);
+      INSERT INTO orgtree.agent_texts (agent_id, charter, team_charter) VALUES (2, 'LEGACY32 charter of dev', 'LEGACY32 team charter');
+      INSERT INTO orgtree.agent_dir_grants (agent_id, pos, path, mode) VALUES (2, 0, 'E:/work/legacy32/dev', 'rw');
+      INSERT INTO orgtree.agent_mcp_servers (agent_id, pos, value) VALUES (2, 0, 'legacy-mcp');
+      INSERT INTO orgtree.user_mail_log (ord, public_id, "from", kind, body, at, urgent, urgent_reason)
+        VALUES (0, 'm32-read', 'lead', 'message', 'LEGACY32 mail the user read', ${at(10)}, true, 'LEGACY32 urgent');
+      INSERT INTO orgtree.user_outbox (ord, public_id, "from", kind, body, at, "to")
+        VALUES (0, 'm32-sent', 'user', 'message', 'LEGACY32 mail the user sent', ${at(11)}, 'dev');
+      INSERT INTO orgtree.asks (id, ord, public_id, node, kind, question, at, status, rev) OVERRIDING SYSTEM VALUE
+        VALUES (1, 0, 'q32', 'dev', 'question', 'LEGACY32 open question?', ${at(12)}, 'open', 1);
+      INSERT INTO orgtree.ask_options (asks_id, pos, label, description) VALUES (1, 0, 'Yes', 'LEGACY32 option'), (1, 1, 'No', NULL);
+      INSERT INTO orgtree.ask_work_items (asks_id, pos, value) VALUES (1, 0, 'legacy32-item');
+      INSERT INTO orgtree.work_items (id, ord, list_key, docket_manual, docket_order, slug, rev, kind, title, objective, status,
+                                      owner_node, owner_generation, created_by_node, created_by_generation, at, updated_at, docket_at, status_at)
+        OVERRIDING SYSTEM VALUE
+        VALUES (1, 0, 'active', false, '0', 'legacy32-item', 3, 'code', 'LEGACY32 item', 'LEGACY32 objective', 'in_progress',
+                'dev', 1, 'lead', 1, ${at(2)}, ${at(13)}, ${at(13)}, ${at(13)});
+      INSERT INTO orgtree.work_item_done (item_id, pos, value) VALUES (1, 0, 'LEGACY32 done one');
+      INSERT INTO orgtree.work_item_next (item_id, pos, value) VALUES (1, 0, 'LEGACY32 next one');
+      INSERT INTO orgtree.work_item_participants (item_id, pos, value) VALUES (1, 0, 'lead');
+      INSERT INTO orgtree.work_item_dependencies (item_id, pos, value) VALUES (1, 0, 'legacy32-other');
+      -- per-item history came with org migration 0010
+      DO $$ BEGIN IF to_regclass('orgtree.work_item_events') IS NOT NULL THEN
+        INSERT INTO orgtree.work_item_events (item_id, seq, source, kind, status_change, at, by_node, by_generation, content,
+                                              history_op, history_status_from, history_status_to, history_note)
+          VALUES (1, 1, 'history', 'history', true, ${at(13)}, 'dev', 1, 'LEGACY32 history', 'update', 'open', 'in_progress', 'LEGACY32 note');
+      END IF; END $$;
+      -- the attention columns came with org migration 0016
+      DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'orgtree'
+                               AND table_name = 'work_items' AND column_name = 'attention_reason') THEN
+        UPDATE orgtree.work_items SET attention_reason = 'LEGACY32 attention', attention_at = ${at(14)}, attention_by_name = 'lead',
+                                      attention_by_generation = 1, attention_set_rev = 2 WHERE id = 1;
+      END IF; END $$;
+      INSERT INTO orgtree.watchdogs (ord, public_id, owner, name, kind, target, pattern, interval_s, state, at, fired, once, shell, fire_mode)
+        VALUES (0, 'w32', 'dev', 'LEGACY32 dog', 'file', 'E:/work/legacy32/log.txt', 'ERROR', 60, 'armed', ${at(3)}, 0, false, 'native', 'event');
+      INSERT INTO orgtree.audience_grants (ord, grantee, grantor, granted_at, reason) VALUES (0, 'dev', 'lead', ${at(4)}, 'LEGACY32 grant');
+      INSERT INTO orgtree.audience_requests (ord, node, target, reason, at, status) VALUES (0, 'dev', 'user', 'LEGACY32 request', ${at(4)}, 'pending');
+      INSERT INTO orgtree.org_inbox (ord, public_id, dir, peer, body, at) VALUES (0, 'x32', 'in', '@org:other', 'LEGACY32 org mail', ${at(15)});`],
+    'seed every section')
     for (const sql of damage) psql('orgtree_org_1', ['-c', sql], `damage: ${sql}`)
   })
   fs.rmSync(path.join(cluster, 'data', 'postmaster.pid'), { force: true })
