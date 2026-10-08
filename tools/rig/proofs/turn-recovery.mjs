@@ -92,12 +92,17 @@ export default async function (rig) {
     const a = rig.agentRow('bob')
     return a?.frozen ? a : null
   }, { what: 'bob to be parked after the 401', timeout: 60000 })
-  p.check('bob: 401 → parked (cause auth, no reset time)', parked.frozen.cause === 'auth' && parked.frozen.parked === true && parked.frozen.until === null, parked.frozen)
-  p.check('bob: label tells the operator what to do', /credential rejected/.test(parked.frozen.label ?? ''), parked.frozen.label)
+  p.check('bob: 401 → parked (cause auth, no reset time)', parked.frozen.cause === 'auth' && parked.frozen.parked === true
+    && parked.frozen.until_ts == null && Number.isNaN(Date.parse(parked.frozen.until ?? '')), parked.frozen)
+  // 3.x shape (F4): a park has no reset time, so `until` names the remedy
+  p.check('bob: `until` tells the operator what to do ("credential rejected — replace it, then resume")',
+    parked.frozen.until === 'credential rejected — replace it, then resume', parked.frozen.until)
   const seenB = await look(rig, p, 'bob', 'parked')
   p.check('bob: the card says "credential", the desk "credential rejected" with an unstick control', seenB.ok && /credential/i.test(seenB.value?.cardText ?? '')
     && (seenB.value?.freezeText ?? []).some(t => /credential rejected/i.test(t)) && (seenB.value?.freezeText ?? []).some(t => /^unstick$/i.test(t)),
     seenB.ok ? { card: seenB.value.cardText, freeze: seenB.value.freezeText } : seenB.error)
+  p.check('bob: the desk shows the remedy ("replace it, then resume")',
+    seenB.ok && (seenB.value?.freezeText ?? []).some(t => /replace it, then resume/i.test(t)), seenB.ok ? seenB.value.freezeText : seenB.error)
   p.note('what the user sees for the auth park (bob-parked/*.png)', { card: seenB.ok ? seenB.value.cardText : null, desk: seenB.ok ? seenB.value.freezeText : null })
   const told = await rig.waitFor(() => rig.sql(`SELECT m.uid, m.body, m.ev FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
                                                   WHERE a.name = 'alice' AND m.body LIKE 'bob had its credential REJECTED%'`), { what: 'alice to be told bob is parked', timeout: 30000 })
