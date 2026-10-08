@@ -34,6 +34,8 @@ Orgtree 4.0.1 is a fix-and-polish release on top of 4.0.0. It adds optional Clau
 - **Document chips** beside an agent's node match the four shown in its desk header.
 - **Tool calls show their description.** When a tool call carries a description, the transcript row shows it instead of the shortened command; expanding the row still shows the full input.
 - **Quick staff** names models the same way as the normal staffing flow.
+- **Mail hub messages** keep their kind (question, request, decision…) when an agent sends them to another hub, and a "read" receipt is sent once an agent has actually taken in the mail, as in 3.x.
+- The **jump to bottom** button floats over the transcript instead of adding a row of its own.
 
 ## Fixed
 
