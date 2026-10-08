@@ -7858,3 +7858,10 @@ main:has(> .orgbar.native-header) > .error {
 .next-turn { white-space: nowrap; flex: none; }
 .pinwin-body .cc-head-left > [data-next-turn="model"],
 .tempdesk-panel .cc-head-left > [data-next-turn="model"] { display: none; }
+/* Three simultaneous queued values must fit the compact world-space card
+   without squeezing its name away or pushing badges over the status row. */
+.sq:not(.desk) .next-turn,
+.sq:not(.desk):has(.next-turn) .sq-badges .badge {
+  font-size: 7px; padding: 1px 4px;
+}
+.sq:not(.desk):has(.next-turn) .sq-badges { gap: 3px; }
