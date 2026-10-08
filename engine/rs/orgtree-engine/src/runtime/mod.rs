@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::engine::Engine;
@@ -57,7 +57,8 @@ pub enum AgentMsg {
     Unhalt(oneshot::Sender<Value>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is
     Command(String, oneshot::Sender<Value>),
-    /// effort changed: deliver to a running Claude turn
+    /// effort saved (the level the agent resolved to before the save): a
+    /// running Claude turn is sent the level it resolves to now
     Effort(String, oneshot::Sender<Value>),
     /// start/stop the parked CLI process
     Process { action: String, reply: oneshot::Sender<Value> },
@@ -209,6 +210,28 @@ pub async fn wake_idle(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> bool
     let (tx, rx) = oneshot::channel();
     actor(engine, org_id, agent_id).send(AgentMsg::WakeIdle(tx));
     matches!(tokio::time::timeout(std::time::Duration::from_secs(30), rx).await, Ok(Ok(true)))
+}
+
+/// After a saved effort change (3.x `send_live_effort`), with the levels the
+/// agent resolved to before and after the save: `effort_delivery` as 3.x
+/// gave it, `{delivery: sent | unchanged | next_turn, effort, reason?}`. An
+/// unchanged level sends nothing. An agent without an actor has no process,
+/// so its next turn starts with the new level and none is started for this.
+#[logged]
+pub async fn deliver_effort(engine: &Arc<Engine>, agent_id: i64, previous: &str, level: &str) -> Value {
+    if previous == level {
+        return json!({ "delivery": "unchanged", "effort": level });
+    }
+    let next = |reason: &str| json!({ "delivery": "next_turn", "effort": level, "reason": reason });
+    let Some(h) = engine.agents.get(agent_id) else { return next("no turn is running") };
+    let (tx, rx) = oneshot::channel();
+    if !h.send(AgentMsg::Effort(previous.to_string(), tx)) {
+        return next("no turn is running");
+    }
+    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(v)) => v,
+        _ => next("the agent did not answer in time"),
+    }
 }
 
 /// Warming stops starting CLIs below this much free commit memory: a machine

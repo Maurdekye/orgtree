@@ -1160,7 +1160,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         // holds before and after the grant, inside this transaction.
         let before = held_scope_in(&*tx, engine, org.id, open.agent_id).await?;
         if !approved.is_empty() {
-            fx.scope = Some(apply_scope(org, &tx, &open.agent, &approved).await?);
+            fx.scope = Some(apply_scope(engine, org, &tx, &open.agent, &approved).await?);
         }
         let after = held_scope_in(&*tx, engine, org.id, open.agent_id).await?;
         let mut decided = Vec::new();
@@ -1206,7 +1206,7 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
 /// them, so the chain above is raised as needed by the scope route).
 #[logged]
 async fn apply_scope(
-    org: &Arc<OrgHandle>, tx: &Transaction<'_>, agent: &str, items: &[Value],
+    engine: &Engine, org: &Arc<OrgHandle>, tx: &Transaction<'_>, agent: &str, items: &[Value],
 ) -> Result<crate::http::nodes::ScopeEffects> {
     let sc: Value = tx
         .query_one("SELECT scope FROM ot.agents WHERE org_id = $1 AND name = $2 AND state <> 'deleted' FOR UPDATE", &[&org.id, &agent])
@@ -1243,5 +1243,5 @@ async fn apply_scope(
     }
     patch["add_dirs"] = json!(dirs);
     patch["tools"] = tools;
-    crate::http::nodes::apply_user_scope_in_tx(org, tx, agent, &patch).await
+    crate::http::nodes::apply_user_scope_in_tx(engine, org, tx, agent, &patch).await
 }

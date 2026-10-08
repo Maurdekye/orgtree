@@ -801,27 +801,8 @@ impl Actor {
                 };
                 let _ = reply.send(r);
             }
-            AgentMsg::Effort(level, reply) => {
-                let live = catalog::tier(&self.tier().await).map(|t| t.live_effort).unwrap_or(false);
-                let r = match (&self.proc, &self.turn) {
-                    (Some(p), Some(_)) if live => {
-                        if self.proc_effort.as_deref() == Some(level.as_str()) {
-                            json!({ "effort_delivery": "unchanged" })
-                        } else if p.set_effort(&level) {
-                            self.proc_effort = Some(level.clone());
-                            json!({ "effort_delivery": "sent" })
-                        } else {
-                            json!({ "effort_delivery": "next_turn" })
-                        }
-                    }
-                    (Some(p), None) if live => {
-                        if p.set_effort(&level) {
-                            self.proc_effort = Some(level.clone());
-                        }
-                        json!({ "effort_delivery": "next_turn" })
-                    }
-                    _ => json!({ "effort_delivery": "next_turn" }),
-                };
+            AgentMsg::Effort(previous, reply) => {
+                let r = self.effort_saved(&previous).await;
                 let _ = reply.send(r);
                 self.update_forecast().await;
                 self.publish();
@@ -912,6 +893,53 @@ impl Actor {
                 false
             }
         }
+    }
+
+    /// A saved effort change (3.x `send_live_effort`; `previous` is the level
+    /// the agent resolved to before the save). A running Claude turn is sent
+    /// `apply_flag_settings {effortLevel}` with the level it resolves to now,
+    /// always explicit (a cleared level is sent what it falls back to): its
+    /// next model call uses it. Everything else takes it from the next turn.
+    /// Either way a process that no longer matches the level is not used for
+    /// another turn: a CLI may acknowledge a level it ignores, and Codex keeps
+    /// the level it started with, so the next turn starts a fresh process with
+    /// the new level (an idle one is replaced now, as a reconfiguration is).
+    async fn effort_saved(&mut self, previous: &str) -> Value {
+        let ctx = match self.load_ctx().await {
+            Ok(ctx) => ctx,
+            Err(e) => return json!({ "delivery": "next_turn", "effort": previous, "reason": format!("{e:#}") }),
+        };
+        let level = ctx.effort.clone();
+        if level == previous {
+            return json!({ "delivery": "unchanged", "effort": level });
+        }
+        if self.proc.is_some() && self.proc_effort.as_deref() != Some(level.as_str()) {
+            self.reconfigured = true;
+        }
+        let next = |reason: &str| json!({ "delivery": "next_turn", "effort": level, "reason": reason });
+        let live = catalog::tier(&ctx.tier).map(|t| t.live_effort).unwrap_or(false);
+        let out = if ctx.provider != catalog::CLAUDE {
+            next("only Claude turns take an effort change mid-turn")
+        } else if !live {
+            next(&format!("{} has no effort level to change", ctx.tier))
+        } else {
+            let running = self.turn.is_some();
+            match self.proc.as_mut() {
+                Some(p @ Proc::Claude(_)) if running => {
+                    if !p.alive() {
+                        next("the CLI process has exited")
+                    } else if p.set_effort(&level) {
+                        self.proc_effort = Some(level.clone());
+                        json!({ "delivery": "sent", "effort": level })
+                    } else {
+                        next("the running process could not be reached")
+                    }
+                }
+                _ => next("no turn is running"),
+            }
+        };
+        self.replace_idle_process().await;
+        out
     }
 
     /// Reconfiguration waits for a busy turn, but never for the next mail.
@@ -1097,13 +1125,7 @@ impl Actor {
         } else {
             None
         };
-        let effort = configured
-            .get("effort")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| settings.get("default_effort").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string))
-            .unwrap_or_else(|| catalog::DEFAULT_EFFORT.to_string());
+        let effort = catalog::effective_effort(&configured, &settings);
         let fallback = configured
             .get("account_fallback")
             .and_then(Value::as_bool)

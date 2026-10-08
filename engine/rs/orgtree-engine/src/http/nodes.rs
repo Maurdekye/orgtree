@@ -429,7 +429,7 @@ pub async fn set_scope(
 pub async fn apply_user_scope(e: &Arc<Engine>, org: &Arc<OrgHandle>, nid: &str, b: &Value) -> anyhow::Result<Value> {
     let mut client = e.db.get().await?;
     let tx = client.transaction().await?;
-    let fx = apply_user_scope_in_tx(org, &tx, nid, b).await?;
+    let fx = apply_user_scope_in_tx(e, org, &tx, nid, b).await?;
     tx.commit().await?;
     drop(client);
     Ok(apply_scope_effects(e, org, fx).await)
@@ -440,7 +440,9 @@ pub(crate) struct ScopeEffects {
     fields: Vec<String>,
     agent_id: i64,
     subtree: Vec<i64>,
-    effort_change: Option<String>,
+    /// the levels the agent resolved to before and after the save, when the
+    /// request set or cleared its effort
+    effort_change: Option<(String, String)>,
     structural: bool,
     out: Value,
 }
@@ -448,7 +450,7 @@ pub(crate) struct ScopeEffects {
 /// Shared mutation path for direct user edits and atomic request approvals.
 #[logged]
 pub(crate) async fn apply_user_scope_in_tx(
-    org: &Arc<OrgHandle>, tx: &tokio_postgres::Transaction<'_>, nid: &str, b: &Value,
+    e: &Engine, org: &Arc<OrgHandle>, tx: &tokio_postgres::Transaction<'_>, nid: &str, b: &Value,
 ) -> anyhow::Result<ScopeEffects> {
     let a = {
         let r = tx
@@ -468,7 +470,7 @@ pub(crate) async fn apply_user_scope_in_tx(
     let before: Value = row.get(0);
     let mut sc = scope::normalize(&before);
     let obj = sc.as_object_mut().unwrap();
-    let mut effort_change: Option<String> = None;
+    let effort_saved = b.get("effort").is_some();
     if let Some(d) = b.get("add_dirs").filter(|v| v.is_array()) {
         obj.insert("add_dirs".into(), scope::normalize(&json!({ "add_dirs": d }))["add_dirs"].clone());
     }
@@ -494,14 +496,10 @@ pub(crate) async fn apply_user_scope_in_tx(
         if !level.is_empty() && !crate::providers::catalog::EFFORTS.contains(&level.as_str()) {
             crate::refuse!(BadRequest, "unknown effort {level}");
         }
-        let old = obj.get("effort").and_then(Value::as_str).unwrap_or("").to_string();
         if level.is_empty() {
             obj.remove("effort");
         } else {
             obj.insert("effort".into(), json!(level));
-        }
-        if old != level {
-            effort_change = Some(level);
         }
     }
     if let Some(v) = b.get("model_version") {
@@ -533,6 +531,16 @@ pub(crate) async fn apply_user_scope_in_tx(
             }
         }
     }
+    // 3.x compared the levels the agent resolves to, not the stored values:
+    // a cleared level falls back to the org default
+    let effort_change = if effort_saved {
+        let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
+        let settings = crate::feed::groups::effective_settings(&stored, &e.settings.defaults());
+        let level = |s: &Value| crate::providers::catalog::effective_effort(s, &settings);
+        Some((level(&before), level(&sc)))
+    } else {
+        None
+    };
     let charter = b.get("charter").and_then(Value::as_str).map(str::to_string);
     let team_charter = b.get("team_charter").and_then(Value::as_str).map(str::to_string);
     tx.execute(
@@ -587,17 +595,8 @@ pub(crate) async fn apply_scope_effects(e: &Arc<Engine>, org: &Arc<OrgHandle>, f
             }
         }
     }
-    if let Some(level) = effort_change {
-        let live = match e.agents.get(agent_id) {
-            Some(_) => {
-                let lv = level.clone();
-                ask(&e, org.id, agent_id, move |tx| AgentMsg::Effort(lv, tx)).await.ok()
-            }
-            None => None,
-        };
-        out["effort_delivery"] = live
-            .and_then(|v| v.get("effort_delivery").cloned())
-            .unwrap_or_else(|| json!("next_turn"));
+    if let Some((previous, level)) = effort_change {
+        out["effort_delivery"] = runtime::deliver_effort(e, agent_id, &previous, &level).await;
     }
     out
 }

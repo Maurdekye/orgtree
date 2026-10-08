@@ -53,6 +53,9 @@ pub(crate) struct Effects {
     /// watchdogs to stop / start after commit
     dogs_off: Vec<String>,
     dogs_on: Vec<String>,
+    /// a retool that set or cleared an agent's effort: (agent, the levels it
+    /// resolved to before and after), delivered after commit
+    effort: Option<(i64, String, String)>,
 }
 
 /// A locked agent row.
@@ -386,8 +389,13 @@ pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: 
         let mut fx = Effects::default();
         let res = run_once(engine, org, &actor, &op, req, &mut fx).await;
         match res {
-            Ok(v) => {
+            Ok(mut v) => {
+                let effort = fx.effort.take();
                 apply_effects(engine, org, fx).await;
+                // 3.x: the level is committed now, so a running Claude turn may be sent it
+                if let Some((id, previous, level)) = effort {
+                    v["effort_delivery"] = crate::runtime::deliver_effort(engine, id, &previous, &level).await;
+                }
                 return Ok(v);
             }
             Err(e) if attempt < 4 && retryable(&e) => {
@@ -1862,6 +1870,15 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if let Actor::Agent { id, .. } = actor {
         scope::require_grant(&granted, &capability(tx, *id, &settings).await?)?;
     }
+    if req.get("effort").is_some_and(Value::is_string) {
+        let level = |s: &Value| catalog::effective_effort(s, &settings);
+        fx.effort = Some((n.id, level(&n.scope), level(&sc)));
+    }
+    // an effort change alone restarts nobody's process (the delivery after
+    // commit settles the agent's own), as on the user's settings path
+    let effort_only = req.as_object().is_some_and(|o| {
+        o.iter().all(|(k, v)| ["op", "node", "effort"].contains(&k.as_str()) || v.is_null())
+    });
     let mut cascaded = Vec::new();
     if granted.as_object().is_some_and(|o| !o.is_empty()) {
         let ancestors = chain(tx, n.id).await?;
@@ -1923,8 +1940,10 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         }
     }
     fx.agents.extend(below.iter().copied());
-    fx.reconfigure.push(n.id);
-    fx.reconfigure.extend(below);
+    if !effort_only {
+        fx.reconfigure.push(n.id);
+        fx.reconfigure.extend(below);
+    }
     fx.events = true;
     let mut out = account_result.unwrap_or_else(|| json!({}));
     out["cascaded"] = json!(cascaded);

@@ -79,6 +79,17 @@ pub const SEAT_FLOOR: f64 = 0.10;
 pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 pub const DEFAULT_EFFORT: &str = "high";
 
+/// The effort an agent's turns launch with (3.x `Org.effective_effort`): its
+/// own level, else the org default (`settings` = the org's effective
+/// settings), else DEFAULT_EFFORT. Never empty, and a stored level outside
+/// EFFORTS reads as DEFAULT_EFFORT, not as the org default.
+#[logged]
+pub fn effective_effort(scope: &serde_json::Value, settings: &serde_json::Value) -> String {
+    let own = scope.get("effort").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+    let level = own.or_else(|| settings.get("default_effort").and_then(|v| v.as_str())).unwrap_or("");
+    if EFFORTS.contains(&level) { level.to_string() } else { DEFAULT_EFFORT.to_string() }
+}
+
 /// Match the 3.x Antigravity CLI vocabulary; larger inherited levels clamp
 /// to high. Staffing offers only levels that need no translation.
 #[logged]
