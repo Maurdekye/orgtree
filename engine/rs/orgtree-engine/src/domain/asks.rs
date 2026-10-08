@@ -1121,9 +1121,14 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
             let g = credit_total(g)?;
             decided_any = true;
             grant_credits(engine, org, &tx, &open.agent, g, &mut fx.credits).await?;
-            sections.push(format!("Credits: granted — your grant is now {g} (you asked for {}).", c["new"]));
-            cards.push(json!({ "kind": "credit", "outcome": if (g - wanted).abs() < 1e-9 { "approved" } else { "counter" },
-                               "old": old, "asked": wanted, "granted": g, "now": g }));
+            let outcome = crate::events::credit_outcome(old, wanted, Some(g));
+            sections.push(match outcome {
+                "approved" => format!("Credits: granted — your grant is now {g} (you asked for {}).", c["new"]),
+                "declined" => format!("Credits: increase declined — your grant stays {g} (you asked for {}).", c["new"]),
+                "reduced" => format!("Credits: reduced — your grant is now {g}, less than before (you asked for {}).", c["new"]),
+                _ => format!("Credits: counter-offered — your grant is now {g} (you asked for {}).", c["new"]),
+            });
+            cards.push(json!({ "kind": "credit", "outcome": outcome, "old": old, "asked": wanted, "granted": g, "now": g }));
         } else if cd["deny"].as_bool().unwrap_or(false) {
             decided_any = true;
             sections.push(format!("Credits: denied (you asked for {}).", c["new"]));

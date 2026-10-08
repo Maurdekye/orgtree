@@ -31,11 +31,23 @@ pub fn status_report(org: &str, node: &str, generation: i64, state: &str, summar
     typed("status.report", node, node_ref(org, node, generation), json!({ "state": state, "summary": summary }))
 }
 
+/// A credit decision's outcome, as in 3.x: approved (what was asked),
+/// counter (more than the agent had, not what it asked), declined (exactly
+/// what it had), reduced (less than it had), denied.
+#[logged]
+pub fn credit_outcome(old: f64, asked: f64, granted: Option<f64>) -> &'static str {
+    match granted {
+        None => "denied",
+        Some(n) if (n - asked).abs() < 1e-9 => "approved",
+        Some(n) if n > old + 1e-9 => "counter",
+        Some(n) if (n - old).abs() < 1e-9 => "declined",
+        Some(_) => "reduced",
+    }
+}
+
 #[logged]
 pub fn credit_decision(org: &str, node: &str, request: &str, old: f64, asked: f64, granted: Option<f64>) -> Value {
-    let outcome = match granted {
-        None => "denied", Some(n) if n < old => "reduced", Some(n) if n == asked => "approved", Some(_) => "counter",
-    };
+    let outcome = credit_outcome(old, asked, granted);
     typed("decision.credit", USER, json!({"kind":"credit_request", "org":org, "id":request, "node":node}),
           json!({ "outcome": outcome, "old": old, "asked": asked, "granted": granted, "now": granted.unwrap_or(old) }))
 }
