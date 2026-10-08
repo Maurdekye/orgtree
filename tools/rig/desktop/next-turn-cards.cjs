@@ -20,6 +20,9 @@ module.exports=async(page,{args})=>{
   if(args.target){
    const evidence=await page.eval(()=>({model:!!document.querySelector('.tier.t-luna'), effort:[...document.querySelectorAll('[data-effort-level]')].some(e=>e.dataset.effortLevel==='medium')}));
    if(!evidence.model||!evidence.effort)throw Error('current model/effort missing '+JSON.stringify(evidence));
+   const misplaced=await page.eval(()=>[...document.querySelectorAll('[data-next-turn="model"]')]
+    .filter(e=>e.getBoundingClientRect().width>0&&!e.closest('.cc-head-meta, .sq-badges')).length);
+   if(misplaced)throw Error('queued model is outside the badge row');
   }
   return badges;
  };
@@ -49,6 +52,8 @@ module.exports=async(page,{args})=>{
   await page.waitFor('.pinwin [data-next-turn]');
   pinned=await page.eval(()=>[...document.querySelectorAll('.pinwin [data-next-turn]')].filter(e=>e.getBoundingClientRect().width>0).map(e=>({kind:e.dataset.nextTurn,text:e.textContent,title:e.title})));
   if(pinned.length!==3)throw Error('pinned header must have one of each: '+JSON.stringify(pinned));
+  if(!await page.eval(()=>!!document.querySelector('.pinwin .cc-head-meta [data-next-turn="model"]')))
+   throw Error('pinned queued model must be in the badge row');
   await page.screenshot('queued-pinned-header');
  }
  return {header,zoomCard,pinned};
