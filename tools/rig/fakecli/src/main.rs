@@ -67,6 +67,8 @@ struct Args {
     max_turns: Option<u32>,
     effort: Option<String>,
     add_dirs: Vec<String>,
+    /// `--disallowed-tools`: left out of the tool list, as the CLI does
+    disallowed: Vec<String>,
     unknown: Vec<String>,
 }
 
@@ -85,8 +87,12 @@ fn parse_args(raw: &[String]) -> Args {
             "--max-turns" => { a.max_turns = val(i).parse().ok(); i += 1; }
             "--effort" => { a.effort = Some(val(i)); i += 1; }
             "--add-dir" => { a.add_dirs.push(val(i)); i += 1; }
+            "--disallowed-tools" => {
+                a.disallowed.extend(val(i).split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string));
+                i += 1;
+            }
             "--input-format" | "--output-format" | "--append-system-prompt-file" | "--settings" | "--mcp-config"
-            | "--disallowed-tools" | "--allowedTools" => { i += 1; }
+            | "--allowedTools" => { i += 1; }
             "-p" | "--print" | "--include-partial-messages" | "--verbose" | "--strict-mcp-config" => {}
             other => a.unknown.push(other.to_string()),
         }
@@ -469,6 +475,43 @@ fn finish(cli: &Cli, turn: &mut Turn, state_cost: &mut f64) {
 }
 
 /// The CLI's config folder: `CLAUDE_CONFIG_DIR`, else the fake home's `.claude`.
+/// An environment switch as the CLI reads one: 1, true, yes or on.
+fn env_on(name: &str) -> bool {
+    std::env::var(name).map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")).unwrap_or(false)
+}
+
+/// The CLI's global config: `<CLAUDE_CONFIG_DIR>/.claude.json`, else `~/.claude.json`.
+fn global_config() -> Option<PathBuf> {
+    match std::env::var("CLAUDE_CONFIG_DIR").ok().filter(|s| !s.is_empty()) {
+        Some(d) => Some(PathBuf::from(d).join(".claude.json")),
+        None => std::env::var("ORGTREE_FAKECLI_HOME").ok().filter(|s| !s.is_empty()).map(|h| PathBuf::from(h).join(".claude.json")),
+    }
+}
+
+/// The CLI's Windows PowerShell tool gate (2.1.292): CLAUDE_CODE_USE_POWERSHELL_TOOL
+/// decides when set; otherwise (Git Bash installed) the server-side flag
+/// `tengu_cobalt_ridge`, default off. Flags come from the flag service unless
+/// telemetry is off (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, DISABLE_TELEMETRY,
+/// DO_NOT_TRACK); then only CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF lets
+/// the CLI read the copy cached in its global config. The rig has no flag
+/// service: that cached copy stands in for it.
+fn powershell_tool() -> bool {
+    if std::env::var("CLAUDE_CODE_USE_POWERSHELL_TOOL").is_ok() {
+        return env_on("CLAUDE_CODE_USE_POWERSHELL_TOOL");
+    }
+    let telemetry_off = std::env::var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC").is_ok_and(|v| !v.is_empty())
+        || std::env::var("DISABLE_TELEMETRY").is_ok_and(|v| !v.is_empty())
+        || env_on("DO_NOT_TRACK");
+    if telemetry_off && !env_on("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF") {
+        return false;
+    }
+    global_config()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v["cachedGrowthBookFeatures"]["tengu_cobalt_ridge"].as_bool())
+        .unwrap_or(false)
+}
+
 fn config_base() -> Option<PathBuf> {
     std::env::var("CLAUDE_CONFIG_DIR")
         .ok()
@@ -494,12 +537,12 @@ fn transcript(cli: &Cli, role: &str, text: &str) {
     }
 }
 
-fn run_turn(cli: &Cli, prompt: &str, tools: &[String], first: &mut bool, cost: &mut f64) {
+fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first: &mut bool, cost: &mut f64) {
     cli.interrupted.store(false, Ordering::SeqCst);
     let (script, steps) = pick(cli, prompt);
     cli.log("turn", json!({ "script": script, "prompt": prompt, "steps": steps.len() }));
     transcript(cli, "user", prompt);
-    let mut tool_names: Vec<Value> = ["Task", "Bash", "Glob", "Grep", "Read", "Edit", "Write", "TodoWrite"].iter().map(|t| json!(t)).collect();
+    let mut tool_names: Vec<Value> = native.iter().map(|t| json!(t)).collect();
     tool_names.extend(tools.iter().map(|t| json!(format!("mcp__orgtree__{t}"))));
     cli.emit(json!({ "type": "system", "subtype": "init", "cwd": cli.cwd, "tools": tool_names,
                      "mcp_servers": [{ "name": "orgtree", "status": "connected" }], "model": cli.model,
@@ -691,7 +734,20 @@ fn claude(raw: &[String]) -> i32 {
         cwd: cwd.clone(),
         dir,
     });
+    // the CLI's own tools, as its init event lists them
+    let native: Vec<String> = ["Task", "Bash", "PowerShell", "Glob", "Grep", "Read", "Edit", "Write", "TodoWrite"]
+        .iter()
+        .filter(|t| **t != "PowerShell" || powershell_tool())
+        .filter(|t| !args.disallowed.iter().any(|d| d == *t))
+        .map(|t| t.to_string())
+        .collect();
+    let env_of = |k: &str| std::env::var(k).ok();
     cli.log("start", json!({ "args": raw, "cwd": cwd, "session": session, "resumed": args.resume.is_some(),
+                              "tools": native,
+                              "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": env_of("CLAUDE_CODE_USE_POWERSHELL_TOOL"),
+                                       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": env_of("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
+                                       "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF": env_of("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"),
+                                       "ORGTREE_NODE": env_of("ORGTREE_NODE") },
                               "forked_from": if args.fork { args.resume.clone() } else { None }, "max_turns": args.max_turns,
                               "model": args.model, "permission_mode": args.permission_mode, "effort": args.effort,
                               "add_dirs": args.add_dirs, "unknown_args": args.unknown,
@@ -753,7 +809,7 @@ fn claude(raw: &[String]) -> i32 {
                 cli.log("mcp_ready", json!({ "tools": tools.len() }));
             }
             Msg::Prompt(text) => {
-                run_turn(&cli, &text, &tools, &mut first, &mut cost);
+                run_turn(&cli, &text, &tools, &native, &mut first, &mut cost);
                 if let Some(p) = &state_file {
                     let mut s = load_json(p).unwrap_or_else(|| json!({}));
                     s["cost"][&session] = json!(cost);
