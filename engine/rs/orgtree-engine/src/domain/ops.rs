@@ -191,7 +191,9 @@ async fn caps(engine: &Engine, tx: &Transaction<'_>, org_id: i64) -> Result<OrgC
     let s: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
     let eff = crate::feed::groups::effective_settings(&s, &engine.settings.defaults());
     Ok(OrgCaps {
-        max_top: eff["max_top_grant"].as_f64().unwrap_or(1000.0),
+        // 0 is uncapped, as in 3.x (D-014) and as the credit request's
+        // headroom and the desk's credit bar read it
+        max_top: eff["max_top_grant"].as_f64().map(|c| if c > 0.0 { c } else { f64::INFINITY }).unwrap_or(1000.0),
         cascade_hire: eff["cascade_hire"].as_bool().unwrap_or(true),
         cascade_alloc: eff["cascade_alloc"].as_bool().unwrap_or(true),
         settings: eff,
