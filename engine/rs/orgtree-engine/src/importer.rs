@@ -628,7 +628,11 @@ async fn copy_sections(
     }
 
     // ---- asks: open, and the newest resolved ones ----
+    // Each agent's open question, pending credit request and pending scope
+    // request (three tables in 3.x, resolved at one submit) become its one
+    // open card, composed like a card asked in this engine.
     *at = Section("asks");
+    let mut open: Vec<OpenCard> = Vec::new();
     let asks = src
         .query(
             "SELECT public_id, node, kind, question, questions, at, header, rev, status, reason, answer, resolved_at,
@@ -669,6 +673,26 @@ async fn copy_sections(
         let status: String = k.get::<_, Option<String>>(8).unwrap_or_else(|| "open".into());
         let status = if status == "pending" { "open".to_string() } else { status };
         let work: Vec<String> = k.get(15);
+        if status == "open" {
+            let mut tabs = crate::domain::asks::legacy_questions(&Value::Object(body));
+            // the older single-question shape keeps its docket link only in
+            // its own table: one link belongs to every tab (3.x's top-level
+            // work_item); tabs that carry links already are left as they are
+            if work.len() == 1 && !tabs.iter().any(|t| t.get("work_item").is_some_and(|w| !w.is_null())) {
+                for t in &mut tabs {
+                    t["work_item"] = json!(work[0]);
+                }
+            }
+            let card = open_card(&mut open, &node.unwrap_or_default(), k.get(0), k.get(5));
+            for t in tabs {
+                match card.parts.questions.iter_mut().find(|x| x["question"] == t["question"]) {
+                    Some(x) => *x = t,
+                    None => card.parts.questions.push(t),
+                }
+            }
+            card.work.extend(work);
+            continue;
+        }
         tx.execute(
             "INSERT INTO ot.asks (uid, org_id, agent_id, kind, status, body, rev, created_at, resolved_at, reason, answer, answer_mail, work_items)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (uid) DO NOTHING",
@@ -687,6 +711,66 @@ async fn copy_sections(
                 &k.get::<_, Option<String>>(12),
                 &work,
             ],
+        )
+        .await?;
+    }
+    *at = Section("credit_requests");
+    for c in src
+        .query(
+            "SELECT public_id, node, at, old::float8, new::float8, reason FROM orgtree.credit_requests
+              WHERE status = 'pending' ORDER BY id",
+            &[],
+        )
+        .await?
+    {
+        let node: Option<String> = c.get(1);
+        if !node.as_ref().is_some_and(|n| id_by_name.contains_key(n)) {
+            continue;
+        }
+        let card = open_card(&mut open, &node.unwrap_or_default(), c.get(0), c.get(2));
+        card.parts.credit = Some(json!({ "old": c.get::<_, Option<f64>>(3), "new": c.get::<_, Option<f64>>(4),
+                                         "reason": c.get::<_, Option<String>>(5) }));
+    }
+    *at = Section("scope_requests");
+    for r in src
+        .query(
+            "SELECT public_id, node, at, reason,
+                    (SELECT coalesce(json_agg(json_build_object('kind', i.kind, 'path', i.path, 'mode', i.mode, 'tool', i.tool,
+                                                                'server', i.server) ORDER BY i.pos), '[]'::json)
+                       FROM orgtree.scope_request_items i WHERE i.scope_requests_id = r.id)
+               FROM orgtree.scope_requests r WHERE status = 'pending' ORDER BY id",
+            &[],
+        )
+        .await?
+    {
+        let node: Option<String> = r.get(1);
+        if !node.as_ref().is_some_and(|n| id_by_name.contains_key(n)) {
+            continue;
+        }
+        let items: Vec<Value> = r.get::<_, Value>(4).as_array().into_iter().flatten().filter_map(scope_item).collect();
+        if items.is_empty() {
+            continue;
+        }
+        let card = open_card(&mut open, &node.unwrap_or_default(), r.get(0), r.get(2));
+        card.parts.scope = Some(json!({ "items": items, "reason": r.get::<_, Option<String>>(3).unwrap_or_default() }));
+    }
+    *at = Section("asks");
+    for card in open {
+        let Some(agent) = id_by_name.get(&card.node).copied() else { continue };
+        if card.parts.questions.is_empty() && card.parts.credit.is_none() && card.parts.scope.is_none() {
+            continue;
+        }
+        let (kind, body) = crate::domain::asks::compose(&card.uid, 1, &card.parts);
+        let mut work: Vec<String> = body["work_items"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+        for w in card.work {
+            if !work.contains(&w) {
+                work.push(w);
+            }
+        }
+        tx.execute(
+            "INSERT INTO ot.asks (uid, org_id, agent_id, kind, status, body, rev, created_at, work_items)
+             VALUES ($1, $2, $3, $4, 'open', $5, 1, $6, $7) ON CONFLICT (uid) DO NOTHING",
+            &[&card.uid, &org_id, &agent, &kind, &body, &card.at, &work],
         )
         .await?;
     }
@@ -1039,6 +1123,52 @@ async fn copy_sections(
         .await?;
     }
     Ok(rows.len())
+}
+
+/// One agent's open requests, gathered from the three 3.x tables.
+struct OpenCard {
+    node: String,
+    uid: String,
+    at: DateTime<Utc>,
+    parts: crate::domain::asks::Parts,
+    work: Vec<String>,
+}
+
+/// The card of `node`, opened with the first request's id and time; a later
+/// request moves the card's time back to the earliest.
+#[logged]
+fn open_card<'a>(open: &'a mut Vec<OpenCard>, node: &str, id: Option<String>, at: Option<DateTime<Utc>>) -> &'a mut OpenCard {
+    let i = match open.iter().position(|c| c.node == node) {
+        Some(i) => i,
+        None => {
+            open.push(OpenCard {
+                node: node.to_string(),
+                uid: id.unwrap_or_else(|| uid("q")),
+                at: at.unwrap_or_else(Utc::now),
+                parts: Default::default(),
+                work: Vec::new(),
+            });
+            open.len() - 1
+        }
+    };
+    let card = &mut open[i];
+    if let Some(t) = at.filter(|t| *t < card.at) {
+        card.at = t;
+    }
+    card
+}
+
+/// A 3.x scope request item in this engine's shape (None when unusable).
+#[logged]
+fn scope_item(it: &Value) -> Option<Value> {
+    let text = |k: &str| it[k].as_str().map(str::trim).filter(|s| !s.is_empty());
+    match text("kind")? {
+        "dir" => Some(json!({ "kind": "dir", "path": text("path")?, "mode": text("mode").unwrap_or("rw") })),
+        "tool" => Some(json!({ "kind": "tool", "tool": text("tool")? })),
+        "mcp" => Some(json!({ "kind": "mcp", "server": text("server")? })),
+        "permission_mode" => Some(json!({ "kind": "permission_mode", "mode": text("mode")? })),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
