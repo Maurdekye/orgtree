@@ -870,7 +870,9 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
 async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     if n.state == "live" {
-        refuse!(Conflict, "{} is already live", n.name);
+        // asking for what is already true is a no-op, not an error (3.x)
+        authorize(tx, actor, &n, "rehire").await?;
+        return Ok(json!({ "node": n.name, "cost": 0, "warnings": [format!("{} is already live — nothing to do", n.name)] }));
     }
     if n.state == "unrecoverable" {
         refuse!(Conflict, "{} cannot be rehired: its session is lost", n.name);
