@@ -38,6 +38,13 @@ const env = {
   ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
 }
 if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
+// `up --hub`: the engine hosts the run's own mail hub, and network mail
+// reaches that loopback hub and no other (src/rig.rs `hub`)
+if (run.hub) {
+  env.ORGTREE_RIG_HUB = '1'
+  env.ORGTREE_HUB_BIN = run.hub
+  delete env.ORGTREE_NET_OFFLINE
+}
 if (run.recover) env.ORGTREE_RIG_RECOVER = '1'
 // the automatic wakes (checkups, idle docket reminders), swept every `reminders` seconds (true: 5)
 if (run.reminders) {

@@ -3,7 +3,7 @@
 //
 //   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
-//                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb]
+//                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]]
 //   node tools/rig/rig.mjs status|down [--run id] [--keep]
 //   node tools/rig/rig.mjs cleanup [--mine|--everyone] [--dry-run]
 //   node tools/rig/rig.mjs tool <agent> <orgtree_tool> [json args]
@@ -49,7 +49,7 @@ async function up(flags) {
   const rig = await startRun({ name: flags.name, ttlMin: flags.ttl && Number(flags.ttl), maxMin: flags.max && Number(flags.max),
     ui: flags.ui, engine: flags.engine, legacy: flags.legacy && path.resolve(flags.legacy), initdb: !!flags.initdb, prepare: flags.prepare,
     recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)),
-    reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs) })
+    reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes) })
   let made = null
   if (flags.fixture !== 'none') {
     try { made = await seed(rig, loadFixture(flags.fixture === true ? undefined : flags.fixture)) } catch (e) {
@@ -60,7 +60,7 @@ async function up(flags) {
   }
   rig.refresh()
   return { run: rig.run.id, dir: rig.dir, url: rig.url, token: rig.token, org: rig.org, pgBin: rig.run.pgBin, ui: rig.run.ui,
-    readyMs: rig.run.readyMs, seeded: made, fakecli: rig.fakeDir, ttlMin: rig.run.ttlMin }
+    readyMs: rig.run.readyMs, seeded: made, fakecli: rig.fakeDir, ttlMin: rig.run.ttlMin, hub: rig.hubUrl }
 }
 
 function build() {

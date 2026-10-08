@@ -69,6 +69,7 @@ the run.
 | `codex-accounts.mjs` | Codex agents across accounts: an imported Codex home (B) and an API-key account (K) added through the accounts route; agents hired on B run with its `CODEX_HOME`, on K with the key in the key's own home; a usage limit with account fallback moves an agent to B at once (thread carried into B's home and resumed, the stopped request given again); `orgtree_continue_on` does the same for a frozen agent; B turned off holds its agents' mail until it is back; B removed puts its agents back on the primary with a fresh thread and the handoff note |
 | `codex-lane.mjs` | luna agents on the fake `codex app-server`: a normal turn (reasoning, message, a dynamic `orgtree_*` tool, an approval, tokens as a difference of the thread's totals), the thread resumed after an engine restart, mid-turn mail through `turn/steer`, an interrupt, the app-server dying mid-turn (connection freeze, the retry resumes the thread), `usageLimitExceeded` (a limit freeze until the turn's own reset), `unauthorized` (superior told, no park), the sandbox runner hint |
 | `canvas-resize-crash.mjs` | the canvas survives a viewport resize right after mount (finding F1); run with `up --ui <bundle>` |
+| `mailhub-v2.mjs` | Orgtree 4.0.2 against mail hub v2 through the real net client (`up --hub`): the engine hosts `orgtree-mailhub.exe` on its own role and database (that role kept out of the engine's database, at most 8 connections) and imports a v1 `hub.sqlite3` at the first start (kept; a message v1 had queued is delivered); two orgs register, long-poll, acknowledge, receipts go sent/delivered/read, an attachment round-trips; a person registered over HTTP is listed with kind person and each hub's version; replies over @net (an agent's, the org inbox panel's, a person's and one to a person) carry `reply_to` through the hub and arrive quoted (IN REPLY TO), an internal reply and its refusals; 30,000 characters, 100 KB and 40,000 characters arrive whole; the hub forgets an org and the engine registers again; `--big`: one whole 1 GiB file between the orgs, timed and sha256 checked, and refused at send with one byte of text more |
 
 ## What keeps it safe
 
@@ -219,7 +220,12 @@ from a script's `setup()`). A safe start also never runs the automatic wakes (wo
 idle docket reminders, abandoned docket recovery); `reminders` (`up --reminders [seconds]`, or
 `{ reminders: true }`) starts that sweep on a 5 s cycle (or every N seconds; the product's is
 20), the working cache keeper included; `reminderPauseMs` holds each wake between its
-reservation and its mail, so a script can start real work in that window. The wakes fire after 20 minutes without activity, so a script back-dates the agents' turns,
+reservation and its mail, so a script can start real work in that window.
+`up --hub [exe]` (or `{ hub: true }`) makes the engine host a mail hub inside
+the run: the binary (by default an `orgtree-mailhub.exe` in your cargo target,
+release first, else the submodule's release build) is copied into the run, gets
+a free loopback port and the name "rig hub", and the run's network mail reaches
+it and no other hub (`rig.hubUrl`); without it network mail stays off. The wakes fire after 20 minutes without activity, so a script back-dates the agents' turns,
 status and wake stamps with `rig.exec` rather than waiting (see `reminders.mjs`).
 
 Before and after: `ORGTREE_RIG_ENGINE=<exe>` makes every run of a script (and the runs it starts)

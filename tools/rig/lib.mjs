@@ -10,6 +10,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -102,6 +103,30 @@ export function engineExe(explicit) {
   const v = spawnSync(exe, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 20000 })
   if (!/\(dev\)/.test(v.stdout || '')) throw new Error(`${exe} is not a debug (dev) engine build (${(v.stdout || v.stderr || '').trim()}); the rig needs one`)
   return exe
+}
+
+/** The mail hub a run hosts (`up --hub [exe]`): the named binary, else
+ * ORGTREE_RIG_HUB_BIN, else an orgtree-mailhub.exe in your cargo target
+ * (release first), else the submodule's own release build. */
+export function hubExe(explicit) {
+  const named = typeof explicit === 'string' ? explicit : process.env.ORGTREE_RIG_HUB_BIN
+  const target = (() => { try { return cargoTarget() } catch { return null } })()
+  const candidates = named ? [named] : [target && path.join(target, 'release', 'orgtree-mailhub.exe'), target && path.join(target, 'debug', 'orgtree-mailhub.exe'),
+    path.join(REPO, 'engine', 'mailhub', 'target', 'release', 'orgtree-mailhub.exe')]
+  const exe = candidates.filter(Boolean).find(p => fs.existsSync(p))
+  if (!exe) throw new Error(`no mail hub binary found (looked in ${candidates.filter(Boolean).join(', ')}); pass up --hub <orgtree-mailhub.exe>`)
+  const v = spawnSync(exe, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 20000 })
+  if (!/^orgtree-mailhub /.test(v.stdout || '')) throw new Error(`${exe} is not an orgtree-mailhub binary (${(v.stdout || v.stderr || '').trim()})`)
+  return exe
+}
+
+/** A loopback port nobody listens on right now. */
+export function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer()
+    s.once('error', reject)
+    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)) })
+  })
 }
 
 export function fakeCliExe(explicit) {
@@ -236,6 +261,8 @@ export class Rig {
   get org() { return this.run.org }
   get data() { return path.join(this.dir, 'data') }
   get fakeDir() { return path.join(this.dir, 'fakecli') }
+  /** The mail hub this run hosts (`up --hub`), on loopback. */
+  get hubUrl() { return this.run.hubPort ? `http://127.0.0.1:${this.run.hubPort}` : null }
 
   refresh() { this.run = readRun(this.dir); return this.run }
 
@@ -416,6 +443,17 @@ export async function startRun(opts = {}) {
   fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
+  // --hub: the engine hosts this mail hub inside the run (its own role and
+  // database in the run's cluster, a free loopback port) and the run's
+  // network mail reaches it and nothing else
+  let hub = null, hubPort = null
+  if (opts.hub) {
+    hub = path.join(dir, 'bin', 'orgtree-mailhub.exe')
+    fs.copyFileSync(hubExe(opts.hub), hub)
+    hubPort = await freePort()
+    fs.writeFileSync(path.join(data, 'mailhub-hosting.json'), JSON.stringify({ version: 2, port: hubPort, bind: '127.0.0.1', name: 'rig hub',
+      retention_days: null, public_listener: false, max_attachment_bytes: opts.hubMaxBytes ?? 1073741824 }, null, 2))
+  }
   fs.mkdirSync(path.join(dir, 'fakecli', 'log'), { recursive: true })
   if (!fs.existsSync(path.join(dir, 'fakecli', 'scenario.json'))) {
     fs.writeFileSync(path.join(dir, 'fakecli', 'scenario.json'), JSON.stringify({ default: { turns: [{ steps: [{ text: 'OK.' }] }] } }, null, 2))
@@ -428,6 +466,7 @@ export async function startRun(opts = {}) {
     // the automatic wakes a safe start holds back, swept every N seconds (true: 5)
     reminders: opts.reminders || null,
     reminderPauseMs: opts.reminderPauseMs || null,
+    hub, hubPort,
   })
   touch(dir)
   await launchKeeper(dir, opts.timeout)
