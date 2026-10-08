@@ -60,7 +60,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         ensure_holders(engine, org_id, Some((*id, name.as_str()))).await?;
     }
     if let Some(peer) = to.strip_prefix("net:") {
-        let (uid, to) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.attachments).await?;
+        let (uid, to) = crate::net::queue(engine, org_id, peer, &out.body, &by, &out.kind, &out.attachments).await?;
         changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
         return Ok(Sent {
             uid,

@@ -734,7 +734,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         let client = engine.db.get().await?;
         client
             .query(
-                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err FROM ot.org_inbox
+                "SELECT id, org_id, peer, body, at, attachments, net_id, last_err, kind FROM ot.org_inbox
                   WHERE dir = 'out' AND state = 'queued' AND org_id = ANY($1) ORDER BY id LIMIT 100",
                 &[&ids],
             )
@@ -829,7 +829,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             .post(format!("{addr}/api/send"))
             .timeout(Duration::from_secs(30))
             .header("X-Org-Auth", p.auth())
-            .json(&json!({ "id": net_id, "to": peer, "body": r.get::<_, String>(3), "kind": "message",
+            .json(&json!({ "id": net_id, "to": peer, "body": r.get::<_, String>(3), "kind": r.get::<_, String>(8),
                            "sent_at": crate::util::iso(at), "from": p.net_slug, "attachments": att_ids }))
             .send()
             .await;
@@ -949,7 +949,7 @@ pub async fn note_read(engine: &Engine, org_id: i64, read: &[(String, String)]) 
 /// Queue one `@net:` message from the org inbox (the send itself is the
 /// sender's job). Refuses when no hub is enabled or no hub knows the peer.
 #[logged]
-pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by: &str, attachments: &[Value]) -> Result<(String, String)> {
+pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by: &str, kind: &str, attachments: &[Value]) -> Result<(String, String)> {
     if offline() {
         crate::refuse!(Unprocessable, "network mail (@net:) is paused for this run (the engine started in safe start)");
     }
@@ -978,9 +978,9 @@ pub async fn queue(engine: &Arc<Engine>, org_id: i64, peer: &str, body: &str, by
     let client = engine.db.get().await?;
     client
         .execute(
-            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments)
-             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7)",
-            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref()],
+            "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, net_id, attachments, kind)
+             VALUES ($1, $2, 'out', $3, $4, $5, 'queued', now(), $6, $7, $8)",
+            &[&uid, &org_id, &to, &crate::util::pg_text(body).as_ref(), &by, &net_id, &crate::util::pg_json(&Value::Array(attachments.to_vec())).as_ref(), &kind],
         )
         .await?;
     drop(client);

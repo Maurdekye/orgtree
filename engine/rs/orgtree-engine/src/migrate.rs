@@ -18,6 +18,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0010_mail_receipts", include_str!("../migrations/0010_mail_receipts.sql")),
     ("0011_notification_attention", include_str!("../migrations/0011_notification_attention.sql")),
     ("0012_account_origin_and_mark_audit", include_str!("../migrations/0012_account_origin_and_mark_audit.sql")),
+    ("0013_hub_mail_parity", include_str!("../migrations/0013_hub_mail_parity.sql")),
 ];
 
 #[logged]
