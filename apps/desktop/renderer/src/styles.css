@@ -7868,3 +7868,4 @@ main:has(> .orgbar.native-header) > .error {
 .set-control .account-choice { margin: 0; width: min(22rem, 100%); }
 .set-foot { margin: 8px 0 0; font-size: 11.5px; }
 .set-control .account-choice-identity { display: none; } /* the picker already shows it; kept in the DOM as its description */
+.host-hub .set-block p { margin: 0; }

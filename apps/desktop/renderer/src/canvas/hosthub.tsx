@@ -13,7 +13,7 @@
 // public listener. The settings model matches engine/mailhub_runtime.py.
 
 import { useEffect, useRef, useState } from 'react'
-import { SetToggle } from './settingskit'
+import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { req } from '../api'
 import { AutorenewIcon } from '../icons'
 
@@ -83,27 +83,24 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
   }, [active])
   const exposed = config?.bind === '0.0.0.0'
   const running = config?.status.running && config.status.healthy
-  return <section className="connection-setup host-hub">
-    <h4>Mail hub</h4>
-    <p className="dim">This computer's mail hub carries correspondence between organizations here and on other machines. Organizations connect to it from their own Connections tab.</p>
-    {config && <p role="status">
-      {running ? <>Running at <span className="mono-sm">{config.status.address}</span>
-        {' '}· hub version {config.status.hub_version || 'unknown'}
-        {typeof config.status.orgs === 'number' && <> · {config.status.orgs} registered, {config.status.queued ?? 0} queued</>}</>
-        : config.status.running ? 'Starting…' : 'Stopped'}
-    </p>}
-    {config?.error && <p role="alert" className="ask-warn">The hub could not start: {config.error}</p>}
-    {config?.migrated?.notes?.length ? <div role="note" className="ask-warn">
-      {config.migrated.notes.map((n, i) => <p key={i}>Carried over from the previous version: {n}</p>)}
-    </div> : null}
-    {config?.data_migration && <p className="dim">
-      Mail from the previous hub was migrated: {config.data_migration.messages} message(s), {config.data_migration.attachments} attachment(s). The old store is kept untouched as a backup.
-    </p>}
-    {config?.v2_import && <p className="dim">
-      The hub's earlier mail was moved into its new database: {config.v2_import.orgs} address(es), {config.v2_import.messages} message(s), {config.v2_import.attachments} attachment(s). The old store (hub.sqlite3) is kept untouched as a backup.
-    </p>}
-    {error && <p role="alert" className="ask-warn">{error}</p>}
-    {!config && <button disabled={busy} onClick={() => { void load() }}>{busy ? 'Loading hosting settings...' : 'Retry hosting settings'}</button>}
+  return <section className="host-hub">
+    <SetGroup title="Mail hub">
+      <SetBlock hint="This computer's mail hub carries correspondence between organizations here and on other machines. Organizations connect to it from their own Connections tab." />
+      {config && <SetBlock><p role="status">
+        {running ? <>Running at <span className="mono-sm">{config.status.address}</span>
+          {' '}· hub version {config.status.hub_version || 'unknown'}
+          {typeof config.status.orgs === 'number' && <> · {config.status.orgs} registered, {config.status.queued ?? 0} queued</>}</>
+          : config.status.running ? 'Starting…' : 'Stopped'}
+      </p></SetBlock>}
+      {config?.error && <SetBlock><p role="alert" className="ask-warn">The hub could not start: {config.error}</p></SetBlock>}
+      {config?.migrated?.notes?.length ? <SetBlock><div role="note" className="ask-warn">
+        {config.migrated.notes.map((n, i) => <p key={i}>Carried over from the previous version: {n}</p>)}
+      </div></SetBlock> : null}
+      {config?.data_migration && <SetBlock hint={`Mail from the previous hub was migrated: ${config.data_migration.messages} message(s), ${config.data_migration.attachments} attachment(s). The old store is kept untouched as a backup.`} />}
+      {config?.v2_import && <SetBlock hint={`The hub's earlier mail was moved into its new database: ${config.v2_import.orgs} address(es), ${config.v2_import.messages} message(s), ${config.v2_import.attachments} attachment(s). The old store (hub.sqlite3) is kept untouched as a backup.`} />}
+      {error && <SetBlock><p role="alert" className="ask-warn">{error}</p></SetBlock>}
+      {!config && <SetBlock><div className="row"><button disabled={busy} onClick={() => { void load() }}>{busy ? 'Loading hosting settings...' : 'Retry hosting settings'}</button></div></SetBlock>}
+    </SetGroup>
     {config && <form onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError(''); setSaved('')
       try {
@@ -116,36 +113,52 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
       } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
     }}>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
-        <label>Hub name<input aria-label="Mail hub name" value={config.name} placeholder="this computer's name"
-          onChange={e => setConfig({ ...config, name: e.target.value })} /></label>
-        <p className="dim">Shown to everyone who connects, and on the hub's own mail page.</p>
-        <label>Maximum attachment size (MiB)<input aria-label="Maximum attachment size (MiB)" type="number" min="1" step="1" required
-          value={(config.max_attachment_bytes ?? 1024 ** 3) / 1024 ** 2}
-          onChange={e => setConfig({ ...config, max_attachment_bytes: Number(e.target.value) * 1024 ** 2 })} /></label>
-        <p className="dim">Defaults to 1024 MiB (1 GB). Changing only this limit applies to new uploads immediately, without restarting the hub.</p>
-        <label>Port<input aria-label="Mail hub port" type="number" min="1" max="65535" required value={config.port}
-          onChange={e => setConfig({ ...config, port: Number(e.target.value) })} /></label>
-        <label>Listen on<select aria-label="Mail hub listen interface" value={config.bind}
-          onChange={e => setConfig({ ...config, bind: e.target.value as HubHosting['bind'] })}>
-          <option value="127.0.0.1">This computer only</option>
-          <option value="0.0.0.0">This computer and the local network</option>
-        </select></label>
-        {exposed && <p className="ask-warn">Anyone who can reach the hub can read ALL mail on its page — that page is the operator view and has no login. Share it only on a network where every machine is trusted. The hub does not provide TLS; put a reverse proxy in front if you need encryption.</p>}
-        <label>Keep mail<select aria-label="Mail retention" value={config.retention_days === null ? 'forever' : 'days'}
-          onChange={e => setConfig({ ...config, retention_days: e.target.value === 'forever' ? null : keepDays })}>
-          <option value="forever">Until it is deleted</option>
-          <option value="days">A limited number of days</option>
-        </select></label>
-        {config.retention_days !== null && <>
-          <label>Days to keep mail<input aria-label="Days to keep mail" type="number" min="1" max="36500" required
-            value={config.retention_days}
-            onChange={e => { const d = Number(e.target.value); setKeepDays(d); setConfig({ ...config, retention_days: d }) }} /></label>
-          <p className="dim">Mail and attachments older than this are deleted hourly — read or not. Without a number of days, the hub keeps mail until the people and organizations it belongs to delete it.</p>
-        </>}
-        <SetToggle label={`Also serve a relay-only door on port ${config.public_listener_port || 7371}`}
-          checked={config.public_listener}
-          onChange={next => setConfig({ ...config, public_listener: next })}
-          hint="For peers outside your network: it carries mail only — no mail page — and every caller must present its own organization's secret. Tunnel or forward that port, never the main one." />
+        <SetGroup title="Hosting">
+          <SetRow label="Hub name" hint="Shown to everyone who connects, and on the hub's own mail page.">
+            <input aria-label="Mail hub name" value={config.name} placeholder="this computer's name"
+              onChange={e => setConfig({ ...config, name: e.target.value })} />
+          </SetRow>
+          <SetRow label="Maximum attachment size (MiB)"
+            hint="Defaults to 1024 MiB (1 GB). Changing only this limit applies to new uploads immediately, without restarting the hub.">
+            <input aria-label="Maximum attachment size (MiB)" type="number" min="1" step="1" required
+              value={(config.max_attachment_bytes ?? 1024 ** 3) / 1024 ** 2}
+              onChange={e => setConfig({ ...config, max_attachment_bytes: Number(e.target.value) * 1024 ** 2 })} />
+          </SetRow>
+          <SetRow label="Port">
+            <input aria-label="Mail hub port" type="number" min="1" max="65535" required value={config.port}
+              onChange={e => setConfig({ ...config, port: Number(e.target.value) })} />
+          </SetRow>
+          <SetRow label="Listen on">
+            <select aria-label="Mail hub listen interface" value={config.bind}
+              onChange={e => setConfig({ ...config, bind: e.target.value as HubHosting['bind'] })}>
+              <option value="127.0.0.1">This computer only</option>
+              <option value="0.0.0.0">This computer and the local network</option>
+            </select>
+          </SetRow>
+          {exposed && <SetBlock><p className="ask-warn">Anyone who can reach the hub can read ALL mail on its page — that page is the operator view and has no login. Share it only on a network where every machine is trusted. The hub does not provide TLS; put a reverse proxy in front if you need encryption.</p></SetBlock>}
+        </SetGroup>
+        <SetGroup title="Retention">
+          <SetRow label="Keep mail"
+            hint={config.retention_days === null ? undefined
+              : 'Mail and attachments older than this are deleted hourly — read or not. Without a number of days, the hub keeps mail until the people and organizations it belongs to delete it.'}>
+            <select aria-label="Mail retention" value={config.retention_days === null ? 'forever' : 'days'}
+              onChange={e => setConfig({ ...config, retention_days: e.target.value === 'forever' ? null : keepDays })}>
+              <option value="forever">Until it is deleted</option>
+              <option value="days">A limited number of days</option>
+            </select>
+          </SetRow>
+          {config.retention_days !== null && <SetRow label="Days to keep mail">
+            <input aria-label="Days to keep mail" type="number" min="1" max="36500" required
+              value={config.retention_days}
+              onChange={e => { const d = Number(e.target.value); setKeepDays(d); setConfig({ ...config, retention_days: d }) }} />
+          </SetRow>}
+        </SetGroup>
+        <SetGroup title="Public access">
+          <SetToggle label={`Also serve a relay-only door on port ${config.public_listener_port || 7371}`}
+            checked={config.public_listener}
+            onChange={next => setConfig({ ...config, public_listener: next })}
+            hint="For peers outside your network: it carries mail only — no mail page — and every caller must present its own organization's secret. Tunnel or forward that port, never the main one." />
+        </SetGroup>
         <div className="row">
           <button type="submit">Save hosting settings</button>
           <button type="button" className="iconbtn" aria-label="Refresh hub status" title="Refresh hub status" onClick={() => { void load() }}><AutorenewIcon fontSize="inherit" /></button>

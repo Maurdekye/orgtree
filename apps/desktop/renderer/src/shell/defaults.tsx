@@ -13,7 +13,7 @@
 // a cycle: App.tsx already imports AccountsPanel.
 import { useEffect, useState } from 'react'
 import { getDefaults, saveDefaults } from '../api'
-import { SetToggle } from '../canvas/settingskit'
+import { SetGroup, SetRow, SetToggle } from '../canvas/settingskit'
 import type { DefaultsPayload, ToastFn } from '../types'
 
 /** The default-org-settings FIELDS, with no window of their own.
@@ -41,39 +41,50 @@ export function DefaultsForm({ toast, onDone }: {
             both modes (Astra 2026-09-06). */}
         <div className="dim modalpin-subtitle">applied to every NEW
           organization</div>
-        <div className="field-label">top-level grant cap</div>
-        <input type="number" min="1" step="1" style={{ width: '8em' }}
-          value={d.max_top_grant ?? 1000}
-          onChange={(e) => set('max_top_grant', +e.target.value)} />
-        <div className="field-label">default top-level grant (pre-filled on new hires)</div>
-        <input type="number" min="0" step="1" style={{ width: '8em' }}
-          value={d.default_top_grant ?? 50}
-          onChange={(e) => set('default_top_grant', +e.target.value)} />
-        <div className="field-label">compaction threshold % (50–95)</div>
-        <input type="number" min="50" max="95" step="1" style={{ width: '8em' }}
-          value={Math.round((d.compact_at ?? 0.8) * 100)}
-          onChange={(e) => set('compact_at', (+e.target.value || 80) / 100)} />
-        <div className="field-label">default thinking effort (agents without
-          their own setting inherit this, live)</div>
-        <select value={d.default_effort ?? ''}
-          onChange={(e) => set('default_effort', e.target.value)}>
-          <option value="">CLI default (no flag)</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="xhigh">xhigh</option>
-          <option value="max">max</option>
-        </select>
-        <div className="field-label">credit cost bubbling</div>
-        <SetToggle label="hires bubble their cost up the chain" checked={d.cascade_hire !== false}
-          hint="Raise ancestor grants when a hire needs more credits."
-          onChange={next => set('cascade_hire', next)} />
-        <SetToggle label="allocations & model upgrades bubble their cost up the chain" checked={d.cascade_alloc !== false}
-          hint="Raise ancestor grants when an allocation or model upgrade needs more credits."
-          onChange={next => set('cascade_alloc', next)} />
-        <SetToggle label="auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
-          hint="Resume agents automatically after their usage limit resets."
-          onChange={next => set('auto_resume', next)} />
+        <SetGroup title="Credits">
+          <SetRow label="top-level grant cap">
+            <input type="number" min="1" step="1" aria-label="top-level grant cap"
+              value={d.max_top_grant ?? 1000}
+              onChange={(e) => set('max_top_grant', +e.target.value)} />
+          </SetRow>
+          <SetRow label="default top-level grant" hint="pre-filled on new hires">
+            <input type="number" min="0" step="1" aria-label="default top-level grant"
+              value={d.default_top_grant ?? 50}
+              onChange={(e) => set('default_top_grant', +e.target.value)} />
+          </SetRow>
+        </SetGroup>
+        <SetGroup title="Agents">
+          <SetRow label="compaction threshold %" hint="50–95">
+            <input type="number" min="50" max="95" step="1" aria-label="compaction threshold %"
+              value={Math.round((d.compact_at ?? 0.8) * 100)}
+              onChange={(e) => set('compact_at', (+e.target.value || 80) / 100)} />
+          </SetRow>
+          <SetRow label="default thinking effort"
+            hint="agents without their own setting inherit this, live">
+            <select value={d.default_effort ?? ''} aria-label="default thinking effort"
+              onChange={(e) => set('default_effort', e.target.value)}>
+              <option value="">CLI default (no flag)</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
+            </select>
+          </SetRow>
+        </SetGroup>
+        <SetGroup title="Credit cost bubbling">
+          <SetToggle label="hires bubble their cost up the chain" checked={d.cascade_hire !== false}
+            hint="Raise ancestor grants when a hire needs more credits."
+            onChange={next => set('cascade_hire', next)} />
+          <SetToggle label="allocations & model upgrades bubble their cost up the chain" checked={d.cascade_alloc !== false}
+            hint="Raise ancestor grants when an allocation or model upgrade needs more credits."
+            onChange={next => set('cascade_alloc', next)} />
+        </SetGroup>
+        <SetGroup title="Usage limits">
+          <SetToggle label="auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
+            hint="Resume agents automatically after their usage limit resets."
+            onChange={next => set('auto_resume', next)} />
+        </SetGroup>
         <div className="hint">
           These defaults apply only when creating an organization; existing
           organizations keep their own settings.
