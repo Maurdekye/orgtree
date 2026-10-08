@@ -12,9 +12,9 @@ pinned and popped-out desks; their external model header suppresses the
 inner duplicate. Existing map, tray and jump model indicators use the same card.
 
 Effort changes have no persisted queue row. The actor publishes presentation
-metadata `effort_current` and `pending_effort` for a running turn. A deferred
-`AgentMsg::Effort` records the target only when it differs from the process
-level. A successful live delivery is not described as deferred. Turn start,
+metadata `effort_current` and `pending_effort` for a running turn. The target is refreshed alongside the forecast when
+settings are re-read, including agent retool and org-default edits, and only
+when it differs from the process level. A successful live delivery is not described as deferred. Turn start,
 turn end and idle snapshots clear the queued metadata. This changes no
 launch, account-switch or effort-delivery behavior.
 
@@ -28,5 +28,5 @@ engine evidence is dropped before it reaches the cards.
 `node tools/rig/rig.mjs run tools/rig/proofs/next-turn-cards.mjs --ui <bundle>`
 uses two fake Codex accounts and a long-running Luna turn. It verifies the
 current cards, all queued values and exact tooltip text, a retarget to default,
-cancellation, and the pinned header's single copy of each queued card. It
+cancellation, the retool path, and the pinned header's single copy of each queued card. It
 captures before/after desk and zoom-card PNGs under the rig evidence folder.

@@ -37,5 +37,9 @@ export default async function(rig) {
  await rig.op({op:'switch_model',node:'rhea',tier:'luna'});
  await rig.api('POST',`/api/orgs/${rig.org}/nodes/rhea/scope`,{effort:'medium'});
  const cancelled=await capture('cancelled',null);
- return {ok:true,evidence,current,target,before,queued,ambient,cancelled};
+ await rig.op({op:'account',node:'rhea',account:target});
+ await rig.op({op:'switch_model',node:'rhea',tier:'sol'});
+ await rig.op({op:'retool',node:'rhea',effort:'high'});
+ const retool=await capture('retool',target);
+ return {ok:true,evidence,current,target,before,queued,ambient,cancelled,retool};
 }
