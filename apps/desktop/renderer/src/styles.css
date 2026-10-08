@@ -7868,3 +7868,4 @@ main:has(> .orgbar.native-header) > .error {
 .sq-title:has(> .next-turn) { flex-wrap: wrap; row-gap: 2px; }
 .sq-title:has(> .next-turn) > .name { flex: 1 0 100%; }
 .sq-head:has(.next-turn) { flex-shrink: 0; }
+.sq:not(.desk) .next-turn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
