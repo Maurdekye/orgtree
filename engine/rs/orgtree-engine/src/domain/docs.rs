@@ -16,6 +16,10 @@ use crate::util::uid;
 
 pub const MARKDOWN_MAX: usize = 64 * 1024;
 pub const HTML_MAX: u64 = 4 * 1024 * 1024;
+/// The largest file `orgtree_send_file` delivers (3.x `_SENDFILE_MAX`).
+pub const SEND_MAX: u64 = 256 * 1024 * 1024;
+/// A presentation's title is at most this many characters (3.x).
+const TITLE_MAX: usize = 120;
 
 /// The presenting agent, with the folders it may read files from.
 #[derive(Debug)]
@@ -126,6 +130,8 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     }
     let title = args["title"].as_str().map(str::trim).filter(|t| !t.is_empty());
     let Some(title) = title else { refuse!(BadRequest, "a document needs a title") };
+    let title: String = title.chars().take(TITLE_MAX).collect();
+    let title = title.trim_end();
     let mut bundle_download: Option<Vec<u8>> = None;
     let mut bundle_preview: Option<String> = None;
     let (body, format) = match (args["body"].as_str(), args["path"].as_str()) {
@@ -214,6 +220,17 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
         }
     }
     drop(client);
+    // as in 3.x: an empty file is not delivered, and neither is one over 256 MB
+    let src = readable(p, raw)?;
+    if src.is_file() {
+        let size = std::fs::metadata(&src)?.len();
+        if size == 0 {
+            refuse!(BadRequest, "{raw} is empty; nothing to send");
+        }
+        if size > SEND_MAX {
+            refuse!(BadRequest, "{raw} is {} MB, over the {} MB cap", size / (1024 * 1024), SEND_MAX / (1024 * 1024));
+        }
+    }
     let copy = snapshot(p, raw, false)?;
     let name = copy["name"].as_str().unwrap().to_string();
     let path = copy["path"].as_str().unwrap().to_string();
