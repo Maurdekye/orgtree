@@ -37,32 +37,6 @@ const MAX_ITEMS: usize = 20;
 const MAX_AGENTS: i64 = 5000;
 const MAX_WORK: i64 = 5000;
 
-const CHECKUP_TEXT: &str = "[AUTOMATIC 20-MINUTE WORKING-STATUS CHECK]\n\
-You previously reported that you were working, but Orgtree has not woken you for 20 minutes. Check the actual work, files, \
-processes, and messages. If useful work remains, make concrete progress now. Then report honestly with orgtree_status: use \
-working only if work is still in progress, done if it is complete, or blocked if you truly cannot proceed. Do not claim that \
-work is continuing without verifying it.";
-
-const IDLE_HEAD: &str = "[AUTOMATIC IDLE DOCKET REMINDER]\n\
-You have been idle for 20 minutes and these docket items are waiting on YOU for their next action:\n";
-
-const IDLE_TAIL: &str = "\nPick the work back up: read each one with orgtree_work get, take the next concrete step, and leave an \
-honest orgtree_work update. Assert review only if an item is really finished; blocked (with a blocked_reason naming what it is \
-stuck on, who or what will unblock it, and how you will hear of it) if it truly cannot move. Items that are backlogged, blocked, \
-or waiting on the user through an attention flag or an open question are deliberately not listed here — and nor is anything \
-whose next action belongs to somebody else.";
-
-/// 3.x IDLE_DOCKET_REMINDER_ROLE: why a row is on this agent's list.
-fn role_note(role: &str) -> &'static str {
-    match role {
-        "deployer" => " — awaiting YOUR authorized deployment/publication action",
-        "reviewer" => " — awaiting YOUR review",
-        "unassigned_review" => " — NO REVIEWER NAMED: assign one, do not review your own work",
-        "stale_reviewer" => " — its named reviewer is no longer live: name another, do not review your own work",
-        _ => "",
-    }
-}
-
 /// The three switches. Stored under the 3.x keys (an imported
 /// app-settings.json keeps the user's choice); checkups and idle reminders
 /// default on, blocked reminders default off (only an explicit true).
@@ -288,7 +262,7 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
         return Ok(());
     }
     let ev = crate::events::reminder_working_checkup(&org.slug, &a.name, a.generation as i64);
-    send(engine, org.id, &a.name, CHECKUP_TEXT.to_string(), ev).await
+    send(engine, org.id, &a.name, ev).await
 }
 
 /// 3.x `_idle_docket_reminder_decision` + its reservation body. True when
@@ -307,21 +281,18 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
         return Ok(false);
     }
     let shown = &items[..items.len().min(MAX_ITEMS)];
-    let mut lines: Vec<String> =
-        shown.iter().map(|w| format!("- {} ({}{}): {}", w.slug, w.status, role_note(w.role), w.title)).collect();
-    if items.len() > shown.len() {
-        lines.push(format!("- …and {} more item(s) waiting on you; orgtree_work list shows them all", items.len() - shown.len()));
-    }
-    let body = format!("{IDLE_HEAD}{}{IDLE_TAIL}", lines.join("\n"));
     let rows: Vec<Value> =
         shown.iter().map(|w| json!({ "slug": w.slug, "title": w.title, "status": w.status, "role": w.role })).collect();
     let ev = crate::events::reminder_idle_docket(&org.slug, &a.name, a.generation as i64, rows, (items.len() - shown.len()) as i64);
-    send(engine, org.id, &a.name, body, ev).await?;
+    send(engine, org.id, &a.name, ev).await?;
     Ok(true)
 }
 
+/// System mail whose body is the event's own text, the one the agent reads
+/// (3.x stored `events.render_agent(ev)`), so the desk shows what was sent.
 #[logged]
-async fn send(engine: &Arc<Engine>, org_id: i64, to: &str, body: String, ev: Value) -> Result<()> {
+async fn send(engine: &Arc<Engine>, org_id: i64, to: &str, ev: Value) -> Result<()> {
+    let body = crate::runtime::event_text::render_agent(&ev).ok_or_else(|| anyhow::anyhow!("the reminder event has no text"))?;
     let mut out = Outgoing::new(From::System, to, &body);
     out.kind = "system".into();
     out.ev = Some(ev);

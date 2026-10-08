@@ -2283,12 +2283,11 @@ YOU for their next action:\n{}\n\
 Pick the work back up: read each one with orgtree_work get, take the \
 next concrete step, and leave an honest orgtree_work update. Assert \
 review only if an item is really finished; blocked (with a \
-blocked_reason) if it truly cannot move; waiting (with a waiting_reason \
-naming the external event and how you will hear of it) if its next step \
-is not yours to take. Items that are backlogged, already waiting on an \
-external event, or waiting on the user through an attention flag or an \
-open question are deliberately not listed here — and nor is anything \
-whose next action belongs to somebody else.",
+blocked_reason naming what it is stuck on, who or what will unblock it, \
+and how you will hear of it) if it truly cannot move. Items that are \
+backlogged, blocked, or waiting on the user through an attention flag \
+or an open question are deliberately not listed here — and nor is \
+anything whose next action belongs to somebody else.",
         lines.join("\n")
     ))
 }
