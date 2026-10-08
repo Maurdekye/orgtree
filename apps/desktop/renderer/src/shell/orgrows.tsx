@@ -5,6 +5,7 @@
 // component, so every existing importer is unaffected.
 import { useEffect, useRef, useState } from 'react'
 import { retryOrg } from '../api'
+import { useAppValue } from '../appfeed'
 import { AutorenewIcon, DeleteIcon } from '../icons'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
@@ -17,7 +18,7 @@ import type { OrgListEntry } from '../types'
  * idle; a row without `working` shows its hired count alone rather than
  * inventing a zero. */
 export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
-  ageMs = 0, openLabel }: {
+  ageMs = 0, openLabel, nested = false }: {
   orgs: OrgListEntry[]; slug: string | null
   onPick: (slug: string) => void; onDelete: (org: OrgListEntry) => void
   /** how old these rows' STATUS values are (`orgstatus.ts`). Defaults to
@@ -28,7 +29,11 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
   /** slugs already open in another window, labelled instead of counted. Empty
    *  in the browser, where there is only ever one window. */
   openLabel?: (slug: string) => string | null
+  /** one row re-rendered by UnavailableOrgRow: the import lines belong to
+   *  the list, not to each row */
+  nested?: boolean
 }) {
+  const failures = useAppValue<ImportFailure[]>('import_failures') ?? []
   // ⚠ THE SPINNER AND THE COUNTS ARE THE STATUS, and status is the one thing
   // an unfresh snapshot may not assert. The spinner is the loudest claim in
   // the row — an animation that says "a turn is executing now" — so it is
@@ -72,8 +77,43 @@ export function OrgRows({ orgs, slug, onPick, onDelete, freshness = 'current',
       </div>
       )
     })}
-    {!orgs.length && <div className="dim pad">no organizations yet</div>}
+    {!nested && failures.map((f) => <ImportFailureRow key={`${f.source}:${f.org}`} failure={f} />)}
+    {!orgs.length && !(failures.length && !nested) &&
+      <div className="dim pad">no organizations yet</div>}
   </>
+}
+
+/** An org a first-start import could not copy (the engine's
+ *  `import_failures`, carried by the app feed). Its import is all or nothing,
+ *  so it is not in the list at all until a later start imports it: this line
+ *  says where it is. Its source data was only read, never changed. */
+export interface ImportFailure {
+  source: string
+  org: string
+  name: string
+  table?: string | null
+  error?: string
+  at?: string
+  first_at?: string
+  tries?: number
+}
+
+function ImportFailureRow({ failure: f }: { failure: ImportFailure }) {
+  const line = `Import from ${f.source} failed${f.table ? ` (${f.table})` : ''}. `
+    + `Your ${f.source} data is untouched; Orgtree retries at every start.`
+  const detail = [f.error, f.tries && f.tries > 1 ? `${f.tries} starts so far` : null]
+    .filter(Boolean).join(' — ')
+  // the whole sentence wraps: cut at the row's width it would lose the
+  // part that says nothing was lost
+  return <div className="org org-unavailable org-import-failed">
+    <span className="org-activity" />
+    <span className="org-name" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+      <span className="org-name-text">{f.name}</span>
+      <span className="org-name-text dim" style={{ whiteSpace: 'normal' }}
+        title={detail ? `${line}\n${detail}` : line} role="status">{line}</span>
+    </span>
+    <span className="org-counts" />
+  </div>
 }
 
 /** An unavailable org cannot be opened or deleted. Only the lifecycle retry
@@ -89,7 +129,7 @@ function UnavailableOrgRow({ org, onPick, onDelete }: {
   useEffect(() => { setRow(org) }, [org])
   if (row.state === 'trashed') return null
   if (row.state === 'active') return <OrgRows orgs={[row]} slug={null}
-    onPick={onPick} onDelete={onDelete} />
+    onPick={onPick} onDelete={onDelete} nested />
   const retry = async () => {
     if (pending.current) return
     pending.current = true
