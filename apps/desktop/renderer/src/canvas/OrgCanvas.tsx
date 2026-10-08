@@ -3957,7 +3957,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                 const cls = up === hubs.length ? ' ok' : up > 0 ? ' mix' : ''
                 return <span className={'oi-dot' + cls}
                   title={hubs.map((h) => `${h.name || h.address}: `
-                    + (h.connected ? 'connected' : h.error || 'connecting…'))
+                    + (h.connected ? `connected, hub version ${h.version || 'unknown'}` : h.error || 'connecting…'))
                     .join(' · ')} />
               })()}
               {/* NO unread badge here (user 2026-08-10). Org-inbox mail is

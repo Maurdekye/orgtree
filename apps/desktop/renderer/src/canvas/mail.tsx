@@ -74,9 +74,12 @@ export interface MailListProps {
    *  plain agent id (the @-sentinels route elsewhere). The org inbox opens
    *  its outside senders (@net:/@org:), whose answer goes back out. */
   canReply?: (m: MailRow) => boolean
-  /** The reply box without attachments or the notice toggle (an outside
-   *  recipient: the host's own send carries neither). */
+  /** The reply box without the notice toggle (an outside recipient, whom
+   *  a notice cannot reach). */
   replyPlain?: boolean
+  /** Stage a reply's file where the host's own send takes it (the org inbox
+   *  stages outside mail's files itself); `path` is what `onReply` gets. */
+  replyUpload?: (m: MailRow, file: File) => Promise<{ path: string; bytes: number }>
   onRetract?: (m: MailRow) => void
   jumpTo?: string | null
   /** Only human per-message unread mail opts in; agent delivery is not read state. */
@@ -155,7 +158,7 @@ export interface MailListProps {
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
-  outgoing, onRead, onReply, canReply: canReplyTo, replyPlain, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
+  outgoing, onRead, onReply, canReply: canReplyTo, replyPlain, replyUpload, onRetract, jumpTo, jumpSeq, selectOldestUnread, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
@@ -563,6 +566,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               ? (text, attachments, notice) => onReply!(cur, text, attachments, notice)
               : undefined}
             replyPlain={replyPlain}
+            replyUpload={replyUpload ? (file) => replyUpload(cur, file) : undefined}
             toast={toast} />
         )}
         {!cur && (
@@ -727,7 +731,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
  *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
  *  passed only when this message may be replied to from here. */
 export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
-  outgoing, customSender, waitLabel, custom, onReply, replyPlain, toast }: {
+  outgoing, customSender, waitLabel, custom, onReply, replyPlain, replyUpload, toast }: {
   cur: MailRow
   /** a folded run of system notices, newest first; one entry = no run */
   members?: MailRow[]
@@ -746,8 +750,10 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
    *  (asks: the response form IS the body) */
   custom?: ReactNode | null
   onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
-  /** the reply box without attachments or the notice toggle */
+  /** the reply box without the notice toggle */
   replyPlain?: boolean
+  /** the host stages the reply's files (see MailList `replyUpload`) */
+  replyUpload?: (file: File) => Promise<{ path: string; bytes: number }>
   toast?: ToastFn
 }) {
   const profile = 'operator'
@@ -848,8 +854,8 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
            so the user's paperclip was permanently grey (reported
            2026-09-17). NOT `?? ''` like the head: an absent org must stay
            ABSENT so the composer degrades the way its `slug?:` contract says. */
-        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={replyPlain ? undefined : org ?? refs?.world.org} toast={toast}
-          notice={!replyPlain}
+        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast}
+          notice={!replyPlain} upload={replyUpload}
           onSend={(text, attachments, notice) => onReply(text, attachments, notice)} />
       )}
     </>
@@ -869,7 +875,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false,
-  toast, notice = true }: {
+  toast, notice = true, upload }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -888,6 +894,9 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
    *  refuses a notice to `@…` addressing anyway, and a control that can never
    *  do anything is worse than no control. */
   notice?: boolean
+  /** Stage a file the host's way instead of in `target`'s folder (the org
+   *  inbox's outside mail); `path` is what `onSend` receives. */
+  upload?: (file: File) => Promise<{ path: string; bytes: number }>
 }) {
   const [draft, setDraft] = useState('')
   const enterKey = useComposerEnter()
@@ -904,10 +913,11 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // singleton, which is global by design because the desk has one composer.
   const [noticeArmed, setNoticeArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
-  const attachable = Boolean(slug && target) && !sendDisabled
+  const attachable = Boolean((upload || slug) && target) && !sendDisabled
   const attach = (file: File) => {
-    if (!slug || !target) return
-    uploadFile(slug, target, file)
+    const staged = upload ? upload(file) : slug && target ? uploadFile(slug, target, file) : null
+    if (!staged) return
+    staged
       .then((r) => setAttached((a) => [...a, { name: file.name, path: r.path, bytes: r.bytes }]))
       .catch((e: Error) => toast?.([`upload error: ${e.message}`]))
   }
@@ -950,7 +960,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     <>
       {attached.length > 0 && (
         <div className="attach-row">
-          {attached.map((a, i) => (isImg(a.name)
+          {attached.map((a, i) => (isImg(a.name) && !upload
             ? <AttachThumb key={a.path + i} href={fileUrl(slug!, target!, a.path)}
                 name={a.name} meta={fmtBytes(a.bytes)}
                 onRemove={() => setAttached((x) => x.filter((_, j) => j !== i))} />
@@ -989,7 +999,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             </button>
           )}
           <button type="button" className="cc-attach" disabled={!attachable}
-            title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
+            title={(upload || slug) && target ? 'attach a file' : 'attachments need a recipient first'}
             onClick={() => fileRef.current?.click()}>
             <AttachIcon fontSize="inherit" /></button>
         </div>
@@ -1498,9 +1508,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // the panel's Reply (rulings 2026-10-08): an outside sender is answered as
   // the organization, and the reply names what it answers (over the mail
   // hub as a link, between orgs here as its quote)
-  const reply = (m: MailRow, text: string) => {
+  const reply = (m: MailRow, text: string, attachments?: string[]) => {
     if (!m.id) return
-    return orgInboxSend(slug, m.from, text, [], m.id)
+    return orgInboxSend(slug, m.from, text, attachments ?? [], m.id)
       .then(() => { toast([`replied to ${m.from}`]); setReload((n) => n + 1) })
       .catch((e: Error) => { toast([`reply failed: ${e.message}`]); throw e })
   }
@@ -1613,7 +1623,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     delivered={inn.filter((r) => !r._wait0)}
                     waitLabel="unread" onRead={markRead} jumpTo={jumpTo}
                     jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
-                    onReply={(m, text) => { void reply(m, text) }} replyPlain
+                    onReply={(m, text, attachments) => reply(m, text, attachments)} replyPlain
+                    replyUpload={(m, file) => orgInboxUpload(slug, file, [m.from]).then((r) => ({ path: r.id, bytes: r.bytes }))}
                     canReply={(m) => /^@(net|org):/.test(m.from)}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
