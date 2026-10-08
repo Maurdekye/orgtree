@@ -1,5 +1,6 @@
 import { req } from '../api'
 import type { MenuItem } from './contextmenu'
+import { tierLabel } from './shared'
 import type { StaffingAccount } from './staffingoptions'
 
 export interface QuickStaffModel {
@@ -100,7 +101,7 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
         })
       : accountRows(m)
     return {
-      label: m.tier,
+      label: tierLabel(m.tier),
       title: `${m.seat} credits for the seat`,
       // The tier itself is selectable only when the account a plain hire would
       // pick can actually run it. When it cannot, the tier is still OFFERED —
