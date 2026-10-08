@@ -24,6 +24,12 @@ import { refToken } from './reflinks'
 
 export interface DocMeta { id: string; title: string; at: string; format?: 'markdown' | 'html'; bytes?: number }
 
+/** The tree feed is newest first. Both compact surfaces show its first four
+ *  presented documents; sent files belong to the separate deliveries feed. */
+export function recentDocumentChips(docs: readonly DocMeta[]): DocMeta[] {
+  return docs.slice(0, 4)
+}
+
 export interface LoadedDoc { node_state?: 'live' | 'archived' | 'unrecoverable' | 'deleted'; tier?: string | null; title: string; node: string; at: string; body: string; format?: 'markdown' | 'html'; bytes?: number }
 
 /** Stored HTML format has the same compact identity on every presentation surface. */
@@ -185,7 +191,7 @@ export function DocChips({ slug, docs, onOpen, inert = false }: {
 }) {
   return (
     <div className={'doc-chips' + (inert ? ' inert' : '')}>
-      {docs.slice(-4).map((d) => (
+      {recentDocumentChips(docs).map((d) => (
         <PresentationCard key={d.id} slug={slug} doc={d}
           className="doc-chip" compact onOpen={onOpen} inert={inert}>
           {d.format !== 'html' && <DocIcon fontSize="inherit" />}

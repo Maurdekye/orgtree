@@ -80,7 +80,7 @@ import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes } from './panelcorner'
 import { DogChip, useDeskDogs } from './deskdogs'
-import { PresentationCard } from './docs'
+import { PresentationCard, recentDocumentChips } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
 import type { AgentDirectory } from './identity'
@@ -3450,7 +3450,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           exactly who the switchboard shows. */}
       {onOpenDoc && (node.documents?.length ?? 0) > 0 && (
         <div className="desk-docs">
-          {node.documents!.slice(0, 4).map((d) => (
+          {recentDocumentChips(node.documents!).map((d) => (
             <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
               className="doc-badge" onOpen={onOpenDoc}>
               <DocIcon fontSize="inherit" /><span>{d.title}</span>
