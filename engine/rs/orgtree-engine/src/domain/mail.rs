@@ -100,6 +100,9 @@ pub struct Outgoing {
     pub ev: Option<Value>,
     /// Automatic notices use existing rights without granting a reply audience.
     pub grant_reply_audience: bool,
+    /// false: store the mail and leave the recipient's wake to the caller
+    /// (an automatic reminder wakes an idle agent only, `runtime::wake_idle`)
+    pub wake: bool,
 }
 
 #[logged]
@@ -118,6 +121,7 @@ impl Outgoing {
             client_op: None,
             ev: None,
             grant_reply_audience: true,
+            wake: true,
         }
     }
 }
@@ -265,10 +269,12 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing) -> Resul
     } else if out.notice {
         (format!("Stored as a notice: {to} reads it at its next turn, which this notice does not start."), false)
     } else {
-        crate::runtime::wake(engine, org_id, target_id);
+        if out.wake {
+            crate::runtime::wake(engine, org_id, target_id);
+        }
         (format!("Delivered to {to}'s mailbox; it starts or joins {to}'s turn."), false)
     };
-    if !out.notice || state == "live" {
+    if out.wake && (!out.notice || state == "live") {
         // a running agent also receives notices at its next tool boundary
         if let Some(h) = engine.agents.get(target_id) {
             h.send(crate::runtime::AgentMsg::Wake);

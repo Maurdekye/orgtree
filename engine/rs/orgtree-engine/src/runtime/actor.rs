@@ -685,6 +685,13 @@ impl Actor {
                 }
                 self.on_wake().await?
             }
+            AgentMsg::WakeIdle(reply) => {
+                let idle = !self.stopping && self.turn.is_none() && self.waiting_since.is_none() && self.slot.is_none();
+                if idle {
+                    self.on_wake().await?;
+                }
+                let _ = reply.send(idle && self.waiting_since.is_some());
+            }
             AgentMsg::Slot(slot) => self.on_slot(slot).await?,
             AgentMsg::Claude(process, v) => {
                 if self.owns_process(process) { self.on_claude(v).await?; }

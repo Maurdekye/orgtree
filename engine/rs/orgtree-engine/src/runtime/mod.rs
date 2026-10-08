@@ -43,6 +43,9 @@ pub struct Caller {
 pub enum AgentMsg {
     /// waking mail (or anything else that may need a turn)
     Wake,
+    /// an automatic wake (checkup, docket reminder): start a turn only if the
+    /// agent is idle; replies whether it asked for one
+    WakeIdle(oneshot::Sender<bool>),
     /// the scheduler granted this agent a turn slot
     Slot(sched::Slot),
     Interrupt(oneshot::Sender<Value>),
@@ -190,6 +193,18 @@ pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandl
 #[logged]
 pub fn wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
     actor(engine, org_id, agent_id).send(AgentMsg::Wake);
+}
+
+/// 3.x `send_message(idle_only=True)`: an automatic wake starts a turn only
+/// for an idle agent that can run one (live, not halted, frozen or stopped,
+/// with waking mail); it never joins a running turn or queues behind one.
+/// True when the agent asked for a turn slot; on false the caller withdraws
+/// its mail.
+#[logged]
+pub async fn wake_idle(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> bool {
+    let (tx, rx) = oneshot::channel();
+    actor(engine, org_id, agent_id).send(AgentMsg::WakeIdle(tx));
+    matches!(tokio::time::timeout(std::time::Duration::from_secs(30), rx).await, Ok(Ok(true)))
 }
 
 /// Warming stops starting CLIs below this much free commit memory: a machine

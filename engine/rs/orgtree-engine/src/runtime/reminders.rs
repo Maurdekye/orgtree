@@ -21,6 +21,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
+use crate::changes::{self, Change};
 use crate::domain::docket::{self, Agents};
 use crate::domain::mail::{self, From, Outgoing};
 use crate::engine::Engine;
@@ -262,11 +263,11 @@ async fn checkup(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, now: DateTime
         return Ok(());
     }
     let ev = crate::events::reminder_working_checkup(&org.slug, &a.name, a.generation as i64);
-    send(engine, org.id, &a.name, ev).await
+    send(engine, org.id, a, ev).await
 }
 
 /// 3.x `_idle_docket_reminder_decision` + its reservation body. True when
-/// the reminder was sent.
+/// a reminder was due and claimed (sent, or withdrawn by a refused wake).
 #[logged]
 async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: &[&WorkRow], now: DateTime<Utc>) -> Result<bool> {
     match a.activity.into_iter().chain(a.reminded).max() {
@@ -284,22 +285,38 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
     let rows: Vec<Value> =
         shown.iter().map(|w| json!({ "slug": w.slug, "title": w.title, "status": w.status, "role": w.role })).collect();
     let ev = crate::events::reminder_idle_docket(&org.slug, &a.name, a.generation as i64, rows, (items.len() - shown.len()) as i64);
-    send(engine, org.id, &a.name, ev).await?;
+    send(engine, org.id, a, ev).await?;
     Ok(true)
 }
 
 /// System mail whose body is the event's own text, the one the agent reads
 /// (3.x stored `events.render_agent(ev)`), so the desk shows what was sent.
+/// It wakes the agent only if it is idle (3.x `idle_only`): an automatic
+/// wake never joins or queues behind real work. A refused wake withdraws the
+/// mail (3.x `_auto_wake_cancel`); the stamp already written stays as the
+/// cooldown.
 #[logged]
-async fn send(engine: &Arc<Engine>, org_id: i64, to: &str, ev: Value) -> Result<()> {
+async fn send(engine: &Arc<Engine>, org_id: i64, a: &Agent, ev: Value) -> Result<()> {
     if let Some(pause) = crate::rig::reminder_pause() {
         tokio::time::sleep(pause).await;
     }
     let body = crate::runtime::event_text::render_agent(&ev).ok_or_else(|| anyhow::anyhow!("the reminder event has no text"))?;
-    let mut out = Outgoing::new(From::System, to, &body);
+    let mut out = Outgoing::new(From::System, &a.name, &body);
     out.kind = "system".into();
     out.ev = Some(ev);
-    mail::send(engine, org_id, out).await?;
+    out.wake = false;
+    let sent = mail::send(engine, org_id, out).await?;
+    if crate::runtime::wake_idle(engine, org_id, a.id).await {
+        return Ok(());
+    }
+    // a turn that already took it owns it
+    let client = engine.db.get().await?;
+    let withdrawn = client
+        .execute("DELETE FROM ot.mail WHERE uid = $1 AND recipient_agent_id = $2 AND state = 'pending'", &[&sent.uid, &a.id])
+        .await?;
+    drop(client);
+    changes::notify_id(engine, org_id, vec![Change::Mailbox(a.id)]);
+    tracing::info!(agent = %a.name, withdrawn, "automatic wake refused (the agent is not idle); its mail is withdrawn");
     Ok(())
 }
 
