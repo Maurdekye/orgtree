@@ -275,19 +275,24 @@ pub async fn recover(engine: &Arc<Engine>) {
 /// API-key fallback and subscription switches: subscriptions first, then
 /// metered keys.
 #[logged]
-pub fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, org_slug: &str) -> Option<String> {
+pub async fn pick_fallback(engine: &Engine, tier: &str, current: Option<&str>, org_slug: &str) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
     let keys = engine.settings.apikey_fallback(provider);
     let candidates = view.continue_candidates(tier, current, org_slug);
     // the provider's own sign-in only while its checkbox is on (rows are
-    // already filtered on their own)
-    let sub = candidates.iter().find(|id| {
-        view.get(id).map(|a| !a.is_apikey() && (subs || !crate::accounts::is_ambient(a))).unwrap_or(false)
-    });
-    let key = candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false));
-    sub.or(key).cloned()
+    // already filtered on their own); a move nobody asked for needs proof of
+    // room in the login's reading (3.x `account_fallback.capacity`)
+    for id in &candidates {
+        let Some(a) = view.get(id).filter(|a| !a.is_apikey() && (subs || !crate::accounts::is_ambient(a))).cloned() else { continue };
+        crate::usage::registered(engine, &a, false).await;
+        if crate::usage::has_room(engine, Some(&a), tier) {
+            return Some(a.id);
+        }
+        tracing::info!(account = %a.id, tier, "account fallback: no proven room on this login");
+    }
+    candidates.iter().find(|id| keys && view.get(id).map(|a| a.is_apikey()).unwrap_or(false)).cloned()
 }
 
 /// Move an agent to `account` and let its held work go on (with the request

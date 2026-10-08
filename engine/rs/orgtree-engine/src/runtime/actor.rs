@@ -3510,7 +3510,7 @@ impl Actor {
         if let Some(until) = limit {
             let ctx = self.load_ctx().await?;
             if ctx.fallback {
-                moved_to = freeze::pick_fallback(&self.engine, &ctx.tier, ctx.account.as_deref(), &ctx.org_slug);
+                moved_to = freeze::pick_fallback(&self.engine, &ctx.tier, ctx.account.as_deref(), &ctx.org_slug).await;
             }
             if moved_to.is_none() {
                 let mut rec = json!({
