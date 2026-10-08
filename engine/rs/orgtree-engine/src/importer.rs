@@ -175,6 +175,14 @@ impl SourceSchema {
     }
 }
 
+/// Accounts the user removed in 4.0. An import retried at a later start
+/// never brings one back, and never points an imported org or agent at one
+/// (the account reference guard would refuse the org's copy at every start).
+#[logged]
+pub(crate) async fn removed_accounts<C: tokio_postgres::GenericClient + Sync>(c: &C) -> Result<HashSet<String>> {
+    Ok(c.query("SELECT id FROM ot.removed_accounts", &[]).await?.iter().map(|r| r.get::<_, String>(0)).collect())
+}
+
 fn opt_s(row: &tokio_postgres::Row, i: &str) -> Option<String> {
     row.try_get::<_, Option<String>>(i).ok().flatten()
 }
@@ -239,6 +247,8 @@ async fn copy_sections(
     at: &mut Section,
 ) -> Result<usize> {
     let sch = SourceSchema::read(src).await?;
+    let removed = removed_accounts(tx).await?;
+    let kept = |a: Option<String>| a.filter(|a| !removed.contains(a));
 
     // ---- org row ----
     *at = Section("org_settings");
@@ -280,7 +290,7 @@ async fn copy_sections(
     put("auto_resume_compact", json!(opt_b(&s, "auto_resume_compact")));
     put("auto_cheap_compact", opt_j(&s, "auto_cheap_compact"));
     put("default_tools", opt_j(&s, "default_tools"));
-    put("default_account", json!(opt_s(&s, "default_account")));
+    put("default_account", json!(kept(opt_s(&s, "default_account"))));
     let afd = opt_j(&s, "account_fallback_default");
     put("account_fallback_default", if afd.is_boolean() { afd } else { Value::Null });
     put("org_inbox_multi_holder", json!(opt_b(&s, "org_inbox_multi_holder")));
@@ -404,7 +414,10 @@ async fn copy_sections(
         };
         let frozen = crate::runtime::freeze::normalize(opt_j(r, "frozen"));
         let halt = opt_j(r, "halt");
-        let pending_switch = opt_j(r, "pending_switch");
+        let mut pending_switch = opt_j(r, "pending_switch");
+        if pending_switch["account"].as_str().map(|a| removed.contains(a)).unwrap_or(false) {
+            pending_switch = Value::Null;
+        }
         let state: String = r.get("state");
         let born = opt_s(r, "lineage_born").unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let scratch = scratch_root.join(&name).to_string_lossy().to_string();
@@ -429,7 +442,7 @@ async fn copy_sections(
                     &opt_s(r, "charter"),
                     &opt_s(r, "team_charter"),
                     &tier,
-                    &opt_s(r, "account"),
+                    &kept(opt_s(r, "account")),
                     &seat,
                     &opt_f(r, "grant").unwrap_or(0.0),
                     &Value::Object(scope),
@@ -1061,7 +1074,11 @@ async fn import_org_accounts(src: &Client, tx: &Transaction<'_>, slug: &str) -> 
             &[],
         )
         .await?;
+    let removed = removed_accounts(tx).await?;
     for r in &rows {
+        if removed.contains(&r.get::<_, String>(0)) {
+            continue;
+        }
         let mode: Option<String> = r.get(8);
         let kind = if mode.as_deref() == Some("apikey") {
             "apikey".to_string()
@@ -1093,6 +1110,9 @@ async fn import_org_accounts(src: &Client, tx: &Transaction<'_>, slug: &str) -> 
         .query("SELECT account_id, pool, until, \"window\", provenance FROM orgtree.org_account_marks", &[])
         .await?;
     for m in &marks {
+        if removed.contains(&m.get::<_, String>(0)) {
+            continue;
+        }
         let until: Option<f64> = m.get(2);
         let Some(until) = until.and_then(|u| DateTime::from_timestamp(u as i64, 0)) else { continue };
         if until < Utc::now() {
@@ -1127,7 +1147,11 @@ async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
             &[],
         )
         .await?;
+    let removed = removed_accounts(dst).await?;
     for r in &rows {
+        if removed.contains(&r.get::<_, String>(0)) {
+            continue;
+        }
         let mode: Option<String> = r.get(9);
         let kind = if mode.as_deref() == Some("apikey") {
             "apikey".to_string()
@@ -1163,6 +1187,9 @@ async fn import_accounts(app: &Client, dst: &Client) -> Result<()> {
         }
     };
     for m in &marks {
+        if removed.contains(&m.get::<_, String>(0)) {
+            continue;
+        }
         let until: Option<f64> = m.get(2);
         let Some(until) = until.and_then(|u| DateTime::from_timestamp(u as i64, 0)) else { continue };
         if until < Utc::now() {

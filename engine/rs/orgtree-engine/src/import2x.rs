@@ -386,8 +386,9 @@ fn last<T: Clone>(v: &[T], n: usize) -> &[T] {
 async fn copy_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str) -> Result<usize> {
     let slug = src.slug.as_str();
     let doc = Value::Object(src.doc.clone());
-    let org_id = insert_org(src, tx, uuid).await?;
-    let ids = insert_agents(cfg, src, tx, org_id).await?;
+    let removed = crate::importer::removed_accounts(tx).await?;
+    let org_id = insert_org(src, tx, uuid, &removed).await?;
+    let ids = insert_agents(cfg, src, tx, org_id, &removed).await?;
     let n = ids.len();
     insert_mail_all(src, tx, org_id, &ids).await?;
     insert_asks(&doc, tx, org_id, &ids).await?;
@@ -398,7 +399,7 @@ async fn copy_org(cfg: &Config, src: &Source, tx: &Transaction<'_>, uuid: &str) 
 }
 
 /// The org row. Not logged: it reads the network identity secret.
-async fn insert_org(src: &Source, tx: &Transaction<'_>, uuid: &str) -> Result<i64> {
+async fn insert_org(src: &Source, tx: &Transaction<'_>, uuid: &str, removed: &HashSet<String>) -> Result<i64> {
     let d = Value::Object(src.doc.clone());
     let mut settings = Map::new();
     let mut put = |k: &str, v: Value| {
@@ -420,7 +421,8 @@ async fn insert_org(src: &Source, tx: &Transaction<'_>, uuid: &str) -> Result<i6
         .unwrap_or_default();
     put("dirs", json!(dirs));
     for k in ["permission_mode", "default_visibility", "default_effort", "default_account"] {
-        put(k, json!(s(&d, k)));
+        // never an account the user removed in 4.0 (a retried import)
+        put(k, json!(s(&d, k).filter(|v| k != "default_account" || !removed.contains(v))));
     }
     for k in ["max_top_grant", "default_top_grant", "compact_at"] {
         put(k, json!(f(&d, k)));
@@ -469,6 +471,7 @@ async fn insert_agents(
     src: &Source,
     tx: &Transaction<'_>,
     org_id: i64,
+    removed: &HashSet<String>,
 ) -> Result<HashMap<String, i64>> {
     let tiers = src.doc.get("tiers").cloned().unwrap_or(Value::Null);
     let scratch_root = cfg.scratch_root(&src.slug);
@@ -486,6 +489,9 @@ async fn insert_agents(
             catalog::GOOGLE => (s(n, "antigravity_conversation"), s(n, "antigravity_account").or_else(|| s(n, "account"))),
             _ => (s(n, "session_id"), if b(n, "account_primary") == Some(true) { None } else { s(n, "account") }),
         };
+        let account = account.filter(|a| !removed.contains(a));
+        let pending_switch = obj(n, "pending_switch")
+            .filter(|p| !p["account"].as_str().map(|a| removed.contains(a)).unwrap_or(false));
         let seat = f(&tiers, &tier).unwrap_or_else(|| catalog::seat_price(&tier));
         let scope = normalize_scope(n.get("scope"));
         let status = |k: &str| -> Option<Value> {
@@ -534,7 +540,7 @@ async fn insert_agents(
                     &status("prev_status"),
                     &obj(n, "frozen").map(crate::runtime::freeze::normalize),
                     &obj(n, "halt"),
-                    &obj(n, "pending_switch"),
+                    &pending_switch,
                     &b(n, "limit_locked").unwrap_or(false),
                     &created,
                     &t(n, "archived_at"),
@@ -1097,8 +1103,13 @@ pub(crate) async fn import_accounts(path: &Path, dst: &deadpool_postgres::Object
     let Ok(text) = std::fs::read_to_string(path) else { return Ok(0) };
     let reg: Value = serde_json::from_str(&text).context("accounts-registry.json")?;
     let rows = reg["accounts"].as_array().cloned().unwrap_or_default();
+    let client: &tokio_postgres::Client = dst;
+    let removed = crate::importer::removed_accounts(client).await?;
     for (ord, r) in rows.iter().enumerate() {
         let Some(id) = s(r, "id") else { continue };
+        if removed.contains(&id) {
+            continue;
+        }
         let kind = if s(r, "mode").as_deref() == Some("apikey") {
             "apikey".to_string()
         } else {
