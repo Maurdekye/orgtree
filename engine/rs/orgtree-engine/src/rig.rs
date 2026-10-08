@@ -85,6 +85,15 @@ pub fn active() -> bool {
     RIG.get().map(Option::is_some).unwrap_or(false)
 }
 
+/// A rig run that asked for the restart path (`ORGTREE_RIG_RECOVER=1`):
+/// what a safe start holds back (waking agents at start, re-arming every
+/// watchdog, watchdog mail that wakes) runs there as it does for real; only
+/// fake CLIs can run in rig mode.
+#[nolog]
+pub fn recovers() -> bool {
+    active() && std::env::var("ORGTREE_RIG_RECOVER").as_deref() == Ok("1")
+}
+
 /// Every home-folder lookup: the rig's fake home in rig mode, else the
 /// user's profile folder.
 #[logged]

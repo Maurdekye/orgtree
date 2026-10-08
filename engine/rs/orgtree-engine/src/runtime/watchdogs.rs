@@ -200,7 +200,7 @@ pub async fn start(engine: &Arc<Engine>) {
         .query(
             "SELECT w.uid FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id JOIN ot.orgs o ON o.id = w.org_id
               WHERE w.state = 'armed' AND a.state = 'live' AND o.state <> 'trashed' AND (NOT $1 OR w.kind='event')",
-            &[&crate::mailhub::safe_start()],
+            &[&(crate::mailhub::safe_start() && !crate::rig::recovers())],
         )
         .await
         .map(|rows| rows.iter().map(|r| r.get(0)).collect())
@@ -1198,7 +1198,7 @@ async fn deliver(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option<Value
     out.kind = "watchdog".into();
     // SAFE_START may recover event subscriptions to rehearse engine.started,
     // but their alerts must never start provider turns from a copied database.
-    out.notice = dog.notice() || crate::mailhub::safe_start();
+    out.notice = dog.notice() || (crate::mailhub::safe_start() && !crate::rig::recovers());
     out.ev = ev;
     if let Err(e) = mail::send(engine, dog.org_id, out).await {
         tracing::warn!(watchdog = %dog.uid, error = %format!("{e:#}"), "watchdog mail failed");

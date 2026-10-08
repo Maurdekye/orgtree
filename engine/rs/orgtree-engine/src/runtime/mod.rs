@@ -299,9 +299,7 @@ pub fn working_by_org(engine: &Engine) -> HashMap<i64, i64> {
 /// agents with waiting mail.
 #[logged]
 pub async fn recover(engine: &Arc<Engine>) {
-    // a rig run may ask for the restart path: only its fake CLIs can run there
-    let rig_recovers = crate::rig::active() && std::env::var("ORGTREE_RIG_RECOVER").as_deref() == Ok("1");
-    if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() == Ok("1") && !rig_recovers {
+    if std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() == Ok("1") && !crate::rig::recovers() {
         tracing::warn!("safe start: no agent is woken automatically");
         return;
     }
