@@ -107,8 +107,9 @@ pub enum From {
     System,
     Agent { id: i64, name: String, generation: i32 },
     Extern(String),
-    /// a watchdog mailing its owner (the mail is from the dog's name)
-    Watchdog { uid: String, name: String },
+    /// a watchdog mailing its owner (the mail is from the dog's name); `key`
+    /// is the desktop's handle for the dog, where the mail's spark starts
+    Watchdog { key: String, name: String },
 }
 
 #[logged]
@@ -126,7 +127,7 @@ impl From {
     /// Where a mail spark starts on the canvas.
     pub fn spark(&self) -> String {
         match self {
-            From::Watchdog { uid, .. } => format!("dog:{uid}"),
+            From::Watchdog { key, .. } => format!("dog:{key}"),
             From::Extern(_) => "org_inbox".into(),
             other => other.name(),
         }

@@ -51,8 +51,8 @@ pub(crate) struct Effects {
     registry: bool,
     pulses: Vec<crate::changes::Change>,
     /// watchdogs to stop / start after commit
-    dogs_off: Vec<String>,
-    dogs_on: Vec<String>,
+    dogs_off: Vec<i64>,
+    dogs_on: Vec<i64>,
     /// a retool that set or cleared an agent's effort: (agent, the levels it
     /// resolved to before and after), delivered after commit
     effort: Option<(i64, String, String)>,
@@ -536,10 +536,10 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
         }
     }
     for d in &fx.dogs_off {
-        crate::runtime::watchdogs::disarm(engine, d);
+        crate::runtime::watchdogs::disarm(engine, *d);
     }
     for d in &fx.dogs_on {
-        crate::runtime::watchdogs::arm(engine, d);
+        crate::runtime::watchdogs::arm(engine, *d);
     }
     use crate::changes::Change;
     let mut ch: Vec<Change> = fx.agents.iter().map(|id| Change::Agent(*id)).collect();
@@ -1218,11 +1218,11 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     moot_asks(tx, &ids, fx).await?;
     let gone = tx
         .query(
-            "UPDATE ot.watchdogs SET state = 'removed' WHERE owner_agent_id = ANY($1) AND state IN ('armed', 'paused', 'exited') RETURNING uid",
+            "UPDATE ot.watchdogs SET state = 'removed' WHERE owner_agent_id = ANY($1) AND state IN ('armed', 'paused', 'exited') RETURNING id",
             &[&ids],
         )
         .await?;
-    fx.dogs_off.extend(gone.iter().map(|r| r.get::<_, String>(0)));
+    fx.dogs_off.extend(gone.iter().map(|r| r.get::<_, i64>(0)));
     event(tx, org.id, "delete", actor, Some(n.id), json!({ "node": n.name, "nodes": ids.len() }), fx).await?;
     fx.agents.extend(ids.iter().copied());
     if let Some(p) = n.parent {

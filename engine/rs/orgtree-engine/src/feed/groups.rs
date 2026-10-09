@@ -231,14 +231,18 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 .query(
                     "SELECT to_jsonb(w), a.name FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
                       WHERE w.org_id = $1 AND (w.state IN ('armed','paused','exited')
-                         OR (w.spent_at IS NOT NULL AND w.spent_at > now() - interval '15 seconds'))
+                         OR (w.spent_at IS NOT NULL AND w.spent_at > now() - interval '15 seconds'
+                             -- a newer dog of its owner reuses its id (D67): one row per handle
+                             AND NOT EXISTS (SELECT 1 FROM ot.watchdogs n WHERE n.owner_agent_id = w.owner_agent_id
+                                              AND n.uid = w.uid AND n.id > w.id AND n.state <> 'removed')))
                       ORDER BY w.id",
                     &[&org_id],
                 )
                 .await?;
             json!({ "watchdogs": rows.iter().map(|r| {
-                let mut v=crate::domain::watchdogs::view(&r.get::<_, Value>(0), &r.get::<_, String>(1));
-                if let Some(h)=crate::runtime::watchdogs::events::health(engine,v["id"].as_str().unwrap_or("")){v["health"]=json!(h);}
+                let w=r.get::<_, Value>(0);
+                let mut v=crate::domain::watchdogs::view(&w, &r.get::<_, String>(1));
+                if let Some(h)=w["id"].as_i64().and_then(|row|crate::runtime::watchdogs::events::health(engine,row)){v["health"]=json!(h);}
                 v
             }).collect::<Vec<_>>() })
         }

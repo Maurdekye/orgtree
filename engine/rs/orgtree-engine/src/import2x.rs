@@ -1015,12 +1015,17 @@ async fn insert_rest(src: &Source, tx: &Transaction<'_>, org_id: i64, ids: &Hash
             continue;
         }
         let Some(owner_id) = s(w, "owner").and_then(|o| ids.get(&o).copied()) else { continue };
+        let dog_id = s(w, "id").unwrap_or_else(|| uid("w"));
+        // a dog already imported keeps its row (ids are no longer unique table-wide, D67)
+        if tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE uid = $1", &[&dog_id]).await?.is_some() {
+            continue;
+        }
         tx.execute(
             "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s,
                                        fire_mode, quiet_period_s, once, state, fired, created_at, last_check, last_fired, silence_since, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT (uid) DO NOTHING",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT DO NOTHING",
             &[
-                &s(w, "id").unwrap_or_else(|| uid("w")),
+                &dog_id,
                 &org_id,
                 &owner_id,
                 &s(w, "name").unwrap_or_default(),

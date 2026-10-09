@@ -419,6 +419,10 @@ fn all() -> Vec<Value> {
              fires exactly once and removes itself — use it whenever the condition can happen only once and ALWAYS \
              when the pattern is a DEADLINE rather than an EDGE. Free; max 8 per agent. Actions: create, list, pause, \
              resume, remove (reason optional). Superiors may manage their subtree's dogs. \
+             A dog's ID IS THE SLUG OF ITS NAME (lowercase letters, digits and dashes, e.g. build-watch): its mail \
+             and `list` show it, and pause/resume/remove take it. A second dog of yours with the same name gets \
+             build-watch-2, and a dog created without a name gets one from its kind and target. Dogs made before \
+             keep their older ids. Two agents may each keep a build-watch: name a team member's dog as owner/id. \
              kind=event is pushed by the engine (no polling): target is a dotted name or prefix ending .*; \
              pattern matches only safe JSON payload. Current-state smoke does not fire. No offline replay; \
              recovered dogs see engine.started. Catalog: credentials.bridge.available/unavailable, \
@@ -432,7 +436,7 @@ fn all() -> Vec<Value> {
              interval_s is a minimum fire gap (5s floor); bursts coalesce into bounded summaries. Storage failures retry with health diagnostics. Resume/restart refresh count baselines. Watchdog mail and its owner turn events never feed that owner's event dogs. Own cli.* events are excluded to prevent idle-eviction wake loops.",
             json!({
                 "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove"] },
-                "name": { "type": "string", "description": "create: a short name, e.g. build-watch" },
+                "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
                 "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event"] },
                 "fire_mode": { "type": "string", "enum": ["event", "silence"], "description": "create: on event (default), or after silence" },
                 "threshold": {"type":"string","description":"event counts only: below N or at least N; fires only on false-to-true crossing, never repeatedly while satisfied"},
@@ -444,7 +448,7 @@ fn all() -> Vec<Value> {
                 "notice": { "type": "boolean", "description": "create: fire passively — the mail waits without starting a turn" },
                 "once": { "type": "boolean", "description": "create: ONE-SHOT — fires once and removes itself" },
                 "shell": { "type": "string", "enum": ["native", "bash"], "description": "create, command/stream only" },
-                "id": { "type": "string", "description": "pause/resume/remove: the watchdog id" },
+                "id": { "type": "string", "description": "pause/resume/remove: the watchdog's id as `list` shows it (owner/id for a team member's dog)" },
                 "reason": { "type": "string", "description": "remove: why (optional)" },
             }),
             &["action"],

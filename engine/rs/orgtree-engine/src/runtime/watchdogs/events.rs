@@ -76,18 +76,18 @@ pub fn machine(engine: &Engine, name: &str, payload: Value) {
 }
 
 #[logged]
-pub(super) fn subscribe(engine: &Engine, uid: &str) -> (Subscription, Receiver<Event>) {
+pub(super) fn subscribe(engine: &Engine, row: i64) -> (Subscription, Receiver<Event>) {
     let (tx, rx) = channel(256);
     let sub = Subscription { tx, target: Arc::new(arc_swap::ArcSwapOption::empty()), overflow: Arc::new(arc_swap::ArcSwapOption::empty()) };
-    engine.dogs.events.pin().insert(uid.to_owned(), sub.clone());
+    engine.dogs.events.pin().insert(row, sub.clone());
     (sub, rx)
 }
 
 #[logged]
-pub(super) fn unsubscribe(engine: &Engine, uid: &str, sub: &Subscription) {
+pub(super) fn unsubscribe(engine: &Engine, row: i64, sub: &Subscription) {
     let map = engine.dogs.events.pin();
     // Never remove a replacement runner's subscription.
-    map.compute(uid.to_owned(), |entry| match entry {
+    map.compute(row, |entry| match entry {
         Some((_,s)) if s.tx.same_channel(&sub.tx)=>papaya::Operation::Remove,
         _=>papaya::Operation::Abort(()),
     });
@@ -279,7 +279,7 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
         while batch.len()<256 {match rx.try_recv(){Ok(e)=>batch.push(e),Err(_)=>break}}
         if batch.len()<257 {if let Some(e)=sub.overflow.swap(None){batch.push((*e).clone());}}
         let result:Result<bool>=async {
-            let Some(mut next)=load(engine,&d.uid).await? else{return Ok(true)};
+            let Some(mut next)=load(engine,d.row).await? else{return Ok(true)};
             if next.state!="armed" || !next.owner_live{return Ok(true)}
             // A previous fire may have committed before a connection error. Do
             // not count the same pending batch twice on retry.
@@ -475,13 +475,13 @@ pub(crate) fn mail_delivered(engine:&Engine,org:i64,agent:i64,rows:Vec<(String,S
 }
 
 #[logged]
-pub(crate) fn health(engine:&Engine,uid:&str)->Option<String>{engine.dogs.event_health.pin().get(uid).cloned()}
+pub(crate) fn health(engine:&Engine,row:i64)->Option<String>{engine.dogs.event_health.pin().get(&row).cloned()}
 
 #[logged]
 fn set_health(engine:&Engine,d:&Dog,message:Option<String>){
-    let previous=health(engine,&d.uid);
+    let previous=health(engine,d.row);
     if previous==message{return;}
-    if let Some(message)=message{engine.dogs.event_health.pin().insert(d.uid.clone(),message);}
-    else{engine.dogs.event_health.pin().remove(&d.uid);}
+    if let Some(message)=message{engine.dogs.event_health.pin().insert(d.row,message);}
+    else{engine.dogs.event_health.pin().remove(&d.row);}
     crate::changes::notify_id(engine,d.org_id,vec![Change::Watchdogs]);
 }

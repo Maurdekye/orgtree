@@ -5,10 +5,18 @@ use serde_json::{json, Map, Value};
 
 use crate::domain::tree::ts;
 
+/// The desktop's handle for a dog: `owner/id`. A dog's id is unique only
+/// among its owner's dogs (D67), so the canvas, sparks and the user's
+/// pause/resume/remove need the owner too; `act` takes this form back.
+#[nolog]
+pub fn handle(owner: &str, uid: &str) -> String {
+    format!("{owner}/{uid}")
+}
+
 /// A `watchdogs` row → the `Watchdog` the canvas and desk render.
 pub fn view(w: &Value, owner: &str) -> Value {
     let mut o = Map::new();
-    o.insert("id".into(), w["uid"].clone());
+    o.insert("id".into(), json!(handle(owner, w["uid"].as_str().unwrap_or_default())));
     o.insert("owner".into(), json!(owner));
     o.insert("name".into(), w["name"].clone());
     o.insert("kind".into(), w["kind"].clone());

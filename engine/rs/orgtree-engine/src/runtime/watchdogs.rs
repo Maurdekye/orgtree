@@ -5,6 +5,7 @@
 //! through lock-free maps: pausing or removing a watchdog cancels its token,
 //! and activity dogs listen on a per-agent fan-out the actor publishes to.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -24,7 +25,7 @@ use crate::domain::mail::{self, From, Outgoing};
 use crate::domain::scope;
 use crate::engine::Engine;
 use crate::refuse;
-use crate::util::{gist, iso, uid};
+use crate::util::{gist, iso};
 
 pub const MAX_PER_AGENT: i64 = 8;
 pub const MAX_PER_ORG: i64 = 32;
@@ -60,19 +61,24 @@ pub mod events;
 type ActivityTx = UnboundedSender<(String, DateTime<Utc>)>;
 
 /// The running watchdogs: each runner's cancellation token, and the
-/// activity dogs listening to each agent.
+/// activity dogs listening to each agent. Dogs are keyed by their row id:
+/// the id an agent sees is unique only among one owner's dogs.
 #[derive(Default)]
 pub struct Registry {
-    runners: papaya::HashMap<String, CancellationToken>,
-    events: papaya::HashMap<String, events::Subscription>,
+    runners: papaya::HashMap<i64, CancellationToken>,
+    events: papaya::HashMap<i64, events::Subscription>,
     conditions: papaya::HashMap<String, Value>,
     alert_turns: papaya::HashMap<i64, Arc<(i64,String)>>,
-    event_health: papaya::HashMap<String, String>,
-    activity: papaya::HashMap<i64, papaya::HashMap<String, ActivityTx>>,
+    event_health: papaya::HashMap<i64, String>,
+    activity: papaya::HashMap<i64, papaya::HashMap<i64, ActivityTx>>,
 }
 
 #[derive(Debug, Clone)]
 struct Dog {
+    /// the row id: the engine's own key for the dog
+    row: i64,
+    /// the id its owner knows it by: the slug of its name (D67), or the
+    /// random id of a dog created before
     uid: String,
     org_id: i64,
     owner: i64,
@@ -152,11 +158,15 @@ fn matches(re: &Result<Option<Regex>, String>, line: &str) -> bool {
 
 const DOG_COLS: &str = "w.uid, w.org_id, w.owner_agent_id, a.name, a.state = 'live', a.scratch_dir, w.name, w.kind, w.target,
     w.pattern, w.shell, w.interval_s, w.fire_mode, w.quiet_period_s, w.once, w.state, w.fired, w.created_at, w.last_fired,
-    w.silence_since, w.exit, w.memo";
+    w.silence_since, w.exit, w.memo, w.id";
+/// The states in which a dog holds its id (D67): a removed or spent dog's
+/// id is free again for a new dog of the same owner.
+const HOLDS_ID: &str = "('armed', 'paused', 'exited')";
 
 fn dog_of(r: &tokio_postgres::Row) -> Dog {
     let memo: Value = r.get(21);
     Dog {
+        row: r.get(22),
         uid: r.get(0),
         org_id: r.get(1),
         owner: r.get(2),
@@ -184,10 +194,10 @@ fn dog_of(r: &tokio_postgres::Row) -> Dog {
 }
 
 #[logged]
-async fn load(engine: &Engine, uid: &str) -> Result<Option<Dog>> {
+async fn load(engine: &Engine, row: i64) -> Result<Option<Dog>> {
     let client = engine.db.get().await?;
-    let sql = format!("SELECT {DOG_COLS} FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id WHERE w.uid = $1");
-    Ok(client.query_opt(&sql, &[&uid]).await?.map(|r| dog_of(&r)))
+    let sql = format!("SELECT {DOG_COLS} FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id WHERE w.id = $1");
+    Ok(client.query_opt(&sql, &[&row]).await?.map(|r| dog_of(&r)))
 }
 
 // ------------------------------------------------------------ arming
@@ -196,9 +206,9 @@ async fn load(engine: &Engine, uid: &str) -> Result<Option<Dog>> {
 #[logged]
 pub async fn start(engine: &Arc<Engine>) {
     let Ok(client) = engine.db.get().await else { return };
-    let ids: Vec<String> = client
+    let ids: Vec<i64> = client
         .query(
-            "SELECT w.uid FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id JOIN ot.orgs o ON o.id = w.org_id
+            "SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id JOIN ot.orgs o ON o.id = w.org_id
               WHERE w.state = 'armed' AND a.state = 'live' AND o.state <> 'trashed' AND (NOT $1 OR w.kind='event')",
             &[&(crate::mailhub::safe_start() && !crate::rig::recovers())],
         )
@@ -207,45 +217,45 @@ pub async fn start(engine: &Arc<Engine>) {
         .unwrap_or_default();
     drop(client);
     for id in ids {
-        arm(engine, &id);
+        arm(engine, id);
     }
 }
 
-/// Start the runner for `uid` unless one already runs.
+/// Start the runner for the dog in row `row` unless one already runs.
 #[logged]
-pub fn arm(engine: &Arc<Engine>, uid: &str) {
-    arm_retry(engine,uid,0);
+pub fn arm(engine: &Arc<Engine>, row: i64) {
+    arm_retry(engine,row,0);
 }
 
 #[logged]
-fn arm_retry(engine: &Arc<Engine>, uid: &str, failures: u32) {
+fn arm_retry(engine: &Arc<Engine>, row: i64, failures: u32) {
     if engine.is_stopping() {
         return;
     }
     let token = engine.shutdown.child_token();
     {
         let map = engine.dogs.runners.pin();
-        if map.get(uid).map(|t| !t.is_cancelled()).unwrap_or(false) {
+        if map.get(&row).map(|t| !t.is_cancelled()).unwrap_or(false) {
             return;
         }
-        map.insert(uid.to_string(), token.clone());
+        map.insert(row, token.clone());
     }
     // Subscribe before spawning/loading so create and startup have no missed-event gap.
-    let (event_sub, event_rx) = events::subscribe(engine, uid);
+    let (event_sub, event_rx) = events::subscribe(engine, row);
     let engine = engine.clone();
-    let id = uid.to_string();
+    let id = row;
     let origin = tracing::Span::current();
     let cause = crate::trace::current_rq();
     tokio::spawn(tracing::Instrument::instrument(
         async move {
             // This is the runner's existing initial read, not another identity query.
             let loaded = loop {
-                match load(&engine,&id).await {
+                match load(&engine,id).await {
                     Ok(value)=>{engine.dogs.event_health.pin().remove(&id);break Ok(value);},
                     Err(e)=>{
                         tracing::warn!(watchdog=%id,error=%e,"watchdog initial load retry");
-                        engine.dogs.event_health.pin().insert(id.clone(),"Listener retrying initial storage read".into());
-                        tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=token.cancelled()=>{events::unsubscribe(&engine,&id,&event_sub);engine.dogs.event_health.pin().remove(&id);return}}
+                        engine.dogs.event_health.pin().insert(id,"Listener retrying initial storage read".into());
+                        tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=token.cancelled()=>{events::unsubscribe(&engine,id,&event_sub);engine.dogs.event_health.pin().remove(&id);return}}
                     }
                 }
             };
@@ -257,11 +267,11 @@ fn arm_retry(engine: &Arc<Engine>, uid: &str, failures: u32) {
                 let missing = matches!(&loaded,Ok(None));
                 let r = match loaded {
                     Ok(Some(dog)) if dog.kind == "event" => events::run(&engine, dog, &event_sub, event_rx, &token).await,
-                    Ok(Some(dog)) => { events::unsubscribe(&engine, &id, &event_sub); run(&engine, dog, &token).await },
+                    Ok(Some(dog)) => { events::unsubscribe(&engine, id, &event_sub); run(&engine, dog, &token).await },
                     Ok(None) => Ok(()),
                     Err(e) => Err(e),
                 };
-                events::unsubscribe(&engine, &id, &event_sub);
+                events::unsubscribe(&engine, id, &event_sub);
                 if let Err(e) = &r {
                     tracing::warn!(watchdog = %id, error = %format!("{e:#}"), "watchdog runner stopped");
                 }
@@ -276,25 +286,25 @@ fn arm_retry(engine: &Arc<Engine>, uid: &str, failures: u32) {
                 // reload succeeds. Keep admission occupied during the delay.
                 if failed && !token.is_cancelled() {
                     let delay=(2u64 << failures.min(4)).min(30);
-                    engine.dogs.event_health.pin().insert(id.clone(),format!("Runner failed; retrying in {delay}s"));
+                    engine.dogs.event_health.pin().insert(id,format!("Runner failed; retrying in {delay}s"));
                     tokio::select!{_=tokio::time::sleep(Duration::from_secs(delay))=>{},_=token.cancelled()=>return}
                 }
                 let left_alone = !token.is_cancelled();
                 token.cancel();
                 // A resume can land while this runner is on its way out.
                 if left_alone && !engine.is_stopping() {
-                    match load(&engine,&id).await {
+                    match load(&engine,id).await {
                         Ok(Some(d))=>{
                             let dead_stream=d.kind=="stream" && d.exit.is_some() && !d.silence();
-                            if d.state=="armed" && d.owner_live && !dead_stream {arm_retry(&engine,&id,next_failures);}
+                            if d.state=="armed" && d.owner_live && !dead_stream {arm_retry(&engine,id,next_failures);}
                             else{engine.dogs.event_health.pin().remove(&id);}
                         },
                         Ok(None)=>{engine.dogs.event_health.pin().remove(&id);},
                         Err(e)=>{
                             tracing::warn!(watchdog=%id,error=%e,"watchdog reload retry");
-                            engine.dogs.event_health.pin().insert(id.clone(),"Listener re-arming after storage error".into());
+                            engine.dogs.event_health.pin().insert(id,"Listener re-arming after storage error".into());
                             tokio::select!{_=tokio::time::sleep(Duration::from_secs(2))=>{},_=engine.shutdown.cancelled()=>return}
-                            arm_retry(&engine,&id,next_failures);
+                            arm_retry(&engine,id,next_failures);
                         }
                     }
                 }
@@ -305,9 +315,9 @@ fn arm_retry(engine: &Arc<Engine>, uid: &str, failures: u32) {
 }
 
 #[logged]
-pub fn disarm(engine: &Engine, uid: &str) {
-    engine.dogs.event_health.pin().remove(uid);
-    if let Some(t) = engine.dogs.runners.pin().remove(uid) {
+pub fn disarm(engine: &Engine, row: i64) {
+    engine.dogs.event_health.pin().remove(&row);
+    if let Some(t) = engine.dogs.runners.pin().remove(&row) {
         t.cancel();
     }
 }
@@ -341,16 +351,16 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Resu
     match dog.kind.as_str() {
         "stream" => run_stream(engine, dog, cancel).await,
         "activity" => run_activity(engine, dog, cancel).await,
-        _ => run_poll(engine, &dog.uid, cancel).await,
+        _ => run_poll(engine, dog.row, cancel).await,
     }
 }
 
 // ------------------------------------------------------------ polling dogs
 
 #[logged]
-async fn run_poll(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -> Result<()> {
+async fn run_poll(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken) -> Result<()> {
     loop {
-        let Some(dog) = load(engine, uid).await? else { return Ok(()) };
+        let Some(dog) = load(engine, row).await? else { return Ok(()) };
         let span = crate::trace::request(&format!("dog:{}/{}", dog.uid, dog.owner_name));
         let next = tracing::Instrument::instrument(poll_once(engine, dog), span).await?;
         let Some(wait) = next else { return Ok(()) };
@@ -554,8 +564,8 @@ async fn save_run(engine: &Engine, dog: &mut Dog, matched: bool) -> Result<()> {
         .execute(
             "UPDATE ot.watchdogs SET last_check = now(), memo = jsonb_set(memo, '{run}', $2),
                     silence_since = CASE WHEN $3 THEN now() ELSE silence_since END
-              WHERE uid = $1 AND state = 'armed'",
-            &[&dog.uid, &dog.run, &reset],
+              WHERE id = $1 AND state = 'armed'",
+            &[&dog.row, &dog.run, &reset],
         )
         .await?;
     if reset {
@@ -831,7 +841,7 @@ async fn next_line<R: AsyncRead + Unpin>(r: &mut BufReader<R>, buf: &mut Vec<u8>
 async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) -> Result<()> {
     if dog.exit.is_some() {
         // an exited stream respawns only on resume; a silence dog keeps its clock
-        return if dog.silence() { silence_clock(engine, &dog.uid, cancel).await } else { Ok(()) };
+        return if dog.silence() { silence_clock(engine, dog.row, cancel).await } else { Ok(()) };
     }
     if let Some(why) = authority_lost(engine, &dog).await? {
         pause(engine, &dog, why).await?;
@@ -912,8 +922,8 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
         if dirty && (since_save >= Duration::from_secs(10) || (matched_at.is_some() && since_save >= Duration::from_secs(2))) {
             run["checks_run"] = json!(lines_read);
             run["last_output"] = json!(tail(&recent, OUT_KEEP));
-            save_stream(engine, &d.uid, &run, matched_at.take()).await?;
-            match load(engine, &d.uid).await? {
+            save_stream(engine, d.row, &run, matched_at.take()).await?;
+            match load(engine, d.row).await? {
                 Some(fresh) if fresh.state == "armed" => d = fresh,
                 _ => {
                     let _ = child.start_kill();
@@ -943,13 +953,13 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
     let code = child.wait().await.ok().and_then(|s| s.code());
     run["checks_run"] = json!(lines_read);
     run["last_output"] = json!(tail(&recent, OUT_KEEP));
-    save_stream(engine, &d.uid, &run, None).await?;
+    save_stream(engine, d.row, &run, None).await?;
     let client = engine.db.get().await?;
     let n = client
         .execute(
             "UPDATE ot.watchdogs SET exit = $2, state = CASE WHEN fire_mode = 'silence' THEN state ELSE 'exited' END
-              WHERE uid = $1 AND state = 'armed'",
-            &[&d.uid, &json!({ "code": code, "at": iso(Utc::now()) })],
+              WHERE id = $1 AND state = 'armed'",
+            &[&d.row, &json!({ "code": code, "at": iso(Utc::now()) })],
         )
         .await?;
     drop(client);
@@ -958,7 +968,7 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
     }
     changes::notify_id(engine, d.org_id, vec![Change::Watchdogs]);
     if d.silence() {
-        return silence_clock(engine, &d.uid, cancel).await;
+        return silence_clock(engine, d.row, cancel).await;
     }
     pending.push(format!("(stream exited with code {})", code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into())));
     // the dog is `exited` now; this fire is its last word
@@ -967,14 +977,14 @@ async fn run_stream(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken) 
 }
 
 #[logged]
-async fn save_stream(engine: &Engine, uid: &str, run: &Value, matched_at: Option<DateTime<Utc>>) -> Result<()> {
+async fn save_stream(engine: &Engine, row: i64, run: &Value, matched_at: Option<DateTime<Utc>>) -> Result<()> {
     let client = engine.db.get().await?;
     client
         .execute(
             "UPDATE ot.watchdogs SET last_check = now(), memo = jsonb_set(memo, '{run}', $2),
                     silence_since = coalesce($3, silence_since)
-              WHERE uid = $1 AND state = 'armed'",
-            &[&uid, run, &matched_at],
+              WHERE id = $1 AND state = 'armed'",
+            &[&row, run, &matched_at],
         )
         .await?;
     Ok(())
@@ -982,9 +992,9 @@ async fn save_stream(engine: &Engine, uid: &str, run: &Value, matched_at: Option
 
 /// A silence dog with nothing left to listen to: fire each full quiet period.
 #[logged]
-async fn silence_clock(engine: &Arc<Engine>, uid: &str, cancel: &CancellationToken) -> Result<()> {
+async fn silence_clock(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken) -> Result<()> {
     loop {
-        let Some(d) = load(engine, uid).await? else { return Ok(()) };
+        let Some(d) = load(engine, row).await? else { return Ok(()) };
         if d.state != "armed" || !d.silence() {
             return Ok(());
         }
@@ -1011,11 +1021,11 @@ async fn run_activity(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken
         return Ok(());
     };
     let (tx, mut rx) = unbounded_channel();
-    engine.dogs.activity.pin().get_or_insert_with(target, papaya::HashMap::new).pin().insert(dog.uid.clone(), tx);
-    let uid = dog.uid.clone();
+    engine.dogs.activity.pin().get_or_insert_with(target, papaya::HashMap::new).pin().insert(dog.row, tx);
+    let row = dog.row;
     let r = activity_loop(engine, dog, target, &mut rx, cancel).await;
     if let Some(inner) = engine.dogs.activity.pin().get(&target) {
-        inner.pin().remove(&uid);
+        inner.pin().remove(&row);
     }
     r
 }
@@ -1056,7 +1066,7 @@ async fn activity_loop(
         }
         let hits: Vec<String> = seen.iter().filter(|l| matches(&re, l)).cloned().collect();
         if !seen.is_empty() {
-            let Some(fresh) = load(engine, &d.uid).await? else { return Ok(()) };
+            let Some(fresh) = load(engine, d.row).await? else { return Ok(()) };
             if fresh.state != "armed" {
                 return Ok(());
             }
@@ -1134,9 +1144,9 @@ async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) 
                          ORDER BY n DESC LIMIT $3) s),
                     spent_at = CASE WHEN once THEN now() ELSE spent_at END,
                     state = CASE WHEN once THEN 'spent' ELSE state END
-              WHERE uid = $1 AND state = 'armed'
+              WHERE id = $1 AND state = 'armed'
               RETURNING once, fired",
-            &[&dog.uid, &json!(ring), &EVENTS_KEEP],
+            &[&dog.row, &json!(ring), &EVENTS_KEEP],
         )
         .await?;
     drop(client);
@@ -1148,7 +1158,7 @@ async fn fire(engine: &Arc<Engine>, dog: &Dog, events: &[String], prefix: &str) 
     let ev = org_slug(engine, dog).map(|o| crate::events::watchdog_fired(&o, &dog.uid, &dog.name, &dog.owner_name, prefix.trim(), &lines, once));
     events::ALERT_DELIVERY.scope(true,deliver(engine, dog, body, ev)).await;
     if once {
-        disarm(engine, &dog.uid);
+        disarm(engine, dog.row);
     }
     Ok(once)
 }
@@ -1160,7 +1170,7 @@ async fn fire_exited(engine: &Arc<Engine>, dog: &Dog, events: &[String]) -> Resu
     let events=clean.as_slice();
     let client = engine.db.get().await?;
     let fired: i32 = client
-        .query_one("UPDATE ot.watchdogs SET fired = fired + 1, last_fired = now() WHERE uid = $1 RETURNING fired", &[&dog.uid])
+        .query_one("UPDATE ot.watchdogs SET fired = fired + 1, last_fired = now() WHERE id = $1 RETURNING fired", &[&dog.row])
         .await?
         .get(0);
     drop(client);
@@ -1194,7 +1204,8 @@ fn org_slug(engine: &Engine, dog: &Dog) -> Option<String> {
 /// Mail from the dog to its owner (a notice dog's mail starts no turn).
 #[logged]
 async fn deliver(engine: &Arc<Engine>, dog: &Dog, body: String, ev: Option<Value>) {
-    let mut out = Outgoing::new(From::Watchdog { uid: dog.uid.clone(), name: dog.name.clone() }, &dog.owner_name, &body);
+    let key = crate::domain::watchdogs::handle(&dog.owner_name, &dog.uid);
+    let mut out = Outgoing::new(From::Watchdog { key, name: dog.name.clone() }, &dog.owner_name, &body);
     out.kind = "watchdog".into();
     // SAFE_START may recover event subscriptions to rehearse engine.started,
     // but their alerts must never start provider turns from a copied database.
@@ -1292,8 +1303,8 @@ async fn alert(engine: &Arc<Engine>, dog: &Dog, lost: &Lost) -> Result<()> {
                                              '{run,alerted}', to_jsonb($2::text))
                     || CASE WHEN $3 THEN jsonb_build_object('paused_why', $4::text) ELSE '{}'::jsonb END,
                     state = CASE WHEN $3 THEN 'paused' ELSE state END
-              WHERE uid = $1 AND state = 'armed'",
-            &[&dog.uid, &lost.why, &lost.pause, &lost.headline],
+              WHERE id = $1 AND state = 'armed'",
+            &[&dog.row, &lost.why, &lost.pause, &lost.headline],
         )
         .await?;
     drop(client);
@@ -1307,8 +1318,8 @@ async fn pause(engine: &Engine, dog: &Dog, why: &str) -> Result<()> {
     client
         .execute(
             "UPDATE ot.watchdogs SET state = 'paused', memo = memo || jsonb_build_object('paused_why', $2::text)
-              WHERE uid = $1 AND state = 'armed'",
-            &[&dog.uid, &why],
+              WHERE id = $1 AND state = 'armed'",
+            &[&dog.row, &why],
         )
         .await?;
     drop(client);
@@ -1477,13 +1488,34 @@ fn dog_name(raw: &str) -> String {
     name.trim_matches('-').to_string()
 }
 
+/// The short name of a dog created without one: its kind and what it
+/// watches (a file by its file name).
+#[logged]
+fn unnamed(kind: &str, target: &str) -> String {
+    let what = match Path::new(target).file_name() {
+        Some(f) if kind == "file" => f.to_string_lossy().into_owned(),
+        _ => target.to_string(),
+    };
+    dog_name(&format!("{kind} {what}"))
+}
+
+/// A new dog's id (D67): its short name, or the first of `-2`, `-3`, … that
+/// none of its owner's dogs holds (`taken`).
+#[logged]
+fn free_id(base: &str, taken: &HashSet<String>) -> String {
+    if !taken.contains(base) {
+        return base.to_string();
+    }
+    let mut n = 2;
+    while taken.contains(&format!("{base}-{n}")) {
+        n += 1;
+    }
+    format!("{base}-{n}")
+}
+
 /// `orgtree_watchdog create`: a dog for `owner` (the caller), smoke-run once.
 #[logged]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
-    let name = dog_name(args["name"].as_str().unwrap_or(""));
-    if name.is_empty() {
-        refuse!(BadRequest, "a watchdog needs a short name");
-    }
     let kind = args["kind"].as_str().unwrap_or("").to_string();
     if !["file", "command", "process", "stream", "activity", "event"].contains(&kind.as_str()) {
         refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event");
@@ -1492,6 +1524,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     if target.is_empty() {
         refuse!(BadRequest, "target is required — the path, command, agent, or pid:N / port:N to watch");
     }
+    // the id is made from the name, or from the kind and target without one
+    let named = dog_name(args["name"].as_str().unwrap_or(""));
+    let base = if named.is_empty() { unnamed(&kind, &target) } else { named.clone() };
     let mut target = target;
     let client = engine.db.get().await?;
     let owner_row = client.query_one("SELECT name, scratch_dir FROM ot.agents WHERE id = $1", &[&owner]).await?;
@@ -1605,16 +1640,34 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     let smoked = if kind=="event" { events::smoke(engine,owner,&target,args).await? } else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
     if let Some(n)=smoked["current"]["count"].as_i64(){memo["run"]["count"]=json!(n);}
     if smoked["current"]["credits"].is_object(){memo["run"]["credits"]=smoked["current"]["credits"].clone();}
-    let id = uid("wd");
     let client = engine.db.get().await?;
-    client
-        .execute(
-            "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s, fire_mode,
-                                       quiet_period_s, once, state, memo, silence_since)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'armed', $13, CASE WHEN $10 = 'silence' THEN now() END)",
-            &[&id, &org_id, &owner, &name, &kind, &target, &pattern, &shell_col, &interval, &fire_mode, &quiet, &once, &memo],
-        )
-        .await?;
+    let mut clashes = 0;
+    // the id is also the dog's name, so its mail, chip and `list` all show it
+    let (row, id) = loop {
+        let taken: HashSet<String> = client
+            .query(&format!("SELECT uid FROM ot.watchdogs WHERE owner_agent_id = $1 AND state IN {HOLDS_ID}"), &[&owner])
+            .await?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        let id = free_id(&base, &taken);
+        let inserted = client
+            .query_one(
+                "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s, fire_mode,
+                                           quiet_period_s, once, state, memo, silence_since)
+                 VALUES ($1, $2, $3, $1, $4, $5, $6, $7, $8, $9, $10, $11, 'armed', $12, CASE WHEN $9 = 'silence' THEN now() END)
+                 RETURNING id",
+                &[&id, &org_id, &owner, &kind, &target, &pattern, &shell_col, &interval, &fire_mode, &quiet, &once, &memo],
+            )
+            .await;
+        match inserted {
+            Ok(r) => break (r.get::<_, i64>(0), id),
+            // another create by the same owner took this id a moment ago
+            Err(e) if clashes < 3 && e.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) => clashes += 1,
+            Err(e) => return Err(e.into()),
+        }
+    };
+    let name = id.clone();
     client
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'watchdog_create', $2, $3, $4)",
@@ -1622,7 +1675,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         )
         .await?;
     drop(client);
-    arm(engine, &id);
+    arm(engine, row);
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
@@ -1644,6 +1697,11 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         status.push_str(". It then REMOVES ITSELF — one fire, then gone, so you will not see it again and `list` will not show it");
     }
     status.push_str("; it costs no credits.");
+    if named.is_empty() {
+        status.push_str(&format!(" Its id \"{id}\" comes from its kind and target, as it has no name."));
+    } else if id != named {
+        status.push_str(&format!(" Its id is \"{id}\": another of your watchdogs is already \"{named}\"."));
+    }
     if smoked["broken"].as_bool().unwrap_or(false) {
         status = format!(
             "⚠ ARMED BUT ITS TARGET DOES NOT WORK — see `smoke`. This dog will sit `armed, fired: 0` forever, which looks exactly like the condition never happening. Fix the target and re-create it. {status}"
@@ -1657,16 +1715,60 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     Ok(out)
 }
 
+/// The dog `id` names for `actor` (`None`: the user) in `org_id` (D67). A
+/// dog's id is unique only among its owner's dogs: `owner/id` names one
+/// owner's dog, and a bare id is the actor's own dog, else the one dog of
+/// that id the actor manages. A dog holding its id wins over a spent
+/// one-shot that had the same id.
+#[logged]
+async fn resolve(engine: &Engine, org_id: i64, actor: Option<i64>, id: &str) -> Result<Dog> {
+    let (owner, uid) = match id.split_once('/') {
+        Some((o, u)) => (Some(o.trim()), u.trim()),
+        None => (None, id.trim()),
+    };
+    let client = engine.db.get().await?;
+    let sql = format!(
+        "SELECT {DOG_COLS} FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+          WHERE w.org_id = $1 AND w.uid = $2 AND w.state <> 'removed' AND ($3::text IS NULL OR a.name = $3)
+          ORDER BY w.state = 'spent', w.id DESC LIMIT 200"
+    );
+    let rows = client.query(&sql, &[&org_id, &uid, &owner]).await?;
+    drop(client);
+    // one dog per owner: the one holding the id, else its newest spent one
+    let mut each: Vec<Dog> = Vec::new();
+    for d in rows.iter().map(dog_of) {
+        if !each.iter().any(|e| e.owner == d.owner) {
+            each.push(d);
+        }
+    }
+    let mut found: Vec<Dog> = Vec::new();
+    let mut barred = false;
+    for d in each {
+        if may_manage(engine, actor, d.owner).await? {
+            found.push(d);
+        } else {
+            barred = true;
+        }
+    }
+    if let Some(i) = actor.and_then(|a| found.iter().position(|d| d.owner == a)) {
+        return Ok(found.swap_remove(i));
+    }
+    let holding = found.iter().filter(|d| d.state != "spent").count();
+    if holding > 1 || (holding == 0 && found.len() > 1) {
+        let whose: Vec<String> = found.iter().map(|d| crate::domain::watchdogs::handle(&d.owner_name, &d.uid)).collect();
+        refuse!(BadRequest, "{} watchdogs are called {uid} — say whose: {}", found.len(), whose.join(", "));
+    }
+    match found.iter().position(|d| d.state != "spent").or((!found.is_empty()).then_some(0)) {
+        Some(i) => Ok(found.swap_remove(i)),
+        None if barred => refuse!(Forbidden, "only its owner and the owner's superiors manage this watchdog"),
+        None => refuse!(NotFound, "no watchdog {id}"),
+    }
+}
+
 /// pause / resume / remove, by the owner, a superior, or the user (`actor: None`).
 #[logged]
 pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, action: &str, reason: Option<&str>) -> Result<Value> {
-    let Some(dog) = load(engine, id).await? else { refuse!(NotFound, "no watchdog {id}") };
-    if dog.org_id != org_id || dog.state == "removed" {
-        refuse!(NotFound, "no watchdog {id}");
-    }
-    if !may_manage(engine, actor, dog.owner).await? {
-        refuse!(Forbidden, "only its owner and the owner's superiors manage this watchdog");
-    }
+    let dog = resolve(engine, org_id, actor, id).await?;
     let reason = reason.map(str::trim).filter(|r| !r.is_empty());
     let client = engine.db.get().await?;
     let state = match action {
@@ -1675,7 +1777,7 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                 refuse!(Conflict, "a spent one-shot watchdog has nothing left to pause");
             }
             client
-                .execute("UPDATE ot.watchdogs SET state = 'paused', memo = memo - 'paused_why' WHERE uid = $1", &[&id])
+                .execute("UPDATE ot.watchdogs SET state = 'paused', memo = memo - 'paused_why' WHERE id = $1", &[&dog.row])
                 .await?;
             "paused"
         }
@@ -1691,8 +1793,8 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
                     "UPDATE ot.watchdogs SET state = 'armed', exit = NULL,
                             silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END,
                             memo = (memo - 'paused_why' - 'paused_by') #- '{run,alerted}' #- '{run,broken}'
-                      WHERE uid = $1",
-                    &[&id],
+                      WHERE id = $1",
+                    &[&dog.row],
                 )
                 .await?;
             "armed"
@@ -1700,8 +1802,8 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
         "remove" => {
             client
                 .execute(
-                    "UPDATE ot.watchdogs SET state = 'removed', memo = memo || jsonb_build_object('reason', $2::text) WHERE uid = $1",
-                    &[&id, &reason],
+                    "UPDATE ot.watchdogs SET state = 'removed', memo = memo || jsonb_build_object('reason', $2::text) WHERE id = $1",
+                    &[&dog.row, &reason],
                 )
                 .await?;
             "removed"
@@ -1715,18 +1817,18 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
     client
         .execute(
             "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, $2, $3, $4, $5)",
-            &[&org_id, &format!("watchdog_{action}"), &by, &dog.owner, &json!({ "id": id, "name": dog.name, "reason": reason })],
+            &[&org_id, &format!("watchdog_{action}"), &by, &dog.owner, &json!({ "id": dog.uid, "name": dog.name, "reason": reason })],
         )
         .await?;
     drop(client);
     if state == "armed" {
-        disarm(engine, id);
-        arm(engine, id);
+        disarm(engine, dog.row);
+        arm(engine, dog.row);
     } else {
-        disarm(engine, id);
+        disarm(engine, dog.row);
     }
     changes::notify_id(engine, org_id, vec![Change::Watchdogs, Change::Events]);
-    let mut out = json!({ "id": id, "name": dog.name, "state": state });
+    let mut out = json!({ "id": dog.uid, "name": dog.name, "state": state });
     if let Some(r) = reason {
         out["reason"] = json!(r);
     }
@@ -1750,7 +1852,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
         .iter()
         .map(|r| {
             let d = dog_of(r);
-            let last_check: Option<DateTime<Utc>> = r.get(22);
+            let last_check: Option<DateTime<Utc>> = r.get(23);
             let mut v = json!({
                 "id": d.uid, "owner": d.owner_name, "name": d.name, "kind": d.kind, "target": d.target,
                 "interval_s": d.interval_s, "state": d.state, "fired": d.fired, "once": d.once, "notice": d.notice(),
@@ -1773,7 +1875,7 @@ pub async fn list(engine: &Engine, agent: i64) -> Result<Value> {
             put("exit", json!(d.exit));
             put("quiet_period_s", json!(d.quiet_s));
             put("silence_since", json!(d.silence_since.map(iso)));
-            put("health", json!(engine.dogs.event_health.pin().get(&d.uid).cloned().or_else(||health(&d))));
+            put("health", json!(engine.dogs.event_health.pin().get(&d.row).cloned().or_else(||health(&d))));
             v
         })
         .collect();
@@ -1824,27 +1926,27 @@ fn health(d: &Dog) -> Option<String> {
     }
 }
 
-/// Pause the armed dogs of agents leaving the tree (archive); returns their ids.
+/// Pause the armed dogs of agents leaving the tree (archive); returns their rows.
 #[logged]
-pub async fn pause_owned(tx: &tokio_postgres::Transaction<'_>, owners: &[i64]) -> Result<Vec<String>> {
+pub async fn pause_owned(tx: &tokio_postgres::Transaction<'_>, owners: &[i64]) -> Result<Vec<i64>> {
     let rows = tx
         .query(
             "UPDATE ot.watchdogs SET state = 'paused', memo = memo || jsonb_build_object('paused_why', $2::text)
-              WHERE owner_agent_id = ANY($1) AND state = 'armed' RETURNING uid",
+              WHERE owner_agent_id = ANY($1) AND state = 'armed' RETURNING id",
             &[&owners, &ARCHIVE_PAUSE],
         )
         .await?;
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
-/// Re-arm the dogs an archive paused (rehire); returns (id, name) pairs.
+/// Re-arm the dogs an archive paused (rehire); returns (row, name) pairs.
 #[logged]
-pub async fn resume_owned(tx: &tokio_postgres::Transaction<'_>, owner: i64) -> Result<Vec<(String, String)>> {
+pub async fn resume_owned(tx: &tokio_postgres::Transaction<'_>, owner: i64) -> Result<Vec<(i64, String)>> {
     let rows = tx
         .query(
             "UPDATE ot.watchdogs SET state = 'armed', memo = memo - 'paused_why',
                     silence_since = CASE WHEN fire_mode = 'silence' THEN now() ELSE silence_since END
-              WHERE owner_agent_id = $1 AND state = 'paused' AND memo->>'paused_why' = $2 RETURNING uid, name",
+              WHERE owner_agent_id = $1 AND state = 'paused' AND memo->>'paused_why' = $2 RETURNING id, name",
             &[&owner, &ARCHIVE_PAUSE],
         )
         .await?;
@@ -1898,4 +2000,30 @@ pub fn import_memo(w: &Value, ids: &std::collections::HashMap<String, i64>) -> V
         }
     }
     memo
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_clash_takes_the_first_free_suffix() {
+        assert_eq!(free_id("build-watch", &set(&[])), "build-watch");
+        assert_eq!(free_id("build-watch", &set(&["build-watch"])), "build-watch-2");
+        assert_eq!(free_id("build-watch", &set(&["build-watch", "build-watch-2"])), "build-watch-3");
+        assert_eq!(free_id("x", &set(&["x", "x-3"])), "x-2");
+        assert_eq!(free_id("ci", &set(&["build-watch"])), "ci");
+    }
+
+    #[test]
+    fn a_dog_without_a_name_is_named_by_kind_and_target() {
+        assert_eq!(unnamed("file", "/tmp/build/owner.txt"), "file-owner-txt");
+        assert_eq!(unnamed("process", "pid:4242"), "process-pid-4242");
+        assert_eq!(unnamed("event", "engine.started"), "event-engine-started");
+        assert_eq!(unnamed("command", "tasklist | findstr cargo.exe"), "command-tasklist-findstr");
+    }
 }

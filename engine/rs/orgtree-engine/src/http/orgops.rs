@@ -264,10 +264,10 @@ pub async fn delete(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> A
         .iter()
         .map(|r| r.get(0))
         .collect();
-    let dogs = client.query("SELECT uid FROM ot.watchdogs WHERE org_id = $1 AND state = 'armed'", &[&o.id]).await?;
+    let dogs = client.query("SELECT id FROM ot.watchdogs WHERE org_id = $1 AND state = 'armed'", &[&o.id]).await?;
     drop(client);
     for d in &dogs {
-        crate::runtime::watchdogs::disarm(&e, &d.get::<_, String>(0));
+        crate::runtime::watchdogs::disarm(&e, d.get::<_, i64>(0));
     }
     for id in live {
         if let Some(h) = e.agents.get(id) {
@@ -375,7 +375,7 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
             "UPDATE ot.watchdogs w SET state = 'paused',
                     memo = memo || jsonb_build_object('paused_why', $2::text)
                FROM ot.agents a WHERE a.id = w.owner_agent_id AND w.org_id = $1 AND w.state = 'armed'
-             RETURNING w.uid, w.name, a.name",
+             RETURNING w.id, w.uid, w.name, a.name",
             &[&o.id, &KILLSWITCH_PAUSE],
         )
         .await?;
@@ -402,12 +402,12 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
         }
     }
     for r in &paused {
-        crate::runtime::watchdogs::disarm(&e, &r.get::<_, String>(0));
+        crate::runtime::watchdogs::disarm(&e, r.get::<_, i64>(0));
     }
     changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
     let watchdogs: Vec<Value> = paused
         .iter()
-        .map(|r| json!({ "id": r.get::<_, String>(0), "name": r.get::<_, String>(1), "owner": r.get::<_, String>(2) }))
+        .map(|r| json!({ "id": r.get::<_, String>(1), "name": r.get::<_, String>(2), "owner": r.get::<_, String>(3) }))
         .collect();
     Ok(Json(json!({ "latched": latched > 0, "already_latched": latched == 0, "interrupted": interrupted,
                     "watchdogs_paused": watchdogs })))

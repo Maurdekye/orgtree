@@ -991,6 +991,11 @@ async fn copy_sections(
     for w in &dogs {
         let owner: String = w.get::<_, Option<String>>(1).unwrap_or_default();
         let Some(owner_id) = id_by_name.get(&owner).copied() else { continue };
+        let dog_id = w.get::<_, Option<String>>(0).unwrap_or_else(|| uid("w"));
+        // a dog already imported keeps its row (ids are no longer unique table-wide, D67)
+        if tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE uid = $1", &[&dog_id]).await?.is_some() {
+            continue;
+        }
         let mut legacy = json!({
             "kind": w.get::<_, Option<String>>(3),
             "target": w.get::<_, Option<String>>(4),
@@ -1006,9 +1011,9 @@ async fn copy_sections(
         tx.execute(
             "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s,
                                        fire_mode, quiet_period_s, once, state, fired, created_at, last_check, last_fired, silence_since, memo)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT (uid) DO NOTHING",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT DO NOTHING",
             &[
-                &w.get::<_, Option<String>>(0).unwrap_or_else(|| uid("w")),
+                &dog_id,
                 &org_id,
                 &owner_id,
                 &w.get::<_, Option<String>>(2).unwrap_or_default(),
