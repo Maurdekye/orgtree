@@ -39,3 +39,6 @@ acl-fixtures-*/
 
 # Rust engine build output
 engine/rs/target/
+
+# Linux CI staging (PostgreSQL build, PNG icons, collected assets, smoke logs)
+build/linux/

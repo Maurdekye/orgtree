@@ -1,0 +1,132 @@
+# Orgtree for Linux (Ubuntu x86_64): AppImage + .deb, built from exactly `inputs.ref`.
+# Reusable: release.yml calls it; a push to ci-test/orgtree-linux runs it standalone.
+# Untested-on-desktop prototype: see docs/ci-release.md for what Linux lacks yet.
+name: build-linux
+
+on:
+  workflow_call:
+    inputs:
+      ref: {type: string, required: true}
+      signing: {type: string, default: test}
+  push:
+    branches: ['ci-test/orgtree-linux']
+
+permissions: {contents: read}
+
+env:
+  # Mirrors the local Windows build: rustc 1.94.0-nightly f52090008 (2025-12-10), Node 24.12.0.
+  RUST_TOOLCHAIN: nightly-2025-12-12
+  NODE_VERSION: 24.12.0
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  build:
+    # 22.04 (glibc 2.35) so the binaries also run on Ubuntu 22.04; 24.04 would raise the floor to 2.39.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            patchelf file imagemagick librsvg2-bin xvfb xauth libfuse2 \
+            zlib1g-dev pkg-config
+
+      - name: Rust toolchain (preinstalled rustup)
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --no-self-update
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          echo "RUSTC_VERSION=$(rustc --version | tr ' ' '_')" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/rs/target
+            engine/mailhub/target
+          key: linux-cargo-${{ env.RUSTC_VERSION }}-${{ hashFiles('engine/rs/Cargo.lock', 'engine/mailhub/Cargo.lock') }}
+          restore-keys: linux-cargo-${{ env.RUSTC_VERSION }}-
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: pg-cache
+        with:
+          path: build/linux/postgresql
+          key: linux-postgresql-${{ hashFiles('.github/ci/linux/build-postgres.sh') }}
+
+      - name: PostgreSQL 18.6 (from source)
+        if: steps.pg-cache.outputs.cache-hit != 'true'
+        run: bash .github/ci/linux/build-postgres.sh build/linux/postgresql
+
+      - name: Rust engine (release)
+        working-directory: engine/rs
+        run: |
+          export ORGTREE_RELEASE_BUILD=1
+          export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+          cargo build --release --locked -j "$(nproc)"
+
+      - name: Mail hub (release)
+        working-directory: engine/mailhub
+        run: cargo build --release --locked -j "$(nproc)"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: npm ci, typecheck, build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Linux icons (PNG renders of the .ico/.svg)
+        run: bash .github/ci/linux/icons.sh
+
+      - name: Linux package preflight
+        run: bash .github/ci/linux/preflight.sh
+
+      - name: electron-builder (AppImage + deb)
+        env:
+          ELECTRON_RUN_AS_NODE: ''
+        run: npx electron-builder --config .github/ci/linux/electron-builder.linux.cjs --linux --x64 --publish never
+
+      - name: Collect assets
+        id: assets
+        run: bash .github/ci/linux/collect.sh build/linux/out
+
+      - name: Smoke - packaged engine starts and answers
+        run: bash .github/ci/linux/smoke-engine.sh release/linux-unpacked
+
+      - name: Smoke - AppImage under xvfb
+        run: bash .github/ci/linux/smoke-appimage.sh build/linux/out
+
+      - name: Smoke - install the .deb with apt
+        run: bash .github/ci/linux/smoke-deb.sh build/linux/out
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-linux
+          path: build/linux/out/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-linux-smoke-logs
+          path: build/linux/smoke-logs/
+          if-no-files-found: ignore
+          retention-days: 7
