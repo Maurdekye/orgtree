@@ -474,6 +474,8 @@ fn run_turn(srv: &Srv, job: &Job, totals: &mut Tokens) {
             if !srv.pause(ms) {
                 break;
             }
+        } else if let Some(c) = step["spawn"].as_str() {
+            srv.log("spawned", crate::spawn_shell(c));
         } else if let Some(code) = step.get("exit") {
             let code = code.as_i64().unwrap_or(1) as i32;
             srv.log("exit", json!({ "code": code, "why": "scripted" }));

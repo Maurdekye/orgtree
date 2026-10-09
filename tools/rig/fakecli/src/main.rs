@@ -537,6 +537,28 @@ fn transcript(cli: &Cli, role: &str, text: &str) {
     }
 }
 
+/// A `{"spawn": "<command>"}` step: start the command through a shell (cmd
+/// on Windows, sh elsewhere) and leave it running, in this process's group
+/// and session as a real CLI's tool child would be. What to log as
+/// `spawned` (the child's pid is `child_pid`: every log line's `pid` is
+/// this process's own).
+pub fn spawn_shell(command: &str) -> Value {
+    let mut c = if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/D", "/C", command]);
+        c
+    } else {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", command]);
+        c
+    };
+    c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    match c.spawn() {
+        Ok(child) => json!({ "child_pid": child.id(), "command": command }),
+        Err(e) => json!({ "child_pid": null, "command": command, "error": e.to_string() }),
+    }
+}
+
 fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first: &mut bool, cost: &mut f64) {
     cli.interrupted.store(false, Ordering::SeqCst);
     let (script, steps) = pick(cli, prompt);
@@ -584,6 +606,8 @@ fn run_turn(cli: &Cli, prompt: &str, tools: &[String], native: &[String], first:
             if !cli.pause(ms) {
                 break;
             }
+        } else if let Some(c) = step["spawn"].as_str() {
+            cli.log("spawned", spawn_shell(c));
         } else if let Some(code) = step.get("exit") {
             let code = code.as_i64().unwrap_or(1) as i32;
             cli.log("exit", json!({ "code": code, "why": "scripted" }));

@@ -190,14 +190,18 @@ fn load_hooks(cwd: &Path) -> Vec<Hook> {
     out
 }
 
-/// Run one hook with `payload` on stdin; its stdout as JSON.
+/// Run one hook with `payload` on stdin; its stdout as JSON. Through a shell,
+/// as the real CLI does: cmd on Windows, sh elsewhere (so a command a shell
+/// would split fails here as it would there).
 fn run_hook(h: &Hook, payload: &Value) -> Option<Value> {
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("cmd");
         c.args(["/D", "/C", &h.command]);
         c
     } else {
-        Command::new(&h.command)
+        let mut c = Command::new("sh");
+        c.args(["-c", &h.command]);
+        c
     };
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
     if let Some(mut stdin) = child.stdin.take() {
@@ -347,6 +351,8 @@ fn run_turn(agy: &Agy, hooks: &[Hook], mcp: &mut Option<Mcp>, prompt: &str, firs
             agy.log("poll_mail", json!({ "delivered": got }));
         } else if let Some(ms) = step["sleep_ms"].as_u64() {
             std::thread::sleep(Duration::from_millis(ms));
+        } else if let Some(c) = step["spawn"].as_str() {
+            agy.log("spawned", crate::spawn_shell(c));
         } else if let Some(code) = step.get("exit") {
             let code = code.as_i64().unwrap_or(1) as i32;
             agy.log("exit", json!({ "code": code, "why": "scripted" }));
