@@ -85,6 +85,22 @@ jobs:
           cargo build --release --locked
           ./target/release/orgtree-engine --version
 
+      - name: Engine unit tests - tool bridge, Antigravity hooks, process groups
+        working-directory: engine/rs
+        run: |
+          # The release profile reuses the build above: only the engine crate compiles again, as tests.
+          export ORGTREE_RELEASE_BUILD=1
+          export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+          log="$RUNNER_TEMP/unix-unit-tests.log"
+          cargo test --release --locked -p orgtree-engine --bin orgtree-engine -- bridge:: runtime::agy:: winproc:: 2>&1 | tee "$log"
+          grep -E '^test result: ok\. [1-9][0-9]* passed' "$log"
+          # every area must have run at least one test
+          for m in bridge runtime::agy winproc; do
+            n="$(grep -c -E "^test ${m}::.* \.\.\. ok$" "$log" || true)"
+            echo "$m: $n passed"
+            [ "$n" -ge 1 ] || { echo "::error::no $m unit test ran"; exit 1; }
+          done
+
       - name: Build the mail hub
         working-directory: engine/mailhub
         run: cargo build --release --locked
@@ -132,6 +148,40 @@ jobs:
 
       - name: Launch smoke
         run: bash .github/ci/macos/smoke.sh "$APP"
+
+      # The background engine that starts at login (a launchd LaunchAgent).
+      - name: Background engine - unit tests
+        if: hashFiles('tests/unix-boot-engine.test.mjs') != ''
+        run: node --test tests/unix-boot-engine.test.mjs
+
+      - name: Background engine - registered, started and stopped by launchd
+        if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
+        run: |
+          # a CLI only the login shell's PATH finds: the engine started by launchd must find it too
+          bash .github/ci/unix/login-shell-cli.sh codex
+          node .github/ci/boot-engine-smoke.mjs "$APP/Contents/Resources/engine/orgtree-engine" \
+            --expect-cli codex "$HOME/.npm-global/bin/codex"
+
+      # Real Orgtree tool calls by hired agents, one per CLI lane (Claude and Codex over stdio,
+      # Antigravity over the bridge socket), with the rig's fake CLI as every CLI.
+      - name: Rig fake CLI (stands in for Claude Code, Codex and Antigravity)
+        run: cargo build --release --locked --manifest-path tools/rig/fakecli/Cargo.toml --target-dir "$RUNNER_TEMP/fakecli"
+
+      - name: Smoke - agent tool calls (Claude, Codex and Antigravity lanes), hosted hub, leftovers
+        run: |
+          # the leftover check needs the fake CLI's `spawn` step
+          if grep -q '"spawn"' tools/rig/fakecli/src/main.rs; then export AGENT_SMOKE_LEFTOVERS=1; fi
+          bash .github/ci/unix/agent-tools-smoke.sh "$APP/Contents/Resources/engine/orgtree-engine" \
+            "$APP/Contents/Resources/ui" "$RUNNER_TEMP/fakecli/release/orgtree-fakecli" "$RUNNER_TEMP/agent-tools-logs"
+
+      - name: Agent tool smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-macos-agent-tools-logs
+          path: ${{ runner.temp }}/agent-tools-logs/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: dmg and zip
         run: |
