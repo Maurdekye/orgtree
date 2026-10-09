@@ -633,6 +633,9 @@ export interface HandoffResult {
   /** A fixture was requested and could not be used, so the handoff was
    *  DECLINED rather than falling through to a real installation. */
   fixtureRefused?: string
+  /** Linux: the AppImage that was replaced in place (appimage-update.ts). No
+   *  installer runs there; the swap is already complete when this is set. */
+  appImage?: string
 }
 
 /** NSIS already supports --updated /S --force-run. Keep the running install's
@@ -1069,6 +1072,10 @@ export async function prepareAndHandOff(seams: PreparationSeams): Promise<Prepar
   // So what is recorded now is the FORM that was sent and nothing about
   // consequences. It stays because an incident log that cannot tell the two
   // forms apart cannot rule either of them in or out.
+  if (handoff.appImage) {
+    seams.record('handoff', 'AppImage replaced in place at ' + handoff.appImage)
+    return { stage: 'handed-off', handoff }
+  }
   seams.record('handoff', 'installer launched for ' + handoff.directory
     + (handoff.directoryQuotedByNode
       ? ' (/D= contains whitespace, so Windows quotes it on the command line)'

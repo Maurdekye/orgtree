@@ -313,10 +313,10 @@ test('W1: the refresh route REBUILDS a stranded window instead of calling the gu
   // foreign origin. Removing this branch (the inert-refresh mutation the
   // review reproduced) is exactly what makes this match fail.
   assert.match(main,
-    /handle\('desktop:window-refresh', async caller => \{[\s\S]*?if \(caller\.loadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?app\.relaunch\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(caller\.loadRecovery\?\.isFailed\) await caller\.loadRecovery\.retryNow\('user refresh'\)/,
+    /handle\('desktop:window-refresh', async caller => \{[\s\S]*?if \(caller\.loadRecovery\?\.isStranded\) \{[\s\S]*?await saveWindowLayout\(\)[\s\S]*?relaunchApp\(\)[\s\S]*?app\.quit\(\)[\s\S]*?return[\s\S]*?\}[\s\S]*?if \(caller\.loadRecovery\?\.isFailed\) await caller\.loadRecovery\.retryNow\('user refresh'\)/,
     'stranded refresh takes the reconstruction path, checked before the retryNow branch')
   // and the reconstruction path it mirrors is still there to mirror
-  assert.match(main, /else \{ await saveWindowLayout\(\); app\.relaunch\(\); app\.quit\(\) \}/,
+  assert.match(main, /else \{ await saveWindowLayout\(\); relaunchApp\(\); app\.quit\(\) \}/,
     'the changed-origin engine recovery this reuses')
 })
 

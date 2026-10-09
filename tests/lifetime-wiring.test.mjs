@@ -134,7 +134,7 @@ test('OBS-A: the update exit waits for a PROVEN installer, and never quits on si
   assert.doesNotMatch(failureBody, /dialog\.showMessageBox/,
     'NOTHING may be put on screen here: no click may be on the critical path to '
     + 'the app coming back')
-  assert.match(failureBody, /app\.relaunch\(\); app\.exit\(0\)/,
+  assert.match(failureBody, /relaunchApp\(\); app\.exit\(0\)/,
     'it relaunches immediately, since the engine is confirmed stopped')
   assert.match(failureBody, /updateLog\.record\('not-installed'/,
     'and records the outcome first, because the log is the only thing that '

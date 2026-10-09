@@ -33,6 +33,7 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
+import { appImagePath, appImageRelaunch, appImageRelaunchEnv, replaceAppImage } from './appimage-update'
 import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
 import type { DesktopEvent, RunAsAdministratorState } from '../../../packages/contracts/index'
@@ -72,8 +73,21 @@ app.setAppUserModelId(identity.appUserModelId)
 // private rehearsal download a real update, so the fallback is refusal: no
 // private feed, no checking, and the build behaves like an ordinary dev build.
 const updateFeed = privateFeedDecision({ requested: process.env[UPDATE_FEED_ENV] })
-// Only Windows has an update feed (latest.yml); the macOS and Linux builds have none yet.
-const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused' && process.platform === 'win32'
+// Windows (latest.yml) and the Linux AppImage (latest-linux.yml). The .deb has
+// no updater (its package manager owns the files) and macOS needs a Developer
+// ID signature first, so both keep updating by hand.
+const linuxAppImage = process.platform === 'linux' ? appImagePath() : undefined
+const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused' && (process.platform === 'win32' || !!linuxAppImage)
+/** app.relaunch(), except from an AppImage, where it would re-run a file
+ *  inside this run's mount (see appImageRelaunch). Called before app.quit()
+ *  or app.exit(), like app.relaunch(). */
+const relaunchApp = () => {
+  if (!linuxAppImage) return app.relaunch()
+  const command = appImageRelaunch(linuxAppImage, process.pid)
+  const child = spawnProcess(command.file, command.args, { detached: true, stdio: 'ignore', cwd: os.homedir(), env: appImageRelaunchEnv(process.env) })
+  child.on('error', error => console.warn('The AppImage could not be relaunched', error))
+  child.unref()
+}
 installMacWindowIconShim()
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
@@ -791,7 +805,8 @@ else {
   // plus the usual margin — so `bounded` is the backstop it is meant to be
   // and not the thing that routinely ends the quit.
   const QUIT_ENGINE_TOTAL_MS = QUIT_STOP_BUDGET_MS + UPDATE_DEADLINES.marginMs
-  const installDirectory = () => path.dirname(process.execPath)
+  // Linux: the folder holding the AppImage, which is what an update rewrites.
+  const installDirectory = () => path.dirname(linuxAppImage ?? process.execPath)
   /** Resolved ONCE per run: both facts are properties of where this copy is
    *  installed, which cannot change while it runs, and the writability half
    *  writes a real file. `allUsers` stays undefined when the scope could not be
@@ -1055,6 +1070,15 @@ else {
       // Update now") and the header's glowing "Update now" button.
       return
     }
+    // An AppImage in a folder this user cannot write cannot be replaced at
+    // all: there is no elevation step on Linux, so being present changes
+    // nothing. Refused before the engine is touched, with the way out.
+    if (linuxAppImage && !canInstallUnattended()) {
+      updateLog.record('held', 'the AppImage folder is not writable by this user: ' + installDirectory())
+      updateApplying = false
+      refreshTrayUpdates()
+      throw new Error(`Orgtree cannot replace ${linuxAppImage} because its folder is not writable. Move the AppImage to a folder you own, or download the new version by hand.`)
+    }
     // A boot-host engine is stopped gracefully through its authenticated
     // shutdown route before its files are replaced; the installer restarts
     // the task afterwards. A stop that cannot be VERIFIED throws here, with
@@ -1142,6 +1166,13 @@ else {
           updateLog.record('update-fixture-ignored', decision.reason,
             { from: app.getVersion(), to: version })
         }
+        // LINUX: the AppImage is swapped here, in this process, so there is
+        // no installer to watch. A rehearsal fixture has no Linux route; a
+        // requested one DECLINES rather than updating for real.
+        if (linuxAppImage) {
+          if (preparedFixture.attempt) return { accepted: false, fixtureRefused: 'the update fixture has no Linux route' }
+          return replaceAppImage(linuxAppImage, (autoUpdater as unknown as { installerPath?: string }).installerPath ?? undefined)
+        }
         if (decision.kind === 'active') {
           // ⚠ THE RECEIPT PATH IS NAMED HERE, and it is what binds a receipt to
           // THIS attempt. The path carries a per-attempt token, so an observer
@@ -1183,7 +1214,15 @@ else {
       // electron-updater declined, so no quit is coming from it. The engine IS
       // confirmed stopped here, so relaunching into a working app is safe.
       updateLog.record('handoff-refused', 'relaunching after a declined install request')
-      app.relaunch(); app.exit(0)
+      relaunchApp(); app.exit(0)
+      return
+    }
+    // LINUX: the new AppImage is already in place. Start it once this
+    // process has gone; it registers and starts the background engine again
+    // (the unit is unchanged because the path is).
+    if (outcome.handoff.appImage) {
+      cancelUpdateWatchdog()
+      relaunchApp(); app.quit()
       return
     }
     // The installer was LAUNCHED, which is not the same as succeeded — and
@@ -1217,7 +1256,7 @@ else {
       if (spawnFailure !== undefined) {
         updateLog.record('handoff-refused', spawnFailure)
         updateLog.record('not-installed', 'the installer could not be started', { from: app.getVersion(), to: version })
-        app.relaunch(); app.exit(0)
+        relaunchApp(); app.exit(0)
         return
       }
       app.quit()
@@ -1291,7 +1330,7 @@ else {
       // there is a running app and usually a person. See
       // updateFailureToReport, and the report site in the startup sequence.
       updateLog.record('not-installed', 'the installer could not be started', { from: app.getVersion(), to: version })
-      app.relaunch(); app.exit(0)
+      relaunchApp(); app.exit(0)
       return
     }
     app.quit()
@@ -1327,7 +1366,7 @@ else {
     restart: async () => {
       if (quitting) return
       // Electron's relaunch helper is outside the Python Job, as is the updater.
-      app.relaunch(); app.quit()
+      relaunchApp(); app.quit()
     },
     // Unattended, though not automatic: nobody is present to approve a UAC
     // prompt, so this must respect the same hold as the idle path.
@@ -1670,7 +1709,7 @@ else {
       // a fresh window. Nothing here navigates the current window anywhere.
       if (caller.loadRecovery?.isStranded) {
         await saveWindowLayout()
-        app.relaunch()
+        relaunchApp()
         app.quit()
         return
       }
@@ -1943,7 +1982,7 @@ else {
             if (engine.origin === initialOrigin) {
               for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
             }
-            else { await saveWindowLayout(); app.relaunch(); app.quit() }
+            else { await saveWindowLayout(); relaunchApp(); app.quit() }
           } finally { backgroundEngineRestart = false; rebuildTray() }
         }
         return runAsAdministratorState()
@@ -2303,7 +2342,7 @@ else {
               if (engine.origin === initialOrigin) {
                 for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
               }
-              else { await saveWindowLayout(); app.relaunch(); app.quit() }
+              else { await saveWindowLayout(); relaunchApp(); app.quit() }
             }
             return
           }

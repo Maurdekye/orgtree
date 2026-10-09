@@ -26,7 +26,7 @@ test('the update controller is wired end to end: contracts, preload, main proces
     assert.ok(updaterImport[1].split(',').map(part => part.trim()).includes(name), `main must import ${name}`)
   }
   // the install directory is still the RUNNING install's own directory
-  assert.match(main, /const installDirectory = \(\) => path\.dirname\(process\.execPath\)/)
+  assert.match(main, /const installDirectory = \(\) => path\.dirname\(linuxAppImage \?\? process\.execPath\)/)
   // ⚠ THIS CALL GAINED A THIRD ARGUMENT when the update fixture landed, and the
   // assertion below had been failing on main ever since. The first two
   // arguments are what it has always pinned and they are unchanged; matching on
