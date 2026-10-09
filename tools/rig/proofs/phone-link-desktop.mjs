@@ -41,7 +41,7 @@ export default async function (rig) {
   const original = '# My Org\nWe research and summarize papers for Alex.\n'
   await rig.api('PUT', `/api/orgs/${org}/orgmd`, { content: original })
   await rig.userMail('lead', 'hello lead')
-  await rig.waitFor(async () => (await rig.api('GET', `/api/desktop/phone?org=${org}`)).card?.show, { what: 'the card bar' })
+  await rig.waitFor(async () => (await rig.api('GET', `/api/desktop/phone?org=${org}`)).card?.show, { what: 'the card bar', timeout: 90000 })
   // the smoke "installs" Tailscale (puts the fake CLI back) and signs it in
   const { RIG_DIR } = await import('../lib.mjs')
   const cliSrc = path.join(RIG_DIR, 'fake-tailscale.cmd'), cliDst = path.join(rig.dir, 'bin', 'tailscale.cmd')

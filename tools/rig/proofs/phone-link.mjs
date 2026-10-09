@@ -34,6 +34,12 @@ export default async function (rig) {
   }
   // the engine reuses one reading for 2 s
   const phone = async () => { await sleep(2200); return rig.api('GET', '/api/desktop/phone') }
+  // a door change waits for two readings that agree (the panel's GET only
+  // nudges the background check): poll until the door is where it should be
+  const doorAt = (want, what) => rig.waitFor(async () => {
+    const v = await rig.api('GET', '/api/desktop/phone')
+    return (want === null ? !v.access.door : v.access.door === want) ? v : null
+  }, { what, timeout: 45000 }).catch(() => rig.api('GET', '/api/desktop/phone'))
   const running = (extra = {}) => ({
     BackendState: 'Running',
     Self: { HostName: 'home-pc', DNSName: 'home-pc.tail1234.ts.net.', UserID: 7, TailscaleIPs: ['127.0.0.2', 'fd7a:115c:a1e0::2'],
@@ -95,21 +101,27 @@ export default async function (rig) {
   p.check('keep-awake saved as chosen', JSON.parse(fs.readFileSync(path.join(rig.data, 'phone.json'), 'utf8')).keep_awake === false)
   p.check('the door answers on the Tailscale address and not on 127.0.0.1', (await doorAnswers('127.0.0.2')) > 0 && (await doorAnswers('127.0.0.1')) === 0)
 
+  // a Tailscale that does not answer is no reading at all: nothing restarts
+  status(null)
+  await sleep(14000)
+  s = await rig.api('GET', '/api/desktop/phone')
+  p.check('Tailscale not answering: no reading, the hub is not restarted and the door stays', s.access.door === '127.0.0.2'
+    && (await doorAnswers('127.0.0.2')) > 0, s.access)
+  status(running())
+  await sleep(2200)
+
   status(running({ TailscaleIPs: ['127.0.0.3'] }))
-  s = await phone()
-  s = await phone()
+  s = await doorAt('127.0.0.3', 'the door to follow the moved address')
   p.check('Tailscale address moved: the hub restarts and the door follows it', s.access.door === '127.0.0.3' && (await doorAnswers('127.0.0.3')) > 0
     && (await doorAnswers('127.0.0.2')) === 0, s.access)
 
   status({ BackendState: 'NeedsLogin', Self: { HostName: 'home-pc', TailscaleIPs: [] } })
-  s = await phone()
-  s = await phone()
+  s = await doorAt(null, 'the door to close')
   p.check('Tailscale signed out: the door closes, waiting; the hub keeps running', !s.access.door && s.access.door_waiting === true
     && s.hub.running === true && (await doorAnswers('127.0.0.3')) === 0, s)
 
   status(running())
-  s = await phone()
-  s = await phone()
+  s = await doorAt('127.0.0.2', 'the door to open again')
   p.check('Tailscale back: the door opens again', s.access.door === '127.0.0.2' && !s.access.door_waiting, s.access)
 
   await rig.api('PUT', '/api/desktop/hub', { public_scope: 'all' })
@@ -121,7 +133,7 @@ export default async function (rig) {
   rule('LocalSubnet')
   r = await turnOn({ scope: 'lan' })
   p.check('Use my home Wi-Fi instead: A1 for the home network, the rule it wants is the local subnet', r.ok && r.v.access.scope === 'lan'
-    && r.v.access.firewall_wanted === 'LocalSubnet' && r.v.access.state === 'A1', r)
+    && r.v.access.firewall_wanted === 'LocalSubnet' && r.v.access.state === 'A1' && r.v.access.door === '127.0.0.1', r)
   r = await turnOn({ scope: 'everyone' })
   p.check('an unknown scope is refused', !r.ok && /scope must be tailnet or lan/.test(r.e), r)
   rule('100.64.0.0/10,fd7a:115c:a1e0::/48')
@@ -182,7 +194,7 @@ export default async function (rig) {
   p.check('the link record: org, address, the person\'s name, via the code', rec?.org === org && rec.address === alex.slug && rec.name === 'Alex Rivera' && rec.via === 'code', rec)
   const md = orgmd()
   p.check('the trust note is at the very top of org.md, marked, and the charter follows unchanged', md === '<!-- added by Connect your phone; Unlink removes it -->\n'
-    + `@net:${alex.slug} is the user's account and carries their authority.\n<!-- end -->\n\n` + original, md)
+    + `@net:${alex.slug} is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n\n` + original, md)
   const inbound = await rig.waitFor(() => rig.one(`SELECT body FROM ot.org_inbox WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(org)}') AND dir = 'in' AND body LIKE 'Hi! This is Hubchat%'`),
     { what: 'the first message in the org inbox' })
   p.check('the first message still reaches the org (its agents read it)', !!inbound)
@@ -206,8 +218,70 @@ export default async function (rig) {
   r = await tryApi('POST', '/api/desktop/phone/link', { org, address: alex.slug })
   p.check('"Yes, that\'s me": linked without a code, the note written', r.ok && r.v.link?.via === 'confirmed' && orgmd().startsWith('<!-- added by Connect your phone')
     && orgmd().includes(`@net:${alex.slug} is`), r.v?.link)
+  r = await tryApi('POST', '/api/desktop/phone/link', { org, address: alex.slug })
+  p.check('"Yes, that\'s me" while a phone is linked is refused (Unlink first)', !r.ok && /already linked/.test(r.e), r)
   await rig.api('POST', '/api/desktop/phone/unlink')
   p.check('Undo after "Is this you?" restores org.md exactly', orgmd() === original)
+
+  // ---- review cases
+  const quiet = async (auth, ms = 6000) => {
+    await sleep(ms)
+    const r = await phoneCall(auth, 'POST', '/api/poll?wait=1')
+    return (r.json?.messages ?? []).filter(m => /Setup code: /.test(m.body))
+  }
+  // 1: only a Hubchat person can be linked: a sender registered as an org is ignored
+  const bot = { slug: `bot.${crypto.randomBytes(3).toString('hex')}`, secret: crypto.randomBytes(32).toString('hex') }
+  const botReg = await phoneCall(bot, 'POST', '/api/register', { slug: bot.slug, org_name: 'Some Bot', username: 'bot', blurb: '', kind: 'org' })
+  const live = await rig.api('POST', '/api/desktop/phone/code', { org })
+  await send(bot, `Setup code: ${live.code}`)
+  const botGot = await quiet(bot)
+  s = await orgState()
+  p.check('a non-person sender with the live code: not linked, not answered, and the code is void (it reached the log)', botReg.status === 200
+    && !settingsFile().link && botGot.length === 0 && !s.org.code, { botReg, botGot, code: s.org.code?.code })
+  // 6: a code this PC never gave out gets no answer; five of them void the live code
+  const live2 = await rig.api('POST', '/api/desktop/phone/code', { org })
+  for (let i = 0; i < 5; i++) await send(alex, `Setup code: ZZZZ-ZZZ${i + 2}`)
+  const strangers = await quiet(alex)
+  s = await orgState()
+  p.check('codes never given out: no answer, and five of them void the live code', strangers.length === 0 && !s.org.code, { strangers, code: s.org.code })
+  await send(alex, `Setup code: ${live2.code}`)
+  const afterStrikes = await answers(alex, `Setup code: ${live2.code} expired`)
+  p.check('the voided code then answers "expired" and links nothing', !!afterStrikes && !settingsFile().link)
+  // 6: the same message delivered twice is answered once
+  const dupId = `ph-${crypto.randomBytes(6).toString('hex')}`
+  const dupMsg = { id: dupId, to: orgAddress, from: alex.slug, body: `Setup code: ${live2.code}`, kind: 'message', sent_at: new Date().toISOString(), attachments: [] }
+  const d1 = await phoneCall(alex, 'POST', '/api/send', dupMsg)
+  const d2 = await phoneCall(alex, 'POST', '/api/send', dupMsg)
+  const dupGot = await quiet(alex, 8000)
+  p.check('one message sent twice (same id): one answer', d1.status === 200 && dupGot.length === 1, { d1: d1.status, d2: d2.status, d2body: d2.json, answers: dupGot.length })
+
+  // 2: a charter save over a newer org.md is refused (the note came meanwhile)
+  const before = await rig.api('GET', `/api/orgs/${org}/orgmd`)
+  await rig.api('POST', '/api/desktop/phone/link', { org, address: alex.slug })
+  r = await tryApi('PUT', `/api/orgs/${org}/orgmd`, { content: before.content + 'edited in the open editor\n', base_rev: before.rev })
+  p.check('a stale charter save is refused and the note stays', !r.ok && /changed since you opened it/.test(r.e) && orgmd().startsWith('<!-- added by Connect your phone'), r)
+  const fresh = await rig.api('GET', `/api/orgs/${org}/orgmd`)
+  r = await tryApi('PUT', `/api/orgs/${org}/orgmd`, { content: fresh.content, base_rev: fresh.rev })
+  p.check('a save over the current org.md is accepted and returns the new revision', r.ok && r.v.rev === fresh.rev, r)
+  await rig.api('POST', '/api/desktop/phone/unlink')
+  p.check('Unlink after that restores org.md exactly', orgmd() === original)
+
+  // 5: Unlink removes every note, record or not; a user's own "<!-- end -->" stays; a broken note is reported
+  const START = '<!-- added by Connect your phone; Unlink removes it -->', END = '<!-- end of the Connect your phone note -->'
+  const mdPath = path.join(rig.data, 'workspaces', org, 'org.md')
+  fs.writeFileSync(mdPath, `${START}\n@net:a.111111 is the user's account and carries their authority.\n${END}\n\n` + original
+    + `\nmy own comment\n<!-- end -->\n${START}\n@net:b.222222 is the user's account and carries their authority.\n${END}\ntail\n`)
+  r = await tryApi('POST', '/api/desktop/phone/unlink')
+  p.check('Unlink without a record removes every note; the user\'s own "<!-- end -->" line stays', r.ok
+    && orgmd() === original + '\nmy own comment\n<!-- end -->\ntail\n', orgmd())
+  await rig.api('POST', '/api/desktop/phone/link', { org, address: alex.slug })
+  const broken = orgmd().replace(END, 'the user deleted the end marker')
+  fs.writeFileSync(mdPath, broken)
+  r = await tryApi('POST', '/api/desktop/phone/unlink')
+  p.check('a note with its end marker gone: Unlink says so and keeps the record', !r.ok && /not its end/.test(r.e)
+    && settingsFile().link?.address === alex.slug && orgmd() === broken, r)
+  fs.writeFileSync(mdPath, original)
+  await rig.api('POST', '/api/desktop/phone/unlink')
 
   // New code voids the old one; a code past its life is refused
   const first = await rig.api('POST', '/api/desktop/phone/code', { org })
@@ -232,7 +306,10 @@ export default async function (rig) {
   s = await orgState()
   p.check('no card before the user has written to an agent', s.card?.show === false && s.card.org === null, s.card)
   await rig.userMail('lead', 'PHONE-CARD first message')
-  s = await rig.waitFor(async () => { const v = await orgState(); return v.card?.show ? v : null }, { what: 'the card to show after the first message' })
+  s = await rig.waitFor(async () => { const v = await orgState(); return v.card?.show ? v : null }, { what: 'the card to show after the first message', timeout: 90000 })
+  const cheap = await rig.api('GET', `/api/desktop/phone/card?org=${encodeURIComponent(org)}`)
+  p.check("the cards' own read says the same, without the panel's facts", cheap.card?.show === true && cheap.card.org === org && cheap.link === null
+    && !('tailscale' in cheap) && !('access' in cheap) && /<svg/.test(cheap.download_qr || ''), Object.keys(cheap))
   const home = await rig.api('GET', '/api/desktop/phone')
   p.check('the first exchange with a live top-level agent shows the card, in the org window and on Home', s.card.org === org && home.card?.show === true && home.card.org === org, { org: s.card, home: home.card })
   await rig.api('POST', '/api/desktop/phone/link', { org, address: alex.slug })
