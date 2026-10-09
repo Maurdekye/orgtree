@@ -151,6 +151,36 @@ export function canonicalPath(p: string): string {
 
 export interface DescriptorOwner { ok: boolean; detail: string }
 
+export type PosixStat = Pick<fs.Stats, 'uid' | 'mode'> & { isFile(): boolean; isDirectory(): boolean }
+
+/** The directory and each ancestor up to `/`, nearest first. */
+function ancestorStats(dir: string): Array<[string, PosixStat]> {
+  const out: Array<[string, PosixStat]> = []
+  for (let d = dir; ; d = path.dirname(d)) {
+    out.push([d, fs.statSync(d)])
+    if (path.dirname(d) === d) return out
+  }
+}
+
+/** macOS and Linux (the LaunchAgent / systemd host writes the descriptor
+ *  0600): the same write boundary as the Windows check. The file is a regular
+ *  file of this user's that nobody else may read or write (it carries the
+ *  token); its directory is this user's (or root's) and writable by nobody
+ *  else; an ancestor that others can write must be sticky (/tmp), so nobody
+ *  can replace a path component. */
+export function judgePosixTrust(uid: number, file: PosixStat, dirs: Array<[string, PosixStat]>): DescriptorOwner {
+  if (!file.isFile()) return { ok: false, detail: 'descriptor is not a regular file' }
+  if (file.uid !== uid) return { ok: false, detail: `owner ${file.uid} is not current user ${uid}` }
+  if (file.mode & 0o077) return { ok: false, detail: `descriptor mode ${(file.mode & 0o777).toString(8)} lets others read or write it` }
+  for (const [i, [name, s]] of dirs.entries()) {
+    if (!s.isDirectory()) return { ok: false, detail: `${name} is not a directory` }
+    if (s.uid !== uid && s.uid !== 0) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory owned by'} ${name} (owner ${s.uid})` }
+    const othersWrite = (s.mode & 0o022) !== 0
+    if (othersWrite && (i === 0 || !(s.mode & 0o1000))) return { ok: false, detail: `${i ? 'path replaceable via ancestor' : 'descriptor directory writable by others:'} ${name}` }
+  }
+  return { ok: true, detail: `owner ${uid}, exclusive write boundary` }
+}
+
 /** THE authentication step of attachment (redteam-opus F1, root ruling):
  *  everything in the descriptor and the identity response is authored by
  *  whoever can WRITE the file, so trust is a write-boundary property, and
@@ -167,7 +197,13 @@ export interface DescriptorOwner { ok: boolean; detail: string }
  *  Fails closed with the offending SIDs named, so an unsafe custom root is a
  *  clear refusal, not a silent one. Generic write/all bits count as write. */
 export function verifyDescriptorTrust(file: string): Promise<DescriptorOwner> {
-  if (process.platform !== 'win32') return Promise.resolve({ ok: false, detail: 'descriptor trust verification is Windows-only' })
+  if (process.platform !== 'win32') {
+    try {
+      const uid = process.getuid?.()
+      if (uid === undefined) return Promise.resolve({ ok: false, detail: 'no user id on this platform' })
+      return Promise.resolve(judgePosixTrust(uid, fs.lstatSync(file), ancestorStats(path.dirname(file))))
+    } catch (error) { return Promise.resolve({ ok: false, detail: `descriptor stat failed: ${(error as Error).message}` }) }
+  }
   const escaped = file.replace(/'/g, "''")
   const directory = path.dirname(file).replace(/'/g, "''")
   // File + immediate directory use the full write mask; ANCESTORS use the

@@ -161,9 +161,33 @@ mod imp_unix {
     pub fn install_root_job() -> bool {
         false
     }
-    pub struct ChildJob;
+    /// An agent CLI's process group (it was started with `own_group`): the
+    /// Unix stand-in for its subtree job, so ending the CLI also ends the MCP
+    /// servers and commands it started.
+    pub struct ChildJob {
+        pub(super) pgid: libc::pid_t,
+    }
     impl ChildJob {
-        pub fn terminate(&self) {}
+        /// SIGTERM to the whole group now, SIGKILL to whatever is left a few
+        /// seconds later. The group outlives its leader, so the CLI's own exit
+        /// (or the SIGKILL its caller sends it next) does not end this.
+        pub fn terminate(&self) {
+            let pgid = self.pgid;
+            unsafe { libc::killpg(pgid, libc::SIGTERM) };
+            let _ = std::thread::Builder::new().name("group-kill".into()).spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                unsafe { libc::killpg(pgid, libc::SIGKILL) };
+            });
+        }
+    }
+    /// As dropping the Windows job (KILL_ON_JOB_CLOSE): whatever the CLI left
+    /// in its group ends with it, also when the CLI exited by itself after
+    /// its input closed (idle stop, idle eviction, a replaced process). The
+    /// pgid cannot be reused while any member of the group still lives.
+    impl Drop for ChildJob {
+        fn drop(&mut self) {
+            self.terminate();
+        }
     }
 
     #[logged]
@@ -284,10 +308,26 @@ pub fn child_job(child: &tokio::process::Child) -> Option<ChildJob> {
     ChildJob::for_process(h as _)
 }
 
+/// Unix: the child's process group, when it leads one of its own (started
+/// with `own_group`). Never another group: killpg on the engine's own group
+/// would end the engine.
 #[cfg(not(windows))]
 #[logged]
-pub fn child_job(_child: &tokio::process::Child) -> Option<ChildJob> {
-    None
+pub fn child_job(child: &tokio::process::Child) -> Option<ChildJob> {
+    let pid = libc::pid_t::try_from(child.id()?).ok()?;
+    (pid > 0 && unsafe { libc::getpgid(pid) } == pid).then_some(ChildJob { pgid: pid })
+}
+
+/// Unix: start an agent CLI in a process group of its own, so `child_job`
+/// can end everything it starts (MCP servers, long shell commands) on kill,
+/// interrupt or retire. Windows: the subtree job does that; nothing to set.
+#[logged]
+pub fn own_group(cmd: &mut tokio::process::Command) {
+    #[cfg(unix)]
+    {
+        cmd.process_group(0);
+    }
+    let _ = cmd;
 }
 
 /// The volume's 8.3 alias for `path`: None when there is none, or when it
@@ -314,4 +354,64 @@ pub fn short_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
 #[cfg(not(windows))]
 pub fn short_path(_path: &std::path::Path) -> Option<std::path::PathBuf> {
     None
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    /// An agent CLI's group ends with it: the shell's background child (the
+    /// stand-in for an MCP server or a long Bash command) is gone after
+    /// terminate, not orphaned.
+    #[tokio::test]
+    async fn terminate_ends_the_whole_group() {
+        let mut cmd = tokio::process::Command::new("/bin/sh");
+        cmd.arg("-c").arg("sleep 60 & echo $!; wait").stdout(std::process::Stdio::piped());
+        super::own_group(&mut cmd);
+        let mut child = cmd.spawn().expect("spawn sh");
+        let job = super::child_job(&child).expect("the child leads its own group");
+        let mut out = child.stdout.take().unwrap();
+        let mut line = String::new();
+        {
+            use tokio::io::AsyncBufReadExt;
+            tokio::io::BufReader::new(&mut out).read_line(&mut line).await.unwrap();
+        }
+        let grandchild: u32 = line.trim().parse().expect("the background pid");
+        assert!(super::process_alive(grandchild));
+        job.terminate();
+        let _ = child.wait().await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while super::process_alive(grandchild) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(!super::process_alive(grandchild), "the group's other member outlived terminate");
+    }
+
+    /// A CLI that exits by itself (its input closed) leaves its background
+    /// child behind; dropping its job ends that child, as on Windows.
+    #[tokio::test]
+    async fn dropping_the_job_ends_what_an_exited_cli_left() {
+        let mut cmd = tokio::process::Command::new("/bin/sh");
+        cmd.arg("-c").arg("sleep 60 >/dev/null 2>&1 & echo $!").stdout(std::process::Stdio::piped());
+        super::own_group(&mut cmd);
+        let child = cmd.spawn().expect("spawn sh");
+        let job = super::child_job(&child).expect("the child leads its own group");
+        let out = child.wait_with_output().await.expect("the CLI exits by itself");
+        let grandchild: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().expect("the background pid");
+        assert!(super::process_alive(grandchild), "the leftover outlived its CLI");
+        drop(job);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while super::process_alive(grandchild) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(!super::process_alive(grandchild), "dropping the job left the CLI's child running");
+    }
+
+    #[test]
+    fn no_job_for_a_child_in_the_engine_group() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let mut child = tokio::process::Command::new("/bin/sleep").arg("5").spawn().unwrap();
+            assert!(super::child_job(&child).is_none(), "killpg would hit the engine's own group");
+            let _ = child.kill().await;
+        });
+    }
 }

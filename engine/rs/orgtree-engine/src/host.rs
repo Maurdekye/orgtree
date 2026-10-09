@@ -75,6 +75,11 @@ fn data_root() -> Result<PathBuf, String> {
     if let Some(v) = std::env::var_os("ORGTREE_V2_DATA").filter(|v| !v.is_empty()) {
         return Ok(PathBuf::from(v));
     }
+    // macOS and Linux: the desktop writes the folder it uses into the
+    // LaunchAgent / user unit (Electron's userData differs per platform)
+    if cfg!(not(windows)) {
+        return Err("ORGTREE_V2_DATA is not set (the desktop's registration names the data folder)".into());
+    }
     let appdata = std::env::var_os("APPDATA").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| {
         // an S4U logon may start without profile variables
         std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()).map(|p| PathBuf::from(p).join("AppData").join("Roaming"))
@@ -110,6 +115,18 @@ fn packaged_postgres() -> Result<Vec<(String, String)>, String> {
     let dir = exe_dir();
     if !dir.join("..").join("app.asar").is_file() {
         return Ok(Vec::new());
+    }
+    // macOS and Linux: no custodian; the engine runs PostgreSQL from beside
+    // itself, as the desktop's own launch does (engine.ts)
+    if cfg!(not(windows)) {
+        let bin = dir.join("postgresql").join("bin");
+        if !bin.join("postgres").is_file() {
+            return Err(format!("packaged PostgreSQL executable is missing: {}", bin.join("postgres").display()));
+        }
+        return Ok(vec![
+            ("ORGTREE_P03_PG_BIN".into(), bin.to_string_lossy().to_string()),
+            ("ORGTREE_PG_BOOTSTRAP".into(), "1".into()),
+        ]);
     }
     let custodian = dir.join("pg-custodian.exe");
     let bin = dir.join("postgresql").join("bin");
@@ -239,7 +256,12 @@ fn root_released(root: &Path, within: Duration) -> bool {
     let lock = root.join(".desktop-engine.lock");
     let deadline = Instant::now() + within;
     loop {
+        // Windows: the engine's byte-range lock makes the write fail; Unix:
+        // its flock is advisory, so ask for the lock itself
+        #[cfg(windows)]
         let ok = std::fs::OpenOptions::new().read(true).write(true).open(&lock).and_then(|mut f| f.write_all(b"0")).is_ok();
+        #[cfg(not(windows))]
+        let ok = std::fs::OpenOptions::new().read(true).write(true).open(&lock).map(|f| f.try_lock().is_ok()).unwrap_or(false);
         if ok || !lock.exists() {
             return true;
         }
@@ -551,8 +573,18 @@ fn install_stop_handler() {
     }
 }
 
+/// launchd and systemd end a service with SIGTERM: stop the engine cleanly.
 #[cfg(not(windows))]
-fn install_stop_handler() {}
+fn install_stop_handler() {
+    extern "C" fn handler(_signal: libc::c_int) {
+        STOP.store(true, Ordering::SeqCst);
+    }
+    unsafe {
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::signal(signal, handler as extern "C" fn(libc::c_int) as libc::sighandler_t);
+        }
+    }
+}
 
 // ------------------------------------------------------------ Windows
 
@@ -914,39 +946,101 @@ mod win {
     }
 }
 
+// ------------------------------------------------------------ macOS and Linux
+//
+// The same supervisor under a launchd LaunchAgent (macOS) or a systemd user
+// unit / XDG autostart entry (Linux), registered by the desktop
+// (apps/desktop/main/unixboot.ts). It runs as the user, so there is no
+// elevation to shed; the engine is its own process group, so ending it ends
+// what it started.
+
 #[cfg(not(windows))]
 mod win {
     use std::fs::File;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::path::Path;
-    use std::time::Duration;
+    use std::process::{Command, Stdio};
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
     pub struct Child {
         pub pid: u32,
+        process: Mutex<std::process::Child>,
+        code: Mutex<Option<u32>>,
     }
     impl Child {
+        /// The exit code once it has exited (a signal death reads as 128 + signal).
         pub fn exit_code(&self) -> Option<u32> {
-            Some(1)
+            let mut code = self.code.lock().unwrap_or_else(|e| e.into_inner());
+            if code.is_none() {
+                let mut process = self.process.lock().unwrap_or_else(|e| e.into_inner());
+                if let Ok(Some(status)) = process.try_wait() {
+                    *code = Some(status.code().map(|c| c as u32).unwrap_or_else(|| 128 + status.signal().unwrap_or(0) as u32));
+                }
+            }
+            *code
         }
-        pub fn wait(&self, _within: Duration) -> bool {
-            true
+        pub fn wait(&self, within: Duration) -> bool {
+            let deadline = Instant::now() + within;
+            loop {
+                if self.exit_code().is_some() {
+                    return true;
+                }
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
-        pub fn kill_tree(&self) {}
+        /// End the engine and everything it started (its process group).
+        pub fn kill_tree(&self) {
+            unsafe {
+                libc::killpg(self.pid as libc::pid_t, libc::SIGKILL);
+                libc::kill(self.pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
     }
+
+    /// The account the descriptor belongs to: the numeric user id.
     pub fn user_sid() -> Option<String> {
-        None
+        Some(unsafe { libc::getuid() }.to_string())
     }
+    /// A root host has no unprivileged token to hand down; it is never registered that way.
     pub fn is_elevated() -> bool {
-        false
+        unsafe { libc::geteuid() == 0 }
     }
+    /// "Run Orgtree as administrator" is a Windows setting.
     pub fn run_as_administrator() -> bool {
         false
     }
-    pub fn spawn(_exe: &Path, _args: &[&str], _env: &[(String, String)], _cwd: &Path, _restricted: bool) -> Result<(Child, Option<File>), String> {
-        Err("the boot host runs on Windows only".into())
+
+    /// Start `exe args…` with exactly this environment, stdout piped to us,
+    /// stdin and stderr closed, in a process group of its own.
+    pub fn spawn(exe: &Path, args: &[&str], env: &[(String, String)], cwd: &Path, _restricted: bool) -> Result<(Child, Option<File>), String> {
+        let mut child = Command::new(exe)
+            .args(args)
+            .env_clear()
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .map_err(|e| format!("{}: {e}", exe.display()))?;
+        let out = child.stdout.take().map(|s| File::from(std::os::fd::OwnedFd::from(s)));
+        Ok((Child { pid: child.id(), process: Mutex::new(child), code: Mutex::new(None) }, out))
     }
-    pub fn create_protected(_path: &Path, _sid: &str) -> Result<File, String> {
-        Err("unsupported".into())
+
+    /// A new file only its owner can read or write, from the first instant.
+    pub fn create_protected(path: &Path, _uid: &str) -> Result<File, String> {
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path).map_err(|e| format!("create: {e}"))
     }
-    pub fn verify_restricted(_path: &Path, _sid: &str) -> bool {
-        false
+    /// Owned by this user, and nobody else may read or write it.
+    pub fn verify_restricted(path: &Path, uid: &str) -> bool {
+        std::fs::symlink_metadata(path)
+            .map(|m| m.file_type().is_file() && m.uid().to_string() == uid && m.mode() & 0o077 == 0)
+            .unwrap_or(false)
     }
 }
