@@ -52,10 +52,9 @@ export function QuickChat({ slug, tree, op, toast, onHired }: {
   const [busy, setBusy] = useState(false)
   const menu = useContextMenu(toast)
 
-  const pick = (e: MouseEvent, entries: MenuEntry[]) => {
-    e.preventDefault()
+  // (no preventDefault here: `open` ignores an event something already took)
+  const pick = (e: MouseEvent, entries: MenuEntry[]) =>
     menu.open(e, entries, e.currentTarget as Element)
-  }
   const modelMenu = (e: MouseEvent) => pick(e, offered.length
     ? offered.map(t => ({ label: tierLabel(t) + (t === tier ? ' ✓' : ''),
         onSelect: () => rememberTier(t) }))

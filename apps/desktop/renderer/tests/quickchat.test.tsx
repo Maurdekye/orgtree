@@ -132,3 +132,27 @@ test('a name taken behind this window is retried with the next suffix', async ()
     assert.deepEqual(hired, ['triage-2'])
   } finally { await view.unmount(); localStorage.clear() }
 })
+
+test('each button opens its menu inline, and a pick there becomes the choice', async () => {
+  localStorage.clear(); providers(['claude'])
+  const view = await mount([], [])
+  try {
+    const open = async (sel: string) => inAct(async () => {
+      view.el.querySelector<HTMLButtonElement>(sel)!.dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
+      await flush(4)
+    })
+    const items = () => [...document.querySelectorAll('.ctxmenu button.ctxmenu-item')]
+      .map(b => (b.textContent || '').trim())
+    await open('.quickchat-superior')
+    assert.deepEqual(items(), ['switchboard ✓', 'boss'])
+    await open('.quickchat-effort')
+    assert.deepEqual(items(), ['org default (high) ✓', 'low', 'medium', 'high', 'xhigh', 'max'])
+    await inAct(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu button.ctxmenu-item')]
+        .find(b => b.textContent?.trim() === 'low')!.click()
+      await flush(4)
+    })
+    assert.equal(buttons(view.el)[1], 'low')
+  } finally { await view.unmount(); localStorage.clear() }
+})
