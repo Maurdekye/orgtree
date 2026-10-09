@@ -312,3 +312,14 @@ All entries are dated 2026-10-06 unless stated otherwise.
     two tool descriptions say the same, and a markdown body over 64 KB is refused with "present
     a shorter document or split it across several cards" instead of "or send it as a file".
     Proof: `tools/rig/proofs/present-documents.mjs`.
+
+58. **`orgtree_present` takes a `.md` file as `path`** (coordinator 2026-10-09 06:08Z,
+    approving a suggestion from the decision 57 hand-in). An agent with a report on disk had
+    to paste its text into `body`, while `orgtree_send_file` takes a path, which nudged
+    documents towards download cards. `path` now takes a `.md` or `.markdown` file as well as
+    an `.html`/`.htm` mockup. The file's text becomes the markdown body under the same 64 KB
+    limit, and a leading byte-order mark is dropped. A file that is not UTF-8 text, a folder,
+    or a file outside the agent's folders is refused. `replaces` works as with `body`. 3.x
+    took only `.html`/`.htm` by path, so this adds a route and removes nothing. The
+    instructions passage and the tool description say so. Proof:
+    `tools/rig/proofs/present-documents.mjs`.
