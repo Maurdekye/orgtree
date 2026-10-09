@@ -143,11 +143,26 @@ signed and not notarized, because notarization needs a paid Apple Developer acco
 - Data folder: `~/Library/Application Support/Orgtree v2` (Electron's default,
   inferred).
 
-**Linux** (Ubuntu x86_64):
-- `.deb`: `sudo apt install ./orgtree_<v>_amd64.deb`, then start Orgtree from the app
-  menu. This is how the runner installs it.
-- AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it.
-- Data folder: `~/.config/Orgtree v2` (measured on the runner).
+**Linux** (x86_64): Ubuntu 22.04 or newer, or Debian 12 or newer. It is built against
+Ubuntu 22.04's glibc 2.35 (inferred).
+- `.deb`, the recommended install: `sudo apt install ./orgtree_<v>_amd64.deb`, then
+  start Orgtree from the app menu. This is how the runner installs it: apt pulls in
+  its dependencies, and the installed app ran with Chromium's sandbox on (measured on
+  Ubuntu 22.04). `chrome-sandbox` is not setuid, so the sandbox uses unprivileged user
+  namespaces. On Ubuntu 24.04 the package installs the AppArmor profile that allows
+  them (inferred, not run).
+- AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it. It needs FUSE 2:
+  `sudo apt install libfuse2` (Ubuntu 22.04) or `libfuse2t64` (24.04). Without it,
+  run `./Orgtree-<v>.AppImage --appimage-extract-and-run`. The runner used
+  extract-and-run, so the FUSE route is inferred. On Ubuntu 24.04 the AppImage
+  probably also needs `--no-sandbox`, since it can't bring an AppArmor profile
+  (inferred); use the `.deb` there.
+- Inside the package, Debian's version reads `4.0.2~alpha.4`; the file name keeps
+  the hyphen.
+- Data folder: `~/.config/Orgtree v2`, or under `$XDG_CONFIG_HOME` if that is set
+  (measured on the runner).
+- No 3.x data import: the Linux build ships no Python runtime, which the import
+  needs.
 
 **Not there yet** (both platforms):
 - No automatic updates. The app doesn't offer them on macOS or Linux; download each
@@ -157,6 +172,9 @@ signed and not notarized, because notarization needs a paid Apple Developer acco
   app opened from Finder gets a minimal PATH; starting it from Terminal with
   `open -a Orgtree` keeps the shell's PATH (inferred).
 - No start at login, credential bridge or background boot engine.
+- Linux, from its port's list: also no "Run as administrator", tray left-click list,
+  taskbar attention icons, `pid:N` process watchdogs, or memory floor for warming
+  CLIs. These are gated off, not deleted.
 - macOS only: if the engine is killed, its PostgreSQL keeps running until the next
   start. Linux stops it with the engine (measured).
 
