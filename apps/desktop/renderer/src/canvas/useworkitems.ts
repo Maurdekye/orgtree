@@ -7,6 +7,10 @@ import type { PolledStatus } from './shared'
 
 const loading: PolledStatus = { loading: true, failed: false, stale: false,
   unavailable: false, at: null, error: null }
+/** The docket moved underneath a page load. Not a user-facing failure: the
+ * load restarts from the top, bounded, and the next poll retries again. */
+class Conflict extends Error {}
+const RETRIES = 3
 type Pages = Partial<Record<WorkGroup, WorkPage>>
 type State = { identity: string; scope: string; slug: string; value: WorkItemsPayload | null;
   pages: Pages; status: PolledStatus; loadingMore: boolean }
@@ -41,11 +45,12 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
     let dead = false, busy = false
     const groups: WorkGroup[] = ['items', ...(backlog ? ['backlogged' as const] : []), ...(archive ? ['archived' as const] : [])]
     const valid = () => !dead && current.current.identity === identity
-    const run = async (more = false) => {
+    const run = async (more = false, tries = 0) => {
       if (busy || !valid()) return
       const old = current.current
       if (more && !Object.values(old.pages).some(p => p.next_offset !== null)) return
       busy = true
+      let conflict = false
       if (more) setState(s => ({...s, loadingMore:true}))
       try {
         const pages: Pages = {}
@@ -55,7 +60,7 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
           const offset = more ? previous?.next_offset ?? 0 : 0
           let page = await getWorkPage(slug,group,options,offset,more ? previous : pages.items)
           if (!valid()) return
-          if (page.reset) throw new Error('The docket changed while paging; refresh to continue.')
+          if (page.reset) throw new Conflict()
           if (!more && previous?.revision === page.revision && previous.total === page.total
               && previous.rows.length > page.rows.length) {
             pages[group] = {...previous,counts:page.counts,totals:page.totals,matched:page.matched}
@@ -68,23 +73,28 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
           while (!more && rows.length < wanted && page.next_offset !== null) {
             page = await getWorkPage(slug,group,options,page.next_offset,page)
             if (!valid()) return
-            if (page.reset) throw new Error('The docket changed while paging; refresh to continue.')
+            if (page.reset) throw new Conflict()
             rows = [...rows,...page.rows]
           }
           pages[group] = {...page,rows:[...new Map(rows.map(r => [r.slug,r])).values()]}
         }
         if (!valid()) return
         const revisions = new Set(Object.values(pages).map(p => p.revision))
-        if (revisions.size !== 1) throw new Error('The docket changed while paging; refresh to continue.')
+        if (revisions.size !== 1) throw new Conflict()
         const next = {identity,scope,slug,pages,value:payload(pages),loadingMore:false,
           status:{loading:false,failed:false,stale:false,unavailable:false,at:Date.now(),error:null}}
         current.current = next
         setState(next)
       } catch (error) {
-        if (valid()) setState(s => ({...s,loadingMore:false,status:{loading:false,failed:true,
+        if (error instanceof Conflict) { conflict = true; if (valid()) setState(s => ({...s,loadingMore:false})) }
+        else if (valid()) setState(s => ({...s,loadingMore:false,status:{loading:false,failed:true,
           stale:s.value!==null,unavailable:s.value===null,at:s.status.at,
           error:error instanceof Error ? error.message : String(error)}}))
       } finally { busy = false }
+      if (conflict && valid() && tries < RETRIES) {
+        await run(false, tries + 1)
+        if (more && tries === 0 && valid()) await run(true)
+      }
     }
     requestMore.current = () => { void run(true) }
     void run()
