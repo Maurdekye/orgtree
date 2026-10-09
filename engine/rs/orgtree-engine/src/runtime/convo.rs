@@ -350,8 +350,8 @@ async fn standing_request(client: &Client, agent_id: i64) -> Result<String> {
 async fn recall_hint(client: &Client, agent_id: i64) -> String {
     let mut s = String::from(
         "To recover what you were discussing with someone, use orgtree_inbox action=conversation peer=<name> before \
-         you reply to them: it lists the mail you and they exchanged (an agent's name, user, @org:<slug> or \
-         @net:<address>), both directions, newest first.",
+         you reply to them (peer: an agent's name, user, @org:<slug> or @net:<address>): it lists the mail you and \
+         they exchanged, both directions, newest first.",
     );
     match crate::domain::correspondence::recent_peers(client, agent_id, 6).await {
         Ok(peers) if !peers.is_empty() => {
