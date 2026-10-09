@@ -34,6 +34,9 @@ $psi.UseShellExecute = $false
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $psi.Environment['ORGTREE_DATA'] = $data
+# First start on an empty data root: allow the engine to create its PostgreSQL
+# cluster, as the desktop does (apps/desktop/main/engine.ts bootstrapPostgres).
+$psi.Environment['ORGTREE_PG_BOOTSTRAP'] = '1'
 $proc = [System.Diagnostics.Process]::Start($psi)
 $stdout = $proc.StandardOutput.ReadToEndAsync()
 $stderr = $proc.StandardError.ReadToEndAsync()
