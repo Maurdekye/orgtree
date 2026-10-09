@@ -176,6 +176,22 @@ fn socket_dirs(data_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     dirs
 }
 
+/// Whether a POSIX shell takes `s` as one word: nothing it splits on, quotes,
+/// expands or globs.
+#[cfg(unix)]
+#[logged]
+pub(crate) fn shell_safe(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "/._-+,:@%".contains(c))
+}
+
+/// The first of this engine's private folders (`socket_dirs`) whose path a
+/// shell takes as one word, for the CLI hooks that run through one.
+#[cfg(unix)]
+#[logged]
+pub(crate) fn shell_safe_dir(data_root: &std::path::Path) -> Option<std::path::PathBuf> {
+    socket_dirs(data_root).into_iter().find(|d| d.to_str().is_some_and(shell_safe) && private_dir(d).is_ok())
+}
+
 /// `dir` as a private folder of this user's: created 0700 when missing (its
 /// parent must exist); an existing one must be a real folder this user owns,
 /// and loses any group or other access.
@@ -246,7 +262,8 @@ async fn accept(engine: Arc<Engine>, caller: Caller, listener: tokio::net::UnixL
 }
 
 /// At the engine's start: remove the sockets a killed earlier run of it left
-/// in its folders (only this user's private ones).
+/// in its folders (only this user's private ones), and the hook copies its
+/// agents had there (`runtime::agy::sh_command` writes them again).
 #[cfg(unix)]
 #[logged]
 pub fn clear_stale(data_root: &std::path::Path) {
@@ -259,7 +276,8 @@ pub fn clear_stale(data_root: &std::path::Path) {
         }
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with("orgtree-mcp-") {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("orgtree-mcp-") || name.starts_with("orgtree-hook-") {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
