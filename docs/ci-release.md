@@ -89,6 +89,8 @@ gh release edit vX -R Maurdekye/orgtree --draft=false --latest
 gh release edit vX -R Maurdekye/orgtree --draft=false --prerelease --latest=false
 ```
 
+Publishing starts the **verify-release** workflow. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feed and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
+
 ## Rolling back
 
 - **Before publishing**: delete the draft and the tag, fix, and tag again.
