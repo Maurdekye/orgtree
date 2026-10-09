@@ -114,6 +114,7 @@ impl CodexProc {
             cmd.env(k, v);
         }
         winproc::no_window(&mut cmd);
+        winproc::own_group(&mut cmd);
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
         let job = winproc::child_job(&child);
         let pid = child.id().unwrap_or(0);
@@ -625,6 +626,7 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
         cmd.env("CODEX_HOME", h);
     }
     winproc::no_window(&mut cmd);
+    winproc::own_group(&mut cmd);
     let mut child = cmd.spawn().with_context(|| format!("could not start {}", exe.display()))?;
     let job = winproc::child_job(&child);
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;

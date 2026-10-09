@@ -70,6 +70,7 @@ pub async fn probe(exe: &Path) -> Result<BTreeMap<String, Vec<String>>> {
         }
     }
     crate::winproc::no_window(&mut cmd);
+    crate::winproc::own_group(&mut cmd);
     let mut child = cmd.spawn().context("start Codex capability discovery")?;
     let job = crate::winproc::child_job(&child);
     let mut input = child

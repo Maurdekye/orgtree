@@ -129,6 +129,7 @@ impl AgyProc {
             cmd.env(k, v);
         }
         winproc::no_window(&mut cmd);
+        winproc::own_group(&mut cmd);
         let mut child = cmd.spawn().with_context(|| format!("could not start {}", spec.exe.display()))?;
         let job = winproc::child_job(&child);
         let pid = child.id().unwrap_or(0);
