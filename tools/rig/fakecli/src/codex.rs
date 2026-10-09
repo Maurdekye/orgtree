@@ -556,6 +556,8 @@ pub fn run(raw: &[String]) -> i32 {
         steers: Mutex::new(VecDeque::new()),
     });
     srv.log("start", json!({ "args": raw, "cwd": cwd, "codex_home": home, "codex_home_set": std::env::var("CODEX_HOME").is_ok(),
+                             // like the real app-server, the cwd's AGENTS.md is read once, at process start
+                             "agents_md": std::fs::read_to_string(cwd.join("AGENTS.md")).ok(),
                              "api_key_set": std::env::var("OPENAI_API_KEY").is_ok(), "org": std::env::var("ORGTREE_ORG").ok() }));
     let (tx, rx) = mpsc::channel();
     {

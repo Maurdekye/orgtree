@@ -744,6 +744,8 @@ fn claude(raw: &[String]) -> i32 {
     let env_of = |k: &str| std::env::var(k).ok();
     cli.log("start", json!({ "args": raw, "cwd": cwd, "session": session, "resumed": args.resume.is_some(),
                               "tools": native,
+                              // like the real CLI, the cwd's CLAUDE.md is read once, at process start
+                              "claude_md": std::fs::read_to_string(cwd.join("CLAUDE.md")).ok(),
                               "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": env_of("CLAUDE_CODE_USE_POWERSHELL_TOOL"),
                                        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": env_of("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
                                        "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF": env_of("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF"),
