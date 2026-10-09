@@ -7869,3 +7869,24 @@ main:has(> .orgbar.native-header) > .error {
 .set-foot { margin: 8px 0 0; font-size: 11.5px; }
 .set-control .account-choice-identity { display: none; } /* the picker already shows it; kept in the DOM as its description */
 .host-hub .set-block p { margin: 0; }
+
+/* unread presented documents: a card the user has not opened is NEW (full
+   accent), one re-presented since they last opened it is UPDATED (the same
+   accent, duller). Both clear on open — canvas/docviewed.ts. */
+.doc-chip.doc-new, .doc-badge.doc-new {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--ink-strong);
+}
+.doc-chip.doc-updated, .doc-badge.doc-updated {
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.doc-chip.doc-new::after, .doc-chip.doc-updated::after {
+  content: ''; position: absolute; top: -2px; right: -2px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+}
+.doc-chip.doc-updated::after { opacity: .5; }
+.doc-chip { position: relative; }
+.doc-badge.doc-new::before, .doc-badge.doc-updated::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none;
+}
+.doc-badge.doc-updated::before { opacity: .5; }

@@ -1,6 +1,6 @@
 module.exports = async (page, { args }) => {
   const card = '[data-first-use-agent="rhea"]'
-  const readTitles = selector => [...document.querySelectorAll(selector)].map(e => e.title)
+  const readTitles = selector => [...document.querySelectorAll(selector)].map(e => e.title.replace(/^(new|updated): /, ''))
   const match = (actual, label) => {
     if (JSON.stringify(actual) !== JSON.stringify(args.expected))
       throw Error(`${label}: ${JSON.stringify(actual)} expected ${JSON.stringify(args.expected)}`)

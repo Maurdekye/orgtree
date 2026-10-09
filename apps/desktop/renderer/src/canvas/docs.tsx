@@ -16,6 +16,7 @@ import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { PinFrame } from './modalpin'
+import { docUnread, markDocViewed, useDocViewedVersion } from './docviewed'
 import { CloseIcon, DocIcon } from '../icons'
 import { fmtFull } from '../timefmt'
 import { copyToClipboard, useContextMenu } from './contextmenu'
@@ -94,7 +95,7 @@ export function presentationMenu(el: Element | null, slug: string,
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
 export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast, inert = false }: {
-  slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'>; onOpen: (id: string) => void
+  slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'> & { at?: string }; onOpen: (id: string) => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
    *  the canvas chips have no toast to hand */
@@ -114,15 +115,20 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   // plus copy/download. No dismiss here — that control lives in the reader
   // and the gallery pane, and this chip has neither's confirmation context.
   const menu = useContextMenu()
+  useDocViewedVersion()
+  const unread = docUnread(slug, doc.id, doc.at)
+  const open = () => { markDocViewed(slug, doc.id, doc.at); onOpen(doc.id) }
   const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, () =>
     presentationMenu(e.currentTarget, slug, doc, {
-      open: () => onOpen(doc.id), toast,
+      open, toast,
     }))
   const body = <>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}</>
-  if (inert) return <span className={className + ' inert'} aria-hidden="true">{body}</span>
-  return <button className={className} title={`read ${doc.title}`}
+  const mark = unread ? ' doc-' + unread : ''
+  if (inert) return <span className={className + ' inert' + mark} data-doc-unread={unread ?? undefined} aria-hidden="true">{body}</span>
+  return <button className={className + mark} data-doc-unread={unread ?? undefined}
+    title={unread ? `${unread === 'new' ? 'new' : 'updated'}: read ${doc.title}` : `read ${doc.title}`}
     onPointerDown={(e) => e.stopPropagation()}
-    onClick={(e) => { e.stopPropagation(); onOpen(doc.id) }}
+    onClick={(e) => { e.stopPropagation(); open() }}
     onContextMenu={onContextMenu}>{body}{menu.node}</button>
 }
 
@@ -158,9 +164,9 @@ export function useDoc(slug: string, docId: string, preloaded?: LoadedDoc): {
     setDoc(null)
     setErr(null)
     if (!docId) return
-    if (preloaded) { setDoc(preloaded); return }
+    if (preloaded) { setDoc(preloaded); markDocViewed(slug, docId, preloaded.at); return }
     getDocument(slug, docId)
-      .then((d) => { if (live) setDoc(d) })
+      .then((d) => { if (live) { setDoc(d); markDocViewed(slug, docId, d.at) } })
       .catch((e: Error) => { if (live) setErr(e.message) })
     return () => { live = false }
   }, [slug, docId, preloaded])
