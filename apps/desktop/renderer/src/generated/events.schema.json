@@ -572,6 +572,15 @@
           "items": {
             "type": "string"
           }
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          }
+        },
+        "multi": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -606,6 +615,21 @@
               "type": "null"
             }
           ]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AskOption"
+          }
+        },
+        "multi": {
+          "type": "boolean"
+        },
+        "selected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -5726,6 +5750,21 @@
           "$ref": "#/$defs/ContextDriveRestartWake"
         }
       ]
+    },
+    "AskOption": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [

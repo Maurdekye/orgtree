@@ -7952,3 +7952,16 @@ main:has(> .orgbar.native-header) > .error {
   cursor: pointer;
 }
 .quickchat-btn:hover { border-color: var(--button-accent); color: var(--ink-strong); }
+/* answered questions: a shrunken question card (single, multi, batched, free text) */
+.answered-card { margin: 2px 0; font-size: 12px; }
+.answered-card > summary { cursor: pointer; color: var(--dim); font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.answered-q { padding: 6px 8px; margin: 4px 0; border: 1px solid var(--border, rgba(128,128,128,.28)); border-radius: 6px; }
+.answered-qtext { font-weight: 600; margin-bottom: 4px; }
+.answered-chip { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 6px; margin-right: 6px; border-radius: 8px; background: rgba(128,128,128,.2); color: var(--dim); vertical-align: 1px; }
+.answered-opts { list-style: none; margin: 0; padding: 0; }
+.answered-opt { display: flex; gap: 7px; padding: 1px 0; opacity: .5; font-size: 11.5px; }
+.answered-opt.chosen { opacity: 1; font-weight: 600; }
+.answered-mark { flex: none; width: 14px; text-align: center; }
+.answered-opt-desc { display: block; font-weight: 400; font-size: 10.5px; color: var(--dim); }
+.answered-typed, .answered-note { margin-top: 3px; padding-left: 4px; border-left: 2px solid var(--accent, #4a90d9); }
+.answered-skipped { font-size: 11px; }

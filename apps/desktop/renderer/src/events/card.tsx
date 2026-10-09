@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Event, Family } from '../generated/events'
-import { decodeEventRow, isNoticeRow } from './decode'
+import { decodeEventRow, isNoticeRow, record } from './decode'
 import { fieldType, humanValue } from './value'
 import type { HumanValue } from './value'
 import type { EventProfile } from './decode'
@@ -14,6 +14,7 @@ import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { md } from '../canvas/shared'
+import { AnsweredAsk, AnsweredCard, batchAskQuestions } from './answered'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -119,13 +120,23 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const selfStatus = view.family === 'status' && event.actor.kind === 'agent'
     && event.object?.kind === 'node' && event.object.id === event.actor.id
     && (!('org' in event.object) || event.object.org === org)
-  const body = view.fields.filter(f => f.placement === 'body')
+  // Answered questions draw as a shrunken question card instead of a field dump.
+  const answeredAsk = event.variant === 'answer.ask'
+  const askQuestions = event.variant === 'answer.batch' ? batchAskQuestions(event) : []
+  const body = view.fields.filter(f => f.placement === 'body'
+    && !(answeredAsk && ['questions', 'text'].includes(f.key)))
+    .map(f => f.key === 'sections' && askQuestions.length > 0 && Array.isArray(f.value)
+      ? { ...f, value: f.value.filter(sec => !(record(sec) && sec.kind === 'ask')) } : f)
+    .filter(f => !(f.key === 'sections' && askQuestions.length > 0 && Array.isArray(f.value) && f.value.length === 0))
   const header = view.fields.filter(f => f.placement === 'header')
   const context = view.fields.filter(f => f.placement === 'context')
   const objectValue = event.object ? humanValue(event.object, fieldType(event.variant, 'object'), profile) : null
   const objectDetails = objectValue?.kind === 'record'
     ? { ...objectValue, fields: objectValue.fields.filter(f => f.key !== 'kind') } : null
-  const bodyContent = <div className="event-body"><Fields fields={body} {...content} profile={profile} org={org} actor={actor} /></div>
+  const bodyContent = <div className="event-body">
+    {event.variant === 'answer.ask' && <AnsweredAsk event={event} />}
+    {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} />}
+    <Fields fields={body} {...content} profile={profile} org={org} actor={actor} /></div>
   const heading = <>
       <span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
       <strong>{view.title}</strong>
@@ -141,7 +152,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     </>
   if (part === 'header') return heading
   const contents = <>
-    {body.length > 0 && (preview
+    {(body.length > 0 || answeredAsk || askQuestions.length > 0) && (preview
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>
