@@ -323,3 +323,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     took only `.html`/`.htm` by path, so this adds a route and removes nothing. The
     instructions passage and the tool description say so. Proof:
     `tools/rig/proofs/present-documents.mjs`.
+
+59. **Outside mail does not wait for a halted or frozen org-inbox holder** (user 2026-10-09
+    07:03Z: "if the holder is halted or frozen, outside mail goes to another active agent who
+    can take it, usually the first live top-level agent, and nothing is lost"). Before, a
+    halted or frozen holder still counted: `@org:` and `@net:` mail waited in its queue,
+    nobody else got it, and an `@org:` sender was told it was delivered. When the last holder
+    retired, the inbox went to the first live top-level agent even if it was halted. 3.x did
+    the same: its holders were checked only for `state == "live"`. Now inbound outside mail
+    goes to the holders who can run (not halted, not frozen). While none can, it goes to the
+    first top-level agent who can run, without a grant, so the audience and the org inbox
+    panel stay with the holders and their next mail reaches them once they are back. With no
+    live holder, the inbox goes to the first top-level agent who can run (the first live one
+    when none can). When nobody can run, the mail waits with the holders, the user gets the
+    "external mail unroutable" notice saying who it waits for, and an `@org:` sender is told
+    it waits. The org-inbox instructions say who receives outside mail. Proof:
+    `tools/rig/proofs/org-inbox-unavailable.mjs`.
