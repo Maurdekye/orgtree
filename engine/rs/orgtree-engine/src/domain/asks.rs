@@ -787,6 +787,19 @@ fn header(q: &Value) -> Value {
     q.get("header").and_then(Value::as_str).filter(|h| !h.is_empty()).map(|h| json!(h)).unwrap_or(Value::Null)
 }
 
+/// What the card offered, kept on the settled event so the transcript can show
+/// every option with the chosen ones marked: `options` ({label, description?}
+/// each) and `multi`. Free-text questions carry neither.
+#[logged]
+fn offered(q: &Value) -> serde_json::Map<String, Value> {
+    let mut m = serde_json::Map::new();
+    if let Some(opts) = q["options"].as_array().filter(|o| !o.is_empty()) {
+        m.insert("options".into(), Value::Array(opts.clone()));
+        m.insert("multi".into(), json!(q["multi"].as_bool().unwrap_or(false)));
+    }
+    m
+}
+
 fn answer_text(q: &Value, a: &Value) -> String {
     let shown = match a {
         Value::Null => "(skipped)".to_string(),
@@ -906,7 +919,13 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
             .parts
             .questions
             .iter()
-            .map(|q| json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""), "selected": [] }))
+            .map(|q| {
+                let mut e = offered(q);
+                e.insert("label".into(), header(q));
+                e.insert("question".into(), json!(q["question"].as_str().unwrap_or("")));
+                e.insert("selected".into(), json!([]));
+                Value::Object(e)
+            })
             .collect();
         let single = qs.len() <= 1;
         let ev = crate::events::answer_ask(&org.slug, &open.uid, &open.agent, qs, None, true, single);
@@ -959,7 +978,13 @@ pub async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, uid: &str, body:
         .questions
         .iter()
         .zip(&picks)
-        .map(|(q, p)| json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""), "selected": p }))
+        .map(|(q, p)| {
+            let mut e = offered(q);
+            e.insert("label".into(), header(q));
+            e.insert("question".into(), json!(q["question"].as_str().unwrap_or("")));
+            e.insert("selected".into(), json!(p));
+            Value::Object(e)
+        })
         .collect();
     let single = qs.len() <= 1;
     let note = Some(free.as_str()).filter(|f| !f.is_empty());
@@ -1116,8 +1141,12 @@ pub async fn resolve_batch(engine: &Arc<Engine>, org: &Arc<OrgHandle>, agent: &s
         sections.push(answer_text(q, &a));
         let picked = chosen(&a);
         decided_any |= !picked.is_empty();
-        asked.push(json!({ "label": header(q), "question": q["question"].as_str().unwrap_or(""),
-                           "answer": if picked.is_empty() { Value::Null } else { json!(picked.join(" · ")) } }));
+        let mut e = offered(q);
+        e.insert("label".into(), header(q));
+        e.insert("question".into(), json!(q["question"].as_str().unwrap_or("")));
+        e.insert("answer".into(), if picked.is_empty() { Value::Null } else { json!(picked.join(" · ")) });
+        e.insert("selected".into(), json!(picked));
+        asked.push(Value::Object(e));
     }
     if !asked.is_empty() {
         cards.push(json!({ "kind": "ask", "ask_id": open.uid, "questions": asked }));
