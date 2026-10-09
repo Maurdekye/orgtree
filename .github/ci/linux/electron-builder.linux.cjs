@@ -8,7 +8,7 @@ const path = require('node:path')
 const root = path.resolve(__dirname, '..', '..', '..')
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const base = pkg.build
-const { win, nsis, publish, ...shared } = base
+const { win, nsis, ...shared } = base
 
 module.exports = {
   ...shared,
@@ -41,5 +41,8 @@ module.exports = {
       'libatspi2.0-0', 'libuuid1', 'libsecret-1-0', 'libasound2 | libasound2t64', 'zlib1g'],
   },
   appImage: { artifactName: 'Orgtree-${version}.${ext}' },
-  publish: null,
+  // The same GitHub feed as Windows: electron-builder writes latest-linux.yml beside
+  // the AppImage and embeds app-update.yml, which the AppImage updater reads.
+  // The .deb has no updater (apps/desktop/main/appimage-update.ts).
+  publish: base.publish,
 }
