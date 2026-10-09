@@ -42,7 +42,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
-import { addPhoneFirewallRule } from './phonefirewall'
+import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
@@ -1873,6 +1873,7 @@ else {
         if (scope !== 'tailnet' && scope !== 'lan') throw new Error('Invalid scope')
         return addPhoneFirewallRule(scope)
       })
+      handleApp('desktop:phone-firewall-remove', () => removePhoneFirewallRule())
       handleApp('desktop:set-run-as-admin', async (enabled: unknown, restartNow: unknown) => {
         if (typeof enabled !== 'boolean' || typeof restartNow !== 'boolean') throw new Error('Invalid setting')
         const state = await runAsAdministratorState()

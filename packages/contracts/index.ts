@@ -161,6 +161,8 @@ export interface DesktopBridge {
    *  subnet for home Wi-Fi) behind ONE UAC prompt. `declined`: the user said
    *  No and nothing changed. The renderer then asks the engine to open the door. */
   addPhoneFirewallRule?(scope: 'tailnet' | 'lan'): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
+  /** Phone access turned off: remove that rule (one administrator prompt). */
+  removePhoneFirewallRule?(): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
   /** Window commands for ONE popped-out desk or modal, named by the frame name
    *  the renderer opened it under. Separate from the window commands above,
    *  which always act on the main window: a popout's own header must never
