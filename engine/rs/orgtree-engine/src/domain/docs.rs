@@ -139,7 +139,7 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     let (body, format) = match (args["body"].as_str(), args["path"].as_str()) {
         (Some(b), None) => {
             if b.len() > MARKDOWN_MAX {
-                refuse!(BadRequest, "a markdown body is limited to 64 KB; present a shorter document or send it as a file");
+                refuse!(BadRequest, "a markdown body is limited to 64 KB; present a shorter document or split it across several cards");
             }
             (b.to_string(), "markdown")
         }

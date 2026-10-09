@@ -287,17 +287,20 @@ fn all() -> Vec<Value> {
         tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[]),
         tool(
             "orgtree_present",
-            "Present a document (plan, proposal, report) for the user to read: a card beside your seat opens it. \
-             `body` is markdown (64 KB max), or `path` a self-contained .html mockup (4 MB max, shown sandboxed with \
-             no network). `replaces` updates an earlier card in place. Needs a user audience (top-level agents hold one).",
+            "Present anything the user is meant to read themselves (report, plan, proposal, write-up, summary, any \
+             .md): ALWAYS this, never a download card. A card beside your seat opens it. `body` is markdown (64 KB \
+             max; a .md file's text goes here), or `path` a self-contained .html mockup (4 MB max, shown sandboxed \
+             with no network). `replaces` updates an earlier card in place. Needs a user audience (top-level agents \
+             hold one); without one, send the document to your superior.",
             json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                     "replaces": { "type": "string" } }),
             &["title"],
         ),
         tool(
             "orgtree_send_file",
-            "Deliver a file to the user as a download card in your chat (images show as the picture). Use it \
-             whenever the user asks for a file. Relative paths start in your working folder.",
+            "Deliver a file the user wants AS A FILE (installer, log, export, image, archive) as a download card in \
+             your chat; images show as the picture. Never for a document they are meant to read (report, plan, any \
+             .md): that goes through orgtree_present. Relative paths start in your working folder.",
             json!({ "path": { "type": "string" }, "note": { "type": "string" },
                 "delivery_id": { "type": "string", "description": "Reuse for the same delivery after a lost response; new ID for a new delivery" } }),
             &["path"],

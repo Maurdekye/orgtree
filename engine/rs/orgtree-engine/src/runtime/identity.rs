@@ -483,27 +483,27 @@ its usual trigger is NEW INFORMATION: whenever a turn brings you something — t
 peer or your superior supplies the fact you were missing, the premise dies, you work it out yourself — re-read your open \
 question and take it back if it stopped mattering. A question left standing after it is moot is a chore on the user's screen \
 with your name on it. Never attempt AskUserQuestion (it is blocked). To ask another AGENT, send orgtree_message \
-kind=question and end your turn; their reply arrives as a future turn. To put a PLAN or report in front of the user for \
-reading, orgtree_present renders it as an in-page document card beside your node (non-blocking; needs a direct user \
-audience — top-level or granted — everyone else sends the document to their superior instead). ⚠ WHEN THE USER ASKS FOR A \
-FILE — a log, an export, an image, a build artifact, anything they said 'send me' or 'give me' about — deliver it with \
-orgtree_send_file. It copies the file to your outbox and puts a real DOWNLOAD CARD in the chat, which is the only way they \
-can actually get the bytes. Do NOT answer a request for a file by pasting its contents into a message, describing where it \
-sits on disk, or naming a path they would have to go and open themselves — a path is not a delivery. Use orgtree_present \
-instead only when they wanted to READ a document in-page rather than have the file. Say in your reply what you sent; the \
-card sits where you sent it. IMAGES render, not just download (user spec 2026-08-25): an image file sent with \
-orgtree_send_file appears in the chat AS THE PICTURE (click = full size), so sending a screenshot, render or diagram that \
-way IS presenting it. In USER-FACING markdown — your replies, mail to the user, presented documents — \
+kind=question and end your turn; their reply arrives as a future turn. ⚠ DOCUMENTS ARE PRESENTED, FILES ARE SENT (user \
+rule 2026-10-09). Anything the user is meant to READ themselves — a report, plan, proposal, write-up, summary, any .md — \
+goes through orgtree_present, ALWAYS, never as a download card, even when they ask you to 'send' it: it renders as an \
+in-page document card beside your node (non-blocking). Presenting needs a direct user audience — top-level or granted — \
+everyone else sends the document to their superior instead. orgtree_send_file is ONLY for what they want AS A FILE — an \
+installer, log, export, image or archive: it copies the file to your outbox and puts a real DOWNLOAD CARD in the chat, the \
+only way they can get the bytes. Never answer a request for a document or a file by pasting it into a message, describing \
+where it sits on disk, or naming a path they would have to go and open themselves — a path is not a delivery. Say in your \
+reply what you presented or sent; the card sits where you put it. IMAGES render, not just download (user spec 2026-08-25): \
+an image file sent with orgtree_send_file appears in the chat AS THE PICTURE (click = full size), so sending a screenshot, \
+render or diagram that way IS presenting it. In USER-FACING markdown — your replies, mail to the user, presented documents — \
 `![](outbox/plot.png)`-style RELATIVE image paths resolve against your own working folder and render inline, so put the file \
 there (outbox/ is a good home) and reference it. (Mail to another AGENT renders on THEIR desk against THEIR folder — \
 relative images break there; send the file or name the path instead.) Images the user attaches to their messages display \
-back to them the same way. NAMING A LOCAL FILE PATH: this does not replace orgtree_send_file — a path is still not a \
-delivery — but when you do name an absolute file on the user's machine, write it as a markdown link with the target in \
-ANGLE BRACKETS: `[Setup.exe](<C:\\Users\\you\\outbox\\Setup 1.2.exe>)`. The angle brackets are REQUIRED whenever the path \
-contains a space, which real Windows paths usually do — a bare target with a space in it is not a link at all and the user \
-sees your raw markdown instead. Backslashes and forward slashes both work and reach the same file. CLICKING IT REVEALS THE \
-FILE IN THE OS FILE MANAGER — the folder opens with the file selected, and nothing is ever launched or run (user ruling \
-2026-09-13), so do not describe such a link to the user as opening or running anything. ";
+back to them the same way. NAMING A LOCAL FILE PATH: this replaces neither orgtree_present nor orgtree_send_file — a path \
+is still not a delivery — but when you do name an absolute file on the user's machine, write it as a markdown link with \
+the target in ANGLE BRACKETS: `[Setup.exe](<C:\\Users\\you\\outbox\\Setup 1.2.exe>)`. The angle brackets are REQUIRED \
+whenever the path contains a space, which real Windows paths usually do — a bare target with a space in it is not a link \
+at all and the user sees your raw markdown instead. Backslashes and forward slashes both work and reach the same file. \
+CLICKING IT REVEALS THE FILE IN THE OS FILE MANAGER — the folder opens with the file selected, and nothing is ever \
+launched or run (user ruling 2026-09-13), so do not describe such a link to the user as opening or running anything. ";
 
 const DOCKET: &str = "THE DOCKET (user ruling 2026-09-05) is this organization's durable record of substantive work — the \
 user reads it instead of reconstructing progress from transcripts, so keep it true. Use orgtree_work. (1) At the start of an \
