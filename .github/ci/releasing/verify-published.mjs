@@ -1,12 +1,15 @@
 // Checks a just-published Orgtree release the way installed apps will see it:
 // - every public asset downloads and matches SHA256SUMS.txt, and none is missing;
 // - latest.yml (beta.yml for a beta) names the installer with its exact size and SHA-512;
+// - latest-linux.yml (beta-linux.yml), when the release has one, names the AppImage with
+//   its exact size and SHA-512, and the AppImage carries the blockmap that blockMapSize names;
 // - build-info.json names the tag's commit, a clean tree and the release channel,
 //   and the macOS/Linux copies (build-info-macos.json, -linux.json) the same version and commit;
 // - GitHub's "latest" release is this one for a stable version, and is not for a
 //   prerelease (stable installs are offered whatever "latest" is).
 //   TAG=v<x.y.z> GITHUB_REPOSITORY=owner/repo GH_TOKEN=... node verify-published.mjs
 import crypto from 'node:crypto'
+import { checkLinuxUpdateInfo, linuxChannelFile } from '../linux/update-info.mjs'
 
 const { TAG: tag, GITHUB_REPOSITORY: repo, GH_TOKEN: token } = process.env
 const version = /^v(.+)$/.exec(tag ?? '')?.[1] ?? fail(`not a version tag: ${tag}`)
@@ -56,6 +59,11 @@ if (channelFile in bytes && installer in bytes) {
   check(field('sha512') === sha512, `${channelFile} sha512 is the installer's`)
   check(yml.includes(`size: ${bytes[installer].length}`), `${channelFile} size is the installer's (${bytes[installer].length})`)
 }
+// The AppImage's feed. Releases staged before Linux updates (4.1.0 and earlier) have none;
+// release.yml's stage refuses a release without it from then on.
+const linuxFeed = linuxChannelFile(version)
+if (linuxFeed in bytes) checkLinuxUpdateInfo({ text: bytes[linuxFeed].toString('utf8'), version, asset: name => bytes[name], check })
+else console.log(`note ${linuxFeed} is not in this release (Linux updates began after 4.1.0)`)
 let commit = (await api(`git/ref/tags/${encodeURIComponent(tag)}`)).object
 while (commit.type === 'tag') commit = (await api(`git/tags/${commit.sha}`)).object
 for (const name of ['build-info.json', 'build-info-macos.json', 'build-info-linux.json'].filter(n => n in bytes)) {

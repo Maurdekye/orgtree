@@ -7,8 +7,9 @@
 #            release:windows` does after its test gate, plus a launch smoke
 #   macos    build-macos.yml: Orgtree-<v>-arm64.dmg and .zip (unsigned prototype,
 #            ad-hoc signed, no update feed) and build-info-macos.json, with a launch smoke
-#   linux    build-linux.yml: Orgtree-<v>.AppImage and orgtree_<v>_amd64.deb (prototype,
-#            no update feed) and build-info-linux.json, with launch smokes
+#   linux    build-linux.yml: Orgtree-<v>.AppImage, its update feed latest-linux.yml (or
+#            beta-linux.yml), orgtree_<v>_amd64.deb (no updater) and build-info-linux.json,
+#            with launch smokes and a real N to N+1 AppImage update on the runner
 #   stage    checks the whole asset set, then SHA256SUMS.txt over every asset
 #   draft    `gh release create --draft`; a person checks the draft and publishes it
 #
@@ -119,11 +120,11 @@ jobs:
           if [ "$PRERELEASE" = true ]; then channel="${VERSION#*-}"; channel="${channel%%.*}"; fi
           windows="build-info.json engine-hashes.json $channel.yml Orgtree-Setup-$VERSION.exe Orgtree-Setup-$VERSION.exe.blockmap packaged-hashes.json"
           macos="Orgtree-$VERSION-arm64.dmg Orgtree-$VERSION-arm64.zip build-info-macos.json"
-          linux="Orgtree-$VERSION.AppImage orgtree_${VERSION}_amd64.deb build-info-linux.json"
+          linux="Orgtree-$VERSION.AppImage $channel-linux.yml orgtree_${VERSION}_amd64.deb build-info-linux.json"
           have="$(ls | sort | tr '\n' ' ')"
           want="$(printf '%s\n' $windows $macos $linux | sort | tr '\n' ' ')"
           if [ "$have" != "$want" ]; then
-            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 3)"
+            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 4)"
             exit 1
           fi
           sha256sum -- * > SHA256SUMS.txt
