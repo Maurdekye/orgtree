@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { req } from '../api'
 import { AutorenewIcon } from '../icons'
-import { PhoneSettingsGroup } from './phonelink'
+import { PhoneSettingsGroup, removePhoneRuleAfterOff } from './phonelink'
 import { windowIdentity } from '../desktop'
 
 export interface HubHosting {
@@ -71,11 +71,14 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
   // retention is presented as a choice, not a magic number: the integrated
   // hub defaults to keeping mail forever (user ruling 2026-09-15)
   const [keepDays, setKeepDays] = useState(30)
+  // the door as last loaded or saved (turning it off removes the firewall rule)
+  const doorWas = useRef(false)
   const load = async () => {
     setBusy(true); setError('')
     try {
       const next = readHosting(await req<HubHosting>(route))
       setConfig(next)
+      doorWas.current = next.public_listener
       if (next.retention_days !== null) setKeepDays(next.retention_days)
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
@@ -114,6 +117,12 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
             max_attachment_bytes: config.max_attachment_bytes,
             public_listener: config.public_listener }) }))
         setConfig(next); setSaved('Hosting settings saved.')
+        // the door just closed: its firewall rule goes too (one admin prompt)
+        if (doorWas.current && !next.public_listener) {
+          const note = await removePhoneRuleAfterOff()
+          if (note) setSaved(`Hosting settings saved. ${note}`)
+        }
+        doorWas.current = next.public_listener
       } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
     }}>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>

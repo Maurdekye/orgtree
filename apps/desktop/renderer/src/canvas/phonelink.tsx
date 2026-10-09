@@ -67,6 +67,20 @@ export function usePhoneState(org: string | null, active = true, everyMs = 3000)
   return { state, setState, error, reload: load }
 }
 
+/** Phone access was turned off: remove the door's firewall rule if there is
+ *  one (one administrator prompt). Returns a note for the user, or ''. */
+export async function removePhoneRuleAfterOff(): Promise<string> {
+  const bridge = desktopBridge()
+  if (!bridge?.removePhoneFirewallRule) return ''
+  try {
+    const s = await req<PhoneState>(route(null))
+    if (!s.access.firewall) return ''
+    const r = await bridge.removePhoneFirewallRule()
+    return r.ok ? 'The firewall rule for phone access was removed.'
+      : r.declined ? 'The firewall rule for phone access stays (nothing listens on its port now).' : r.error
+  } catch { return '' }
+}
+
 // ------------------------------------------------------------ opening the panel
 
 const OPEN_EVENT = 'orgtree:phone-panel'
@@ -99,10 +113,37 @@ function Qr({ svg, caption, big }: { svg?: string | null; caption: string; big?:
 
 // ------------------------------------------------------------ the card
 
+type CardState = {
+  card: PhoneState['card'] & { linked?: boolean }
+  link: PhoneState['link']
+  download_url: string
+  download_qr?: string | null
+}
+
+/** The cards' cheap read (no Tailscale, firewall or roster reads): every
+ *  `everyMs` while the card could still show, never once it is dismissed or
+ *  a phone is linked; the panel's change event re-reads at once. */
+export function usePhoneCard(org: string | null, everyMs = 60000) {
+  const [state, setState] = useState<CardState | null>(null)
+  const load = useCallback(async () => {
+    try { setState(await req<CardState>('/api/desktop/phone/card' + (org ? `?org=${encodeURIComponent(org)}` : ''))) } catch { /* the card keeps what it had */ }
+  }, [org])
+  const quiet = !!state && (state.card.dismissed || !!state.link)
+  useEffect(() => {
+    let alive = true
+    const on = () => { if (alive) void load() }
+    on()
+    window.addEventListener(CHANGED_EVENT, on)
+    const t = quiet || !everyMs ? undefined : setInterval(on, everyMs)
+    return () => { alive = false; window.removeEventListener(CHANGED_EVENT, on); if (t) clearInterval(t) }
+  }, [load, quiet, everyMs])
+  return { state, setState }
+}
+
 /** The "Chat from your phone" card: the org window's (at the end of the
  *  first-use guide) and Home's. One dismissal hides both. */
 export function PhoneCard({ org, where }: { org: string | null; where: 'org' | 'home' }) {
-  const { state, setState } = usePhoneState(org, true, 15000)
+  const { state, setState } = usePhoneCard(org)
   const [hidden, setHidden] = useState(false)
   if (hidden) return <div className="phone-card-note" role="status">Hidden. It’s always in App settings › Mail hub.</div>
   if (!state?.card.show) return null
@@ -110,7 +151,9 @@ export function PhoneCard({ org, where }: { org: string | null; where: 'org' | '
   // would swallow the click on these buttons
   return <section className={'phone-card in-' + where} aria-label="Chat from your phone" onPointerDown={e => e.stopPropagation()}>
     <button type="button" className="phone-x" aria-label="Dismiss" title="Dismiss" onClick={async () => {
-      try { setState(await post<PhoneState>('/api/desktop/phone/dismiss')) } catch { /* the card stays */ return }
+      try { setState(await post<CardState>('/api/desktop/phone/dismiss')) } catch { /* the card stays */ return }
+      // the other window's card hides too
+      window.dispatchEvent(new Event(CHANGED_EVENT))
       setHidden(true)
       setTimeout(() => setHidden(false), 6000)
     }}>✕</button>
@@ -129,8 +172,9 @@ export function PhoneCard({ org, where }: { org: string | null; where: 'org' | '
 // ------------------------------------------------------------ App settings › Mail hub
 
 /** App settings › Mail hub › Chat from your phone (always shown). */
-export function PhoneSettingsGroup({ org, active = true }: { org: string | null; active?: boolean }) {
-  const { state } = usePhoneState(null, active, 10000)
+export function PhoneSettingsGroup({ org }: { org: string | null; active?: boolean }) {
+  // read when shown and when the panel links or unlinks: no polling
+  const { state } = usePhoneCard(null, 0)
   const target = org ?? state?.card.org ?? state?.link?.org ?? null
   return <section className="phone-settings" aria-label="Chat from your phone">
     <div className="phone-settings-head">Chat from your phone</div>

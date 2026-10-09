@@ -1983,6 +1983,9 @@ export interface DefaultsPayload {
 export interface OrgMdPayload {
   path: string | null
   content: string
+  /** the file's revision: sent back on save, so a save over a newer org.md
+   *  (Connect your phone added or removed its note) is refused */
+  rev?: string
   chars?: number
   read_truncated?: boolean
   edit_max?: number

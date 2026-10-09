@@ -3156,7 +3156,11 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
               // a save that delivers less than it stored has to SAY so, and
               // this array is already how every other job reaches the toast
               orgMd != null
-                ? putOrgMd(tree.slug, orgMd).then((r) => ({ warnings: r.warnings }))
+                ? putOrgMd(tree.slug, orgMd, orgMdMeta?.rev).then((r) => {
+                    // the next save is over this one
+                    setOrgMdMeta((m) => (m ? { ...m, rev: r.rev } : m))
+                    return { warnings: r.warnings }
+                  })
                 : Promise.resolve({}),
             ]
             // ...and its OPEN half stays on the separate

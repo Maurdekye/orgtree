@@ -780,15 +780,15 @@ export const getScratch = (slug: string, nid: string, path = ''): Promise<Scratc
 export const getOrgMd = (slug: string): Promise<OrgMdPayload> =>
   req(`/api/orgs/${slug}/orgmd`)
 export const putOrgMd = (
-  slug: string, content: string,
+  slug: string, content: string, baseRev?: string,
 ): Promise<{
-  path: string; bytes: number; chars?: number
+  path: string; bytes: number; chars?: number; rev?: string
   prompt_max?: number; prompt_truncated?: boolean; warnings?: string[]
 }> =>
   req(`/api/orgs/${slug}/orgmd`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, base_rev: baseRev }),
   })
 export const getAudiences = (slug: string): Promise<AudiencesPayload> =>
   req(`/api/orgs/${slug}/audiences`)
