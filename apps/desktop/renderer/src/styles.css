@@ -5558,6 +5558,27 @@ svg.MuiSvgIcon-root {
   max-height: 220px; overflow: auto; margin: 4px 0 4px 18px;
   font-size: 11.5px;
 }
+/* structured JSON view of tool input/output (canvas/structuredjson.tsx) */
+.toolinput, .respre-json { margin-left: 18px; }
+.sj { position: relative; font-size: 11.5px; font-family: var(--mono); margin: 4px 0; max-height: 360px; overflow: auto; }
+.sj-raw { position: sticky; top: 0; float: right; z-index: 1; font-size: 10.5px; line-height: 1; padding: 2px 6px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--dim); cursor: pointer; }
+.sj-raw:hover, .sj-raw.on { color: var(--ink-strong); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.sj-rawpre { margin-left: 0; max-height: none; }
+.sj-children { margin-left: 14px; border-left: 1px solid var(--line); padding-left: 8px; }
+.sj > .sj-children { margin-left: 0; border-left: 0; padding-left: 0; }
+.sj-row { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; min-width: 0; }
+.sj-block { flex-direction: column; gap: 2px; }
+.sj-fold { cursor: pointer; }
+.sj-fold:hover .sj-key { color: var(--ink-strong); }
+.sj-caret { width: 10px; color: var(--dim); flex: none; }
+.sj-key { color: var(--accent); flex: none; }
+.sj-key::after { content: ':'; color: var(--dim); }
+.sj-str { color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.sj-num { color: var(--ok); }
+.sj-bool, .sj-null { color: var(--dim); font-style: italic; }
+.sj-text { margin: 0 0 2px 0; padding: 4px 8px; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--ink) 5%, transparent); border-radius: 4px; font: inherit; color: var(--ink); }
 .diffpre .dplus { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .diffpre .dminus { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
 .diffpre .dhunk { color: var(--dim); opacity: .85; margin-top: 3px; }

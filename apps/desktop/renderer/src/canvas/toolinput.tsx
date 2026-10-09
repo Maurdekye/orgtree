@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { req } from '../api'
+import { StructuredJson } from './structuredjson'
 
 export function formatToolInput(input: unknown): string {
   if (typeof input === 'string') return input
@@ -40,7 +41,9 @@ export function ToolInputDetails({ slug, nid, seq, tool }: {
       : error ? <div role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></div>
       : !result ? <div className="dim">Loading input…</div>
       : <>
-        <pre className="filepre respre">{formatToolInput(result.input)}</pre>
+        {result.input !== null && typeof result.input === 'object'
+          ? <StructuredJson value={result.input} rawText={() => formatToolInput(result.input)} />
+          : <pre className="filepre respre">{formatToolInput(result.input)}</pre>}
         {result.note && <div className="dim">{result.note} <button onClick={() => setRetry(n => n + 1)}>Retry</button></div>}
       </>}
   </div>

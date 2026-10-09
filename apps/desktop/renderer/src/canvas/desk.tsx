@@ -1,6 +1,7 @@
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
+import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordHistory, useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { setButtonAgent } from '../buttoncolours'
@@ -4769,7 +4770,12 @@ function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: ToolChipP
               : l.startsWith('-') ? 'dminus' : ''}>{l}</div>))}
           {t.diff.truncated && <div className="dim">… truncated</div>}
         </pre></CopyablePre>)}
-      {open && !t.diff && t.result && (
+      {open && !t.diff && t.result && !t.truncated && parseStructured(t.result) !== undefined && (
+        <div className="respre-json" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
+          <div className="dim">Output</div>
+          <StructuredJson value={parseStructured(t.result)} raw={t.result} />
+        </div>)}
+      {open && !t.diff && t.result && (t.truncated || parseStructured(t.result) === undefined) && (
         <CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.result}{t.truncated ? '\n… truncated' : ''}
         </pre></CopyablePre>)}
