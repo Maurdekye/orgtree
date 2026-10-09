@@ -1,13 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-/** Installed apps always use bundled paths and may bootstrap a fresh root.
- * A developer's path opt-in alone must never enable first-run initialization. */
 /** A bundled executable's file name on this platform (`.exe` only on Windows). */
 export function exeName(name: string): string {
   return process.platform === 'win32' ? `${name}.exe` : name
 }
 
+/** Installed apps always use bundled paths and may bootstrap a fresh root.
+ * A developer's path opt-in alone must never enable first-run initialization. */
 export function postgresLaunchOptions(packaged: boolean, env: NodeJS.ProcessEnv) {
   return { packagedPostgres: packaged || env.ORGTREE_DESKTOP_PACKAGED_PG === '1', bootstrapPostgres: packaged }
 }
