@@ -343,9 +343,31 @@ async fn standing_request(client: &Client, agent_id: i64) -> Result<String> {
         .unwrap_or_default())
 }
 
+/// Point a fresh session at conversation recall and name whom it wrote with
+/// last (the user asked that compacted agents be told). A failed read only
+/// leaves the names out.
+#[logged]
+async fn recall_hint(client: &Client, agent_id: i64) -> String {
+    let mut s = String::from(
+        "To recover what you were discussing with someone, use orgtree_inbox action=conversation peer=<name> before \
+         you reply to them: it lists the mail you and they exchanged (an agent's name, user, @org:<slug> or \
+         @net:<address>), both directions, newest first.",
+    );
+    match crate::domain::correspondence::recent_peers(client, agent_id, 6).await {
+        Ok(peers) if !peers.is_empty() => {
+            let names: Vec<String> = peers.iter().map(|(p, at)| format!("{p} ({})", at.format("%Y-%m-%d %H:%MZ"))).collect();
+            s.push_str(&format!(" You exchanged mail most recently with: {}.", names.join(", ")));
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(agent = agent_id, error = %format!("{e:#}"), "recent correspondents could not be read"),
+    }
+    s.push_str("\n\n");
+    s
+}
+
 /// What a fresh session starts with when the agent's earlier session could
-/// not be carried over: its last status, its recent conversation, and where
-/// the whole earlier conversation is saved.
+/// not be carried over: its last status, whom it corresponded with, its
+/// recent conversation, and where the whole earlier conversation is saved.
 #[logged]
 pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Option<&std::path::Path>) -> Result<String> {
     let mut note = format!(
@@ -356,6 +378,7 @@ pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Opti
         "Read breadcrumbs.md in your working folder first, if you kept one: it is your own log of what was decided, \
          what is in flight and where things are.\n\n",
     );
+    note.push_str(&recall_hint(client, agent_id).await);
     let status: Option<Value> = client
         .query_opt("SELECT last_status FROM ot.agents WHERE id = $1", &[&agent_id])
         .await?

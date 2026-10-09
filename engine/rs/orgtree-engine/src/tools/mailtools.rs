@@ -164,13 +164,20 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     let allowed = match action {
         "list" => vec!["action", "cursor", "limit"], "fetch" => vec!["action", "message_ids"],
         "chunk" => vec!["action", "delivery_id", "message_id", "chunk_index"],
-        _ => crate::refuse!(BadRequest, "action must be list, fetch or chunk"),
+        "conversation" => vec!["action", "peer", "cursor", "limit"],
+        _ => crate::refuse!(BadRequest, "action must be list, fetch, chunk or conversation"),
     };
     if args.as_object().map(|a| a.keys().any(|k| !allowed.contains(&k.as_str()))).unwrap_or(true) {
+        if action == "conversation" {
+            crate::refuse!(BadRequest, "conversation reads your own mail with one correspondent; it takes peer, cursor and limit only");
+        }
         crate::refuse!(BadRequest, "the manual inbox reads only your own mailbox; it takes no agent, node, org or mailbox argument");
     }
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
+    if action == "conversation" {
+        return conversation(engine, &client, &me, args).await;
+    }
     if action == "list" {
         let limit = args["limit"].as_i64().unwrap_or(50).clamp(1, 200);
         let after = match args["cursor"].as_str() {
@@ -199,7 +206,15 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         for id in a.iter().filter_map(Value::as_str) { if !ids.iter().any(|i| i == id) { ids.push(id.to_string()); } }
         ids
     };
-    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments FROM ot.mail WHERE recipient_agent_id = $1 AND uid = ANY($2) LIMIT 20", &[&me.id,&ids]).await?;
+    // mail you received or sent, and outside mail you sent from the org inbox
+    // (what conversation lists; the same mail reply_to accepts)
+    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name
+          FROM ot.mail WHERE uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)
+        UNION ALL
+        SELECT o.uid, coalesce(o.by_name, 'user'), o.kind, coalesce(o.state, 'queued'), o.at, o.body, o.attachments, false, o.peer
+          FROM ot.org_inbox o JOIN ot.agents a ON a.id = $1
+         WHERE o.uid = ANY($2) AND o.org_id = a.org_id AND o.dir = 'out' AND o.by_name = a.name AND o.at >= a.created_at
+        LIMIT 40", &[&me.id,&ids]).await?;
     let mut items = Vec::new();
     let mut missing = Vec::new();
     let mut deferred = Vec::new();
@@ -219,8 +234,16 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         let state: String = r.get(3);
         item["state"] = json!(state); item["at"] = json!(iso(r.get(4)));
         item["attachments"] = r.get::<_,Value>(6);
-        item["will_redeliver"] = json!(state == "pending" || state == "delivering");
-        item["will_redeliver_reason"] = json!("Manual reads leave delivery state unchanged; waiting mail still follows normal automatic delivery.");
+        if r.get::<_,bool>(7) {
+            item["direction"] = json!("received");
+            item["will_redeliver"] = json!(state == "pending" || state == "delivering");
+            item["will_redeliver_reason"] = json!("Manual reads leave delivery state unchanged; waiting mail still follows normal automatic delivery.");
+        } else {
+            // its state is the recipient's
+            item["direction"] = json!("sent");
+            item["to"] = json!(r.get::<_,String>(8));
+            item["will_redeliver"] = json!(false);
+        }
         items.push(item);
     }
     if action == "chunk" {
@@ -228,4 +251,63 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         return Done::json(&items[0]);
     }
     Done::json(&json!({"messages":items, "not_found":missing, "deferred_ids":deferred}))
+}
+
+/// The mail the caller and one correspondent exchanged, both directions:
+/// the newest page first, oldest to newest within it, previews only.
+#[logged]
+async fn conversation(engine: &Arc<Engine>, client: &tokio_postgres::Client, me: &super::Me, args: &Value) -> Result<Done> {
+    use crate::domain::correspondence as c;
+    let who = c::Me { id: me.id, org_id: me.org_id, name: me.name.clone() };
+    let peer = c::resolve(engine, client, &who, need_str(args, "peer")?).await?;
+    let limit = match args.get("limit").filter(|v| !v.is_null()) {
+        None => c::DEFAULT_PAGE,
+        Some(v) => v
+            .as_i64()
+            .or_else(|| v.as_f64().map(|f| f as i64))
+            .ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("limit must be a number".into())))?
+            .clamp(1, c::MAX_PAGE),
+    };
+    let cursor = match args.get("cursor").filter(|v| !v.is_null()) {
+        None => None,
+        Some(v) => Some(c::Cursor::decode(me.id, v.as_str().unwrap_or(""))?),
+    };
+    let (rows, older) = c::page(client, &who, &peer, cursor.as_ref(), limit).await?;
+    // newest first until the page's character budget is spent (always one)
+    let mut shown: Vec<(Value, c::Cursor)> = Vec::new();
+    let mut spent = 0usize;
+    for m in &rows {
+        let (v, cost) = c::shown(m);
+        if !shown.is_empty() && spent + cost > c::PAGE_CHARS {
+            break;
+        }
+        spent += cost;
+        shown.push((v, m.key));
+    }
+    let budget_cut = shown.len() < rows.len();
+    let has_more = older || budget_cut;
+    let label = peer.label();
+    let next = if has_more { shown.last().map(|(_, k)| k.encode(me.id)) } else { None };
+    let cut = shown.iter().any(|(v, _)| v["cut"].as_bool() == Some(true));
+    let mut note = if shown.is_empty() {
+        if cursor.is_some() { format!("No older mail with {label}.") } else { format!("You have no mail with {label}.") }
+    } else {
+        format!("{} messages with {label}, oldest to newest.", shown.len())
+    };
+    if budget_cut {
+        note.push_str(&format!(" This page stopped there to stay within {} characters of previews.", c::PAGE_CHARS));
+    }
+    if let Some(n) = &next {
+        note.push_str(&format!(" Older mail with {label} exists: orgtree_inbox action=conversation peer={label} cursor={n} gives the page before these."));
+    } else if !shown.is_empty() {
+        note.push_str(&format!(" This is the start of your mail with {label}."));
+    }
+    if cut {
+        note.push_str(&format!(
+            " Previews stop at {} characters; a message marked cut is longer: orgtree_inbox action=fetch message_ids=[its id] gives the whole text.",
+            c::PREVIEW_CHARS
+        ));
+    }
+    let messages: Vec<Value> = shown.into_iter().rev().map(|(v, _)| v).collect();
+    Done::json(&json!({ "peer": label, "messages": messages, "has_more": has_more, "next_cursor": next, "note": note }))
 }

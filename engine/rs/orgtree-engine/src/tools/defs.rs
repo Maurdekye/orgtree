@@ -156,13 +156,19 @@ fn all() -> Vec<Value> {
         ),
         tool(
             "orgtree_inbox",
-            "Your own mail. list: waiting and recent messages (ids, senders, previews). fetch: the full text of up \
-             to 20 ids, with bodies above 64 KB served in chunks. chunk: read the remaining content using its delivery_id. Manual reads leave automatic delivery unchanged.",
+            "Your own mail. list: messages waiting for you (ids, senders, previews). fetch: the full text of up to \
+             20 ids (mail you received or sent), with bodies above 64 KB served in chunks. chunk: read the remaining \
+             content using its delivery_id. conversation: the mail you and one correspondent exchanged (peer = an \
+             agent's name, 'user', '@org:<slug>' or '@net:<address>'), both directions, oldest to newest, the newest \
+             page first (20 by default, at most 100, previews only: fetch gives the full text; next_cursor pages back \
+             to older mail). AFTER A FRESH SESSION OR A COMPACTION, recall your conversation with someone this way \
+             before you reply to them. Manual reads leave automatic delivery unchanged.",
             json!({
-                "action": { "type": "string", "enum": ["list", "fetch", "chunk"] },
-                "limit": { "type": "integer", "description": "list: how many (default 50, max 200)" },
-                "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list" },
-                "cursor": { "type": "string", "description": "list: next_cursor from the preceding page" },
+                "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
+                "peer": { "type": "string", "description": "conversation: an agent's name, 'user', '@org:<slug>' or '@net:<address>'" },
+                "limit": { "type": "integer", "description": "list: how many (default 50, max 200); conversation: default 20, max 100" },
+                "message_ids": { "type": "array", "items": { "type": "string" }, "description": "fetch: 1 to 20 IDs from list or conversation" },
+                "cursor": { "type": "string", "description": "list or conversation: next_cursor from the preceding page" },
                 "delivery_id": { "type": "string", "description": "chunk: delivery_id returned with this fetched message" },
                 "message_id": { "type": "string", "description": "chunk: the message ID" },
                 "chunk_index": { "type": "integer", "minimum": 0, "description": "chunk: zero-based index" },

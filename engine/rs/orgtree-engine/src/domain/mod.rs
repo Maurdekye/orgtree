@@ -3,6 +3,7 @@
 
 pub mod account_removal;
 pub mod asks;
+pub mod correspondence;
 pub mod audiences;
 pub mod docket;
 pub mod docs;
