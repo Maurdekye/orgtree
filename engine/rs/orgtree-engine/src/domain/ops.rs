@@ -984,6 +984,17 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         &[&n.id, &parent_id, &order, &tier, &seat, &grant],
     )
     .await?;
+    // An explicit tier is the newer model choice: a switch queued before the
+    // retire is cancelled, as an explicit account cancels a queued account
+    // below (3.x applied the queue before archiving; decision 62)
+    if str_arg(req, "tier").is_some() {
+        let queued: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+        if let Some(queued) = queued {
+            tx.execute("UPDATE ot.agents SET pending_switch = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?;
+            event(tx, org.id, "switch_cancelled", actor, Some(n.id), json!({ "node": n.name, "target": queued["tier"], "by": actor.label() }), fx).await?;
+            fx.events = true;
+        }
+    }
     if let Some(a) = &anchor {
         tx.execute("UPDATE ot.agents SET scope = $2, provider = $3, sibling_order = (SELECT sibling_order FROM ot.agents WHERE id = $4) WHERE id = $1",
             &[&n.id, inherited_scope.as_ref().unwrap(), &catalog::provider_of(&tier), &a.id]).await?;
@@ -998,7 +1009,11 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         let selected = match crate::accounts::choice(Some(raw)) {
             crate::accounts::Choice::Account(a) => Some(a), _ => None,
         };
+        let queued: Option<Value> = tx.query_one("SELECT pending_account FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
         tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL WHERE id = $1", &[&n.id, &selected]).await?;
+        if let Some(queued) = queued {
+            event(tx, org.id, "account_queue_cancelled", actor, Some(n.id), json!({ "node": n.name, "account": queued["account"] }), fx).await?;
+        }
         event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": selected }), fx).await?;
         scope_req.as_object_mut().unwrap().remove("account");
     }
