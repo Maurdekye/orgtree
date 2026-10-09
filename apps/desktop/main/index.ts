@@ -2314,7 +2314,9 @@ else {
       app.once('will-quit', () => appFeed.stop())
       if (installerUpgradePending) void requestInstallerUpgradeShutdown()
       if (!process.argv.includes('--background')) revealWindow(first)
-      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) await dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' })
+      // Not awaited: start-up must still reach the poll below (engine stats,
+      // update checks) while nobody has dismissed this, e.g. on a fresh machine.
+      if (!process.argv.includes('--background') && !detectHarnesses().some(h => h.detected)) void dialog.showMessageBox(first.window, { type: 'info', message: 'No agent harness was detected.', detail: 'Install Claude Code, Codex, or Antigravity using the official setup links in the tray menu. Orgtree does not install or sign in to harnesses.' }).catch(() => {})
       const refresh = async () => {
         if (quitting || installerUpgradeShutdown) return
         // Native timers keep running when Chromium throttles a hidden window.
