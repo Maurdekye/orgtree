@@ -75,6 +75,15 @@ jobs:
           export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
           cargo build --release --locked -j "$(nproc)"
 
+      - name: Engine unit tests - tool bridge
+        working-directory: engine/rs
+        run: |
+          # The release profile reuses the build above: only the engine crate compiles again, as tests.
+          export ORGTREE_RELEASE_BUILD=1
+          export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+          cargo test --release --locked -j "$(nproc)" -p orgtree-engine --bin orgtree-engine bridge:: 2>&1 | tee "$RUNNER_TEMP/bridge-tests.log"
+          grep -E '^test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/bridge-tests.log"
+
       - name: Mail hub (release)
         working-directory: engine/mailhub
         run: cargo build --release --locked -j "$(nproc)"
