@@ -57,7 +57,7 @@ hubport="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 
 printf '{"version": 2, "port": %s, "bind": "127.0.0.1", "name": "smoke hub", "retention_days": null, "public_listener": false, "max_attachment_bytes": 1073741824}\n' \
   "$hubport" > "$root/mailhub-hosting.json"
 token="$(openssl rand -hex 32)"
-pid="" port="" spawned=""
+pid="" port="" spawned="" ended="" engine_rc=""
 
 tier_of() { case "$1" in claude) echo haiku ;; codex) echo luna ;; agy) echo flash ;; *) echo "unknown lane $1" >&2; return 1 ;; esac; }
 collect() {
@@ -67,11 +67,33 @@ collect() {
   find "$root" -path '*/.agents/plugins/orgtree/mcp_config.json' -exec cp {} "$logs/agy-mcp_config.json" \; 2>/dev/null
   true
 }
-stop_engine() {
+start_engine() { # log suffix: engine<suffix>.out / .err
+  env HOME="$home" PATH="$bin:$PATH" ORGTREE_CLAUDE_BIN="$bin/claude" ORGTREE_CODEX_BIN="$bin/codex" \
+    ORGTREE_FAKECLI_DIR="$fdir" ORGTREE_FAKECLI_HOME="$home" \
+    ORGTREE_DATA="$root" ORGTREE_V2_TOKEN="$token" ORGTREE_V2_UI_DIR="$ui" \
+    ORGTREE_PG_BOOTSTRAP=1 ORGTREE_NET_OFFLINE=1 \
+    "$eng" serve >"$logs/engine$1.out" 2>"$logs/engine$1.err" &
+  pid=$! port=""
+  for _ in $(seq 1 180); do
+    port="$(python3 -c 'import json,sys
+for l in open(sys.argv[1], errors="replace"):
+    try: m = json.loads(l)
+    except Exception: continue
+    if isinstance(m, dict) and m.get("type") == "ready": print(m["port"]); break' "$logs/engine$1.out" 2>/dev/null)"
+    [ -n "$port" ] && break
+    kill -0 "$pid" 2>/dev/null || fail "engine exited before ready (see engine$1.err)"
+    sleep 1
+  done
+  [ -n "$port" ] || fail "engine not ready within 180 s"
+  echo "engine ready on port $port (pid $pid)"
+}
+stop_engine() { # SIGTERM, as launchd, systemd or a logout would stop it; sets $ended and $engine_rc
   [ -n "$pid" ] || return 0
-  kill -TERM "$pid" 2>/dev/null # as launchd, systemd or a logout would stop it
-  for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-  kill -9 "$pid" 2>/dev/null
+  kill -TERM "$pid" 2>/dev/null
+  ended=""
+  for i in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || { ended="by itself, ${i} s after SIGTERM"; break; }; sleep 1; done
+  [ -n "$ended" ] || { kill -9 "$pid" 2>/dev/null; ended="only by SIGKILL (still running 60 s after SIGTERM)"; }
+  wait "$pid" 2>/dev/null; engine_rc=$?
   local pgctl; pgctl="$(dirname "$eng")/postgresql/bin/pg_ctl"
   [ -x "$pgctl" ] && [ -f "$root/pg/cluster/data/postmaster.pid" ] && "$pgctl" stop -D "$root/pg/cluster/data" -m fast -w >/dev/null 2>&1
   pkill -9 -f -- "-D $root/pg/cluster/data" 2>/dev/null
@@ -118,24 +140,7 @@ gone_within() { # pid seconds
 
 hubs_before="$(ps -Ao pid=,command= | grep '[o]rgtree-mailhub' || true)"
 echo "== engine (packaged: $eng)"
-env HOME="$home" PATH="$bin:$PATH" ORGTREE_CLAUDE_BIN="$bin/claude" ORGTREE_CODEX_BIN="$bin/codex" \
-  ORGTREE_FAKECLI_DIR="$fdir" ORGTREE_FAKECLI_HOME="$home" \
-  ORGTREE_DATA="$root" ORGTREE_V2_TOKEN="$token" ORGTREE_V2_UI_DIR="$ui" \
-  ORGTREE_PG_BOOTSTRAP=1 ORGTREE_NET_OFFLINE=1 \
-  "$eng" serve >"$logs/engine.out" 2>"$logs/engine.err" &
-pid=$!
-for _ in $(seq 1 180); do
-  port="$(python3 -c 'import json,sys
-for l in open(sys.argv[1], errors="replace"):
-    try: m = json.loads(l)
-    except Exception: continue
-    if isinstance(m, dict) and m.get("type") == "ready": print(m["port"]); break' "$logs/engine.out" 2>/dev/null)"
-  [ -n "$port" ] && break
-  kill -0 "$pid" 2>/dev/null || fail "engine exited before ready"
-  sleep 1
-done
-[ -n "$port" ] || fail "engine not ready within 180 s"
-echo "engine ready on port $port"
+start_engine ""
 echo "--- lanes as the engine sees them (informational)"
 api GET /api/providers | python3 -c 'import json,sys
 d = json.load(sys.stdin)
@@ -270,11 +275,33 @@ if [ "$leftovers" = 1 ]; then
 fi
 
 collect
+echo "--- the engine stopped with SIGTERM"
+before_pids="$(printf '%s\n' "$hubs_before" | awk 'NF {print $1}' | tr '\n' ' ')"
 stop_engine
-if [ -n "$hub" ]; then bash "$(dirname "$0")/hub-gone.sh" "$hubport" 20 || bad=1; fi
+echo "it exited $ended (exit code $engine_rc)"
+case "$ended" in "by itself"*) ;; *) echo "FAIL engine stop: SIGTERM did not stop the engine"; bad=1 ;; esac
+grep -m1 'signal received' "$logs/engine.err" | cut -c1-200 || echo "(no 'signal received' line in the engine log)"
+# shellcheck disable=SC2086 # the pid list splits on purpose
+if [ -n "$hub" ]; then bash "$(dirname "$0")/hub-gone.sh" "$hubport" 20 $before_pids || bad=1; fi
 if [ "$leftovers" = 1 ] && [ -n "${down_pid:-}" ]; then
   if gone_within "$down_pid" 20; then echo "PASS leftovers (shutdown): the child of a mid-turn CLI is gone after SIGTERM to the engine"
   else echo "FAIL leftovers (shutdown): pid $down_pid ($(ps -o command= -p "$down_pid" 2>/dev/null)) outlived the engine stopped with SIGTERM"; bad=1; fi
+fi
+if [ -n "$hub" ]; then
+  echo "--- a second engine start hosts the hub again"
+  start_engine 2
+  hub2=""
+  for _ in $(seq 1 60); do
+    hub2="$(curl -sS -m 3 "http://127.0.0.1:$hubport/healthz" 2>/dev/null)" && [ -n "$hub2" ] && break
+    hub2=""; sleep 1
+  done
+  if [ -n "$hub2" ]; then echo "PASS hub restart: the second engine hosts the hub on port $hubport again"
+  else echo "FAIL hub restart: the second engine's hub did not answer on port $hubport"; tail -n 20 "$root/mailhub/hub.log" 2>/dev/null; bad=1; fi
+  stop_engine
+  echo "the second engine exited $ended (exit code $engine_rc)"
+  case "$ended" in "by itself"*) ;; *) echo "FAIL engine stop (second start): SIGTERM did not stop the engine"; bad=1 ;; esac
+  # shellcheck disable=SC2086
+  bash "$(dirname "$0")/hub-gone.sh" "$hubport" 20 $before_pids || bad=1
 fi
 [ "$bad" = 0 ] || fail "one or more checks failed (see above)"
 echo "agent tool smoke passed (lanes: $lanes; no-shell agent: $([ "$noshell" = 1 ] && echo checked || echo skipped); leftovers: $([ "$leftovers" = 1 ] && echo checked || echo skipped))"

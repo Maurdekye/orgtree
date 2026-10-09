@@ -2,11 +2,15 @@
 # After an engine was stopped with SIGTERM: its hosted mail hub must stop with it and
 # leave its port free. A hub left running holds the port, and the next engine cannot
 # host one there.
-# Usage: hub-gone.sh <port> [seconds to wait, default 20]
+# Usage: hub-gone.sh <port> [seconds to wait, default 20] [pids of hubs to ignore...]
+# (hubs that were already running before the engine under test started)
 port="$1" wait="${2:-20}"
+shift; [ $# -gt 0 ] && shift
+ignore=" $* "
 hubs="" rc=""
 for _ in $(seq 1 "$wait"); do
-  hubs="$(ps -Ao pid=,command= | grep '[o]rgtree-mailhub' || true)"
+  hubs="$(ps -Ao pid=,command= | grep '[o]rgtree-mailhub' | while read -r p rest; do
+    case "$ignore" in *" $p "*) ;; *) echo "$p $rest" ;; esac; done)"
   curl -s -o /dev/null -m 2 "http://127.0.0.1:$port/"; rc=$?
   # curl exit 7: nothing listens on the port
   if [ -z "$hubs" ] && [ "$rc" = 7 ]; then echo "the mail hub stopped with its engine; port $port is free"; exit 0; fi
