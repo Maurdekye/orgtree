@@ -418,5 +418,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **No spin:** a turn start refused for a configuration change applies a queued intent
       right there and retries on a timer: 250 ms, doubling to 60 s while refusals repeat.
       Other wakes wait for that timer. No refusal path wakes the actor again at once.
+    - **A queue that outlives a retire** (coordinator ruling 2026-10-09 10:37Z): a switch or
+      account queued during a turn stays on the seat when the agent is retired in the middle of
+      it (3.x applied it in that turn's `finally`). A rehire that names a tier cancels a queued
+      switch, and one that names an account cancels a queued account: the rehire's choice is
+      the newer one, and the cancellation is recorded (`switch_cancelled`,
+      `account_queue_cancelled`). A rehire that names neither applies the queue at its first
+      wake.
 
     Proof: `tools/rig/proofs/pending-switch.mjs`.
