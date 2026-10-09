@@ -522,9 +522,19 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.title = typeof title === 'string' ? `${title} · Orgtree` : 'Orgtree'
       const base = d.createElement('base'); base.href = document.baseURI; d.head.appendChild(base)
       const clones = new Map<Element, Element>()
+      // Mirror the opener's root class and tokens. The rainbow hue is the one
+      // token the popout owns (followRainbowWindow animates it from the shared
+      // epoch): the opener's copy is stale whenever its frames are suspended,
+      // and copying it back made the popout snap to an old hue on every sync.
+      const mirrorRoot = () => {
+        const root = d.documentElement
+        const hue = root.style.getPropertyValue('--rainbow-accent')
+        root.className = document.documentElement.className
+        root.style.cssText = document.documentElement.style.cssText
+        if (hue && root.classList.contains('rainbow-theme')) root.style.setProperty('--rainbow-accent', hue)
+      }
       const syncStyles = () => {
-        d.documentElement.className = document.documentElement.className
-        d.documentElement.style.cssText = document.documentElement.style.cssText
+        mirrorRoot()
         for (const original of document.head.querySelectorAll('style, link[rel="stylesheet"]')) {
           const previous = clones.get(original)
           const copy = original.cloneNode(true) as Element
@@ -568,8 +578,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
           // Theme animation only mutates a root token. Mirror those attributes
           // directly; do not clone/compare every stylesheet thirty times a second.
           if (records.every(record => record.target === document.documentElement)) {
-            d.documentElement.className = document.documentElement.className
-            d.documentElement.style.cssText = document.documentElement.style.cssText
+            mirrorRoot()
           } else syncStyles()
         } catch { recover(STYLING_FAILED) }   // failure route (1)
       })
