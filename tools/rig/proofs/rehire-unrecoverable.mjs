@@ -23,20 +23,23 @@ export default async function (rig) {
     WHERE a.org_id = ${ORG} AND a.name = 'dev'`)
   const d0 = dev()
   p.check('the imported dev is unrecoverable, with its lost session id', d0?.state === 'unrecoverable' && d0.session_id === 'sess-32-dev', d0)
+  // the 3.2 store already holds a finished turn of dev's (legacy32.mjs): only a newer turn is the first one after the rehire
+  const devTurns = `FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.org_id = ${ORG} AND a.name = 'dev'`
+  const before = rig.one(`SELECT count(*) FILTER (WHERE t.ended_at IS NOT NULL) AS imported_ended, coalesce(max(t.id), 0) AS top ${devTurns}`)
   const r = await rig.op({ op: 'rehire', node: 'dev' }, { org: SLUG32 }).then(x => ({ ok: true, r: x }), e => ({ ok: false, detail: String(e.body?.detail ?? e.message) }))
   const d1 = dev()
   p.check('the user rehires dev: live again under lead, off the lost session, and the result says it starts fresh', r.ok
     && d1?.state === 'live' && d1.parent === 'lead' && d1.session_id !== 'sess-32-dev' && /fresh session/.test(JSON.stringify(r.r?.warnings ?? '')),
   { r: r.r ?? r.detail, dev: d1 })
   await rig.userMail('dev', 'Welcome back, dev.', { org: SLUG32 })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.org_id = ${ORG} AND a.name = 'dev' AND t.ended_at IS NOT NULL`).length > 0,
+  await rig.waitFor(() => rig.sql(`SELECT 1 ${devTurns} AND t.id > ${Number(before.top)} AND t.ended_at IS NOT NULL`).length > 0,
     { what: 'dev\'s first turn', timeout: 90000 })
   const start = rig.fakeLog('dev').filter(l => l.kind === 'start').at(-1)
   // the rehire wakes dev at once (mail waits for it from the 3.2 store): its first turn carries the note
   const prompt = rig.fakeLog('dev').filter(l => l.kind === 'turn')[0]?.prompt ?? ''
   p.check('dev\'s first turn runs on a new session (not the lost one) and starts with the handoff note', start && !start.resumed
     && start.session !== 'sess-32-dev' && prompt.includes('fresh session (your earlier session could not be recovered)'),
-  { resumed: start?.resumed, session: start?.session, prompt: prompt.slice(prompt.indexOf('fresh session') - 100, prompt.indexOf('fresh session') + 300) })
+  { before, resumed: start?.resumed, session: start?.session, prompt: prompt.slice(Math.max(0, prompt.indexOf('fresh session') - 100), Math.max(0, prompt.indexOf('fresh session')) + 300) })
 
   p.keep(rig, { agents: ['dev'], grep: /rehire|handoff|unrecoverable/i })
   return p.summary()
