@@ -157,6 +157,7 @@ prompt (case-insensitive; `unless` excludes), trying `agents.<name>.turns` befor
 | `{"tool": "Bash", "args": {...}, "result": "...", "is_error": false, "run_ms": 0}` | any other tool: announced and answered from the script |
 | `{"poll_mail": {"every_ms": 2000, "timeout_ms": 30000}}` | tool boundaries until the hook hands mail over |
 | `{"sleep_ms": n}` / `{"hang": true}` | silence (an interrupt ends either) |
+| `{"spawn": "sleep 300"}` | starts the command through a shell (`cmd /C` on Windows, `sh -c` elsewhere) and leaves it running in the fake's process group and session, as a tool's child of a real CLI; logs `spawned` with `child_pid` and `command` (every log line's `pid` is the fake's own) |
 | `{"exit": 1}` | the CLI dies mid-turn |
 | `{"result": {"is_error": true, "text": "...", "api_error_status": 401}}` | ends the turn with this result (fields merged into the result line) |
 | `{"usage": {...}, "cost_usd": 0.02}` | this turn's usage and cost |
@@ -191,7 +192,7 @@ be hired. A turn plays the same scenarios, with these differences:
 | `{"usage": {"input": 5000, "cached": 4000, "output": 120}}` | this turn's tokens (the thread totals carry on across resumes) |
 | `{"rate_limit": {"primary": {"usedPercent": 100, "resetsAt": <epoch s>}}}` | an `account/rateLimits/updated` notification |
 
-`exit`, `hang`, `sleep_ms` and `raw` work as above. The engine's account and model probes run
+`exit`, `hang`, `sleep_ms`, `spawn` and `raw` work as above. The engine's account and model probes run
 without an agent name and log to `fakecli\log\probe.jsonl`.
 
 ### As `agy` (Antigravity)
@@ -204,7 +205,10 @@ resumes it), `step_update`s and a `result`. It works from the agent's folder lik
 engine's `mcp-bridge` over the agent's named pipe), every tool first passes the `PreToolUse` hooks
 and every model invocation ends with the `PostInvocation` hooks from `.agents\hooks.json` (the
 engine's `agy-hook` rights check and `agy-steer` mail handoff, run as commands with their JSON on
-stdin; their answers are logged as `hook` and `hook_mail`).
+stdin; their answers are logged as `hook` and `hook_mail`). A hook command runs through a shell, as
+the real CLI runs it: `cmd /D /C` on Windows, `sh -c` on macOS and Linux, so a command a shell would
+split fails here too. On macOS and Linux the bridge is a Unix socket (decision 66). `spawn` works
+as for the CLI.
 
 | Step | Effect on the Antigravity wire |
 |---|---|
