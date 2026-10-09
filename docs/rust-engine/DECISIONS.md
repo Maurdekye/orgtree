@@ -394,3 +394,29 @@ All entries are dated 2026-10-06 unless stated otherwise.
     as the turn ends. A running turn is never touched. A fingerprint saved by an older engine
     reads as unknown, not changed, so the upgrade causes no false cold reset. Proof:
     `tools/rig/proofs/startup-context.mjs`.
+
+62. **A cut turn never stays on record, a queued switch on an idle agent applies at once, and
+    a refused turn start never spins** (coordinator 2026-10-09 09:26Z, after a live agent spun:
+    "an idle agent with a pending switch applies it immediately, and certainly before its next
+    turn"). An agent retired in the middle of a turn was rehired and switched to another
+    provider. Its actor looped every ~2 ms and never started a turn. The retire had killed the
+    CLI and dropped the turn in memory only: its `ot.turns` row stayed open and its claimed
+    mail stayed `delivering`. `busy` (inflight_at or an open turn row) then held the queued
+    switch back forever, and each refused turn start woke the actor again at once. 3.x settled
+    a busy agent's turn before archiving it (`supervisor.interrupt_before_archive` waits for
+    the turn's `finally`: cost booking and the queued D-234 switch).
+    - **Retire, dissolve, delete:** a turn cut while the engine runs on is settled at once.
+      Mail a conversation receipt proves consumed is delivered, the rest returns to the
+      mailbox (the startup recovery's rule, `mail::recover_turns`), and the record is closed
+      as killed. An engine shutdown still leaves it for the next start to resume.
+    - **A turn on record that no running turn owns** (a lost actor, a failed write, a retire
+      on an older engine): when its idle agent finds the seat busy, it closes that record the
+      same way and clears `inflight_at`, then applies its queued switch or account.
+    - **Applies at once:** a switch or account queued because the seat reads as busy tells
+      the actor (`ApplyQueued`). An idle one applies it now; a running turn's end applies it as
+      before.
+    - **No spin:** a turn start refused for a configuration change applies a queued intent
+      right there and retries on a timer: 250 ms, doubling to 60 s while refusals repeat.
+      Other wakes wait for that timer. No refusal path wakes the actor again at once.
+
+    Proof: `tools/rig/proofs/pending-switch.mjs`.
