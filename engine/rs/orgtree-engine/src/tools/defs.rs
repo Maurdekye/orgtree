@@ -289,9 +289,9 @@ fn all() -> Vec<Value> {
             "orgtree_present",
             "Present anything the user is meant to read themselves (report, plan, proposal, write-up, summary, any \
              .md): ALWAYS this, never a download card. A card beside your seat opens it. `body` is markdown (64 KB \
-             max; a .md file's text goes here), or `path` a self-contained .html mockup (4 MB max, shown sandboxed \
-             with no network). `replaces` updates an earlier card in place. Needs a user audience (top-level agents \
-             hold one); without one, send the document to your superior.",
+             max), or `path` a .md file (read as the markdown, 64 KB max) or a self-contained .html mockup (4 MB \
+             max, shown sandboxed with no network). `replaces` updates an earlier card in place. Needs a user \
+             audience (top-level agents hold one); without one, send the document to your superior.",
             json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                     "replaces": { "type": "string" } }),
             &["title"],

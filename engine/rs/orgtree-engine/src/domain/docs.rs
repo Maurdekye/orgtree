@@ -124,6 +124,24 @@ pub(crate) fn snapshot(p: &Presenter, raw: &str, network: Option<&crate::net::At
     Ok(json!({ "name": name, "path": dest.to_string_lossy(), "bytes": bytes }))
 }
 
+/// A markdown file presented by `path`: its text is the body, under the
+/// body's 64 KB limit. A leading byte-order mark is dropped.
+#[logged]
+fn markdown_file(f: &Path, raw: &str) -> Result<String> {
+    use std::io::Read;
+    if !f.is_file() {
+        refuse!(BadRequest, "{raw} is not a file");
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(f)?.take(MARKDOWN_MAX as u64 + 4).read_to_end(&mut bytes)?;
+    let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+    if text.len() > MARKDOWN_MAX {
+        refuse!(BadRequest, "{raw} is over the 64 KB markdown limit; present a shorter document or split it across several cards");
+    }
+    let Ok(text) = std::str::from_utf8(text) else { refuse!(BadRequest, "{raw} is not UTF-8 text") };
+    Ok(text.to_string())
+}
+
 /// `orgtree_present`. Returns (text, chip card).
 #[logged]
 pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, args: &Value) -> Result<(String, Value)> {
@@ -146,19 +164,23 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
         (None, Some(path)) => {
             let f = readable(p, path)?;
             let lower = f.to_string_lossy().to_lowercase();
-            if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
-                refuse!(BadRequest, "path presents a .html/.htm mockup; use body for markdown");
+            if lower.ends_with(".md") || lower.ends_with(".markdown") {
+                (markdown_file(&f, path)?, "markdown")
+            } else {
+                if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
+                    refuse!(BadRequest, "path presents a .md document or a .html/.htm mockup");
+                }
+                let size = std::fs::metadata(&f)?.len();
+                if size > HTML_MAX {
+                    refuse!(BadRequest, "an HTML mockup is limited to 4 MB");
+                }
+                let bundle = crate::domain::html_bundle::capture(&f)?;
+                bundle_download = bundle.download;
+                bundle_preview = Some(bundle.preview);
+                (bundle.body, "html")
             }
-            let size = std::fs::metadata(&f)?.len();
-            if size > HTML_MAX {
-                refuse!(BadRequest, "an HTML mockup is limited to 4 MB");
-            }
-            let bundle = crate::domain::html_bundle::capture(&f)?;
-            bundle_download = bundle.download;
-            bundle_preview = Some(bundle.preview);
-            (bundle.body, "html")
         }
-        _ => refuse!(BadRequest, "give exactly one of body (markdown) or path (an .html mockup)"),
+        _ => refuse!(BadRequest, "give exactly one of body (markdown) or path (a .md file or an .html mockup)"),
     };
     let client = engine.db.get().await?;
     let bytes = body.len() as i32;
