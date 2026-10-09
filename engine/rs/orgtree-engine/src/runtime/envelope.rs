@@ -665,6 +665,10 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
                 b.push_str(&format!("\n↩ IN REPLY TO {owner}{}: “{g}”", qat.map(|a| format!(" of {a}")).unwrap_or_default()));
             }
         }
+        // someone over the mail hub reads only what is sent to them (user 2026-10-09)
+        if !m.notice && m.sender.starts_with("@net:") {
+            b.push_str(&format!("\n↳ Answer with orgtree_message to {}: a reply only in your turn's text never reaches them.", m.sender));
+        }
         b.push('\n');
         b.push_str(text_of(m).trim_end());
         for a in m.attachments.as_array().map(Vec::as_slice).unwrap_or(&[]) {
