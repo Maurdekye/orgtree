@@ -26,8 +26,15 @@ test('canvas and desk cards open their collection and identify each document for
   assert.ok(cards[1]!.querySelector('svg'), 'markdown icon is still visible')
   assert.ok(cards[2]!.querySelector('.mockup-format'), 'desk card identifies HTML too')
   assert.equal(view.el.querySelector('a'), null, 'cards open the owning collection')
+  // An HTML canvas chip opens the mockup straight in its own window (03798f1),
+  // so only the markdown chip and the desk card go through onOpen.
+  const windows: unknown[] = []
+  const realOpen = window.open
+  window.open = ((...args: unknown[]) => { windows.push(args[0]); return null }) as typeof window.open
+  t.after(() => { window.open = realOpen })
   for (const card of cards) await inAct(() => card.click())
-  assert.deepEqual(opened, ['mock1', 'read1', 'mock1'])
+  assert.deepEqual(opened, ['read1', 'mock1'])
+  assert.equal(windows.length, 1, 'the HTML canvas chip opened its own window')
   assert.equal(parentClicks, 0)
   assert.equal(mockupUrl('name with space', 'id#fragment'), '/api/orgs/name%20with%20space/documents/id%23fragment/mockup')
 })
