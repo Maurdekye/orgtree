@@ -25,7 +25,8 @@ test('the sender is resolved to a window, and every window command acts on its c
   // by the renderer, so acting on one would let an organization's bridge
   // command another organization's window.
   for (const line of [
-    /handle\('desktop:window-minimize', caller => \{ caller\.window\.minimize\(\) \}\)/,
+    // the window log notes the button first (decision 60); the minimize is still the caller's
+    /handle\('desktop:window-minimize', caller => \{\s*windowEvents\.record\(caller\.id, windowFacts\(caller\.id\), \{ action: 'minimize-button' \}\)\s*caller\.window\.minimize\(\)\s*\}\)/,
     /handle\('desktop:window-close', caller => \{ caller\.window\.close\(\) \}\)/,
     /handle\('desktop:window-state', caller => windowState\(caller\)\)/,
     /handle\('desktop:show', caller => revealWindow\(caller\)\)/,

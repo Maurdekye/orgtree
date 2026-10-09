@@ -26,6 +26,7 @@ import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
 import { revealInOrgWindow, revealOnly } from './window-reveal'
+import { WINDOW_EVENTS_LOG, WindowEventLog, watchWindowEvents } from './window-events'
 import { nativeAppFeed } from './appfeed'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
@@ -380,12 +381,20 @@ else {
     const record = bound ? records.get(bound.id) : undefined
     return (record ?? lastUsed())?.window
   })
+  /** Every main window's minimize, restore, show, hide and focus, and the
+   *  Orgtree actions behind them, in diagnostics/desktop-windows.jsonl
+   *  (main/window-events.ts). `get`, not `identity`: identity reconciles
+   *  notification ownership, and a log line must not change what is announced. */
+  const windowEvents = new WindowEventLog(() =>
+    engineRestartOptions?.dataRoot ? path.join(engineRestartOptions.dataRoot, WINDOW_EVENTS_LOG) : undefined)
+  const windowFacts = (id: string) => { const entry = windows.get(id); return entry && { kind: entry.kind, org: entry.org } }
   /** Put a window in front of the user. See revealPopout for why restoring a
    *  minimized window must come first. ⚠ ONLY THIS WINDOW: every other window
    *  stays exactly as it is (user 2026-10-09; main/window-reveal.ts). */
   const revealWindow = (record: MainWindowRecord) => {
     if (record.window.isDestroyed()) return
     restoreWindows = true
+    windowEvents.record(record.id, windowFacts(record.id), { action: 'reveal' })
     revealOnly(record)
     windows.activate(record.id)
     sendTo(record.id, { type: 'main-window-shown', data: windowState(record) })
@@ -1548,7 +1557,10 @@ else {
     // ⚠ THE CALLER, ALWAYS. These used to act on the one window; a window
     // control that reached any window but its own would be a control one
     // organization holds over another.
-    handle('desktop:window-minimize', caller => { caller.window.minimize() })
+    handle('desktop:window-minimize', caller => {
+      windowEvents.record(caller.id, windowFacts(caller.id), { action: 'minimize-button' })
+      caller.window.minimize()
+    })
     handle('desktop:window-toggle-maximize', caller => {
       if (caller.window.isMaximized()) caller.window.unmaximize(); else caller.window.maximize()
     })
@@ -1931,6 +1943,7 @@ else {
         }
         records.set(id, record)
         if (registerNow) windows.register({ id, senderId: window.webContents.id, window, kind, ...(org ? { org } : {}) })
+        watchWindowEvents(window, id, () => windowFacts(id), windowEvents)
         window.setIcon(runtimeIcon())
         const capture = () => savePlacement(record)
         window.on('moved', capture)
@@ -1973,7 +1986,7 @@ else {
             otherViews: BrowserWindow.getAllWindows().filter(w => w !== window && w.isVisible()).length,
           }, {
             preventDefault: () => event.preventDefault(),
-            hide: () => window.hide(),
+            hide: () => { windowEvents.record(id, windowFacts(id), { action: 'close-hide' }); window.hide() },
             quit: () => app.quit(),
             confirmDiscard: () => {
               void dialog.showMessageBox(window, CREATION_DISCARD_DIALOG).then(({ response }) => {

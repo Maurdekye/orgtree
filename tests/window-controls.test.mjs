@@ -26,7 +26,8 @@ test('frameless windows expose only sender-scoped window controls', () => {
     'the single-window gate is gone, not merely bypassed')
   // and every window command acts on its CALLER, never on a window named by
   // an argument the renderer chose
-  assert.match(main, /handle\('desktop:window-minimize', caller => \{ caller\.window\.minimize\(\) \}\)/)
+  // (the window log notes the button first, decision 60; the minimize is still the caller's)
+  assert.match(main, /handle\('desktop:window-minimize', caller => \{\s*windowEvents\.record\(caller\.id, windowFacts\(caller\.id\), \{ action: 'minimize-button' \}\)\s*caller\.window\.minimize\(\)\s*\}\)/)
   assert.match(main, /handle\('desktop:window-close', caller => \{ caller\.window\.close\(\) \}\)/)
   assert.match(main, /handle\('desktop:popout-minimize', \(caller, name\) => \{ caller\.popouts\.window\(name\)\?\.minimize\(\) \}\)/,
     "a popout command resolves against the calling window's OWN registry")

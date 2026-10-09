@@ -193,27 +193,31 @@ test('revealOnly acts on the window it is given and on nothing else', () => {
   assert.deepEqual(gone.calls, [], 'a destroyed window is left alone')
 })
 
+const main_ = () => readFileSync('apps/desktop/main/index.ts', 'utf8')
+
 test('nothing in the main process minimizes or hides a window except that window\'s own controls', () => {
   const dir = 'apps/desktop/main'
   const sources = readdirSync(dir).filter(f => f.endsWith('.ts')).map(f => [f, readFileSync(path.join(dir, f), 'utf8')])
   const sites = (pattern) => sources.flatMap(([f, text]) => text.split(/\r?\n/)
     .filter(line => pattern.test(line) && !/^\s*(\/\/|\/\*|\*)/.test(line)).map(line => `${f}: ${line.trim()}`))
   assert.deepEqual(sites(/\.minimize\(\)/), [
-    "index.ts: handle('desktop:window-minimize', caller => { caller.window.minimize() })",
+    'index.ts: caller.window.minimize()',
     "index.ts: handle('desktop:popout-minimize', (caller, name) => { caller.popouts.window(name)?.minimize() })",
   ], 'only the minimize buttons of a window and of a popout minimize, and each acts on itself')
+  assert.match(main_(), /handle\('desktop:window-minimize', caller => \{\s*windowEvents\.record\(caller\.id, windowFacts\(caller\.id\), \{ action: 'minimize-button' \}\)\s*caller\.window\.minimize\(\)\s*\}\)/,
+    'the window minimize button minimizes its own window (the caller), and says so in the window log first')
   assert.deepEqual(sites(/\.hide\(\)/), [
-    'index.ts: hide: () => window.hide(),',
+    "index.ts: hide: () => { windowEvents.record(id, windowFacts(id), { action: 'close-hide' }); window.hide() },",
     "window-close.ts: if (action === 'hide') { host.preventDefault(); host.hide(); return 'hide' }",
   ], 'only the close of the last visible window hides, and it hides itself')
   const reveal = readFileSync(path.join(dir, 'window-reveal.ts'), 'utf8')
   for (const call of ['minimize', 'hide', 'blur', 'close', 'destroy', 'setBounds', 'setPosition', 'setSize', 'moveTop', 'setAlwaysOnTop'])
     assert.doesNotMatch(reveal, new RegExp(`\\.${call}\\(`), `the reveal path never calls ${call}`)
-  const main = readFileSync(path.join(dir, 'index.ts'), 'utf8')
+  const main = main_()
   // the WHOLE bodies, so a line added to either (a blur, a z-order change, a
   // loop over the other windows) fails here and has to be argued for
-  assert.match(main, /const revealWindow = \(record: MainWindowRecord\) => \{\s*if \(record\.window\.isDestroyed\(\)\) return\s*restoreWindows = true\s*revealOnly\(record\)\s*windows\.activate\(record\.id\)\s*sendTo\(record\.id, \{ type: 'main-window-shown', data: windowState\(record\) \}\)\s*\}/,
-    'main/index.ts reveals through revealOnly and touches nothing else')
+  assert.match(main, /const revealWindow = \(record: MainWindowRecord\) => \{\s*if \(record\.window\.isDestroyed\(\)\) return\s*restoreWindows = true\s*windowEvents\.record\(record\.id, windowFacts\(record\.id\), \{ action: 'reveal' \}\)\s*revealOnly\(record\)\s*windows\.activate\(record\.id\)\s*sendTo\(record\.id, \{ type: 'main-window-shown', data: windowState\(record\) \}\)\s*\}/,
+    'main/index.ts reveals through revealOnly (logging the reveal first) and touches nothing else')
   assert.match(main, /const revealOrgItem = \(org: unknown, event: DesktopEvent\) => revealInOrgWindow\(org, event, \{\s*queueReveal: \(target, held: DesktopEvent\) => windows\.queueReveal\(target, held\),\s*record: id => records\.get\(id\),\s*reveal: revealWindow,\s*send: sendTo,\s*open: target => requestOrgWindow\(target, null\)\.catch\(\(error: unknown\) => \{\s*console\.warn\('An organization window could not be opened for a notification', error\)\s*\}\),\s*\}\)/,
     'notification clicks go through revealInOrgWindow with exactly this host')
   assert.match(main, /data => \{ void revealOrgItem\(data\.org, \{ type: 'notification-click', data \}\) \}/,
