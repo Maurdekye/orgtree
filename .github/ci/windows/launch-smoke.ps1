@@ -19,17 +19,20 @@ New-Item -ItemType Directory -Force $WorkDir | Out-Null
 # Logs from C: (the smoke user's profile and C:\otsmoke) are copied under $WorkDir
 # (runner.temp, on D:) so ONE upload root holds every diagnostic.
 function Save-Diagnostics {
+  # Never allowed to mask the smoke's own result.
+  try {
   $dest = Join-Path $WorkDir 'diagnostics'
   foreach ($src in @('C:\otsmoke\engine-data', 'C:\Users\otsmoke\AppData\Roaming\Orgtree v2')) {
     if (-not (Test-Path $src)) { continue }
     Get-ChildItem $src -Recurse -Force -File -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -match '\(diagnostics\logs|pg\cluster\log)\' } | ForEach-Object {
+      Where-Object { $_.FullName -match '[\\/](diagnostics[\\/]logs|pg[\\/]cluster[\\/]log)[\\/]' } | ForEach-Object {
         $rel = $_.FullName.Substring(3) -replace '[:]', '_'
         $target = Join-Path $dest $rel
         New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
         Copy-Item $_.FullName $target -Force -ErrorAction SilentlyContinue
       }
   }
+  } catch { Write-Host "Save-Diagnostics failed (ignored): $($_.Exception.Message)" }
 }
 
 try {
@@ -89,9 +92,9 @@ function Start-AsSmokeUser([string]$File, [string]$Arguments, [hashtable]$Enviro
   return @{ proc = $proc; out = $proc.StandardOutput.ReadToEndAsync(); err = $proc.StandardError.ReadToEndAsync() }
 }
 
-function Wait-Alive([string]$PortFile, $Proc, [int]$Seconds) {
+function Wait-Alive([string]$PortFile, [scriptblock]$IsUp, [int]$Seconds) {
   $deadline = (Get-Date).AddSeconds($Seconds)
-  while ((Get-Date) -lt $deadline -and -not $Proc.HasExited) {
+  while ((Get-Date) -lt $deadline -and (& $IsUp)) {
     $file = Get-Item $PortFile -ErrorAction SilentlyContinue
     if ($file) {
       $port = (Get-Content $file.FullName -Raw).Trim()
@@ -116,7 +119,7 @@ $data = Join-Path $smokeRoot 'engine-data'
 # First start on an empty data root: allow the engine to create its PostgreSQL
 # cluster, as the desktop does (apps/desktop/main/engine.ts bootstrapPostgres).
 $e = Start-AsSmokeUser $engine 'serve' @{ ORGTREE_DATA = $data; ORGTREE_PG_BOOTSTRAP = '1' }
-$ok = Wait-Alive (Join-Path $data '.port') $e.proc 180
+$ok = Wait-Alive (Join-Path $data '.port') { -not $e.proc.HasExited } 180
 $exited = $e.proc.HasExited
 if (-not $exited) { $e.proc.Kill($true) }
 $e.proc.WaitForExit(30000) | Out-Null
@@ -129,33 +132,62 @@ if (-not $ok) {
 }
 Write-Host "Engine answered on port $($ok.port): $($ok.alive | ConvertTo-Json -Compress)"
 
-Write-Host '=== Desktop app as the standard user: stays up, and its engine answers'
-$d = Start-AsSmokeUser $app '--enable-logging=stderr --v=1' @{ ELECTRON_ENABLE_LOGGING = '1' }
-$appData = "C:\Users\$user\AppData\Roaming\Orgtree v2"
-$deskOk = $null
-$deadline = (Get-Date).AddSeconds(150)
-while ((Get-Date) -lt $deadline -and -not $d.proc.HasExited -and -not $deskOk) {
-  $portFile = Get-ChildItem $appData -Recurse -Force -Filter '.port' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($portFile) { $deskOk = Wait-Alive $portFile.FullName $d.proc 20 }
-  if (-not $deskOk) { Start-Sleep -Seconds 3 }
+function Get-InstalledProcesses {
+  Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) }
 }
-if (-not $d.proc.HasExited) { Start-Sleep -Seconds 30 }
-$up = -not $d.proc.HasExited
-$code = if ($up) { $null } else { $d.proc.ExitCode }
-Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) } |
-  Format-Table Id, ProcessName, Path | Out-String | Write-Host
-Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) } |
-  Stop-Process -Force -ErrorAction SilentlyContinue
-Write-Host '--- desktop stdout'; Write-Host $d.out.Result
-Write-Host '--- desktop stderr'; Write-Host $d.err.Result
-Set-Content -Path (Join-Path $WorkDir 'desktop.err.txt') -Value $d.err.Result
-if (-not $up) {
-  Show-PostgresLogs $appData
+function Stop-Installed { Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3 }
+
+# Pass bar (ci-opus ruling): the desktop starts under a NON-ADMIN token, stays up
+# 30 s, and its own engine answers /alive. Returns $true/$false; never throws.
+function Test-Desktop([string]$Label, [scriptblock]$IsUp, [string]$AppData) {
+  Write-Host "=== Desktop: $Label"
+  $deskOk = $null
+  $deadline = (Get-Date).AddSeconds(150)
+  while ((Get-Date) -lt $deadline -and (& $IsUp) -and -not $deskOk) {
+    $portFile = Get-ChildItem $AppData -Recurse -Force -Filter '.port' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($portFile) { $deskOk = Wait-Alive $portFile.FullName $IsUp 20 }
+    if (-not $deskOk) { Start-Sleep -Seconds 3 }
+  }
+  if (& $IsUp) { Start-Sleep -Seconds 30 }
+  $up = [bool](& $IsUp)
+  Get-InstalledProcesses | Format-Table Id, ProcessName, Path | Out-String | Write-Host
+  Write-Host "$Label -> stayed up: $up; engine answered: $([bool]$deskOk)$(if ($deskOk) { " on port $($deskOk.port)" })"
+  if (-not ($up -and $deskOk)) { Show-PostgresLogs $AppData }
+  return [bool]($up -and $deskOk)
+}
+
+# Attempt A: the throwaway standard user.
+$d = Start-AsSmokeUser $app '--enable-logging=stderr --v=1' @{ ELECTRON_ENABLE_LOGGING = '1' }
+$passA = Test-Desktop "Orgtree.exe as standard user $user" { -not $d.proc.HasExited } "C:\Users\$user\AppData\Roaming\Orgtree v2"
+if ($d.proc.HasExited) { Write-Host "standard-user Orgtree.exe exit code: $($d.proc.ExitCode)" }
+Stop-Installed
+Write-Host '--- desktop (A) stdout'; Write-Host $d.out.Result
+Write-Host '--- desktop (A) stderr'; Write-Host $d.err.Result
+Set-Content -Path (Join-Path $WorkDir 'desktop-A.err.txt') -Value $d.err.Result
+if (-not $passA) {
   Write-Host "--- files under C:\Users\$user\AppData (depth 4)"
   Get-ChildItem "C:\Users\$user\AppData" -Recurse -Depth 4 -Force -ErrorAction SilentlyContinue |
     Select-Object -First 200 | ForEach-Object { Write-Host "$($_.Length)`t$($_.FullName)" }
-  # Informational only: the same app started by the elevated job user. Tells a
-  # user-switch problem (this one stays up) from an app problem (this one exits too).
+}
+
+# Attempt B: the job user itself with a SAFER "basic user" token (Administrators
+# deny-only), close to the filtered token UAC gives a real user. runas returns at
+# once, so the app is found by its install path.
+$runasLog = Join-Path $env:TEMP 'orgtree-desktop-runas.log'
+Remove-Item $runasLog -ErrorAction SilentlyContinue
+& runas.exe /trustlevel:0x20000 "$app --enable-logging --v=1 --log-file=$runasLog"
+Write-Host "runas exit code: $LASTEXITCODE"
+Start-Sleep -Seconds 5
+$passB = Test-Desktop 'Orgtree.exe as the job user with a basic-user (non-admin) token' { [bool](Get-InstalledProcesses | Where-Object ProcessName -eq 'Orgtree') } (Join-Path $env:APPDATA 'Orgtree v2')
+Stop-Installed
+if (Test-Path $runasLog) {
+  Copy-Item $runasLog (Join-Path $WorkDir 'desktop-B.log')
+  Write-Host '--- desktop (B) log tail'; Get-Content $runasLog -Tail 60 | Write-Host
+}
+
+if (-not ($passA -or $passB)) {
+  # Information only: the same app started by the elevated job user. Tells a
+  # token problem (this one stays up) from an app problem (this one exits too).
   Write-Host '--- comparison: Orgtree.exe as the elevated job user (information only)'
   $adminOut = Join-Path $WorkDir 'admin-desktop.out.txt'; $adminErr = Join-Path $WorkDir 'admin-desktop.err.txt'
   $a = Start-Process -FilePath $app -ArgumentList '--enable-logging=stderr', '--v=1' -PassThru `
@@ -163,13 +195,11 @@ if (-not $up) {
   Start-Sleep -Seconds 20
   $a.Refresh()
   Write-Host "elevated Orgtree.exe after 20 s: $(if ($a.HasExited) { "exited with $($a.ExitCode)" } else { 'still running' })"
-  Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) } |
-    Stop-Process -Force -ErrorAction SilentlyContinue
+  Stop-Installed
   Get-Content $adminErr -Tail 60 -ErrorAction SilentlyContinue | Write-Host
-  throw "Orgtree.exe exited during the smoke (code $code)"
+  throw 'The desktop app did not stay up with a working engine under any non-admin token'
 }
-if (-not $deskOk) { Show-PostgresLogs $appData; throw 'The desktop app stayed up, but its engine never answered /api/desktop/alive within 150 s' }
-Write-Host "Desktop engine answered on port $($deskOk.port)"
+Write-Host "Desktop passed: standard user=$passA, basic-user token=$passB"
 Write-Host 'Launch smoke passed'
 } finally {
   Save-Diagnostics

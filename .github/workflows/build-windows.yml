@@ -272,4 +272,5 @@ jobs:
             src/engine/runtime/runtime-manifest.json
             ${{ runner.temp }}/smoke/diagnostics/**
             ${{ runner.temp }}/smoke/*.txt
+            ${{ runner.temp }}/smoke/*.log
           if-no-files-found: ignore
