@@ -279,3 +279,22 @@ All entries are dated 2026-10-06 unless stated otherwise.
     was 3.x's 50%; it is now 25% wherever neither the agent, the org nor the app defaults name
     one (`settings::CHEAP_COMPACT_OCC`, and the desktop's fallbacks). A stored occupancy is
     unchanged. `compact_at` (the CLI's own compaction, 80%) is a different setting and stays.
+
+55. **Agents recall a conversation with one correspondent** (user 2026-10-09 00:01Z via
+    Hubchat: "agents should have a tool they can use to recall a list of previous messages
+    sent and received between a specific peer / recipient"). `orgtree_inbox
+    action=conversation peer=<agent | user | @org:<slug> | @net:<address>>` lists the mail
+    both ways, newest page first, previews only. The user's caps (00:03Z): 20 by default, 100
+    at most, 500-character previews, 16,000 characters a page. It reads only the mail
+    `reply_to` already accepts, so it adds no visibility. The fresh-session note tells the
+    agent to recall a conversation before replying and names its six most recent
+    correspondents (user 00:02Z). `fetch` returns sent mail too. 3.x had no equivalent: its
+    inbox listed waiting mail only and refused peer arguments, so this is a new 4.x feature.
+    Details: `conversation-recall.md`.
+
+56. **A real message behind more than 64 waiting notices starts its turn** (coordinator
+    2026-10-09 00:25Z, found by the conversation-recall proof). The turn's mail claim takes the
+    64 oldest waiting mails and, when those are all notices, also the oldest real message.
+    The notices left over ride the next turns, oldest first. Before this, such an agent
+    started no turn at all for new mail. That was a 4.0 regression: in 3.x every real message
+    queued its own wake. Details: `conversation-recall.md`.

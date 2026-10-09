@@ -337,6 +337,7 @@ toast saying this engine does not support it.
 | D1 | System messages arrive as typed cards (docket assigned, review requested, decisions, lifecycle notices) | Kept: the engine emits the same typed event envelopes (`ev`, schema in `renderer/src/generated/events.schema.json`) |
 | D2 | Mail between orgs (`@org:`), over the mail hub (`@net:`), the org inbox panel (read, send, attachments), extern-mail holders and the multi-holder setting, hub settings and connection status, peer roster, network identity reveal, hub probe | Kept. Local `@org:` mail is a single database transaction; `@net:` mail goes through a native client for the bundled mail hub (same hub protocol as today, so Claude Code sessions and other hosts keep working) |
 | D3 | User inbox (pending / read / sent), mark read, clear, urgent tag, retract unsent mail, notices, reply quoting | Kept |
+| D4 | An agent can list only its waiting mail (`orgtree_inbox` list/fetch/chunk); nothing recalls what it and one correspondent said, and the cheap-compact notice names no correspondents | New (user 2026-10-09, decision 55): `orgtree_inbox action=conversation peer=…` lists the mail both ways with one agent, the user, `@org:` or `@net:` (20 a page, at most 100, 500-character previews, 16,000 characters a page); `fetch` also returns mail the agent sent; the fresh-session note tells the agent to recall a conversation before replying and names its six most recent correspondents |
 
 ### E. Questions and requests
 
