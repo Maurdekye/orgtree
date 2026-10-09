@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
-import { postgresLaunchOptions, writeEnginePaths } from './postgres-runtime'
+import { exeName, postgresLaunchOptions, writeEnginePaths } from './postgres-runtime'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar, icoFromPng } from './taskbar'
@@ -70,7 +70,8 @@ app.setAppUserModelId(identity.appUserModelId)
 // private rehearsal download a real update, so the fallback is refusal: no
 // private feed, no checking, and the build behaves like an ordinary dev build.
 const updateFeed = privateFeedDecision({ requested: process.env[UPDATE_FEED_ENV] })
-const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused'
+// Only Windows has an update feed (latest.yml); the macOS and Linux builds have none yet.
+const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused' && process.platform === 'win32'
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 // ⚠ MINIDUMPS, LOCALLY, AND NOTHING SENT ANYWHERE. Electron's crash reporter
@@ -292,7 +293,10 @@ else {
   const assetsPath = app.isPackaged
     ? path.join(process.resourcesPath, 'runtime-icons')
     : path.join(app.getAppPath(), 'apps/desktop/assets')
-  const iconPath = path.join(assetsPath, 'orgtree-eye.ico')
+  // Windows uses .ico; Electron elsewhere cannot read .ico, so non-Windows
+  // packages carry PNG renders of the same icons under the same names.
+  const iconExt = process.platform === 'win32' ? '.ico' : '.png'
+  const iconPath = path.join(assetsPath, 'orgtree-eye' + iconExt)
   // Explorer's taskbar group reads shell properties separately from WM_SETICON.
   // Use a real unpacked file and explicit relaunch identity for every window.
   app.on('browser-window-created', (_event, window) => {
@@ -303,9 +307,9 @@ else {
     applyWindowIcon(window)
   })
   const trayIconNames: Record<PresetVisualTheme | 'grey', string> = {
-    grey: 'orgtree-eye-tray-grey.ico', orgtree: 'orgtree-eye-tray-orgtree.ico',
-    claude: 'orgtree-eye-tray-claude.ico', codex: 'orgtree-eye-tray-codex.ico',
-    antigravity: 'orgtree-eye-tray-antigravity.ico', openrouter: 'orgtree-eye-tray-openrouter.ico',
+    grey: 'orgtree-eye-tray-grey' + iconExt, orgtree: 'orgtree-eye-tray-orgtree' + iconExt,
+    claude: 'orgtree-eye-tray-claude' + iconExt, codex: 'orgtree-eye-tray-codex' + iconExt,
+    antigravity: 'orgtree-eye-tray-antigravity' + iconExt, openrouter: 'orgtree-eye-tray-openrouter' + iconExt,
   }
   const runtimeIconChoice = () => {
     const current = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
@@ -331,7 +335,7 @@ else {
   // same themed eye the tray shows has to exist as a real .ico for it.
   const runtimeIconFile = (image: Electron.NativeImage) => {
     const { file, custom } = runtimeIconChoice()
-    if (!custom || image.isEmpty()) return fs.existsSync(file) ? file : iconPath
+    if (process.platform !== 'win32' || !custom || image.isEmpty()) return fs.existsSync(file) ? file : iconPath
     try {
       // Version the file identity so a prior solid-color tint is not reused by
       // this cache or Explorer after restoring the iris.
@@ -1822,7 +1826,7 @@ else {
       // Orgtree 4: the Rust engine, when this build carries it (packaged beside
       // the UI) or a development run names it with ORGTREE_ENGINE_BIN.
       const rustEngine = process.env.ORGTREE_ENGINE_BIN
-        || (app.isPackaged ? path.join(directory, 'orgtree-engine.exe') : '')
+        || (app.isPackaged ? path.join(directory, exeName('orgtree-engine')) : '')
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
         binary: rustEngine && fs.existsSync(rustEngine) ? rustEngine : undefined,

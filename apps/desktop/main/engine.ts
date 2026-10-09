@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { postgresRuntimeEnvironment } from './postgres-runtime'
+import { exeName, postgresRuntimeEnvironment } from './postgres-runtime'
 import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
   CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
 
@@ -305,7 +305,7 @@ export class Engine extends EventEmitter {
     // point it elsewhere with ORGTREE_P03_PG_BIN.
     if (binary && !(env as NodeJS.ProcessEnv).ORGTREE_P03_PG_BIN) {
       const bin = path.join(path.dirname(binary), 'postgresql', 'bin')
-      if (fs.existsSync(path.join(bin, 'postgres.exe'))) Object.assign(env, { ORGTREE_P03_PG_BIN: bin })
+      if (fs.existsSync(path.join(bin, exeName('postgres')))) Object.assign(env, { ORGTREE_P03_PG_BIN: bin })
     }
     const child = binary
       ? spawn(binary, ['serve'], { cwd: path.dirname(binary), env, windowsHide: true, stdio: 'pipe' })
