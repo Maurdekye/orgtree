@@ -2024,6 +2024,9 @@ export interface OpRequest {
   /** hire — FR-25 insert superior: the anchor node; the server splices the
    *  fresh hire in as its superior atomically (same save as the hire) */
   above?: string | null
+  /** hire — the first message, delivered in the same transaction (Quick chat) */
+  kickoff?: string | null
+  kickoff_kind?: string | null
   delta?: number | null
   new_parent?: string | null
   dir?: string | null

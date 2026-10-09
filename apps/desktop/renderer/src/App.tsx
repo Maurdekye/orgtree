@@ -51,6 +51,7 @@ import { setOrgView, useOrgView } from './attention/mode'
 import { useModeRestore } from './attention/moderestore'
 import { useButtonColours } from './buttoncolours'
 import type { OrgView } from './attention/mode'
+import { QuickChat } from './QuickChatBox'
 import { AttentionView } from './attention/AttentionView'
 import type { AttentionNotificationFocus } from './attention/AttentionQueue'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
@@ -497,6 +498,15 @@ export default function App() {
   usePersistedModalOpen('gallery', slug, showGallery)
   usePersistedModalOpen('docket', slug, showDocket)
   const [focusAgent, setFocusAgent] = useState<string | null>(null)
+  // Quick chat: the agent it just hired, focused once the tree carries it
+  // (the canvas cannot centre on a card it has not laid out yet)
+  const [quickFocus, setQuickFocus] = useState<string | null>(null)
+  useEffect(() => {
+    if (!quickFocus || !tree) return
+    if (!flatNodes(tree).has(quickFocus)) return
+    setFocusAgent(quickFocus)
+    setQuickFocus(null)
+  }, [quickFocus, tree])
   const [galleryJump, setGalleryJump] = useState<{ id: string; seq: number } | null>(null)
   // a `@mail:` reference clicked in the docket. The docket owns no mailbox;
   // the canvas owns the router that knows which of the three a pointer belongs
@@ -1423,6 +1433,8 @@ export default function App() {
               {v3 ? (
                 <ShellHeader menu={shellMenu} title={tree.name}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
+                  quick={<QuickChat slug={slug} tree={tree} op={op} toast={toast}
+                    onHired={setQuickFocus} />}
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
@@ -1476,6 +1488,8 @@ export default function App() {
                     <span className="conn-chip-text">{error}</span>
                   </span>
                 </span>
+                <QuickChat slug={slug} tree={tree} op={op} toast={toast}
+                  onHired={setQuickFocus} />
                 {/* MOBILE-ONLY merged status chip (D-125 orgbar ruling): live
                     count · working · frozen in one glance; tapping it opens
                     the same ⋯ panel. display:none on desktop (.mob-only). */}

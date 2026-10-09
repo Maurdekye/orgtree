@@ -7911,3 +7911,44 @@ main:has(> .orgbar.native-header) > .error {
   content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none;
 }
 .doc-badge.doc-updated::before { opacity: .5; }
+
+/* Quick chat (docket quick-prompt-hire-kick-off-and-focus-an-agent-fr): one
+ * header text box plus its model / effort / superior buttons */
+.quickchat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 360px;
+  min-width: 0;
+  max-width: 640px;
+  -webkit-app-region: no-drag;
+}
+.quickchat-input {
+  flex: 1 1 auto;
+  min-width: 60px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+}
+.quickchat-input:focus { outline: none; border-color: var(--button-accent); }
+.quickchat-input:disabled { opacity: 0.6; }
+.quickchat-btn {
+  flex: none;
+  max-width: 120px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.quickchat-btn:hover { border-color: var(--button-accent); color: var(--ink-strong); }

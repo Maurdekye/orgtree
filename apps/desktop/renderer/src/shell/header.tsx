@@ -33,6 +33,9 @@ export interface ShellHeaderProps {
   title: string
   /** the prominent Canvas/Attention toggle. Organization windows only. */
   modes?: ReactNode
+  /** Quick chat: one text box that hires, kicks off and focuses a new agent.
+   *  Organization windows only. */
+  quick?: ReactNode
   /** the familiar direct action buttons. Organization windows only. */
   actions?: ReactNode
   /** the killswitch, placed just LEFT of `actions` so its expansion grows
@@ -44,7 +47,7 @@ export interface ShellHeaderProps {
   version?: string | null
 }
 
-export function ShellHeader({ menu, title, modes, actions, guard, version }: ShellHeaderProps) {
+export function ShellHeader({ menu, title, modes, quick, actions, guard, version }: ShellHeaderProps) {
   return (
     <header className={'shell-header' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-main">
@@ -53,6 +56,7 @@ export function ShellHeader({ menu, title, modes, actions, guard, version }: She
         {version && <span className="shell-version dim"
           title={`running Orgtree ${version}`}>Orgtree {version}</span>}
         {modes && <div className="shell-header-modes">{modes}</div>}
+        {quick && <div className="shell-header-quick">{quick}</div>}
         <span className="shell-header-gap" />
         {guard && <div className="shell-header-guard">{guard}</div>}
         {actions && <div className="shell-header-actions">{actions}</div>}

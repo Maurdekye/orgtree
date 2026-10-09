@@ -1,4 +1,5 @@
 import { QueuedAccountBadge, QueuedModelBadge } from './nextturn'
+import { rememberEffort } from '../quickchat'
 import { useRecordScratch } from '../recordscratch'
 import { ToolInputDetails } from './toolinput'
 import { StructuredJson, parseStructured } from './structuredjson'
@@ -4128,7 +4129,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <EffortButton value={node.scope?.effort ?? ''}
           effective={node.effort_effective ?? ''}
           onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
-            .then((r) => toast([effortChangeToast(node.id, lvl, r)]))
+            // Quick chat's effort follows the last level selected by hand
+            .then((r) => { rememberEffort(lvl); toast([effortChangeToast(node.id, lvl, r)]) })
             .catch((e: Error) => toast([`error: ${e.message}`]))} />
         {/* №3: STOP renders only when an interrupt can actually land —
             pressing the one red control must never error. Gate on the CHAT

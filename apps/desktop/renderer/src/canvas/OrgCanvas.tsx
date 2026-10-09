@@ -40,6 +40,7 @@ import type {
 } from './shared'
 import { DeskChat, DestinationBusy, OrgKillswitchContext, TrayStatus } from './desk'
 import type { DeskChatProps } from './desk'
+import { rememberHire } from '../quickchat'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
 import { TempDeskModal } from './tempdesk'
 import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired, useFirstUse } from './firstuse'
@@ -3344,6 +3345,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         // (typeof-narrows the op result's open dict: hire returns {node: str})
         const born = r?.node
         if (typeof born === 'string' && born) firstUseHired(slug, born)
+        // Quick chat follows the last hire made by hand: model, superior and
+        // (when this draft picked one) effort. An `above` insertion's
+        // superior is the anchor's own, which is what `parent` already holds.
+        if (typeof born === 'string' && born) rememberHire(slug, { tier: draft!.tier,
+          superior: draft!.parent ?? null, effort: scope?.effort || undefined })
         if (typeof born === 'string' && born && ds) {
           seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })
         }
@@ -4360,6 +4366,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               op({ op: 'hire', parent, tier, grant, name })
                 .then((r) => {
                   const born = r?.node
+                  if (typeof born === 'string' && born)
+                    rememberHire(slug, { tier, superior: parent })
                   if (typeof born === 'string' && born) {
                     // same follow-ups as the desktop chips: side = pin the
                     // promised ordering (best-effort, cosmetic); above = the

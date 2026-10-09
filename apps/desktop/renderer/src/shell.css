@@ -109,6 +109,16 @@
 
 .shell-header-gap { flex: 1; min-width: 8px; }
 
+/* Quick chat takes the free middle of the bar and yields first when the
+ * window narrows; the gap after it still pushes the actions right */
+.shell-header-quick {
+  display: flex;
+  align-items: center;
+  flex: 1 1 420px;
+  max-width: 640px;
+  min-width: 180px;
+}
+
 .shell-header-actions {
   display: flex;
   align-items: center;
@@ -193,6 +203,8 @@
 @container shellheader (max-width: 760px) {
   .shell-header-main { gap: 4px; }
   .shell-header-gap { min-width: 0; }
+  .shell-header-quick { min-width: 120px; }
+  .shell-header-quick .quickchat-btn { max-width: 72px; }
   .shell-header > .window-controls .window-control { flex-basis: 34px; width: 34px; }
 }
 
