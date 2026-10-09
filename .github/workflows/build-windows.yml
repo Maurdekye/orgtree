@@ -1,0 +1,233 @@
+# Orgtree Windows release build (reusable). Mirrors the local
+# `npm run release:windows -- <version>` packaging path on a pinned runner with
+# the local toolchain versions, the release tool's own artifact gates and a
+# launch smoke, and uploads ONE artifact `orgtree-windows` holding exactly the
+# canonical six release assets. It never publishes: release.yml does that.
+#
+# Not run here, on purpose: the release test gate (tools/release-verification.mjs
+# refuses a baseline recorded on another host), so it stays a local step before
+# the tag is pushed. See docs/ci-release.md.
+name: build-windows
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Tag or commit to build
+        type: string
+        required: true
+      signing:
+        description: "test | release. Orgtree's Windows installer is unsigned (as published 4.0.x); both values build the same unsigned installer."
+        type: string
+        default: test
+  push:
+    branches: ['ci-test/orgtree-windows']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Orgtree Windows installer
+    runs-on: windows-2025
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      # Toolchain pins = the local release PC (measured 2026-10-09).
+      RUST_TOOLCHAIN: nightly-2025-12-12
+      NODE_VERSION: 24.12.0
+      PYTHON_VERSION: 3.10.11
+      PIP_VERSION: 26.0.1
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Check out CI tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ci
+          persist-credentials: false
+
+      - name: Resolve the ref to build
+        id: ref
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_SIGNING: ${{ inputs.signing }}
+        run: |
+          $ref = $env:INPUT_REF
+          if (-not $ref) {
+            # Push (test) runs: build the ref named in push-test-ref, else the pushed commit.
+            $file = 'ci/.github/ci/windows/push-test-ref'
+            $ref = if (Test-Path $file) { (Get-Content $file -Raw).Trim() } else { '' }
+            if (-not $ref) { $ref = '${{ github.sha }}' }
+          }
+          $signing = if ($env:INPUT_SIGNING) { $env:INPUT_SIGNING } else { 'test' }
+          if ($signing -notin @('test', 'release')) { throw "Unknown signing mode: $signing" }
+          if ($ref -notmatch '^[A-Za-z0-9._/-]+$') { throw "Unsafe ref: $ref" }
+          "ref=$ref" >> $env:GITHUB_OUTPUT
+          $expect = if ($ref -match '^v(\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?)$') { $Matches[1] } else { '' }
+          "expect_version=$expect" >> $env:GITHUB_OUTPUT
+          Write-Host "Building $ref (signing=$signing, expected version '$expect')"
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          path: src
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Plan
+        id: plan
+        working-directory: src
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $mailhub = [bool]($pkg.build.extraResources | Where-Object { "$($_.from)" -like '*orgtree-mailhub.exe' })
+          "mailhub=$($mailhub.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          "version=$($pkg.version)" >> $env:GITHUB_OUTPUT
+          "short=$(git rev-parse --short HEAD)" >> $env:GITHUB_OUTPUT
+          git log -1 --format='%H %s'
+          git submodule status
+          Write-Host "version $($pkg.version); build orgtree-mailhub.exe: $mailhub"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Set up Python (host for runtime provisioning)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Pin pip and install the Rust toolchain
+        run: |
+          python -m pip install "pip==$env:PIP_VERSION"
+          rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+          rustup default $env:RUST_TOOLCHAIN
+          node --version; npm --version; python --version; python -m pip --version
+          rustc -Vv; cargo -V
+          if ($env:CARGO_TARGET_DIR) { throw 'CARGO_TARGET_DIR must be unset: packaging reads engine/rs/target' }
+
+      - name: Cache cargo registry and engine/custodian targets
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src/engine/rs/target
+            src/artifacts/postgres-provision/cargo
+          key: cargo-win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src/engine/rs/Cargo.lock', 'src/engine/native/pg-custodian/Cargo.lock') }}
+          restore-keys: cargo-win-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Cache mail hub target
+        if: steps.plan.outputs.mailhub == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/engine/mailhub/target
+          key: mailhub-win-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src/engine/mailhub/Cargo.lock') }}
+          restore-keys: mailhub-win-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: Cache Python and PostgreSQL archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/.runtime-cache
+          key: runtime-archives-${{ hashFiles('src/tools/provision-runtime.py', 'src/tools/postgres-runtime-pin.json') }}
+
+      - name: Cache Electron and electron-builder downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-win-${{ hashFiles('src/package-lock.json') }}
+          restore-keys: electron-win-
+
+      - name: Build the Rust engine (release)
+        working-directory: src/engine/rs
+        env:
+          ORGTREE_RELEASE_BUILD: '1'
+          ORGTREE_BUILD_COMMIT: ${{ steps.plan.outputs.short }}
+        run: |
+          cargo build --release
+          $v = (& target/release/orgtree-engine.exe --version).Trim()
+          Write-Host $v
+          if ($v -ne "orgtree-engine ${{ steps.plan.outputs.version }}") { throw "Unexpected engine version: $v" }
+
+      - name: Build the mail hub (release)
+        if: steps.plan.outputs.mailhub == 'true'
+        working-directory: src/engine/mailhub
+        run: cargo build --release
+
+      - name: Provision the embedded Python runtime
+        working-directory: src
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/ci/.github/ci/windows/runtime-constraints.txt
+        run: python tools/provision-runtime.py
+
+      - name: Provision PostgreSQL and build pg-custodian
+        working-directory: src
+        run: python tools/provision-postgres.py
+
+      - name: npm ci
+        working-directory: src
+        run: npm ci
+
+      - name: Package and verify (release-ci.mjs)
+        id: package
+        run: |
+          Remove-Item Env:GH_TOKEN, Env:GITHUB_TOKEN, Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+          $nodeArgs = @('ci/.github/ci/windows/release-ci.mjs', '--source', 'src', '--out', "$env:RUNNER_TEMP/orgtree-windows")
+          if ('${{ steps.ref.outputs.expect_version }}') { $nodeArgs += @('--expect-version', '${{ steps.ref.outputs.expect_version }}') }
+          node @nodeArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Launch smoke (silent install, engine, desktop)
+        run: >
+          ./ci/.github/ci/windows/launch-smoke.ps1
+          -Installer "$env:RUNNER_TEMP/orgtree-windows/${{ steps.package.outputs.installer }}"
+          -Version '${{ steps.package.outputs.version }}'
+          -WorkDir "$env:RUNNER_TEMP/smoke"
+
+      - name: Upload orgtree-windows
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-windows
+          path: ${{ runner.temp }}/orgtree-windows/*
+          if-no-files-found: error
+
+      - name: Compare with the published release (test runs only)
+        if: github.event_name == 'push'
+        continue-on-error: true
+        run: >
+          node ci/.github/ci/windows/compare-published.mjs
+          --ours "$env:RUNNER_TEMP/orgtree-windows"
+          --version '${{ steps.package.outputs.version }}'
+          --repo '${{ github.repository }}'
+          --sevenzip src/node_modules/electron-winstaller/vendor/7z-x64.exe
+          --work "$env:RUNNER_TEMP/compare"
+          --report "$env:RUNNER_TEMP/compare-report.json"
+
+      - name: Upload comparison report (test runs only)
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-windows-compare
+          path: ${{ runner.temp }}/compare-report.json
+          if-no-files-found: ignore
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-windows-diagnostics
+          path: |
+            src/release/*.json
+            src/release/*.yml
+            src/dist/build-info.json
+            src/engine/runtime/runtime-manifest.json
+            ${{ runner.temp }}/smoke/engine-data/diagnostics/**
+          if-no-files-found: ignore
