@@ -355,3 +355,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
     reveal path. The live log of the reported click shows the new window opening while the
     user's window kept running with its own organization. Whether that window was minimized
     before the click, by a Windows gesture, or by the user cannot be told from the logs.
+    So the next time can (coordinator 08:22Z): `main/window-events.ts` writes every main
+    window's minimize, restore, show, hide and focus to
+    `<data root>/diagnostics/desktop-windows.jsonl` (time, window, kind, organization), and
+    Orgtree's own causes just before it acts (`reveal`, `minimize-button`, `close-hide`). A
+    `minimize` with no `minimize-button` line for that window just before it did not come from
+    Orgtree. No per-frame events; rotated to `.1` past 1 MB; best effort.
+    `node tools/test-window-events-native.mjs` checks the log and the reveal against real
+    Electron windows.
