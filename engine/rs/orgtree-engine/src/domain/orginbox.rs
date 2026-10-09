@@ -163,12 +163,13 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there],
         )
         .await?;
-    let holders = ensure_holders(engine, dst.id, None).await?;
+    let route = ensure_holders(engine, dst.id, None).await?;
+    let holders = &route.to;
     drop(client);
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
     changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
-    for h in &holders {
+    for h in holders {
         let mut m = Outgoing::new(From::Extern(src_peer.clone()), h, &out.body);
         m.kind = out.kind.clone();
         m.attachments = out.attachments.clone();
@@ -177,15 +178,17 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
         }
     }
-    if holders.is_empty() {
-        super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body).await?;
+    if holders.is_empty() || route.waiting {
+        super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body,holders).await?;
     }
     let delivery = if holders.is_empty() {
         format!("Stored in {}'s org inbox; it has no live agent to read it yet.", dst.slug)
+    } else if route.waiting {
+        format!("Delivered to {}'s org inbox and to {}; none of them can run now (halted or frozen), so it waits for them.", dst.slug, holders.join(", "))
     } else {
         format!("Delivered to {}'s org inbox and to {}.", dst.slug, holders.join(", "))
     };
-    Ok(Sent { uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() })
+    Ok(Sent { uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() || route.waiting })
 }
 
 /// Effective live audience holders; newest grant wins in single-holder mode.
@@ -198,9 +201,29 @@ pub async fn live_holders<C: tokio_postgres::GenericClient + Sync>(client: &C, o
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
+/// Of these agents, the ones that can run a turn now (not halted, not frozen), in the same order.
+#[logged]
+async fn runnable<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, names: &[String]) -> Result<Vec<String>> {
+    let rows = client.query(
+        "SELECT name FROM ot.agents WHERE org_id = $1 AND name = ANY($2) AND state = 'live' AND halt IS NULL AND frozen IS NULL",
+        &[&org_id, &names]).await?;
+    let ready: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+    Ok(names.iter().filter(|n| ready.contains(n)).cloned().collect())
+}
+
+/// Who gets inbound outside mail (decision 59): the holders who can run;
+/// while none can, the first top-level agent who can (no grant: the
+/// audience stays with the holders). With nobody able to run it goes to the
+/// holders and waits (`waiting`).
+#[derive(Debug)]
+struct Route {
+    to: Vec<String>,
+    waiting: bool,
+}
+
 /// Serialize only this org's short audience update; never hold the transaction over sending or IO.
 #[logged]
-async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, &str)>) -> Result<Vec<String>> {
+async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, &str)>) -> Result<Route> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org_id]).await?.get(0);
@@ -214,7 +237,9 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
             Some((id, name.to_string(), "auto-granted: top-level agent messaged an outside party"))
         }
     } else if holders.is_empty() {
-        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' ORDER BY sibling_order, id LIMIT 1", &[&org_id]).await?
+        // the first top-level agent who can run; when none can, the first live one
+        tx.query_opt("SELECT id, name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live'
+                       ORDER BY (halt IS NULL AND frozen IS NULL) DESC, sibling_order, id LIMIT 1", &[&org_id]).await?
             .map(|r| (r.get(0), r.get(1), "auto-granted: outside mail arrived with no live org-inbox holder"))
     } else { None };
     let mut changed = false;
@@ -229,9 +254,22 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
         holders.push(name);
         changed = true;
     }
+    let mut route = Route { to: holders.clone(), waiting: false };
+    if sender.is_none() && !holders.is_empty() {
+        let ready = runnable(&*tx, org_id, &holders).await?;
+        if !ready.is_empty() {
+            route.to = ready;
+        } else if let Some(r) = tx.query_opt(
+            "SELECT name FROM ot.agents WHERE org_id = $1 AND parent_id IS NULL AND state = 'live' AND halt IS NULL AND frozen IS NULL
+              ORDER BY sibling_order, id LIMIT 1", &[&org_id]).await? {
+            route.to = vec![r.get(0)];
+        } else {
+            route.waiting = true;
+        }
+    }
     tx.commit().await?;
     if changed { changes::notify_id(engine, org_id, vec![Change::Audiences, Change::OrgInbox, Change::Events]); }
-    Ok(holders)
+    Ok(route)
 }
 
 /// Mail that arrived over the mail hub: stored once (keyed by its hub id),
@@ -269,10 +307,11 @@ pub async fn deliver_inbound(
     if n == 0 {
         return Ok(false);
     }
-    let holders = ensure_holders(engine, org_id, None).await?;
+    let route = ensure_holders(engine, org_id, None).await?;
+    let holders = &route.to;
     drop(client);
     changes::notify(engine, &org, vec![Change::OrgInbox]);
-    for h in &holders {
+    for h in holders {
         let mut m = Outgoing::new(From::Extern(peer.to_string()), h, body);
         m.attachments = attachments.clone();
         m.net_id = Some(net_id.to_string());
@@ -290,8 +329,8 @@ pub async fn deliver_inbound(
             tracing::warn!(error = %format!("{e:#}"), holder = %h, "org inbox delivery failed");
         }
     }
-    if holders.is_empty() {
-        super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body).await?;
+    if holders.is_empty() || route.waiting {
+        super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await?;
     }
     Ok(true)
 }

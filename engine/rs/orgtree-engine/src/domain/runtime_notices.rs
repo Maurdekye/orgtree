@@ -105,9 +105,15 @@ pub async fn released(engine:&Arc<Engine>,org_id:i64,agent_id:i64,automatic:bool
     Ok(())
 }
 
+/// Outside mail nobody can read now: no live holder, or (`waiting_for`) only holders and top-level agents that are halted or frozen.
 #[logged]
-pub async fn external_unroutable(engine:&Arc<Engine>,org_id:i64,org:&str,peer:&str,body:&str)->Result<()> {
-    let mut out=Outgoing::new(From::System,"user",&format!("Mail from {peer} is in {org}'s org inbox, but no live agent holds it."));
+pub async fn external_unroutable(engine:&Arc<Engine>,org_id:i64,org:&str,peer:&str,body:&str,waiting_for:&[String])->Result<()> {
+    let text=if waiting_for.is_empty() {
+        format!("Mail from {peer} is in {org}'s org inbox, but no live agent holds it.")
+    } else {
+        format!("Mail from {peer} is in {org}'s org inbox, but no agent who could take it can run now (halted or frozen); it waits for {}.",waiting_for.join(", "))
+    };
+    let mut out=Outgoing::new(From::System,"user",&text);
     out.ev=Some(crate::events::typed("runtime.external_unroutable","@system",json!({"kind":"org","org":org}),json!({"peer":peer,"excerpt":crate::util::gist(body,300)})));
     mail::send(engine,org_id,out).await?;
     Ok(())
