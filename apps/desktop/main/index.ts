@@ -47,6 +47,7 @@ import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashR
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
 import type { ProcessFailureStage } from './process-failure'
+import { installMacWindowIconShim } from './macos'
 
 // Who this process is — installed release, installed DEV-channel build (see
 // docs/dev-builds.md), or unpackaged development — is decided in one place
@@ -72,6 +73,7 @@ app.setAppUserModelId(identity.appUserModelId)
 const updateFeed = privateFeedDecision({ requested: process.env[UPDATE_FEED_ENV] })
 // Only Windows has an update feed (latest.yml); the macOS and Linux builds have none yet.
 const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused' && process.platform === 'win32'
+installMacWindowIconShim()
 // Isolated development/test profiles never touch the operator's installed data.
 if (!app.isPackaged && process.env.ORGTREE_V2_PROFILE) app.setPath('userData', validateDataRoot(process.env.ORGTREE_V2_PROFILE, path.join(os.homedir(), 'orgtree')))
 // ⚠ MINIDUMPS, LOCALLY, AND NOTHING SENT ANYWHERE. Electron's crash reporter
