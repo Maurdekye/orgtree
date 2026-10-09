@@ -298,3 +298,17 @@ All entries are dated 2026-10-06 unless stated otherwise.
     The notices left over ride the next turns, oldest first. Before this, such an agent
     started no turn at all for new mail. That was a 4.0 regression: in 3.x every real message
     queued its own wake. Details: `conversation-recall.md`.
+
+57. **Documents the user reads are presented, never sent as files** (user 2026-10-09 05:53Z:
+    "if it's something I am intended to read myself directly it should always be a presented
+    document"; approved 05:55Z). The agent instructions led with "WHEN THE USER ASKS FOR A FILE
+    ... deliver it with orgtree_send_file" and kept `orgtree_present` for "only when they wanted
+    to READ a document in-page", as 3.x's did, so "send me the report" produced a download card.
+    Now the passage leads with the rule: anything the user is meant to read (report, plan,
+    proposal, write-up, summary, any `.md`) goes through `orgtree_present`, even when they ask
+    for it to be sent; `orgtree_send_file` is only for files wanted as files (installers, logs,
+    exports, images, archives). Agents without a user audience still send documents to their
+    superior; "a path is not a delivery", images and the angle-bracket links are unchanged. The
+    two tool descriptions say the same, and a markdown body over 64 KB is refused with "present
+    a shorter document or split it across several cards" instead of "or send it as a file".
+    Proof: `tools/rig/proofs/present-documents.mjs`.

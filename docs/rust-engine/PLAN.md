@@ -364,6 +364,7 @@ toast saying this engine does not support it.
 |---|---|---|
 | G1 | Document gallery, reader (markdown/html), isolated HTML preview, download, dismiss; file delivery cards; images inline | Kept |
 | G2 | Watchdogs (file, command, process, stream, activity; event/silence; one-shot; pause/resume/remove) | Kept; "supersede" action removed |
+| G3 | Agents are told to deliver with `orgtree_send_file` whatever the user asks them to send and to present "only when they wanted to READ a document in-page", so reports and `.md` files reach the user as download cards | Changed (user 2026-10-09, decision 57): anything the user is meant to read (report, plan, proposal, write-up, summary, any `.md`) is always presented with `orgtree_present`, even when they ask for it to be sent; `orgtree_send_file` is only for files wanted as files (installers, logs, exports, images, archives). Same rule in both tool descriptions; a markdown body over 64 KB is refused with "present a shorter document or split it across several cards" instead of "or send it as a file" |
 
 ### H. Providers, accounts, usage
 
