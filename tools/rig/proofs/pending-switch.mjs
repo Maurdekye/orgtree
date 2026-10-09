@@ -15,9 +15,15 @@
 //   cannot repair: admission is refused and retried on a backoff (a handful
 //   of tries in 10 s, not thousands); once the fault is gone the switch
 //   applies and his turn runs.
+//   pia, quin (haiku): a switch queued in a turn survives a retire in the
+//   middle of it. A rehire that names a tier cancels it (pia, rehired on
+//   opus, stays on opus); one that names none applies it at once (quin).
 // A BEFORE engine spins on each of them: the loop is cut short (the agent is
 // halted) once it shows, so the log stays small.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/pending-switch.mjs
+
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { Proof } from '../proof.mjs'
 
@@ -26,16 +32,17 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 export default async function (rig) {
   const p = new Proof('pending-switch')
   rig.scenario({
-    agents: { mira: { turns: [{ name: 'long', match: 'PROOF-LONG', once: true, steps: [{ text: 'Working on it.' }, { sleep_ms: 60000 }, { text: 'NEVER-SAID' }] }] } },
+    agents: Object.fromEntries(['mira', 'pia', 'quin', 'rex'].map(n =>
+      [n, { turns: [{ name: 'long', match: 'PROOF-LONG', once: true, steps: [{ text: 'Working on it.' }, { sleep_ms: 60000 }, { text: 'NEVER-SAID' }] }] }])),
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
   // the live agent ran Claude Opus through Antigravity (App settings > Runtime)
   await rig.api('PUT', '/api/app-settings/runtime', { antigravity_claude_enabled: true })
-  for (const [name, tier] of [['mira', 'agy-opus'], ['nell', 'haiku'], ['otto', 'haiku']]) {
+  for (const [name, tier] of [['mira', 'agy-opus'], ['nell', 'haiku'], ['otto', 'haiku'], ['pia', 'haiku'], ['quin', 'haiku']]) {
     await rig.op({ op: 'hire', name, parent: 'boss', tier, title: 'switch proof' })
   }
-  const ids = Object.fromEntries(['mira', 'nell', 'otto'].map(n => [n, rig.agentRow(n)?.id]))
+  const ids = Object.fromEntries(['mira', 'nell', 'otto', 'pia', 'quin'].map(n => [n, rig.agentRow(n)?.id]))
   const seat = name => rig.one(`SELECT tier, pending_switch, inflight_at FROM ot.agents WHERE id = ${ids[name]}`)
   const turnRows = name => rig.sql(`SELECT id, model, ended_at, killed, error, sent_at FROM ot.turns WHERE agent_id = ${ids[name]} ORDER BY id`)
   const finished = name => turnRows(name).filter(t => t.ended_at).length
@@ -153,8 +160,68 @@ export default async function (rig) {
     ottoRun.ok && seat('otto').tier === 'sonnet' && /sonnet/i.test(ottoTurn?.model ?? '') && !!turnRows('otto').find(t => t.id === stuck.id)?.ended_at,
     { run: ottoRun, secondsAfterFix: Math.round((Date.now() - freed) / 1000), model: ottoTurn?.model, seat: seat('otto') })
 
+  // ---------------------------------------------------------------- pia, quin
+  // a switch queued during a turn is still queued when the agent is retired
+  // in the middle of it; a rehire that names a tier cancels it (that tier is
+  // the newer choice), one that does not applies it at once
+  const queuedThenRetired = async name => {
+    await rig.userMail(name, 'PROOF-LONG: the long job, please.')
+    await rig.waitFor(() => rig.fakeLog(name).some(l => l.kind === 'step' && l.step?.sleep_ms), { what: `${name} to be mid-turn`, timeout: 60000 })
+    const queued = await rig.op({ op: 'switch_model', node: name, tier: 'sonnet' })
+    await rig.op({ op: 'retire', node: name })
+    return { queued: queued?.queued === true, archived: seat(name).pending_switch?.tier ?? null }
+  }
+  const events = name => rig.sql(`SELECT op, detail FROM ot.events WHERE subject_agent_id = ${ids[name]} ORDER BY id`)
+  const piaBefore = await queuedThenRetired('pia')
+  await rig.op({ op: 'rehire', node: 'pia', tier: 'opus' })
+  await pause(3000)
+  const piaNow = seat('pia'), piaCancel = events('pia').filter(e => e.op === 'switch_cancelled').at(-1)
+  p.check('pia: a switch queued in her turn survives her retire; a rehire that names opus cancels it (recorded), and she stays on opus',
+    piaBefore.queued && piaBefore.archived === 'sonnet' && piaNow.tier === 'opus' && !piaNow.pending_switch && piaCancel?.detail?.target === 'sonnet',
+    { before: piaBefore, seat: piaNow, cancelled: piaCancel })
+  const piaDone = finished('pia')
+  await rig.userMail('pia', 'Hello pia, after the rehire.')
+  const piaRun = await watch('pia', () => finished('pia') > piaDone && idle('pia'), 20000)
+  p.check('pia: her next turn runs on opus', piaRun.ok && /opus/i.test(turnRows('pia').at(-1)?.model ?? ''), { run: piaRun, model: turnRows('pia').at(-1)?.model })
+
+  const quinBefore = await queuedThenRetired('quin')
+  await rig.op({ op: 'rehire', node: 'quin' })
+  const quinNow = await rig.waitFor(() => { const s = seat('quin'); return s.tier === 'sonnet' && !s.pending_switch ? s : null },
+    { what: 'quin\'s queued switch to apply', timeout: 5000 }).catch(() => seat('quin'))
+  p.check('quin: a rehire that names no tier keeps the queued switch, and it applies at once (sonnet)',
+    quinBefore.queued && quinBefore.archived === 'sonnet' && quinNow.tier === 'sonnet' && !quinNow.pending_switch, { before: quinBefore, seat: quinNow })
+
+  // ---------------------------------------------------------------- rex
+  // the same for an account: two signed-in Codex accounts; an account change
+  // queued in his turn survives his retire, and a rehire that names an
+  // account cancels it (recorded)
+  const addAccount = async n => {
+    const home = path.join(rig.data, 'rig-home', `codex-${n}`)
+    fs.mkdirSync(home, { recursive: true })
+    const enc = x => Buffer.from(JSON.stringify(x)).toString('base64url')
+    fs.writeFileSync(path.join(home, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: `${enc({ alg: 'none' })}.${enc({ email: `${n}@example.invalid` })}.rig` } }))
+    return (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported', path: home })).id
+  }
+  const first = await addAccount('first'), second = await addAccount('second')
+  await rig.op({ op: 'hire', name: 'rex', parent: 'boss', tier: 'luna', title: 'switch proof' })
+  ids.rex = rig.agentRow('rex')?.id
+  await rig.op({ op: 'account', node: 'rex', account: first })
+  await rig.userMail('rex', 'PROOF-LONG: the long job, please.')
+  await rig.waitFor(() => rig.fakeLog('rex').some(l => l.kind === 'step' && l.step?.sleep_ms), { what: 'rex to be mid-turn', timeout: 60000 })
+  const rexQueued = await rig.op({ op: 'account', node: 'rex', account: second })
+  await rig.op({ op: 'retire', node: 'rex' })
+  const rexArchived = rig.one(`SELECT account, pending_account FROM ot.agents WHERE id = ${ids.rex}`)
+  await rig.op({ op: 'rehire', node: 'rex', account: first })
+  await pause(3000)
+  const rexNow = rig.one(`SELECT account, pending_account FROM ot.agents WHERE id = ${ids.rex}`)
+  const rexCancel = events('rex').filter(e => e.op === 'account_queue_cancelled').at(-1)
+  p.check('rex: an account change queued in his turn survives his retire; a rehire that names his account cancels it (recorded), and he keeps that account',
+    rexQueued?.queued === true && rexArchived?.pending_account?.account === second && rexNow?.account === first && !rexNow?.pending_account
+      && rexCancel?.detail?.account === second,
+    { queued: rexQueued, archived: rexArchived, now: rexNow, cancelled: rexCancel })
+
   p.note('refused admissions per agent', { mira: refusals('mira'), nell: refusals('nell'), otto: refusals('otto') })
   // the engine's own account of the repairs and retries
-  p.keep(rig, { agents: ['mira', 'nell', 'otto'], grep: /no running turn own|admission keeps being refused|cut turn|queued configuration/ })
+  p.keep(rig, { agents: ['mira', 'nell', 'otto', 'pia', 'quin', 'rex'], grep: /no running turn own|admission keeps being refused|cut turn|queued configuration/ })
   return p.summary()
 }
