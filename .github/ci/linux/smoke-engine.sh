@@ -42,6 +42,12 @@ echo "clean shutdown OK"
 
 start second 0
 alive
+# PDEATHSIG is tied to the spawning thread: postgres must outlive any short-lived
+# thread (still up after 60 s) yet die within seconds of the engine itself.
+sleep 60
+postgres_running || { echo "::error::postgres died while the engine was running"; tail -30 "$root/pg/cluster/log/postgres.log"; exit 1; }
+alive
+echo "postgres still up 60 s after engine start OK"
 kill -9 "$pid"; sleep 5
 if postgres_running; then echo "::error::postgres outlived a killed engine"; pgrep -af postgres; exit 1; fi
 echo "postgres died with the engine OK"
