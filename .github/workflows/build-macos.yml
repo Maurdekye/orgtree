@@ -95,6 +95,16 @@ jobs:
           npm run typecheck
           npm run build
 
+      - name: PostgreSQL pin
+        run: echo "PG_SHA256=$(python3 -c "import json;print(json.load(open('.github/ci/macos/postgres-pin.json'))['sha256'])")" >> "$GITHUB_ENV"
+
+      - name: PostgreSQL download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # the pinned zip is immutable: keyed on its sha256, never stale
+          path: ${{ runner.temp }}/pg-download/*.zip
+          key: edb-pg-macos-${{ env.PG_SHA256 }}
+
       - name: Bundled PostgreSQL
         run: bash .github/ci/macos/provision-postgres.sh "$RUNNER_TEMP/pg-download" engine/postgresql
 
