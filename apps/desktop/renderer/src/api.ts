@@ -1058,6 +1058,77 @@ export const getOpenRouterUsage = (force = false): Promise<AccountUsage> =>
   req(`/api/openrouter/usage${force ? '?force=true' : ''}`)
 export const getOpenRouterUsagePeek = (): Promise<UsagePeek> =>
   req('/api/openrouter/usage/peek')
+// usage history (docket track-usage-over-time-and-show-usage-analytics,
+// phase 2): what the engine recorded over a period, downsampled per series in
+// the database — at most ~300 buckets a series, never the raw table
+export type UsageHistoryRange = '24h' | '7d' | '30d' | '90d'
+export interface UsageHistoryBucket {
+  n: number
+  /** the first and last reading's time in the bucket */
+  t0: string
+  t1: string
+  first: number | null
+  last: number | null
+  min: number | null
+  max: number | null
+  avg: number | null
+}
+export interface UsageHistorySeries {
+  account: string
+  account_label: string
+  provider: string
+  /** the allowance window (session, weekly_all, credits, spend, …) */
+  window: string
+  group: string
+  /** the model scope of a scoped window; '' = every model */
+  model: string
+  /** percent of the allowance used, or an amount in `unit` */
+  kind: 'percent' | 'amount'
+  unit: string | null
+  label: string | null
+  latest: { observed_at: string; used_pct: number | null; amount: number | null; resets_at: string | null }
+  points: UsageHistoryBucket[]
+}
+export interface UsageHistoryReset {
+  at: string
+  account: string
+  window: string
+  group: string
+  model: string
+  used_pct: number | null
+  amount: number | null
+  resets_at: string | null
+  prev_pct: number | null
+  prev_amount: number | null
+  prev_resets_at: string | null
+}
+/** an account's availability CHANGED at `at` (only the changes are sent) */
+export interface UsageHistoryState {
+  account: string
+  account_label: string
+  provider: string
+  at: string
+  state: 'ok' | 'unavailable' | 'unsupported' | 'stale' | 'inferred'
+  detail: string | null
+}
+export interface UsageHistory {
+  range: UsageHistoryRange
+  since: string
+  until: string
+  bucket_s: number
+  retain_days: number
+  /** an unchanged series is re-recorded this often */
+  keepalive_min: number
+  /** the oldest reading kept at all, or null on a new install */
+  oldest: string | null
+  series: UsageHistorySeries[]
+  resets: UsageHistoryReset[]
+  states: UsageHistoryState[]
+  /** a cap cut the answer short */
+  truncated: boolean
+}
+export const getUsageHistory = (range: UsageHistoryRange): Promise<UsageHistory> =>
+  req(`/api/usage/history?range=${range}`)
 // ---- machine-local account routing (user redesign 2026-08-25) ----------
 // The primary row is the machine's own login; `keys` are pasted
 // `claude setup-token` fallbacks. NO token material in any response — a key

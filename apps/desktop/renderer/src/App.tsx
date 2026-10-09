@@ -79,6 +79,7 @@ import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
 import { useAppRead, useAppReadout } from './appfeed'
 import { groupByProvider } from './usagegroups'
+import { UsageHistoryModal } from './usagehistory'
 import { bumpLive, onLiveBump } from './livebus'
 import { applyPrimedAsks, onPrimeAsk, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
@@ -458,6 +459,11 @@ export default function App() {
   const usageOpen = useScopedOpen(slug)
   const showUsage = usageOpen.open
   const setShowUsage = usageOpen.set
+  // the usage history panel (docket track-usage-over-time-and-show-usage-
+  // analytics): scoped and pinned exactly like Usage, which it sits under
+  const usageHistoryOpen = useScopedOpen(slug)
+  const showUsageHistory = usageHistoryOpen.open
+  const setShowUsageHistory = usageHistoryOpen.set
 
   // the documents gallery (user request 2026-09-03): every presented card,
   // org-wide, one place. It reads in its OWN right-hand pane (the mail
@@ -482,6 +488,7 @@ export default function App() {
   // org it was pinned in; at home (slug null) it is unpinnable and the
   // marker never writes
   usePersistedModalOpen('usage', slug, showUsage)
+  usePersistedModalOpen('usage-history', slug, showUsageHistory)
   // EVERY pinned surface's toggle button goes through one decision (user
   // ruling 2026-09-10 16:36, all pinned modals): a click that means "bring
   // up my window" must never silently close a pinned window that was merely
@@ -492,6 +499,8 @@ export default function App() {
     toggleOrRaiseModal(kind, open, set, slug), [slug])
   const toggleUsage = useCallback(() =>
     toggleSurface('usage', showUsage, setShowUsage), [toggleSurface, showUsage])
+  const toggleUsageHistory = useCallback(() =>
+    toggleSurface('usage-history', showUsageHistory, setShowUsageHistory), [toggleSurface, showUsageHistory])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', null, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -608,6 +617,7 @@ export default function App() {
   }), [setSlug])
   useEffect(() => {
     usageOpen.setIn(null, (isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
+    usageHistoryOpen.setIn(null, (isModalPinned('usage-history') && readModalOpen(null).some(r => r.kind === 'usage-history')) || restoreWindowKind('usage-history', null))
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
     setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
@@ -631,6 +641,7 @@ export default function App() {
     const pinned = readModalOpen(slug)
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     usageOpen.setIn(slug, pinnedKind('usage') || restoreWindowKind('usage', slug))
+    usageHistoryOpen.setIn(slug, pinnedKind('usage-history') || restoreWindowKind('usage-history', slug))
     settingsOpen.setIn(slug, pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
     setShowGallery(pinnedKind('gallery') || restoreWindowKind('gallery', slug))
@@ -1274,6 +1285,7 @@ export default function App() {
       error={orgStatus.error} currentOrg={slug}
       onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
       onUsage={toggleUsage}
+      onUsageHistory={toggleUsageHistory}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
       onAppSettings={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)} />
@@ -1816,6 +1828,9 @@ export default function App() {
       )}
       {showUsage && (
         <UsageModal toast={toast} close={() => setShowUsage(false)} />
+      )}
+      {showUsageHistory && (
+        <UsageHistoryModal close={() => setShowUsageHistory(false)} />
       )}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}

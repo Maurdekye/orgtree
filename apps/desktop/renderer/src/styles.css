@@ -3909,6 +3909,59 @@ main.solo { width: 100%; }
    accent while healthy, the fable gold as the warning band, --bad critical —
    matching the meaning those colors already carry elsewhere in the chrome. */
 .usage-modal { width: 520px; }
+/* the usage history panel (docket track-usage-over-time-and-show-usage-
+   analytics): small multiples, one series per chart, so one series colour
+   (data-viz slot 1, stepped per theme); every other mark is ink. Measured =
+   solid line; projected = the same hue dashed and labelled; a recorded reset =
+   solid hairline; the next reset = dotted line (user 2026-10-09); where the
+   account could not be read = hatched band, and the line breaks there. */
+.usage-history-modal { width: 900px; max-width: 96vw; --uh-series: #3987e5; --uh-future: rgba(255, 255, 255, .035); }
+:root:is(.contrast-light, .contrast-solarized-light) .usage-history-modal { --uh-series: #2a78d6; --uh-future: rgba(0, 0, 0, .035); }
+.uh-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-bottom: 8px; }
+.uh-ranges { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.uh-range { background: transparent; border: 0; color: var(--ink); padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
+.uh-range + .uh-range { border-left: 1px solid var(--line); }
+.uh-range.on { background: var(--panel-2); color: var(--ink-strong); font-weight: 600; }
+.uh-filter { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
+.uh-filter select { font-size: 12.5px; max-width: 220px; }
+.uh-period { font-size: 12px; margin-bottom: 10px; }
+.uh-empty { padding: 18px 12px; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; line-height: 1.5; }
+.uh-error { color: var(--danger-ink); font-size: 13px; margin-bottom: 8px; }
+.uh-account { margin-bottom: 14px; }
+.uh-account-head { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; margin-bottom: 6px;
+  padding-bottom: 4px; border-bottom: 1px solid var(--line-soft); }
+.uh-state { font-size: 12px; color: var(--warn); }
+.uh-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap: 10px; }
+.uh-card { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.uh-card-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.uh-title { font-weight: 600; color: var(--ink-strong); font-size: 13px; }
+.uh-sub { font-size: 11.5px; }
+.uh-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 2px; }
+.uh-stat { display: flex; flex-direction: column; font-size: 13px; }
+.uh-stat b { color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.uh-stat-label { font-size: 11px; color: var(--dim); }
+.uh-plot { position: relative; width: 100%; }
+.uh-plot svg { display: block; overflow: visible; }
+.uh-gridline { stroke: var(--line-soft); stroke-width: 1; }
+.uh-axis { fill: var(--dim); font-size: 10.5px; }
+.uh-line { fill: none; stroke: var(--uh-series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.uh-dot, .uh-end { fill: var(--uh-series); stroke: var(--panel); stroke-width: 2; }
+.uh-proj { fill: none; stroke: var(--uh-series); stroke-width: 2; stroke-dasharray: 6 4; opacity: .8; }
+.uh-proj-label { fill: var(--ink); font-size: 10.5px; font-style: italic; }
+.uh-future { fill: var(--uh-future); }
+.uh-now { stroke: var(--dim); stroke-width: 1; }
+.uh-reset { stroke: var(--ink); stroke-width: 1; opacity: .7; }
+.uh-next-reset { stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 1 4; stroke-linecap: round; }
+.uh-down { opacity: .5; }
+.uh-hatch-line { stroke: var(--dim); stroke-width: 2; }
+.uh-cross { stroke: var(--dim); stroke-width: 1; }
+.uh-tip { position: absolute; top: -6px; transform: translateX(-50%); background: var(--tip-panel); color: var(--ink-strong);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; font-size: 11.5px; white-space: nowrap; pointer-events: none; }
+.uh-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; align-items: baseline; }
+.uh-table-btn { margin-left: auto; font-size: 11.5px; background: none; border: 0; padding: 0; color: var(--dim); text-decoration: underline; cursor: pointer; }
+.uh-table { width: 100%; font-size: 12px; margin-top: 4px; border-collapse: collapse; }
+.uh-table td, .uh-table th { text-align: left; padding: 1px 6px; border-bottom: 1px solid var(--line-soft); }
+.uh-empty-series { font-size: 12.5px; padding: 6px 0; }
 /* the documents gallery (user request 2026-09-03) — SHAPED ON THE MAIL PANEL
    at the user's instruction ("the gallery ui should probably resemble the mail
    ui"), so it wears .mailer / .mailer-list / .mailrow / .mailer-read as-is and

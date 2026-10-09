@@ -22,7 +22,7 @@
 // all of them. Rendering that through a label API would mean flattening it to
 // text and losing the thing the list is for.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { DataUsageIcon, HomeIcon, MenuIcon, SettingsIcon } from '../icons'
+import { DataUsageIcon, HomeIcon, MenuIcon, SettingsIcon, ShowChartIcon } from '../icons'
 import { orgFreshnessNote } from '../orgstatus'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
@@ -41,6 +41,8 @@ export interface OrgtreeMenuProps {
   onNewWindow: () => void
   onCreateOrg: () => void
   onUsage: () => void
+  /** the usage history panel, listed right under Usage (user 2026-10-09) */
+  onUsageHistory?: () => void
   onAppSettings: () => void
   /** told whenever the organization list inside the menu opens or closes.
    *  ⚠ THIS IS NOT COSMETIC: the org-status poller runs while a list is on
@@ -76,7 +78,7 @@ interface SubPos { left: number; top: number; flip: boolean }
 
 export function OrgtreeMenu(props: OrgtreeMenuProps) {
   const { orgs, freshness, ageMs, error, currentOrg, isOpenElsewhere,
-    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onAppSettings } = props
+    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onAppSettings } = props
   const [open, setOpen] = useState(false)
   // THE ORGANIZATION LIST IS A SUBMENU (user 2026-09-29, image-21: "this open
   // organization should open a submenu to the right side, not expand a new
@@ -293,6 +295,13 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
             <DataUsageIcon fontSize="inherit" />
             <span className="shell-menu-label">Usage…</span>
           </button>
+          {onUsageHistory && (
+            <button type="button" role="menuitem" className="shell-menu-item"
+              onClick={() => run(onUsageHistory)}>
+              <ShowChartIcon fontSize="inherit" />
+              <span className="shell-menu-label">Usage history…</span>
+            </button>
+          )}
           <button type="button" role="menuitem" className="shell-menu-item"
             onClick={() => run(onAppSettings)}>
             <SettingsIcon fontSize="inherit" />
