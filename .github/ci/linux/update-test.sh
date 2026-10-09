@@ -24,6 +24,8 @@ apps="$HOME/Applications"; app="$apps/Orgtree-$vN.AppImage"
 profile="$HOME/.config/Orgtree v2"   # the release identity's userData
 unit=orgtree-engine.service
 autostart="$HOME/.config/autostart/orgtree-engine.desktop"   # the app's fallback without systemd --user
+shim_dir="$HOME/.local/bin"   # on the runner's PATH (and a desktop's), ahead of /usr/bin
+systemctl_log="$logs/systemctl-calls.log"; made_harness=
 budget=${UPDATE_TEST_BUDGET:-420}
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 step() { echo "--- $*"; }
@@ -32,7 +34,7 @@ step() { echo "--- $*"; }
 procs() { node "$here/appimage-procs.mjs" "$app"; }
 pids_of() { procs | awk -v role="$1" '$3 == role { print $1 }'; }
 version_of() { procs | awk -v pid="$1" '$1 == pid { print $4 }'; }
-main_pid() { systemctl --user show -p MainPID --value "$unit" 2>/dev/null || echo 0; }
+main_pid() { /usr/bin/systemctl --user show -p MainPID --value "$unit" 2>/dev/null || echo 0; }
 engine_port() { local f; f=$(find "$profile" -name engine-port.json 2>/dev/null | head -1); [ -n "$f" ] && grep -o '[0-9]*' "$f" | head -1; }
 update_log() {
   node -e 'for (const e of JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")))
@@ -44,7 +46,8 @@ diagnostics() {
   echo "--- update-log.json"; update_log
   echo "--- running from $app (pid ppid role version)"; procs
   echo "--- processes"; ps -eo pid,ppid,etimes,args | grep -E 'Orgtree|orgtree|mount_Orgtre|Xvfb' | grep -v grep | cut -c1-220
-  echo "--- $unit"; systemctl --user status "$unit" --no-pager 2>&1 | head -20
+  echo "--- $unit"; /usr/bin/systemctl --user status "$unit" --no-pager 2>&1 | head -20
+  echo "--- systemctl calls (the logging shim in $shim_dir)"; cat "$systemctl_log" 2>/dev/null
   echo "--- $apps"; ls -la "$apps"
   echo "--- the first app's output (the relaunched one's goes nowhere)"; grep -v appimage_extracted "$logs/app.out" | tail -40
   find "$profile" -path '*diagnostics/logs/*' -type f 2>/dev/null | while read -r f; do echo "--- $f"; tail -30 "$f"; done
@@ -59,19 +62,20 @@ teardown() {
   cp -r "$profile/diagnostics" "$logs/app-diagnostics" 2>/dev/null
   cp "$autostart" "$logs/" 2>/dev/null
   for p in $(pids_of desktop); do kill -TERM "$p"; done
-  systemctl --user disable --now "$unit" >/dev/null 2>&1
-  rm -f "$HOME/.config/systemd/user/$unit" "$autostart"; systemctl --user daemon-reload
+  /usr/bin/systemctl --user disable --now "$unit" >/dev/null 2>&1
+  rm -f "$HOME/.config/systemd/user/$unit" "$autostart"; /usr/bin/systemctl --user daemon-reload
   # a host the app started outside systemd (the autostart fallback) passes SIGTERM to its engine
   for p in $(pids_of host); do kill -TERM "$p"; done
   for _ in $(seq 1 30); do [ -z "$(procs)" ] && break; sleep 1; done
   left=$(procs); if [ -n "$left" ]; then echo "::warning::killing what did not stop:"; echo "$left"; echo "$left" | awk '{ print $1 }' | xargs -r kill -KILL; fi
   [ -n "${feedpid:-}" ] && kill "$feedpid"
   [ -n "${xvfbpid:-}" ] && kill "$xvfbpid"
+  rm -f "$shim_dir/systemctl"; [ -n "$made_harness" ] && rm -f "$shim_dir/claude"
   bash "$here/../unix/hub-gone.sh" 7370 || { pkill -KILL -f orgtree-mailhub; exit 1; }
 }
 
 step "pre-flight"
-systemctl --user show-environment >/dev/null 2>&1 || fail "systemd --user is not available (the background engine steps enable lingering first)"
+/usr/bin/systemctl --user show-environment >/dev/null 2>&1 || fail "systemd --user is not available (the background engine steps enable lingering first)"
 [ -e "$HOME/.config/systemd/user/$unit" ] && fail "$unit is already registered: an earlier step left it"
 pgrep -af "orgtree-engine|mount_Orgtre" && fail "Orgtree is already running"
 if [ -e "$profile" ]; then echo "moving an earlier step's profile aside"; mv "$profile" "$work/earlier-profile"; fi
@@ -116,6 +120,22 @@ for _ in $(seq 1 40); do [ -S /tmp/.X11-unix/X77 ] && curl -sf -o /dev/null "${f
 [ -S /tmp/.X11-unix/X77 ] || fail "Xvfb did not start"
 curl -sf -o /dev/null "${feed}latest-linux.yml" || fail "the loopback feed did not answer"
 
+mkdir -p "$shim_dir"
+# Orgtree's users have an agent CLI. Without one, the desktop's start-up waits on a
+# "No agent harness" dialog that nobody clicks on a runner, and the updater only starts
+# after it (index.ts, detectHarnesses), so a stand-in `claude` that does nothing.
+if ! command -v claude >/dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' >"$shim_dir/claude"; chmod +x "$shim_dir/claude"; made_harness=1; fi
+# Every systemctl the app runs, logged with its outcome, then passed to the real one: the
+# app picks systemd or the autostart fallback from `systemctl --user show-environment`.
+export UPDATE_TEST_SYSTEMCTL_LOG="$systemctl_log"
+cat >"$shim_dir/systemctl" <<'SHIM'
+#!/bin/sh
+err=$(mktemp); /usr/bin/systemctl "$@" 2>"$err"; code=$?
+{ printf '%s pid %s ppid %s: systemctl %s; XDG_RUNTIME_DIR=%s DBUS_SESSION_BUS_ADDRESS=%s; exit %s; stderr: ' "$(date -u +%H:%M:%S)" "$$" "$PPID" "$*" \
+  "${XDG_RUNTIME_DIR-(unset)}" "${DBUS_SESSION_BUS_ADDRESS-(unset)}" "$code"; tr '\n' ' ' <"$err"; echo; } >>"${UPDATE_TEST_SYSTEMCTL_LOG:-/dev/null}"
+cat "$err" >&2; rm -f "$err"; exit "$code"
+SHIM
+chmod +x "$shim_dir/systemctl"; : >"$systemctl_log"
 launch() { (cd "$HOME" && setsid "$app" "$@" >>"$logs/app.out" 2>&1 </dev/null &); }
 step "starting Orgtree $vN the way a launcher does: $app, no arguments"
 # (electron-builder's AppRun adds --no-sandbox by itself where user namespaces are unavailable)
@@ -130,7 +150,8 @@ done
 [ -n "$hostN" ] || fail "Orgtree $vN started no background engine host"
 echo "running from $app (pid ppid role version):"; procs | sed 's/^/  /'
 echo "the desktop's environment:"; tr '\0' '\n' <"/proc/$pidN/environ" | grep -E '^(XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|LD_LIBRARY_PATH)=' | sed 's/^/  /' || true
-if systemctl --user is-active --quiet "$unit"; then
+echo "the systemctl calls so far:"; sed 's/^/  /' "$systemctl_log"
+if /usr/bin/systemctl --user is-active --quiet "$unit"; then
   manager=systemd; hostN=$(main_pid)
 else
   manager=autostart
@@ -150,7 +171,7 @@ while [ $SECONDS -lt $deadline ]; do
   if [ -n "$swapped" ]; then
     now=$(procs); desktops=$(echo "$now" | awk '$3 == "desktop"')
     if [ "$manager" = systemd ]; then
-      host=; systemctl --user is-active --quiet "$unit" && host=$(main_pid)
+      host=; /usr/bin/systemctl --user is-active --quiet "$unit" && host=$(main_pid)
     else
       host=$(echo "$now" | awk -v v="$vN1" '$3 == "host" && $4 == v { print $1; exit }')
     fi
