@@ -467,3 +467,25 @@ All entries are dated 2026-10-06 unless stated otherwise.
       repeat it.
 
     Proof: `tools/rig/proofs/ticket-list.mjs`.
+
+65. **Teams are flat by default** (user 2026-10-09 12:39Z: "Keep a team flat by default.
+    Subdivide it (put a manager between you and a group of reports) only when coordinating and
+    collaborating with all your direct reports starts to take up too much bandwidth for one
+    agent."). The agent instructions said nothing about a team's shape, and the bundled
+    coordinator charter preset said the opposite of the exception: "ONE AGENT PER PIECE, HIRED
+    DIRECTLY UNDER YOU … Never hire deeper".
+    - **Instructions** (`runtime/identity.rs`, every agent, after the hiring and rehire
+      guidance): "KEEP A TEAM FLAT BY DEFAULT. Subdivide it (put a manager between you and a
+      group of reports) only when coordinating and collaborating with all your direct reports
+      starts to take up too much bandwidth for one agent."
+    - **Coordinator preset** (`engine/docs/charters/coordinator.md`, rule 6): "Never hire
+      deeper" is replaced by the same rule. Hiring each piece directly under you, checking
+      nobody already does it, and never policing how reports staff their own pieces stay.
+    - Nothing else in the engine's prompt text, the tool descriptions or the other presets
+      speaks of team depth.
+
+    The rule is identity text, so every agent's system-prompt fingerprint changes once: each
+    respawns (resuming its session) at its first turn after the build. A user copy of the
+    presets (`~/.orgtree/charters/`, made by "populate") shadows the bundled file and keeps the
+    old wording, as do the charters of agents already hired from it. Proof:
+    `tools/rig/proofs/team-shape.mjs`.
