@@ -5,7 +5,7 @@ could run". It was not retried, and the agent stalled for two hours. 3.x
 reference: `supervisor.py`'s terminal belt and `_turn_abandoned` (SH-4, user
 ruling 2026-09-12).
 
-## What happened on nick-pc (measured in its logs)
+## What happened on a second test PC (measured in its logs)
 
 The quoted wording is 3.x's. At 10:07:41Z the desktop shut the 3.2 backend down
 to install 4.0.0. The turn being started died a second later, when its database

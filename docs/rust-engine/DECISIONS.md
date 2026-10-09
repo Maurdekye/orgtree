@@ -159,7 +159,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - Log lines have sub-millisecond timestamps.
     - Each engine start writes its own log file, named with the start time.
     - Log files are kept for 30 days.
-    - The style is borrowed from the galaxy-star backend (nick-pc): `LEVEL [time] T… RQ… EX… message`
+    - The style is borrowed from the galaxy-star backend: `LEVEL [time] T… RQ… EX… message`
       lines, `module.fn(args)` call lines and `module.fn(...) -> value` return lines (`!!` for an
       error), REQUEST/HEADERS/RESPONSE lines per HTTP request, `*****` for sensitive fields,
       multiline messages split into prefixed lines, and daily/size rollover to gzip archives.

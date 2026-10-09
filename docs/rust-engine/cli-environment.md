@@ -34,7 +34,7 @@ use.
 
 ## How the CLI decides (measured in the binary)
 
-Claude Code 2.1.292 on this machine and 2.1.280 on nick-pc use the same gate:
+Claude Code 2.1.292 on this machine and 2.1.280 on a second test PC use the same gate:
 
 ```js
 function cv(){let e=a.CLAUDE_CODE_USE_POWERSHELL_TOOL;if(M()!=="windows")return e===!0;
