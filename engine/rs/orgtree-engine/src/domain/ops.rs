@@ -855,10 +855,22 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         .get(0);
     stamp_harness(engine, tx, id, &tier, true).await?;
     if let Some(h) = str_arg(req, "harness") {
-        if !catalog::is_openrouter(&tier) || !["claude-code", "codex-cli"].contains(&h) {
-            refuse!(BadRequest, "harness is claude-code or codex-cli for an OpenRouter hire");
+        if catalog::is_openrouter(&tier) {
+            if !["claude-code", "codex-cli"].contains(&h) {
+                refuse!(BadRequest, "harness is claude-code or codex-cli for an OpenRouter hire");
+            }
+            tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text) WHERE id = $1", &[&id, &h]).await?;
+        } else {
+            // any other tier always runs on its own CLI: naming that one is a no-op
+            let native = match catalog::provider_of(&tier) {
+                catalog::OPENAI => "codex-cli",
+                catalog::GOOGLE => "antigravity",
+                _ => "claude-code",
+            };
+            if h != native {
+                refuse!(BadRequest, "harness only applies to OpenRouter tiers; {tier} always runs on {native}");
+            }
         }
-        tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text) WHERE id = $1", &[&id, &h]).await?;
     }
     if let Some(a) = &anchor {
         tx.execute("UPDATE ot.agents SET parent_id = $2, sibling_order = 1, row_version = row_version + 1 WHERE id = $1", &[&a.id, &id])
