@@ -305,13 +305,23 @@ async fn name_free(tx: &Transaction<'_>, org_id: i64, name: &str) -> Result<()> 
 }
 
 /// An OpenRouter seat keeps the harness it starts on: stamped at hire (and
-/// on a move into the lane), kept on a rehire.
+/// on a move into the lane), kept on a rehire. A language-server seat runs
+/// on its server's harness, stamped the same way for every reader of
+/// `extra.harness` (the server's own setting stays the authority at launch).
 #[logged]
 async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str, replace: bool) -> Result<()> {
-    if !catalog::is_openrouter(tier) {
+    let h = if catalog::is_openrouter(tier) {
+        crate::openrouter::selected_harness(engine)
+    } else if catalog::is_langserver(tier) {
+        match crate::langserver::route_of(engine, tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string)) {
+            Some(h) => h,
+            None => return Ok(()),
+        }
+    } else {
         return Ok(());
-    }
-    let h = crate::openrouter::selected_harness(engine);
+    };
+    // a language server's harness is fixed: always restamp it
+    let replace = replace || catalog::is_langserver(tier);
     tx.execute(
         "UPDATE ot.agents SET extra = CASE WHEN $3 OR NOT (coalesce(extra, '{}'::jsonb) ? 'harness')
                                     THEN coalesce(extra, '{}'::jsonb) || jsonb_build_object('harness', $2::text)
@@ -351,7 +361,7 @@ fn validate_account(engine: &Engine, org_slug: &str, tier: &str, raw: Option<&st
     Ok(())
 }
 
-/// The seat price of a tier (catalog or an OpenRouter favorite).
+/// The seat price of a tier (catalog, an OpenRouter favorite, or a language server's model).
 #[logged]
 fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
     if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
@@ -362,6 +372,12 @@ fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
     }
     if let Some((_, seat, _)) = engine.providers.openrouter_tiers().into_iter().find(|(t, _, _)| t == tier) {
         return Ok(seat);
+    }
+    if catalog::is_langserver(tier) {
+        if crate::langserver::route_of(engine, tier).is_some() {
+            return Ok(crate::langserver::SEAT);
+        }
+        refuse!(NotFound, "{tier} is not a model of any language server this app knows (App settings › Providers › Language Server)");
     }
     refuse!(BadRequest, "unknown tier {tier}")
 }
@@ -863,9 +879,13 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         } else {
             // any other tier always runs on its own CLI: naming that one is a no-op
             let native = match catalog::provider_of(&tier) {
-                catalog::OPENAI => "codex-cli",
-                catalog::GOOGLE => "antigravity",
-                _ => "claude-code",
+                catalog::OPENAI => "codex-cli".to_string(),
+                catalog::GOOGLE => "antigravity".to_string(),
+                // a language server's harness is the one it was added with
+                catalog::LANGSERVER => crate::langserver::route_of(engine, &tier)
+                    .and_then(|(s, _)| s["harness"].as_str().map(str::to_string))
+                    .unwrap_or_else(|| "claude-code".to_string()),
+                _ => "claude-code".to_string(),
             };
             if h != native {
                 refuse!(BadRequest, "harness only applies to OpenRouter tiers; {tier} always runs on {native}");

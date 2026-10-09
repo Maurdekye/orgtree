@@ -46,6 +46,10 @@ pub struct LiveView {
 const KEEP_ALIVE: Duration = Duration::from_secs(600);
 const ACTOR_IDLE_EXIT: Duration = Duration::from_secs(60);
 const MCP_WAIT: Duration = Duration::from_secs(30);
+/// The language-server lane's own Claude config folder and Codex home
+/// (under `<data>\profiles`): no login lives there, so none can reach a server.
+const LANGSERVER_CLAUDE_CONFIG: &str = "langserver-claude";
+const LANGSERVER_CODEX_HOME: &str = "langserver-codex";
 
 #[logged]
 pub fn spawn(engine: Arc<Engine>, handle: Arc<AgentHandle>, rx: mpsc::UnboundedReceiver<Envelope>) {
@@ -138,16 +142,18 @@ struct Ctx {
     handoff_due: Option<String>,
 }
 
-/// How an OpenRouter seat reaches the gateway (the key never prints).
+/// How a gateway seat reaches its endpoint: OpenRouter, or one of the
+/// user's language servers (`local`). The key never prints.
 struct OrRoute {
     key: String,
     codex: bool,
     reasoning: bool,
+    local: Option<crate::langserver::Route>,
 }
 
 impl std::fmt::Debug for OrRoute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OrRoute {{ key: *****, codex: {}, reasoning: {} }}", self.codex, self.reasoning)
+        write!(f, "OrRoute {{ key: *****, codex: {}, reasoning: {}, local: {:?} }}", self.codex, self.reasoning, self.local)
     }
 }
 
@@ -1080,7 +1086,8 @@ impl Actor {
         let row = client
             .query_one(
                 "SELECT a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL, o.killswitch IS NOT NULL,
-                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice), a.frozen
+                        EXISTS (SELECT 1 FROM ot.mail m WHERE m.recipient_agent_id = a.id AND m.state = 'pending' AND NOT m.notice), a.frozen,
+                        a.tier
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id WHERE a.id = $1",
                 &[&self.id],
             )
@@ -1100,7 +1107,17 @@ impl Actor {
             return Ok(());
         }
         self.waiting_since = Some(Utc::now());
-        let rx = self.engine.sched.want(self.org_id, self.id);
+        // a language-server seat also needs room under its server's agents-at-once cap
+        let tier: String = row.get(6);
+        let lane = if catalog::is_langserver(&tier) {
+            crate::langserver::route_of(&self.engine, &tier).map(|(s, _)| {
+                let cap = s["max_agents"].as_i64().unwrap_or(1).clamp(1, 64) as usize;
+                (format!("langserver:{}", s["id"].as_str().unwrap_or("")), cap)
+            })
+        } else {
+            None
+        };
+        let rx = self.engine.sched.want(self.org_id, self.id, lane);
         let tx = self.tx.clone();
         crate::trace::spawn(async move {
             if let Ok(slot) = rx.await {
@@ -1224,11 +1241,20 @@ impl Actor {
         } else {
             model
         };
+        // a language-server tier runs its server's model id, on its server's harness
+        let local = if catalog::is_langserver(&tier) { crate::langserver::route_of(&self.engine, &tier) } else { None };
+        let model = match &local {
+            Some((_, m)) => m["id"].as_str().map(str::to_string).unwrap_or(model),
+            None => model,
+        };
         let harness = if openrouter {
             Some(r.get::<_, Option<String>>(20).unwrap_or_else(|| crate::openrouter::selected_harness(&self.engine)))
+        } else if let Some((s, _)) = &local {
+            s["harness"].as_str().map(str::to_string)
         } else {
             None
         };
+        let local_window = local.as_ref().map(|(_, m)| crate::langserver::context_of(m) as i32);
         let effort = catalog::effective_effort(&configured, &settings);
         let fallback = configured
             .get("account_fallback")
@@ -1278,7 +1304,10 @@ impl Actor {
             compact_at,
             cold_reset,
             occupancy: r.get(25),
-            context_window: r.get::<_, Option<i32>>(26).or_else(|| catalog::tier(&r.get::<_, String>(2)).and_then(|t| t.context).map(|c| c as i32)),
+            // a language-server model's window is the one the CLI is told (its setting can change any time)
+            context_window: local_window
+                .or_else(|| r.get::<_, Option<i32>>(26))
+                .or_else(|| catalog::tier(&r.get::<_, String>(2)).and_then(|t| t.context).map(|c| c as i32)),
             context_measured: !r.get::<_, bool>(27) && !r.get::<_, bool>(28),
             limit_locked: r.get(29),
             handoff_due: r.get(21),
@@ -1301,7 +1330,15 @@ impl Actor {
             anyhow!("this agent runs on an OpenRouter tier and no OpenRouter API key is set (App settings › Providers › OpenRouter)")
         })?;
         let codex = ctx.harness.as_deref() == Some("codex-cli");
-        Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false) })
+        Ok(OrRoute { key, codex, reasoning: fav["reasoning"].as_bool().unwrap_or(false), local: None })
+    }
+
+    /// What a language-server seat needs before it can launch: the lane on,
+    /// its server and model still configured, the server enabled.
+    async fn langserver_route(&self, ctx: &Ctx) -> Result<OrRoute> {
+        let r = crate::langserver::route(&self.engine, &ctx.tier).await?;
+        // no effort is sent: a local model's reasoning switch is its own
+        Ok(OrRoute { key: r.key.clone(), codex: r.codex, reasoning: false, local: Some(r) })
     }
 
     /// The system prompt for this launch (runtime::identity). Reads the
@@ -1446,6 +1483,8 @@ impl Actor {
             let apikey = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).map(|a| a.is_apikey())).unwrap_or(false);
             let home = if ctx.provider == catalog::OPENROUTER {
                 self.engine.cfg.path("profiles").join("openrouter-codex")
+            } else if ctx.provider == catalog::LANGSERVER {
+                self.engine.cfg.path("profiles").join(LANGSERVER_CODEX_HOME)
             } else if apikey {
                 self.engine.cfg.path("profiles").join(format!("openai-key-{}", ctx.account.clone().unwrap_or_default()))
             } else {
@@ -1456,7 +1495,13 @@ impl Actor {
         if ctx.provider == catalog::GOOGLE {
             return startup::Inputs::None;
         }
-        let config = if ctx.provider == catalog::OPENROUTER { None } else { self.config_dir_of(ctx.account.as_deref()) };
+        let config = if ctx.provider == catalog::OPENROUTER {
+            None
+        } else if ctx.provider == catalog::LANGSERVER {
+            Some(self.engine.cfg.path("profiles").join(LANGSERVER_CLAUDE_CONFIG).to_string_lossy().to_string())
+        } else {
+            self.config_dir_of(ctx.account.as_deref())
+        };
         let add_dirs = ctx.effective["add_dirs"].as_array().into_iter().flatten()
             .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
         startup::Inputs::Claude {
@@ -1693,8 +1738,22 @@ impl Actor {
             "CLAUDECODE".into(),
             "CLAUDE_CODE_ENTRYPOINT".into(),
         ];
-        let config_dir = if route.is_some() { None } else { self.config_dir_of(ctx.account.as_deref()) };
-        if let Some(r) = &route {
+        let local = route.and_then(|r| r.local.as_ref());
+        let config_dir = if let Some(_l) = local {
+            // its own config folder: no saved login to send to the server, and
+            // no user settings whose `env` block would override this launch's
+            let dir = self.engine.cfg.path("profiles").join(LANGSERVER_CLAUDE_CONFIG);
+            std::fs::create_dir_all(&dir)?;
+            Some(dir.to_string_lossy().to_string())
+        } else if route.is_some() {
+            None
+        } else {
+            self.config_dir_of(ctx.account.as_deref())
+        };
+        if let Some(l) = local {
+            env.extend(crate::langserver::claude_env(l));
+            env_remove.extend(crate::langserver::CLAUDE_ENV_REMOVE.iter().map(|v| v.to_string()));
+        } else if let Some(r) = &route {
             // OpenRouter's Claude Code recipe: the Anthropic-compatible base, the key
             // as the auth token, ANTHROPIC_API_KEY empty (a set key wins over the
             // token), and every model the CLI could reach for pinned to the hired one
@@ -1763,7 +1822,13 @@ impl Actor {
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
         // The S4U boot warning comes from the cached credential context
         // (probed at start and on session change), never a probe per spawn.
-        let route = if ctx.provider == catalog::OPENROUTER { Some(self.openrouter_route(ctx).await?) } else { None };
+        let route = if ctx.provider == catalog::OPENROUTER {
+            Some(self.openrouter_route(ctx).await?)
+        } else if ctx.provider == catalog::LANGSERVER {
+            Some(self.langserver_route(ctx).await?)
+        } else {
+            None
+        };
         self.account_gate(ctx, route.as_ref())?;
         if ctx.provider == catalog::OPENAI || route.as_ref().map(|r| r.codex).unwrap_or(false) {
             return self.ensure_codex(ctx, route.as_ref()).await;
@@ -1863,9 +1928,11 @@ impl Actor {
         };
         std::fs::create_dir_all(&ctx.scratch)?;
         // a key account runs in its own empty home, so the ambient login never bills it
+        let local = route.and_then(|r| r.local.as_ref());
         let (codex_home, api_key) = if route.is_some() {
-            // its own home: the host login never holds OpenRouter threads
-            let home = self.engine.cfg.path("profiles").join("openrouter-codex");
+            // its own home: the host login never holds OpenRouter (or
+            // language-server) threads, and no login is ever sent to a server
+            let home = self.engine.cfg.path("profiles").join(if local.is_some() { LANGSERVER_CODEX_HOME } else { "openrouter-codex" });
             std::fs::create_dir_all(&home)?;
             (Some(home.to_string_lossy().to_string()), None)
         } else if apikey {
@@ -1891,7 +1958,12 @@ impl Actor {
         let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
         let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
         let (mut config, _attached) = codexrt::mcp_overrides(&external);
-        if route.is_some() {
+        if let Some(l) = local {
+            // the server's window and the org's compaction threshold come with it
+            let mut gateway = crate::langserver::codex_overrides(l, ctx.compact_at);
+            gateway.append(&mut config);
+            config = gateway;
+        } else if route.is_some() {
             let mut gateway = crate::openrouter::codex_overrides(&ctx.model);
             gateway.append(&mut config);
             config = gateway;
@@ -1900,7 +1972,7 @@ impl Actor {
         let window = catalog::tier(&ctx.tier).and_then(|t| t.context).map(|c| c as f64).or_else(|| {
             crate::openrouter::favorite(&self.engine, &ctx.tier).and_then(|f| f["context"].as_f64()).filter(|c| *c > 0.0)
         });
-        if let Some(w) = window {
+        if let Some(w) = window.filter(|_| local.is_none()) {
             config.push("-c".into());
             config.push(format!("model_auto_compact_token_limit={}", (w * ctx.compact_at) as i64));
         }
@@ -1941,7 +2013,8 @@ impl Actor {
                                    ("ORGTREE_ORG".into(), ctx.org_slug.clone())];
                 env.extend(bridge_env);
                 if let Some(r) = route {
-                    env.push((crate::openrouter::KEY_ENV.into(), r.key.clone()));
+                    let var = if r.local.is_some() { crate::langserver::KEY_ENV } else { crate::openrouter::KEY_ENV };
+                    env.push((var.into(), r.key.clone()));
                 }
                 env
             },
@@ -3933,7 +4006,11 @@ impl Actor {
         // an OpenRouter seat on Claude Code is priced from its favorite's rates
         // (the CLI's own counter does not know the gateway's prices)
         let openrouter = self.provider == catalog::OPENROUTER;
-        let cost = if openrouter && !codex {
+        // a language server is the user's own hardware: nothing is billed
+        let langserver = self.provider == catalog::LANGSERVER;
+        let cost = if langserver {
+            0.0
+        } else if openrouter && !codex {
             let tier = self.tier().await;
             match crate::openrouter::prices(&self.engine, &tier) {
                 Some((pi, pc, po)) => {
@@ -4003,7 +4080,7 @@ impl Actor {
         if let (Some(e), false) = (error.as_deref(), turn.interrupted || turn.killed || freeze_rec.is_some()) {
             let died = turn.exited && turn.activity && res.is_null();
             let account = turn.serving_account.as_deref();
-            match recovery::classify(e, &res, openrouter, died) {
+            match recovery::classify(e, &res, openrouter || langserver, died) {
                 Some(recovery::Class::Net(kind)) => {
                     classified = true;
                     let run = recovery::bump(&self.engine, self.id, "net_fail_run").await?;
@@ -4015,7 +4092,7 @@ impl Actor {
                 }
                 Some(recovery::Class::Auth) => {
                     classified = true;
-                    freeze_rec = Some(recovery::auth_freeze(e, account, openrouter));
+                    freeze_rec = Some(recovery::auth_freeze(e, account, &self.provider));
                     parked = Some("auth");
                     if openrouter {
                         // the panel's "connected" must not outlive the refusal
@@ -4081,7 +4158,7 @@ impl Actor {
                 &[
                     &turn.id, &cost, &output, &input, &cache_read, &cache_write, &ttl, &ms, &(denials.len() as i32),
                     &turn.killed, &error, &turn.model, &(if agy && catalog::antigravity_claude(&turn.serving_tier) { "unknown" }
-                        else if codex || agy || openrouter { "priced" } else { "cli" }),
+                        else if langserver { "local" } else if codex || agy || openrouter { "priced" } else { "cli" }),
                 ],
             )
             .await?;
@@ -4373,7 +4450,8 @@ impl Actor {
         let compact = text.trim() == "/compact" || text.trim().starts_with("/compact ");
         let ctx = self.load_ctx().await?;
         let claude_code = ctx.provider == catalog::CLAUDE
-            || (ctx.provider == catalog::OPENROUTER && ctx.harness.as_deref() != Some("codex-cli"));
+            || ((ctx.provider == catalog::OPENROUTER || ctx.provider == catalog::LANGSERVER)
+                && ctx.harness.as_deref() != Some("codex-cli"));
         if !claude_code {
             return Ok(json!({ "started": false,
                               "reason": "slash commands are Claude Code's; compact this agent with cheap compact instead" }));
@@ -4564,7 +4642,7 @@ impl Actor {
     fn forecast_for(&self, ctx: &Ctx) -> Value {
         let lane = match ctx.provider.as_str() {
             p if p == catalog::OPENAI => "codex",
-            p if p == catalog::OPENROUTER && ctx.harness.as_deref() == Some("codex-cli") => "codex",
+            p if (p == catalog::OPENROUTER || p == catalog::LANGSERVER) && ctx.harness.as_deref() == Some("codex-cli") => "codex",
             p if p == catalog::GOOGLE => "antigravity",
             _ => "claude",
         };
@@ -4590,6 +4668,14 @@ impl Actor {
                            "source": "authoritative_receipt", "lane": lane, "changed_inputs": changed,
                            "last_receipt_at": receipt_at, "ttl_seconds": null, "expires_at": null,
                            "precompact_action": action });
+        }
+        // a language server keeps its own prompt cache in its memory and says
+        // nothing about it: no expiry to count down, nothing to reset for
+        if ctx.provider == catalog::LANGSERVER {
+            return json!({ "generation": generation, "state": "uncertain", "readiness": "unknown",
+                           "readiness_cause": "unsupported_capability", "reason": "a language server publishes no cache data",
+                           "source": "unsupported_capability", "lane": lane, "last_receipt_at": receipt_at,
+                           "ttl_seconds": null, "expires_at": null });
         }
         let Some((at, ttl)) = self.receipt else {
             return json!({ "generation": generation, "state": "uncertain", "readiness": "not_ready",

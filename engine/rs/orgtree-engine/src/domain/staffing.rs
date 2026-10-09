@@ -50,7 +50,26 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
             out.push(Offer { tier, seat, provider: catalog::OPENROUTER, efforts: catalog::EFFORTS.to_vec() });
         }
     }
+    // the offered models of every enabled language server whose harness is
+    // installed (no effort: a local model's reasoning switch is its own)
+    if engine.settings.provider_enabled(catalog::LANGSERVER) {
+        for (tier, seat, _, _, _) in crate::langserver::tiers(engine) {
+            let harness_ok = crate::langserver::route_of(engine, &tier)
+                .map(|(s, _)| if s["harness"].as_str() == Some("codex-cli") { st.codex.installed } else { st.claude.installed })
+                .unwrap_or(false);
+            if harness_ok {
+                out.push(Offer { tier, seat, provider: catalog::LANGSERVER, efforts: Vec::new() });
+            }
+        }
+    }
     out
+}
+
+/// A lane that bills no account: OpenRouter's stored key, or the user's own
+/// language servers. Its hires name no account and need no sign-in.
+#[nolog]
+fn accountless(provider: &str) -> bool {
+    provider == catalog::OPENROUTER || provider == catalog::LANGSERVER
 }
 
 /// Whether a hire that names no account can run `provider`: the host login
@@ -60,7 +79,7 @@ fn runnable_tiers(engine: &Engine) -> Vec<Offer> {
 fn host_ready(engine: &Engine, provider: &str) -> bool {
     let st = engine.providers.state.load();
     let signed_in = match provider {
-        catalog::OPENROUTER => return true,
+        catalog::OPENROUTER | catalog::LANGSERVER => return true,
         catalog::CLAUDE => st.claude.connected,
         catalog::OPENAI => st.codex.connected,
         catalog::GOOGLE => st.agy.installed,
@@ -160,10 +179,10 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
         .filter_map(|t| {
             let mut m = json!({ "tier": t.tier, "seat": t.seat, "efforts": t.efforts });
             if !request {
-                let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, &t.tier, &org.slug) };
+                let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, &org.slug) };
                 // the user's hard rule: never a model on a login whose window it spends is at 100%
                 let host = host_ready(engine, t.provider)
-                    && (t.provider == catalog::OPENROUTER
+                    && (accountless(t.provider)
                         || crate::usage::at_limit(engine, default_login(engine, org_default.as_deref(), &t.tier).as_ref(), &t.tier).is_none());
                 if accounts.is_empty() && !host {
                     return None;
@@ -235,7 +254,7 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
         }
         // the commit asks the menu's question again (3.x staffcache): never a
         // model on a login whose window it spends is at 100%
-        if mode != "request" && info.provider != catalog::OPENROUTER {
+        if mode != "request" && !accountless(info.provider) {
             match account {
                 Some(a) if !eligible_accounts(engine, t, &org.slug).iter().any(|x| x["id"].as_str() == Some(a)) => {
                     refuse!(Conflict, "{a} cannot run {t} right now: it is signed out, off or at its limit. Reopen Staff….");
@@ -430,7 +449,7 @@ pub fn options(engine: &Engine, org_slug: &str) -> Value {
     let tiers: Vec<Value> = runnable_tiers(engine)
         .into_iter()
         .filter_map(|t| {
-            let accounts = if t.provider == catalog::OPENROUTER { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
+            let accounts = if accountless(t.provider) { Vec::new() } else { eligible_accounts(engine, &t.tier, org_slug) };
             let host = host_ready(engine, t.provider);
             if accounts.is_empty() && !host {
                 return None;

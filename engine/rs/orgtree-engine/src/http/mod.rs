@@ -8,6 +8,7 @@ pub mod docs;
 pub mod dogs;
 pub mod docket;
 pub mod history;
+pub mod langserver;
 pub mod orginbox;
 pub mod reports;
 pub mod error;
@@ -131,6 +132,11 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/openrouter/harness", axum::routing::put(accounts::openrouter_harness))
         .route("/api/openrouter/models", get(accounts::openrouter_models))
         .route("/api/openrouter/favorites", axum::routing::put(accounts::openrouter_favorite))
+        // the user's own model servers (App settings › Providers › Language Server)
+        .route("/api/langservers", get(langserver::list).post(langserver::add))
+        .route("/api/langservers/probe", post(langserver::probe))
+        .route("/api/langservers/{id}", axum::routing::patch(langserver::update).delete(langserver::remove))
+        .route("/api/langservers/{id}/key", axum::routing::put(langserver::set_key))
         .route("/api/providers/{provider}/enabled", axum::routing::put(settings::provider_enabled))
         .route("/api/providers/{provider}/apikey-fallback", axum::routing::put(settings::provider_apikey_fallback))
         .route(

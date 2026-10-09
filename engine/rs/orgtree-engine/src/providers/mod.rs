@@ -407,6 +407,25 @@ pub fn payload(engine: &Engine) -> Value {
         }
         providers.push(e);
     }
+    // the user's own model servers: one entry for the lane, its tiers the
+    // offered models of every enabled server (shown once a server exists)
+    let servers = crate::langserver::servers(engine);
+    if !servers.is_empty() {
+        let tiers: Vec<Value> = crate::langserver::tiers(engine)
+            .into_iter()
+            .map(|(t, s, m, label, server)| {
+                json!({ "tier": t, "provider": catalog::LANGSERVER, "seat": s, "model": m, "letter": "L",
+                        "label": label, "name": format!("{label} · {server}") })
+            })
+            .collect();
+        let any = !tiers.is_empty();
+        let s = CliStatus { installed: true, connected: any, ..Default::default() };
+        let mut e = entry(catalog::LANGSERVER, "Language Server", "language server", &s, tiers);
+        if !any {
+            e["reason"] = json!("no language server offers a model yet (App settings › Providers › Language Server)");
+        }
+        providers.push(e);
+    }
     let map = |key: &str, default: bool| {
         let mut m = serde_json::Map::new();
         for p in [catalog::CLAUDE, catalog::OPENAI, catalog::GOOGLE] {

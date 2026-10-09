@@ -609,6 +609,7 @@ async fn provider_switch(e: Arc<Engine>, provider: String, key: &'static str, en
         crate::providers::catalog::OPENAI,
         crate::providers::catalog::GOOGLE,
         crate::providers::catalog::OPENROUTER,
+        crate::providers::catalog::LANGSERVER,
     ];
     if !known.contains(&provider.as_str()) {
         return Err(ApiError::not_found(format!("no provider {provider}")));

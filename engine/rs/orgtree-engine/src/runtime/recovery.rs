@@ -121,9 +121,10 @@ pub fn countdown_until(secs: i64, prior: &Value, now: chrono::DateTime<Utc>) -> 
 /// only for 401, and prose or the turn's shape decides a transient failure.
 /// `died_in_flight`: the CLI exited after it had answered but before a result.
 #[logged]
-pub fn classify(error: &str, res: &Value, openrouter: bool, died_in_flight: bool) -> Option<Class> {
+pub fn classify(error: &str, res: &Value, gateway: bool, died_in_flight: bool) -> Option<Class> {
     let status = res.get("api_error_status").and_then(Value::as_i64);
-    if openrouter {
+    // a gateway (OpenRouter, a language server) answers with its own status
+    if gateway {
         if let Some(s) = status {
             return match s {
                 401 => Some(Class::Auth),
@@ -244,11 +245,13 @@ pub fn balance_freeze(run: i64, error: &str, account: Option<&str>) -> (Value, b
 /// `until` carries the remedy (3.x shape): the desk badge and the org banner
 /// show it. An OpenRouter key is replaced in the app, not with a CLI login.
 #[logged]
-pub fn auth_freeze(error: &str, account: Option<&str>, openrouter: bool) -> Value {
-    let remedy = if openrouter {
-        "credential rejected — replace the OpenRouter key in App settings → Providers, then resume"
-    } else {
-        "credential rejected — replace it, then resume"
+pub fn auth_freeze(error: &str, account: Option<&str>, provider: &str) -> Value {
+    let remedy = match provider {
+        crate::providers::catalog::OPENROUTER => "credential rejected — replace the OpenRouter key in App settings → Providers, then resume",
+        crate::providers::catalog::LANGSERVER => {
+            "the language server refused its key — check it in App settings → Providers → Language Server, then resume"
+        }
+        _ => "credential rejected — replace it, then resume",
     };
     json!({
         "at": now_iso(), "until": remedy, "error": gist(error, 300), "limit": false, "cause": "auth",

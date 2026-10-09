@@ -5,6 +5,9 @@ pub const CLAUDE: &str = "claude";
 pub const OPENAI: &str = "openai";
 pub const GOOGLE: &str = "google";
 pub const OPENROUTER: &str = "openrouter";
+/// Models on the user's own (local or self-hosted) language servers, driven
+/// by Claude Code or Codex (`crate::langserver`).
+pub const LANGSERVER: &str = "langserver";
 
 pub struct Tier {
     pub tier: &'static str,
@@ -129,11 +132,20 @@ pub fn is_openrouter(tier: &str) -> bool {
     tier.starts_with("or-")
 }
 
+/// A model on one of the user's language servers (`ls-<server>-<model>`).
+#[nolog]
+pub fn is_langserver(tier: &str) -> bool {
+    tier.starts_with(crate::langserver::TIER_PREFIX)
+}
+
 /// Which provider a tier runs on. Unknown tiers answer "claude" (the safe
 /// same-lane default: a wrong cross-provider verdict would reset a session).
 pub fn provider_of(tier: &str) -> &'static str {
     if is_openrouter(tier) {
         return OPENROUTER;
+    }
+    if is_langserver(tier) {
+        return LANGSERVER;
     }
     self::tier(tier).map(|t| t.provider).unwrap_or(CLAUDE)
 }
@@ -143,6 +155,7 @@ pub fn provider_label(provider: &str) -> &'static str {
         OPENAI => "Codex",
         GOOGLE => "Antigravity",
         OPENROUTER => "OpenRouter",
+        LANGSERVER => "Language Server",
         _ => "Claude",
     }
 }

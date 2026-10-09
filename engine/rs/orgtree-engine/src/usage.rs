@@ -977,6 +977,9 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         ("openai", None) => "openai/primary".into(),
         ("google", None) => "google/primary".into(),
         ("openrouter", None) => "openrouter".into(),
+        ("langserver", _) => crate::langserver::route_of(engine, tier)
+            .map(|(s, _)| format!("langserver:{}", s["id"].as_str().unwrap_or("")))
+            .unwrap_or_else(|| "langserver".into()),
         _ => "claude/primary".into(),
     };
     // (lane name, cache key, email)
@@ -1074,6 +1077,15 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
     for a in registered.iter().filter(|a| a.is_apikey()) {
         roster.push(format!("{} (API key, metered)", a.id));
     }
+    // the user's own model servers: no usage window, only an agents-at-once cap
+    for srv in crate::langserver::servers(engine).iter().filter(|s| s["enabled"].as_bool() != Some(false)) {
+        let lane = format!("langserver:{}", srv["id"].as_str().unwrap_or(""));
+        let star = if lane == selected_lane { "*" } else { "" };
+        let cap = srv["max_agents"].as_i64().unwrap_or(1);
+        roster.push(format!("{lane} ({}, local)", gist(srv["label"].as_str().unwrap_or(""), 40)));
+        lines.push(format!("{lane}{star} | local | - | - | - | - | no limit; {cap} agent(s) at once"));
+        key_lines.push(format!("{lane}|local|{cap}"));
+    }
     let header = format!("[PROVIDER USAGE — current as of {}; dynamic/cache-only]", iso(now));
     let mut text = header;
     if !roster.is_empty() {
@@ -1085,7 +1097,12 @@ pub fn turn_board(engine: &Engine, provider: &str, account: Option<&str>, tier: 
         text.push_str(l);
     }
     text.push_str("\n* your account for this turn; - = not authoritatively reported.");
-    if provider == crate::providers::catalog::GOOGLE {
+    if provider == crate::providers::catalog::LANGSERVER {
+        text.push_str(&format!(
+            "
+Your turns run on {selected_lane} (tier {tier}): the user's own model server. It has no usage limit; it runs a set number of agents at once and the others wait."
+        ));
+    } else if provider == crate::providers::catalog::GOOGLE {
         let pool = crate::providers::catalog::antigravity_pool(tier);
         text.push_str(&format!("\nThis turn spends: {tier} on {selected_lane} → session:{pool}-5h and weekly_scoped:{pool}-weekly. Other model groups' windows do not apply to this tier."));
     } else {
