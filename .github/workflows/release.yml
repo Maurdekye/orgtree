@@ -5,7 +5,11 @@
 #            engine-hashes.json, latest.yml or beta.yml, Orgtree-Setup-<v>.exe and its
 #            .blockmap, packaged-hashes.json), built and gated as `npm run
 #            release:windows` does after its test gate, plus a launch smoke
-#   stage    SHA256SUMS.txt over every asset
+#   macos    build-macos.yml: Orgtree-<v>-arm64.dmg and .zip (unsigned prototype,
+#            ad-hoc signed, no update feed) and build-info-macos.json, with a launch smoke
+#   linux    build-linux.yml: Orgtree-<v>.AppImage and orgtree_<v>_amd64.deb (prototype,
+#            no update feed) and build-info-linux.json, with launch smokes
+#   stage    checks the whole asset set, then SHA256SUMS.txt over every asset
 #   draft    `gh release create --draft`; a person checks the draft and publishes it
 #
 # The release's test gate (tools/release-verification.mjs) is NOT run here: it refuses a
@@ -60,9 +64,11 @@ jobs:
           sparse-checkout: .github/ci
           persist-credentials: false
       - id: check
+        # Only a pushed tag is a release. A manual run started from a tag ref is a
+        # test too: it builds `inputs.ref`, which need not be the tag's commit.
         env:
-          MODE: ${{ github.ref_type == 'tag' && 'release' || 'test' }}
-          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          MODE: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'release' || 'test' }}
+          TAG: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || '' }}
         run: node .ci-tools/.github/ci/releasing/check-release.mjs
 
   windows:
@@ -71,14 +77,37 @@ jobs:
     with:
       ref: ${{ needs.resolve.outputs.sha }}
 
+  macos:
+    needs: resolve
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  linux:
+    needs: resolve
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  # Every platform must build: a release never goes out with a platform silently
+  # missing. A flaky job can be re-run ("Re-run failed jobs") and the run carries on.
   stage:
-    needs: [resolve, windows]
+    needs: [resolve, windows, macos, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      # By exact name: the builds also upload diagnostics artifacts.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: orgtree-windows
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-macos
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-linux
           path: dist
       - name: Check the asset set and write SHA256SUMS.txt
         env:
@@ -88,11 +117,13 @@ jobs:
           cd dist
           channel=latest
           if [ "$PRERELEASE" = true ]; then channel="${VERSION#*-}"; channel="${channel%%.*}"; fi
-          expected="build-info.json engine-hashes.json $channel.yml Orgtree-Setup-$VERSION.exe Orgtree-Setup-$VERSION.exe.blockmap packaged-hashes.json"
+          windows="build-info.json engine-hashes.json $channel.yml Orgtree-Setup-$VERSION.exe Orgtree-Setup-$VERSION.exe.blockmap packaged-hashes.json"
+          macos="Orgtree-$VERSION-arm64.dmg Orgtree-$VERSION-arm64.zip build-info-macos.json"
+          linux="Orgtree-$VERSION.AppImage orgtree_${VERSION}_amd64.deb build-info-linux.json"
           have="$(ls | sort | tr '\n' ' ')"
-          want="$(printf '%s\n' $expected | sort | tr '\n' ' ')"
+          want="$(printf '%s\n' $windows $macos $linux | sort | tr '\n' ' ')"
           if [ "$have" != "$want" ]; then
-            echo "::error::orgtree-windows holds [$have], expected the canonical six [$want]"
+            echo "::error::the builds delivered [$have], expected [$want] (Windows' canonical six, macOS 3, Linux 3)"
             exit 1
           fi
           sha256sum -- * > SHA256SUMS.txt
