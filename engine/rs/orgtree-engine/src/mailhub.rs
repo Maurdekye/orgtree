@@ -417,8 +417,7 @@ async fn start_now(engine: &Arc<Engine>) {
             hub.set(|s| s.door_waiting = waiting);
         }
     }
-    #[cfg(windows)]
-    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    crate::winproc::no_window(&mut cmd); // CREATE_NO_WINDOW; Linux: dies with the engine
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {

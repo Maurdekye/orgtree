@@ -237,11 +237,26 @@ pub fn free_commit_bytes() -> Option<u64> {
 }
 
 /// Configure a tokio command so it never opens a console window.
+///
+/// Linux: also ties the child to this engine with PR_SET_PDEATHSIG, standing in
+/// for the Windows kill-on-close root job, so an engine crash does not leave an
+/// orphaned postgres holding the cluster (which would refuse the next start).
+/// The signal follows the spawning thread; tokio spawns from its long-lived
+/// worker threads, which end only at runtime shutdown.
 #[logged]
 pub fn no_window(cmd: &mut tokio::process::Command) {
     #[cfg(windows)]
     {
         cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
     }
     let _ = cmd;
 }
