@@ -80,10 +80,10 @@ const linuxAppImage = process.platform === 'linux' ? appImagePath() : undefined
 const updatesSupported = identity.updatesSupported && updateFeed.kind !== 'refused' && (process.platform === 'win32' || !!linuxAppImage)
 /** app.relaunch(), except from an AppImage, where it would re-run a file
  *  inside this run's mount (see appImageRelaunch). Called before app.quit()
- *  or app.exit(), like app.relaunch(). */
-const relaunchApp = () => {
+ *  or app.exit(), like app.relaunch(). `args` are for the AppImage only. */
+const relaunchApp = (args: string[] = []) => {
   if (!linuxAppImage) return app.relaunch()
-  const command = appImageRelaunch(linuxAppImage, process.pid)
+  const command = appImageRelaunch(linuxAppImage, process.pid, args)
   const child = spawnProcess(command.file, command.args, { detached: true, stdio: 'ignore', cwd: os.homedir(), env: appImageRelaunchEnv(process.env) })
   child.on('error', error => console.warn('The AppImage could not be relaunched', error))
   child.unref()
@@ -1222,7 +1222,9 @@ else {
     // (the unit is unchanged because the path is).
     if (outcome.handoff.appImage) {
       cancelUpdateWatchdog()
-      relaunchApp(); app.quit()
+      // --updated: the next run's 'startup' record says the updater relaunched
+      // it, as the Windows installer's relaunch does
+      relaunchApp(['--updated']); app.quit()
       return
     }
     // The installer was LAUNCHED, which is not the same as succeeded — and

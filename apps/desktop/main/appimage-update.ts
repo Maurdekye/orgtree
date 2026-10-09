@@ -53,11 +53,11 @@ export function replaceAppImage(current: string, downloaded: string | undefined,
  *  still held and quit. So a small shell waits for this pid to end (at most
  *  five minutes, far past the quit deadlines) and then runs the AppImage.
  *  The paths are passed as arguments, never pasted into the script. */
-export function appImageRelaunch(appImage: string, pid: number): { file: string; args: string[] } {
+export function appImageRelaunch(appImage: string, pid: number, extra: string[] = []): { file: string; args: string[] } {
   return {
     file: '/bin/sh',
-    args: ['-c', 'i=0; while kill -0 "$1" 2>/dev/null && [ "$i" -lt 3000 ]; do sleep 0.1; i=$((i+1)); done; exec "$2"',
-      'orgtree-relaunch', String(pid), appImage],
+    args: ['-c', 'i=0; while kill -0 "$1" 2>/dev/null && [ "$i" -lt 3000 ]; do sleep 0.1; i=$((i+1)); done; shift; exec "$@"',
+      'orgtree-relaunch', String(pid), appImage, ...extra],
   }
 }
 
