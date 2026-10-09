@@ -16,6 +16,24 @@ $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true') { throw 'launch-smoke.ps1 runs only on a GitHub Actions runner' }
 New-Item -ItemType Directory -Force $WorkDir | Out-Null
 
+# Logs from C: (the smoke user's profile and C:\otsmoke) are copied under $WorkDir
+# (runner.temp, on D:) so ONE upload root holds every diagnostic.
+function Save-Diagnostics {
+  $dest = Join-Path $WorkDir 'diagnostics'
+  foreach ($src in @('C:\otsmoke\engine-data', 'C:\Users\otsmoke\AppData\Roaming\Orgtree v2')) {
+    if (-not (Test-Path $src)) { continue }
+    Get-ChildItem $src -Recurse -Force -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match '\(diagnostics\logs|pg\cluster\log)\' } | ForEach-Object {
+        $rel = $_.FullName.Substring(3) -replace '[:]', '_'
+        $target = Join-Path $dest $rel
+        New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+        Copy-Item $_.FullName $target -Force -ErrorAction SilentlyContinue
+      }
+  }
+}
+
+try {
+
 Write-Host "=== Silent per-user install: $Installer"
 $p = Start-Process -FilePath $Installer -ArgumentList '/S' -PassThru -Wait
 if ($p.ExitCode -ne 0) { throw "Installer exited with $($p.ExitCode)" }
@@ -112,7 +130,7 @@ if (-not $ok) {
 Write-Host "Engine answered on port $($ok.port): $($ok.alive | ConvertTo-Json -Compress)"
 
 Write-Host '=== Desktop app as the standard user: stays up, and its engine answers'
-$d = Start-AsSmokeUser $app '' @{}
+$d = Start-AsSmokeUser $app '--enable-logging=stderr --v=1' @{ ELECTRON_ENABLE_LOGGING = '1' }
 $appData = "C:\Users\$user\AppData\Roaming\Orgtree v2"
 $deskOk = $null
 $deadline = (Get-Date).AddSeconds(150)
@@ -130,7 +148,29 @@ Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [Strin
   Stop-Process -Force -ErrorAction SilentlyContinue
 Write-Host '--- desktop stdout'; Write-Host $d.out.Result
 Write-Host '--- desktop stderr'; Write-Host $d.err.Result
-if (-not $up) { Show-PostgresLogs $appData; throw "Orgtree.exe exited during the smoke (code $code)" }
+Set-Content -Path (Join-Path $WorkDir 'desktop.err.txt') -Value $d.err.Result
+if (-not $up) {
+  Show-PostgresLogs $appData
+  Write-Host "--- files under C:\Users\$user\AppData (depth 4)"
+  Get-ChildItem "C:\Users\$user\AppData" -Recurse -Depth 4 -Force -ErrorAction SilentlyContinue |
+    Select-Object -First 200 | ForEach-Object { Write-Host "$($_.Length)`t$($_.FullName)" }
+  # Informational only: the same app started by the elevated job user. Tells a
+  # user-switch problem (this one stays up) from an app problem (this one exits too).
+  Write-Host '--- comparison: Orgtree.exe as the elevated job user (information only)'
+  $adminOut = Join-Path $WorkDir 'admin-desktop.out.txt'; $adminErr = Join-Path $WorkDir 'admin-desktop.err.txt'
+  $a = Start-Process -FilePath $app -ArgumentList '--enable-logging=stderr', '--v=1' -PassThru `
+    -RedirectStandardOutput $adminOut -RedirectStandardError $adminErr
+  Start-Sleep -Seconds 20
+  $a.Refresh()
+  Write-Host "elevated Orgtree.exe after 20 s: $(if ($a.HasExited) { "exited with $($a.ExitCode)" } else { 'still running' })"
+  Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Content $adminErr -Tail 60 -ErrorAction SilentlyContinue | Write-Host
+  throw "Orgtree.exe exited during the smoke (code $code)"
+}
 if (-not $deskOk) { Show-PostgresLogs $appData; throw 'The desktop app stayed up, but its engine never answered /api/desktop/alive within 150 s' }
 Write-Host "Desktop engine answered on port $($deskOk.port)"
 Write-Host 'Launch smoke passed'
+} finally {
+  Save-Diagnostics
+}
