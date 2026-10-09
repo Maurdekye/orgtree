@@ -1,6 +1,6 @@
 [package]
 name = "orgtree-engine"
-version = "4.0.2-alpha.4"
+version = "4.1.0-alpha.1"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
