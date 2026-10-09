@@ -292,7 +292,17 @@ fn is_postgres(pid: u32) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/comm")).map(|c| c.trim() == "postgres").unwrap_or(false)
 }
 
-#[cfg(all(not(windows), not(target_os = "linux")))]
+/// macOS: the executable path the kernel reports for the pid ends in `/postgres`.
+#[cfg(target_os = "macos")]
+#[logged]
+fn is_postgres(pid: u32) -> bool {
+    let Ok(pid) = libc::c_int::try_from(pid) else { return false };
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    n > 0 && buf[..n as usize].ends_with(b"/postgres")
+}
+
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
 #[logged]
 fn is_postgres(_pid: u32) -> bool {
     true
