@@ -25,6 +25,7 @@ use crate::runtime::agy::{self as agyrt, AgyProc, AgySpec};
 use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
+use crate::runtime::startup;
 use crate::runtime::{freeze, keepalive, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
 use crate::util::{gist, iso, now_iso};
 
@@ -395,8 +396,13 @@ struct Fingerprint {
     parts: Vec<(&'static str, String)>,
 }
 
-/// The fingerprint's parts, in `plan`'s order.
-const PRINT_PARTS: [&str; 6] = ["system_prompt", "tools", "model", "permission_mode", "folders", "account"];
+/// The fingerprint's parts, in `plan`'s order. `startup` is the digest of the
+/// instruction files the CLI reads when it starts (runtime/startup.rs). A
+/// fingerprint saved before it existed reads as unknown, never as changed.
+const PRINT_PARTS: [&str; 7] = ["system_prompt", "tools", "model", "permission_mode", "folders", "account", "startup"];
+/// An idle agent re-reads its startup files this often, so an edit shows in
+/// its forecast and its parked CLI is replaced before the next turn.
+const STARTUP_RECHECK: Duration = Duration::from_secs(20);
 
 #[logged]
 impl Fingerprint {
@@ -455,6 +461,9 @@ struct Actor {
     span: tracing::Span,
     proc: Option<Proc>,
     proc_print: Option<Fingerprint>,
+    /// the startup files of the last forecast, and when they were last re-read
+    startup_seen: Option<(startup::Inputs, String)>,
+    startup_checked: Instant,
     proc_effort: Option<String>,
     pending_effort: Option<String>,
     parked: bool,
@@ -536,6 +545,8 @@ impl Actor {
             name,
             proc: None,
             proc_print: None,
+            startup_seen: None,
+            startup_checked: Instant::now(),
             proc_effort: None,
             pending_effort: None,
             parked: false,
@@ -687,6 +698,20 @@ impl Actor {
     async fn on_timer(&mut self) -> Result<()> {
         if self.keepalive.as_ref().is_some_and(|k| k.started.elapsed() >= Duration::from_secs(keepalive::TIMEOUT_S)) {
             self.end_keepalive(KeepaliveEnd::Failed("the keepalive timed out (its CLI was killed)")).await;
+        }
+        // an idle agent's startup files (decision 61): after an edit its
+        // forecast says so and its parked CLI is replaced now, resuming the
+        // same session. A running turn is never touched; its next turn
+        // respawns through the fingerprint instead.
+        if self.turn.is_none() && self.keepalive.is_none() && self.startup_checked.elapsed() >= STARTUP_RECHECK {
+            self.startup_checked = Instant::now();
+            let moved = self.startup_seen.as_ref().is_some_and(|(inputs, seen)| startup::digest(inputs) != *seen);
+            if moved {
+                self.reconfigured |= self.proc.is_some();
+                self.update_forecast().await;
+                self.replace_idle_process().await;
+                self.publish();
+            }
         }
         if let Some(k) = self.keep_until {
             if Instant::now() >= k && self.turn.is_none() {
@@ -1358,9 +1383,39 @@ impl Actor {
                 ("permission_mode", ctx.effective["permission_mode"].as_str().unwrap_or("").to_string()),
                 ("folders", hash(&dirs_print)),
                 ("account", ctx.account.clone().unwrap_or_default()),
+                ("startup", startup::digest(&self.startup_inputs(ctx))),
             ],
         };
         Plan { identity, settings, mcp, disallowed, allowed, add_dirs, external, print }
+    }
+
+    /// Where this launch's CLI finds its startup instruction files: the same
+    /// cwd and homes `claude_spec` and `ensure_codex` start it with.
+    fn startup_inputs(&self, ctx: &Ctx) -> startup::Inputs {
+        let codex = ctx.provider == catalog::OPENAI || ctx.harness.as_deref() == Some("codex-cli");
+        if codex {
+            let apikey = ctx.account.as_deref().and_then(|a| self.engine.accounts.view().get(a).map(|a| a.is_apikey())).unwrap_or(false);
+            let home = if ctx.provider == catalog::OPENROUTER {
+                self.engine.cfg.path("profiles").join("openrouter-codex")
+            } else if apikey {
+                self.engine.cfg.path("profiles").join(format!("openai-key-{}", ctx.account.clone().unwrap_or_default()))
+            } else {
+                self.config_dir_of(ctx.account.as_deref()).map(PathBuf::from).unwrap_or_else(codexrt::default_home)
+            };
+            return startup::Inputs::Codex { cwd: ctx.scratch.clone(), home };
+        }
+        if ctx.provider == catalog::GOOGLE {
+            return startup::Inputs::None;
+        }
+        let config = if ctx.provider == catalog::OPENROUTER { None } else { self.config_dir_of(ctx.account.as_deref()) };
+        let add_dirs = ctx.effective["add_dirs"].as_array().into_iter().flatten()
+            .filter_map(|d| d["path"].as_str()).map(PathBuf::from).collect();
+        startup::Inputs::Claude {
+            cwd: ctx.scratch.clone(),
+            config: config.map(PathBuf::from).unwrap_or_else(claude::default_config_dir),
+            home: crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            add_dirs,
+        }
     }
 
     /// Resolve only a login this launcher actually uses. OpenRouter routes bill
@@ -4358,6 +4413,9 @@ impl Actor {
                 self.pending_effort = self.proc_effort.as_ref()
                     .filter(|current| self.turn.is_some() && *current != &ctx.effort)
                     .map(|_| ctx.effort.clone());
+                let inputs = self.startup_inputs(&ctx);
+                let digest = startup::digest(&inputs);
+                self.startup_seen = Some((inputs, digest));
                 self.forecast_for(&ctx)
             },
             Err(_) => Value::Null,
