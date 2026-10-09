@@ -2319,7 +2319,7 @@ impl Actor {
                       first_real AS (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' AND NOT notice
                                       ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
                  UPDATE ot.mail SET state = 'delivering', turn_id = $2
-                  WHERE id IN (SELECT id FROM oldest) OR id IN (SELECT id FROM first_real)
+                  WHERE id IN (SELECT id FROM oldest UNION SELECT id FROM first_real)
                   RETURNING id, to_jsonb(ot.mail.*)",
                 &[&self.id, &turn_id],
             )
