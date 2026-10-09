@@ -16,6 +16,7 @@ pub mod ops;
 pub mod orginbox;
 pub mod scope;
 pub mod staffing;
+pub mod templates;
 pub mod tree;
 pub mod watchdogs;
 

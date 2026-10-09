@@ -85,6 +85,14 @@ pub fn open(engine: &Arc<Engine>, id: i64, uuid: String, slug: String, name: Str
     h
 }
 
+/// A handle for an org whose row is not committed yet: nothing is
+/// registered and no feed runs. `open` it once the row commits.
+#[logged]
+pub fn provisional(id: i64, uuid: String, slug: String, name: String) -> Arc<OrgHandle> {
+    Arc::new(OrgHandle { id, uuid, slug, name: ArcSwap::from_pointee(name), feed: feed::detached(), rooms: Rooms::default(),
+                         working: AtomicI64::new(0), docket: AtomicU64::new(0) })
+}
+
 #[logged]
 pub async fn load_all(engine: &Arc<Engine>) -> Result<()> {
     let client = engine.db.get().await?;

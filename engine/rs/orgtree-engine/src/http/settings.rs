@@ -677,6 +677,22 @@ fn user_charter_dir() -> PathBuf {
     crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".orgtree").join("charters")
 }
 
+/// A charter preset's text by name: the user's copy first, then the bundled one.
+#[logged]
+pub(crate) fn preset_content(name: &str) -> Option<String> {
+    if !charter_name_ok(name) {
+        return None;
+    }
+    let file = format!("{name}.md");
+    let user = user_charter_dir().join(&file);
+    if user.is_file() {
+        if let Ok(c) = std::fs::read_to_string(&user) {
+            return Some(c);
+        }
+    }
+    BUNDLED.iter().find(|(f, _)| *f == file).map(|(_, c)| c.to_string())
+}
+
 fn title_of(file: &str) -> String {
     file.trim_end_matches(".md").replace(['-', '_'], " ")
 }
@@ -794,7 +810,7 @@ fn charter_name_ok(name: &str) -> bool {
 /// is a link or reparse point (a junction planted at the charters folder
 /// would receive every write).
 #[logged]
-fn plain_path(path: &FsPath) -> Result<(), String> {
+pub(crate) fn plain_path(path: &FsPath) -> Result<(), String> {
     for part in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
         let Ok(md) = std::fs::symlink_metadata(part) else { continue };
         #[cfg(windows)]

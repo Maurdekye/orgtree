@@ -16,6 +16,7 @@ pub mod nodes;
 pub mod orgops;
 pub mod orgs;
 pub mod settings;
+pub mod templates;
 pub mod tree;
 
 use std::sync::Arc;
@@ -140,6 +141,11 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/charters/populate", post(settings::charters_populate))
         .route("/api/charters/open", post(settings::charters_open))
         .route("/api/charters/{name}", axum::routing::put(settings::charters_save))
+        .route("/api/templates", get(templates::list))
+        .route("/api/templates/populate", post(templates::populate))
+        .route("/api/templates/open", post(templates::open))
+        .route("/api/templates/resolve", post(templates::resolve))
+        .route("/api/orgs/{slug}/template", post(templates::save))
         .route("/api/fs", get(settings::fs))
         .route("/api/orgs/{slug}/ops", post(orgops::run_op))
         .route("/api/orgs/{slug}/dissolve-all", post(orgops::dissolve_all))

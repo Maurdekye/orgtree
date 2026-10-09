@@ -1,0 +1,17 @@
+{
+  "id": "devteam-codex",
+  "name": "devteam (codex)",
+  "description": "A coordinator with an implementer, a redteam reviewer and a curator under it, on Codex models.",
+  "version": 1,
+  "agents": [
+    {
+      "name": "coordinator", "tier": "sol", "charter": { "preset": "coordinator" }, "spare": 10,
+      "kickoff": "Introduce yourself and your team to the user, and ask what we are building first.",
+      "reports": [
+        { "name": "implementer", "tier": "astra", "charter": { "preset": "implementer" }, "spare": 0 },
+        { "name": "redteam", "tier": "sol", "charter": { "preset": "redteam" }, "spare": 0 },
+        { "name": "curator", "tier": "luna", "charter": { "preset": "curator" }, "spare": 0 }
+      ]
+    }
+  ]
+}

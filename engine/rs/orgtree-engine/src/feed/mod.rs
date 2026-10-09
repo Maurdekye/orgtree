@@ -161,6 +161,14 @@ struct Batch {
 
 const RING: usize = 512;
 
+/// A feed with no actor behind it: what it is sent is dropped. For a handle
+/// used inside a transaction that may yet roll back (an org being created).
+#[logged]
+pub fn detached() -> OrgFeed {
+    let (tx, _rx) = mpsc::unbounded_channel();
+    OrgFeed { tx }
+}
+
 #[logged]
 pub fn spawn(engine: Arc<Engine>, org_id: i64, org_uuid: String) -> OrgFeed {
     let (tx, rx) = mpsc::unbounded_channel();

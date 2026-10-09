@@ -278,7 +278,7 @@ async fn authorize(tx: &Transaction<'_>, actor: &Actor, target: &Node, verb: &st
 }
 
 #[logged]
-fn valid_name(name: &str) -> Result<String> {
+pub(crate) fn valid_name(name: &str) -> Result<String> {
     let n = name.trim().trim_start_matches('@');
     let ok = !n.is_empty()
         && n.len() <= 64

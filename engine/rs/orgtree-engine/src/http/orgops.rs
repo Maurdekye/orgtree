@@ -27,6 +27,9 @@ pub struct CreateOrg {
     net_autoconnect: Option<bool>,
     #[serde(default)]
     net_hubs: Vec<String>,
+    /// hire a template's agents with the org, in the same transaction
+    #[serde(default)]
+    template: Option<crate::http::templates::Pick>,
 }
 
 /// 3.x's org slug (ledger.slugify): lower case, every run of anything but
@@ -65,6 +68,26 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
         .filter(|d| !d.is_empty())
         .map(|d| json!({ "path": d, "mode": "rw" }))
         .collect();
+    // a template is planned before anything is written: a slot nothing on
+    // this machine can run, or a plan that moved since the preview, refuses
+    let planned = match &b.template {
+        None => None,
+        Some(pick) => {
+            let (t, planned, blocked) = crate::http::templates::plan_pick(&e, pick, &slug, &dirs)?;
+            if !blocked.is_empty() {
+                return Err(ApiError::unprocessable(format!(
+                    "no tier on offer can run {}: pick another tier or remove the agent", blocked.join(", "))));
+            }
+            if let Some(expect) = &pick.expect {
+                let moved = planned.iter().any(|p| expect.get(&p.slot.name).map(String::as_str) != p.tier.as_deref())
+                    || expect.len() != planned.len();
+                if moved {
+                    return Err(ApiError::conflict("what this computer can run changed since the preview; check the layout and create again"));
+                }
+            }
+            Some((t, planned))
+        }
+    };
     let settings = json!({ "dirs": dirs });
     let auto = b.net_autoconnect.unwrap_or(true);
     let net = json!({ "autoconnect": auto, "hubs": crate::net::hub_entries(&e, auto, &b.net_hubs) });
@@ -83,7 +106,7 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     };
     tx.execute(
         "INSERT INTO ot.events (org_id, op, actor, detail) VALUES ($1, 'org_created', '@user', $2)",
-        &[&id, &json!({ "name": name, "slug": slug })],
+        &[&id, &json!({ "name": name, "slug": slug, "template": planned.as_ref().map(|(t, _)| t.id.clone()) })],
     )
     .await?;
     // the new row holds the name until this commits: folders a deleted org
@@ -95,15 +118,42 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     std::fs::create_dir_all(e.cfg.workspace_dir(&slug))
         .and_then(|_| std::fs::create_dir_all(e.cfg.scratch_root(&slug)))
         .map_err(|err| ApiError::unprocessable(format!("could not create the org's workspace: {err}")))?;
+    // the template's agents, as the user's own hires: any refusal rolls the
+    // whole org back
+    let mut fx = ops::Effects::default();
+    let mut hired = Vec::new();
+    if let Some((_, planned)) = &planned {
+        let pending = crate::orgs::provisional(id, uuid.to_string(), slug.clone(), name.clone());
+        let kickoff = b.template.as_ref().is_some_and(|p| p.kickoff);
+        for p in planned {
+            let req = crate::domain::templates::hire_request(p, kickoff);
+            let out = ops::run_in_tx(&e, &pending, &tx, &Actor::User, &req, &mut fx)
+                .await
+                .map_err(|err| ApiError::from(err.context(format!("could not hire {} from the template", p.name))))?;
+            hired.push(out["node"].clone());
+        }
+    }
     tx.commit().await?;
     drop(client);
+    if let Some(md) = planned.as_ref().and_then(|(t, _)| t.org_md.clone()).filter(|m| !m.trim().is_empty()) {
+        if let Err(err) = crate::phone::replace_file(&e.cfg.workspace_dir(&slug).join("org.md"), md.as_bytes()) {
+            tracing::warn!(error = %err, "the template's org.md could not be written");
+        }
+    }
     if let Err(err) = crate::net::ensure_identity(&e, id, &slug).await {
         tracing::warn!(error = %format!("{err:#}"), "the new organization's network identity could not be minted yet");
     }
     crate::net::kick(&e);
     let o = crate::orgs::open(&e, id, uuid.to_string(), slug.clone(), name);
+    if planned.is_some() {
+        ops::apply_effects(&e, &o, fx).await;
+    }
     changes::notify(&e, &o, vec![Change::Registry, Change::Org]);
-    Ok(Json(json!({ "slug": slug })))
+    let mut out = json!({ "slug": slug });
+    if planned.is_some() {
+        out["hired"] = json!(hired);
+    }
+    Ok(Json(out))
 }
 
 /// The folders that belong to one org, under the names its trash keeps
