@@ -53,6 +53,10 @@ echo "app's engine answers on port $port (HTTP $(answers "$port"))"
 sleep 30
 kill -0 $appid 2>/dev/null || fail "app died within 30 s of start"
 pgrep -fl "$res/engine/orgtree-engine" || fail "app's engine process gone"
+# informational, not gating: the mail hub and the bundled postgres under the app
+pgrep -fl "$res/engine/orgtree-mailhub" || echo "note: no orgtree-mailhub process (the engine starts it only when hosting a hub)"
+pgrep -fl "$res/engine/postgresql/bin/postgres -D" || echo "note: no app postgres process found"
+echo "--- app log (tail)"; tail -n 40 "$tmp/app.log"
 kill $appid; for _ in $(seq 1 20); do kill -0 $appid 2>/dev/null || break; sleep 1; done
 kill -9 $appid 2>/dev/null; pkill -9 -f "$res/engine/orgtree-engine" 2>/dev/null; stop_pg "$tmp/app-root"
 echo "app smoke OK"

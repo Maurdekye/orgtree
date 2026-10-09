@@ -148,6 +148,9 @@ jobs:
           # the zip must hold a validly signed app
           mkdir -p "$RUNNER_TEMP/zipcheck" && ditto -x -k "out/Orgtree-$version-arm64.zip" "$RUNNER_TEMP/zipcheck"
           codesign --verify --deep --strict "$RUNNER_TEMP/zipcheck/Orgtree.app"
+          # and so must the dmg
+          mnt="$(mktemp -d)"; hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "out/Orgtree-$version-arm64.dmg"
+          codesign --verify --deep --strict "$mnt/Orgtree.app"; hdiutil detach "$mnt"
           (cd out && shasum -a 256 *)
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
