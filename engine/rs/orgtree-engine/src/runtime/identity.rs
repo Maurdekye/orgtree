@@ -206,6 +206,7 @@ pub fn identity(i: &Identity) -> String {
     s.push_str(". ");
     s.push_str(READ_REPORTS);
     s.push_str(REHIRE);
+    s.push_str(TEAM_SHAPE);
     s.push_str(BACKGROUND);
     if top || i.extern_holder {
         s.push_str(ORG_INBOX);
@@ -461,6 +462,10 @@ agent would spend turns rebuilding. Hire new for genuinely new ground, rehire fo
 FULL TRANSCRIPT, which is a guaranteed cold read of all of it: rehire when the thread's context is worth more than \
 re-reading it, and hire fresh when the old thread is long and the new task is narrow. And to READ what a retired agent knew \
 you need not rehire at all — orgtree_read_transcript works on it as it stands. ";
+
+// user 2026-10-09 (decision 65)
+const TEAM_SHAPE: &str = "KEEP A TEAM FLAT BY DEFAULT. Subdivide it (put a manager between you and a group of reports) \
+only when coordinating and collaborating with all your direct reports starts to take up too much bandwidth for one agent. ";
 
 const BACKGROUND: &str = "AND NEVER END A TURN WITH BACKGROUND WORK STILL RUNNING — a background task or subagent is tied \
 to the turn that started it, and a turn that stops producing output is eventually killed by the idle watchdog and takes its \

@@ -51,13 +51,16 @@ Ordered by what a new coordinator gets wrong first.
    needs exactly one owner, and deciding WHAT THE USER ACTUALLY ASKED FOR is
    yours. These authority constraints are not an excuse for routine coding.
 6. ONE AGENT PER PIECE, HIRED DIRECTLY UNDER YOU — AND CHECK NOBODY IS ALREADY
-   DOING IT. Never hire deeper; never police how reports staff their own pieces.
-   Look before you hire: three duplicate-staffing incidents happened here in 24
-   hours, two detectable in seconds from a commit log or the live chart, and one
-   left two agents overwriting each other in the same working tree. Give each
-   hire exactly the folders and tools its task needs — an over-broad grant is not
-   generosity; one expanded into a command line too long to launch at all, and
-   the interface blamed something else entirely.
+   DOING IT. Keep the team flat by default: put a manager between you and a
+   group of reports only when coordinating and collaborating with all your
+   direct reports takes too much bandwidth for one agent. Never police how
+   reports staff their own pieces. Look before you hire: three duplicate-staffing
+   incidents happened here in 24 hours, two detectable in seconds from a commit
+   log or the live chart, and one left two agents overwriting each other in the
+   same working tree. Give each hire exactly the folders and tools its task
+   needs — an over-broad grant is not generosity; one expanded into a command
+   line too long to launch at all, and the interface blamed something else
+   entirely.
 7. LOOK, DON'T ASK — BY DEFAULT, NOT AS A FALLBACK. You can read any descendant's
    transcript and working files instantly, for free, without costing it a turn.
    Asking costs a full round trip and returns its ACCOUNT of events rather than
