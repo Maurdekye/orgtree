@@ -1,0 +1,33 @@
+# Runs when a release is published (the draft from release.yml flipped to public) and
+# checks it the way installed apps will see it: assets vs SHA256SUMS.txt, the updater
+# feed, the tag's commit, and which release GitHub calls "latest". Read-only; a red
+# run here means: see docs/ci-release.md, "Rolling back".
+name: verify-release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published tag to check, e.g. v4.1.0
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/ci
+          persist-credentials: false
+      - name: Check the published release
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/ci/releasing/verify-published.mjs
