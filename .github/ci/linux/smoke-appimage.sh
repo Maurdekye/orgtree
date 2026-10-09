@@ -11,7 +11,7 @@ xvfb-run -a -s '-screen 0 1280x800x24' "$app" --no-sandbox >"$logs/appimage.out"
 runner=$!
 port_file=
 for _ in $(seq 1 120); do
-  port_file=$(find "$HOME/.config" -name engine-port.json 2>/dev/null | head -1)
+  port_file=$(find "$HOME/.config" -name engine-port.json 2>/dev/null | head -1 || true)  # ~/.config appears only once the app runs
   [ -n "$port_file" ] && pgrep -f orgtree-engine >/dev/null && break
   kill -0 "$runner" 2>/dev/null || { echo "::error::AppImage exited"; tail -80 "$logs/appimage.out"; exit 1; }
   sleep 1
@@ -23,6 +23,6 @@ kill -0 "$runner" 2>/dev/null || { echo "::error::AppImage died within 20 s of s
 pgrep -af 'orgtree-engine|postgres' | head -20
 echo "AppImage stayed up with its engine running"
 cp -r "$HOME/.config" "$logs/appimage-config" 2>/dev/null || true
-pkill -TERM -f "$app" || true; pkill -TERM -f orgtree-engine || true
+kill -TERM "$runner" 2>/dev/null || true; pkill -TERM -f "$app" || true; pkill -TERM -f orgtree-engine || true
 for _ in $(seq 1 30); do pgrep -f orgtree-engine >/dev/null || break; sleep 1; done
 pkill -KILL -f orgtree-engine || true

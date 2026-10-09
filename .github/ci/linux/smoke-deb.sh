@@ -7,7 +7,8 @@ logs=$(realpath -m build/linux/smoke-logs); mkdir -p "$logs"
 deb=$(ls "$out"/orgtree_*_amd64.deb)
 dpkg-deb --info "$deb" | sed -n '1,30p'
 sudo apt-get install -y -q "$deb"
-bin=$(dpkg -L orgtree | grep -E '/orgtree$' | head -1)
+bin=$(dpkg -L orgtree | grep -m1 -E '/orgtree$' || true)
+[ -n "$bin" ] || { echo "::error::no /orgtree binary in the installed package"; dpkg -L orgtree | head -40; exit 1; }
 echo "installed binary: $bin"
 dir=$(dirname "$bin")
 stat -c '%a %U %n' "$dir/chrome-sandbox"
@@ -26,7 +27,7 @@ done
 sleep 10
 kill -0 "$runner" 2>/dev/null || { echo "::error::installed app died"; tail -80 "$logs/deb.out"; exit 1; }
 echo "installed .deb started with the sandbox enabled and its engine running"
-pkill -TERM -f "$bin" || true; pkill -TERM -f orgtree-engine || true
+kill -TERM "$runner" 2>/dev/null || true; pkill -TERM -f "$bin" || true; pkill -TERM -f orgtree-engine || true
 for _ in $(seq 1 30); do pgrep -f orgtree-engine >/dev/null || break; sleep 1; done
 pkill -KILL -f orgtree-engine || true
 sudo apt-get remove -y -q orgtree
