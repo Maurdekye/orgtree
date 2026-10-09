@@ -92,15 +92,24 @@ function Start-AsSmokeUser([string]$File, [string]$Arguments, [hashtable]$Enviro
   return @{ proc = $proc; out = $proc.StandardOutput.ReadToEndAsync(); err = $proc.StandardError.ReadToEndAsync() }
 }
 
-function Wait-Alive([string]$PortFile, [scriptblock]$IsUp, [int]$Seconds) {
+# -Guarded: the engine was started by the desktop, which gives it a per-launch
+# token (ORGTREE_V2_TOKEN) the smoke cannot know. Its guard then answers every
+# /api/ request without the token with 403 {"detail":"desktop token required"}
+# and an x-orgtree-instance header; that answer proves the engine is up.
+function Wait-Alive([string]$PortFile, [scriptblock]$IsUp, [int]$Seconds, [switch]$Guarded) {
   $deadline = (Get-Date).AddSeconds($Seconds)
   while ((Get-Date) -lt $deadline -and (& $IsUp)) {
     $file = Get-Item $PortFile -ErrorAction SilentlyContinue
     if ($file) {
       $port = (Get-Content $file.FullName -Raw).Trim()
       try {
-        $alive = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/desktop/alive" -TimeoutSec 5
-        if ($alive.alive -eq $true) { return @{ port = $port; alive = $alive } }
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/desktop/alive" -TimeoutSec 5 -SkipHttpErrorCheck
+        $body = try { $r.Content | ConvertFrom-Json } catch { $null }
+        if ($r.StatusCode -eq 200 -and $body.alive -eq $true) { return @{ port = $port; alive = $body } }
+        if ($Guarded -and $r.StatusCode -eq 403 -and $body.detail -eq 'desktop token required' -and $r.Headers['x-orgtree-instance']) {
+          return @{ port = $port; alive = "token-guarded (403 desktop token required, instance $($r.Headers['x-orgtree-instance']))" }
+        }
+        Write-Host "not answering yet: HTTP $($r.StatusCode) $($r.Content)"
       } catch { Write-Host "not answering yet: $($_.Exception.Message)" }
     }
     Start-Sleep -Seconds 2
@@ -145,13 +154,13 @@ function Test-Desktop([string]$Label, [scriptblock]$IsUp, [string]$AppData) {
   $deadline = (Get-Date).AddSeconds(150)
   while ((Get-Date) -lt $deadline -and (& $IsUp) -and -not $deskOk) {
     $portFile = Get-ChildItem $AppData -Recurse -Force -Filter '.port' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($portFile) { $deskOk = Wait-Alive $portFile.FullName $IsUp 20 }
+    if ($portFile) { $deskOk = Wait-Alive $portFile.FullName $IsUp 20 -Guarded }
     if (-not $deskOk) { Start-Sleep -Seconds 3 }
   }
   if (& $IsUp) { Start-Sleep -Seconds 30 }
   $up = [bool](& $IsUp)
   Get-InstalledProcesses | Format-Table Id, ProcessName, Path | Out-String | Write-Host
-  Write-Host "$Label -> stayed up: $up; engine answered: $([bool]$deskOk)$(if ($deskOk) { " on port $($deskOk.port)" })"
+  Write-Host "$Label -> stayed up: $up; engine answered: $([bool]$deskOk)$(if ($deskOk) { " on port $($deskOk.port): $($deskOk.alive)" })"
   if (-not ($up -and $deskOk)) { Show-PostgresLogs $AppData }
   return [bool]($up -and $deskOk)
 }
