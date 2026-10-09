@@ -192,10 +192,16 @@ Ubuntu 22.04's glibc 2.35 (inferred).
 - No 3.x data import: the Linux build ships no Python runtime, which the import
   needs.
 
+**Agents' Orgtree tools** (both platforms): Claude Code and Codex agents get them over
+the CLI's own stdio, as on Windows. Antigravity agents reach them through the tool
+bridge (`orgtree-engine mcp-bridge`), which here is a Unix socket in a private folder
+(0700, the socket 0600): `<data>/bridge`, or a folder under `$XDG_RUNTIME_DIR` or
+`$TMPDIR` when that path is too long for a socket address (decision 66). Its tests:
+`cargo test -p orgtree-engine --bin orgtree-engine bridge::`.
+
 **Not there yet** (both platforms):
 - No automatic updates. The app doesn't offer them on macOS or Linux; download each
   new version by hand.
-- Hired agents get no Orgtree tools: the tool bridge uses Windows named pipes.
 - Provider CLIs (`claude`, `codex`) must be on the PATH Orgtree starts with. A macOS
   app opened from Finder gets a minimal PATH; starting it from Terminal with
   `open -a Orgtree` keeps the shell's PATH (inferred).
