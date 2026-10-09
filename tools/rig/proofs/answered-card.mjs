@@ -83,5 +83,6 @@ export default async function (rig) {
       p.check(`${name}: the desk shows the mini card (screenshot in ${evidence})`, r.ok !== false && JSON.stringify(r).includes('answered-') || JSON.stringify(r).includes('question'), JSON.stringify(r).slice(0, 500))
     }
   }
-  return p.finish ? p.finish() : p
+  p.keep(rig, { agents: names, grep: /ask|question|request/i })
+  return p.summary()
 }
