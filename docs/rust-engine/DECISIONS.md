@@ -427,3 +427,20 @@ All entries are dated 2026-10-06 unless stated otherwise.
       wake.
 
     Proof: `tools/rig/proofs/pending-switch.mjs`.
+
+63. **A person on the hub is answered with `orgtree_message` to their `@net:` address**
+    (user 2026-10-09: agents "should always reply to a network address when communicating with
+    a human over hubchat instead of replying inline, even if that human is the user who already
+    has direct access to orgtree"). Someone writing over the mail hub (Hubchat, say) sees only
+    what is sent to their address. A reply that stays in the turn's text never reaches them.
+    That holds even when the person is the user, who could also read Orgtree directly.
+    - **Instructions:** the org-inbox passage, which top-level agents and outside-audience
+      holders get, says to ALWAYS answer an `@net:` sender with `orgtree_message` to that
+      address, even when that person is the user.
+    - **Mail:** each delivered non-notice message from an `@net:` sender carries one line under
+      it: "↳ Answer with orgtree_message to @net:…: a reply only in your turn's text never
+      reaches them."
+
+    The passage is part of the identity, so a running agent picks it up at its next respawn
+    (the system-prompt fingerprint), and the mail line applies at once. Proof:
+    `tools/rig/proofs/hubchat-reply.mjs`.
