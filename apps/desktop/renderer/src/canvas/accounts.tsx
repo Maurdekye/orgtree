@@ -5,6 +5,7 @@ import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
 import { TurnLimitsSetting } from './turnlimitssetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
+import { TemplateDocumentsSetting } from './templates'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useRef, useState } from 'react'
 import { useAppValue } from '../appfeed'
@@ -788,6 +789,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <TurnLimitsSetting />
       <CharterDocumentsSetting />
       <CharterTemplateDirsSetting />
+      <TemplateDocumentsSetting />
       <SetGroup title="Antigravity models">
         <SetToggle label="enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
           checked={runtime?.antigravity_claude_enabled === true}

@@ -45,6 +45,7 @@ import { OrgtreeMenu } from './shell/menu'
 import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
 import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
+import { SaveTemplateSetting } from './canvas/templates'
 import { OrgViewToggle } from './shell/modetoggle'
 import { onHeldEvent } from './events/heldbus'
 import { setOrgView, useOrgView } from './attention/mode'
@@ -3051,6 +3052,7 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
             )}
           </SetBlock>
         </SetGroup>
+        <SaveTemplateSetting slug={tree.slug} orgName={tree.name} />
         </SettingsTabPanel>
 
         {/* ── Hire defaults — the overseer eye's ⚙ panel, moved here whole

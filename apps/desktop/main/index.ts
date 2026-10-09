@@ -1755,6 +1755,32 @@ else {
         return { ok: false, error: `Could not open charter directory: ${message}` }
       }
     })
+    handleApp('desktop:open-templates-folder', async () => {
+      const dir = path.join(os.homedir(), '.orgtree', 'templates')
+      try {
+        if (fs.existsSync(dir)) {
+          const stat = fs.statSync(dir)
+          if (!stat.isDirectory()) {
+            return { ok: false, error: `Templates path exists but is not a directory: ${dir}` }
+          }
+        } else {
+          fs.mkdirSync(dir, { recursive: true })
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `Could not create templates folder: ${message}` }
+      }
+      try {
+        const errorMsg = await shell.openPath(dir)
+        if (errorMsg) {
+          return { ok: false, error: `Could not open templates folder: ${errorMsg}` }
+        }
+        return { ok: true, path: dir }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false, error: `Could not open templates folder: ${message}` }
+      }
+    })
     // ⚠ REVEAL, NEVER OPEN, AND NEVER `shell.openPath` HERE (user ruling,
     // 2026-09-13). These paths arrive from markdown an AGENT wrote, so opening
     // one the way a double-click does would make any link in chat a one-click

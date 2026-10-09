@@ -30,10 +30,13 @@
 // not ask for is a worse surprise than a lost one.
 import { useEffect, useRef, useState } from 'react'
 import { createOrg, probeHub } from '../api'
+import type { TemplatePlan } from '../api'
 import { DirList } from '../forms'
 import { CloseIcon } from '../icons'
 import { desktop } from '../desktop'
-import { beginFirstUse } from '../canvas/firstuse'
+import { beginFirstUse, beginFirstUseAt } from '../canvas/firstuse'
+import { EMPTY_LAYOUT, TemplatePicker, layoutPick } from './templatepicker'
+import type { LayoutChoice } from './templatepicker'
 
 export interface CreateOrgViewProps {
   /** what to do when the creation succeeds — bind this window to the new
@@ -83,10 +86,12 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
   const [netHubs, setNetHubs] = useState<string[]>([])
   const [hubSeen, setHubSeen] = useState<{ ok: boolean; name?: string | null } | null>(null)
   const [advanced, setAdvanced] = useState(false)
+  const [layout, setLayout] = useState<LayoutChoice>(EMPTY_LAYOUT)
+  const [plan, setPlan] = useState<TemplatePlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const dirty = creationDirty({ name, dirs, netAuto, netHubs })
+  const dirty = creationDirty({ name, dirs, netAuto, netHubs }) || !!layout.id
   // publish the flag on every change, and only when it actually flips — the
   // native side stores one boolean and a write per keystroke says nothing new.
   // ⚠ SEEDED `false`, NOT `null`: a fresh creation window holds nothing, so
@@ -114,10 +119,14 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
     if (busy) return
     setBusy(true); setError(null)
     try {
+      const template = layoutPick(layout, plan)
+      if (layout.id && !template) throw new Error('The layout preview is still loading; try again in a moment.')
       const make = () => createOrg(name, dirs.map((s) => s.trim()).filter(Boolean),
-        netAuto, netHubs.map((s) => s.trim()).filter(Boolean))
+        netAuto, netHubs.map((s) => s.trim()).filter(Boolean), template)
       const made = wrapCreate ? await wrapCreate(make) : await make()
-      beginFirstUse(made.slug)
+      // a layout already hired its agents: the guide starts at the first message
+      if (made.hired?.length) beginFirstUseAt(made.slug, made.hired[0])
+      else beginFirstUse(made.slug)
       // the flag is cleared BEFORE the bind, because a successful creation is
       // terminal for this form whatever the binding then does
       published.current = false
@@ -137,13 +146,15 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
         <div className="shell-page-eyebrow">New organization</div>
         <h1 className="shell-page-title">Create an organization</h1>
         <p className="dim shell-create-lede">
-          Give your organization a name. Your app-wide defaults provide its
-          starting settings.
+          Give your organization a name and, if you like, a starting team.
+          Your app-wide defaults provide its starting settings.
         </p>
         <label className="field-label" htmlFor="shell-create-name">Organization name</label>
         <input id="shell-create-name" autoFocus required value={name}
           className="shell-create-name"
           onChange={(e) => setName(e.target.value)} />
+        <TemplatePicker choice={layout} onChange={setLayout} plan={plan} onPlan={setPlan}
+          orgName={name} dirs={dirs.map((s) => s.trim()).filter(Boolean)} />
         {/* The advanced options fold out INSIDE this window (user 2026-09-29:
             "make the advanced settings part of the window content, not a
             separate modal"). Same settings, same state, applied by the one
@@ -194,7 +205,7 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
         {error && <div className="ask-warn shell-create-error" role="alert">{error}</div>}
         <div className="row shell-create-actions">
           <button type="button" onClick={onRequestClose}>Cancel</button>
-          <button type="submit" className="primary" disabled={busy || !name.trim()}>
+          <button type="submit" className="primary" disabled={busy || !name.trim() || (!!layout.id && (!plan || !plan.ok))}>
             {busy ? 'Creating…' : 'Create organization'}</button>
         </div>
       </form>

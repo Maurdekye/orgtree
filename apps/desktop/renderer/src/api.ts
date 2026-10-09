@@ -222,8 +222,9 @@ export const retryOrg = (slug: string): Promise<OrgListEntry> =>
 export const createOrg = (
   name: string, dirs: string[],
   netAutoconnect = true, netHubs: string[] = [],
-): Promise<{ slug: string }> =>
-  req<{ slug: string }>('/api/orgs', {
+  template: TemplatePick | null = null,
+): Promise<{ slug: string; hired?: string[] }> =>
+  req<{ slug: string; hired?: string[] }>('/api/orgs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -231,8 +232,73 @@ export const createOrg = (
       // F-06: mailserver — local-hub opt-out + typed remote addresses
       ...(netAutoconnect ? {} : { net_autoconnect: false }),
       ...(netHubs.length ? { net_hubs: netHubs } : {}),
+      ...(template ? { template } : {}),
     }),
   }, SLOW_TIMEOUT_MS)
+
+// Organization templates: a tree of agents hired with a new org. Bundled
+// ones ship with the engine; ~/.orgtree/templates holds the user's own (a
+// file of the same id takes the bundled one's place, as charter presets do).
+export interface TemplateSummary {
+  id: string | null; name: string; description?: string
+  source: 'user' | 'bundled'; path: string
+  agents: { name: string; tier: string; depth: number; parent: string | null }[]
+  problems: string[]
+}
+export interface TemplatePick {
+  id: string
+  overrides?: Record<string, { tier?: string; name?: string }>
+  removed?: string[]
+  kickoff?: boolean
+  /** slot → the tier the preview showed; a create whose plan moved is refused */
+  expect?: Record<string, string>
+}
+export interface TemplatePlanRow {
+  slot: string; name: string; parent: string | null; depth: number
+  tier: string | null; requested_tier: string; note: string | null
+  account: string | null; provider: string | null
+  seat: number; grant: number; charter: string
+  team_charter: string | null; kickoff: boolean; blocked: boolean
+  dirs_dropped: string[]
+}
+export interface TemplatePlan {
+  id: string; name: string; agents: TemplatePlanRow[]; blocked: string[]
+  ok: boolean; top_grant: number; org_md: boolean
+  offered: { tier: string; seat: number; provider: string }[]
+}
+export interface TemplateInclude {
+  charters: boolean; credits: boolean; effort: boolean; tools: boolean
+  org_md: boolean; accounts: boolean; folders: boolean
+}
+export interface SavedTemplate {
+  id: string; file: string; path: string; content: string; agents: number; problems: string[]
+}
+export const listTemplates = (): Promise<{ templates: TemplateSummary[]; dir: string }> =>
+  req('/api/templates')
+export const resolveTemplate = (pick: TemplatePick, name: string, dirs: string[]): Promise<TemplatePlan> =>
+  req('/api/templates/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...pick, name, dirs }),
+  })
+// Write the bundled templates the folder lacks; never overwrites a user file.
+export const populateTemplates = (): Promise<{ dir: string; created: string[]; existing: string[] }> =>
+  req('/api/templates/populate', { method: 'POST' })
+export const openTemplatesFolder = async (): Promise<{ ok: boolean; path?: string; error?: string }> => {
+  const bridge = desktop()
+  try {
+    if (typeof bridge?.openTemplatesFolder === 'function') return await bridge.openTemplatesFolder()
+    return await req('/api/templates/open', { method: 'POST' })
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+export const saveOrgTemplate = (slug: string, name: string, include: TemplateInclude, replace = false): Promise<SavedTemplate> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/template`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, include, replace }),
+  })
 // §4.8: archived seats arrive without their runtime fields; `hydrateTree`
 // refills them from the payload's own `archived_defaults` before anything
 // downstream sees the tree, so no reader has to know the seat was summarised.

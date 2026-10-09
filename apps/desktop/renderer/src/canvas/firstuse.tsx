@@ -39,6 +39,11 @@ export function useFirstUse(slug: string) {
   return useMemo(() => firstUseProgress(slug), [slug, value])
 }
 export function beginFirstUse(slug: string) { if (slug) save(slug, { step: 'token' }) }
+/** An org created from a template already has its agents: the guide starts
+ *  at sending the first of them a message. */
+export function beginFirstUseAt(slug: string, agent: string) {
+  if (slug && agent) save(slug, { step: 'message', agent })
+}
 export function firstUseToken(slug: string) {
   if (firstUseProgress(slug)?.step === 'token') save(slug, { step: 'name' })
 }
