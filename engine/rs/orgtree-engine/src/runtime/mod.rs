@@ -65,6 +65,9 @@ pub enum AgentMsg {
     Process { action: String, reply: oneshot::Sender<Value> },
     /// scope/model/account/charter changed: the next turn needs a fresh process
     Reconfigured,
+    /// a switch or account was queued because a turn is on record: an idle
+    /// agent applies it now (decision 62)
+    ApplyQueued,
     /// a line from the Claude CLI
     Claude(uuid::Uuid, Value),
     /// a JSON-RPC notification/response from the Codex app-server
@@ -199,6 +202,13 @@ pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandl
 #[logged]
 pub fn wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
     actor(engine, org_id, agent_id).send(AgentMsg::Wake);
+}
+
+/// A queued switch or account: the agent applies it at once unless it is
+/// running a turn, whose end applies it (decision 62).
+#[logged]
+pub fn apply_queued(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
+    actor(engine, org_id, agent_id).send(AgentMsg::ApplyQueued);
 }
 
 /// 3.x `send_message(idle_only=True)`: an automatic wake starts a turn only

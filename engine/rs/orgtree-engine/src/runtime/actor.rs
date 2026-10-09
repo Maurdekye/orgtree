@@ -403,6 +403,10 @@ const PRINT_PARTS: [&str; 7] = ["system_prompt", "tools", "model", "permission_m
 /// An idle agent re-reads its startup files this often, so an edit shows in
 /// its forecast and its parked CLI is replaced before the next turn.
 const STARTUP_RECHECK: Duration = Duration::from_secs(20);
+/// A refused admission retries after a quarter second, doubling to a minute
+/// while refusals repeat: never at once, so none can spin (decision 62).
+const ADMIT_RETRY_FIRST: Duration = Duration::from_millis(250);
+const ADMIT_RETRY_MAX: Duration = Duration::from_secs(60);
 
 #[logged]
 impl Fingerprint {
@@ -512,6 +516,10 @@ struct Actor {
     late_told: std::collections::HashSet<i64>,
     /// the running prompt-cache keepalive, if any
     keepalive: Option<Keepalive>,
+    /// admissions refused in a row for a configuration change, and when the
+    /// next try is due (decision 62)
+    admit_refusals: u32,
+    admit_retry: Option<Instant>,
 }
 
 // Opaque to the logging macro: connection internals are never log arguments.
@@ -581,6 +589,8 @@ impl Actor {
             steer_since: None,
             late_told: Default::default(),
             keepalive: None,
+            admit_refusals: 0,
+            admit_retry: None,
         })
     }
 
@@ -654,6 +664,7 @@ impl Actor {
     #[nolog]
     fn dormant(&self) -> bool {
         self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none() && self.keepalive.is_none()
+            && self.admit_retry.is_none()
     }
 
     /// One acknowledgement at the first positive activity boundary, not at
@@ -696,6 +707,9 @@ impl Actor {
         // pushing the idle startup-file check back (decision 61)
         if self.turn.is_none() && self.keepalive.is_none() && self.startup_seen.is_some() {
             d = d.min(self.startup_checked + STARTUP_RECHECK);
+        }
+        if let Some(at) = self.admit_retry {
+            d = d.min(at);
         }
         if self.dormant() {
             d = d.min(self.idle_since + ACTOR_IDLE_EXIT + Duration::from_millis(50));
@@ -757,6 +771,10 @@ impl Actor {
             }
             self.kill_proc().await;
             self.end_turn(Some(why.to_string()), Value::Null).await?;
+        }
+        if self.admit_retry.is_some_and(|at| Instant::now() >= at) {
+            self.admit_retry = None;
+            self.on_wake().await?;
         }
         Ok(())
     }
@@ -858,19 +876,32 @@ impl Actor {
                 self.update_forecast().await;
                 self.publish();
             }
+            AgentMsg::ApplyQueued => {
+                // a running turn's end applies it; an idle agent takes it now
+                if !self.stopping && self.turn.is_none() {
+                    self.apply_pending_config().await?;
+                }
+            }
             AgentMsg::Live(reply) => {
                 let _ = reply.send(self.live_view());
             }
             AgentMsg::Stop(reply) => {
-                // engine shutdown or retirement: a running turn's mail stays
-                // claimed and inflight_at stays set, so the next start resumes it
+                // engine shutdown: a running turn's mail stays claimed and
+                // inflight_at stays set, so the next start resumes it. A seat
+                // stopped while the engine runs on (retire, dissolve, delete)
+                // settles its cut turn now, as 3.x did before archiving: no
+                // turn may stay on record for a seat that runs none (decision 62)
                 self.stopping = true;
                 if self.waiting_since.take().is_some() {
                     self.engine.sched.cancel(self.id);
                 }
                 self.cancel_keepalive().await;
                 self.kill_proc().await;
-                let _ = self.take_turn();
+                if let Some(t) = self.take_turn() {
+                    if !self.engine.is_stopping() {
+                        self.settle_cut_turn(t.id).await;
+                    }
+                }
                 self.slot = None;
                 self.publish_idle();
                 let _ = reply.send(());
@@ -1038,6 +1069,10 @@ impl Actor {
         }
         if self.stopping || self.turn.is_some() || self.waiting_since.is_some() || self.slot.is_some() {
             // mail for a running Claude turn is handed over at the next tool boundary
+            return Ok(());
+        }
+        if self.admit_retry.is_some() {
+            // a refused admission tries again on its own timer (decision 62)
             return Ok(());
         }
         self.apply_pending_config().await?;
@@ -2364,12 +2399,22 @@ impl Actor {
         }
         if current.get::<_, String>(0) != ctx.tier || current.get::<_, Option<String>>(1) != ctx.account
             || current.get::<_, bool>(5) || current.get::<_, Option<String>>(6) != ctx.session_id {
+            let queued = current.get::<_, bool>(5);
             tx.rollback().await?;
             drop(client);
             self.reconfigured = self.proc.is_some();
-            crate::runtime::wake(&self.engine, self.org_id, self.id);
+            // this is the boundary: a queued switch or account applies before
+            // any mail is claimed, and admission is tried again on a timer,
+            // never at once, so a refusal that persists cannot spin (decision 62)
+            if queued {
+                if let Err(e) = self.apply_pending_config().await {
+                    tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the queued configuration could not be applied; admission retries");
+                }
+            }
+            self.retry_admission();
             return Ok(false);
         }
+        self.admit_refusals = 0;
         let turn_id: i64 = tx
             .query_one(
                 "INSERT INTO ot.turns (agent_id, started_at, account, api_key, model) VALUES ($1, now(), $2, $3, $4) RETURNING id",
@@ -4190,10 +4235,90 @@ impl Actor {
     }
 
     async fn apply_pending_config(&mut self) -> Result<()> {
-        if crate::domain::ops::apply_pending(&self.engine, &self.org, self.id).await? {
+        use crate::domain::ops::{apply_pending, Boundary};
+        let mut found = apply_pending(&self.engine, &self.org, self.id).await?;
+        // a turn on record while this actor runs none is stale: close it,
+        // then the queue applies (decision 62)
+        if found == Boundary::Busy && self.turn.is_none() && self.close_stale_turns().await? {
+            found = apply_pending(&self.engine, &self.org, self.id).await?;
+        }
+        if found == Boundary::Applied {
             self.reconfigured = self.proc.is_some();
         }
         Ok(())
+    }
+
+    /// This actor runs no turn, yet one is on record: a turn cut without
+    /// settling (a retire before decision 62, a lost actor, a failed write).
+    /// Close it as a restart would, so `busy` stops holding the queue back.
+    /// True when anything was closed.
+    async fn close_stale_turns(&mut self) -> Result<bool> {
+        let client = self.engine.db.get().await?;
+        let open: Vec<i64> = client
+            .query("SELECT id FROM ot.turns WHERE agent_id = $1 AND ended_at IS NULL ORDER BY id LIMIT 16", &[&self.id])
+            .await?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        crate::domain::mail::recover_turns(&self.engine, &client, &open).await?;
+        let ended = client
+            .execute(
+                "UPDATE ot.turns SET ended_at = now(), killed = true,
+                        error = coalesce(error, 'no running turn owned this record; its agent closed it')
+                  WHERE id = ANY($1) AND ended_at IS NULL",
+                &[&open],
+            )
+            .await?;
+        let inflight = client
+            .execute(
+                "UPDATE ot.agents SET inflight_at = NULL, row_version = row_version + 1 WHERE id = $1 AND inflight_at IS NOT NULL",
+                &[&self.id],
+            )
+            .await?;
+        drop(client);
+        if !open.is_empty() || inflight > 0 {
+            tracing::warn!(agent = %self.name, turns = ?open, ended, inflight = inflight > 0, "a turn on record that no running turn owns: closing it");
+            self.changed(vec![Change::Mailbox(self.id), Change::Agent(self.id)]);
+        }
+        Ok(ended > 0 || inflight > 0)
+    }
+
+    /// A turn cut because its seat stopped while the engine runs on (retire,
+    /// dissolve, delete): its mail is settled as a restart would settle it
+    /// and the record is closed as killed (decision 62).
+    async fn settle_cut_turn(&self, turn: i64) {
+        let Ok(client) = self.engine.db.get().await else { return };
+        if let Err(e) = crate::domain::mail::recover_turns(&self.engine, &client, &[turn]).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "a cut turn's mail could not be settled");
+        }
+        let _ = client
+            .execute(
+                "UPDATE ot.turns SET ended_at = now(), killed = true,
+                        error = coalesce(error, 'the turn was cut: its agent was retired or deleted')
+                  WHERE id = $1 AND ended_at IS NULL",
+                &[&turn],
+            )
+            .await;
+        let _ = client
+            .execute(
+                "UPDATE ot.agents SET inflight_at = NULL, row_version = row_version + 1 WHERE id = $1 AND inflight_at IS NOT NULL",
+                &[&self.id],
+            )
+            .await;
+        drop(client);
+        self.changed(vec![Change::Mailbox(self.id)]);
+    }
+
+    /// Admission was refused for a configuration change: try again after
+    /// ADMIT_RETRY_FIRST, doubling to ADMIT_RETRY_MAX while refusals repeat.
+    fn retry_admission(&mut self) {
+        let delay = ADMIT_RETRY_FIRST.saturating_mul(1 << self.admit_refusals.min(8)).min(ADMIT_RETRY_MAX);
+        self.admit_refusals = self.admit_refusals.saturating_add(1);
+        self.admit_retry = Some(Instant::now() + delay);
+        if self.admit_refusals > 2 {
+            tracing::warn!(agent = %self.name, refusals = self.admit_refusals, retry_ms = delay.as_millis() as u64,
+                "admission keeps being refused for a configuration change; retrying on a backoff");
+        }
     }
 
     async fn tier_of(&self, client: &tokio_postgres::Client) -> String {

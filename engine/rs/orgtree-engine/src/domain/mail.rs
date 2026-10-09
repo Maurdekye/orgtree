@@ -60,22 +60,45 @@ pub async fn recover_deliveries(engine: &Engine, client: &tokio_postgres::Client
             "SELECT id FROM ot.mail WHERE state = 'delivering' ORDER BY id LIMIT 256", &[],
         ).await?.into_iter().map(|r| r.get(0)).collect();
         if ids.is_empty() { return Ok(()) }
-        let proven = client.query(
-            "UPDATE ot.mail m SET state = 'delivered', delivered_at = coalesce(m.delivered_at, now())
-              FROM ot.turns t WHERE m.id = ANY($1) AND m.turn_id = t.id AND m.state = 'delivering'
-                AND t.agent_id = m.recipient_agent_id AND t.sent_at IS NOT NULL
-                AND EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id = m.recipient_agent_id
-                  AND c.at >= t.started_at AND c.body->>'role' = 'user'
-                  AND jsonb_typeof(c.body->'mail_ids') = 'array'
-                  AND (c.body->'mail_ids') ? m.uid)
-              RETURNING m.uid,m.kind,m.org_id,m.net_id,m.net_hub", &[&ids],
-        ).await?;
-        consumed(engine, &proven);
-        client.execute(
-            "UPDATE ot.mail SET state = 'pending', turn_id = NULL
-              WHERE id = ANY($1) AND state = 'delivering'", &[&ids],
-        ).await?;
+        settle_claimed(engine, client, &ids).await?;
     }
+}
+
+/// The same repair for the turns of one agent that were cut while the
+/// engine ran on (a retire mid-turn, a turn on record that no running turn
+/// owns; decision 62): the mail they claimed is settled as a restart would.
+#[logged]
+pub async fn recover_turns(engine: &Engine, client: &tokio_postgres::Client, turns: &[i64]) -> Result<()> {
+    if turns.is_empty() { return Ok(()) }
+    loop {
+        let ids: Vec<i64> = client.query(
+            "SELECT id FROM ot.mail WHERE turn_id = ANY($1) AND state = 'delivering' ORDER BY id LIMIT 256", &[&turns],
+        ).await?.into_iter().map(|r| r.get(0)).collect();
+        if ids.is_empty() { return Ok(()) }
+        settle_claimed(engine, client, &ids).await?;
+    }
+}
+
+/// Claimed mail a durable conversation receipt proves consumed is delivered;
+/// the rest goes back to the mailbox.
+#[logged]
+async fn settle_claimed(engine: &Engine, client: &tokio_postgres::Client, ids: &[i64]) -> Result<()> {
+    let proven = client.query(
+        "UPDATE ot.mail m SET state = 'delivered', delivered_at = coalesce(m.delivered_at, now())
+          FROM ot.turns t WHERE m.id = ANY($1) AND m.turn_id = t.id AND m.state = 'delivering'
+            AND t.agent_id = m.recipient_agent_id AND t.sent_at IS NOT NULL
+            AND EXISTS (SELECT 1 FROM ot.convo c WHERE c.agent_id = m.recipient_agent_id
+              AND c.at >= t.started_at AND c.body->>'role' = 'user'
+              AND jsonb_typeof(c.body->'mail_ids') = 'array'
+              AND (c.body->'mail_ids') ? m.uid)
+          RETURNING m.uid,m.kind,m.org_id,m.net_id,m.net_hub", &[&ids],
+    ).await?;
+    consumed(engine, &proven);
+    client.execute(
+        "UPDATE ot.mail SET state = 'pending', turn_id = NULL
+          WHERE id = ANY($1) AND state = 'delivering'", &[&ids],
+    ).await?;
+    Ok(())
 }
 
 #[derive(Clone, Debug, serde::Serialize)]

@@ -56,6 +56,9 @@ pub(crate) struct Effects {
     /// a retool that set or cleared an agent's effort: (agent, the levels it
     /// resolved to before and after), delivered after commit
     effort: Option<(i64, String, String)>,
+    /// agents whose switch or account was queued because a turn is on
+    /// record: an idle one applies it at once (decision 62)
+    queued: Vec<i64>,
 }
 
 /// A locked agent row.
@@ -565,6 +568,9 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     crate::changes::notify(engine, org, ch);
     for id in &fx.wake {
         crate::runtime::wake(engine, org.id, *id);
+    }
+    for id in &fx.queued {
+        crate::runtime::apply_queued(engine, org.id, *id);
     }
     for id in &fx.warm {
         crate::runtime::warm(engine, org.id, *id);
@@ -1448,6 +1454,7 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         let replaced = queue_config(tx, &n, actor, json!({ "tier": tier, "from": n.tier, "crossing": from != to, "account": req["account"] }), true).await?;
         event(tx, org.id, "switch_queued", actor, Some(n.id), json!({ "node": n.name, "old": n.tier, "new": tier, "by": actor.label() }), fx).await?;
         fx.agents.insert(n.id);
+        fx.queued.push(n.id);
         fx.events = true;
         return Ok(json!({ "node": n.name, "queued": true, "pending_switch": tier, "replaced": replaced }));
     }
@@ -1560,7 +1567,7 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
         }
         let replaced = queue_config(tx, &n, actor, json!({ "account": acc.clone().unwrap_or_else(|| "primary".into()), "from": n.account.clone().unwrap_or_else(|| "primary".into()) }), false).await?;
         event(tx, org.id, "account_queued", actor, Some(n.id), json!({ "node": n.name, "account": acc, "by": actor.label() }), fx).await?;
-        fx.agents.insert(n.id); fx.events = true;
+        fx.agents.insert(n.id); fx.queued.push(n.id); fx.events = true;
         return Ok(json!({ "node": n.name, "queued": true, "pending_account": acc, "replaced": replaced }));
     }
     let frozen: Option<Value> = tx.query_one("SELECT frozen FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
@@ -1952,19 +1959,32 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     Ok(out)
 }
 
+/// What a turn boundary found for an agent's queued switch or account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Boundary {
+    /// nothing is queued, or the seat is not live
+    Nothing,
+    /// the queued intent was applied, or dropped with its explanation
+    Applied,
+    /// a turn is on record (`busy`), so nothing was looked at: the caller
+    /// that runs no turn knows that record is stale (decision 62)
+    Busy,
+}
+
 /// Consume pending intents only after a turn has settled. An operation failure
 /// rolls back to the savepoint; dropping the request and its explanation commit
 /// together, leaving the former configuration intact.
 #[logged]
-pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id: i64) -> Result<bool> {
+pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id: i64) -> Result<Boundary> {
     let mut client = engine.db.get().await?;
     let tx = client.transaction().await?;
     let n = node_by_id(&tx, id).await?;
-    if n.state != "live" || busy(&tx, id).await? { return Ok(false); }
+    if n.state != "live" { return Ok(Boundary::Nothing); }
+    if busy(&tx, id).await? { return Ok(Boundary::Busy); }
     let row = tx.query_one("SELECT pending_switch, pending_account FROM ot.agents WHERE id = $1", &[&id]).await?;
     let mut sw: Option<Value> = row.get(0);
     let ap: Option<Value> = row.get(1);
-    if sw.is_none() && ap.is_none() { return Ok(false); }
+    if sw.is_none() && ap.is_none() { return Ok(Boundary::Nothing); }
     let mut fx = Effects::default();
     // Newer account intent wins; an older account still composes with a model
     // request that did not choose its own account. Legacy stamps break only
@@ -2008,7 +2028,7 @@ pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id
     tx.commit().await?;
     drop(client);
     apply_effects(engine, org, fx).await;
-    Ok(true)
+    Ok(Boundary::Applied)
 }
 
 /// Imported intents have a name but no immutable actor id. Missing or retired
