@@ -2308,11 +2308,18 @@ impl Actor {
             )
             .await?
             .get(0);
+        // the 64 oldest waiting mails, and the oldest real (non-notice) one
+        // when those are all notices: a real message behind a long run of
+        // notices still starts its turn (else nothing ever claims it), and the
+        // notices left over ride the next turns, oldest first
         let claimed = tx
             .query(
-                "UPDATE ot.mail SET state = 'delivering', turn_id = $2
-                  WHERE id IN (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
-                                ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED)
+                "WITH oldest AS (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
+                                  ORDER BY id LIMIT 64 FOR UPDATE SKIP LOCKED),
+                      first_real AS (SELECT id FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending' AND NOT notice
+                                      ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
+                 UPDATE ot.mail SET state = 'delivering', turn_id = $2
+                  WHERE id IN (SELECT id FROM oldest) OR id IN (SELECT id FROM first_real)
                   RETURNING id, to_jsonb(ot.mail.*)",
                 &[&self.id, &turn_id],
             )
