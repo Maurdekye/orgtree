@@ -13,7 +13,7 @@ import { WindowPlacement } from './window-placement'
 import { configureTaskbar, icoFromPng } from './taskbar'
 import { tintTrayBitmap } from './tray-tint'
 import { mailhubTrayItem } from './tray-mailhub'
-import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
+import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
@@ -42,6 +42,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
+import { ensureBootEngine } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
@@ -1842,7 +1843,20 @@ else {
       if (app.isPackaged && !engineOptions.binary) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
-      if (!await engine.attach(engineOptions)) {
+      // macOS and Linux: the installed release registers that host itself (a
+      // LaunchAgent / systemd user unit, unixboot.ts), at every launch so a
+      // moved app is picked up, starts it, and waits for its descriptor. A
+      // development build never registers one, as on Windows.
+      const bootAttached = async () => {
+        if (!app.isPackaged || process.platform === 'win32' || identity.appId !== RELEASE_APP_ID || !engineOptions.binary) return false
+        const boot = await ensureBootEngine({ platform: process.platform, home: os.homedir(), appId: identity.appId,
+          engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot })
+        if (boot.error) console.warn(`background engine (${boot.manager}): ${boot.error}`)
+        if (!boot.started) return false
+        if (await engine.attach(engineOptions)) return true
+        return engine.attachWithRetry(engineOptions)
+      }
+      if (!await bootAttached() && !await engine.attach(engineOptions)) {
         if (engine.attachDiagnostic) console.warn(`boot-engine descriptor rejected: ${engine.attachDiagnostic}`)
         try { await engine.start(engineOptions) }
         catch (error) {
