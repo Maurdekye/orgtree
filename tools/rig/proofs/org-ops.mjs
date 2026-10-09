@@ -173,9 +173,12 @@ export default async function (rig) {
   await rig.restart()
   await new Promise(r => setTimeout(r, 8000))
   const xTurns = turns('kit'), open1 = xTurns.filter(t => !t.ended_at).length
-  // the restart path ran (it closes the turn the delete stopped), and nothing else touched X
-  p.check('a restart leaves the deleted org alone: no turn starts and no restart mail is written for its agents', open0 === 1 && open1 === 0
-    && xTurns.length === turns0 && xMail() === mail0, { open: `${open0} -> ${open1}`, turns: `${turns0} -> ${xTurns.length}`, mail: `${mail0} -> ${xMail()}` })
+  // the delete already closed the turn it cut, as killed (decision 62), so the
+  // restart finds nothing of X to close, and nothing else touches X
+  const cut = xTurns.at(-1)
+  p.check('a restart leaves the deleted org alone: no turn starts and no restart mail is written for its agents', open0 === 0 && open1 === 0
+    && cut?.killed === true && xTurns.length === turns0 && xMail() === mail0,
+    { open: `${open0} -> ${open1}`, cut, turns: `${turns0} -> ${xTurns.length}`, mail: `${mail0} -> ${xMail()}` })
   // nor tried: a restart wake or notice to a deleted org's agent fails (its org is not loaded) and logs a warning per agent, every start
   const failedSends = rig.engineLog().split(/\r?\n/).filter(l => /restart (wake|notice) could not be sent/.test(l))
   p.check('the restart does not try to wake or notify the deleted org\'s agents', failedSends.length === 0,
