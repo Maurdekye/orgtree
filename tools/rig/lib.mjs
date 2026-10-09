@@ -88,6 +88,37 @@ export function freeRamGB() {
   return Number(out) / 1024 / 1024
 }
 
+/** One heavy build at a time machine-wide (team rule 2026-10-09): the lock
+ * is a folder (mkdir is atomic) holding owner.txt (who, UTC, what), removed
+ * the moment the build ends, failed or not. An owner.txt older than 30
+ * minutes is stale and may be removed. With the lock held, a build needs
+ * BUILD_RAM_GB free. */
+export const BUILD_LOCK = process.env.ORGTREE_BUILD_LOCK || 'E:\\cargo-target\\build.lock'
+export const BUILD_RAM_GB = 3
+const BUILD_LOCK_STALE_MS = 30 * 60 * 1000
+
+export function withBuildLock(what, fn) {
+  const owner = path.join(BUILD_LOCK, 'owner.txt')
+  const take = () => {
+    try { fs.mkdirSync(BUILD_LOCK); return true } catch (e) { if (e.code === 'EEXIST') return false; throw e }
+  }
+  if (!take()) {
+    let who = '', at
+    try { who = fs.readFileSync(owner, 'utf8').trim(); at = fs.statSync(owner).mtimeMs } catch { at = fs.statSync(BUILD_LOCK).mtimeMs }
+    if (Date.now() - at < BUILD_LOCK_STALE_MS) throw new Error(`the build lock is held (${who || 'no owner.txt yet'}): wait for ${BUILD_LOCK} to go`)
+    fs.rmSync(BUILD_LOCK, { recursive: true, force: true })
+    if (!take()) throw new Error(`someone took the build lock while a stale one was cleared: wait for ${BUILD_LOCK} to go`)
+  }
+  try {
+    fs.writeFileSync(owner, `${me()} ${new Date().toISOString()} ${what}\n`)
+    const free = freeRamGB()
+    if (free < BUILD_RAM_GB) throw new Error(`only ${free.toFixed(1)} GB RAM free; team rule: build with the lock held and at least ${BUILD_RAM_GB} GB free`)
+    return fn()
+  } finally {
+    fs.rmSync(BUILD_LOCK, { recursive: true, force: true })
+  }
+}
+
 // ------------------------------------------------------------ binaries
 
 export function cargoTarget() {

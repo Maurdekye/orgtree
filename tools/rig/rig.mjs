@@ -24,7 +24,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import { loadFixture, seed } from './fixture.mjs'
-import { REPO, Rig, cargoTarget, cleanup, freeRamGB, listRuns, readRun, startRun, stopRun } from './lib.mjs'
+import { REPO, Rig, cargoTarget, cleanup, listRuns, readRun, startRun, stopRun, withBuildLock } from './lib.mjs'
 
 function parse(argv) {
   const pos = [], flags = {}
@@ -65,18 +65,19 @@ async function up(flags) {
 
 function build() {
   const target = cargoTarget()
-  const free = freeRamGB()
-  if (free < 6) throw new Error(`only ${free.toFixed(1)} GB RAM free; team rule: start a cargo build only with at least 6 GB free`)
-  const env = { ...process.env, CARGO_TARGET_DIR: target }
-  for (const [what, cwd, args] of [
-    ['engine', path.join(REPO, 'engine', 'rs'), ['build', '-j', '2', '-p', 'orgtree-engine']],
-    ['fake CLI', path.join(REPO, 'tools', 'rig', 'fakecli'), ['build', '-j', '2']],
-  ]) {
-    console.error(`building the ${what} into ${target} ...`)
-    const r = spawnSync('cargo', args, { cwd, env, stdio: 'inherit', windowsHide: true })
-    if (r.status !== 0) throw new Error(`cargo build of the ${what} failed`)
-  }
-  return { engine: path.join(target, 'debug', 'orgtree-engine.exe'), fakecli: path.join(target, 'debug', 'orgtree-fakecli.exe') }
+  // the machine-wide build lock and its RAM floor (team rule), held for this one build
+  return withBuildLock(`rig build into ${target}`, () => {
+    const env = { ...process.env, CARGO_TARGET_DIR: target }
+    for (const [what, cwd, args] of [
+      ['engine', path.join(REPO, 'engine', 'rs'), ['build', '-j', '2', '-p', 'orgtree-engine']],
+      ['fake CLI', path.join(REPO, 'tools', 'rig', 'fakecli'), ['build', '-j', '2']],
+    ]) {
+      console.error(`building the ${what} into ${target} ...`)
+      const r = spawnSync('cargo', args, { cwd, env, stdio: 'inherit', windowsHide: true })
+      if (r.status !== 0) throw new Error(`cargo build of the ${what} failed`)
+    }
+    return { engine: path.join(target, 'debug', 'orgtree-engine.exe'), fakecli: path.join(target, 'debug', 'orgtree-fakecli.exe') }
+  })
 }
 
 async function main() {
