@@ -339,3 +339,19 @@ All entries are dated 2026-10-06 unless stated otherwise.
     "external mail unroutable" notice saying who it waits for, and an `@org:` sender is told
     it waits. The org-inbox instructions say who receives outside mail. Proof:
     `tools/rig/proofs/org-inbox-unavailable.mjs`.
+
+60. **Opening or revealing an organization's window never touches another window** (user
+    2026-10-09 08:12Z: "dont minimize any existing window", after a notification for another
+    organization opened that organization's window and the window they were in ended up
+    minimized). Nothing in the desktop did that. The only minimize calls are the minimize
+    buttons of a window and of a popout, each acting on itself. The only hide is the close of
+    the last visible window, hiding itself. The reveal path shows, restores, re-maximizes and
+    focuses only the window it reveals. That is now a tested guarantee:
+    `main/window-reveal.ts` holds the reveal (pure, handed exactly one window), and
+    `tests/window-reveal.test.mjs` drives the real notification manager, registry and
+    `openOrg` against windows that record every call. A click for another organization opens
+    its window and makes no call at all on any other window; all seven notification kinds take
+    that path; a source check fails on any new minimize or hide, or any line added to the
+    reveal path. The live log of the reported click shows the new window opening while the
+    user's window kept running with its own organization. Whether that window was minimized
+    before the click, by a Windows gesture, or by the user cannot be told from the logs.
