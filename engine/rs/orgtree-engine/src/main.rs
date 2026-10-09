@@ -208,6 +208,9 @@ async fn run_with_cluster(
     });
 
     progress("engine-load-orgs");
+    // before anything with a child of its own (the hosted hub) starts
+    #[cfg(unix)]
+    stop_on_signals(&engine);
     credential_context::start(&engine);
     // tool-bridge sockets a killed earlier run left (Windows pipes go with their process)
     #[cfg(unix)]
@@ -256,4 +259,31 @@ async fn run_with_cluster(
     runtime::shutdown(&engine).await;
     mailhub::stop(&engine).await;
     Ok(())
+}
+
+/// SIGTERM, SIGINT and SIGHUP stop the engine cleanly, as they stop the host
+/// (launchd and systemd end a service with SIGTERM; a terminal sends the
+/// others): the HTTP server drains, the agents are settled and the hosted mail
+/// hub is stopped, where the default would end the process at once and leave
+/// the hub holding its port.
+#[cfg(unix)]
+#[logged]
+fn stop_on_signals(engine: &Arc<Engine>) {
+    use tokio::signal::unix::{signal, SignalKind};
+    for (name, kind) in [("SIGTERM", SignalKind::terminate()), ("SIGINT", SignalKind::interrupt()), ("SIGHUP", SignalKind::hangup())] {
+        let mut received = match signal(kind) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(signal = name, error = %e, "cannot catch this signal: it ends the engine without stopping its hub");
+                continue;
+            }
+        };
+        let eng = engine.clone();
+        tokio::spawn(async move {
+            if received.recv().await.is_some() {
+                tracing::warn!(signal = name, "signal received; shutting down");
+                eng.request_shutdown();
+            }
+        });
+    }
 }
