@@ -156,9 +156,11 @@ Publishing starts the **verify-release** workflow. It downloads every public ass
 
 ## macOS and Linux (prototypes)
 
-The macOS and Linux builds are "untested builds, but builds nonetheless": the app
-builds, starts its engine and its bundled PostgreSQL, and answers, on GitHub's
-runners. Nobody has run them on a real Mac or Ubuntu PC yet.
+The macOS and Linux builds are "untested builds, but builds nonetheless". On GitHub's
+runners the app builds, starts its engine and its bundled PostgreSQL, and answers; the
+background engine starts under launchd or systemd; and hired agents on all three CLI
+lanes use their Orgtree tools, with the rig's fake CLI standing in for each CLI.
+Nobody has run them on a real Mac or Ubuntu PC yet.
 
 **macOS** (`Orgtree-<v>-arm64.dmg` or `.zip`): Apple Silicon only. The app is ad-hoc
 signed and not notarized, because notarization needs a paid Apple Developer account.
@@ -196,19 +198,65 @@ Ubuntu 22.04's glibc 2.35 (inferred).
 the CLI's own stdio, as on Windows. Antigravity agents reach them through the tool
 bridge (`orgtree-engine mcp-bridge`), which here is a Unix socket in a private folder
 (0700, the socket 0600): `<data>/bridge`, or a folder under `$XDG_RUNTIME_DIR` or
-`$TMPDIR` when that path is too long for a socket address (decision 66). Its tests:
-`cargo test -p orgtree-engine --bin orgtree-engine bridge::`.
+`$TMPDIR` when that path is too long for a socket address (decision 66). Antigravity
+runs its hooks through a shell; a hook path a shell would split (the data folder is
+`Orgtree v2`) runs from a 0700 copy in a space-free private folder. Each CLI runs in
+its own process group: killing, interrupting or retiring an agent's CLI signals the
+whole group (SIGTERM, then SIGKILL 3 s later), and so does letting go of a closed CLI,
+as dropping its job does on Windows. `orgtree-engine serve` stops cleanly on SIGTERM,
+SIGINT or SIGHUP, as the background host does: its agents settle, their CLIs end, and
+its hosted mail hub stops.
+
+**Background engine** (both platforms): the installed app registers it at every launch
+(`apps/desktop/main/unixboot.ts`): a LaunchAgent
+(`~/Library/LaunchAgents/com.maurdekye.orgtree.engine.plist`) on macOS; a systemd user
+unit (`~/.config/systemd/user/orgtree-engine.service`) on Linux, or an XDG autostart
+entry where `systemctl --user` doesn't answer. It runs `orgtree-engine host`, and the
+desktop attaches to it. Its PATH is the user's login-shell PATH (`$SHELL -ilc` and
+`$SHELL -ic`, read with a clean environment) ahead of `~/.local/bin`,
+`/opt/homebrew/bin` (macOS), `/usr/local/bin` and the system folders, so CLIs installed
+with nvm, volta, an npm prefix, bun or Linuxbrew are found. A changed PATH or app
+location rewrites the registration at the next launch and restarts the engine onto it
+(inferred from code). If registration fails, the app starts its own engine as before,
+with the PATH it was opened with; a macOS app opened from Finder gets a minimal one
+(inferred).
+
+**What every macOS and Linux build proves** (after packaging, on the packaged engine):
+- Engine unit tests: `cargo test --release -p orgtree-engine --bin orgtree-engine --
+  bridge:: runtime::agy:: winproc::`; each of the three areas must run a test.
+- Background engine (`.github/ci/boot-engine-smoke.mjs`): register, start, answer for
+  its data folder, stop. A stand-in `codex` that only the login shell's PATH finds
+  (`~/.npm-global/bin`, set in the shell's profile by `.github/ci/unix/login-shell-cli.sh`)
+  must show as installed at that path. Linux runs it for the `.deb` layout and the
+  AppImage. On the runner `systemctl --user` answers once lingering is on, so the
+  autostart fallback is not exercised.
+- Agents (`.github/ci/unix/agent-tools-smoke.sh`, data folder `<tmp>/Orgtree v2`): one
+  hired agent per CLI lane (Claude on haiku, Codex on luna, Antigravity on flash; the
+  rig's fake CLI found the way the engine finds the real ones) makes a real
+  `orgtree_status` call. A lane passes only if the tool answered and the engine then
+  reports that status. Without the Unix bridge the Antigravity lane fails (measured:
+  "the tool bridge needs Windows named pipes").
+- An Antigravity agent without shell rights has `run_command` denied by its
+  PreToolUse hook.
+- A child that a CLI starts is gone within 20 s when its agent is retired mid-turn, when
+  its idle agent's process is stopped, and when the engine gets SIGTERM mid-turn.
+- The hosted mail hub answers `/healthz` (a failure there is a warning). After SIGTERM
+  the engine exits by itself, its hub is gone and its port free, and a second start on
+  the same data folder hosts the hub again.
+- Every app smoke (AppImage, `.deb`, the macOS app) ends with SIGTERM to the engine
+  (macOS: `launchctl bootout` of the background engine first) and requires no hub left
+  running and port 7370 free (`.github/ci/unix/hub-gone.sh`).
 
 **Not there yet** (both platforms):
 - No automatic updates. The app doesn't offer them on macOS or Linux; download each
   new version by hand.
-- Provider CLIs (`claude`, `codex`) must be on the PATH Orgtree starts with. A macOS
-  app opened from Finder gets a minimal PATH; starting it from Terminal with
-  `open -a Orgtree` keeps the shell's PATH (inferred).
-- No credential bridge. The background engine starts at login (a LaunchAgent on
-  macOS, a systemd user unit or XDG autostart entry on Linux), registered by the
-  installed app at each launch (`apps/desktop/main/unixboot.ts`; proof:
-  `.github/ci/boot-engine-smoke.mjs`).
+- No Git credential bridge: the exchange answers "unavailable" outside Windows. Agents
+  run as the user and use the user's own Git credential helper (inferred).
+- No Claude usage readings on macOS: `usage.rs` reads the token from
+  `~/.claude/.credentials.json`, and Claude Code on macOS keeps it in the Keychain
+  (inferred). Hiring is unaffected: the account email in `~/.claude.json` counts as
+  signed in.
+- No phone setup: it opens a Windows firewall rule, so macOS and Linux leave it out.
 - Linux, from its port's list: also no "Run as administrator", tray left-click list,
   taskbar attention icons, `pid:N` process watchdogs, or memory floor for warming
   CLIs. These are gated off, not deleted.

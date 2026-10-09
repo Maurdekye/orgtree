@@ -57,18 +57,18 @@ Orgtree 4.1.0 lets you message your agents from your phone with Hubchat. It move
 
 ## macOS and Linux (prototypes)
 
-These are untested builds. They build, start their engine and the bundled PostgreSQL, and answer on GitHub's build machines, but nobody has run them on a real Mac or Linux PC yet.
+These are untested builds. On GitHub's build machines they build, start their engine and the bundled PostgreSQL, start the background engine, and run hired agents that use their Orgtree tools (a stand-in plays each AI CLI). Nobody has run them on a real Mac or Linux PC yet.
 
 - **macOS:** `Orgtree-4.1.0-arm64.dmg` or `.zip`, for Apple Silicon Macs only. The app isn't notarized, so macOS says it can't check it for malware.
   - On macOS 15 or later: click Done, open System Settings › Privacy & Security, click "Open Anyway", then open Orgtree again.
   - On older versions: right-click the app and choose Open.
 - **Linux:** `orgtree_4.1.0_amd64.deb` (recommended: `sudo apt install ./orgtree_4.1.0_amd64.deb`) or `Orgtree-4.1.0.AppImage`, for x86_64 with Ubuntu 22.04 or Debian 12 or newer. The AppImage needs FUSE 2 (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04).
-- **Background engine:** as on Windows, the engine starts when you sign in and keeps your agents working with the Orgtree window closed: a LaunchAgent on macOS, a systemd user service on Linux (or an autostart entry where there is none). Orgtree sets it up the first time it starts and updates it if you move the app.
+- **Background engine:** as on Windows, the engine starts when you sign in and keeps your agents working with the Orgtree window closed: a LaunchAgent on macOS, a systemd user service on Linux (or an autostart entry where there is none). Orgtree sets it up the first time it starts and updates it if you move the app. It finds `claude`, `codex` and `agy` in their usual install folders and on the PATH your login shell sets up; if you install one in a new place, quit and reopen Orgtree.
 - **Not there yet:**
   - No automatic updates: download each new version by hand.
   - No credential bridge.
   - Chat from your phone's setup uses the Windows firewall.
-  - Provider CLIs (`claude`, `codex`) must be on the PATH Orgtree starts with.
+  - On macOS the usage board shows no Claude readings: Claude Code keeps its sign-in in the Keychain, which Orgtree doesn't read yet. Hiring Claude agents works.
 
 Thanks to WhoReallyKnowsAnything, whose macOS (Apple Silicon) port for Orgtree 3 (pull request #3) paved the way for the Mac build.
 
