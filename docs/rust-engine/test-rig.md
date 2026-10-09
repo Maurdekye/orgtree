@@ -10,7 +10,7 @@ runs an existing `electron.exe` in place).
 
 ```bash
 export CARGO_TARGET_DIR='E:\cargo-target\<you>'      # team rule: your own folder on E:
-node tools/rig/rig.mjs build                          # debug engine + fake CLI (needs >= 6 GB free RAM)
+node tools/rig/rig.mjs build                          # debug engine + fake CLI, under the machine-wide build lock E:\cargo-targetuild.lock (needs >= 3 GB free RAM)
 node tools/rig/rig.mjs up                             # ~20 s: run + basic fixture; prints url, token, org
 node tools/rig/rig.mjs tool alice orgtree_chart '{}'  # any tool, as any live agent
 node tools/rig/rig.mjs mail user carol "hello"        # desk mail from the user (wakes carol)
