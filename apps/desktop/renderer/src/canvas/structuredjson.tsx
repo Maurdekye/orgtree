@@ -15,15 +15,49 @@ type Json = unknown
 const isContainer = (v: Json): v is Record<string, Json> | Json[] =>
   v !== null && typeof v === 'object'
 
-/** Parse tool output text; only an object or array counts as structured. */
-export function parseStructured(text: string | undefined | null): Json | undefined {
+let lastParse: { text: string; repair: boolean; value: Json | undefined } | undefined
+
+/** Close a JSON text the engine clipped (tool results are cut at a few KB):
+ *  keep everything up to the last point where the open containers can be
+ *  closed, drop the dangling piece. Undefined when nothing parses. */
+function closeTruncated(s: string): Json | undefined {
+  const stack: string[] = []
+  const marks: { end: number; closers: string }[] = []
+  let inStr = false, esc = false
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue }
+    if (c === '"') inStr = true
+    else if (c === '{') { stack.push('}'); marks.push({ end: i + 1, closers: stack.slice().reverse().join('') }) }
+    else if (c === '[') { stack.push(']'); marks.push({ end: i + 1, closers: stack.slice().reverse().join('') }) }
+    else if (c === '}' || c === ']') stack.pop()
+    else if (c === ',') marks.push({ end: i, closers: stack.slice().reverse().join('') })
+  }
+  for (let k = marks.length - 1, tries = 0; k >= 0 && tries < 8; k--, tries++) {
+    try {
+      const v = JSON.parse(s.slice(0, marks[k].end) + marks[k].closers)
+      return isContainer(v) ? v : undefined
+    } catch { /* cut further back */ }
+  }
+  return undefined
+}
+
+/** Parse tool output text; only an object or array counts as structured.
+ *  `repair`: the text was clipped, so a cut-off tail is closed instead of
+ *  refusing the whole thing. Memoised on the last text (called per render). */
+export function parseStructured(text: string | undefined | null, repair = false): Json | undefined {
   if (!text) return undefined
+  if (lastParse && lastParse.text === text && lastParse.repair === repair) return lastParse.value
   const s = text.trim()
-  if (s[0] !== '{' && s[0] !== '[') return undefined
-  try {
-    const v = JSON.parse(s)
-    return isContainer(v) ? v : undefined
-  } catch { return undefined }
+  let value: Json | undefined
+  if (s[0] === '{' || s[0] === '[') {
+    try {
+      const v = JSON.parse(s)
+      value = isContainer(v) ? v : undefined
+    } catch { value = repair ? closeTruncated(s) : undefined }
+  }
+  lastParse = { text, repair, value }
+  return value
 }
 
 /** Rows a full expansion would mount (stops counting once past the limit). */
@@ -86,8 +120,8 @@ function Children({ v, depth, collapseFrom }: { v: Json; depth: number; collapse
 }
 
 /** Structured view with the Raw toggle. `raw` is what Raw shows. */
-export function StructuredJson({ value, raw, rawText }: {
-  value: Json; raw?: string; rawText?: () => string
+export function StructuredJson({ value, raw, rawText, note }: {
+  value: Json; raw?: string; rawText?: () => string; note?: string
 }): ReactNode {
   const [showRaw, setShowRaw] = useState(false)
   const big = useMemo(() => {
@@ -104,5 +138,6 @@ export function StructuredJson({ value, raw, rawText }: {
     {showRaw
       ? <pre className="filepre respre sj-rawpre">{raw ?? rawText?.() ?? JSON.stringify(value, null, 2)}</pre>
       : <Children v={value} depth={0} collapseFrom={collapseFrom} />}
+    {note && !showRaw && <div className="dim">{note}</div>}
   </div>
 }

@@ -56,3 +56,11 @@ test('a payload over the row limit starts collapsed past the first level', async
     assert.equal(keys.length, 1 + big.items.length, 'first level only: the items, not their fields')
   } finally { await view.unmount() }
 })
+
+test('a clipped JSON result is closed at its last complete piece', () => {
+  const clipped = '{"a":1,"rows":[{"id":1,"n":"x"},{"id":2,"n":"yy'
+  assert.equal(parseStructured(clipped), undefined, 'strict parse refuses it')
+  assert.deepEqual(parseStructured(clipped, true), { a: 1, rows: [{ id: 1, n: 'x' }, { id: 2 }] })
+  assert.equal(parseStructured('{"a":"b\\"', true) !== undefined, true)
+  assert.equal(parseStructured('not json at all', true), undefined)
+})
