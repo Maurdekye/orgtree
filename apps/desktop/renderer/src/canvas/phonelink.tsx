@@ -340,7 +340,9 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
     </>
     else if (!code && persons.length && state.hubchat_pc) right = <div className="phone-step">
       <p><b>You already use Hubchat on this PC.</b> Bring that identity to your phone: on the phone choose <b>I already use Hubchat › Scan the QR code from your other device</b>. Then scan the code from the <b>QR button</b> at the bottom of Hubchat’s chat list on this PC.</p>
-      <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void isMe(persons[0].address) }}>Is {persons[0].address} you? Yes</button></div></div>
+      <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void isMe(persons[0].address) }}>Is {persons[0].address} you? Yes</button>
+        {/* a separate identity on the phone: the download and setup-code steps */}
+        <button type="button" disabled={busy} onClick={() => setNotYou(n => [...n, ...persons.map(p => p.address)])}>Set up my phone with a code instead</button></div></div>
     else if (!code && persons.length) right = <div className="phone-step">
       <p><b>Is this you?</b> Hubchat <b className="mono-sm">{persons[0].address}</b> already uses this PC’s hub.</p>
       <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void isMe(persons[0].address) }}>Yes, that’s me</button>
