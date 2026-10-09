@@ -152,9 +152,12 @@ mod imp {
 #[cfg(windows)]
 pub use imp::*;
 
-#[cfg(not(windows))]
-mod imp_other {
+// Unix: no job objects yet (children are not killed if the engine crashes);
+// liveness and the parent watch use kill(pid, 0) and getppid().
+#[cfg(unix)]
+mod imp_unix {
     pub const CREATE_NO_WINDOW: u32 = 0;
+    #[logged]
     pub fn install_root_job() -> bool {
         false
     }
@@ -162,16 +165,56 @@ mod imp_other {
     impl ChildJob {
         pub fn terminate(&self) {}
     }
-    pub fn process_alive(_pid: u32) -> bool {
-        true
+
+    #[logged]
+    pub fn process_alive(pid: u32) -> bool {
+        process_state(pid) != Some(false)
     }
-    pub fn process_state(_pid: u32) -> Option<bool> {
-        None
+
+    /// Some(true) running, Some(false) no such process, None when the probe
+    /// could not tell. A zombie still counts as running until it is reaped.
+    #[logged]
+    pub fn process_state(pid: u32) -> Option<bool> {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return Some(false) };
+        if pid <= 0 {
+            return Some(false);
+        }
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return Some(true);
+        }
+        match std::io::Error::last_os_error().raw_os_error() {
+            Some(libc::ESRCH) => Some(false),
+            Some(libc::EPERM) => Some(true),
+            _ => None,
+        }
     }
-    pub fn watch_parent(_pid: u32, _on_exit: impl FnOnce() + Send + 'static) {}
+
+    /// Poll until `pid` exits, then call `on_exit`. When `pid` is our parent,
+    /// being reparented is the exit signal (a dead parent may linger as a zombie).
+    #[logged]
+    pub fn watch_parent(pid: u32, on_exit: impl FnOnce() + Send + 'static) {
+        let was_child = unsafe { libc::getppid() } as u32 == pid;
+        std::thread::Builder::new()
+            .name("parent-watch".into())
+            .spawn(move || {
+                loop {
+                    let gone = if was_child {
+                        unsafe { libc::getppid() } as u32 != pid
+                    } else {
+                        process_state(pid) == Some(false)
+                    };
+                    if gone {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+                on_exit();
+            })
+            .ok();
+    }
 }
-#[cfg(not(windows))]
-pub use imp_other::*;
+#[cfg(unix)]
+pub use imp_unix::*;
 
 /// Bytes the machine can still commit (Windows: what `GlobalMemoryStatusEx`
 /// reports as available page file); None where it cannot be read.

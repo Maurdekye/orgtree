@@ -72,3 +72,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_SystemInformation",
     "Win32_UI_Shell",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

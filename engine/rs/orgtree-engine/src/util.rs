@@ -18,6 +18,13 @@ pub fn iso_opt(t: Option<DateTime<Utc>>) -> Value {
     }
 }
 
+/// A bundled executable's file name on this platform (`postgres` ->
+/// `postgres.exe` on Windows, unchanged elsewhere).
+#[logged]
+pub fn exe_name(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
+}
+
 pub fn now() -> DateTime<Utc> {
     Utc::now()
 }

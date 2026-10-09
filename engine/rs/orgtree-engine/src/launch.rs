@@ -113,10 +113,16 @@ fn lock_byte(file: &File) -> Result<bool> {
     }
 }
 
+/// Unix: an exclusive advisory lock on the whole lock file (flock), released
+/// when the file closes, so a crashed engine never leaves the root locked.
 #[cfg(not(windows))]
 #[logged]
-fn lock_byte(_file: &File) -> Result<bool> {
-    Ok(true)
+fn lock_byte(file: &File) -> Result<bool> {
+    match file.try_lock() {
+        Ok(()) => Ok(true),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+        Err(std::fs::TryLockError::Error(e)) => bail!("could not lock the data root ({e})"),
+    }
 }
 
 /// Bind the persisted port when it is free, else a fresh one in 20000–49151,

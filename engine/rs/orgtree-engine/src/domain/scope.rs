@@ -86,7 +86,9 @@ pub fn normalize_tools(t: &Value) -> Value {
 #[logged]
 pub(crate) fn norm_path(p: &str) -> String {
     // Match 3.x normpath before containment: work/../outside is not inside work.
-    let s = p.replace('/', "\\").to_lowercase();
+    // Case folds only on Windows; other filesystems are case-sensitive.
+    let s = p.replace('/', "\\");
+    let s = if cfg!(windows) { s.to_lowercase() } else { s };
     let unc = s.starts_with("\\\\");
     let rooted = s.starts_with('\\') || s.as_bytes().get(1..3) == Some(b":\\");
     let mut parts: Vec<&str> = Vec::new();
@@ -102,7 +104,7 @@ pub(crate) fn norm_path(p: &str) -> String {
     out
 }
 
-/// Is `child` the same as or inside `parent` (Windows, case-insensitive)?
+/// Is `child` the same as or inside `parent` (case-insensitive on Windows)?
 pub fn path_within(child: &str, parent: &str) -> bool {
     let c = norm_path(child);
     let p = norm_path(parent);

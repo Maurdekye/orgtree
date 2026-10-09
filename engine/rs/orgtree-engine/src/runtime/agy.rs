@@ -348,6 +348,11 @@ fn write_workspace(spec: &AgySpec, pipe: &str) -> Result<()> {
             std::fs::write(&wrapper, format!("@echo off\r\n\"{exe}\" agy-hook \"%~dp0orgtree-rights.json\"\r\n"))?;
         } else {
             std::fs::write(&wrapper, format!("#!/bin/sh\nexec \"{exe}\" agy-hook \"$(dirname \"$0\")/orgtree-rights.json\"\n"))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755));
+            }
         }
         // resolved before hooks.json is written, so a refusal never leaves an unenforced seat behind
         let command =

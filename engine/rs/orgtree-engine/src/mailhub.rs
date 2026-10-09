@@ -300,10 +300,10 @@ fn hub_binary() -> Result<PathBuf, String> {
     std::env::var_os("ORGTREE_HUB_BIN")
         .map(PathBuf::from)
         .into_iter()
-        .chain(exe_dir.iter().map(|d| d.join("orgtree-mailhub.exe")))
-        .chain(exe_dir.iter().map(|d| up(d).join("mailhub").join("target").join("release").join("orgtree-mailhub.exe")))
+        .chain(exe_dir.iter().map(|d| d.join(crate::util::exe_name("orgtree-mailhub"))))
+        .chain(exe_dir.iter().map(|d| up(d).join("mailhub").join("target").join("release").join(crate::util::exe_name("orgtree-mailhub"))))
         .find(|p| p.is_file())
-        .ok_or_else(|| "the mail hub (orgtree-mailhub.exe) was not found beside the engine".to_string())
+        .ok_or_else(|| format!("the mail hub ({}) was not found beside the engine", crate::util::exe_name("orgtree-mailhub")))
 }
 
 #[logged]

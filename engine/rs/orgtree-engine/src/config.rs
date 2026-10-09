@@ -70,7 +70,7 @@ impl Config {
             .map(PathBuf::from)
             .or_else(|| {
                 let p = exe_dir.join("postgresql").join("bin");
-                p.join("postgres.exe").is_file().then_some(p)
+                p.join(crate::util::exe_name("postgres")).is_file().then_some(p)
             });
         let pg_bootstrap = std::env::var("ORGTREE_PG_BOOTSTRAP").map(|v| v == "1").unwrap_or(false);
         Ok(Config { data_root, data_root_id, desktop_token, ui_dir, parent_pid, pg_bin, exe_dir, pg_bootstrap })

@@ -51,7 +51,8 @@ pub fn init(cfg: &Config) -> Result<()> {
     let root = cfg.data_root.to_string_lossy().to_lowercase();
     if let Some(live) = dirs::data_dir().map(|d| d.join("Orgtree v2")) {
         let live = crate::config::canonical(&live).unwrap_or(live).to_string_lossy().to_lowercase();
-        if root == live || root.starts_with(&format!("{}\\", live.trim_end_matches('\\'))) {
+        let sep = std::path::MAIN_SEPARATOR;
+        if root == live || root.starts_with(&format!("{}{sep}", live.trim_end_matches(sep))) {
             anyhow::bail!("ORGTREE_ENGINE_RIG: {} is inside the live Orgtree data folder", cfg.data_root.display());
         }
     }

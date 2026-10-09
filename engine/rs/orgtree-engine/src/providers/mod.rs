@@ -125,7 +125,7 @@ pub fn locate_claude() -> Option<(PathBuf, String)> {
             return Some((exe, "path".into()));
         }
     }
-    let local = home().join(".local").join("bin").join("claude.exe");
+    let local = home().join(".local").join("bin").join(crate::util::exe_name("claude"));
     if local.is_file() {
         return Some((local, "path".into()));
     }

@@ -840,7 +840,8 @@ pub async fn charters_save(Path(name): Path<String>, Json(body): Json<CharterDoc
 pub async fn charters_open() -> ApiResult<Json<Value>> {
     let dir = user_charter_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let ok = std::process::Command::new("explorer.exe").arg(&dir).spawn().is_ok();
+    let opener = if cfg!(windows) { "explorer.exe" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let ok = std::process::Command::new(opener).arg(&dir).spawn().is_ok();
     Ok(Json(json!({ "ok": ok, "path": dir.to_string_lossy() })))
 }
 

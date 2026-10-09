@@ -29,7 +29,7 @@ pub struct Cluster {
 #[logged]
 impl Cluster {
     fn tool(&self, name: &str) -> PathBuf {
-        self.bin.join(format!("{name}.exe"))
+        self.bin.join(crate::util::exe_name(name))
     }
 
     #[nolog]
@@ -53,8 +53,8 @@ impl Cluster {
             .pg_bin
             .clone()
             .ok_or_else(|| anyhow!("PostgreSQL binaries not found (set ORGTREE_P03_PG_BIN)"))?;
-        if !bin.join("postgres.exe").is_file() {
-            bail!("postgres.exe not found in {}", bin.display());
+        if !bin.join(crate::util::exe_name("postgres")).is_file() {
+            bail!("{} not found in {}", crate::util::exe_name("postgres"), bin.display());
         }
         let cluster_dir = cfg.data_root.join("pg").join("cluster");
         let data_dir = cluster_dir.join("data");
@@ -80,7 +80,7 @@ impl Cluster {
             .open(log_dir.join("postgres.log"))
             .context("could not open the PostgreSQL log")?;
         let log2 = log.try_clone()?;
-        let mut cmd = Command::new(bin.join("postgres.exe"));
+        let mut cmd = Command::new(bin.join(crate::util::exe_name("postgres")));
         cmd.arg("-D")
             .arg(&data_dir)
             .arg("-p")
@@ -92,14 +92,18 @@ impl Cluster {
             .args(["-c", "max_wal_size=2GB"])
             .args(["-c", "checkpoint_timeout=15min"])
             .args(["-c", "logging_collector=off"])
-            .args(["-c", "log_min_duration_statement=2000"])
-            .stdin(Stdio::null())
+            .args(["-c", "log_min_duration_statement=2000"]);
+        // Unix: TCP only. No socket file, so nothing clashes with a system
+        // PostgreSQL's socket directory (or needs /var/run/postgresql).
+        #[cfg(unix)]
+        cmd.args(["-c", "unix_socket_directories="]);
+        cmd.stdin(Stdio::null())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(log2))
             .kill_on_drop(false);
         winproc::no_window(&mut cmd);
         progress("database-start");
-        let child = cmd.spawn().context("could not start postgres.exe")?;
+        let child = cmd.spawn().context("could not start postgres")?;
         let mut cluster = Cluster { data_dir, cluster_dir, bin, port, password, child: Some(child) };
         cluster.wait_ready(progress).await?;
         cluster.write_attach();
@@ -278,7 +282,14 @@ fn is_postgres(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(windows))]
+/// Linux: the process name in /proc (`comm`) is `postgres` for the postmaster.
+#[cfg(target_os = "linux")]
+#[logged]
+fn is_postgres(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/comm")).map(|c| c.trim() == "postgres").unwrap_or(false)
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 #[logged]
 fn is_postgres(_pid: u32) -> bool {
     true
@@ -289,6 +300,13 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
     use rand::RngCore;
     let secrets = cluster_dir.join("secrets");
     std::fs::create_dir_all(&secrets)?;
+    // Unix: the secrets folder is owner-only (0700), so the password files in
+    // it are unreadable to other local users whatever their own mode.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&secrets, std::fs::Permissions::from_mode(0o700))?;
+    }
     let mut raw = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut raw);
     let admin_pw = hex::encode(raw);
@@ -296,7 +314,7 @@ async fn initdb(bin: &Path, cluster_dir: &Path, data_dir: &Path, creds_file: &Pa
     let runtime_pw = hex::encode(raw);
     let pwfile = secrets.join(".initdb-pw.tmp");
     std::fs::write(&pwfile, &admin_pw)?;
-    let mut cmd = Command::new(bin.join("initdb.exe"));
+    let mut cmd = Command::new(bin.join(crate::util::exe_name("initdb")));
     cmd.arg("-D")
         .arg(data_dir)
         .arg("-U")
