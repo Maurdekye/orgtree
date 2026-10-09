@@ -3452,7 +3452,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <div className="desk-docs">
           {recentDocumentChips(node.documents!).map((d) => (
             <PresentationCard key={d.id} slug={slug} doc={d} toast={toast}
-              className="doc-badge" onOpen={onOpenDoc}>
+              className="doc-badge" direct onOpen={onOpenDoc}>
               <DocIcon fontSize="inherit" /><span>{d.title}</span>
             </PresentationCard>
           ))}

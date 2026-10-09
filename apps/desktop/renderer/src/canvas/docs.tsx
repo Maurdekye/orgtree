@@ -94,7 +94,7 @@ export function presentationMenu(el: Element | null, slug: string,
 
 /** The same activation in the canvas chips and titled desk cards. Markdown
  *  and HTML both open the owning agent collection; the preview is inside it. */
-export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast, inert = false }: {
+export function PresentationCard({ slug, doc, onOpen, className, children, compact = false, toast, inert = false, direct = false }: {
   slug: string; doc: Pick<DocMeta, 'id' | 'title' | 'format'> & { at?: string }; onOpen: (id: string) => void
   className: string; children: ReactNode; compact?: boolean
   /** for the context menu's copy/download confirmations; optional because
@@ -110,6 +110,10 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
    *  because a mark that means "this agent has presented something" is
    *  already carried by the agent's own controls at a zoom where they exist. */
   inert?: boolean
+  /** an HTML mockup opens straight in its own window on one click (the desk
+   *  header badges and the canvas chips); every other surface keeps the
+   *  reader, whose mockup link is the second click */
+  direct?: boolean
 }) {
   // the card's context menu (contextmenu.tsx): the same open the click does,
   // plus copy/download. No dismiss here — that control lives in the reader
@@ -117,10 +121,16 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   const menu = useContextMenu()
   useDocViewedVersion()
   const unread = docUnread(slug, doc.id, doc.at)
-  const open = () => { markDocViewed(slug, doc.id, doc.at); onOpen(doc.id) }
+  const open = (e?: ReactMouseEvent<HTMLElement>) => {
+    markDocViewed(slug, doc.id, doc.at)
+    if (direct && doc.format === 'html') {
+      const win = e?.currentTarget.ownerDocument.defaultView ?? window
+      win.open(mockupUrl(slug, doc.id), '_blank', 'noopener,noreferrer')
+    } else onOpen(doc.id)
+  }
   const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => menu.open(e, () =>
     presentationMenu(e.currentTarget, slug, doc, {
-      open, toast,
+      open: () => onOpen(doc.id), toast,
     }))
   const body = <>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}</>
   const mark = unread ? ' doc-' + unread : ''
@@ -128,7 +138,7 @@ export function PresentationCard({ slug, doc, onOpen, className, children, compa
   return <button className={className + mark} data-doc-unread={unread ?? undefined}
     title={unread ? `${unread === 'new' ? 'new' : 'updated'}: read ${doc.title}` : `read ${doc.title}`}
     onPointerDown={(e) => e.stopPropagation()}
-    onClick={(e) => { e.stopPropagation(); open() }}
+    onClick={(e) => { e.stopPropagation(); open(e) }}
     onContextMenu={onContextMenu}>{body}{menu.node}</button>
 }
 
@@ -199,7 +209,7 @@ export function DocChips({ slug, docs, onOpen, inert = false }: {
     <div className={'doc-chips' + (inert ? ' inert' : '')}>
       {recentDocumentChips(docs).map((d) => (
         <PresentationCard key={d.id} slug={slug} doc={d}
-          className="doc-chip" compact onOpen={onOpen} inert={inert}>
+          className="doc-chip" compact direct onOpen={onOpen} inert={inert}>
           {d.format !== 'html' && <DocIcon fontSize="inherit" />}
         </PresentationCard>
       ))}
