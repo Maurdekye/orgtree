@@ -174,3 +174,27 @@ test('unknown historical jump uses exact lookup and opens archive; stale navigat
   assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /active/)
   assert.doesNotMatch(view.el.querySelector('.mailer-read')?.textContent ?? '', /slow-ticket/)
 })
+
+test('docket changed while paging recovers by itself, no error, no duplicates', async t => {
+  forgetWorkInflight()
+  const counts = { active: 2, archived: 0, backlogged: 0, attention: 0 }
+  const page = (rows: string[], revision: string, next: number | null, reset = false) => ({
+    format: 'orgtree.work-page/v1', group: 'items', rows: rows.map(r => row(r)), total: 2,
+    totals: { items: 2, backlogged: 0, archived: 0 }, matched: { items: 2, backlogged: 0, archived: 0 },
+    counts, next_offset: next, revision, at: 'now', ...(reset ? { reset: true } : {}) })
+  let calls = 0, conflicted = false
+  globalThis.fetch = async url => {
+    const q = new URL(String(url), 'http://x').searchParams
+    calls++
+    if (q.get('offset') === '0' && !q.get('revision')) return reply(page(conflicted ? ['a', 'b'] : ['a'], conflicted ? 'r2' : 'r1', conflicted ? null : 1))
+    if (!conflicted) { conflicted = true; return reply(page([], 'r2', null, true)) }
+    return reply(page(['a', 'b'], 'r2', null))
+  }
+  let result: ReturnType<typeof useWorkItems>
+  function Probe() { result = useWorkItems('org', false, false, 60000); return <div /> }
+  const view = await mountView(<Probe />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { result!.paging.loadMore(); await new Promise(r => setTimeout(r, 50)) })
+  assert.equal(result!.status.failed, false)
+  assert.deepEqual(result!.value?.items.map(r => r.slug), ['a', 'b'])
+})
