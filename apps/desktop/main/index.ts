@@ -42,7 +42,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
-import { ensureBootEngine } from './unixboot'
+import { ensureBootEngine, loginShellPath } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
@@ -1850,7 +1850,8 @@ else {
       const bootAttached = async () => {
         if (!app.isPackaged || process.platform === 'win32' || identity.appId !== RELEASE_APP_ID || !engineOptions.binary) return false
         const boot = await ensureBootEngine({ platform: process.platform, home: os.homedir(), appId: identity.appId,
-          engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot })
+          engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
+          shellPath: await loginShellPath() })
         if (boot.error) console.warn(`background engine (${boot.manager}): ${boot.error}`)
         if (!boot.started) return false
         if (await engine.attach(engineOptions)) return true

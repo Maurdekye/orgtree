@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -53,19 +53,54 @@ export interface BootInputs {
   /** $APPIMAGE when running from an AppImage */
   appImage?: string
   dataRoot: string
+  /** the user's login shell's PATH (loginShellPath), ahead of the fixed list */
+  shellPath?: string
 }
 
-/** Where the provider CLIs usually live, instead of a service manager's
- *  minimal PATH. Fixed, not the desktop's own PATH: that differs between a
- *  terminal and a Dock or menu launch, and a registration that changed with
+/** Where the provider CLIs live: the login shell's PATH (nvm, volta, an npm
+ *  prefix, bun, Linuxbrew), then where they usually are, instead of a service
+ *  manager's minimal PATH. Never the desktop's own PATH: that differs between
+ *  a terminal and a Dock or menu launch, and a registration that changed with
  *  it would restart the running engine on every such launch. */
-export function bootPath(home: string, platform: NodeJS.Platform): string {
-  return [path.posix.join(home, '.local', 'bin'), ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []),
-    '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':')
+export function bootPath(home: string, platform: NodeJS.Platform, shellPath = ''): string {
+  const fixed = [path.posix.join(home, '.local', 'bin'), ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []),
+    '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+  const seen = new Set<string>()
+  return [...shellPath.split(':'), ...fixed].filter(d => path.posix.isAbsolute(d) && !seen.has(d) && !!seen.add(d)).join(':')
+}
+
+const PATH_MARK = '__ORGTREE_LOGIN_PATH__'
+
+/** The PATH between the markers, ignoring whatever the profile printed around it. */
+export function parseShellPath(stdout: string): string {
+  const m = new RegExp(PATH_MARK + '(.*?)' + PATH_MARK).exec(stdout)
+  return m ? m[1].trim() : ''
+}
+
+/** What the user's login shell sets PATH to, read with a CLEAN environment
+ *  (HOME, USER, SHELL and a minimal PATH), so the answer depends on their
+ *  profile files only, not on how Orgtree was opened. An interactive login
+ *  shell (zsh: .zprofile and .zshrc; bash: .bash_profile or .profile) and an
+ *  interactive one (bash: .bashrc, where nvm and friends usually live, which a
+ *  login bash reads only if its profile sources it), merged in that order;
+ *  each bounded by `timeoutMs`. '' when neither answers. */
+export async function loginShellPath(shell = process.env.SHELL || '/bin/sh', home = process.env.HOME || '', timeoutMs = 4000): Promise<string> {
+  const env = { HOME: home, USER: process.env.USER ?? '', LOGNAME: process.env.LOGNAME ?? process.env.USER ?? '', SHELL: shell,
+    PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TERM: 'dumb' }
+  const script = `printf '${PATH_MARK}%s${PATH_MARK}' "$PATH"`
+  const read = (flags: string) => new Promise<string>(resolve => {
+    const child = execFile(shell, [flags, script], { env, cwd: home || undefined, timeout: timeoutMs, killSignal: 'SIGKILL' },
+      (_error, stdout) => resolve(parseShellPath(String(stdout ?? ''))))
+    child.on('error', () => resolve(''))
+    child.stdin?.end()
+  })
+  const [login, interactive] = await Promise.all([read('-ilc'), read('-ic')])
+  const seen = new Set<string>()
+  return [...login.split(':'), ...interactive.split(':')].filter(d => d && !seen.has(d) && !!seen.add(d)).join(':')
 }
 
 export function bootCommand(o: BootInputs): BootCommand {
-  const env = { ORGTREE_V2_DATA: o.dataRoot, PATH: bootPath(o.home, o.platform) }
+  const env = { ORGTREE_V2_DATA: o.dataRoot, PATH: bootPath(o.home, o.platform, o.shellPath) }
   if (o.appImage) return { program: o.appImage, args: ['-e', APPIMAGE_HOST_JS], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } }
   return { program: o.engine, args: ['host'], env }
 }

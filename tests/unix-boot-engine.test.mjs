@@ -210,3 +210,33 @@ test('POSIX descriptor trust: this user\'s 0600 file in this user\'s folders; an
   assert.match(policy.judgePosixTrust(501, file, [dirs[0], ['/shared', st(0, 0o40777)], dirs[3]]).detail, /ancestor \/shared/)
   assert.equal(policy.judgePosixTrust(501, file, [dirs[0], ['/tmp', st(0, 0o41777)], dirs[3]]).ok, true, 'a sticky ancestor (/tmp) cannot have our folder replaced')
 })
+
+test('the login shell PATH comes first, then the fixed list, each folder once, relative entries dropped', () => {
+  assert.equal(boot.bootPath('/home/alex', 'linux', '/home/alex/.nvm/versions/node/v22/bin:/usr/bin:relative::/home/alex/.local/bin'),
+    '/home/alex/.nvm/versions/node/v22/bin:/usr/bin:/home/alex/.local/bin:/usr/local/bin:/bin:/usr/sbin:/sbin')
+  assert.match(boot.systemdUnit({ ...deb, shellPath: '/home/alex/.volta/bin' }), /^Environment="PATH=\/home\/alex\/\.volta\/bin:\/home\/alex\/\.local\/bin:/m)
+  assert.equal(boot.parseShellPath('motd noise\n__ORGTREE_LOGIN_PATH__/a:/b__ORGTREE_LOGIN_PATH__trailing'), '/a:/b')
+  assert.equal(boot.parseShellPath('no markers here'), '')
+})
+
+test('the login shell PATH is read from the profile with a clean environment (not the caller\'s PATH)', { skip: process.platform === 'win32' && 'no POSIX login shell' }, async () => {
+  const home = fs.mkdtempSync(path.join(dir, 'home-'))
+  fs.writeFileSync(path.join(home, '.profile'), 'echo profile noise\nexport PATH="/opt/fakecli/bin:$PATH"\n')
+  const before = process.env.PATH
+  process.env.PATH = '/caller/only/bin:' + before
+  try {
+    const p = await boot.loginShellPath('/bin/sh', home)
+    assert.match(p, /^\/opt\/fakecli\/bin:/)
+    assert.doesNotMatch(p, /\/caller\/only\/bin/, 'the desktop\'s own PATH never leaks in: Terminal and Dock launches agree')
+  } finally { process.env.PATH = before }
+  assert.equal(await boot.loginShellPath('/nonexistent/shell', home, 1000), '', 'no shell: the fixed list alone')
+})
+
+test('a login bash skips ~/.bashrc unless its profile sources it: the login and the interactive reads are merged', { skip: !has('bash') || process.platform === 'win32' ? 'no bash login shell here' : false }, async () => {
+  const home = fs.mkdtempSync(path.join(dir, 'home-'))
+  fs.writeFileSync(path.join(home, '.bash_profile'), 'export PATH="/opt/from-profile/bin:$PATH"\n')
+  fs.writeFileSync(path.join(home, '.bashrc'), 'export PATH="/opt/from-rc/bin:$PATH"\n')
+  const p = await boot.loginShellPath('/bin/bash', home)
+  assert.match(p, /\/opt\/from-rc\/bin/)
+  assert.match(p, /\/opt\/from-profile\/bin/)
+})
