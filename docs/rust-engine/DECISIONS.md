@@ -517,3 +517,34 @@ All entries are dated 2026-10-06 unless stated otherwise.
       connect-and-copy and the per-connection loop are shared. One round-trip test
       (initialize, tools/list, a real `orgtree_list_tiers` call) runs on every platform. The
       credential bridge stays Windows-only.
+
+67. **A watchdog's id is the readable slug of its name** (user 2026-10-09 22:41Z: "watchdog
+    tasks are referenced by an opaque id of random characters in their text. i want them to be
+    represented by their slug as their id when created, so that it appears in the monitor event
+    message"; confirmed: the slug fully replaces the random `wd…` id for new dogs). A dog's id
+    was `wd` and 12 random hex digits (3.x: 8), and the desktop's Monitor event card headed a
+    fire with it.
+    - **The id:** the dog's short name (lowercase letters, digits and dashes, at most 24
+      characters); without a name, or with one that has no letters or digits, its kind and
+      target (a file by its file name: `file-owner-txt`). The dog's name is set to its id, so
+      the fire mail's sender and body, the monitor event's actor and object, `list`, the canvas
+      chip and the create result all show it.
+    - **Unique per owner** among its dogs that hold an id (armed, paused, exited): a clash
+      takes `-2`, `-3` and so on, and the create result says why. A removed dog, or a one-shot
+      spent by its fire, frees its id. A unique index on (owner, id) for those states settles
+      two creates racing for one name: the loser takes the next suffix. Two agents may each
+      keep a `build-watch`.
+    - **Naming a dog:** pause, resume and remove take the id. `owner/id` names one owner's dog
+      (the desktop's handle for its chips, sparks and the user's actions); a bare id is the
+      actor's own dog, else the one dog of that id the actor may manage. Two owners' dogs
+      matching a bare id are refused, naming both `owner/id` forms.
+    - **Dogs made before** keep their random ids and names, and still work by them.
+    - **Inside the engine** dogs are keyed by their row id (runners, event subscriptions,
+      health, activity fan-out and every update), as the id is no longer unique table-wide.
+      Migration 0016 replaces the table-wide unique on `uid` with the unique (owner, uid) for
+      dogs that hold their id; the 3.x and 2.x importers skip a dog already imported by
+      checking its id.
+    - **Desktop:** the Monitor event card names a watchdog once when the event is about the
+      dog that sent it.
+
+    Proof: `tools/rig/proofs/watchdog-slugs.mjs`.
