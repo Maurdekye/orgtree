@@ -444,3 +444,26 @@ All entries are dated 2026-10-06 unless stated otherwise.
     The passage is part of the identity, so a running agent picks it up at its next respawn
     (the system-prompt fingerprint), and the mail line applies at once. Proof:
     `tools/rig/proofs/hubchat-reply.mjs`.
+
+64. **A fresh session starts with the agent's live docket items** (user 2026-10-09: "chats
+    should receive a list of all their assigned tickets every time they start a fresh session so
+    they dont drop work"). A fresh session (a cheap compact, a provider or account switch, a
+    session that could not be resumed, a rehire onto a new session) began with the last status,
+    the recent correspondents and a digest, but nothing told the agent which docket items it
+    still held. 3.x had such a list only in an experimental handoff record (up to 8 items, in
+    the system prompt after a cheap compact), behind a `handoff.flag` file that is off by
+    default, so this is new behaviour (PLAN F8).
+    - **What is listed** (in the fresh-session note, after the recent correspondents): every
+      item the agent owns whose status is backlogged, open, in_progress, blocked, review,
+      approved or deploy_ready, and is not archived, with slug, status, title and the first
+      `working_on_next` entry; backlogged ones apart; and the items in review that name it as
+      reviewer, with their owner. Done, dropped and archived items never appear, not even a
+      done item in its hour before it archives (user ruling).
+    - **Bounded:** newest updated first, at most 30 entries, then the count of the rest and
+      `orgtree_work action=list include_backlogged=true`. Titles and next steps are cut at 200 characters.
+    - **A snapshot, sent once** (user ruling: "changing that set shouldnt invalidate their
+      session, its only sent once at the start"): it is not in the instructions, the startup
+      digest or any fingerprint, so a docket change respawns nothing, and later turns do not
+      repeat it.
+
+    Proof: `tools/rig/proofs/ticket-list.mjs`.

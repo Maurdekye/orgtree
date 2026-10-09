@@ -358,6 +358,7 @@ toast saying this engine does not support it.
 | F5 | Post-completion addenda, objective notices / scope archive, earlier-holder read rights | Removed |
 | F6 | Resource reservations and landing slots (`orgtree_reservation`) | Removed |
 | F7 | Quick staff from a ticket (request / under assignee / top level) | Kept |
+| F8 | A fresh session (cheap compact, provider or account switch, a session that could not be resumed, a rehire onto a new session) starts with the last status, recent correspondents and a digest, but no list of the agent's docket items (3.x carried up to 8 only in an experimental handoff record, behind a `handoff.flag` file that is off by default) | New (user 2026-10-09, decision 64): the fresh-session note lists the agent's live items (owned and backlogged, open, in progress, blocked, in review, approved or deploy-ready; backlogged ones apart) and the items in review that name it as reviewer, with slug, title, status and first next step, newest updated first, at most 30 plus a count of the rest and the `orgtree_work` call that lists them all. A one-time snapshot: not in the instructions or any fingerprint |
 
 ### G. Presentations, files, watchdogs
 
