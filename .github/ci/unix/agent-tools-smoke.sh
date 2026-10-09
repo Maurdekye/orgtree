@@ -20,8 +20,8 @@
 #    failure is a warning, not a failed job (phone setup is out of scope here);
 #  - with AGENT_SMOKE_LEFTOVERS=1 (set when the fake CLI has its `spawn` step): a child
 #    that a CLI starts must not outlive its agent being retired mid-turn, its idle
-#    agent's process being stopped (the CLI closed, exiting on its own), nor a graceful
-#    engine shutdown mid-turn;
+#    agent's process being stopped (the CLI closed, exiting on its own), nor SIGTERM to
+#    the engine mid-turn; and after that SIGTERM the hosted hub must be gone, its port free;
 #  - with the agy lane: an Antigravity agent without shell rights (tools.bash off) has
 #    its run_command denied by the engine's PreToolUse hook, which the CLI runs through
 #    a shell.
@@ -69,7 +69,7 @@ collect() {
 }
 stop_engine() {
   [ -n "$pid" ] || return 0
-  [ -n "$port" ] && curl -sS -m 10 -X POST -H "X-Orgtree-Desktop-Token: $token" "http://127.0.0.1:$port/api/desktop/shutdown" -o /dev/null 2>/dev/null
+  kill -TERM "$pid" 2>/dev/null # as launchd, systemd or a logout would stop it
   for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
   kill -9 "$pid" 2>/dev/null
   local pgctl; pgctl="$(dirname "$eng")/postgresql/bin/pg_ctl"
@@ -116,7 +116,7 @@ gone_within() { # pid seconds
   ! kill -0 "$1" 2>/dev/null
 }
 
-hubs_before="$(ps -axo pid=,command= | grep '[o]rgtree-mailhub' || true)"
+hubs_before="$(ps -Ao pid=,command= | grep '[o]rgtree-mailhub' || true)"
 echo "== engine (packaged: $eng)"
 env HOME="$home" PATH="$bin:$PATH" ORGTREE_CLAUDE_BIN="$bin/claude" ORGTREE_CODEX_BIN="$bin/codex" \
   ORGTREE_FAKECLI_DIR="$fdir" ORGTREE_FAKECLI_HOME="$home" \
@@ -231,7 +231,7 @@ else
   echo "::warning::the hosted mail hub did not answer /healthz on port $hubport (a known limit if it stays so; not gating)"
   tail -n 40 "$root/mailhub/hub.log" 2>/dev/null || echo "(no mailhub/hub.log in the data folder)"
   echo "engine's hub status: $(api GET /api/desktop/hub 2>&1 | head -c 600)"
-  ps -axo pid=,command= | grep '[o]rgtree-mailhub' || echo "(no orgtree-mailhub process)"
+  ps -Ao pid=,command= | grep '[o]rgtree-mailhub' || echo "(no orgtree-mailhub process)"
 fi
 
 if [ "$leftovers" = 1 ]; then
@@ -271,9 +271,10 @@ fi
 
 collect
 stop_engine
+if [ -n "$hub" ]; then bash "$(dirname "$0")/hub-gone.sh" "$hubport" 20 || bad=1; fi
 if [ "$leftovers" = 1 ] && [ -n "${down_pid:-}" ]; then
-  if gone_within "$down_pid" 20; then echo "PASS leftovers (shutdown): the child of a mid-turn CLI is gone after a graceful engine shutdown"
-  else echo "FAIL leftovers (shutdown): pid $down_pid ($(ps -o command= -p "$down_pid" 2>/dev/null)) outlived the engine"; bad=1; fi
+  if gone_within "$down_pid" 20; then echo "PASS leftovers (shutdown): the child of a mid-turn CLI is gone after SIGTERM to the engine"
+  else echo "FAIL leftovers (shutdown): pid $down_pid ($(ps -o command= -p "$down_pid" 2>/dev/null)) outlived the engine stopped with SIGTERM"; bad=1; fi
 fi
 [ "$bad" = 0 ] || fail "one or more checks failed (see above)"
-echo "agent tool smoke passed (lanes: $lanes; no-shell agent: $([ "$noshell" = 1 ] && echo checked || echo skipped); leftovers:$([ "$leftovers" = 1 ] && echo checked || echo skipped))"
+echo "agent tool smoke passed (lanes: $lanes; no-shell agent: $([ "$noshell" = 1 ] && echo checked || echo skipped); leftovers: $([ "$leftovers" = 1 ] && echo checked || echo skipped))"

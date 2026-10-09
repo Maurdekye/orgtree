@@ -39,7 +39,10 @@ code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$(grep -o "[0-9]
 sleep 10
 kill -0 "$runner" 2>/dev/null || { echo "::error::installed app died"; diag "$logs/deb.out"; exit 1; }
 echo "installed .deb started with the sandbox enabled and its engine running"
+echo "the app's mail hub before teardown: $(curl -s -m 3 http://127.0.0.1:7370/healthz || echo 'no answer on 7370')"
 kill -TERM "$runner" 2>/dev/null || true; pkill -TERM -f "$bin" || true; pkill -TERM -f orgtree-engine || true
 for _ in $(seq 1 30); do pgrep -f orgtree-engine >/dev/null || break; sleep 1; done
 pkill -KILL -f orgtree-engine || true
+# SIGTERM stops the engine cleanly, and its mail hub with it
+bash "$(dirname "$0")/../unix/hub-gone.sh" 7370 || { pkill -KILL -f orgtree-mailhub || true; exit 1; }
 sudo apt-get remove -y -q orgtree

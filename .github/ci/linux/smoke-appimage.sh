@@ -35,6 +35,9 @@ pgrep -af 'orgtree-engine|postgres' | head -20
 echo "AppImage stayed up with its engine running"
 echo "--- updater lines in the app output (none expected: Linux has no update feed)"; grep -iE "updater|app-update|latest-linux" "$logs/appimage.out" | grep -v appimage_extracted | head -20 || true
 cp -r "$HOME/.config" "$logs/appimage-config" 2>/dev/null || true
+echo "the app's mail hub before teardown: $(curl -s -m 3 http://127.0.0.1:7370/healthz || echo 'no answer on 7370')"
 kill -TERM "$runner" 2>/dev/null || true; pkill -TERM -f "$app" || true; pkill -TERM -f orgtree-engine || true
 for _ in $(seq 1 30); do pgrep -f orgtree-engine >/dev/null || break; sleep 1; done
 pkill -KILL -f orgtree-engine || true
+# SIGTERM stops the engine cleanly, and its mail hub with it
+bash "$(dirname "$0")/../unix/hub-gone.sh" 7370 || { pkill -KILL -f orgtree-mailhub || true; exit 1; }

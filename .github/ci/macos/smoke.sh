@@ -57,6 +57,16 @@ pgrep -fl "$res/engine/orgtree-engine" || fail "app's engine process gone"
 pgrep -fl "$res/engine/orgtree-mailhub" || echo "note: no orgtree-mailhub process (the engine starts it only when hosting a hub)"
 pgrep -fl "$res/engine/postgresql/bin/postgres -D" || echo "note: no app postgres process found"
 echo "--- app log (tail)"; tail -n 40 "$tmp/app.log"
+echo "the app's mail hub before teardown: $(curl -s -m 3 http://127.0.0.1:7370/healthz || echo 'no answer on 7370')"
 kill $appid; for _ in $(seq 1 20); do kill -0 $appid 2>/dev/null || break; sleep 1; done
-kill -9 $appid 2>/dev/null; pkill -9 -f "$res/engine/orgtree-engine" 2>/dev/null; stop_pg "$tmp/app-root"
+kill -9 $appid 2>/dev/null
+# The background engine outlives the app by design: stop it as launchd would, with SIGTERM
+# (bootout also keeps launchd from starting it again).
+launchctl bootout "gui/$(id -u)/com.maurdekye.orgtree.engine" 2>/dev/null || true
+pkill -TERM -f "$res/engine/orgtree-engine" 2>/dev/null
+for _ in $(seq 1 30); do pgrep -f "$res/engine/orgtree-engine" >/dev/null || break; sleep 1; done
+pkill -9 -f "$res/engine/orgtree-engine" 2>/dev/null
+# SIGTERM stops the engine cleanly, and its mail hub with it
+bash "$(dirname "$0")/../unix/hub-gone.sh" 7370 || { pkill -9 -f "$res/engine/orgtree-mailhub"; stop_pg "$tmp/app-root"; fail "the mail hub outlived its engine"; }
+stop_pg "$tmp/app-root"
 echo "app smoke OK"
