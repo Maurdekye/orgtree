@@ -2,7 +2,8 @@
 //! --output-format stream-json`, kept running with its input open so one
 //! process serves many turns (`--conversation <id>` resumes after a
 //! restart). The agent's tools reach it as a workspace MCP plugin pointing
-//! at `orgtree-engine mcp-bridge` over a private named pipe; a narrowed
+//! at `orgtree-engine mcp-bridge` over a private named pipe (a Unix socket
+//! on macOS and Linux; see bridge.rs); a narrowed
 //! seat's scope is enforced by a PreToolUse hook (the CLI runs with
 //! `--dangerously-skip-permissions`, because print mode cannot prompt).
 //! Mid-turn mail reaches a running turn through the CLI's invocation hooks
