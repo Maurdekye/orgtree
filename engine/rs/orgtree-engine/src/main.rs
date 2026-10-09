@@ -220,6 +220,7 @@ async fn run_with_cluster(
     runtime::sched::start(&engine, sched_inbox);
     mailhub::prepare_database(&engine, cluster).await;
     mailhub::start(&engine).await;
+    phone::start(&engine);
     net::start(&engine);
     runtime::recover(&engine).await;
     runtime::warm_all(&engine);

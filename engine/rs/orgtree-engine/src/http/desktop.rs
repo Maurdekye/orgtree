@@ -129,3 +129,10 @@ pub async fn net_probe(State(e): State<Arc<Engine>>, axum::extract::Query(q): ax
 pub async fn phone_get(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(crate::phone::state(&e).await)
 }
+
+/// `POST /api/desktop/phone/access` `{scope: tailnet|lan, keep_awake?}`:
+/// "Turn on phone access" (one administrator prompt for the firewall rule).
+#[logged]
+pub async fn phone_access(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
+    crate::phone::turn_on(&e, b["scope"].as_str().unwrap_or(""), b["keep_awake"].as_bool()).await.map(Json)
+}

@@ -27,6 +27,8 @@ pub const DEFAULT_PORT: u16 = 7370;
 pub const DEFAULT_ATTACHMENT_MAX: u64 = 1024 * 1024 * 1024;
 /// the hub's relay-only public listener (its default `HUB_PUBLIC_PORT`)
 pub const PUBLIC_LISTENER_PORT: u16 = 7371;
+/// who may reach the relay-only door (`public_scope`)
+pub const PUBLIC_SCOPES: [&str; 3] = ["tailnet", "lan", "all"];
 /// the longest retention the settings accept
 const KEEP_FOREVER_DAYS: i64 = 36500;
 const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
@@ -58,6 +60,11 @@ pub struct HubState {
     pub port: u16,
     pub exposed: bool,
     pub error: Option<String>,
+    /// where the relay-only door listens (None: closed)
+    pub door: Option<String>,
+    /// the door is for the Tailscale network only, but this PC has no
+    /// Tailscale address yet: it opens when one appears (`phone::reconcile_door`)
+    pub door_waiting: bool,
 }
 
 /// The running child: `stop` asks it to end, `exited` says it has.
@@ -77,6 +84,8 @@ pub struct MailHub {
     db: ArcSwapOption<HubDb>,
     /// why it could not be prepared, for the settings page
     db_error: ArcSwapOption<String>,
+    /// one stop-and-start at a time (settings saved, the door's address moved)
+    lifecycle: tokio::sync::Mutex<()>,
 }
 
 #[logged]
@@ -89,6 +98,11 @@ impl MailHub {
             v["error"] = json!(e);
         }
         v
+    }
+
+    /// The saved hosting settings.
+    pub fn hosting_config(&self) -> Arc<Value> {
+        self.config.load_full()
     }
 
     fn set(&self, f: impl Fn(&mut HubState)) {
@@ -177,7 +191,7 @@ async fn ensure_database(cluster: &crate::pg::Cluster) -> anyhow::Result<HubDb> 
 
 fn default_config() -> Value {
     json!({ "version": 2, "port": DEFAULT_PORT, "bind": "127.0.0.1", "name": "", "retention_days": null,
-            "org_retention_days": 45, "public_listener": false, "max_attachment_bytes": DEFAULT_ATTACHMENT_MAX })
+            "org_retention_days": 45, "public_listener": false, "public_scope": "all", "max_attachment_bytes": DEFAULT_ATTACHMENT_MAX })
 }
 
 /// The hosting settings on the hub's own model: port, bind, name, retention.
@@ -214,13 +228,21 @@ pub fn validate(raw: &Value) -> Result<Value, String> {
         None => false,
         Some(v) => v.as_bool().ok_or("public_listener must be a boolean")?,
     };
+    // who may reach the door: "tailnet" (bound to this PC's Tailscale
+    // address), "lan" (every address, the firewall rule limited to the local
+    // subnet) or "all" (every address; what the switch did before 4.1)
+    let scope = match o.get("public_scope") {
+        None | Some(Value::Null) => "all",
+        Some(v) => v.as_str().filter(|s| PUBLIC_SCOPES.contains(s)).ok_or("public_scope must be tailnet, lan or all")?,
+    };
     let attachment_max = match o.get("max_attachment_bytes") {
         None => DEFAULT_ATTACHMENT_MAX,
         Some(v) => v.as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991)
             .ok_or("max_attachment_bytes must be a positive safe integer number of bytes")?,
     };
     let mut out = json!({ "version": 2, "port": port, "bind": bind, "name": name, "retention_days": retention,
-                          "org_retention_days": org_retention, "public_listener": public, "max_attachment_bytes": attachment_max });
+                          "org_retention_days": org_retention, "public_listener": public, "public_scope": scope,
+                          "max_attachment_bytes": attachment_max });
     if let Some(m) = o.get("migrated").filter(|m| m.is_object()) {
         out["migrated"] = m.clone();
     }
@@ -314,7 +336,7 @@ async fn start_now(engine: &Arc<Engine>) {
     let port = cfg["port"].as_u64().unwrap_or(DEFAULT_PORT as u64) as u16;
     let bind = cfg["bind"].as_str().unwrap_or("127.0.0.1").to_string();
     hub.set(|s| {
-        *s = HubState { running: false, healthy: false, port, exposed: bind == "0.0.0.0", error: None };
+        *s = HubState { running: false, healthy: false, port, exposed: bind == "0.0.0.0", ..Default::default() };
     });
     if !hosts() {
         hub.set(|s| s.error = Some("the mail hub is not hosted while the engine runs in safe start".into()));
@@ -384,10 +406,16 @@ async fn start_now(engine: &Arc<Engine>) {
     if let Some(days) = cfg["retention_days"].as_i64() {
         cmd.env("HUB_RETENTION_DAYS", days.to_string());
     }
-    if cfg["public_listener"].as_bool().unwrap_or(false) {
-        cmd.env("HUB_PUBLIC", "1");
-    } else {
-        cmd.env_remove("HUB_PUBLIC");
+    match door_bind(engine, &cfg).await {
+        Some(at) => {
+            cmd.env("HUB_PUBLIC", "1").env("HUB_PUBLIC_BIND", &at);
+            hub.set(|s| s.door = Some(at.clone()));
+        }
+        None => {
+            cmd.env_remove("HUB_PUBLIC").env_remove("HUB_PUBLIC_BIND");
+            let waiting = cfg["public_listener"].as_bool().unwrap_or(false);
+            hub.set(|s| s.door_waiting = waiting);
+        }
     }
     #[cfg(windows)]
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
@@ -457,6 +485,31 @@ async fn start_now(engine: &Arc<Engine>) {
     }
 }
 
+/// Where the relay-only door listens: None when it is off, or when it is
+/// for the Tailscale network only and this PC has no Tailscale address (the
+/// hub then starts without it, rather than failing to bind).
+#[logged]
+pub async fn door_bind(engine: &Engine, cfg: &Value) -> Option<String> {
+    if !cfg["public_listener"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    match cfg["public_scope"].as_str().unwrap_or("all") {
+        "tailnet" => crate::phone::tailscale(engine).await.ipv4,
+        // a rig run's hub never listens beyond loopback
+        _ if crate::rig::active() => Some("127.0.0.1".into()),
+        _ => Some("0.0.0.0".into()),
+    }
+}
+
+/// Stop the hub and start it again on its saved settings (the door's
+/// Tailscale address appeared, moved or went away).
+#[logged]
+pub async fn restart(engine: &Arc<Engine>) {
+    let _one = engine.hub.lifecycle.lock().await;
+    stop(engine).await;
+    start_now(engine).await;
+}
+
 #[logged]
 pub async fn stop(engine: &Arc<Engine>) {
     if let Some(run) = engine.hub.run.swap(None) {
@@ -478,12 +531,13 @@ pub async fn hosting(engine: &Arc<Engine>) -> Value {
     let mut out = json!({
         "version": 2, "port": port, "bind": cfg["bind"], "name": cfg["name"], "retention_days": cfg["retention_days"],
         "org_retention_days": cfg["org_retention_days"], "public_listener": cfg["public_listener"],
-        "max_attachment_bytes": cfg["max_attachment_bytes"],
+        "public_scope": cfg["public_scope"], "max_attachment_bytes": cfg["max_attachment_bytes"],
         "public_listener_port": PUBLIC_LISTENER_PORT,
         "status": {
             "running": st.running, "healthy": health.is_some(), "address": address,
             "exposed": cfg["bind"] == json!("0.0.0.0"),
             "hub_name": h["name"], "hub_version": h["version"], "orgs": h["orgs"], "queued": h["queued"],
+            "door": st.door, "door_waiting": st.door_waiting,
         },
     });
     if let Some(e) = &st.error {
@@ -513,6 +567,7 @@ pub async fn hosting(engine: &Arc<Engine>) -> Value {
 #[logged]
 pub async fn configure(engine: &Arc<Engine>, raw: &Value) -> Result<Value, String> {
     let Some(patch) = raw.as_object() else { return Err("hub hosting configuration must be an object".into()) };
+    let _one = engine.hub.lifecycle.lock().await;
     let previous = engine.hub.config.load_full();
     let mut merged: Map<String, Value> = previous.as_object().cloned().unwrap_or_default();
     for (k, v) in patch {
