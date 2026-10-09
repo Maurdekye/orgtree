@@ -1,7 +1,7 @@
 # Releasing Orgtree with GitHub Actions
 
 Orgtree's published builds come from GitHub Actions, not from anyone's PC. Pushing
-a version tag builds the release on GitHub's free Windows runner and leaves a
+a version tag builds Windows, macOS and Linux on GitHub's free runners and leaves a
 **draft** release. A person checks the draft and publishes it. Nothing is ever
 published automatically.
 
@@ -15,23 +15,32 @@ published automatically.
    - The gates come from `tools/release-windows.mjs` itself: build provenance, the
      packaged and installer-payload runtime checks, latest.yml, and the canonical
      asset set.
-3. **stage**: checks the asset set and writes `SHA256SUMS.txt`.
-4. **draft**: `gh release create --draft` with the assets.
+3. **macos** (`build-macos.yml`, macos-15) and **linux** (`build-linux.yml`,
+   ubuntu-22.04): the unsigned macOS and Linux prototypes, each with a launch smoke
+   on its runner. See [macOS and Linux](#macos-and-linux-prototypes).
+4. **stage**: checks the whole asset set and writes `SHA256SUMS.txt`. Every
+   platform must build; a release never goes out with one silently missing.
+5. **draft**: `gh release create --draft` with the assets.
 
-The draft holds the same six assets as every 4.0.x release, plus `SHA256SUMS.txt`:
+The draft holds the same six Windows assets as every 4.0.x release, the macOS and
+Linux files, and `SHA256SUMS.txt`:
 
 | Asset | What it is |
 |---|---|
-| `Orgtree-Setup-<v>.exe` | the installer (not code-signed, like every release so far) |
+| `Orgtree-Setup-<v>.exe` | the Windows installer (not code-signed, like every release so far) |
 | `Orgtree-Setup-<v>.exe.blockmap` | lets the updater download only what changed |
-| `latest.yml` (`beta.yml` for a beta) | the updater feed: version, size and SHA-512 of the installer |
+| `latest.yml` (`beta.yml`/`alpha.yml` for a prerelease) | the updater feed: version, size and SHA-512 of the installer |
 | `build-info.json` | version, commit, mail hub commit and input hashes of the build |
 | `engine-hashes.json`, `packaged-hashes.json` | hashes of the engine sources and of the packaged runtime |
+| `Orgtree-<v>-arm64.dmg`, `Orgtree-<v>-arm64.zip` | macOS (Apple Silicon), the same app as a disk image and as a zip |
+| `Orgtree-<v>.AppImage`, `orgtree_<v>_amd64.deb` | Linux (x86_64): a portable AppImage and an Ubuntu/Debian package |
+| `build-info-macos.json`, `build-info-linux.json` | the macOS and Linux builds' `build-info.json` |
 | `SHA256SUMS.txt` | the SHA-256 of every file above |
 
 Orgtree needs no signing keys: the installer isn't code-signed, and the updater
-checks the installer against the SHA-512 in `latest.yml`. GitHub's own per-run
-token creates the draft.
+checks the installer against the SHA-512 in `latest.yml`. The macOS app is only
+ad-hoc signed and the Linux packages are unsigned. GitHub's own per-run token
+creates the draft.
 
 ## The test gate stays on the release PC
 
@@ -59,7 +68,9 @@ and CI does everything after it.
    git tag vX <commit>
    git push origin refs/tags/vX
    ```
-5. The **release** workflow starts (about 15 minutes with a cold cache).
+5. The **release** workflow starts. It takes as long as the slowest platform:
+   about 15 minutes with cold caches, 10 with warm ones (measured per platform:
+   Windows 14.9 cold and 10.5 warm, macOS 13.3 and 8, Linux about 16 cold).
    - It refuses at once if the tag differs from `package.json`,
      `package-lock.json` or the engine's `Cargo.toml`, or if the notes file is
      missing.
@@ -79,6 +90,13 @@ cd check-vX && sha256sum -c SHA256SUMS.txt
   `dirty: false`.
 - Optionally install `Orgtree-Setup-X.exe` on a test machine first. Installing
   stops a running Orgtree.
+- The macOS and Linux files are prototypes. Their launch smokes passed on the
+  runners; opening them on a real Mac or Ubuntu PC is optional.
+
+If one platform's build fails, "Re-run failed jobs" on the run; stage and draft
+follow once it passes. To release without a platform, remove its job and its file
+names from `stage` in `release.yml` in a commit, and tag that commit. Never add or
+remove assets of a draft by hand: `SHA256SUMS.txt` would no longer match.
 
 Publish it:
 
@@ -108,16 +126,54 @@ Publishing starts the **verify-release** workflow. It downloads every public ass
 - Never replace an asset of a published release: `latest.yml`, `packaged-hashes.json`
   and `SHA256SUMS.txt` would no longer match the installer.
 
+## macOS and Linux (prototypes)
+
+The macOS and Linux builds are "untested builds, but builds nonetheless": the app
+builds, starts its engine and its bundled PostgreSQL, and answers, on GitHub's
+runners. Nobody has run them on a real Mac or Ubuntu PC yet.
+
+**macOS** (`Orgtree-<v>-arm64.dmg` or `.zip`): Apple Silicon only. The app is ad-hoc
+signed and not notarized, because notarization needs a paid Apple Developer account.
+- On first open, macOS says it can't verify that Orgtree is free of malware.
+  - macOS 15 and later: click Done, open System Settings → Privacy & Security, click
+    "Open Anyway" (it asks for an administrator password), then open Orgtree again.
+  - Older macOS: right-click the app → Open.
+  - Or, after copying the app to Applications, run
+    `xattr -dr com.apple.quarantine /Applications/Orgtree.app` once.
+- Data folder: `~/Library/Application Support/Orgtree v2` (Electron's default,
+  inferred).
+
+**Linux** (Ubuntu x86_64):
+- `.deb`: `sudo apt install ./orgtree_<v>_amd64.deb`, then start Orgtree from the app
+  menu. This is how the runner installs it.
+- AppImage: `chmod +x Orgtree-<v>.AppImage`, then run it.
+- Data folder: `~/.config/Orgtree v2` (measured on the runner).
+
+**Not there yet** (both platforms):
+- No automatic updates. The app doesn't offer them on macOS or Linux; download each
+  new version by hand.
+- Hired agents get no Orgtree tools: the tool bridge uses Windows named pipes.
+- Provider CLIs (`claude`, `codex`) must be on the PATH Orgtree starts with. A macOS
+  app opened from Finder gets a minimal PATH; starting it from Terminal with
+  `open -a Orgtree` keeps the shell's PATH (inferred).
+- No start at login, credential bridge or background boot engine.
+- macOS only: if the engine is killed, its PostgreSQL keeps running until the next
+  start. Linux stops it with the engine (measured).
+
 ## Test runs
 
 A push to the branch `ci-test/orgtree-release` runs the whole pipeline as a test.
 No release is created; the staged assets are the run's artifact.
-`build-windows.yml` also runs on its own from a push to `ci-test/orgtree-windows`.
+Each `build-<platform>.yml` also runs on its own from a push to
+`ci-test/orgtree-windows`, `ci-test/orgtree-macos` or `ci-test/orgtree-linux`.
 Once the workflows are on `main`, a manual run can test any tag or commit:
 
 ```
 gh workflow run release.yml -R Maurdekye/orgtree -f ref=vX
 ```
+
+A manual run is always a test, even one started from a tag: only a pushed tag
+makes a release.
 
 ## If GitHub disappears
 
@@ -136,6 +192,9 @@ The release tool is unchanged and still builds everything locally.
    ```
 3. Run `npm run release:windows -- X`. It writes the six assets to `release/upload`.
    Add `--publish` only when a GitHub repository exists to publish to.
+4. macOS and Linux: on an Apple Silicon Mac, or an Ubuntu 22.04 PC, follow the steps
+   of `build-macos.yml` or `build-linux.yml` in order. They use only the pinned
+   toolchains below and the scripts in `.github/ci/macos` or `.github/ci/linux`.
 
 ## Toolchain pins
 
@@ -144,16 +203,20 @@ them exactly:
 
 | Tool | Version | Where it's pinned |
 |---|---|---|
-| Rust | nightly-2025-12-12 (rustc 1.94.0-nightly f52090008) | `build-windows.yml` |
-| Node / npm | 24.12.0 / 11.6.2 | `build-windows.yml` |
+| Rust | nightly-2025-12-12 (rustc 1.94.0-nightly f52090008) | `build-windows.yml`, `build-macos.yml`, `build-linux.yml` |
+| Node / npm | 24.12.0 / 11.6.2 | the same three |
 | Python (host, for provisioning) | 3.10.11 with pip 26.0.1 | `build-windows.yml` |
 | Python runtime packages | the exact versions of the 4.0.1 runtime | `.github/ci/windows/runtime-constraints.txt` |
-| Embedded Python / PostgreSQL | 3.13.15 / 18.6-4, by SHA-256 | `tools/provision-runtime.py`, `tools/postgres-runtime-pin.json` |
+| Embedded Python / PostgreSQL (Windows) | 3.13.15 / 18.6-4, by SHA-256 | `tools/provision-runtime.py`, `tools/postgres-runtime-pin.json` |
+| PostgreSQL (macOS) | EDB's 18.6-4 binaries zip, by SHA-256 | `.github/ci/macos/postgres-pin.json` |
+| PostgreSQL (Linux) | 18.6, built from the upstream source tarball, by SHA-256 | `.github/ci/linux/build-postgres.sh` |
 | Electron / electron-builder | from `package-lock.json` | `package-lock.json` |
 | GitHub Actions | official `actions/*` only, pinned by commit SHA | every workflow |
 
-The runner image is pinned by name (`windows-2025`). GitHub updates its contents
-weekly; the toolchains above are installed explicitly.
+The runner images are pinned by name (`windows-2025`, `macos-15`, `ubuntu-22.04`).
+GitHub updates their contents weekly; the toolchains above are installed explicitly.
+The Linux build uses Ubuntu 22.04, the oldest supported runner, so the AppImage
+should run on Ubuntu 22.04 and newer (it needs at least 22.04's glibc; inferred).
 
 ## How a CI build compares with the hand-built 4.0.1
 
