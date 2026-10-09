@@ -423,6 +423,10 @@ impl Fingerprint {
         (parts.len() == PRINT_PARTS.len()).then_some(Fingerprint { parts })
     }
 
+    fn part(&self, name: &str) -> Option<&str> {
+        self.parts.iter().find(|(k, _)| *k == name).map(|(_, v)| v.as_str())
+    }
+
     fn changed(&self, other: &Fingerprint) -> Vec<String> {
         self.parts
             .iter()
@@ -688,6 +692,11 @@ impl Actor {
         if let Some(k) = &self.keepalive {
             d = d.min(k.started + Duration::from_secs(keepalive::TIMEOUT_S));
         }
+        // an absolute time, so a steady stream of other messages cannot keep
+        // pushing the idle startup-file check back (decision 61)
+        if self.turn.is_none() && self.keepalive.is_none() && self.startup_seen.is_some() {
+            d = d.min(self.startup_checked + STARTUP_RECHECK);
+        }
         if self.dormant() {
             d = d.min(self.idle_since + ACTOR_IDLE_EXIT + Duration::from_millis(50));
         }
@@ -705,12 +714,17 @@ impl Actor {
         // respawns through the fingerprint instead.
         if self.turn.is_none() && self.keepalive.is_none() && self.startup_checked.elapsed() >= STARTUP_RECHECK {
             self.startup_checked = Instant::now();
-            let moved = self.startup_seen.as_ref().is_some_and(|(inputs, seen)| startup::digest(inputs) != *seen);
-            if moved {
-                self.reconfigured |= self.proc.is_some();
-                self.update_forecast().await;
-                self.replace_idle_process().await;
-                self.publish();
+            if let Some((inputs, seen)) = self.startup_seen.clone() {
+                let now = startup::digest(&inputs);
+                // stale against what the parked CLI was LAUNCHED with, which
+                // an edit during the last turn leaves behind the forecast's
+                let stale = self.proc.is_some() && self.proc_print.as_ref().and_then(|p| p.part("startup")) != Some(now.as_str());
+                if now != seen || stale {
+                    self.reconfigured |= stale;
+                    self.update_forecast().await;
+                    self.replace_idle_process().await;
+                    self.publish();
+                }
             }
         }
         if let Some(k) = self.keep_until {
