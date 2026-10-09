@@ -25,6 +25,7 @@ import { OrgPlacement, orgOfKey, placementKey } from './org-placement'
 import type { OrgOpenOutcome, OrgWindowKind } from '../../../packages/contracts/desktop-window'
 import { detectHarnesses } from './harnesses'
 import { NativeNotifications, anyOrgtreeWindowFocused } from './notifications'
+import { revealInOrgWindow, revealOnly } from './window-reveal'
 import { nativeAppFeed } from './appfeed'
 import { TaskbarAttention, attentionPayload } from './taskbar-attention'
 import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
@@ -380,14 +381,12 @@ else {
     return (record ?? lastUsed())?.window
   })
   /** Put a window in front of the user. See revealPopout for why restoring a
-   *  minimized window must come first. */
+   *  minimized window must come first. ⚠ ONLY THIS WINDOW: every other window
+   *  stays exactly as it is (user 2026-10-09; main/window-reveal.ts). */
   const revealWindow = (record: MainWindowRecord) => {
     if (record.window.isDestroyed()) return
     restoreWindows = true
-    record.window.show()
-    if (record.window.isMinimized()) record.window.restore()
-    if (record.restoreMaximized) { record.restoreMaximized = false; record.window.maximize() }
-    record.window.focus()
+    revealOnly(record)
     windows.activate(record.id)
     sendTo(record.id, { type: 'main-window-shown', data: windowState(record) })
   }
@@ -437,18 +436,17 @@ else {
     sendTo(record.id, { type: 'window-state', data: windowControlsState(record) })
   /** Reveal an item in its organization's own window, opening or focusing that
    *  window first. The event is queued if the window is still being built, so
-   *  a notification clicked during a cold open is not lost. */
-  const revealOrgItem = async (org: unknown, event: DesktopEvent) => {
-    const target = windows.queueReveal(org, event)
-    if (target) {
-      const record = records.get(target.id)
-      if (record) { revealWindow(record); sendTo(record.id, event) }
-      return
-    }
-    await requestOrgWindow(org, null).catch((error: unknown) => {
+   *  a notification clicked during a cold open is not lost. No other window is
+   *  touched (main/window-reveal.ts). */
+  const revealOrgItem = (org: unknown, event: DesktopEvent) => revealInOrgWindow(org, event, {
+    queueReveal: (target, held: DesktopEvent) => windows.queueReveal(target, held),
+    record: id => records.get(id),
+    reveal: revealWindow,
+    send: sendTo,
+    open: target => requestOrgWindow(target, null).catch((error: unknown) => {
       console.warn('An organization window could not be opened for a notification', error)
-    })
-  }
+    }),
+  })
   // n/m active/hired (user spec 2026-09-10) — the same two counts every org
   // row shows, summed: totalAgents is currently HIRED agents (launch.py).
   const label = () => stats ? `${stats.activeAgents} active / ${stats.totalAgents} hired` : `Engine ${engine.status.state}`
