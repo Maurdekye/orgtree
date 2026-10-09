@@ -1,7 +1,8 @@
 // Checks a just-published Orgtree release the way installed apps will see it:
 // - every public asset downloads and matches SHA256SUMS.txt, and none is missing;
 // - latest.yml (beta.yml for a beta) names the installer with its exact size and SHA-512;
-// - build-info.json names the tag's commit, a clean tree and the release channel;
+// - build-info.json names the tag's commit, a clean tree and the release channel,
+//   and the macOS/Linux copies (build-info-macos.json, -linux.json) the same version and commit;
 // - GitHub's "latest" release is this one for a stable version, and is not for a
 //   prerelease (stable installs are offered whatever "latest" is).
 //   TAG=v<x.y.z> GITHUB_REPOSITORY=owner/repo GH_TOKEN=... node verify-published.mjs
@@ -34,7 +35,10 @@ for (const asset of release.assets) {
   check(bytes[asset.name].length === asset.size, `${asset.name}: ${asset.size} bytes`)
 }
 const sha256 = name => crypto.createHash('sha256').update(bytes[name]).digest('hex')
-const expected = ['build-info.json', 'engine-hashes.json', channelFile, installer, `${installer}.blockmap`, 'packaged-hashes.json', 'SHA256SUMS.txt']
+const expected = ['build-info.json', 'engine-hashes.json', channelFile, installer, `${installer}.blockmap`, 'packaged-hashes.json', 'SHA256SUMS.txt',
+  // macOS and Linux prototypes (every release from release.yml carries them; 4.0.x predates them)
+  `Orgtree-${version}-arm64.dmg`, `Orgtree-${version}-arm64.zip`, 'build-info-macos.json',
+  `Orgtree-${version}.AppImage`, `orgtree_${version}_amd64.deb`, 'build-info-linux.json']
 for (const name of expected) check(name in bytes, `asset ${name} is present`)
 if ('SHA256SUMS.txt' in bytes) {
   const listed = new Map(bytes['SHA256SUMS.txt'].toString('utf8').trim().split('\n').map(line => line.split(/\s+\*?/).reverse()))
@@ -54,11 +58,12 @@ if (channelFile in bytes && installer in bytes) {
 }
 let commit = (await api(`git/ref/tags/${encodeURIComponent(tag)}`)).object
 while (commit.type === 'tag') commit = (await api(`git/tags/${commit.sha}`)).object
-if ('build-info.json' in bytes) {
-  const info = JSON.parse(bytes['build-info.json'].toString('utf8'))
-  check(info.version === version, `build-info.json version ${info.version}`)
-  check(info.commit === commit.sha, `build-info.json commit is the tag's (${commit.sha})`)
-  check(info.channel === 'release' && info.dirty === false, 'build-info.json: release channel, clean tree')
+for (const name of ['build-info.json', 'build-info-macos.json', 'build-info-linux.json'].filter(n => n in bytes)) {
+  const info = JSON.parse(bytes[name].toString('utf8'))
+  check(info.version === version, `${name} version ${info.version}`)
+  check(info.commit === commit.sha, `${name} commit is the tag's (${commit.sha})`)
+  // Only the Windows build runs the release tool, which guarantees these two.
+  if (name === 'build-info.json') check(info.channel === 'release' && info.dirty === false, 'build-info.json: release channel, clean tree')
 }
 const latest = await api('releases/latest')
 if (prerelease) check(latest.tag_name !== tag && !latest.prerelease, `"latest" stays a stable release (${latest.tag_name})`)
