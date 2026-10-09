@@ -1,9 +1,9 @@
-// Proof: Orgtree 4.0.2 against mail hub v2.0.0, through the real 4.x net
+// Proof: Orgtree 4.0.2 against mail hub v2.0.1, through the real 4.x net
 // client (src/net.rs) and the engine hosting the v2 binary (src/mailhub.rs).
 // `up --hub`: the engine hosts orgtree-mailhub.exe inside the run, with its
 // own role and database in the run's cluster and a free loopback port; the
 // run's network mail reaches that hub and nothing else.
-//   hosting  the hub runs from the engine and reports version 2.0.0; its role
+//   hosting  the hub runs from the engine and reports version 2.0.1; its role
 //            and database exist and that role cannot connect to the engine's
 //            database; its connections stay within HUB_DB_POOL=8; the earlier
 //            hub's store (hub.sqlite3, written here in v1's schema) is
@@ -117,8 +117,8 @@ export default async function (rig, { flags }) {
     const h = await rig.api('GET', '/api/desktop/hub')
     return h.status?.healthy ? h : null
   }, { what: 'the hosted hub to answer', timeout: 120000 })
-  p.check('the engine hosts orgtree-mailhub.exe on the run\'s port and it reports version 2.0.0',
-    hosting.status.address === hub && hosting.status.hub_version === '2.0.0' && hosting.status.hub_name === 'rig hub', hosting.status)
+  p.check('the engine hosts orgtree-mailhub.exe on the run\'s port and it reports version 2.0.1',
+    hosting.status.address === hub && hosting.status.hub_version === '2.0.1' && hosting.status.hub_name === 'rig hub', hosting.status)
   const pg = rig.sql(`SELECT (SELECT count(*) FROM pg_roles WHERE rolname = 'orgtree_mailhub' AND rolcanlogin AND NOT rolsuper) AS role,
       (SELECT count(*) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba WHERE d.datname = 'orgtree_mailhub' AND r.rolname = 'orgtree_mailhub') AS db,
       has_database_privilege('orgtree_mailhub', 'orgtree_engine', 'CONNECT') AS engine_connect`, { db: 'postgres' })[0]
@@ -149,19 +149,19 @@ export default async function (rig, { flags }) {
   const aHubs = rig.one(`SELECT net->'hubs' AS h FROM ot.orgs WHERE slug = '${q(A)}' AND state = 'active'`).h
   p.check('turning auto-connect on (the Connections toggle) adds this computer\'s hub to A\'s list, as 3.x did',
     aHubs?.[0]?.id === 'local' && aHubs[0].address === hub, { auto, hubs: aHubs })
-  const registered = slug => rig.api('GET', `/api/orgs/${slug}`).then(t => (t.net?.hubs ?? []).find(h => h.connected && h.version === '2.0.0'))
+  const registered = slug => rig.api('GET', `/api/orgs/${slug}`).then(t => (t.net?.hubs ?? []).find(h => h.connected && h.version === '2.0.1'))
   const hubA = await rig.waitFor(() => registered(A), { what: 'A to register on the hosted hub', timeout: 90000 })
   const hubB = await rig.waitFor(() => registered(B), { what: 'B to register on the hosted hub', timeout: 90000 })
   const [nA, nB] = [netSlug(A), netSlug(B)]
   p.check('both orgs registered on the hosted hub by themselves; the Connections data shows each hub\'s version',
-    hubA.address !== undefined && hubB.version === '2.0.0', { A: { slug: nA, hub: hubA }, B: { slug: nB, hub: hubB } })
+    hubA.address !== undefined && hubB.version === '2.0.1', { A: { slug: nA, hub: hubA }, B: { slug: nB, hub: hubB } })
   const hubIds = hubSql(`SELECT slug, kind FROM mailhub.identities WHERE slug IN ('${q(nA)}', '${q(nB)}') ORDER BY slug`)
   p.check('the hub holds both addresses (kind org)', hubIds.length === 2 && hubIds.every(r => r.kind === 'org'), hubIds)
 
   // ------------------------------------------------------- a person
   const pat = { slug: `pat.person.${crypto.randomBytes(3).toString('hex')}`, secret: crypto.randomBytes(32).toString('hex') }
   const reg = await call('POST', '/api/register', { auth: pat, body: { slug: pat.slug, org_name: 'Pat Example', username: 'pat', blurb: 'a person', kind: 'person' } })
-  p.check('a person registers over HTTP (as Hubchat does); the answer carries the hub\'s version', reg?.ok === true && reg.version === '2.0.0',
+  p.check('a person registers over HTTP (as Hubchat does); the answer carries the hub\'s version', reg?.ok === true && reg.version === '2.0.1',
     { version: reg?.version, roster: reg?.roster?.length })
   const listed = await rig.waitFor(async () => {
     const r = await rig.tool('boss', 'orgtree_list_orgs', {})
@@ -170,11 +170,11 @@ export default async function (rig, { flags }) {
   }, { what: 'orgtree_list_orgs to list the person and B', timeout: 60000 })
   const patRow = listed.find(x => x.slug === `@net:${pat.slug}`)
   p.check('orgtree_list_orgs lists the person with kind person, and under "remote" the hub with its version',
-    patRow.kind === 'person' && patRow.name === 'Pat Example' && patRow.hubs?.[0]?.version === '2.0.0' && patRow.hubs[0].name === 'rig hub', patRow)
+    patRow.kind === 'person' && patRow.name === 'Pat Example' && patRow.hubs?.[0]?.version === '2.0.1' && patRow.hubs[0].name === 'rig hub', patRow)
   p.check('the v1 store\'s addresses are listed too (imported roster)', listed.some(x => x.slug === `@net:${LEGACY.org.slug}`),
     listed.map(x => x.slug))
   const probe = await rig.api('GET', `/api/net/probe?address=${encodeURIComponent(hub)}`)
-  p.check('the address probe shows the hub\'s version', probe.ok === true && probe.version === '2.0.0', probe)
+  p.check('the address probe shows the hub\'s version', probe.ok === true && probe.version === '2.0.1', probe)
 
   // ------------------------------------------------- mail and receipts
   let t0 = Date.now()
