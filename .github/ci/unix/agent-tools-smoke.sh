@@ -2,27 +2,33 @@
 # Agent tool calls through the PACKAGED engine on Linux and macOS, one per CLI lane:
 #  - claude: the CLI talks stream-json over stdio and reaches the Orgtree tools through
 #    the engine's in-process MCP server (sdkMcpServers), as Claude Code does;
+#  - codex:  `codex app-server` over stdio, the tools as dynamic tools, as Codex does;
 #  - agy:    the CLI starts `orgtree-engine mcp-bridge` from the agent's workspace
 #    plugin, which relays to the engine over the agent's private bridge socket, as
 #    Antigravity does.
-# The rig's fake CLI (tools/rig/fakecli) stands in for both CLIs: the engine finds it
-# exactly as it finds the real ones (ORGTREE_CLAUDE_BIN, and `agy` on PATH), and its
-# scenario makes one real orgtree_status call per agent. The lane counts as signed in
-# the way the engine reads it (an account email in a throwaway ~/.claude.json); no
-# credential exists on the runner and nothing here reaches a provider.
+# The rig's fake CLI (tools/rig/fakecli) stands in for all three CLIs: the engine finds
+# it exactly as it finds the real ones (ORGTREE_CLAUDE_BIN, ORGTREE_CODEX_BIN, and `agy`
+# on PATH), and its scenario makes one real orgtree_status call per agent. Each lane
+# counts as signed in the way the engine reads it (an account email in a throwaway
+# ~/.claude.json; a ~/.codex/auth.json whose made-up id token carries only an email);
+# no credential exists on the runner and nothing here reaches a provider.
 # A lane passes only if the fake CLI logs the tool's answer as expected AND the engine
 # then reports the status that call set. Written for bash 3.2 (macOS) as well.
 # Usage: agent-tools-smoke.sh <orgtree-engine> <ui dir> <orgtree-fakecli> <logs dir>
-# AGENT_SMOKE_LANES (default "claude agy") picks the lanes.
+# AGENT_SMOKE_LANES (default "claude codex agy") picks the lanes.
 set -uo pipefail
 eng="$1" ui="$2" fake="$3" logs="$4"
-lanes="${AGENT_SMOKE_LANES:-claude agy}"
+lanes="${AGENT_SMOKE_LANES:-claude codex agy}"
 mkdir -p "$logs"
 work="$(mktemp -d)"
 home="$work/home" bin="$work/bin" fdir="$work/fakecli" root="$work/data"
-mkdir -p "$home" "$bin" "$fdir"
-cp "$fake" "$bin/claude" && cp "$fake" "$bin/agy" && chmod +x "$bin/claude" "$bin/agy" || { echo "::error::cannot stage the fake CLI"; exit 1; }
+mkdir -p "$home/.codex" "$bin" "$fdir"
+for cli in claude codex agy; do cp "$fake" "$bin/$cli" && chmod +x "$bin/$cli" || { echo "::error::cannot stage the fake CLI"; exit 1; }; done
 printf '{"oauthAccount":{"emailAddress":"smoke@example.com"}}\n' > "$home/.claude.json"
+python3 -c 'import base64,json,sys
+b = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+json.dump({"OPENAI_API_KEY": None, "tokens": {"id_token": b({"alg": "none"}) + "." + b({"email": "smoke@example.com"}) + "."}},
+          open(sys.argv[1], "w"))' "$home/.codex/auth.json"
 cat > "$fdir/scenario.json" <<'EOF'
 {"default": {"turns": [{"name": "tool-smoke", "steps": [
   {"tool": "orgtree_status", "args": {"status": "done", "summary": "agent tool smoke"}, "expect": "Status recorded"},
@@ -31,7 +37,7 @@ EOF
 token="$(openssl rand -hex 32)"
 pid="" port=""
 
-tier_of() { case "$1" in claude) echo haiku ;; agy) echo flash ;; *) echo "unknown lane $1" >&2; return 1 ;; esac; }
+tier_of() { case "$1" in claude) echo haiku ;; codex) echo luna ;; agy) echo flash ;; *) echo "unknown lane $1" >&2; return 1 ;; esac; }
 collect() {
   cp -r "$fdir/log" "$logs/fakecli-log" 2>/dev/null
   cp -r "$root/logs" "$logs/engine-logs" 2>/dev/null
@@ -67,7 +73,7 @@ api() { # METHOD ROUTE [JSON]: prints the body; fails on a non-2xx answer
 }
 
 echo "== engine (packaged: $eng)"
-env HOME="$home" PATH="$bin:$PATH" ORGTREE_CLAUDE_BIN="$bin/claude" \
+env HOME="$home" PATH="$bin:$PATH" ORGTREE_CLAUDE_BIN="$bin/claude" ORGTREE_CODEX_BIN="$bin/codex" \
   ORGTREE_FAKECLI_DIR="$fdir" ORGTREE_FAKECLI_HOME="$home" \
   ORGTREE_DATA="$root" ORGTREE_V2_TOKEN="$token" ORGTREE_V2_UI_DIR="$ui" \
   ORGTREE_PG_BOOTSTRAP=1 ORGTREE_ENGINE_SAFE_START=1 \
