@@ -8018,3 +8018,79 @@ main:has(> .orgbar.native-header) > .error {
 .answered-opt-desc { display: block; font-weight: 400; font-size: 10.5px; color: var(--dim); }
 .answered-typed, .answered-note { margin-top: 3px; padding-left: 4px; border-left: 2px solid var(--accent, #4a90d9); }
 .answered-skipped { font-size: 11px; }
+/* ── THE LANGUAGE SERVER LANE (2026-10-10) ────────────────────────────────
+   Agents on the user's own model servers (App settings → Providers →
+   Language Server). One lane colour, gold: clear of claude's terracotta,
+   codex's teal, antigravity's blue and openrouter's violet under normal
+   vision. Not checked under colour-vision deficiency yet (terracotta is the
+   nearest neighbour); the user decides the final value. The per-tier chip
+   and card-edge rules are GENERATED (shared.ts `langserverTierCss`), since
+   the tiers are the models the user offers on their servers. */
+:root { --prov-langserver: #d6a823; }
+:root.agent-colors-organization :is(.sq, .desk-body, .pinwin, .pin-snap-preview,
+  .tray-row, .edge-jump, .desk-nav-chip, .proc-state, .cc-spin, .eye-count,
+  .tab-count, .badge, .mailbtn .count).prov-langserver {
+  --prov-langserver: var(--org-accent);
+  --provider-accent: var(--org-accent) !important;
+  --accent: var(--org-accent);
+  --accent-hover: var(--org-accent-hover);
+  --accent-soft: var(--org-accent-soft);
+  --accent-ink: var(--org-agent-ink);
+  --agent-accent-text: var(--org-agent-text);
+  --agent-accent-ink: var(--org-agent-ink);
+  --agent-count-ink: var(--org-agent-count-ink);
+}
+.prov-langserver { --button-accent: var(--prov-langserver); }
+.sq.prov-langserver.busy {
+  border-color: color-mix(in srgb, var(--prov-langserver) 55%, transparent);
+}
+.sq.prov-langserver.desk {
+  border-color: var(--prov-langserver);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
+    0 0 0 1px color-mix(in srgb, var(--prov-langserver) 25%, transparent);
+}
+.sq.prov-langserver.desk.proc-warm {
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
+    0 0 0 1px color-mix(in srgb, var(--prov-langserver) 25%, transparent),
+    0 0 20px color-mix(in srgb, var(--prov-langserver) 20%, transparent);
+}
+.sq.prov-langserver, .desk-body.prov-langserver {
+  --provider-accent: var(--prov-langserver);
+  --accent: var(--prov-langserver);
+  --accent-soft: color-mix(in srgb, var(--prov-langserver) 16%, transparent);
+  --accent-hover: color-mix(in srgb, var(--prov-langserver) 82%, white);
+}
+.proc-state.active.prov-langserver { --process-accent: var(--prov-langserver); }
+.cc-spin.prov-langserver { color: var(--prov-langserver); }
+.eye-count.prov-langserver { background: color-mix(in srgb, var(--prov-langserver) 42%, var(--panel-2)); }
+.tab-count.prov-langserver { color: var(--agent-accent-text, var(--prov-langserver)); font-weight: 700; }
+.mailbtn .count.prov-langserver { background: var(--prov-langserver); }
+.badge.prov-langserver { color: var(--agent-accent-text, var(--prov-langserver)); border-color: color-mix(in srgb, var(--prov-langserver) 45%, var(--line)); }
+.edge-jump.prov-langserver, .desk-nav-chip.prov-langserver {
+  --accent: var(--prov-langserver);
+  --accent-soft: color-mix(in srgb, var(--prov-langserver) 16%, transparent);
+}
+.tray-row.prov-langserver { --accent: var(--prov-langserver); }
+.acct-provider-head.prov-langserver { border-bottom-color: color-mix(in srgb, var(--prov-langserver) 45%, var(--line)); }
+/* the settings section: one card per server, its models as rows */
+.ls-server, .ls-add { margin-top: 8px; padding: 6px 10px 8px;
+  border: 1px solid var(--line); border-radius: 8px; }
+.ls-add { border-color: color-mix(in srgb, var(--prov-langserver) 50%, var(--line)); }
+.ls-server.ls-off { border-style: dashed; }
+.ls-server.ls-off .ls-server-head b { color: var(--dim); }
+.ls-server-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap;
+  font-size: 13px; padding: 2px 0 4px; }
+.ls-server-head .mono { font-size: 11.5px; }
+.ls-server-tools { margin-left: auto; display: flex; gap: 4px; align-self: center; }
+.ls-find, .ls-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 0; font-size: 12px; }
+.ls-models { padding: 4px 0 0; }
+.ls-model { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 4px 0; font-size: 12.5px; }
+.ls-model + .ls-model { border-top: 1px solid var(--line-soft); }
+.ls-model-pick { display: flex; align-items: center; gap: 6px; cursor: pointer; min-width: 0; }
+.ls-model-pick input { flex: none; width: 15px; height: 15px; margin: 0;
+  accent-color: var(--prov-langserver); }
+.ls-model-facts { font-size: 11.5px; }
+.ls-window { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.ls-window input { width: 7.5em; font-size: 12px; padding: 3px 6px; }
