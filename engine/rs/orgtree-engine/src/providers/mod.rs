@@ -94,7 +94,7 @@ fn home() -> PathBuf {
 }
 
 #[logged]
-fn which(name: &str) -> Option<PathBuf> {
+pub fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
         for ext in ["exe", "cmd", "bat", ""] {

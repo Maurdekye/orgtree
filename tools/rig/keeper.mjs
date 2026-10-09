@@ -34,6 +34,7 @@ const env = {
   ORGTREE_CLAUDE_BIN: path.join(dir, 'bin', 'claude.exe'),
   ORGTREE_CODEX_BIN: path.join(dir, 'bin', 'codex.exe'),
   ORGTREE_AGY_BIN: path.join(dir, 'bin', 'agy.exe'),
+  ORGTREE_TAILSCALE_BIN: path.join(dir, 'bin', 'tailscale.cmd'),
   ORGTREE_FAKECLI_DIR: path.join(dir, 'fakecli'),
   ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
 }

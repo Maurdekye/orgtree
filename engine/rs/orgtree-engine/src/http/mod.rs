@@ -43,6 +43,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/desktop/status", get(desktop::status))
         .route("/api/desktop/shutdown", post(desktop::shutdown))
         .route("/api/desktop/hub", get(desktop::hub_get).put(desktop::hub_put))
+        .route("/api/desktop/phone", get(desktop::phone_get))
         .route("/api/desktop/maintenance/ack", post(desktop::maintenance_ack))
         .route("/api/desktop/maintenance/failure", post(desktop::maintenance_failure))
         .route("/api/net/probe", get(desktop::net_probe))

@@ -474,6 +474,8 @@ export async function startRun(opts = {}) {
   fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
   fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
+  // the fake Tailscale CLI (ORGTREE_TAILSCALE_BIN), scripted through rig-home\rig-tailscale
+  fs.copyFileSync(path.join(RIG_DIR, 'fake-tailscale.cmd'), path.join(dir, 'bin', 'tailscale.cmd'))
   // --hub: the engine hosts this mail hub inside the run (its own role and
   // database in the run's cluster, a free loopback port) and the run's
   // network mail reaches it and nothing else

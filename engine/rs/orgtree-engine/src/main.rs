@@ -36,6 +36,7 @@ mod net;
 mod openrouter;
 mod orgs;
 mod pg;
+mod phone;
 mod providers;
 mod rig;
 mod runtime;
@@ -200,6 +201,7 @@ async fn run_with_cluster(
         accounts: accounts::Accounts::default(),
         providers: providers::Providers::default(),
         hub: mailhub::MailHub::default(),
+        phone: phone::Phone::default(),
         dogs: runtime::watchdogs::Registry::default(),
         usage: usage::Usage::default(),
         net: net::Net::default(),

@@ -123,3 +123,9 @@ pub struct ProbeQuery {
 pub async fn net_probe(State(e): State<Arc<Engine>>, axum::extract::Query(q): axum::extract::Query<ProbeQuery>) -> Json<Value> {
     Json(crate::net::probe(&e, &q.address).await)
 }
+
+/// `GET /api/desktop/phone`: the "Chat from your phone" panel's state.
+#[logged]
+pub async fn phone_get(State(e): State<Arc<Engine>>) -> Json<Value> {
+    Json(crate::phone::state(&e).await)
+}
