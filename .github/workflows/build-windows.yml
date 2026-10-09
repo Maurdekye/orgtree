@@ -270,5 +270,8 @@ jobs:
             src/release/*.yml
             src/dist/build-info.json
             src/engine/runtime/runtime-manifest.json
-            ${{ runner.temp }}/smoke/engine-data/diagnostics/**
+            C:/otsmoke/engine-data/diagnostics/**
+            C:/otsmoke/engine-data/pg/cluster/log/**
+            C:/Users/otsmoke/AppData/Roaming/Orgtree v2/**/diagnostics/logs/**
+            C:/Users/otsmoke/AppData/Roaming/Orgtree v2/**/pg/cluster/log/**
           if-no-files-found: ignore
