@@ -1856,6 +1856,7 @@ else {
           engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
           shellPath: await loginShellPath() })
         if (boot.error) console.warn(`background engine (${boot.manager}): ${boot.error}`)
+        if (boot.systemdSkipped) console.warn(`background engine: systemd not used (${boot.systemdSkipped})`)
         if (!boot.started) return false
         if (await engine.attach(engineOptions)) return true
         return engine.attachWithRetry(engineOptions)

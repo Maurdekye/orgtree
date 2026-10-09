@@ -184,6 +184,7 @@ test('Linux without systemd --user: the autostart entry is written and this sess
   const r = await boot.ensureBootEngine(appImage, a.io)
   assert.equal(r.manager, 'autostart')
   assert.equal(r.started, true)
+  assert.equal(r.systemdSkipped, 'systemctl --user show-environment: Failed to connect to bus')
   assert.equal(a.files[boot.bootFile(deb, 'autostart')], boot.autostartEntry(appImage))
   assert.deepEqual(a.detached, [boot.bootCommand(appImage)])
 })

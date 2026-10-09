@@ -294,6 +294,8 @@ export interface BootOutcome {
   /** the host was asked to start now */
   started: boolean
   error?: string
+  /** why systemd was not used, when the autostart entry was */
+  systemdSkipped?: string
 }
 
 const failed = (r: { code: number; stdout: string; stderr: string }) => (r.stderr || r.stdout).trim() || `exit code ${r.code}`
@@ -324,7 +326,9 @@ export async function ensureBootEngine(o: BootInputs, io: BootIo = realIo): Prom
       return { manager: 'launchd', file, changed, started: k.code === 0, ...(k.code === 0 ? {} : { error: `launchctl kickstart: ${failed(k)}` }) }
     } catch (e) { return { manager: 'launchd', file, changed, started: false, error: (e as Error).message } }
   }
-  const systemd = (await io.runner('systemctl', ['--user', 'show-environment'], 10000).catch(() => ({ code: -1, stdout: '', stderr: '' }))).code === 0
+  const probe = await io.runner('systemctl', ['--user', 'show-environment'], 10000)
+    .catch((e: Error) => ({ code: -1, stdout: '', stderr: e.message }))
+  const systemd = probe.code === 0
   if (systemd) {
     const file = bootFile(o, 'systemd')
     const text = systemdUnit(o)
@@ -349,7 +353,7 @@ export async function ensureBootEngine(o: BootInputs, io: BootIo = realIo): Prom
     if (changed) io.write(file, text)
     // autostart applies from the next login: start this session's host now
     io.detach(bootCommand(o))
-    return { manager: 'autostart', file, changed, started: true }
+    return { manager: 'autostart', file, changed, started: true, systemdSkipped: `systemctl --user show-environment: ${failed(probe)}` }
   } catch (e) { return { manager: 'autostart', file, changed, started: false, error: (e as Error).message } }
 }
 
