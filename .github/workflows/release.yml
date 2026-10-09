@@ -1,0 +1,144 @@
+# Orgtree release: one pushed tag in, one DRAFT GitHub release out. Never publishes.
+#
+#   resolve  the tag, the version surfaces and the notes file, in seconds
+#   windows  build-windows.yml: the canonical six assets (build-info.json,
+#            engine-hashes.json, latest.yml or beta.yml, Orgtree-Setup-<v>.exe and its
+#            .blockmap, packaged-hashes.json), built and gated as `npm run
+#            release:windows` does after its test gate, plus a launch smoke
+#   stage    SHA256SUMS.txt over every asset
+#   draft    `gh release create --draft`; a person checks the draft and publishes it
+#
+# The release's test gate (tools/release-verification.mjs) is NOT run here: it refuses a
+# test baseline recorded on another machine, so it stays on the release PC and runs
+# before the tag is pushed. Modes: a pushed tag v4.1.0 (or v4.1.0-beta.1) is a real
+# release; a push to ci-test/orgtree-release, or a manual run, is a test (same build,
+# no release; the staged assets are left as the run's artifact).
+# How to cut, check, publish and roll back a release: docs/ci-release.md.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['ci-test/orgtree-release']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit to build as a test (no release)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Check the tag, versions and notes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.check.outputs.mode }}
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+      sha: ${{ steps.check.outputs.sha }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          sparse-checkout: |
+            docs
+            engine/rs/orgtree-engine/Cargo.toml
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .ci-tools
+          sparse-checkout: .github/ci
+          persist-credentials: false
+      - id: check
+        env:
+          MODE: ${{ github.ref_type == 'tag' && 'release' || 'test' }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: node .ci-tools/.github/ci/releasing/check-release.mjs
+
+  windows:
+    needs: resolve
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+
+  stage:
+    needs: [resolve, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: orgtree-windows
+          path: dist
+      - name: Check the asset set and write SHA256SUMS.txt
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        run: |
+          cd dist
+          channel=latest
+          if [ "$PRERELEASE" = true ]; then channel="${VERSION#*-}"; channel="${channel%%.*}"; fi
+          expected="build-info.json engine-hashes.json $channel.yml Orgtree-Setup-$VERSION.exe Orgtree-Setup-$VERSION.exe.blockmap packaged-hashes.json"
+          have="$(ls | sort | tr '\n' ' ')"
+          want="$(printf '%s\n' $expected | sort | tr '\n' ' ')"
+          if [ "$have" != "$want" ]; then
+            echo "::error::orgtree-windows holds [$have], expected the canonical six [$want]"
+            exit 1
+          fi
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          {
+            echo "### Orgtree $VERSION ($([ "$PRERELEASE" = true ] && echo prerelease || echo stable))"
+            echo
+            echo '| file | bytes | sha256 |'
+            echo '|---|---:|---|'
+            for f in *; do echo "| $f | $(stat -c %s "$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ needs.resolve.outputs.tag }}
+          path: dist/*
+          if-no-files-found: error
+
+  # The only job with write access. It uploads exactly what `stage` checked, as a
+  # draft; publishing is a person's decision (docs/ci-release.md).
+  draft:
+    if: needs.resolve.outputs.mode == 'release'
+    needs: [resolve, stage]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          sparse-checkout: docs
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ needs.resolve.outputs.tag }}
+          path: dist
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        run: |
+          ls -la dist
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --prerelease="$PRERELEASE" --title "Orgtree $VERSION" \
+            --notes-file "docs/release-notes-$VERSION.md" dist/*
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,isDraft,isPrerelease,assets \
+            --jq '"\(.name) draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[] | "  \(.name)  \(.size)")'
