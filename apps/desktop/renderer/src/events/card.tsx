@@ -128,7 +128,9 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     .map(f => f.key === 'sections' && askQuestions.length > 0 && Array.isArray(f.value)
       ? { ...f, value: f.value.filter(sec => !(record(sec) && sec.kind === 'ask')) } : f)
     .filter(f => !(f.key === 'sections' && askQuestions.length > 0 && Array.isArray(f.value) && f.value.length === 0))
-  const header = view.fields.filter(f => f.placement === 'header')
+  // The mini card says answered/dismissed and how many questions itself.
+  const header = view.fields.filter(f => f.placement === 'header'
+    && !(answeredAsk && (f.key === 'single' || (f.key === 'dismissed' && f.value === false))))
   const context = view.fields.filter(f => f.placement === 'context')
   const objectValue = event.object ? humanValue(event.object, fieldType(event.variant, 'object'), profile) : null
   const objectDetails = objectValue?.kind === 'record'
@@ -152,7 +154,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     </>
   if (part === 'header') return heading
   const contents = <>
-    {(body.length > 0 || answeredAsk || askQuestions.length > 0) && (preview
+    {(body.length > 0 || answeredAsk || askQuestions.length > 0) && (preview && !answeredAsk && askQuestions.length === 0
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>
