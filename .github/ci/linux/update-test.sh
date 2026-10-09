@@ -23,6 +23,7 @@ vN="$major.$minor.$patch"; vN1="$major.$minor.$((patch + 1))"
 apps="$HOME/Applications"; app="$apps/Orgtree-$vN.AppImage"
 profile="$HOME/.config/Orgtree v2"   # the release identity's userData
 unit=orgtree-engine.service
+autostart="$HOME/.config/autostart/orgtree-engine.desktop"   # the app's fallback without systemd --user
 budget=${UPDATE_TEST_BUDGET:-420}
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 step() { echo "--- $*"; }
@@ -56,9 +57,12 @@ teardown() {
   cp "$profile/update-log.json" "$logs/" 2>/dev/null
   cp "$HOME/.config/systemd/user/$unit" "$logs/" 2>/dev/null
   cp -r "$profile/diagnostics" "$logs/app-diagnostics" 2>/dev/null
+  cp "$autostart" "$logs/" 2>/dev/null
   for p in $(pids_of desktop); do kill -TERM "$p"; done
   systemctl --user disable --now "$unit" >/dev/null 2>&1
-  rm -f "$HOME/.config/systemd/user/$unit"; systemctl --user daemon-reload
+  rm -f "$HOME/.config/systemd/user/$unit" "$autostart"; systemctl --user daemon-reload
+  # a host the app started outside systemd (the autostart fallback) passes SIGTERM to its engine
+  for p in $(pids_of host); do kill -TERM "$p"; done
   for _ in $(seq 1 30); do [ -z "$(procs)" ] && break; sleep 1; done
   left=$(procs); if [ -n "$left" ]; then echo "::warning::killing what did not stop:"; echo "$left"; echo "$left" | awk '{ print $1 }' | xargs -r kill -KILL; fi
   [ -n "${feedpid:-}" ] && kill "$feedpid"
@@ -73,6 +77,7 @@ pgrep -af "orgtree-engine|mount_Orgtre" && fail "Orgtree is already running"
 if [ -e "$profile" ]; then echo "moving an earlier step's profile aside"; mv "$profile" "$work/earlier-profile"; fi
 userns=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)
 echo "N = $vN, N+1 = $vN1; feed $feed; kernel.apparmor_restrict_unprivileged_userns=$userns"
+env | grep -E '^(XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|XDG_SESSION_TYPE|XDG_CURRENT_DESKTOP)=' | sed 's/^/  /' || true
 
 step "packaging N and N+1 from this commit and this engine build (AppImage only, loopback feed)"
 package() {  # <version> <label>
@@ -94,6 +99,15 @@ mkdir -p "$apps"; cp "$work/N/release/Orgtree-$vN.AppImage" "$app"; chmod +x "$a
 shaN=$(sha256sum "$app" | cut -d' ' -f1); shaN1=$(sha256sum "$work/feed/Orgtree-$vN1.AppImage" | cut -d' ' -f1)
 echo "installed $app (sha256 $shaN); the feed offers Orgtree-$vN1.AppImage (sha256 $shaN1)"
 
+# The app picks systemd when `systemctl --user show-environment` succeeds for it, which runs
+# with the environment the AppImage's AppRun sets up (PATH, LD_LIBRARY_PATH, ...).
+step "systemctl --user show-environment, run from inside the AppImage as the app runs it"
+ELECTRON_RUN_AS_NODE=1 timeout 60 "$app" -e '
+  const { execFile } = require("child_process")
+  for (const key of ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "LD_LIBRARY_PATH", "PATH"]) console.log(`  ${key}=${process.env[key] ?? "(unset)"}`)
+  execFile("systemctl", ["--user", "show-environment"], { timeout: 10000 }, (error, out, err) =>
+    console.log(`  exit ${error ? error.code : 0}${err ? "; stderr: " + err.trim().slice(0, 500) : ""}`))' 2>&1 | grep -v appimage_extracted || true
+
 trap teardown EXIT
 node "$here/update-feed.mjs" "$work/feed" "$port" "$logs/feed-requests.jsonl" >"$logs/feed.out" 2>&1 & feedpid=$!
 Xvfb :77 -screen 0 1280x800x24 -nolisten tcp >"$logs/xvfb.out" 2>&1 & xvfbpid=$!
@@ -104,41 +118,48 @@ curl -sf -o /dev/null "${feed}latest-linux.yml" || fail "the loopback feed did n
 
 launch() { (cd "$HOME" && setsid "$app" "$@" >>"$logs/app.out" 2>&1 </dev/null &); }
 step "starting Orgtree $vN the way a launcher does: $app, no arguments"
+# (electron-builder's AppRun adds --no-sandbox by itself where user namespaces are unavailable)
 start=$SECONDS; launch
-for _ in $(seq 1 20); do [ -n "$(pids_of desktop)" ] && break; sleep 1; done
-sandbox_flag=
-if [ -z "$(pids_of desktop)" ] && grep -qi sandbox "$logs/app.out"; then
-  echo "::warning::the AppImage would not start without --no-sandbox here (kernel.apparmor_restrict_unprivileged_userns=$userns), as on a stock Ubuntu 24.04 desktop"
-  grep -i -m3 sandbox "$logs/app.out"
-  sandbox_flag=--no-sandbox; launch --no-sandbox
-fi
-pidN=
+pidN=; hostN=
 for _ in $(seq 1 120); do
-  pidN=$(pids_of desktop | head -1)
-  [ -n "$pidN" ] && [ -n "$(engine_port)" ] && systemctl --user is-active --quiet "$unit" && break
+  pidN=$(pids_of desktop | head -1); hostN=$(pids_of host | head -1)
+  [ -n "$pidN" ] && [ -n "$hostN" ] && [ -n "$(engine_port)" ] && break
   sleep 1
 done
 [ -n "$pidN" ] || fail "Orgtree $vN did not start"
-systemctl --user is-active --quiet "$unit" || fail "Orgtree $vN did not start its background engine ($unit)"
-mainN=$(main_pid)
+[ -n "$hostN" ] || fail "Orgtree $vN started no background engine host"
 echo "running from $app (pid ppid role version):"; procs | sed 's/^/  /'
+echo "the desktop's environment:"; tr '\0' '\n' <"/proc/$pidN/environ" | grep -E '^(XDG_RUNTIME_DIR|DBUS_SESSION_BUS_ADDRESS|LD_LIBRARY_PATH)=' | sed 's/^/  /' || true
+if systemctl --user is-active --quiet "$unit"; then
+  manager=systemd; hostN=$(main_pid)
+else
+  manager=autostart
+  echo "::warning::the app did not register $unit although systemctl --user works here; $([ -e "$autostart" ] && echo "it wrote $autostart" || echo "no autostart entry either") and started the host itself"
+fi
+[ "$(pids_of desktop | wc -l)" = 1 ] || fail "more than one desktop runs from $app: $(pids_of desktop | tr '\n' ' ')"
 [ "$(version_of "$pidN")" = "$vN" ] || fail "the desktop does not run $vN"
-[ "$(version_of "$mainN")" = "$vN" ] || fail "the background engine's host ($unit MainPID $mainN) does not run from $app"
-echo "PASS start: desktop pid $pidN and background engine host pid $mainN run $vN; engine port $(engine_port)"
+[ "$(version_of "$hostN")" = "$vN" ] || fail "the background engine's host (pid $hostN, $manager) does not run from $app"
+echo "PASS start: desktop pid $pidN and background engine host pid $hostN ($manager) run $vN; engine port $(engine_port)"
 
 step "waiting up to ${budget}s for the app to update itself (check, download, 60 s without input, swap, relaunch)"
-deadline=$((SECONDS + budget)); swapped=; pidN1=; main=0; next=$((SECONDS + 30))
+deadline=$((SECONDS + budget)); swapped=; pidN1=; hostN1=; next=$((SECONDS + 30))
 while [ $SECONDS -lt $deadline ]; do
   if [ -z "$swapped" ] && [ "$(sha256sum "$app" 2>/dev/null | cut -d' ' -f1)" = "$shaN1" ]; then
     swapped=$SECONDS; echo "the file at $app is N+1 now, $((SECONDS - start)) s after the start"
   fi
   if [ -n "$swapped" ]; then
     now=$(procs); desktops=$(echo "$now" | awk '$3 == "desktop"')
-    main=$(main_pid)
+    if [ "$manager" = systemd ]; then
+      host=; systemctl --user is-active --quiet "$unit" && host=$(main_pid)
+    else
+      host=$(echo "$now" | awk -v v="$vN1" '$3 == "host" && $4 == v { print $1; exit }')
+    fi
+    # one desktop and the engine's host, both from N+1's mount, and nothing of N left running
     if [ "$(echo "$desktops" | grep -c .)" = 1 ] && [ "$(echo "$desktops" | awk '{ print $4 }')" = "$vN1" ] \
-        && systemctl --user is-active --quiet "$unit" && [ "$main" != 0 ] && [ "$main" != "$mainN" ] \
-        && echo "$now" | awk -v pid="$main" -v v="$vN1" '$1 == pid && $3 == "host" && $4 == v { found = 1 } END { exit !found }'; then
-      pidN1=$(echo "$desktops" | awk '{ print $1 }'); break
+        && [ -n "$host" ] && [ "$host" != 0 ] && [ "$host" != "$hostN" ] \
+        && echo "$now" | awk -v pid="$host" -v v="$vN1" '$1 == pid && $3 == "host" && $4 == v { found = 1 } END { exit !found }' \
+        && ! echo "$now" | awk -v v="$vN" '$4 == v && $3 != "other" { found = 1 } END { exit !found }'; then
+      pidN1=$(echo "$desktops" | awk '{ print $1 }'); hostN1=$host; break
     fi
   fi
   if [ $SECONDS -ge $next ]; then echo "  $((SECONDS - start)) s: $(update_log | tail -1)"; next=$((SECONDS + 30)); fi
@@ -146,12 +167,11 @@ while [ $SECONDS -lt $deadline ]; do
 done
 if [ -z "$pidN1" ]; then
   [ -n "$swapped" ] || fail "the app did not replace $app within ${budget}s"
-  [ -n "$sandbox_flag" ] && echo "::error::the relaunch starts the AppImage without --no-sandbox, which this system needs"
-  fail "after the swap, Orgtree $vN1 and its background engine did not both come back within ${budget}s"
+  fail "after the swap, Orgtree $vN1 and its background engine did not both come back (with nothing of $vN left) within ${budget}s"
 fi
 echo "running from $app (pid ppid role version):"; procs | sed 's/^/  /'
 echo "PASS relaunch: one desktop, pid $pidN1 (was $pidN), runs $vN1 from $app, $((SECONDS - swapped)) s after the swap"
-echo "PASS background engine: $unit MainPID $main (was $mainN) runs $vN1 from $app"
+echo "PASS background engine: host pid $hostN1 (was $hostN, $manager) runs $vN1 from $app; nothing of $vN is left running"
 
 code=; port_now=
 for _ in $(seq 1 60); do
@@ -191,4 +211,7 @@ node -e 'const [file, name, size] = process.argv.slice(1)
   if (whole === 0 && ranges > 0) console.log("PASS differential download")
   else console.log("::warning::not a differential download: the app fetched the whole file (the update log says why)")' \
   "$logs/feed-requests.jsonl" "Orgtree-$vN1.AppImage" "$(stat -c %s "$work/feed/Orgtree-$vN1.AppImage")"
+# Last, so a run reports everything above first: where systemctl --user works (as on a
+# Linux desktop), the background engine must be a systemd user unit, not the fallback.
+[ "$manager" = systemd ] || fail "the update worked, but the app ran its background engine without systemd although systemctl --user works here (see the systemctl run from inside the AppImage above)"
 echo "Orgtree $vN updated itself to $vN1"

@@ -22,9 +22,11 @@ for (const pid of fs.readdirSync('/proc').filter(name => /^\d+$/.test(name))) {
   try { exe = fs.readlinkSync(`/proc/${pid}/exe`) } catch { continue }  // gone, or not ours
   const env = new Map((read(`/proc/${pid}/environ`) ?? '').split('\0').filter(Boolean)
     .map(pair => [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)]))
-  const args = (read(`/proc/${pid}/cmdline`) ?? '').split('\0')
+  // Chromium rewrites its children's argv into one space-separated string, so look for
+  // --type= anywhere in the raw command line, not only as a separate argument.
+  const chromiumChild = /(^|[\s\0])--type=/.test(read(`/proc/${pid}/cmdline`) ?? '')
   const ppid = /^\d+ \(.*\) \S+ (\d+)/s.exec(read(`/proc/${pid}/stat`) ?? '')?.[1] ?? '?'
-  procs.push({ pid, ppid, exe, env, args })
+  procs.push({ pid, ppid, exe, env, chromiumChild })
 }
 const mounts = new Set(procs.filter(p => p.env.get('APPIMAGE') === appImage && p.env.get('APPDIR')
   && p.exe.startsWith(p.env.get('APPDIR') + '/')).map(p => p.env.get('APPDIR')))
@@ -33,7 +35,7 @@ const versions = new Map([...mounts].map(dir => {
 }))
 for (const p of procs) {
   const mount = [...mounts].find(dir => p.exe.startsWith(dir + '/'))
-  if (!mount || p.args.some(arg => arg.startsWith('--type='))) continue
+  if (!mount || p.chromiumChild) continue
   let role = roles[path.basename(p.exe)] ?? 'other'
   if (role === 'desktop' && p.env.get('ELECTRON_RUN_AS_NODE') === '1') role = 'host'
   console.log(`${p.pid} ${p.ppid} ${role} ${versions.get(mount)}`)
