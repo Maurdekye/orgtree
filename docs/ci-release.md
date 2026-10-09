@@ -199,7 +199,10 @@ Ubuntu 22.04's glibc 2.35 (inferred).
 - Provider CLIs (`claude`, `codex`) must be on the PATH Orgtree starts with. A macOS
   app opened from Finder gets a minimal PATH; starting it from Terminal with
   `open -a Orgtree` keeps the shell's PATH (inferred).
-- No start at login, credential bridge or background boot engine.
+- No credential bridge. The background engine starts at login (a LaunchAgent on
+  macOS, a systemd user unit or XDG autostart entry on Linux), registered by the
+  installed app at each launch (`apps/desktop/main/unixboot.ts`; proof:
+  `.github/ci/boot-engine-smoke.mjs`).
 - Linux, from its port's list: also no "Run as administrator", tray left-click list,
   taskbar attention icons, `pid:N` process watchdogs, or memory floor for warming
   CLIs. These are gated off, not deleted.

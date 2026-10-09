@@ -63,10 +63,11 @@ These are untested builds. They build, start their engine and the bundled Postgr
   - On macOS 15 or later: click Done, open System Settings › Privacy & Security, click "Open Anyway", then open Orgtree again.
   - On older versions: right-click the app and choose Open.
 - **Linux:** `orgtree_4.1.0_amd64.deb` (recommended: `sudo apt install ./orgtree_4.1.0_amd64.deb`) or `Orgtree-4.1.0.AppImage`, for x86_64 with Ubuntu 22.04 or Debian 12 or newer. The AppImage needs FUSE 2 (`libfuse2`, or `libfuse2t64` on Ubuntu 24.04).
+- **Background engine:** as on Windows, the engine starts when you sign in and keeps your agents working with the Orgtree window closed: a LaunchAgent on macOS, a systemd user service on Linux (or an autostart entry where there is none). Orgtree sets it up the first time it starts and updates it if you move the app.
 - **Not there yet:**
   - Hired agents get no Orgtree tools: the tool bridge uses Windows named pipes.
   - No automatic updates: download each new version by hand.
-  - No start at login, credential bridge or background engine.
+  - No credential bridge.
   - Chat from your phone's setup uses the Windows firewall.
   - Provider CLIs (`claude`, `codex`) must be on the PATH Orgtree starts with.
 
