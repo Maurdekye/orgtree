@@ -178,6 +178,12 @@ pub fn cli_bin(var: &str) -> Option<(PathBuf, String)> {
 pub fn usage(lane: &str, profile: Option<&str>) -> Option<serde_json::Value> {
     let home = RIG.get().cloned().flatten()?;
     let dir = home.join("rig-usage");
+    // one line per reading asked for, so a rig check can time the usage loop
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("calls.log")) {
+        use std::io::Write;
+        let _ = writeln!(f, "{} {lane}", chrono::Utc::now().timestamp_millis());
+    }
     let named = profile
         .and_then(|p| std::path::Path::new(p).file_name().map(|n| dir.join(format!("{lane}@{}.json", n.to_string_lossy()))));
     let canned = named

@@ -798,23 +798,71 @@ pub fn publish(engine: &Engine, lane: &str, value: &Value) {
     engine.app.set_value(peek_key, engine.usage.peek(&cache, provider));
 }
 
+/// How often a lane is read (3.x parity, supervisor `_warm_interval` plus the
+/// modal's 60 s poll): paced by how close the lane is to a wall, 5 min under
+/// 80 %, 2 min from 80 %, 45 s from 95 %; and a minute at most while a window
+/// is open, because the windows read the pushed values and nothing else.
+/// `idle_cap` keeps 4.x's own idle cadence where it was already faster (Claude 2 min).
+#[nolog]
+fn lane_every(pressure: f64, window_open: bool, idle_cap: u64) -> u64 {
+    let paced = if pressure >= 95.0 { 45 } else if pressure >= 80.0 { 120 } else { 300 }.min(idle_cap);
+    if window_open { paced.min(60) } else { paced }
+}
+
+/// The lane's cached readout: its highest used percent, and whether a window
+/// it showed has already reset (a reset five seconds past, 3.x `RESET_LAG`).
+#[nolog]
+fn lane_state(engine: &Engine, key: &str) -> (f64, bool) {
+    let pin = engine.usage.cache.pin();
+    let Some(c) = pin.get(key) else { return (0.0, false) };
+    let now = Utc::now();
+    let limits = c.data["limits"].as_array().cloned().unwrap_or_default();
+    let pressure = limits.iter().filter_map(|l| l["percent"].as_f64()).fold(0.0, f64::max);
+    let passed = limits.iter().any(|l| {
+        l["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t + chrono::Duration::seconds(5) <= now)
+    });
+    (pressure, passed)
+}
+
+/// Is this lane due? Its cadence has run out, or a window it showed reset and
+/// the readout has not caught up: re-ask every 10 s, at most four times in a
+/// row (3.x `WARM_MIN_SLEEP` / `RESET_RECHECKS`), then fall back to the cadence.
+#[nolog]
+fn lane_due(engine: &Engine, last: &mut std::collections::HashMap<&'static str, Instant>,
+            misses: &mut std::collections::HashMap<&'static str, u8>, lane: &'static str, key: &str, idle_cap: u64) -> bool {
+    let (pressure, passed) = lane_state(engine, key);
+    let every = lane_every(pressure, crate::appfeed::windows_open() > 0, idle_cap);
+    let since = last.get(lane).map(|t| t.elapsed());
+    let Some(since) = since else { return true };
+    if since >= Duration::from_secs(every) {
+        misses.insert(lane, 0);
+        return true;
+    }
+    let m = misses.get(lane).copied().unwrap_or(0);
+    if passed && m < 4 && since >= Duration::from_secs(10) {
+        misses.insert(lane, m + 1);
+        return true;
+    }
+    if !passed {
+        misses.insert(lane, 0);
+    }
+    false
+}
+
 /// Keep the usage the windows show fresh: the four provider lanes, their
 /// peeks (the usage button's glow) and every registered account. The
 /// windows never poll; they read these pushed values.
 #[logged]
 pub fn start(engine: &std::sync::Arc<Engine>) {
-    // a rig engine never probes a provider (no network call, no CLI)
-    if crate::rig::active() {
-        return;
-    }
     let eng = engine.clone();
     tokio::spawn(async move {
         let mut last: std::collections::HashMap<&'static str, Instant> = std::collections::HashMap::new();
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        let mut misses: std::collections::HashMap<&'static str, u8> = std::collections::HashMap::new();
+        tokio::time::sleep(Duration::from_secs(if crate::rig::active() { 1 } else { 5 })).await;
         loop {
-            publish_due(&eng, &mut last).await;
+            publish_due(&eng, &mut last, &mut misses).await;
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                _ = tokio::time::sleep(Duration::from_secs(10)) => {}
                 _ = eng.shutdown.cancelled() => break,
             }
         }
@@ -822,22 +870,25 @@ pub fn start(engine: &std::sync::Arc<Engine>) {
 }
 
 #[logged]
-async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collections::HashMap<&'static str, Instant>) {
+async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collections::HashMap<&'static str, Instant>,
+                     misses: &mut std::collections::HashMap<&'static str, u8>) {
+    // a rig engine reads only the canned readings: the three lanes, nothing else
+    let rig = crate::rig::active();
     let due = |last: &std::collections::HashMap<&'static str, Instant>, k: &str, every: u64| {
         last.get(k).map(|t| t.elapsed() >= Duration::from_secs(every)).unwrap_or(true)
     };
     let st = engine.providers.state.load_full();
-    if st.claude.installed && due(last, "claude", 120) {
+    if (rig || st.claude.installed) && lane_due(engine, last, misses, "claude", &claude_key(None), 120) {
         let v = claude(engine, None, false).await;
         publish(engine, "claude", &v);
         last.insert("claude", Instant::now());
     }
-    if st.codex.installed && due(last, "openai", 300) {
+    if (rig || st.codex.installed) && lane_due(engine, last, misses, "openai", &codex_key(None), 300) {
         let v = codex(engine, "openai/primary", None, false).await;
         publish(engine, "openai", &v);
         last.insert("openai", Instant::now());
     }
-    if st.agy.installed && due(last, "google", 300) {
+    if (rig || st.agy.installed) && lane_due(engine, last, misses, "google", "agy", 300) {
         let before = engine.usage.peek("agy", "google");
         let v = antigravity(engine, false).await;
         publish(engine, "google", &v);
@@ -853,7 +904,11 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         }
         last.insert("google", Instant::now());
     }
-    if due(last, "openrouter", 300) {
+    if rig {
+        return;
+    }
+    let open_every = if crate::appfeed::windows_open() > 0 { 60 } else { 300 };
+    if due(last, "openrouter", open_every) {
         refresh_openrouter(engine, false).await;
         last.insert("openrouter", Instant::now());
     }
@@ -861,7 +916,7 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         crate::usage_history::prune(engine).await;
         last.insert("usage_history_prune", Instant::now());
     }
-    if due(last, "registered", 300) {
+    if due(last, "registered", open_every) {
         let view = engine.accounts.view();
         let accounts: Vec<crate::accounts::AccountInfo> =
             view.all().into_iter().filter(|a| a.provider != "openrouter" && !crate::accounts::is_ambient(a)).cloned().collect();

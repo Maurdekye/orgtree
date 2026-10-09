@@ -4,6 +4,7 @@
 //! One task owns it; producers send to it and never wait.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -378,8 +379,18 @@ pub async fn app_ws(State(engine): State<Arc<Engine>>, ws: WebSocketUpgrade) -> 
     ws.on_upgrade(move |socket| run_socket(engine, socket))
 }
 
+/// How many windows hold the app feed open right now. The usage loop reads it:
+/// with a window open, readings are kept a minute fresh (3.x's modal poll).
+static WINDOWS: AtomicUsize = AtomicUsize::new(0);
+
+#[nolog]
+pub fn windows_open() -> usize {
+    WINDOWS.load(Ordering::Relaxed)
+}
+
 #[logged]
 async fn run_socket(engine: Arc<Engine>, socket: WebSocket) {
+    WINDOWS.fetch_add(1, Ordering::Relaxed);
     let id = next_socket_id();
     let (out, mut rx) = mpsc::channel::<Arc<str>>(2048);
     let _ = engine.app.tx.send((Msg::Open(id, out), crate::trace::current_rq()));
@@ -400,5 +411,6 @@ async fn run_socket(engine: Arc<Engine>, socket: WebSocket) {
             _ = shutdown.cancelled() => break,
         }
     }
+    WINDOWS.fetch_sub(1, Ordering::Relaxed);
     let _ = engine.app.tx.send((Msg::Close(id), crate::trace::current_rq()));
 }
