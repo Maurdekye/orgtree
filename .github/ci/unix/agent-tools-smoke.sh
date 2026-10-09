@@ -13,34 +13,47 @@
 # ~/.claude.json; a ~/.codex/auth.json whose made-up id token carries only an email);
 # no credential exists on the runner and nothing here reaches a provider.
 # A lane passes only if the fake CLI logs the tool's answer as expected AND the engine
-# then reports the status that call set. Written for bash 3.2 (macOS) as well.
+# then reports the status that call set.
+# Also, in the same engine run:
+#  - the hosted mail hub (mailhub-hosting.json, loopback) must answer /healthz. A
+#    failure is a warning, not a failed job (phone setup is out of scope here);
+#  - with AGENT_SMOKE_LEFTOVERS=1 (set when the fake CLI has its `spawn` step): a CLI
+#    child started mid-turn must not outlive its agent's process being stopped, nor
+#    a graceful engine shutdown.
+# Written for bash 3.2 (macOS) as well.
 # Usage: agent-tools-smoke.sh <orgtree-engine> <ui dir> <orgtree-fakecli> <logs dir>
 # AGENT_SMOKE_LANES (default "claude codex agy") picks the lanes.
 set -uo pipefail
 eng="$1" ui="$2" fake="$3" logs="$4"
 lanes="${AGENT_SMOKE_LANES:-claude codex agy}"
+leftovers="${AGENT_SMOKE_LEFTOVERS:-0}"
 mkdir -p "$logs"
 work="$(mktemp -d)"
 home="$work/home" bin="$work/bin" fdir="$work/fakecli" root="$work/data"
-mkdir -p "$home/.codex" "$bin" "$fdir"
+mkdir -p "$home/.codex" "$bin" "$fdir" "$root"
 for cli in claude codex agy; do cp "$fake" "$bin/$cli" && chmod +x "$bin/$cli" || { echo "::error::cannot stage the fake CLI"; exit 1; }; done
 printf '{"oauthAccount":{"emailAddress":"smoke@example.com"}}\n' > "$home/.claude.json"
 python3 -c 'import base64,json,sys
 b = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
 json.dump({"OPENAI_API_KEY": None, "tokens": {"id_token": b({"alg": "none"}) + "." + b({"email": "smoke@example.com"}) + "."}},
           open(sys.argv[1], "w"))' "$home/.codex/auth.json"
-cat > "$fdir/scenario.json" <<'EOF'
-{"default": {"turns": [{"name": "tool-smoke", "steps": [
-  {"tool": "orgtree_status", "args": {"status": "done", "summary": "agent tool smoke"}, "expect": "Status recorded"},
-  {"text": "OK."}]}]}}
-EOF
+python3 -c 'import json,sys
+hang = {"turns": [{"name": "spawn-and-hang", "steps": [{"spawn": "sleep 300"}, {"hang": True}]}]}
+json.dump({"agents": {"left-stop": hang, "left-shutdown": hang},
+           "default": {"turns": [{"name": "tool-smoke", "steps": [
+               {"tool": "orgtree_status", "args": {"status": "done", "summary": "agent tool smoke"}, "expect": "Status recorded"},
+               {"text": "OK."}]}]}}, open(sys.argv[1], "w"), indent=1)' "$fdir/scenario.json"
+hubport="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+printf '{"version": 2, "port": %s, "bind": "127.0.0.1", "name": "smoke hub", "retention_days": null, "public_listener": false, "max_attachment_bytes": 1073741824}\n' \
+  "$hubport" > "$root/mailhub-hosting.json"
 token="$(openssl rand -hex 32)"
-pid="" port=""
+pid="" port="" spawned=""
 
 tier_of() { case "$1" in claude) echo haiku ;; codex) echo luna ;; agy) echo flash ;; *) echo "unknown lane $1" >&2; return 1 ;; esac; }
 collect() {
   cp -r "$fdir/log" "$logs/fakecli-log" 2>/dev/null
   cp -r "$root/logs" "$logs/engine-logs" 2>/dev/null
+  cp "$root/mailhub/hub.log" "$logs/hub.log" 2>/dev/null
   find "$root" -path '*/.agents/plugins/orgtree/mcp_config.json' -exec cp {} "$logs/agy-mcp_config.json" \; 2>/dev/null
   true
 }
@@ -54,7 +67,8 @@ stop_engine() {
   pkill -9 -f -- "-D $root/pg/cluster/data" 2>/dev/null
   pid=""
 }
-trap stop_engine EXIT
+cleanup() { stop_engine; for p in $spawned; do kill -9 "$p" 2>/dev/null; done; true; }
+trap cleanup EXIT
 fail() {
   echo "::error::agent tool smoke: $*"
   for f in "$fdir"/log/*.jsonl; do [ -f "$f" ] && { echo "--- $f"; tail -n 40 "$f"; }; done
@@ -70,6 +84,26 @@ api() { # METHOD ROUTE [JSON]: prints the body; fails on a non-2xx answer
   fi
   code="${out##*$'\n'}"; printf '%s\n' "${out%$'\n'*}"
   [ "${code:0:1}" = 2 ] || { echo "HTTP $code from $1 $2" >&2; return 1; }
+}
+hire_and_wake() { # name tier
+  api POST "/api/orgs/$org/ops" "{\"op\":\"hire\",\"name\":\"$1\",\"tier\":\"$2\",\"grant\":0,\"title\":\"Tool smoke\",\"charter\":\"You exist only in a CI smoke test.\"}" >/dev/null \
+    || fail "hiring $1 (tier $2) was refused"
+  api POST "/api/orgs/$org/nodes/$1/message" '{"text":"Run the tool smoke.","notice":false}' >/dev/null \
+    || fail "user mail to $1 was refused"
+  echo "hired $1 (tier $2) and sent it a message"
+}
+spawned_pid() { # agent: the pid of the child its fake CLI spawned, once logged
+  python3 -c 'import json,sys
+try:
+    for l in open(sys.argv[1], errors="replace"):
+        try: m = json.loads(l)
+        except Exception: continue
+        if m.get("kind") == "spawned" and m.get("pid"): print(m["pid"]); break
+except FileNotFoundError: pass' "$fdir/log/$1.jsonl" 2>/dev/null
+}
+gone_within() { # pid seconds
+  for _ in $(seq 1 "$2"); do kill -0 "$1" 2>/dev/null || return 0; sleep 1; done
+  ! kill -0 "$1" 2>/dev/null
 }
 
 echo "== engine (packaged: $eng)"
@@ -103,12 +137,8 @@ org="$(api POST /api/orgs '{"name":"Tool Smoke","dirs":[],"net_autoconnect":fals
 [ -n "$org" ] || fail "org create returned no slug"
 echo "org $org"
 for lane in $lanes; do
-  name="tools-$lane"; tier="$(tier_of "$lane")" || fail "unknown lane $lane"
-  api POST "/api/orgs/$org/ops" "{\"op\":\"hire\",\"name\":\"$name\",\"tier\":\"$tier\",\"grant\":0,\"title\":\"Tool smoke\",\"charter\":\"You exist only in a CI smoke test.\"}" >/dev/null \
-    || fail "$lane: hiring $name (tier $tier) was refused"
-  api POST "/api/orgs/$org/nodes/$name/message" '{"text":"Run the tool smoke.","notice":false}' >/dev/null \
-    || fail "$lane: user mail to $name was refused"
-  echo "$lane: hired $name (tier $tier) and sent it a message"
+  tier="$(tier_of "$lane")" || fail "unknown lane $lane"
+  hire_and_wake "tools-$lane" "$tier"
 done
 
 # The fake CLI's verdict per lane, written to $work/result-<lane> once its tool answer is in.
@@ -147,6 +177,48 @@ for lane in $lanes; do
     *) echo "FAIL $lane: $verdict"; bad=1 ;;
   esac
 done
-[ "$bad" = 0 ] || fail "one or more lanes failed (see above)"
+
+echo "--- hosted mail hub (port $hubport)"
+hub=""
+for _ in $(seq 1 60); do
+  hub="$(curl -sS -m 3 "http://127.0.0.1:$hubport/healthz" 2>/dev/null)" && [ -n "$hub" ] && break
+  hub=""; sleep 1
+done
+if [ -n "$hub" ]; then
+  echo "PASS hub: the hosted mail hub answers /healthz: $(printf '%s' "$hub" | head -c 300)"
+else
+  echo "::warning::the hosted mail hub did not answer /healthz on port $hubport (a known limit if it stays so; not gating)"
+  tail -n 40 "$root/mailhub/hub.log" 2>/dev/null
+  pgrep -fl orgtree-mailhub || echo "(no orgtree-mailhub process)"
+fi
+
+if [ "$leftovers" = 1 ]; then
+  echo "--- leftovers: a CLI's child must not outlive its agent's process, nor the engine"
+  hire_and_wake left-stop "$(tier_of claude)"
+  hire_and_wake left-shutdown "$(tier_of claude)"
+  stop_pid="" down_pid=""
+  for _ in $(seq 1 120); do
+    [ -n "$stop_pid" ] || stop_pid="$(spawned_pid left-stop)"
+    [ -n "$down_pid" ] || down_pid="$(spawned_pid left-shutdown)"
+    [ -n "$stop_pid" ] && [ -n "$down_pid" ] && break
+    sleep 1
+  done
+  spawned="$stop_pid $down_pid"
+  if [ -z "$stop_pid" ] || [ -z "$down_pid" ]; then
+    echo "FAIL leftovers: the fake CLIs never reported their spawned child (left-stop: ${stop_pid:-none}, left-shutdown: ${down_pid:-none})"; bad=1
+  else
+    kill -0 "$stop_pid" 2>/dev/null && kill -0 "$down_pid" 2>/dev/null || echo "note: a spawned child was already gone before any stop"
+    api POST "/api/orgs/$org/nodes/left-stop/process" '{"action":"stop"}' >/dev/null || echo "note: the process stop route answered with an error"
+    if gone_within "$stop_pid" 20; then echo "PASS leftovers (stop): the child of a stopped agent's CLI is gone"
+    else echo "FAIL leftovers (stop): pid $stop_pid ($(ps -o command= -p "$stop_pid" 2>/dev/null)) outlived its agent's stopped process"; bad=1; fi
+  fi
+fi
+
 collect
-echo "agent tool smoke passed ($lanes)"
+stop_engine
+if [ "$leftovers" = 1 ] && [ -n "${down_pid:-}" ]; then
+  if gone_within "$down_pid" 20; then echo "PASS leftovers (shutdown): the child of a mid-turn CLI is gone after a graceful engine shutdown"
+  else echo "FAIL leftovers (shutdown): pid $down_pid ($(ps -o command= -p "$down_pid" 2>/dev/null)) outlived the engine"; bad=1; fi
+fi
+[ "$bad" = 0 ] || fail "one or more checks failed (see above)"
+echo "agent tool smoke passed (lanes: $lanes; leftovers: $([ "$leftovers" = 1 ] && echo checked || echo skipped))"

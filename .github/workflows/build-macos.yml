@@ -156,10 +156,12 @@ jobs:
       - name: Rig fake CLI (stands in for Claude Code, Codex and Antigravity)
         run: cargo build --release --locked --manifest-path tools/rig/fakecli/Cargo.toml --target-dir "$RUNNER_TEMP/fakecli"
 
-      - name: Smoke - agent tool calls (Claude, Codex and Antigravity lanes)
-        run: >-
-          bash .github/ci/unix/agent-tools-smoke.sh "$APP/Contents/Resources/engine/orgtree-engine"
-          "$APP/Contents/Resources/ui" "$RUNNER_TEMP/fakecli/release/orgtree-fakecli" "$RUNNER_TEMP/agent-tools-logs"
+      - name: Smoke - agent tool calls (Claude, Codex and Antigravity lanes), hosted hub, leftovers
+        run: |
+          # the leftover check needs the fake CLI's `spawn` step
+          if grep -q '"spawn"' tools/rig/fakecli/src/main.rs; then export AGENT_SMOKE_LEFTOVERS=1; fi
+          bash .github/ci/unix/agent-tools-smoke.sh "$APP/Contents/Resources/engine/orgtree-engine" \
+            "$APP/Contents/Resources/ui" "$RUNNER_TEMP/fakecli/release/orgtree-fakecli" "$RUNNER_TEMP/agent-tools-logs"
 
       - name: Agent tool smoke logs on failure
         if: failure()
