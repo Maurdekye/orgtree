@@ -142,7 +142,12 @@ if (-not $ok) {
 Write-Host "Engine answered on port $($ok.port): $($ok.alive | ConvertTo-Json -Compress)"
 
 function Get-InstalledProcesses {
-  Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) }
+  # Read Path once: a process that exits between two reads returns $null the
+  # second time (run 37938656715 failed exactly so while the app shut down).
+  Get-Process | Where-Object {
+    $path = try { $_.Path } catch { $null }
+    $path -and $path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)
+  }
 }
 function Stop-Installed { Get-InstalledProcesses | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3 }
 
