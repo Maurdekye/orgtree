@@ -14,12 +14,14 @@
 # no credential exists on the runner and nothing here reaches a provider.
 # A lane passes only if the fake CLI logs the tool's answer as expected AND the engine
 # then reports the status that call set.
-# Also, in the same engine run:
+# The engine runs as the app runs it (not in safe start, which never hosts the hub),
+# with network mail off (ORGTREE_NET_OFFLINE=1). Also, in the same engine run:
 #  - the hosted mail hub (mailhub-hosting.json, loopback) must answer /healthz. A
 #    failure is a warning, not a failed job (phone setup is out of scope here);
-#  - with AGENT_SMOKE_LEFTOVERS=1 (set when the fake CLI has its `spawn` step): a CLI
-#    child started mid-turn must not outlive its agent's process being stopped, nor
-#    a graceful engine shutdown;
+#  - with AGENT_SMOKE_LEFTOVERS=1 (set when the fake CLI has its `spawn` step): a child
+#    that a CLI starts must not outlive its agent being retired mid-turn, its idle
+#    agent's process being stopped (the CLI closed, exiting on its own), nor a graceful
+#    engine shutdown mid-turn;
 #  - with the agy lane: an Antigravity agent without shell rights (tools.bash off) has
 #    its run_command denied by the engine's PreToolUse hook, which the CLI runs through
 #    a shell.
@@ -43,10 +45,11 @@ json.dump({"OPENAI_API_KEY": None, "tokens": {"id_token": b({"alg": "none"}) + "
           open(sys.argv[1], "w"))' "$home/.codex/auth.json"
 python3 -c 'import json,sys
 hang = {"turns": [{"name": "spawn-and-hang", "steps": [{"spawn": "sleep 300"}, {"hang": True}]}]}
+finish = {"turns": [{"name": "spawn-and-finish", "steps": [{"spawn": "sleep 300"}, {"text": "Started it."}]}]}
 noshell = {"turns": [{"name": "shell", "steps": [
     {"tool": "run_command", "args": {"CommandLine": "echo hi", "Cwd": "."}, "result": "hi"},
     {"text": "I may not use the shell."}]}]}
-json.dump({"agents": {"left-stop": hang, "left-shutdown": hang, "tools-agy-noshell": noshell},
+json.dump({"agents": {"left-retire": hang, "left-close": finish, "left-shutdown": hang, "tools-agy-noshell": noshell},
            "default": {"turns": [{"name": "tool-smoke", "steps": [
                {"tool": "orgtree_status", "args": {"status": "done", "summary": "agent tool smoke"}, "expect": "Status recorded"},
                {"text": "OK."}]}]}}, open(sys.argv[1], "w"), indent=1)' "$fdir/scenario.json"
@@ -113,11 +116,12 @@ gone_within() { # pid seconds
   ! kill -0 "$1" 2>/dev/null
 }
 
+hubs_before="$(ps -axo pid=,command= | grep '[o]rgtree-mailhub' || true)"
 echo "== engine (packaged: $eng)"
 env HOME="$home" PATH="$bin:$PATH" ORGTREE_CLAUDE_BIN="$bin/claude" ORGTREE_CODEX_BIN="$bin/codex" \
   ORGTREE_FAKECLI_DIR="$fdir" ORGTREE_FAKECLI_HOME="$home" \
   ORGTREE_DATA="$root" ORGTREE_V2_TOKEN="$token" ORGTREE_V2_UI_DIR="$ui" \
-  ORGTREE_PG_BOOTSTRAP=1 ORGTREE_ENGINE_SAFE_START=1 \
+  ORGTREE_PG_BOOTSTRAP=1 ORGTREE_NET_OFFLINE=1 \
   "$eng" serve >"$logs/engine.out" 2>"$logs/engine.err" &
 pid=$!
 for _ in $(seq 1 180); do
@@ -215,6 +219,7 @@ if res is not None:
 fi
 
 echo "--- hosted mail hub (port $hubport)"
+[ -z "$hubs_before" ] || printf 'note: mail hubs that were running before this engine started (left by an earlier step):\n%s\n' "$hubs_before"
 hub=""
 for _ in $(seq 1 60); do
   hub="$(curl -sS -m 3 "http://127.0.0.1:$hubport/healthz" 2>/dev/null)" && [ -n "$hub" ] && break
@@ -224,29 +229,43 @@ if [ -n "$hub" ]; then
   echo "PASS hub: the hosted mail hub answers /healthz: $(printf '%s' "$hub" | head -c 300)"
 else
   echo "::warning::the hosted mail hub did not answer /healthz on port $hubport (a known limit if it stays so; not gating)"
-  tail -n 40 "$root/mailhub/hub.log" 2>/dev/null
-  pgrep -fl orgtree-mailhub || echo "(no orgtree-mailhub process)"
+  tail -n 40 "$root/mailhub/hub.log" 2>/dev/null || echo "(no mailhub/hub.log in the data folder)"
+  echo "engine's hub status: $(api GET /api/desktop/hub 2>&1 | head -c 600)"
+  ps -axo pid=,command= | grep '[o]rgtree-mailhub' || echo "(no orgtree-mailhub process)"
 fi
 
 if [ "$leftovers" = 1 ]; then
-  echo "--- leftovers: a CLI's child must not outlive its agent's process, nor the engine"
-  hire_and_wake left-stop "$(tier_of claude)"
+  echo "--- leftovers: a child that a CLI starts must not outlive its agent's CLI, nor the engine"
+  hire_and_wake left-retire "$(tier_of claude)"
+  hire_and_wake left-close "$(tier_of claude)"
   hire_and_wake left-shutdown "$(tier_of claude)"
-  stop_pid="" down_pid=""
+  retire_pid="" close_pid="" down_pid=""
   for _ in $(seq 1 120); do
-    [ -n "$stop_pid" ] || stop_pid="$(spawned_pid left-stop)"
+    [ -n "$retire_pid" ] || retire_pid="$(spawned_pid left-retire)"
+    [ -n "$close_pid" ] || close_pid="$(spawned_pid left-close)"
     [ -n "$down_pid" ] || down_pid="$(spawned_pid left-shutdown)"
-    [ -n "$stop_pid" ] && [ -n "$down_pid" ] && break
+    [ -n "$retire_pid" ] && [ -n "$close_pid" ] && [ -n "$down_pid" ] && break
     sleep 1
   done
-  spawned="$stop_pid $down_pid"
-  if [ -z "$stop_pid" ] || [ -z "$down_pid" ]; then
-    echo "FAIL leftovers: the fake CLIs never reported their spawned child (left-stop: ${stop_pid:-none}, left-shutdown: ${down_pid:-none})"; bad=1
+  spawned="$retire_pid $close_pid $down_pid"
+  if [ -z "$retire_pid" ] || [ -z "$close_pid" ] || [ -z "$down_pid" ]; then
+    echo "FAIL leftovers: the fake CLIs never reported their spawned child (retire: ${retire_pid:-none}, close: ${close_pid:-none}, shutdown: ${down_pid:-none})"; bad=1
   else
-    kill -0 "$stop_pid" 2>/dev/null && kill -0 "$down_pid" 2>/dev/null || echo "note: a spawned child was already gone before any stop"
-    api POST "/api/orgs/$org/nodes/left-stop/process" '{"action":"stop"}' >/dev/null || echo "note: the process stop route answered with an error"
-    if gone_within "$stop_pid" 20; then echo "PASS leftovers (stop): the child of a stopped agent's CLI is gone"
-    else echo "FAIL leftovers (stop): pid $stop_pid ($(ps -o command= -p "$stop_pid" 2>/dev/null)) outlived its agent's stopped process"; bad=1; fi
+    for p in $spawned; do kill -0 "$p" 2>/dev/null || echo "note: spawned child $p was already gone before any stop"; done
+    # retired mid-turn: the engine kills the CLI
+    out="$(api POST "/api/orgs/$org/ops" '{"op":"retire","node":"left-retire"}' 2>&1)" || echo "note: the retire was refused: $out"
+    if gone_within "$retire_pid" 20; then echo "PASS leftovers (retire mid-turn): the child of the retired agent's CLI is gone"
+    else echo "FAIL leftovers (retire mid-turn): pid $retire_pid ($(ps -o command= -p "$retire_pid" 2>/dev/null)) outlived its retired agent's CLI"; bad=1; fi
+    # stopped while idle: the engine closes the CLI's input and the CLI exits on its own
+    stopped="" out=""
+    for _ in $(seq 1 60); do
+      out="$(api POST "/api/orgs/$org/nodes/left-close/process" '{"action":"stop"}' 2>&1)"
+      case "$out" in *'"ok":true'*) stopped="$out"; break ;; esac
+      sleep 1 # its turn is still running
+    done
+    if [ -z "$stopped" ]; then echo "FAIL leftovers (idle stop): the process stop was never accepted (last answer: ${out:-none})"; bad=1
+    elif gone_within "$close_pid" 20; then echo "PASS leftovers (idle stop): the child of the idle agent's closed CLI is gone ($stopped)"
+    else echo "FAIL leftovers (idle stop): pid $close_pid ($(ps -o command= -p "$close_pid" 2>/dev/null)) outlived its idle agent's closed CLI ($stopped)"; bad=1; fi
   fi
 fi
 
