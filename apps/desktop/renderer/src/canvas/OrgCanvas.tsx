@@ -42,7 +42,8 @@ import { DeskChat, DestinationBusy, OrgKillswitchContext, TrayStatus } from './d
 import type { DeskChatProps } from './desk'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
 import { TempDeskModal } from './tempdesk'
-import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired } from './firstuse'
+import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired, useFirstUse } from './firstuse'
+import { PhoneCard, PhonePanelHost } from './phonelink'
 import { DocReader } from './docs'
 import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
@@ -3648,6 +3649,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           box would establish a containing block with no definite height and
           collapse `.tray-wrap`, which derives its height from the viewport. */}
       <FirstUseGuide slug={slug} root={viewportRef} hidden={worldHidden || compact} />
+      <PhoneCardAfterGuide slug={slug} hidden={worldHidden || compact} />
+      <PhonePanelHost defaultOrg={slug} />
       <div ref={worldRef}
         className={'canvas-world' + (worldHidden ? ' canvas-world-hidden' : '')}
         aria-hidden={worldHidden || undefined}>
@@ -4611,4 +4614,13 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
       </div>
     </div></ModalOverPins>
   )
+}
+
+/** "Chat from your phone" in the org window: once the first-use guide is
+ *  done (or the org is older than the guide); the engine decides the rest of
+ *  the bar (a live top-level agent, a first message, no link, the hub up). */
+function PhoneCardAfterGuide({ slug, hidden }: { slug: string; hidden: boolean }) {
+  const progress = useFirstUse(slug)
+  if (hidden || (progress && progress.step !== 'done')) return null
+  return <PhoneCard org={slug} where="org" />
 }

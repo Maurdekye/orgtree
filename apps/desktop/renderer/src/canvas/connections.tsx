@@ -12,6 +12,7 @@
 // a status, never an error that blocks configuration. Changes apply
 // immediately — hub membership is operational state, not a form draft.
 
+import { openPhonePanel } from './phonelink'
 import { useState } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { getOrgNet, probeHub, saveSettings } from '../api'
@@ -103,6 +104,9 @@ export function Connections({ tree, toast, adding, setAdding }: {
         checked={hubs.some(h => h.id === 'local')}
         onChange={next => { void apply({ net_autoconnect: next }, next ? "Connected to this computer's mail hub" : "Disconnected from this computer's mail hub") }}
         hint="Being connected means peers can mail this organization (and thereby start its agents). Read and send correspondence in Mail." />
+      <SetRow label="Chat with this organization from your phone.">
+        <button type="button" className="primary" onClick={() => openPhonePanel(tree.slug)}>Connect your phone</button>
+      </SetRow>
     </SetGroup>
     <SetGroup title="This organization's connections">
       {!hubs.length && <SetBlock hint="No connections configured." />}

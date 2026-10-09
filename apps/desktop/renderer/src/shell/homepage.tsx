@@ -18,6 +18,7 @@ import { orgFreshnessNote } from '../orgstatus'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
 import type { ReactNode } from 'react'
+import { PhoneCard, PhonePanelHost } from '../canvas/phonelink'
 
 export interface HomepageViewProps {
   orgs: OrgListEntry[]
@@ -61,6 +62,8 @@ export function HomepageView(props: HomepageViewProps) {
             aria-label="find an organization" placeholder="Find an organization"
             value={filter} onChange={(e) => setFilter(e.target.value)} />
         )}
+        <PhoneCard org={null} where="home" />
+        <PhonePanelHost defaultOrg={null} />
         {note && <div className="dim org-freshness" role="status">{note}</div>}
         <nav className="shell-homepage-list" aria-label="organizations">
           <OrgRows orgs={shown} slug={null} onPick={onOpenOrg} onDelete={onDelete}

@@ -16,6 +16,8 @@ import { useEffect, useRef, useState } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
 import { req } from '../api'
 import { AutorenewIcon } from '../icons'
+import { PhoneSettingsGroup } from './phonelink'
+import { windowIdentity } from '../desktop'
 
 export interface HubHosting {
   version: 2
@@ -27,6 +29,8 @@ export interface HubHosting {
   max_attachment_bytes?: number
   public_listener: boolean
   public_listener_port: number
+  /** who may reach the door: set by Connect your phone (tailnet / lan) */
+  public_scope?: 'tailnet' | 'lan' | 'all'
   status: { running: boolean; healthy: boolean; address: string; exposed: boolean;
     hub_name?: string | null; hub_version?: string | null; orgs?: number | null; queued?: number | null }
   error?: string
@@ -47,7 +51,7 @@ export const readHosting = (value: HubHosting): HubHosting => {
     version: 2, port: value.port, bind: value.bind, name: value.name,
     retention_days: value.retention_days, org_retention_days: value.org_retention_days,
     max_attachment_bytes: value.max_attachment_bytes ?? 1024 ** 3,
-    public_listener: value.public_listener, public_listener_port: value.public_listener_port,
+    public_listener: value.public_listener, public_listener_port: value.public_listener_port, public_scope: value.public_scope,
     status: value.status, error: value.error, migrated: value.migrated,
     data_migration: value.data_migration, v2_import: value.v2_import,
   }
@@ -157,7 +161,11 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
           <SetToggle label={`Also serve a relay-only door on port ${config.public_listener_port || 7371}`}
             checked={config.public_listener}
             onChange={next => setConfig({ ...config, public_listener: next })}
-            hint="For peers outside your network: it carries mail only — no mail page — and every caller must present its own organization's secret. Tunnel or forward that port, never the main one." />
+            hint={config.public_listener && config.public_scope === 'tailnet'
+              ? 'On — turned on by Connect your phone, for your Tailscale network only.'
+              : config.public_listener && config.public_scope === 'lan'
+                ? 'On — turned on by Connect your phone, for your home network.'
+                : "For peers outside your network: it carries mail only — no mail page — and every caller must present its own organization's secret. Tunnel or forward that port, never the main one."} />
         </SetGroup>
         <div className="row">
           <button type="submit">Save hosting settings</button>
@@ -172,5 +180,11 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
 
 /** The whole App settings → Mail hub tab. */
 export function MailHubSettings({ active = true }: { active?: boolean } = {}) {
-  return <HostHub active={active} />
+  // the org whose window opened App settings is the one that would trust the phone (D3)
+  const org = windowIdentity()?.org ?? null
+  return <>
+    {/* the panel itself opens in the window's own host (the canvas or Home) */}
+    <PhoneSettingsGroup org={org} active={active} />
+    <HostHub active={active} />
+  </>
 }
