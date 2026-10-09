@@ -40,7 +40,34 @@ Linux files, and `SHA256SUMS.txt`:
 Orgtree needs no signing keys: the installer isn't code-signed, and the updater
 checks the installer against the SHA-512 in `latest.yml`. The macOS app is only
 ad-hoc signed and the Linux packages are unsigned. GitHub's own per-run token
-creates the draft.
+creates the draft. The Windows log still prints `signing with signtool.exe` for every
+file: electron-builder 26 logs that line before it finds there's no certificate, so
+nothing is signed (inferred from its source; measured: the CI installer's files
+match the unsigned 4.0.1, see the comparison below).
+
+## What the Windows launch smoke proves
+
+After the release tool's gates, the Windows job installs and starts the build on the
+runner (measured in every green run since 37934531288):
+- The installer installs silently, per user.
+- The installed engine starts as a throwaway standard user on an empty data root,
+  creates its PostgreSQL cluster and answers.
+- The installed desktop app starts under a non-admin token, starts its own engine,
+  mail hub and PostgreSQL, and stays up. Its engine answers, token-guarded as it
+  should be.
+
+The smoke avoids admin rights because PostgreSQL refuses to start under an elevated
+token, and GitHub's Windows runners are elevated.
+
+It doesn't prove anything about the UI, sign-in or agent turns, upgrading from an
+older version, auto-update or uninstalling.
+
+Open finding: the desktop app started as a separate standard user, not the
+installing user, exits with code 1 within about 3 seconds and prints nothing
+(measured in every Windows run since 37929303118). A likely cause is that a process started with other
+credentials from the runner's service session can't use the interactive desktop
+(inferred, unverified). A real install runs as the user who installed it, so this
+is probably a limit of the test setup.
 
 ## The test gate stays on the release PC
 
@@ -68,9 +95,10 @@ and CI does everything after it.
    git tag vX <commit>
    git push origin refs/tags/vX
    ```
-5. The **release** workflow starts. It takes as long as the slowest platform:
-   about 15 minutes with cold caches, 10 with warm ones (measured per platform:
-   Windows 14.9 cold and 10.5 warm, macOS 13.3 and 8, Linux about 16 cold).
+5. The **release** workflow starts. It takes as long as the slowest platform plus
+   about a minute to stage: about 15 minutes. Measured with warm caches in run
+   37952302570: Windows 12.6 minutes, macOS 9.9, Linux 9.8. With cold caches, allow
+   about 16 minutes per platform (measured: Windows 14.9, macOS 13.3, Linux about 16).
    - It refuses at once if the tag differs from `package.json`,
      `package-lock.json` or the engine's `Cargo.toml`, or if the notes file is
      missing.
