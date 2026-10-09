@@ -19,7 +19,11 @@
 #    failure is a warning, not a failed job (phone setup is out of scope here);
 #  - with AGENT_SMOKE_LEFTOVERS=1 (set when the fake CLI has its `spawn` step): a CLI
 #    child started mid-turn must not outlive its agent's process being stopped, nor
-#    a graceful engine shutdown.
+#    a graceful engine shutdown;
+#  - with the agy lane: an Antigravity agent without shell rights (tools.bash off) has
+#    its run_command denied by the engine's PreToolUse hook, which the CLI runs through
+#    a shell.
+# The data folder's name has a space in it, as the real one ("Orgtree v2") does.
 # Written for bash 3.2 (macOS) as well.
 # Usage: agent-tools-smoke.sh <orgtree-engine> <ui dir> <orgtree-fakecli> <logs dir>
 # AGENT_SMOKE_LANES (default "claude codex agy") picks the lanes.
@@ -29,7 +33,7 @@ lanes="${AGENT_SMOKE_LANES:-claude codex agy}"
 leftovers="${AGENT_SMOKE_LEFTOVERS:-0}"
 mkdir -p "$logs"
 work="$(mktemp -d)"
-home="$work/home" bin="$work/bin" fdir="$work/fakecli" root="$work/data"
+home="$work/home" bin="$work/bin" fdir="$work/fakecli" root="$work/Orgtree v2"
 mkdir -p "$home/.codex" "$bin" "$fdir" "$root"
 for cli in claude codex agy; do cp "$fake" "$bin/$cli" && chmod +x "$bin/$cli" || { echo "::error::cannot stage the fake CLI"; exit 1; }; done
 printf '{"oauthAccount":{"emailAddress":"smoke@example.com"}}\n' > "$home/.claude.json"
@@ -39,7 +43,10 @@ json.dump({"OPENAI_API_KEY": None, "tokens": {"id_token": b({"alg": "none"}) + "
           open(sys.argv[1], "w"))' "$home/.codex/auth.json"
 python3 -c 'import json,sys
 hang = {"turns": [{"name": "spawn-and-hang", "steps": [{"spawn": "sleep 300"}, {"hang": True}]}]}
-json.dump({"agents": {"left-stop": hang, "left-shutdown": hang},
+noshell = {"turns": [{"name": "shell", "steps": [
+    {"tool": "run_command", "args": {"CommandLine": "echo hi", "Cwd": "."}, "result": "hi"},
+    {"text": "I may not use the shell."}]}]}
+json.dump({"agents": {"left-stop": hang, "left-shutdown": hang, "tools-agy-noshell": noshell},
            "default": {"turns": [{"name": "tool-smoke", "steps": [
                {"tool": "orgtree_status", "args": {"status": "done", "summary": "agent tool smoke"}, "expect": "Status recorded"},
                {"text": "OK."}]}]}}, open(sys.argv[1], "w"), indent=1)' "$fdir/scenario.json"
@@ -85,8 +92,8 @@ api() { # METHOD ROUTE [JSON]: prints the body; fails on a non-2xx answer
   code="${out##*$'\n'}"; printf '%s\n' "${out%$'\n'*}"
   [ "${code:0:1}" = 2 ] || { echo "HTTP $code from $1 $2" >&2; return 1; }
 }
-hire_and_wake() { # name tier
-  api POST "/api/orgs/$org/ops" "{\"op\":\"hire\",\"name\":\"$1\",\"tier\":\"$2\",\"grant\":0,\"title\":\"Tool smoke\",\"charter\":\"You exist only in a CI smoke test.\"}" >/dev/null \
+hire_and_wake() { # name tier [more hire fields, as ',"key":value']
+  api POST "/api/orgs/$org/ops" "{\"op\":\"hire\",\"name\":\"$1\",\"tier\":\"$2\",\"grant\":0,\"title\":\"Tool smoke\",\"charter\":\"You exist only in a CI smoke test.\"${3:-}}" >/dev/null \
     || fail "hiring $1 (tier $2) was refused"
   api POST "/api/orgs/$org/nodes/$1/message" '{"text":"Run the tool smoke.","notice":false}' >/dev/null \
     || fail "user mail to $1 was refused"
@@ -98,7 +105,7 @@ try:
     for l in open(sys.argv[1], errors="replace"):
         try: m = json.loads(l)
         except Exception: continue
-        if m.get("kind") == "spawned" and m.get("pid"): print(m["pid"]); break
+        if m.get("kind") == "spawned" and m.get("child_pid"): print(m["child_pid"]); break
 except FileNotFoundError: pass' "$fdir/log/$1.jsonl" 2>/dev/null
 }
 gone_within() { # pid seconds
@@ -140,6 +147,8 @@ for lane in $lanes; do
   tier="$(tier_of "$lane")" || fail "unknown lane $lane"
   hire_and_wake "tools-$lane" "$tier"
 done
+noshell=0
+case " $lanes " in *" agy "*) noshell=1; hire_and_wake tools-agy-noshell "$(tier_of agy)" ',"tools":{"bash":false}' ;; esac
 
 # The fake CLI's verdict per lane, written to $work/result-<lane> once its tool answer is in.
 for _ in $(seq 1 240); do
@@ -177,6 +186,33 @@ for lane in $lanes; do
     *) echo "FAIL $lane: $verdict"; bad=1 ;;
   esac
 done
+
+if [ "$noshell" = 1 ]; then
+  echo "--- an Antigravity agent without shell rights"
+  verdict=""
+  for _ in $(seq 1 120); do
+    verdict="$(python3 -c 'import json,re,sys
+hook = res = None
+try:
+    for l in open(sys.argv[1], errors="replace"):
+        try: m = json.loads(l)
+        except Exception: continue
+        if m.get("kind") == "hook" and m.get("event") == "PreToolUse" and m.get("tool") == "run_command": hook = m
+        if m.get("kind") == "tool_result" and m.get("tool") == "run_command": res = m
+except FileNotFoundError: pass
+if res is not None:
+    ok = (hook is not None and hook.get("decision") == "deny" and re.search("shell rights", str(hook.get("reason") or ""))
+          and res.get("denied") is True and re.search("denied by pre-tool hook", str(res.get("text") or "")))
+    print("pass" if ok else "fail: hook %s; result %s" % (json.dumps(hook)[:300], json.dumps(res)[:300]))' "$fdir/log/tools-agy-noshell.jsonl" 2>/dev/null)"
+    [ -n "$verdict" ] && break
+    sleep 1
+  done
+  case "$verdict" in
+    pass) echo "PASS agy without shell rights: the PreToolUse hook ran through a shell and denied run_command" ;;
+    "") echo "FAIL agy without shell rights: no run_command call within 120 s"; bad=1 ;;
+    *) echo "FAIL agy without shell rights: $verdict"; bad=1 ;;
+  esac
+fi
 
 echo "--- hosted mail hub (port $hubport)"
 hub=""
@@ -221,4 +257,4 @@ if [ "$leftovers" = 1 ] && [ -n "${down_pid:-}" ]; then
   else echo "FAIL leftovers (shutdown): pid $down_pid ($(ps -o command= -p "$down_pid" 2>/dev/null)) outlived the engine"; bad=1; fi
 fi
 [ "$bad" = 0 ] || fail "one or more checks failed (see above)"
-echo "agent tool smoke passed (lanes: $lanes; leftovers: $([ "$leftovers" = 1 ] && echo checked || echo skipped))"
+echo "agent tool smoke passed (lanes: $lanes; no-shell agent: $([ "$noshell" = 1 ] && echo checked || echo skipped); leftovers:$([ "$leftovers" = 1 ] && echo checked || echo skipped))"

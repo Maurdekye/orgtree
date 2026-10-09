@@ -75,14 +75,21 @@ jobs:
           export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
           cargo build --release --locked -j "$(nproc)"
 
-      - name: Engine unit tests - tool bridge
+      - name: Engine unit tests - tool bridge, Antigravity hooks, process groups
         working-directory: engine/rs
         run: |
           # The release profile reuses the build above: only the engine crate compiles again, as tests.
           export ORGTREE_RELEASE_BUILD=1
           export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
-          cargo test --release --locked -j "$(nproc)" -p orgtree-engine --bin orgtree-engine bridge:: 2>&1 | tee "$RUNNER_TEMP/bridge-tests.log"
-          grep -E '^test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/bridge-tests.log"
+          log="$RUNNER_TEMP/unix-unit-tests.log"
+          cargo test --release --locked -j "$(nproc)" -p orgtree-engine --bin orgtree-engine -- bridge:: runtime::agy:: winproc:: 2>&1 | tee "$log"
+          grep -E '^test result: ok\. [1-9][0-9]* passed' "$log"
+          # every area must have run at least one test
+          for m in bridge runtime::agy winproc; do
+            n="$(grep -c -E "^test ${m}::.* \.\.\. ok$" "$log" || true)"
+            echo "$m: $n passed"
+            [ "$n" -ge 1 ] || { echo "::error::no $m unit test ran"; exit 1; }
+          done
 
       - name: Mail hub (release)
         working-directory: engine/mailhub
@@ -137,14 +144,18 @@ jobs:
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           for _ in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
           if systemctl --user show-environment >/dev/null 2>&1; then echo "systemd --user: available"; else echo "systemd --user: NOT available (autostart fallback)"; fi
-          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine
+          # a CLI only the login shell's PATH finds: the engine started by systemd must find it too
+          bash .github/ci/unix/login-shell-cli.sh codex
+          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine \
+            --expect-cli codex "$HOME/.npm-global/bin/codex"
 
       - name: Background engine - registered, started and stopped (AppImage)
         if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
         run: |
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           v="$(node -p "require('./package.json').version")"
-          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine --appimage "release/Orgtree-$v.AppImage"
+          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine --appimage "release/Orgtree-$v.AppImage" \
+            --expect-cli codex "$HOME/.npm-global/bin/codex"
 
       # Real Orgtree tool calls by hired agents, one per CLI lane (Claude and Codex over stdio,
       # Antigravity over the bridge socket), with the rig's fake CLI as every CLI.

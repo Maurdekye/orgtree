@@ -85,14 +85,21 @@ jobs:
           cargo build --release --locked
           ./target/release/orgtree-engine --version
 
-      - name: Engine unit tests - tool bridge
+      - name: Engine unit tests - tool bridge, Antigravity hooks, process groups
         working-directory: engine/rs
         run: |
           # The release profile reuses the build above: only the engine crate compiles again, as tests.
           export ORGTREE_RELEASE_BUILD=1
           export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
-          cargo test --release --locked -p orgtree-engine --bin orgtree-engine bridge:: 2>&1 | tee "$RUNNER_TEMP/bridge-tests.log"
-          grep -E '^test result: ok\. [1-9][0-9]* passed' "$RUNNER_TEMP/bridge-tests.log"
+          log="$RUNNER_TEMP/unix-unit-tests.log"
+          cargo test --release --locked -p orgtree-engine --bin orgtree-engine -- bridge:: runtime::agy:: winproc:: 2>&1 | tee "$log"
+          grep -E '^test result: ok\. [1-9][0-9]* passed' "$log"
+          # every area must have run at least one test
+          for m in bridge runtime::agy winproc; do
+            n="$(grep -c -E "^test ${m}::.* \.\.\. ok$" "$log" || true)"
+            echo "$m: $n passed"
+            [ "$n" -ge 1 ] || { echo "::error::no $m unit test ran"; exit 1; }
+          done
 
       - name: Build the mail hub
         working-directory: engine/mailhub
@@ -149,7 +156,11 @@ jobs:
 
       - name: Background engine - registered, started and stopped by launchd
         if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
-        run: node .github/ci/boot-engine-smoke.mjs "$APP/Contents/Resources/engine/orgtree-engine"
+        run: |
+          # a CLI only the login shell's PATH finds: the engine started by launchd must find it too
+          bash .github/ci/unix/login-shell-cli.sh codex
+          node .github/ci/boot-engine-smoke.mjs "$APP/Contents/Resources/engine/orgtree-engine" \
+            --expect-cli codex "$HOME/.npm-global/bin/codex"
 
       # Real Orgtree tool calls by hired agents, one per CLI lane (Claude and Codex over stdio,
       # Antigravity over the bridge socket), with the rig's fake CLI as every CLI.
