@@ -246,7 +246,7 @@ test('events that cannot be asked for again are held until there is somewhere to
   // ⚠ ONLY the events a renderer has no way to rediscover. Window state,
   // popout state and main-window-shown are all re-readable through the bridge,
   // so holding them could only hand over a stale duplicate.
-  assert.match(main, /const HELD_EVENT_TYPES = new Set<DesktopEvent\['type'\]>\(\['open-org', 'notification-click', 'window-identity', 'restore-skipped'\]\)/)
+  assert.match(main, /const HELD_EVENT_TYPES = new Set<DesktopEvent\['type'\]>\(\['open-org', 'notification-click', 'window-identity', 'restore-skipped', 'phone-panel'\]\)/)
   for (const readable of ['window-state', 'popout-state', 'main-window-shown', 'engine-status', 'preferences']) {
     assert.doesNotMatch(main, new RegExp(`HELD_EVENT_TYPES[\s\S]{0,200}'${readable}'`), readable)
   }
