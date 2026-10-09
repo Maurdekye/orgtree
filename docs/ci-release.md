@@ -154,3 +154,32 @@ them exactly:
 
 The runner image is pinned by name (`windows-2025`). GitHub updates its contents
 weekly; the toolchains above are installed explicitly.
+
+## How a CI build compares with the hand-built 4.0.1
+
+Run 37926248008 rebuilt the tag `v4.0.1` in CI and compared every file with the
+published release. Its report is that run's `orgtree-windows-compare` artifact.
+
+- `engine-hashes.json` is byte-identical.
+- 13 of the 15 files in the installer are byte-identical. The other two are the app
+  payload and the uninstaller, which the installer generates on every build.
+- 3683 of the 3705 files in the app payload are byte-identical. No file is extra, and
+  none is missing except two empty `REQUESTED` markers.
+
+The 22 payload files that differ, and why:
+
+| Files | Why they differ |
+|---|---|
+| `orgtree-engine.exe`, `pg-custodian.exe` | Rust embeds the builder's source and registry paths (inferred, not disassembled) |
+| `postgres-runtime-manifest.json` | it records `pg-custodian.exe`'s hash |
+| `app.asar`, `build-info.json`, `Orgtree.exe` | the build time (`builtAt`) is packed into `app.asar`; `Orgtree.exe` embeds the archive's integrity hash (inferred) |
+| 5 Python launchers (`site-packages/bin/*.exe`) and their `RECORD` files | each launcher names the provisioning machine's `python.exe`; the app never runs them |
+| `RECORD` of psycopg-binary and tzdata, `runtime-manifest.json` (order only) | the published runtime was provisioned with those two packages named explicitly, which the committed provisioning script doesn't do. Same 23 packages at the same versions and hashes |
+| `engine/mailhub/.git` | a git pointer file that 4.0.x packages by accident; from 4.1.0 the packaging leaves the folder out |
+
+The published metadata files differ only where their inputs differ. In
+`build-info.json` that is `builtAt` and three hashes. In `packaged-hashes.json` it is
+the hashes above and the installer's own hash.
+
+Re-provisioning the Python runtime locally today gives CI's runtime, not the published
+one: the provisioning script no longer produces the two `REQUESTED` markers.
