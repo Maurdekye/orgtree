@@ -226,8 +226,9 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.cache-electron.outputs.cache-primary-key }}
 
+      # Only a published v-tag has a release to compare against.
       - name: Compare with the published release (test runs only)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.ref.outputs.expect_version != ''
         continue-on-error: true
         run: >
           node ci/.github/ci/windows/compare-published.mjs
@@ -239,7 +240,7 @@ jobs:
           --report "$env:RUNNER_TEMP/compare-report.json"
 
       - name: Upload comparison report (test runs only)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.ref.outputs.expect_version != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: orgtree-windows-compare
