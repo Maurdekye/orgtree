@@ -123,7 +123,9 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /app\.isPackaged\s*\?\s*path\.join\(process\.resourcesPath, 'runtime-icons'\)/)
   assert.match(main, /path\.join\(app\.getAppPath\(\), 'apps\/desktop\/assets'\)/)
-  assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye\.ico'\)/)
+  assert.match(main, /const iconExt = process\.platform === 'win32' \? '\.ico' : '\.png'/,
+    'Windows keeps the .ico; other platforms load PNG renders of the same icons')
+  assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye' \+ iconExt\)/)
   assert.match(main, /if \(process\.platform === 'win32'\) configureTaskbar\(window, process\.execPath, file, identity\.appUserModelId, identity\.displayName\)/,
     'every Windows channel must set explicit shell icon metadata')
   assert.match(main, /app\.on\('browser-window-created', \(_event, window\) => \{[\s\S]*?applyWindowIcon\(window\)/,
@@ -141,7 +143,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
   assert.match(main, /tray\?\.setImage\(image\)/)
   assert.match(main, /window\.setIcon\(image\)/)
-  for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`orgtree-eye-tray-${name}\\.ico`))
+  for (const name of ['grey', 'orgtree', 'claude', 'codex', 'antigravity', 'openrouter']) assert.match(main, new RegExp(`'orgtree-eye-tray-${name}' \\+ iconExt`))
   assert.equal((main.match(/icon: iconPath/g) ?? []).length, 2, 'main and viewer windows')
   assert.ok((main.match(/\.setIcon\(runtimeIcon\(\)\)/g) ?? []).length >= 2, 'main and viewer windows start with runtime icon')
   assert.deepEqual(pkg.build.extraResources.at(-1), { from: 'apps/desktop/assets', to: 'runtime-icons', filter: ['orgtree-eye*.ico'] })
