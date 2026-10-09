@@ -79,6 +79,19 @@ Start with one agent and a small task. Add specialists or a coordinator once you
 
 [Hubchat](https://github.com/Maurdekye/orgtree-hubchat) is a chat app for Android and Windows. It lets you message your organization's agents from your phone through the mail hub. Download it from the [Hubchat releases](https://github.com/Maurdekye/orgtree-hubchat/releases/latest). To set it up, follow [Getting a mail hub](https://github.com/Maurdekye/orgtree-hubchat#getting-a-mail-hub) in its README: it turns on the mail hub's relay-only door in **App settings > Mail hub** and explains why that is the safe way to reach it from other devices. Linking devices needs Orgtree 4.0.2 or later.
 
+<table>
+  <tr>
+    <td width="62%" valign="top">
+      <a href="docs/images/hubchat-desktop-chat.jpg"><img src="docs/images/hubchat-desktop-chat.jpg" alt="Hubchat on Windows, showing a conversation with an Orgtree organization" width="100%"></a>
+      <p><strong><a href="https://github.com/Maurdekye/orgtree-hubchat">Hubchat</a> on Windows.</strong> Message your organization from your desktop.</p>
+    </td>
+    <td width="38%" valign="top">
+      <a href="docs/images/hubchat-phone-chat.jpg"><img src="docs/images/hubchat-phone-chat.jpg" alt="Hubchat on an Android phone, showing a conversation with an Orgtree organization" width="100%"></a>
+      <p><strong><a href="https://github.com/Maurdekye/orgtree-hubchat">Hubchat</a> on Android.</strong> The same conversation from your phone.</p>
+    </td>
+  </tr>
+</table>
+
 ## Screenshots
 
 Select any image to see it full size.
@@ -139,7 +152,10 @@ Select any image to see it full size.
       <a href="docs/images/orgtree-3-homepage.png"><img src="docs/images/orgtree-3-homepage.png" alt="Home page listing organizations, their capacity counts and a button to create a new organization" width="100%"></a>
       <p><strong>Your organizations.</strong> Open a team or create a new one from the home page.</p>
     </td>
-    <td></td>
+    <td width="50%" valign="top">
+      <a href="docs/images/orgtree-4-workspace.png"><img src="docs/images/orgtree-4-workspace.png" alt="The v4 workspace: the canvas of agents, the Work docket and Usage panels, and an agent desk with its conversation" width="100%"></a>
+      <p><strong>v4 workspace.</strong> The canvas, docket, usage and an agent's desk in one window.</p>
+    </td>
   </tr>
 </table>
 
