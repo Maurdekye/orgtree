@@ -102,7 +102,7 @@ and CI does everything after it.
    - It refuses at once if the tag differs from `package.json`,
      `package-lock.json` or the engine's `Cargo.toml`, or if the notes file is
      missing.
-   - Tags take the form `v4.1.0`, or `v4.1.0-beta.1` / `v4.1.0-alpha.1` for a
+   - Tags take the form `vX.Y.Z`, or `vX.Y.Z-beta.N` / `vX.Y.Z-alpha.N` for a
      prerelease. An `-RC` label is refused, as it is by the release tool.
 6. A draft release `vX` appears. The run's summary lists each file's size and
    SHA-256.
@@ -185,8 +185,8 @@ Ubuntu 22.04's glibc 2.35 (inferred).
   extract-and-run, so the FUSE route is inferred. On Ubuntu 24.04 the AppImage
   probably also needs `--no-sandbox`, since it can't bring an AppArmor profile
   (inferred); use the `.deb` there.
-- Inside the package, Debian's version reads `4.0.2~alpha.4`; the file name keeps
-  the hyphen.
+- For a prerelease such as `X.Y.Z-beta.N`, Debian's version inside the package reads
+  `X.Y.Z~beta.N`; the file name keeps the hyphen.
 - Data folder: `~/.config/Orgtree v2`, or under `$XDG_CONFIG_HOME` if that is set
   (measured on the runner).
 - No 3.x data import: the Linux build ships no Python runtime, which the import
