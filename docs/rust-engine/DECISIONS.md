@@ -363,3 +363,34 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Orgtree. No per-frame events; rotated to `.1` past 1 MB; best effort.
     `node tools/test-window-events-native.mjs` checks the log and the reveal against real
     Electron windows.
+
+61. **An edit to a CLI's startup instruction files reaches the agent at its next turn**
+    (user 2026-10-09 08:34Z: "an edit to your standing notes or anything fed at the start of
+    context should trigger a queued restart of your session, which was the 3.x behavior").
+    Claude Code and the Codex app-server read some instruction files once, when their process
+    starts, and hold them. 3.x hashed those files into the warm process's identity
+    (`warmpool.native_startup_context_digest`, `codex_startup_context_digest`). After an edit
+    the parked process was stale, never disturbed mid-turn, and the next turn spawned a
+    replacement that resumed the SAME session (`--resume`) with the new text. 4.0 respawned and
+    resumed on a fingerprint change, but the fingerprint had no such files. So for Claude agents
+    an edit to the scratch CLAUDE.md, the user CLAUDE.md or MEMORY.md applied only when some
+    unrelated respawn happened, and the cache forecast never showed it.
+
+    The fingerprint now has a seventh part, `startup`, with exactly 3.x's scope
+    (`runtime/startup.rs`):
+    - **Claude:** the managed-policy CLAUDE.md; `<config>`/CLAUDE.md; CLAUDE.md and
+      CLAUDE.local.md from the root to the cwd; `<cwd>`/.claude/CLAUDE.md; each granted
+      folder's CLAUDE.md and CLAUDE.local.md; unscoped rules; `@` imports five hops deep; and
+      MEMORY.md's first 25 KiB / 200 lines.
+    - **Codex:** `<CODEX_HOME>`/AGENTS.md, and AGENTS.override.md or else AGENTS.md in the
+      cwd (up to a `.git` root).
+    - **Not covered, as in 3.x:** memory topic files and path-scoped rules (read lazily),
+      skills folders (the CLI watches them live), and each CLI's other file.
+
+    `<config>` and `<CODEX_HOME>` are the folders the launch actually uses. The next turn
+    respawns and resumes, and the forecast lists `startup`. An idle agent re-reads its files
+    every 20 s, so after an edit its forecast updates and its parked CLI is replaced at once.
+    It compares against the CLI's own launch, so an edit made during a turn is caught as soon
+    as the turn ends. A running turn is never touched. A fingerprint saved by an older engine
+    reads as unknown, not changed, so the upgrade causes no false cold reset. Proof:
+    `tools/rig/proofs/startup-context.mjs`.
