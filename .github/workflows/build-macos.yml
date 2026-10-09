@@ -1,0 +1,147 @@
+# Orgtree for macOS (Apple Silicon), unsigned prototype build.
+# Builds the Rust engine and mail hub, the desktop, the bundled PostgreSQL,
+# packages Orgtree.app, signs it ad hoc (no Apple identity, not notarized),
+# runs a launch smoke on the runner and uploads ONE artifact `orgtree-macos`:
+#   Orgtree-<v>-arm64.dmg, Orgtree-<v>-arm64.zip, build-info-macos.json
+name: Build macOS
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      signing:
+        type: string
+        default: test
+  push:
+    branches: ['ci-test/orgtree-macos']
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24.12.0'
+  RUST_TOOLCHAIN: nightly-2025-12-12
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Signing mode
+        env:
+          SIGNING: ${{ inputs.signing || 'test' }}
+        run: |
+          # No Apple Developer identity exists (zero-cost rule): both modes
+          # produce the same ad-hoc signed, non-notarized app.
+          echo "signing=$SIGNING (macOS: ad-hoc in every mode)"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          submodules: true
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc -Vv
+          echo "MAILHUB_SHA=$(git -C engine/mailhub rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            engine/rs/target
+            engine/mailhub/target
+          key: cargo-macos15-arm64-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('engine/rs/Cargo.lock') }}-${{ env.MAILHUB_SHA }}
+          restore-keys: cargo-macos15-arm64-${{ env.RUST_TOOLCHAIN }}-
+
+      - name: npm cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.npm
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: npm-macos15-arm64-node${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-macos15-arm64-node${{ env.NODE_VERSION }}-
+
+      - name: Build the engine
+        working-directory: engine/rs
+        run: |
+          export ORGTREE_RELEASE_BUILD=1
+          export ORGTREE_BUILD_COMMIT="$(git rev-parse --short HEAD)"
+          cargo build --release --locked
+          ./target/release/orgtree-engine --version
+
+      - name: Build the mail hub
+        working-directory: engine/mailhub
+        run: cargo build --release --locked
+
+      - name: npm ci, typecheck, build
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: Bundled PostgreSQL
+        run: bash .github/ci/macos/provision-postgres.sh "$RUNNER_TEMP/pg-download" engine/postgresql
+
+      - name: Runtime icons
+        run: node .github/ci/macos/runtime-icons.mjs apps/desktop/assets .ci-macos/runtime-icons
+
+      - name: Package Orgtree.app
+        run: |
+          npx electron-builder --config .github/ci/macos/electron-builder.macos.cjs --mac dir --arm64 --publish never
+          app="$(find release -maxdepth 2 -name Orgtree.app -type d | head -n1)"
+          [ -n "$app" ] || { echo "no Orgtree.app"; exit 1; }
+          echo "APP=$app" >> "$GITHUB_ENV"
+          du -sh "$app"
+
+      - name: Ad-hoc sign
+        run: |
+          # Inside out: every Mach-O file in Resources, then the bundle.
+          find "$APP/Contents/Resources" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' -o -name '*.node' \) -print0 |
+            while IFS= read -r -d '' f; do
+              if file -b "$f" | grep -q 'Mach-O'; then codesign --force --sign - "$f"; fi
+            done
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Signature|Identifier|Format'
+
+      - name: Launch smoke
+        run: bash .github/ci/macos/smoke.sh "$APP"
+
+      - name: dmg and zip
+        run: |
+          npx electron-builder --config .github/ci/macos/electron-builder.macos.cjs --mac dmg zip --arm64 \
+            --prepackaged "$APP" --publish never
+          ls -la release
+
+      - name: Collect release assets
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p out
+          cp "release/Orgtree-$version-arm64.dmg" "release/Orgtree-$version-arm64.zip" out/
+          cp dist/build-info.json out/build-info-macos.json
+          # the zip must hold a validly signed app
+          mkdir -p "$RUNNER_TEMP/zipcheck" && ditto -x -k "out/Orgtree-$version-arm64.zip" "$RUNNER_TEMP/zipcheck"
+          codesign --verify --deep --strict "$RUNNER_TEMP/zipcheck/Orgtree.app"
+          (cd out && shasum -a 256 *)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-macos
+          path: out/*
+          if-no-files-found: error
