@@ -496,6 +496,22 @@ pub async fn usage_registered(State(e): State<Arc<Engine>>, Path(id): Path<Strin
     Ok(Json(usage::registered(&e, &a, q.force).await))
 }
 
+#[derive(Deserialize, Debug, Default)]
+pub struct HistoryQuery {
+    range: Option<String>,
+}
+
+/// `GET /api/usage/history?range=24h|7d|30d|90d`: the recorded usage of every
+/// account over the period, downsampled per series (the analytics panel).
+#[logged]
+pub async fn usage_history(State(e): State<Arc<Engine>>, Query(q): Query<HistoryQuery>) -> ApiResult<Json<Value>> {
+    let range = q.range.unwrap_or_else(|| "7d".into());
+    if crate::usage_history::range_secs(&range).is_none() {
+        return Err(ApiError::bad_request(format!("range must be 24h, 7d, 30d or 90d, not {range}")));
+    }
+    Ok(Json(crate::usage_history::history(&e, &range).await?))
+}
+
 // ------------------------------------------------------------ OpenRouter
 
 #[logged]

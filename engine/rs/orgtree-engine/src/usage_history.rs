@@ -1,5 +1,5 @@
 //! Usage over time (docket track-usage-over-time-and-show-usage-analytics,
-//! phase 1: recorded, not shown). Every provider usage readout the engine
+//! phase 1 recorded it, phase 2 shows it). Every provider usage readout the engine
 //! fetches is turned into one row per allowance window plus one for the
 //! account's availability, in `ot.usage_history`.
 //!
@@ -9,6 +9,8 @@
 //! - A window whose reset time moved on, or whose used share fell, gets a
 //!   `reset` row first, so a graph never draws a reset as consumption.
 //! - Rows older than `RETAIN_DAYS` are pruned in small batches.
+//! - `history` answers the analytics panel: per series and period, downsampled
+//!   in the database (phase 2).
 //!
 //! The last row of each series is kept in a lock-free map (seeded from the
 //! table after a restart). Recording never fails the readout it records.
@@ -251,26 +253,118 @@ pub async fn prune(engine: &Engine) {
     }
 }
 
-/// One account's recorded series since `since`, oldest first (for the later
-/// analytics panel; nothing calls it yet).
-#[allow(dead_code)]
+/// The periods the analytics panel offers, with their bucket width: about
+/// 250-300 buckets each, so a series is never more than that many points.
+const RANGES: [(&str, i64, i64); 4] = [("24h", 24 * 3600, 300), ("7d", 7 * 86400, 2400),
+    ("30d", 30 * 86400, 3 * 3600), ("90d", 90 * 86400, 9 * 3600)];
+/// At most this many series (and so `MAX_SERIES` × buckets rows) per answer.
+const MAX_SERIES: i64 = 64;
+const MAX_RESETS: i64 = 2000;
+const MAX_STATES: i64 = 4000;
+
+/// A period name the panel may ask for ("24h", "7d", "30d", "90d").
 #[logged]
-pub async fn series(engine: &Engine, account: &str, since: DateTime<Utc>, limit: i64) -> anyhow::Result<Vec<Value>> {
+pub fn range_secs(range: &str) -> Option<(i64, i64)> {
+    RANGES.iter().find(|(name, _, _)| *name == range).map(|(_, span, bucket)| (*span, *bucket))
+}
+
+/// The recorded history for the analytics panel (`GET /api/usage/history`),
+/// downsampled in the database: per series (account, window, group, model)
+/// one row per time bucket with its first, last, lowest, highest and mean
+/// value and when its readings were taken. Only real readings with a value
+/// count; a window the provider reported without a number is a gap, never 0.
+/// Also each account's availability changes and every reset in the period,
+/// unsampled (both capped), so a graph can break its line where the account
+/// was unreadable and never draw a reset as consumption.
+#[logged]
+pub async fn history(engine: &Engine, range: &str) -> anyhow::Result<Value> {
+    let (span, bucket) = range_secs(range).ok_or_else(|| anyhow::anyhow!("unknown range {range}"))?;
+    let until = Utc::now();
+    let since = until - Duration::seconds(span);
     let client = engine.db.get().await?;
-    let rows = client.query(
-        "SELECT observed_at, provider, win, grp, model, event, state, used_pct, amount, unit, resets_at,
-                prev_pct, prev_amount, prev_resets_at, label, detail
-           FROM ot.usage_history WHERE account = $1 AND observed_at >= $2
-          ORDER BY observed_at, id LIMIT $3",
-        &[&account, &since, &limit.clamp(1, 20_000)],
-    ).await?;
     let ts = |t: Option<DateTime<Utc>>| t.map(crate::util::iso);
-    Ok(rows.iter().map(|r| serde_json::json!({
-        "observed_at": crate::util::iso(r.get(0)), "provider": r.get::<_, String>(1), "window": r.get::<_, String>(2),
-        "group": r.get::<_, String>(3), "model": r.get::<_, String>(4), "event": r.get::<_, String>(5),
-        "state": r.get::<_, String>(6), "used_pct": r.get::<_, Option<f64>>(7), "amount": r.get::<_, Option<f64>>(8),
-        "unit": r.get::<_, Option<String>>(9), "resets_at": ts(r.get(10)), "prev_pct": r.get::<_, Option<f64>>(11),
-        "prev_amount": r.get::<_, Option<f64>>(12), "prev_resets_at": ts(r.get(13)),
-        "label": r.get::<_, Option<String>>(14), "detail": r.get::<_, Option<String>>(15),
-    })).collect())
+    // the latest reading of each series in the period: its labels, unit and kind
+    let metas = client.query(
+        "SELECT DISTINCT ON (account, win, grp, model) account, win, grp, model, provider, observed_at,
+                used_pct, amount, unit, resets_at, label
+           FROM ot.usage_history
+          WHERE observed_at >= $1 AND observed_at <= $2 AND event = 'reading' AND win <> ''
+          ORDER BY account, win, grp, model, observed_at DESC, id DESC LIMIT $3",
+        &[&since, &until, &(MAX_SERIES + 1)],
+    ).await?;
+    let buckets = client.query(
+        "SELECT account, win, grp, model, count(*), min(observed_at), max(observed_at),
+                (array_agg(coalesce(used_pct, amount) ORDER BY observed_at, id))[1],
+                (array_agg(coalesce(used_pct, amount) ORDER BY observed_at DESC, id DESC))[1],
+                min(coalesce(used_pct, amount)), max(coalesce(used_pct, amount)), avg(coalesce(used_pct, amount))
+           FROM ot.usage_history
+          WHERE observed_at >= $1 AND observed_at <= $2 AND event = 'reading' AND win <> '' AND state = 'ok'
+            AND coalesce(used_pct, amount) IS NOT NULL
+          GROUP BY account, win, grp, model, date_bin(make_interval(secs => $3), observed_at, $1)
+          ORDER BY account, win, grp, model, min(observed_at) LIMIT $4",
+        &[&since, &until, &(bucket as f64), &(MAX_SERIES * (span / bucket + 2))],
+    ).await?;
+    let resets = client.query(
+        "SELECT observed_at, account, win, grp, model, used_pct, amount, resets_at, prev_pct, prev_amount, prev_resets_at
+           FROM ot.usage_history WHERE observed_at >= $1 AND observed_at <= $2 AND event = 'reset'
+          ORDER BY observed_at, id LIMIT $3",
+        &[&since, &until, &(MAX_RESETS + 1)],
+    ).await?;
+    // availability: only the rows where an account's state changed
+    let states = client.query(
+        "SELECT account, provider, observed_at, state, detail FROM (
+           SELECT account, provider, observed_at, state, detail, id,
+                  lag(state) OVER (PARTITION BY account ORDER BY observed_at, id) AS prev
+             FROM ot.usage_history
+            WHERE observed_at >= $1 AND observed_at <= $2 AND event = 'reading' AND win = '') s
+          WHERE prev IS DISTINCT FROM state ORDER BY observed_at, id LIMIT $3",
+        &[&since, &until, &(MAX_STATES + 1)],
+    ).await?;
+    let oldest: Option<DateTime<Utc>> = client.query_one("SELECT min(observed_at) FROM ot.usage_history", &[]).await?.get(0);
+    drop(client);
+
+    let key = |r: &tokio_postgres::Row| -> (String, String, String, String) { (r.get(0), r.get(1), r.get(2), r.get(3)) };
+    let mut points: std::collections::HashMap<(String, String, String, String), Vec<Value>> = Default::default();
+    for r in &buckets {
+        points.entry(key(r)).or_default().push(serde_json::json!({
+            "n": r.get::<_, i64>(4), "t0": crate::util::iso(r.get(5)), "t1": crate::util::iso(r.get(6)),
+            "first": r.get::<_, Option<f64>>(7), "last": r.get::<_, Option<f64>>(8),
+            "min": r.get::<_, Option<f64>>(9), "max": r.get::<_, Option<f64>>(10), "avg": r.get::<_, Option<f64>>(11),
+        }));
+    }
+    let view = engine.accounts.view();
+    let account_label = |id: &str| view.get(id).map(|a| a.display()).unwrap_or_else(|| id.to_string());
+    let series: Vec<Value> = metas.iter().take(MAX_SERIES as usize).map(|r| {
+        let account: String = r.get(0);
+        let used: Option<f64> = r.get(6);
+        serde_json::json!({
+            "account": account, "account_label": account_label(&account), "window": r.get::<_, String>(1),
+            "group": r.get::<_, String>(2), "model": r.get::<_, String>(3), "provider": r.get::<_, String>(4),
+            "kind": if used.is_some() { "percent" } else { "amount" },
+            "latest": { "observed_at": crate::util::iso(r.get(5)), "used_pct": used,
+                        "amount": r.get::<_, Option<f64>>(7), "resets_at": ts(r.get(9)) },
+            "unit": r.get::<_, Option<String>>(8), "label": r.get::<_, Option<String>>(10),
+            "points": points.remove(&key(r)).unwrap_or_default(),
+        })
+    }).collect();
+    let resets_out: Vec<Value> = resets.iter().take(MAX_RESETS as usize).map(|r| serde_json::json!({
+        "at": crate::util::iso(r.get(0)), "account": r.get::<_, String>(1), "window": r.get::<_, String>(2),
+        "group": r.get::<_, String>(3), "model": r.get::<_, String>(4), "used_pct": r.get::<_, Option<f64>>(5),
+        "amount": r.get::<_, Option<f64>>(6), "resets_at": ts(r.get(7)), "prev_pct": r.get::<_, Option<f64>>(8),
+        "prev_amount": r.get::<_, Option<f64>>(9), "prev_resets_at": ts(r.get(10)),
+    })).collect();
+    let states_out: Vec<Value> = states.iter().take(MAX_STATES as usize).map(|r| {
+        let account: String = r.get(0);
+        serde_json::json!({
+            "account": account, "account_label": account_label(&account), "provider": r.get::<_, String>(1),
+            "at": crate::util::iso(r.get(2)), "state": r.get::<_, String>(3), "detail": r.get::<_, Option<String>>(4),
+        })
+    }).collect();
+    Ok(serde_json::json!({
+        "range": range, "since": crate::util::iso(since), "until": crate::util::iso(until), "bucket_s": bucket,
+        "retain_days": RETAIN_DAYS, "keepalive_min": KEEPALIVE_MIN, "oldest": ts(oldest),
+        "series": series, "resets": resets_out, "states": states_out,
+        "truncated": metas.len() as i64 > MAX_SERIES || resets.len() as i64 > MAX_RESETS
+            || states.len() as i64 > MAX_STATES || buckets.len() as i64 >= MAX_SERIES * (span / bucket + 2),
+    }))
 }

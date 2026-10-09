@@ -119,6 +119,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/accounts/{id}/marks/clear", post(accounts::clear_marks))
         .route("/api/usage", get(accounts::usage_claude))
         .route("/api/usage/peek", get(accounts::peek_claude))
+        .route("/api/usage/history", get(accounts::usage_history))
         .route("/api/codex/usage", get(accounts::usage_codex))
         .route("/api/codex/usage/peek", get(accounts::peek_codex))
         .route("/api/antigravity/usage", get(accounts::usage_agy))
