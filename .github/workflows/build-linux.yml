@@ -136,6 +136,10 @@ jobs:
         if: hashFiles('tests/unix-boot-engine.test.mjs') != ''
         run: node --test tests/unix-boot-engine.test.mjs
 
+      - name: AppImage updater - unit tests
+        if: hashFiles('tests/appimage-update.test.mjs') != ''
+        run: node --test tests/appimage-update.test.mjs
+
       - name: Background engine - registered, started and stopped (deb layout)
         if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
         run: |
@@ -168,6 +172,16 @@ jobs:
           if grep -q '"spawn"' tools/rig/fakecli/src/main.rs; then export AGENT_SMOKE_LEFTOVERS=1; fi
           bash .github/ci/unix/agent-tools-smoke.sh release/linux-unpacked/resources/engine/orgtree-engine \
             release/linux-unpacked/resources/ui build/fakecli/release/orgtree-fakecli build/linux/smoke-logs/agent-tools
+
+      # The AppImage updates itself: N installed in ~/Applications, N+1 (the same build one
+      # patch version up) on a loopback feed. The app's own automatic path downloads N+1,
+      # swaps the file in place and relaunches; the app and its background engine must come
+      # back on N+1. Neither test AppImage is staged.
+      - name: Update test - the AppImage updates itself (N to N+1)
+        if: hashFiles('apps/desktop/main/appimage-update.ts') != ''
+        env:
+          ELECTRON_RUN_AS_NODE: ''
+        run: bash .github/ci/linux/update-test.sh build/linux/smoke-logs/update-test
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
