@@ -160,6 +160,23 @@ export function freePort() {
   })
 }
 
+/** The installed Claude Code and Codex CLIs, for a run whose agents drive the
+ * REAL harnesses (`up --real-cli`): Claude Code's native binary from its npm
+ * package, and Codex's bin folder (codex.exe and the helpers beside it).
+ * ORGTREE_RIG_REAL_CLAUDE / ORGTREE_RIG_REAL_CODEX name others. */
+export function realCliBins() {
+  const appdata = process.env.APPDATA ?? ''
+  const local = process.env.LOCALAPPDATA ?? ''
+  const first = (...c) => c.filter(Boolean).find(p => fs.existsSync(p))
+  const claude = first(process.env.ORGTREE_RIG_REAL_CLAUDE,
+    path.join(appdata, 'npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'))
+  const codex = first(process.env.ORGTREE_RIG_REAL_CODEX,
+    path.join(local, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'))
+  if (!claude) throw new Error('--real-cli: no installed Claude Code (set ORGTREE_RIG_REAL_CLAUDE)')
+  if (!codex) throw new Error('--real-cli: no installed Codex (set ORGTREE_RIG_REAL_CODEX)')
+  return { claude, codex }
+}
+
 export function fakeCliExe(explicit) {
   const exe = explicit || process.env.ORGTREE_RIG_FAKECLI || path.join(cargoTarget(), 'debug', 'orgtree-fakecli.exe')
   if (!fs.existsSync(exe)) throw new Error(`no fake CLI at ${exe}: run \`node tools/rig/rig.mjs build\` first`)
@@ -471,8 +488,19 @@ export async function startRun(opts = {}) {
   if (opts.prepare) await opts.prepare({ dir, data, pgBin: pg })
   // copies: a running engine never locks the developer's cargo output
   fs.copyFileSync(engine, path.join(dir, 'bin', 'orgtree-engine.exe'))
-  fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
-  fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
+  // --real-cli: the installed harnesses, copied (a running copy never locks
+  // the user's own install); their home is the run's fake one (keeper.mjs)
+  if (opts.realCli) {
+    const real = realCliBins()
+    fs.copyFileSync(real.claude, path.join(dir, 'bin', 'claude.exe'))
+    const codexDir = path.dirname(real.codex)
+    for (const f of fs.readdirSync(codexDir).filter(f => f.toLowerCase().endsWith('.exe'))) {
+      fs.copyFileSync(path.join(codexDir, f), path.join(dir, 'bin', f))
+    }
+  } else {
+    fs.copyFileSync(fake, path.join(dir, 'bin', 'claude.exe'))
+    fs.copyFileSync(fake, path.join(dir, 'bin', 'codex.exe'))
+  }
   fs.copyFileSync(fake, path.join(dir, 'bin', 'agy.exe'))
   // the fake Tailscale CLI (ORGTREE_TAILSCALE_BIN), scripted through rig-home\rig-tailscale
   fs.copyFileSync(path.join(RIG_DIR, 'fake-tailscale.cmd'), path.join(dir, 'bin', 'tailscale.cmd'))
@@ -500,6 +528,8 @@ export async function startRun(opts = {}) {
     reminders: opts.reminders || null,
     reminderPauseMs: opts.reminderPauseMs || null,
     hub, hubPort,
+    // the agents' CLIs are the installed Claude Code and Codex (`up --real-cli`)
+    realCli: !!opts.realCli,
   })
   touch(dir)
   await launchKeeper(dir, opts.timeout)

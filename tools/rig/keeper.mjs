@@ -39,6 +39,14 @@ const env = {
   ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
 }
 if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
+// `up --real-cli`: the installed Claude Code and Codex are the agents' CLIs,
+// so every child's home is the run's fake one. A CLI the engine launches
+// without its own config folder then finds the fake profile (an empty
+// login), never the user's real ~/.claude.
+if (run.realCli) {
+  env.USERPROFILE = path.join(data, 'rig-home')
+  env.HOME = env.USERPROFILE
+}
 // `up --hub`: the engine hosts the run's own mail hub, and network mail
 // reaches that loopback hub and no other (src/rig.rs `hub`)
 if (run.hub) {

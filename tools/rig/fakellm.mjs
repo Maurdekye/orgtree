@@ -1,0 +1,218 @@
+// tools/rig/fakellm.mjs — a fake language server for rig proofs of the
+// Language Server lane: answers like Ollama (model list, metadata, running
+// windows) and speaks the two APIs the harnesses need — Anthropic Messages
+// (`POST /v1/messages`, Claude Code) and OpenAI Responses (`POST
+// /v1/responses`, Codex) — streamed the way the real servers stream them.
+// Node built-ins only. No model: each request is answered from a script.
+//
+//   import { startFakeLlm } from './fakellm.mjs'
+//   const llm = await startFakeLlm({ log: 'E:\\…\\fakellm.jsonl', rules: [...] })
+//   llm.url            → http://127.0.0.1:<port>
+//   llm.requests       → every request seen (path, auth headers, model, tools, …)
+//   await llm.close()
+//
+//   node tools/rig/fakellm.mjs [--port N] [--log file]   (prints "listening <url>")
+//
+// THE SCRIPT. `rules` are tried in order against each inference request;
+// the first whose `match` substrings all occur in the request's LAST user
+// turn (case-insensitive) answers it. A request whose last user turn carries
+// a tool result is answered by `afterTool` (default: the text "Done.").
+// No rule matches: the text "OK.".
+//   { match: ['TOKEN'], tool: 'orgtree_status', input: { status: 'done', summary: '…' } }
+//   { match: ['TOKEN'], text: 'Hello' }
+// `tool` names the orgtree tool; the fake calls it by whatever name the
+// harness offered it under (Claude Code: `mcp__orgtree__orgtree_status`).
+
+import http from 'node:http'
+import fs from 'node:fs'
+import crypto from 'node:crypto'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const MODEL = 'fake-model:latest'
+const id = (p) => `${p}_${crypto.randomBytes(8).toString('hex')}`
+
+export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool = { text: 'Done.' },
+  models = [{ name: MODEL, context: 131072, running: 65536 }] } = {}) {
+  const requests = []
+  const note = (r) => {
+    requests.push(r)
+    if (log) fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), ...r }) + '\n')
+  }
+  const server = http.createServer((req, res) => {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => {
+      let body = null
+      try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null } catch { body = null }
+      const url = new URL(req.url ?? '/', 'http://x')
+      try {
+        route(req, res, url.pathname, body)
+      } catch (e) {
+        note({ path: url.pathname, method: req.method, error: String(e) })
+        if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: String(e) }))
+      }
+    })
+  })
+
+  const json = (res, status, v) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(v))
+  }
+  const auth = (req) => ({
+    authorization: req.headers.authorization ? String(req.headers.authorization).replace(/^(Bearer )(.{0,4}).*$/i, '$1$2…') : null,
+    x_api_key: req.headers['x-api-key'] ? '…set…' : null,
+    anthropic_version: req.headers['anthropic-version'] ?? null,
+    anthropic_beta: req.headers['anthropic-beta'] ?? null,
+  })
+
+  function route(req, res, p, body) {
+    // ── Ollama's own API: what the lane's probe reads
+    if (p === '/api/version') return json(res, 200, { version: '0.40.2-fake' })
+    if (p === '/api/tags') {
+      note({ path: p, method: req.method })
+      return json(res, 200, { models: models.map((m) => ({ name: m.name, model: m.name, size: 1_000_000_000,
+        details: { family: 'fake', parameter_size: '1B', quantization_level: 'Q4_K_M' } })) })
+    }
+    if (p === '/api/show') {
+      const m = models.find((x) => x.name === body?.model)
+      if (!m) return json(res, 404, { error: `model '${body?.model}' not found` })
+      return json(res, 200, { model_info: { 'fake.context_length': m.context }, capabilities: m.capabilities ?? ['completion', 'tools'] })
+    }
+    if (p === '/api/ps') {
+      return json(res, 200, { models: models.filter((m) => m.running).map((m) => ({ name: m.name, model: m.name, context_length: m.running })) })
+    }
+    if (p === '/v1/models') return json(res, 200, { object: 'list', data: models.map((m) => ({ id: m.name, object: 'model' })) })
+    // Claude Code's warm-up probe
+    if (p === '/api/hello') { res.writeHead(200); return res.end() }
+    // ── the two inference APIs
+    if (p === '/v1/messages' && req.method === 'POST') return messages(req, res, body)
+    if (p === '/v1/responses' && req.method === 'POST') return responses(req, res, body)
+    // Ollama serves no count_tokens: Claude Code estimates instead
+    note({ path: p, method: req.method, unanswered: true })
+    return json(res, 404, { error: `no route ${req.method} ${p}` })
+  }
+
+  /** the reply a request gets, from the last user turn's text */
+  function pick(lastText, toolResult) {
+    if (toolResult) return afterTool
+    const t = (lastText ?? '').toLowerCase()
+    return rules.find((r) => (r.match ?? []).every((m) => t.includes(String(m).toLowerCase()))) ?? { text: 'OK.' }
+  }
+  /** the name the harness offered an orgtree tool under */
+  const toolName = (names, want) => names.find((n) => n === want || n.endsWith(`__${want}`)) ?? want
+
+  // ── Anthropic Messages (Claude Code)
+  function messages(req, res, b) {
+    const msgs = b?.messages ?? []
+    const last = [...msgs].reverse().find((m) => m.role === 'user')
+    const parts = Array.isArray(last?.content) ? last.content : [{ type: 'text', text: String(last?.content ?? '') }]
+    const toolResult = parts.some((c) => c.type === 'tool_result')
+    const lastText = parts.filter((c) => c.type === 'text').map((c) => c.text).join('\n')
+    const names = (b?.tools ?? []).map((t) => t.name).filter(Boolean)
+    const system = typeof b?.system === 'string' ? b.system : (b?.system ?? []).map((s) => s.text ?? '').join('\n')
+    const reply = pick(lastText, toolResult)
+    note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
+      max_tokens: b?.max_tokens ?? null, thinking: b?.thinking ?? null, tools: names.length,
+      orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, system_chars: system.length,
+      messages: msgs.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
+    const input = Math.ceil((JSON.stringify(b ?? {}).length) / 4)
+    const block = reply.tool
+      ? { type: 'tool_use', id: id('toolu'), name: toolName(names, reply.tool), input: {} }
+      : { type: 'text', text: '' }
+    const stop = reply.tool ? 'tool_use' : 'end_turn'
+    const msgId = id('msg')
+    if (!b?.stream) {
+      const content = reply.tool ? [{ ...block, input: reply.input ?? {} }] : [{ type: 'text', text: reply.text ?? 'OK.' }]
+      return json(res, 200, { id: msgId, type: 'message', role: 'assistant', model: b?.model, content, stop_reason: stop,
+        stop_sequence: null, usage: { input_tokens: input, output_tokens: 8 } })
+    }
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`)
+    ev('message_start', { message: { id: msgId, type: 'message', role: 'assistant', model: b?.model, content: [],
+      stop_reason: null, stop_sequence: null, usage: { input_tokens: input, output_tokens: 1 } } })
+    ev('content_block_start', { index: 0, content_block: block })
+    if (reply.tool) {
+      ev('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(reply.input ?? {}) } })
+    } else {
+      ev('content_block_delta', { index: 0, delta: { type: 'text_delta', text: reply.text ?? 'OK.' } })
+    }
+    ev('content_block_stop', { index: 0 })
+    ev('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: 8 } })
+    ev('message_stop', {})
+    res.end()
+  }
+
+  // ── OpenAI Responses (Codex)
+  function responses(req, res, b) {
+    const input = Array.isArray(b?.input) ? b.input : [{ type: 'message', role: 'user', content: String(b?.input ?? '') }]
+    const lastUserIdx = input.map((x) => x.role === 'user' || x.type === 'function_call_output').lastIndexOf(true)
+    const lastItem = input[lastUserIdx]
+    const toolResult = lastItem?.type === 'function_call_output'
+    const text = (c) => (typeof c === 'string' ? c : (c ?? []).map((p) => p.text ?? '').join('\n'))
+    const lastText = toolResult ? '' : text(lastItem?.content)
+    const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
+    const reply = pick(lastText, toolResult)
+    note({ path: '/v1/responses', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
+      store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
+      orgtree_tools: names.filter((n) => n.includes('orgtree_')).length, instructions_chars: String(b?.instructions ?? '').length,
+      items: input.length, tool_result: toolResult, last_user: lastText.slice(-200), reply })
+    const respId = id('resp')
+    const usage = { input_tokens: Math.ceil(JSON.stringify(b ?? {}).length / 4), input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 8, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 0 }
+    usage.total_tokens = usage.input_tokens + usage.output_tokens
+    const created = Math.floor(Date.now() / 1000)
+    const base = { id: respId, object: 'response', created_at: created, model: b?.model, output: [] }
+    let item
+    if (reply.tool) {
+      item = { type: 'function_call', id: id('fc'), call_id: id('call'), name: toolName(names, reply.tool),
+        arguments: JSON.stringify(reply.input ?? {}), status: 'completed' }
+    } else {
+      item = { type: 'message', id: id('msg'), status: 'completed', role: 'assistant',
+        content: [{ type: 'output_text', text: reply.text ?? 'OK.', annotations: [] }] }
+    }
+    if (!b?.stream) return json(res, 200, { ...base, status: 'completed', output: [item], usage })
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
+    let seq = 0
+    const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, sequence_number: seq++, ...data })}\n\n`)
+    ev('response.created', { response: { ...base, status: 'in_progress' } })
+    ev('response.in_progress', { response: { ...base, status: 'in_progress' } })
+    if (reply.tool) {
+      ev('response.output_item.added', { output_index: 0, item: { ...item, arguments: '', status: 'in_progress' } })
+      ev('response.function_call_arguments.delta', { item_id: item.id, output_index: 0, delta: item.arguments })
+      ev('response.function_call_arguments.done', { item_id: item.id, output_index: 0, arguments: item.arguments })
+      ev('response.output_item.done', { output_index: 0, item })
+    } else {
+      const t = item.content[0].text
+      ev('response.output_item.added', { output_index: 0, item: { ...item, status: 'in_progress', content: [] } })
+      ev('response.content_part.added', { item_id: item.id, output_index: 0, content_index: 0,
+        part: { type: 'output_text', text: '', annotations: [] } })
+      ev('response.output_text.delta', { item_id: item.id, output_index: 0, content_index: 0, delta: t })
+      ev('response.output_text.done', { item_id: item.id, output_index: 0, content_index: 0, text: t })
+      ev('response.content_part.done', { item_id: item.id, output_index: 0, content_index: 0,
+        part: { type: 'output_text', text: t, annotations: [] } })
+      ev('response.output_item.done', { output_index: 0, item })
+    }
+    ev('response.completed', { response: { ...base, status: 'completed', output: [item], usage } })
+    res.end()
+  }
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(port, '127.0.0.1', resolve)
+  })
+  const addr = server.address()
+  return {
+    url: `http://127.0.0.1:${addr.port}`,
+    port: addr.port,
+    requests,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : undefined }
+  const llm = await startFakeLlm({ port: Number(arg('--port') ?? 0), log: arg('--log') ?? null })
+  console.log(`listening ${llm.url}`)
+}

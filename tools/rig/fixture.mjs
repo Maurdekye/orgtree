@@ -25,7 +25,16 @@ export async function seed(rig, fixture) {
     rig.run = writeRun(rig.dir, { org: org.slug })
     if (fixture.org.settings) await rig.api('POST', `/api/orgs/${org.slug}/settings`, fixture.org.settings)
   }
+  // the user's own model servers (App settings › Providers › Language Server)
+  for (const s of fixture.langservers ?? []) {
+    await rig.api('POST', '/api/langservers', s)
+  }
   for (const a of fixture.agents ?? []) {
+    // a real-CLI run hires only language-server agents: any other tier would
+    // run the installed CLI on whatever login it finds
+    if (rig.run?.realCli && !String(a.tier ?? 'haiku').startsWith('ls-')) {
+      throw new Error(`fixture agent ${a.name}: a --real-cli run hires only language-server tiers (ls-…), not ${a.tier ?? 'haiku'}`)
+    }
     const body = { op: 'hire', tier: 'haiku', ...a }
     if (a.parent) body.parent = a.parent
     await rig.op(body)
