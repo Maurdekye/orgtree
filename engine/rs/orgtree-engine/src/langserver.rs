@@ -601,6 +601,10 @@ where
             .as_object()
             .and_then(|info| info.iter().find(|(k, _)| k.ends_with(".context_length")).and_then(|(_, v)| v.as_i64()));
         let caps: Vec<Value> = show["capabilities"].as_array().cloned().unwrap_or_default();
+        // an embedding model cannot drive an agent
+        if !caps.is_empty() && !caps.iter().any(|c| c == "completion") {
+            continue;
+        }
         let loaded = running.iter().find(|(n, _)| n == name).map(|(_, c)| *c);
         models.push(json!({
             "id": name, "size": m["size"], "family": m["details"]["family"], "parameters": m["details"]["parameter_size"],
