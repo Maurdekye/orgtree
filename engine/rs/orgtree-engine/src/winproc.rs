@@ -175,6 +175,13 @@ mod imp_unix {
     /// could not tell. A zombie still counts as running until it is reaped.
     #[logged]
     pub fn process_state(pid: u32) -> Option<bool> {
+        probe(pid)
+    }
+
+    /// The unlogged liveness probe behind process_state; the parent watch
+    /// polls it every second.
+    #[nolog]
+    fn probe(pid: u32) -> Option<bool> {
         let Ok(pid) = libc::pid_t::try_from(pid) else { return Some(false) };
         if pid <= 0 {
             return Some(false);
@@ -199,9 +206,9 @@ mod imp_unix {
             .spawn(move || {
                 loop {
                     let gone = if was_child {
-                        unsafe { libc::getppid() } as u32 != pid
+                        (unsafe { libc::getppid() }) as u32 != pid
                     } else {
-                        process_state(pid) == Some(false)
+                        probe(pid) == Some(false)
                     };
                     if gone {
                         break;
@@ -237,22 +244,30 @@ pub fn free_commit_bytes() -> Option<u64> {
 }
 
 /// Configure a tokio command so it never opens a console window.
-///
-/// Linux: also ties the child to this engine with PR_SET_PDEATHSIG, standing in
-/// for the Windows kill-on-close root job, so an engine crash does not leave an
-/// orphaned postgres holding the cluster (which would refuse the next start).
-/// The signal follows the spawning thread; tokio spawns from its long-lived
-/// worker threads, which end only at runtime shutdown.
 #[logged]
 pub fn no_window(cmd: &mut tokio::process::Command) {
     #[cfg(windows)]
     {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    let _ = cmd;
+}
+
+/// Linux: the child gets SIGINT when the engine dies (PR_SET_PDEATHSIG; for
+/// postgres that is a fast shutdown, which ends any lingering sessions), the
+/// stand-in for the Windows kill-on-close root job, so a crashed engine does
+/// not leave postgres holding the cluster and refusing every later start.
+///
+/// ⚠ The signal fires when the THREAD that spawned the child exits, not the
+/// process. Call this only for a spawn made on the main thread (the future
+/// main() drives with `block_on`, which lives as long as the process). A spawn
+/// from a tokio blocking-pool thread would be killed seconds later.
+#[logged]
+pub fn die_with_engine(cmd: &mut tokio::process::Command) {
     #[cfg(target_os = "linux")]
     unsafe {
         cmd.pre_exec(|| {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong) != 0 {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGINT as libc::c_ulong) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())

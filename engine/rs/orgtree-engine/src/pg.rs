@@ -102,6 +102,9 @@ impl Cluster {
             .stderr(Stdio::from(log2))
             .kill_on_drop(false);
         winproc::no_window(&mut cmd);
+        // start() runs inside run(), the future main() drives with block_on on
+        // the main thread, so the death signal is tied to the process.
+        winproc::die_with_engine(&mut cmd);
         progress("database-start");
         let child = cmd.spawn().context("could not start postgres")?;
         let mut cluster = Cluster { data_dir, cluster_dir, bin, port, password, child: Some(child) };
