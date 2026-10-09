@@ -42,6 +42,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
+import { addPhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
 import { attachWindowLoadRecovery, type WindowLoadRecovery, type WindowLoadStage } from './window-load-recovery'
@@ -419,7 +420,7 @@ else {
    *  reveal, an identity that changed, a report of what could not be restored.
    *  Each happens once, and a renderer that was not listening yet has no way
    *  to discover it afterwards. */
-  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'window-identity', 'restore-skipped'])
+  const HELD_EVENT_TYPES = new Set<DesktopEvent['type']>(['open-org', 'notification-click', 'window-identity', 'restore-skipped', 'phone-panel'])
   /** ⚠ THERE IS NO TIMER, and that is the point. An earlier revision sent
    *  held events anyway once a grace expired, which marks them delivered
    *  whether or not anybody was listening - the original loss with a delay in
@@ -637,6 +638,13 @@ else {
       ...updateRows,
       { type: 'separator' },
       hubMenuItem(),
+      // "Chat from your phone": the panel, in the last used window (or a new Homepage)
+      { id: 'phone-connect', label: 'Connect your phone…', click: () => { void (async () => {
+        const record = lastUsed() ?? await createMainWindow?.({ kind: 'homepage' })
+        if (!record) return
+        revealWindow(record)
+        sendTo(record.id, { type: 'phone-panel', data: {} })
+      })() } },
       { type: 'separator' },
       { label: 'Start at login', type: 'checkbox', checked: prefs.startAtLogin, click: item => setPreferences({ startAtLogin: item.checked }) },
       { label: 'Exit on close', type: 'checkbox', checked: prefs.exitOnClose, click: item => setPreferences({ exitOnClose: item.checked }) },
@@ -1859,6 +1867,12 @@ else {
         return { available: true, enabled }
       }
       handleApp('desktop:run-as-admin', () => runAsAdministratorState())
+      // "Chat from your phone": the door's firewall rule needs one UAC prompt,
+      // which only this (interactive) process can show
+      handleApp('desktop:phone-firewall', (scope: unknown) => {
+        if (scope !== 'tailnet' && scope !== 'lan') throw new Error('Invalid scope')
+        return addPhoneFirewallRule(scope)
+      })
       handleApp('desktop:set-run-as-admin', async (enabled: unknown, restartNow: unknown) => {
         if (typeof enabled !== 'boolean' || typeof restartNow !== 'boolean') throw new Error('Invalid setting')
         const state = await runAsAdministratorState()

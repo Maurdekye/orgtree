@@ -22,7 +22,7 @@ export const BOOT_TASK = 'Orgtree Background Engine'
 /** ERROR_CANCELLED: the user declined the UAC prompt. */
 export const UAC_CANCELLED = 1223
 const PROTECTED_KEY_SDDL = 'O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)'
-const POWERSHELL = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+export const POWERSHELL = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
 
 export interface RunResult { code: number; stdout: string; stderr: string }
 export type Runner = (file: string, args: string[], timeoutMs: number) => Promise<RunResult>

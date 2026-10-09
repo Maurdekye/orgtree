@@ -56,7 +56,7 @@ export interface DesktopWindowState { visible: boolean; restoreWindows: boolean 
 export interface DesktopControlsState extends DesktopWindowState { minimized: boolean; maximized: boolean }
 import type { OrgOpenOutcome, OrgWindowIdentity, StartupMode } from './desktop-window'
 
-export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs'; data: unknown }
+export interface DesktopEvent { type: 'engine-status' | 'engine-event' | 'preferences' | 'ownership' | 'update' | 'maintenance' | 'notification-click' | 'notification-poll' | 'provider-login-status' | 'main-window-shown' | 'window-state' | 'popout-state' | 'open-org' | 'window-identity' | 'restore-skipped' | 'open-orgs' | 'phone-panel'; data: unknown }
 /** One popped-out desk or modal window, addressed by the frame name the
  *  renderer opened it under. A popout is frameless like the main window, so its
  *  own header draws the window controls and needs to know whether the window is
@@ -156,6 +156,11 @@ export interface DesktopBridge {
    *  background engine so the change applies at once; otherwise it applies at
    *  the engine's next start. */
   setRunAsAdministrator?(enabled: boolean, restartNow: boolean): Promise<RunAsAdministratorState>
+  /** "Chat from your phone" › Turn on phone access: add the Windows Firewall
+   *  rule for the hub's relay-only door (Tailscale addresses, or the local
+   *  subnet for home Wi-Fi) behind ONE UAC prompt. `declined`: the user said
+   *  No and nothing changed. The renderer then asks the engine to open the door. */
+  addPhoneFirewallRule?(scope: 'tailnet' | 'lan'): Promise<{ ok: true } | { ok: false; declined: boolean; error: string }>
   /** Window commands for ONE popped-out desk or modal, named by the frame name
    *  the renderer opened it under. Separate from the window commands above,
    *  which always act on the main window: a popout's own header must never
