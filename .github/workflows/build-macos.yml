@@ -133,6 +133,34 @@ jobs:
       - name: Launch smoke
         run: bash .github/ci/macos/smoke.sh "$APP"
 
+      # The background engine that starts at login (a launchd LaunchAgent).
+      - name: Background engine - unit tests
+        if: hashFiles('tests/unix-boot-engine.test.mjs') != ''
+        run: node --test tests/unix-boot-engine.test.mjs
+
+      - name: Background engine - registered, started and stopped by launchd
+        if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
+        run: node .github/ci/boot-engine-smoke.mjs "$APP/Contents/Resources/engine/orgtree-engine"
+
+      # Real Orgtree tool calls by hired agents, one per CLI lane (Claude over stdio,
+      # Antigravity over the bridge socket), with the rig's fake CLI as both CLIs.
+      - name: Rig fake CLI (stands in for Claude Code and Antigravity)
+        run: cargo build --release --locked --manifest-path tools/rig/fakecli/Cargo.toml --target-dir "$RUNNER_TEMP/fakecli"
+
+      - name: Smoke - agent tool calls (Claude and Antigravity lanes)
+        run: >-
+          bash .github/ci/unix/agent-tools-smoke.sh "$APP/Contents/Resources/engine/orgtree-engine"
+          "$APP/Contents/Resources/ui" "$RUNNER_TEMP/fakecli/release/orgtree-fakecli" "$RUNNER_TEMP/agent-tools-logs"
+
+      - name: Agent tool smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: orgtree-macos-agent-tools-logs
+          path: ${{ runner.temp }}/agent-tools-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: dmg and zip
         run: |
           npx electron-builder --config .github/ci/macos/electron-builder.macos.cjs --mac dmg zip --arm64 \

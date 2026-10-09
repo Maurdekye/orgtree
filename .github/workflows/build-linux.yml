@@ -38,7 +38,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends \
             patchelf file imagemagick librsvg2-bin xvfb xauth libfuse2 \
-            zlib1g-dev pkg-config
+            zlib1g-dev pkg-config desktop-file-utils
 
       - name: Rust toolchain (preinstalled rustup)
         run: |
@@ -114,6 +114,38 @@ jobs:
 
       - name: Smoke - install the .deb with apt
         run: bash .github/ci/linux/smoke-deb.sh build/linux/out
+
+      # The background engine that starts at login (a systemd user unit, else XDG autostart).
+      - name: Background engine - unit tests
+        if: hashFiles('tests/unix-boot-engine.test.mjs') != ''
+        run: node --test tests/unix-boot-engine.test.mjs
+
+      - name: Background engine - registered, started and stopped (deb layout)
+        if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
+        run: |
+          # The runner has no systemd user manager until lingering is on for its user.
+          sudo loginctl enable-linger "$USER"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for _ in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
+          if systemctl --user show-environment >/dev/null 2>&1; then echo "systemd --user: available"; else echo "systemd --user: NOT available (autostart fallback)"; fi
+          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine
+
+      - name: Background engine - registered, started and stopped (AppImage)
+        if: hashFiles('.github/ci/boot-engine-smoke.mjs') != ''
+        run: |
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          v="$(node -p "require('./package.json').version")"
+          node .github/ci/boot-engine-smoke.mjs release/linux-unpacked/resources/engine/orgtree-engine --appimage "release/Orgtree-$v.AppImage"
+
+      # Real Orgtree tool calls by hired agents, one per CLI lane (Claude over stdio,
+      # Antigravity over the bridge socket), with the rig's fake CLI as both CLIs.
+      - name: Rig fake CLI (stands in for Claude Code and Antigravity)
+        run: cargo build --release --locked --manifest-path tools/rig/fakecli/Cargo.toml --target-dir build/fakecli
+
+      - name: Smoke - agent tool calls (Claude and Antigravity lanes)
+        run: >-
+          bash .github/ci/unix/agent-tools-smoke.sh release/linux-unpacked/resources/engine/orgtree-engine
+          release/linux-unpacked/resources/ui build/fakecli/release/orgtree-fakecli build/linux/smoke-logs/agent-tools
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
