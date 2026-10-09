@@ -19,7 +19,7 @@ export default async function (rig) {
   const evidence = path.join(rigHome(), 'evidence', 'unread-docs-' + Date.now())
   const result = await runDesktop(rig,
     path.join(path.dirname(fileURLToPath(import.meta.url)), '../desktop/unread-docs.cjs'),
-    { out: evidence, args: {}, timeout: 60000 })
+    { out: evidence, args: { org: rig.org }, timeout: 60000 })
   if (!result.ok) throw Error(JSON.stringify(result))
   return { ok: true, evidence, ...result.value }
 }
