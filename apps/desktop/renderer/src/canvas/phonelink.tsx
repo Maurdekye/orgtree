@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { req } from '../api'
 import { desktop as desktopBridge } from '../desktop'
+import { onHeldEvent } from '../events/heldbus'
 import './phonelink.css'
 
 export const SETUP_GUIDE_URL = 'https://github.com/Maurdekye/orgtree-hubchat/blob/main/docs/setup.md'
@@ -45,13 +46,21 @@ const route = (org: string | null) => '/api/desktop/phone' + (org ? `?org=${enco
 const post = <T,>(path: string, body: unknown = {}) =>
   req<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 const openExternal = (url: string) => { window.open(url, '_blank', 'noopener') }
+/** A phone read whose answer lacks the named objects (an older engine, an
+ *  error page) throws: the caller treats it as "nothing to show", never as a
+ *  state to render. */
+async function readPhone<T>(path: string, keys: string[]): Promise<T> {
+  const v = await req<T>(path) as unknown as Record<string, unknown> | null
+  if (!v || typeof v !== 'object' || keys.some(k => !v[k] || typeof v[k] !== 'object')) throw Error('Phone linking is not available from this engine.')
+  return v as unknown as T
+}
 
 /** The panel's state, read now and then every `everyMs` while `active`. */
 export function usePhoneState(org: string | null, active = true, everyMs = 3000) {
   const [state, setState] = useState<PhoneState | null>(null)
   const [error, setError] = useState('')
   const load = useCallback(async () => {
-    try { setState(await req<PhoneState>(route(org))); setError('') } catch (e) { setError((e as Error).message) }
+    try { setState(await readPhone<PhoneState>(route(org), ['card', 'access'])); setError('') } catch (e) { setError((e as Error).message) }
   }, [org])
   useEffect(() => {
     if (!active) return
@@ -73,7 +82,7 @@ export async function removePhoneRuleAfterOff(): Promise<string> {
   const bridge = desktopBridge()
   if (!bridge?.removePhoneFirewallRule) return ''
   try {
-    const s = await req<PhoneState>(route(null))
+    const s = await readPhone<PhoneState>(route(null), ['card', 'access'])
     if (!s.access.firewall) return ''
     const r = await bridge.removePhoneFirewallRule()
     return r.ok ? 'The firewall rule for phone access was removed.'
@@ -95,8 +104,8 @@ export function PhonePanelHost({ defaultOrg }: { defaultOrg: string | null }) {
   useEffect(() => {
     const on = (e: Event) => setOpen({ org: (e as CustomEvent<{ org: string | null }>).detail?.org ?? defaultOrg })
     window.addEventListener(OPEN_EVENT, on)
-    // the tray's "Connect your phone…"
-    const stop = desktopBridge()?.onEvent?.(e => { if (e.type === 'phone-panel') setOpen({ org: defaultOrg }) })
+    // the tray's "Connect your phone…" (held by main until a window takes it)
+    const stop = onHeldEvent('phone-panel', () => setOpen({ org: defaultOrg }))
     return () => { window.removeEventListener(OPEN_EVENT, on); stop?.() }
   }, [defaultOrg])
   if (!open) return null
@@ -126,7 +135,7 @@ type CardState = {
 export function usePhoneCard(org: string | null, everyMs = 60000) {
   const [state, setState] = useState<CardState | null>(null)
   const load = useCallback(async () => {
-    try { setState(await req<CardState>('/api/desktop/phone/card' + (org ? `?org=${encodeURIComponent(org)}` : ''))) } catch { /* the card keeps what it had */ }
+    try { setState(await readPhone<CardState>('/api/desktop/phone/card' + (org ? `?org=${encodeURIComponent(org)}` : ''), ['card'])) } catch { /* the card keeps what it had */ }
   }, [org])
   const quiet = !!state && (state.card.dismissed || !!state.link)
   useEffect(() => {
@@ -207,7 +216,7 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
     let alive = true
     void (async () => {
       try {
-        const s = await req<PhoneState>(route(null))
+        const s = await readPhone<PhoneState>(route(null), ['card', 'access'])
         let pick = s.card.org ?? s.link?.org ?? null
         if (!pick) pick = (await req<{ slug: string }[] | { orgs: { slug: string }[] }>('/api/orgs').then(v => Array.isArray(v) ? v : v.orgs))[0]?.slug ?? null
         if (alive && pick) setOrg(pick)

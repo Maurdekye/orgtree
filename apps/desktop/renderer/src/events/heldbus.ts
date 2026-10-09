@@ -54,6 +54,8 @@ import { desktop } from '../desktop'
  *  than trusting this comment. */
 export const HELD_TYPES = [
   'open-org', 'notification-click', 'window-identity', 'restore-skipped',
+  // the tray's "Connect your phone…" (phonelink.tsx)
+  'phone-panel',
 ] as const
 export type HeldType = (typeof HELD_TYPES)[number]
 

@@ -358,6 +358,7 @@ test('§4.1 every held type has a real consumer in the product', () => {
     'restore-skipped': 'App.tsx',
     'notification-click': 'notifications.ts',
     'window-identity': 'shell/identity.ts',
+    'phone-panel': 'canvas/phonelink.tsx',
   }
   for (const type of HELD_TYPES) {
     const file = where[type]!
