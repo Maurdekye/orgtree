@@ -177,7 +177,7 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
 
 /// Every running agent of the org restarts its CLI before its next turn.
 #[logged]
-async fn reconfigure_org(engine: &Engine, org_id: i64) -> anyhow::Result<()> {
+pub async fn reconfigure_org(engine: &Engine, org_id: i64) -> anyhow::Result<()> {
     let client = engine.db.get().await?;
     let ids: Vec<i64> = client
         .query("SELECT id FROM ot.agents WHERE org_id = $1 AND state = 'live'", &[&org_id])

@@ -810,6 +810,9 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
         }
     }
     let reply_to = m["reply_to"].as_str().filter(|r| !r.is_empty());
+    // "Chat from your phone": a setup code links the sender before the
+    // agents read the message (and their charter already names it)
+    crate::phone::on_inbound(engine, p.org_id, from, &body, mid).await;
     let fresh = crate::domain::orginbox::deliver_inbound(engine, p.org_id, &format!("@net:{from}"), &body, attachments, mid, hub_id, reply_to).await?;
     if fresh {
         engine.net.owed.pin().insert((p.org_id, mid.to_string(), "delivered"), addr.to_string());
@@ -1290,6 +1293,22 @@ async fn knows_peer(engine: &Engine, org_id: i64, peer: &str) -> bool {
         }
     }
     false
+}
+
+/// This machine's own hub's roster, read now as `org_id` (registered there),
+/// with the hub's name: the phone panel's "Is this you?" and the name of a
+/// person who links. None when the org is not on the local hub.
+#[logged]
+pub async fn local_roster(engine: &Engine, org_id: i64) -> Option<(Vec<Value>, Option<String>)> {
+    let local = engine.hub.address.load_full()?;
+    let parts = engine.net.parts.load_full();
+    let p = parts.iter().find(|p| p.org_id == org_id)?;
+    let (_, addr) = p.hubs.iter().find(|(hid, addr)| p.registered.contains(hid) && normalize_address(addr) == normalize_address(&local))?;
+    let r = HTTP.get(format!("{addr}/api/roster")).timeout(Duration::from_secs(5)).header("X-Org-Auth", p.auth()).send().await.ok()?;
+    let v = r.json::<Value>().await.ok()?;
+    let roster = v["roster"].as_array().cloned().unwrap_or_default();
+    set_roster(engine, addr, v["name"].as_str(), v["version"].as_str(), roster.clone());
+    Some((roster, v["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string)))
 }
 
 /// Every remote org the rosters know (for `orgtree_list_orgs`), with the

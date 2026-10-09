@@ -45,6 +45,7 @@ fancy-regex = "0.19"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 mime_guess = "2"
 percent-encoding = "2"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 dirs = "5"
 rust_decimal = { version = "1", features = ["db-tokio-postgres", "serde-with-float"] }
 toml = "0.8"

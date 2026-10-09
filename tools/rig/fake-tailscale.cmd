@@ -5,6 +5,7 @@ rem A proof scripts it with files in <data>\rig-home\rig-tailscale:
 rem   status.json  what `tailscale status --json` prints (absent: the service
 rem                is not running, like the real CLI's daemon error)
 rem   login-url    what `tailscale login` prints as the sign-in address
+rem   prefs.json   what `tailscale debug prefs` prints (ForceDaemon: unattended)
 rem Every call is appended to calls.log. Deleting bin\tailscale.cmd is
 rem "Tailscale is not installed".
 setlocal
@@ -14,6 +15,7 @@ echo %*>>"%D%\calls.log"
 if /i "%~1"=="status" goto status
 if /i "%~1"=="login" goto login
 if /i "%~1"=="up" goto login
+if /i "%~1"=="debug" goto debug
 >&2 echo fake tailscale: unsupported command %*
 exit /b 2
 
@@ -23,6 +25,11 @@ if not exist "%D%\status.json" (
   exit /b 1
 )
 type "%D%\status.json"
+exit /b 0
+
+:debug
+if not exist "%D%\prefs.json" exit /b 1
+type "%D%\prefs.json"
 exit /b 0
 
 :login

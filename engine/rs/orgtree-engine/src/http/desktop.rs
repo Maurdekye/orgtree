@@ -126,8 +126,15 @@ pub async fn net_probe(State(e): State<Arc<Engine>>, axum::extract::Query(q): ax
 
 /// `GET /api/desktop/phone`: the "Chat from your phone" panel's state.
 #[logged]
-pub async fn phone_get(State(e): State<Arc<Engine>>) -> Json<Value> {
-    Json(crate::phone::state(&e).await)
+pub async fn phone_get(State(e): State<Arc<Engine>>, axum::extract::Query(q): axum::extract::Query<PhoneQuery>) -> Json<Value> {
+    Json(crate::phone::state(&e, q.org.as_deref()).await)
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+pub struct PhoneQuery {
+    /// the org the panel was opened from
+    #[serde(default)]
+    org: Option<String>,
 }
 
 /// `POST /api/desktop/phone/access` `{scope: tailnet|lan, keep_awake?}`:
@@ -135,4 +142,46 @@ pub async fn phone_get(State(e): State<Arc<Engine>>) -> Json<Value> {
 #[logged]
 pub async fn phone_access(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
     crate::phone::turn_on(&e, b["scope"].as_str().unwrap_or(""), b["keep_awake"].as_bool()).await.map(Json)
+}
+
+/// `POST /api/desktop/phone/code` `{org}`: a new setup code for that org
+/// (the previous one stops working).
+#[logged]
+pub async fn phone_code(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
+    crate::phone::mint(&e, b["org"].as_str().unwrap_or("")).await.map(Json)
+}
+
+/// `POST /api/desktop/phone/link` `{org, address}`: "Yes, that's me".
+#[logged]
+pub async fn phone_link(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
+    crate::phone::link_known(&e, b["org"].as_str().unwrap_or(""), b["address"].as_str().unwrap_or("")).await.map(Json)
+}
+
+/// `POST /api/desktop/phone/unlink`: Undo / Unlink.
+#[logged]
+pub async fn phone_unlink(State(e): State<Arc<Engine>>) -> crate::http::error::ApiResult<Json<Value>> {
+    crate::phone::unlink(&e).await.map(Json)
+}
+
+/// `POST /api/desktop/phone/dismiss`: the card's × (org windows and Home alike).
+#[logged]
+pub async fn phone_dismiss(State(e): State<Arc<Engine>>) -> crate::http::error::ApiResult<Json<Value>> {
+    crate::phone::dismiss(&e).map_err(|x| crate::http::error::ApiError::internal(format!("could not save phone.json: {x}")))?;
+    Ok(Json(crate::phone::state(&e, None).await))
+}
+
+/// `POST /api/desktop/phone/tailscale-login`: T1's "Sign in" (the address to open).
+#[logged]
+pub async fn phone_tailscale_login() -> crate::http::error::ApiResult<Json<Value>> {
+    crate::phone::tailscale_login().await.map(Json)
+}
+
+/// `POST /api/desktop/phone/settings` `{keep_awake}`: the panel's checkbox
+/// and the sleep warning's "Keep awake while plugged in".
+#[logged]
+pub async fn phone_settings(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
+    let Some(k) = b["keep_awake"].as_bool() else { return Err(crate::http::error::ApiError::bad_request("keep_awake must be true or false")) };
+    crate::phone::update_settings(&e, |v| v["keep_awake"] = serde_json::json!(k))
+        .map_err(|x| crate::http::error::ApiError::internal(format!("could not save phone.json: {x}")))?;
+    Ok(Json(crate::phone::state(&e, None).await))
 }
