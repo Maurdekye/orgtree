@@ -210,10 +210,12 @@ test('nothing in the main process minimizes or hides a window except that window
   for (const call of ['minimize', 'hide', 'blur', 'close', 'destroy', 'setBounds', 'setPosition', 'setSize', 'moveTop', 'setAlwaysOnTop'])
     assert.doesNotMatch(reveal, new RegExp(`\\.${call}\\(`), `the reveal path never calls ${call}`)
   const main = readFileSync(path.join(dir, 'index.ts'), 'utf8')
-  assert.match(main, /const revealWindow = \(record: MainWindowRecord\) => \{\s*if \(record\.window\.isDestroyed\(\)\) return\s*restoreWindows = true\s*revealOnly\(record\)/,
-    'main/index.ts reveals through revealOnly')
-  assert.match(main, /const revealOrgItem = \(org: unknown, event: DesktopEvent\) => revealInOrgWindow\(/,
-    'notification clicks go through revealInOrgWindow')
+  // the WHOLE bodies, so a line added to either (a blur, a z-order change, a
+  // loop over the other windows) fails here and has to be argued for
+  assert.match(main, /const revealWindow = \(record: MainWindowRecord\) => \{\s*if \(record\.window\.isDestroyed\(\)\) return\s*restoreWindows = true\s*revealOnly\(record\)\s*windows\.activate\(record\.id\)\s*sendTo\(record\.id, \{ type: 'main-window-shown', data: windowState\(record\) \}\)\s*\}/,
+    'main/index.ts reveals through revealOnly and touches nothing else')
+  assert.match(main, /const revealOrgItem = \(org: unknown, event: DesktopEvent\) => revealInOrgWindow\(org, event, \{\s*queueReveal: \(target, held: DesktopEvent\) => windows\.queueReveal\(target, held\),\s*record: id => records\.get\(id\),\s*reveal: revealWindow,\s*send: sendTo,\s*open: target => requestOrgWindow\(target, null\)\.catch\(\(error: unknown\) => \{\s*console\.warn\('An organization window could not be opened for a notification', error\)\s*\}\),\s*\}\)/,
+    'notification clicks go through revealInOrgWindow with exactly this host')
   assert.match(main, /data => \{ void revealOrgItem\(data\.org, \{ type: 'notification-click', data \}\) \}/,
     'the native notification click reveals the notification\'s own organization')
 })
