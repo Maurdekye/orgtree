@@ -365,6 +365,88 @@ async fn recall_hint(client: &Client, agent_id: i64) -> String {
     s
 }
 
+/// The live docket items a fresh session holds, so no work is dropped (user
+/// 2026-10-09; decision 64): the items it owns that are not done, dropped or
+/// archived (backlogged ones apart), and those waiting for its review, newest
+/// updated first and at most DOCKET_HINT_MAX. A snapshot in this note only:
+/// never in the identity or a fingerprint, so docket changes respawn nothing.
+/// A failed read only leaves the list out.
+#[logged]
+async fn docket_hint(client: &Client, agent_id: i64) -> String {
+    match docket_items(client, agent_id).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(agent = agent_id, error = %format!("{e:#}"), "the docket items could not be read");
+            String::new()
+        }
+    }
+}
+
+const DOCKET_HINT_MAX: usize = 30;
+
+#[logged]
+async fn docket_items(client: &Client, agent_id: i64) -> Result<String> {
+    // owned (the owner index) and reviewing (status review, in the agent's org)
+    const ITEMS: &str = "
+        SELECT slug, title, status, working_on_next->>0 AS next, false AS reviewing, NULL::text AS owner, updated_at, id
+          FROM ot.work_items
+         WHERE owner_agent_id = $1 AND archived_at IS NULL AND NOT coalesce((extra->>'deleted')::boolean, false)
+           AND status IN ('backlogged', 'open', 'in_progress', 'blocked', 'review', 'approved', 'deploy_ready')
+        UNION ALL
+        SELECT w.slug, w.title, w.status, w.working_on_next->>0, true, coalesce(a.name, w.owner->>'node', 'unknown'), w.updated_at, w.id
+          FROM ot.work_items w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
+         WHERE w.org_id = (SELECT org_id FROM ot.agents WHERE id = $1) AND w.reviewer_agent_id = $1
+           AND w.owner_agent_id IS DISTINCT FROM $1 AND w.status = 'review'
+           AND w.archived_at IS NULL AND NOT coalesce((w.extra->>'deleted')::boolean, false)";
+    let rows = client
+        .query(&format!("SELECT * FROM ({ITEMS}) t ORDER BY updated_at DESC, id DESC LIMIT {}", DOCKET_HINT_MAX + 1), &[&agent_id])
+        .await?;
+    if rows.is_empty() {
+        return Ok("You hold no live docket items.\n\n".into());
+    }
+    let more = if rows.len() > DOCKET_HINT_MAX {
+        let all: i64 = client.query_one(&format!("SELECT count(*) FROM ({ITEMS}) t"), &[&agent_id]).await?.get(0);
+        all as usize - DOCKET_HINT_MAX
+    } else {
+        0
+    };
+    let short = |s: &str| -> String {
+        let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        if s.chars().count() > 200 { format!("{}…", s.chars().take(200).collect::<String>()) } else { s }
+    };
+    let (mut live, mut backlog, mut review) = (Vec::new(), Vec::new(), Vec::new());
+    for r in rows.iter().take(DOCKET_HINT_MAX) {
+        let (slug, title, status): (String, String, String) = (r.get(0), r.get(1), r.get(2));
+        let next = r.get::<_, Option<String>>(3).filter(|n| !n.trim().is_empty()).map(|n| format!(" — next: {}", short(&n))).unwrap_or_default();
+        if r.get::<_, bool>(4) {
+            let owner: String = r.get(5);
+            review.push(format!("- {slug} · {} (owner {owner}){next}", short(&title)));
+        } else if status == "backlogged" {
+            backlog.push(format!("- {slug} · {}{next}", short(&title)));
+        } else {
+            live.push(format!("- {slug} · {status} · {}{next}", short(&title)));
+        }
+    }
+    let mut s = String::from(
+        "Your live docket items, as this session starts (newest updated first; the docket is the record, and \
+         orgtree_work action=get slug=<slug> reads one in full):\n",
+    );
+    for (head, lines) in [("", &live), ("Backlogged, not started yet:\n", &backlog), ("Waiting for your review:\n", &review)] {
+        if !lines.is_empty() {
+            s.push_str(head);
+            s.push_str(&lines.join("\n"));
+            s.push('\n');
+        }
+    }
+    if more > 0 {
+        s.push_str(&format!(
+            "…and {more} more not shown: orgtree_work action=list include_backlogged=true lists every item you can read.\n"
+        ));
+    }
+    s.push('\n');
+    Ok(s)
+}
+
 /// What a fresh session starts with when the agent's earlier session could
 /// not be carried over: its last status, whom it corresponded with, its
 /// recent conversation, and where the whole earlier conversation is saved.
@@ -379,6 +461,7 @@ pub async fn handoff_note(client: &Client, agent_id: i64, why: &str, saved: Opti
          what is in flight and where things are.\n\n",
     );
     note.push_str(&recall_hint(client, agent_id).await);
+    note.push_str(&docket_hint(client, agent_id).await);
     let status: Option<Value> = client
         .query_opt("SELECT last_status FROM ot.agents WHERE id = $1", &[&agent_id])
         .await?
