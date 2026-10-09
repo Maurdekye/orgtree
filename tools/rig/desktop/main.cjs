@@ -75,6 +75,8 @@ function driver(win) {
 
   const page = {
     win, consoleErrors, shots,
+    /** raw CDP, e.g. Page.addScriptToEvaluateOnNewDocument before a goto */
+    cdp,
     base: BASE.href,
     async goto(where) {
       const url = new URL(where, BASE).href
