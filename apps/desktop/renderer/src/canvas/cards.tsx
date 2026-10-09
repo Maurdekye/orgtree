@@ -25,7 +25,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
+  ago, antigravityTierOffer, anyTierSeat, draftOpeningGrant, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, langserverTierIds, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -67,6 +67,7 @@ interface UserNodeProps {
   antigravityHire?: HireState | null
   claudeHire?: HireState | null
   openrouterHire?: HireState | null
+  langserverHire?: HireState | null
   /** D-199: route out of the no-harness state (opens the accounts panel). */
   onNoHarness?: () => void
   pxc: number
@@ -105,7 +106,7 @@ interface UserNodeProps {
 }
 
 export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire, onNoHarness,
-  antigravityHire, openrouterHire,
+  antigravityHire, openrouterHire, langserverHire,
   pxc, zoom, onInbox, onGear, onSpawn,
   onMailLink, onWorkLink,
   focused, eyeW, onFocus, posX, onJump, map, op, slug, toast,
@@ -258,7 +259,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
       <SpawnChips onSpawn={onSpawn} seats={seats}
         soleHire codexHire={codexHire}
         claudeHire={claudeHire} onNoHarness={onNoHarness}
-        antigravityHire={antigravityHire} openrouterHire={openrouterHire}
+        antigravityHire={antigravityHire} openrouterHire={openrouterHire} langserverHire={langserverHire}
         zoom={focused ? undefined : zoom} expanded={expandedHire || guideHire}
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
       {focused && (
@@ -595,6 +596,7 @@ interface SpawnChipsProps {
   /** the OpenRouter family (2026-09-02), same contract; its TIERS come from
    *  the shared registry (`openrouterTierIds`), filled by the same payload */
   openrouterHire?: HireState | null
+  langserverHire?: HireState | null
   /** D-199: ...and Claude's, which nothing used to ask for. Same contract:
    *  absent means "not known yet", not "not installed". */
   claudeHire?: HireState | null
@@ -612,7 +614,7 @@ interface SpawnChipsProps {
 }
 
 function SpawnChips({ onSpawn, seats, side, soleHire,
-  codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, zoom,
+  codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, zoom,
   expanded = false, onToggleExpanded }: SpawnChipsProps) {
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
   useShowLegacyModels()
@@ -733,8 +735,12 @@ function SpawnChips({ onSpawn, seats, side, soleHire,
   // were written into TIER_LETTER by the same call.
   fam('openrouter', openrouterTierIds(), TIER_LETTER, 'OpenRouter',
       openrouterHire, (t) => seats[t] ?? anyTierSeat(t))
+  // the Language Server family: the models offered on the user's own servers,
+  // from the registry the same payload fills
+  fam('langserver', langserverTierIds(), TIER_LETTER, 'Language Server',
+      langserverHire, (t) => seats[t] ?? anyTierSeat(t))
   fams.sort((a, b) => b.tiers.length - a.tiers.length)   // inward-first
-  const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire]
+  const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire]
     .some((h) => h?.userEnabled === false)
   // D-199, the state a brand-new user on a fresh machine hits FIRST: no
   // provider is installed, so every family hid and the strip would render
@@ -1169,6 +1175,7 @@ interface NodeSquareProps {
   antigravityHire?: HireState | null
   claudeHire?: HireState | null
   openrouterHire?: HireState | null
+  langserverHire?: HireState | null
   /** D-199: route out of the no-harness state (opens the accounts panel). */
   onNoHarness?: () => void
   map: Map<string, CanvasNode>
@@ -1358,7 +1365,7 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
   </>
 }
 
-export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, map, op, slug,
+export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire, onNoHarness, map, op, slug,
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, cascadeAlloc, maxTop, pile, compactAt,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
@@ -1431,7 +1438,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onDismiss,
       onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
     }, { pinned, piled: !!pile, detached: desk.detached,
-      claudeHire, codexHire, antigravityHire, openrouterHire })
+      claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire })
   }
   const trackEdge = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -1901,7 +1908,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <SpawnChips onSpawn={onSpawn} seats={seats}
           codexHire={codexHire} antigravityHire={antigravityHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
-          openrouterHire={openrouterHire}
+          openrouterHire={openrouterHire} langserverHire={langserverHire}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'b'}
           onToggleExpanded={() => toggleCompactHire('b')} />}
       {/* FR-03: presented documents pop out the card's side as square icon
@@ -1946,14 +1953,14 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <SpawnChips side="left" onSpawn={(t) => onSpawnSide(t, 'left')}
             seats={seats}
             codexHire={codexHire} antigravityHire={antigravityHire}
-            openrouterHire={openrouterHire}
+            openrouterHire={openrouterHire} langserverHire={langserverHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'l'}
             onToggleExpanded={() => toggleCompactHire('l')} />
           <SpawnChips side="right" onSpawn={(t) => onSpawnSide(t, 'right')}
             seats={seats}
             codexHire={codexHire} antigravityHire={antigravityHire}
-            openrouterHire={openrouterHire}
+            openrouterHire={openrouterHire} langserverHire={langserverHire}
             claudeHire={claudeHire} onNoHarness={onNoHarness}
             zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 'r'}
             onToggleExpanded={() => toggleCompactHire('r')} />
@@ -1967,7 +1974,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <SpawnChips side="top" onSpawn={(t) => onSpawnTop(t)}
           seats={seats}
           codexHire={codexHire} antigravityHire={antigravityHire}
-          openrouterHire={openrouterHire}
+          openrouterHire={openrouterHire} langserverHire={langserverHire}
           claudeHire={claudeHire} onNoHarness={onNoHarness}
           zoom={focused ? undefined : zoom} expanded={expandedHireEdge === 't'}
           onToggleExpanded={() => toggleCompactHire('t')} />

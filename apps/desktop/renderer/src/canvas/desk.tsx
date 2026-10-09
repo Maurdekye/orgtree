@@ -61,7 +61,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, DESK_JUMP_FOLD_LIMIT, useHideRetired, useJumpFold, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -4280,7 +4280,7 @@ interface LineagePanelProps {
 }
 
 export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
-  userDisabled = { claude: false, openai: false, google: false, openrouter: false },
+  userDisabled = { claude: false, openai: false, google: false, openrouter: false, langserver: false },
   map, onFocusAgent, close }: LineagePanelProps) {
   // re-render on the "show legacy models" flip — the tier list reads it
   useShowLegacyModels()
@@ -4358,10 +4358,12 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   // is always kept — it is the tier it is rehired AS.
   // an OpenRouter favorite runs on the Claude Code harness, but its session
   // is a different NAMESPACE (another endpoint, another key — D-196 /
-  // INV-003), so for resume purposes it is its own family
+  // INV-003), so for resume purposes it is its own family; so is a model on
+  // one of the user's language servers (its own config folder and home)
   const famOf = (t: string) => CODEX_TIERS.includes(t) ? 'codex'
     : ANTIGRAVITY_TIERS.includes(t) ? 'antigravity'
-      : isOpenRouterTier(t) ? 'openrouter' : 'claude'
+      : isOpenRouterTier(t) ? 'openrouter'
+        : isLangServerTier(t) ? 'language server' : 'claude'
   const providerKey = (t: string): keyof ProviderPresence => providerOf(t)
   const providerName = (t: string): string => PROVIDER_LABEL[providerOf(t)] ?? 'Claude'
   const rehireWhy = (t: string, bearerTier: string): string | null =>
@@ -4404,7 +4406,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                   <select title={modelChoiceTitle(tiers[b.id] || b.tier)} value={tiers[b.id] ?? ''} onChange={(e) =>
                     setTiers((t) => ({ ...t, [b.id]: e.target.value }))}>
                     <option value="" title={modelChoiceTitle(b.tier)}>{modelChoiceLabel(b.tier, SEAT(b.tier))}</option>
-                    {[...ALL_TIERS, ...openrouterTierIds()]
+                    {[...ALL_TIERS, ...openrouterTierIds(), ...langserverTierIds()]
                       .filter((t) => t !== b.tier
                         && tierShown(presence, t, b.tier)
                         // Terra and Gemini Pro only with "show legacy models" on

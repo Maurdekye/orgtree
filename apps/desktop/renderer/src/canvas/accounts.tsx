@@ -33,10 +33,11 @@ import {
 } from './settingskit'
 import type { SettingsTab } from './settingskit'
 import { OpenRouterHarnessSetting, OpenRouterSection } from './openrouter'
+import { LanguageServerSection } from './langserver'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
-  setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
+  setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setLangServerTiers, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
   legacyMark, optInLegacyHidden, TIER_LETTER, tierLabel,
   setChartLayout, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
@@ -634,6 +635,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     setLanes({ apikey_fallback: pushedProviders.apikey_fallback,
       subscription_inference: pushedProviders.subscription_inference })
     setOpenRouterTiers(pushedProviders.providers.find(p => p.id === 'openrouter')?.tiers)
+    setLangServerTiers(pushedProviders.providers.find(p => p.id === 'langserver')?.tiers)
     setDiscovering(false)
   }, [pushedProviders])
   const loadProviders = () => {
@@ -643,6 +645,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
       setLanes({ apikey_fallback: p.apikey_fallback,
                  subscription_inference: p.subscription_inference })
       setOpenRouterTiers(p.providers.find(p => p.id === 'openrouter')?.tiers)
+      setLangServerTiers(p.providers.find(p => p.id === 'langserver')?.tiers)
       setError('')
     }).catch((e: Error) => setError(e.message))
       .finally(() => setDiscovering(false))
@@ -694,6 +697,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
     google: 'https://antigravity.google/download',
   }
   const openrouter = providers?.find(p => p.id === 'openrouter')
+  const langserver = providers?.find(p => p.id === 'langserver')
+  // the two lanes that are not a CLI's own sign-in have their own sections below
+  const gateway = (id: string) => id === 'openrouter' || id === 'langserver'
   return <><PinFrame kind="app-settings" title="App settings" panel="settings acct-panel"
     close={close} onEsc={() => addAccount ? undefined : pickerOpen ? setPickerOpen(false) : close()}>
     <h3>App settings</h3>
@@ -723,9 +729,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
           </button>
         </div>
       )}
-      {providers && !providers.some(p => p.id !== 'openrouter' && p.status.installed) &&
+      {providers && !providers.some(p => !gateway(p.id) && p.status.installed) &&
         <p className="ask-warn">No supported harness was found. Install and sign in to Claude Code, Codex or Antigravity to run agents.</p>}
-      {providers?.filter(p => p.id !== 'openrouter').map(p => <div key={p.id} className='set-group acct-provider-group'>
+      {providers?.filter(p => !gateway(p.id)).map(p => <div key={p.id} className='set-group acct-provider-group'>
         <div className={'set-group-head acct-provider-head prov-' + p.id}>
           <span>{p.label}<span className='dim'> · {p.cli}</span></span>
           <span className='set-head-right'>
@@ -781,6 +787,8 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}
         headRight={<ProviderSwitch provider={openrouter} busy={busy} onChange={toggleProvider} />} />
+      <LanguageServerSection provider={langserver} toast={toast} onChanged={() => { void loadProviders() }}
+        headRight={<ProviderSwitch provider={langserver} busy={busy} onChange={toggleProvider} />} />
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />

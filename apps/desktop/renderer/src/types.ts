@@ -1391,6 +1391,86 @@ export interface OpenRouterHarness {
   /** the sentence to show when the control is not a live choice */
   explain: string
 }
+/** the Language Server lane (App settings › Providers › Language Server):
+ *  the user's own model servers, each driven by one installed harness.
+ *  GET /api/langservers — secret-free: `key_set` says a key is stored. */
+export interface LangServerDoc {
+  servers: LangServer[]
+  presets: LangServerPreset[]
+  seat: number
+  /** below this window an agent's own prompt leaves no room to work */
+  min_context: number
+  /** the window a model gets when neither the server nor the user names one */
+  default_context: number
+  user_enabled: boolean
+}
+export interface LangServerHarness {
+  id: 'claude-code' | 'codex-cli'
+  label: string
+  available: boolean
+  installed: boolean
+  /** why it cannot drive this kind of server (empty when it can) */
+  why: string
+}
+export interface LangServerPreset {
+  id: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | 'custom'
+  label: string
+  /** the default address ('' for Custom…) */
+  address: string
+  claude: boolean
+  codex: boolean
+  note: string
+  harnesses: LangServerHarness[]
+}
+export interface LangServerModel {
+  /** the id the server knows the model by */
+  id: string
+  /** the hireable tier (`ls-<server>-<model>`) */
+  tier: string
+  label: string
+  offered: boolean
+  /** the window the user set (null: use the detected one) */
+  context: number | null
+  detected_context?: number | null
+  /** the window agents on it are told */
+  context_in_use: number
+  too_small: boolean
+}
+export interface LangServer {
+  id: string
+  preset: LangServerPreset['id']
+  label: string
+  address: string
+  harness: 'claude-code' | 'codex-cli'
+  api: 'anthropic' | 'responses'
+  base_path: string
+  /** what the harness is pointed at */
+  base_url: string
+  max_agents: number
+  enabled: boolean
+  key_set: boolean
+  models: Record<string, LangServerModel>
+  created_at: string
+}
+/** POST /api/langservers/probe — what a server says about itself */
+export interface LangServerProbe {
+  reachable: boolean
+  error?: string
+  version?: string | null
+  note?: string
+  models: LangServerProbeModel[]
+}
+export interface LangServerProbeModel {
+  id: string
+  /** the window the model was trained for */
+  max_context?: number | null
+  /** the window it runs with now (loaded models only) */
+  loaded_context?: number | null
+  size?: number | null
+  parameters?: string | null
+  quantization?: string | null
+  tools?: boolean | null
+}
 /** one catalog row as the picker shows it (prices per MILLION tokens) */
 export interface OpenRouterModel {
   id: string

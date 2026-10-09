@@ -277,6 +277,75 @@ export const openrouterTierIds = (keep?: string | null): string[] => {
 export const openrouterTier = (tier: string): ProviderTier | undefined =>
   orTiers.find((t) => t.tier === tier)
 
+/* ── THE LANGUAGE SERVER FAMILY (2026-10-10) — ALSO MINTED AT RUNTIME ──────
+ *
+ * The user's own model servers (App settings → Providers → Language Server):
+ * every model offered on a server is a tier `ls-<server>-<model>` the
+ * /api/providers entry `langserver` carries, the same way OpenRouter's
+ * favorites are carried — so this family is a registry too, filled by the
+ * same polls, and the surfaces that read `TIER_LETTER`, `providerOf` and the
+ * `t-<tier>` / `tier-<tier>` classes keep working unchanged. Unlike
+ * OpenRouter there is no per-model colour to honour: every language-server
+ * chip wears the lane's own colour. Membership is the prefix, as on the
+ * backend (`catalog::is_langserver`). */
+export const LANGSERVER_PREFIX = 'ls-'
+export const isLangServerTier = (tier: string): boolean =>
+  tier.startsWith(LANGSERVER_PREFIX)
+let lsTiers: ProviderTier[] = []
+const LS_STYLE_ID = 'orgtree-langserver-tiers'
+const LS_TIER_RE = /^ls-[a-z0-9-]+$/
+/** the injected stylesheet: the static tiers' selector shapes, one block per
+ *  tier, all in the lane colour (`--prov-langserver`) */
+export const langserverTierCss = (tiers: ProviderTier[]): string => tiers
+  .filter((t) => LS_TIER_RE.test(t.tier))
+  .map((t) => {
+    const id = t.tier
+    const c = 'var(--prov-langserver)'
+    const mix = (pct: number) => `color-mix(in srgb, ${c} ${pct}%, var(--line))`
+    return [
+      `.tier.t-${id}{color:${c};border-color:${mix(45)}}`,
+      `.hsof button.t-${id}{color:${c};border-color:${mix(45)}}`,
+      `.chip.agents b.t-${id}{color:${c}}`,
+      `.sq.tier-${id}{border-top-color:${mix(55)}}`,
+      `.sq.mini.tier-${id}{--mini-tier:${c}}`,
+      `.sq.prov-langserver.desk.tier-${id}{border-top-color:${c}}`,
+    ].join('\n')
+  }).join('\n')
+/** adopt the payload's language-server tiers as the live family. Idempotent
+ *  and cheap when nothing changed, so every surface that polls may call it. */
+export const setLangServerTiers = (tiers: ProviderTier[] | null | undefined): void => {
+  const next = (tiers ?? []).filter((t) => LS_TIER_RE.test(t.tier))
+  const same = next.length === lsTiers.length && next.every((t, i) => {
+    const o = lsTiers[i]
+    return !!o && o.tier === t.tier && o.letter === t.letter && o.seat === t.seat
+      && o.name === t.name && o.label === t.label && o.model === t.model
+  })
+  if (same) return
+  lsTiers = next.map((t) => ({ ...t }))
+  for (const t of lsTiers) {
+    TIER_LETTER[t.tier] = t.letter
+    tierModels[t.tier] = t.model
+  }
+  if (typeof document === 'undefined') return
+  let el = document.getElementById(LS_STYLE_ID)
+  if (!el) {
+    el = document.createElement('style')
+    el.id = LS_STYLE_ID
+    document.head.appendChild(el)
+  }
+  el.textContent = langserverTierCss(lsTiers)
+}
+export const langserverTiers = (): ProviderTier[] => lsTiers
+export const langserverTierIds = (keep?: string | null): string[] => {
+  const ids = lsTiers.map((t) => t.tier)
+  if (keep && isLangServerTier(keep) && !ids.includes(keep)) {
+    return [...ids, keep]
+  }
+  return ids
+}
+export const langserverTier = (tier: string): ProviderTier | undefined =>
+  lsTiers.find((t) => t.tier === tier)
+
 /* ── WHAT THE USER READS FOR A TIER (2026-09-03) ──────────────────────────
  * User ask, verbatim: "remove the or- and provider name prefix from openrouter
  * model names". An OpenRouter tier is `or-anthropic-claude-sonnet-5` in every
@@ -300,7 +369,9 @@ const tierModels: Record<string, string> = {}
 export const noteTierModels = (
   models: Record<string, string> | null | undefined): void => {
   for (const [tier, model] of Object.entries(models ?? {})) {
-    if (OR_TIER_RE.test(tier) && typeof model === 'string' && model) tierModels[tier] = model
+    if ((OR_TIER_RE.test(tier) || LS_TIER_RE.test(tier)) && typeof model === 'string' && model) {
+      tierModels[tier] = model
+    }
   }
 }
 /** what the user reads for ANY tier: a static tier is its own name; an
@@ -310,6 +381,11 @@ export const noteTierModels = (
 export const tierLabel = (tier: string): string => {
   if (tier === 'agy-sonnet') return 'sonnet (antigravity)'
   if (tier === 'agy-opus') return 'opus (antigravity)'
+  if (isLangServerTier(tier)) {
+    const l = langserverTier(tier)
+    if (l) return l.name ?? l.label ?? l.model
+    return tierModels[tier] ?? tier.slice(LANGSERVER_PREFIX.length)
+  }
   if (!isOpenRouterTier(tier)) return tier
   const t = openrouterTier(tier)
   if (t) return t.label ?? modelLabel(t.model)
@@ -398,7 +474,7 @@ export const modelChoiceTitle = (tier: string, reason?: string | null): string |
 /** seat for ANY tier the static tables or the registry know */
 export const anyTierSeat = (tier: string): number =>
   TIER_SEAT[tier] ?? CODEX_TIER_SEAT[tier] ?? ANTIGRAVITY_TIER_SEAT[tier]
-    ?? openrouterTier(tier)?.seat ?? 0
+    ?? openrouterTier(tier)?.seat ?? langserverTier(tier)?.seat ?? 0
 
 /** Which PROVIDER a tier runs on — the UI mirror of backend
  *  `providers.provider_of` (D-196). Derived from the family lists ABOVE
@@ -413,11 +489,12 @@ export const anyTierSeat = (tier: string): number =>
  *  claiming a crossing would offer to destroy a conversation that was never
  *  at risk. The OpenRouter answer is by PREFIX, as on the backend: a favorite
  *  the registry has not seen yet is still an OpenRouter tier. */
-export type ProviderId = 'openai' | 'google' | 'claude' | 'openrouter'
+export type ProviderId = 'openai' | 'google' | 'claude' | 'openrouter' | 'langserver'
 export const providerOf = (tier: string): ProviderId =>
   (CODEX_TIERS.includes(tier) ? 'openai'
     : ANTIGRAVITY_TIERS.includes(tier) ? 'google'
-      : isOpenRouterTier(tier) ? 'openrouter' : 'claude')
+      : isOpenRouterTier(tier) ? 'openrouter'
+        : isLangServerTier(tier) ? 'langserver' : 'claude')
 
 /** D-201 halo class for a live agent card or desk (user ruling 2026-09-28):
  *  the halo means a CLI process EXISTS for this seat, parked or serving a
@@ -431,7 +508,8 @@ export const procHaloClass = (node: { state: string; proc_live?: boolean }): str
  *  not "openai" — the user picks tiers by the product name they see on the
  *  chips and in the accounts panel. */
 export const PROVIDER_LABEL: Record<string, string> = {
-  openai: 'Codex', google: 'Antigravity', claude: 'Claude', openrouter: 'OpenRouter' }
+  openai: 'Codex', google: 'Antigravity', claude: 'Claude', openrouter: 'OpenRouter',
+  langserver: 'Language Server' }
 
 /** One provider's hire state as a hire surface needs it — the `/api/providers`
  *  entry narrowed to the three things any surface asks. `null`/`undefined`
@@ -564,6 +642,7 @@ export interface HireProviders {
   codexHire?: HireState | null
   antigravityHire?: HireState | null
   openrouterHire?: HireState | null
+  langserverHire?: HireState | null
 }
 
 /** The same family order and tier registry as the hire sheet. */
@@ -572,6 +651,7 @@ export const hireTierChoices = (h: HireProviders) => [
   { provider: 'codex', tiers: CODEX_TIERS, hire: h.codexHire },
   { provider: 'antigravity', tiers: ANTIGRAVITY_TIERS, hire: h.antigravityHire },
   { provider: 'openrouter', tiers: openrouterTierIds(), hire: h.openrouterHire },
+  { provider: 'langserver', tiers: langserverTierIds(), hire: h.langserverHire },
 ].flatMap(({ provider, tiers, hire }) => tiers.map(tier => ({
   tier, offer: hireTierOffer(provider, hire, tier),
   reason: hire?.reason ?? 'hiring is not enabled yet',
@@ -640,13 +720,14 @@ export type ProviderPresence = Record<ProviderId, boolean>
 /** Optimistic default for a surface whose payload has not arrived (or that
  *  has no access to one): everything shown, matching `providerShown(null)`. */
 export const ALL_PRESENT: ProviderPresence = {
-  claude: true, openai: true, google: true, openrouter: true }
+  claude: true, openai: true, google: true, openrouter: true, langserver: true }
 
 export const presenceOf = (p: {
   claude?: ProviderInfo | null
   openai?: ProviderInfo | null
   google?: ProviderInfo | null
   openrouter?: ProviderInfo | null
+  langserver?: ProviderInfo | null
 }): ProviderPresence => ({
   claude: providerShown(hireOf(p.claude)),
   openai: providerShown(hireOf(p.openai)),
@@ -655,6 +736,8 @@ export const presenceOf = (p: {
   // hides the family exactly as an absent CLI hides Codex (D-202); the
   // settings page stays the one place it is offered, as the install door
   openrouter: providerShown(hireOf(p.openrouter)),
+  // the entry exists once a server does; until then there are no tiers to show
+  langserver: providerShown(hireOf(p.langserver)),
 })
 
 /** The same, straight off the `/api/providers` payload, for surfaces that
@@ -667,6 +750,7 @@ export const presenceOfPayload = (
   openai: p.providers.find((v) => v.id === 'openai'),
   google: p.providers.find((v) => v.id === 'google'),
   openrouter: p.providers.find((v) => v.id === 'openrouter'),
+  langserver: p.providers.find((v) => v.id === 'langserver'),
 }))
 
 /** Should a TIER appear in a list on this machine?

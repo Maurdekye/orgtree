@@ -20,6 +20,7 @@ import type {
   EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, MailEntry,
+  LangServer, LangServerDoc, LangServerProbe,
   McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
@@ -963,6 +964,53 @@ export const setOpenRouterFavorite = (
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, selected }),
+  })
+// the Language Server lane: the user's own model servers (Ollama, LM Studio,
+// llama.cpp, vLLM, custom). A key crosses the wire once, inward.
+export const getLangServers = (): Promise<LangServerDoc> => req('/api/langservers')
+export interface LangServerModelPick {
+  id: string
+  context?: number | null
+  offered?: boolean
+  label?: string
+}
+export const addLangServer = (body: {
+  preset: string, address: string, harness: string, label?: string,
+  base_path?: string, max_agents?: number, key?: string, models?: LangServerModelPick[],
+}): Promise<{ server: LangServer, doc: LangServerDoc }> =>
+  req('/api/langservers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const updateLangServer = (id: string, body: {
+  label?: string, address?: string, base_path?: string, max_agents?: number,
+  enabled?: boolean, models?: LangServerModelPick[],
+}): Promise<{ server: LangServer, doc: LangServerDoc }> =>
+  req(`/api/langservers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+/** an empty key clears it */
+export const setLangServerKey = (id: string, key: string): Promise<LangServerDoc> =>
+  req(`/api/langservers/${encodeURIComponent(id)}/key`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  })
+export const removeLangServer = (id: string): Promise<LangServerDoc> =>
+  req(`/api/langservers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+/** ask a server what it offers: a stored one (`server`), or the one the add
+ *  form describes. Loads no model. */
+export const probeLangServer = (body: {
+  server?: string, preset?: string, address?: string, harness?: string,
+  base_path?: string, key?: string,
+}): Promise<LangServerProbe> =>
+  req('/api/langservers/probe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 export const getRuntimeSettings = (): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime')

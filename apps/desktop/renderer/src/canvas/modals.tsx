@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
@@ -866,6 +866,8 @@ interface NodeConfigProps {
   codexProvider?: ProviderInfo | null
   antigravityProvider?: ProviderInfo | null
   openrouterProvider?: ProviderInfo | null
+  /** the Language Server lane's entry (present once a server exists) */
+  langserverProvider?: ProviderInfo | null
   /** D-202: which provider families this machine has at all. Absent = the
    *  optimistic default (everything), so a caller that has not resolved the
    *  payload behaves exactly as this panel did before. */
@@ -874,7 +876,7 @@ interface NodeConfigProps {
 }
 
 export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
-  antigravityProvider, openrouterProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
+  antigravityProvider, openrouterProvider, langserverProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
   const [tab, setTab] = useState<NodeConfigTab>('charter')
   const tabId = useId()
   // re-render on the "show legacy models" flip — `codexTierOffer` reads it
@@ -1080,6 +1082,10 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
       if (openrouterUnavailable) return openrouterUnavailable
       if (!openrouterTierIds().includes(t)) return 'not among current favorites'
     }
+    if (isLangServerTier(t)) {
+      if (!langserverProvider?.hire_enabled) return langserverProvider?.reason ?? 'no language server is set up'
+      if (!langserverTierIds().includes(t)) return 'no language server offers this model now'
+    }
     return null
   }
   // D-202. `tierShown` is the shared rule; `node.tier` is the `keep` that
@@ -1197,7 +1203,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
              ['Antigravity', ANTIGRAVITY_TIERS],
              // the OpenRouter favorites, from the registry the payload fills
              // (preserving this node's own tier if it was since deselected — w76fba70b)
-             ['OpenRouter', openrouterTierIds(node.tier)]] as const)
+             ['OpenRouter', openrouterTierIds(node.tier)],
+             // the models offered on the user's own servers (same keep rule)
+             ['Language Server', langserverTierIds(node.tier)]] as const)
             .map(([label, fam]) => [label, shownTiers(fam)] as const)
             .filter(([, fam]) => fam.length > 0)
             .map(([label, fam]) => (
