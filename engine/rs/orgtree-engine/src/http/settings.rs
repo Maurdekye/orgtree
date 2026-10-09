@@ -411,18 +411,23 @@ pub async fn get_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(err) => return Err(ApiError::internal(format!("org.md could not be read: {err}"))),
     };
+    let rev = crate::phone::orgmd_rev(content.as_bytes());
     let chars = content.chars().count();
     let truncated = chars > ORGMD_EDIT_MAX;
     let shown: String = if truncated { content.chars().take(ORGMD_EDIT_MAX).collect() } else { content };
     Ok(Json(json!({
         "path": path.to_string_lossy(), "content": shown, "chars": chars, "read_truncated": truncated,
-        "edit_max": ORGMD_EDIT_MAX, "prompt_max": ORGMD_PROMPT_MAX,
+        "edit_max": ORGMD_EDIT_MAX, "prompt_max": ORGMD_PROMPT_MAX, "rev": rev,
     })))
 }
 
 #[derive(Deserialize, Debug)]
 pub struct OrgMdBody {
     content: String,
+    /// the `rev` the editor loaded: a save over a newer org.md (Connect your
+    /// phone added or removed its note meanwhile) is refused
+    #[serde(default)]
+    base_rev: Option<String>,
 }
 
 #[logged]
@@ -435,14 +440,28 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
     let dir = e.cfg.workspace_dir(&o.slug);
     std::fs::create_dir_all(&dir).map_err(|x| ApiError::internal(x.to_string()))?;
     let path = dir.join("org.md");
-    std::fs::write(&path, &b.content).map_err(|x| ApiError::internal(x.to_string()))?;
+    // one org.md writer at a time (the phone's trust note shares this lock)
+    let lock = crate::phone::orgmd_lock(&e, o.id);
+    let _one = lock.lock().await;
+    if let Some(base) = b.base_rev.as_deref() {
+        let now = match std::fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(ApiError::internal(format!("org.md could not be read: {err}"))),
+        };
+        if crate::phone::orgmd_rev(now.as_bytes()) != base {
+            return Err(ApiError::conflict("org.md changed since you opened it (Connect your phone added or removed its note). Reload it and make your edit again."));
+        }
+    }
+    crate::phone::replace_file(&path, b.content.as_bytes()).map_err(|x| ApiError::internal(x.to_string()))?;
+    let rev = crate::phone::orgmd_rev(b.content.as_bytes());
     let mut warnings = Vec::new();
     if chars > ORGMD_PROMPT_MAX {
         warnings.push(format!("only the first {ORGMD_PROMPT_MAX} characters reach agents' instructions"));
     }
     // the system prompt changed: running CLIs restart before their next turn
     reconfigure_org(&e, o.id).await?;
-    Ok(Json(json!({ "path": path.to_string_lossy(), "bytes": b.content.len(), "chars": chars,
+    Ok(Json(json!({ "path": path.to_string_lossy(), "bytes": b.content.len(), "chars": chars, "rev": rev,
                     "prompt_max": ORGMD_PROMPT_MAX, "prompt_truncated": chars > ORGMD_PROMPT_MAX, "warnings": warnings })))
 }
 

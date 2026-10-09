@@ -1311,6 +1311,12 @@ pub async fn local_roster(engine: &Engine, org_id: i64) -> Option<(Vec<Value>, O
     Some((roster, v["name"].as_str().filter(|n| !n.is_empty()).map(str::to_string)))
 }
 
+/// Is `address` the hub address of one of this PC's own organizations?
+#[logged]
+pub fn is_own_address(engine: &Engine, address: &str) -> bool {
+    engine.net.parts.load_full().iter().any(|p| p.net_slug == address)
+}
+
 /// Every remote org the rosters know (for `orgtree_list_orgs`), with the
 /// hubs it is reached through: each hub's address, name and version
 /// ("unknown" for a hub that reports none).

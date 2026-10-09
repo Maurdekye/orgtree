@@ -37,9 +37,19 @@ const TS_TIMEOUT: Duration = Duration::from_secs(5);
 pub const RULE_NAME: &str = "Orgtree phone access";
 /// Tailscale's address ranges (CGNAT IPv4 and its ULA IPv6 prefix).
 const TAILNET_REMOTE: &str = "100.64.0.0/10,fd7a:115c:a1e0::/48";
-const RULE_FRESH: Duration = Duration::from_secs(10);
-/// How often the background check looks for a moved Tailscale address.
+const RULE_FRESH: Duration = Duration::from_secs(30);
+/// How often the background check looks for a moved door address.
 const DOOR_CHECK: Duration = Duration::from_secs(30);
+/// A reading that disagrees with the door is confirmed by a second one this
+/// soon before the hub restarts (a restart drops every local connection).
+const DOOR_CONFIRM: Duration = Duration::from_secs(5);
+/// How long the card's bar (one database query) is reused.
+const BAR_FRESH: Duration = Duration::from_secs(60);
+/// Messages naming a wrong code while one is live: after this many the live
+/// code is voided (the panel shows "New code").
+const CODE_TRIES: u32 = 5;
+/// Hub message ids already answered (a redelivery is not answered twice).
+const ANSWERED_KEEP: usize = 200;
 
 /// A setup code works once, for this long.
 const CODE_LIFE: Duration = Duration::from_secs(10 * 60);
@@ -52,7 +62,7 @@ const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 pub const DOWNLOAD_URL: &str = "https://github.com/Maurdekye/orgtree-hubchat/releases/latest/download/Hubchat-android.apk";
 /// The trust note's marked block at the top of org.md.
 const BLOCK_START: &str = "<!-- added by Connect your phone; Unlink removes it -->";
-const BLOCK_END: &str = "<!-- end -->";
+const BLOCK_END: &str = "<!-- end of the Connect your phone note -->";
 
 #[derive(Default)]
 pub struct Phone {
@@ -63,6 +73,19 @@ pub struct Phone {
     /// the live setup code (one at a time) and recently spent ones
     codes: std::sync::Mutex<Vec<Code>>,
     slow: ArcSwapOption<(Instant, Slow)>,
+    /// one link or unlink at a time (phone.json and the trust notes together)
+    link_lock: tokio::sync::Mutex<()>,
+    /// one org.md writer at a time per org: the trust note and the charter editor
+    orgmd: std::sync::Mutex<std::collections::HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
+    /// hub message ids whose setup code was answered
+    answered: std::sync::Mutex<std::collections::VecDeque<String>>,
+    /// a door address read once that disagrees with the door: restart only
+    /// when the next reading says the same
+    door_miss: std::sync::Mutex<Option<Option<String>>>,
+    /// the panel is open: check the door now rather than at the next tick
+    nudge: tokio::sync::Notify,
+    /// the card's bar per org window (None: Home), with when it was read
+    bar: std::sync::Mutex<std::collections::HashMap<Option<i64>, (Instant, Vec<String>)>>,
 }
 
 /// A setup code: held in memory only (an engine restart voids it; the panel
@@ -84,6 +107,8 @@ struct Code {
     /// persons on the hub when it was minted: one that appears after is
     /// probably the phone that scanned it ("Waiting for your phone…")
     persons: Vec<String>,
+    /// messages that named a wrong code for this org while this one was live
+    tries: u32,
 }
 
 impl Code {
@@ -308,36 +333,85 @@ pub fn access(hosting: &Value) -> &'static str {
     }
 }
 
-/// The door's address no longer matches this PC's Tailscale address (it
-/// appeared, moved or went away): restart the hub on the new one.
+/// Where the door should listen for its scope, read now: Some(Some(ip))
+/// bound to that address, Some(None) closed (Tailscale signed out or
+/// stopped), None unknown (Tailscale did not answer, or no LAN address) and
+/// nothing is done. Only the "tailnet" and "lan" scopes follow an address.
+#[logged]
+async fn door_wanted(engine: &Engine, scope: &str) -> Option<Option<String>> {
+    match scope {
+        "tailnet" => {
+            let t = read_tailscale().await;
+            engine.phone.ts.store(Some(Arc::new((Instant::now(), t.clone()))));
+            // a CLI that timed out or a service that does not answer says
+            // nothing about the address
+            if t.error.is_some() || t.backend.as_deref() == Some("NoDaemon") {
+                return None;
+            }
+            Some(t.ipv4)
+        }
+        "lan" => lan_bind().map(Some),
+        _ => None,
+    }
+}
+
+/// The address the door binds for "Use my home Wi-Fi instead": this PC's LAN
+/// address (a rig run's hub never listens beyond loopback).
+#[logged]
+pub fn lan_bind() -> Option<String> {
+    if crate::rig::active() {
+        return Some("127.0.0.1".into());
+    }
+    lan_ipv4()
+}
+
+/// One check of the door against this PC's address: the hub restarts only
+/// when two readings in a row agree on a different address.
 #[logged]
 pub async fn reconcile_door(engine: &Arc<Engine>) {
     if !crate::mailhub::hosts() {
         return;
     }
     let cfg = engine.hub.hosting_config();
-    if !cfg["public_listener"].as_bool().unwrap_or(false) || cfg["public_scope"].as_str() != Some("tailnet") {
+    let scope = cfg["public_scope"].as_str().unwrap_or("all").to_string();
+    if !cfg["public_listener"].as_bool().unwrap_or(false) {
+        *engine.phone.door_miss.lock().unwrap_or_else(|p| p.into_inner()) = None;
         return;
     }
-    let want = tailscale(engine).await.ipv4;
+    let Some(want) = door_wanted(engine, &scope).await else {
+        *engine.phone.door_miss.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        return;
+    };
     let st = engine.hub.state.load_full();
     // a hub that failed to start is left for the settings page, not retried here
-    if want != st.door && st.running {
-        let have = st.door.clone();
-        tracing::info!(?want, ?have, "the phone door's Tailscale address changed; restarting the mail hub");
-        crate::mailhub::restart(engine).await;
+    if want == st.door || !st.running {
+        *engine.phone.door_miss.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        return;
+    }
+    let confirmed = {
+        let mut miss = engine.phone.door_miss.lock().unwrap_or_else(|p| p.into_inner());
+        let same = miss.as_ref() == Some(&want);
+        *miss = if same { None } else { Some(want.clone()) };
+        same
+    };
+    if confirmed {
+        tracing::info!(?want, have = ?st.door, %scope, "the phone door's address changed; restarting the mail hub");
+        crate::mailhub::restart_door(engine, &scope, want).await;
     }
 }
 
-/// The background check for a moved Tailscale address.
+/// The background check for a moved door address (every `DOOR_CHECK`, sooner
+/// to confirm a change, or at once when the panel asks).
 #[logged]
 pub fn start(engine: &Arc<Engine>) {
     let eng = engine.clone();
     tokio::spawn(async move {
         loop {
+            let wait = if eng.phone.door_miss.lock().unwrap_or_else(|p| p.into_inner()).is_some() { DOOR_CONFIRM } else { DOOR_CHECK };
             tokio::select! {
                 _ = eng.shutdown.cancelled() => return,
-                _ = tokio::time::sleep(DOOR_CHECK) => {}
+                _ = tokio::time::sleep(wait) => {}
+                _ = eng.phone.nudge.notified() => {}
             }
             reconcile_door(&eng).await;
         }
@@ -425,7 +499,9 @@ pub async fn turn_on(engine: &Arc<Engine>, scope: &str, keep_awake: Option<bool>
 
 // ------------------------------------------------------------ setup codes
 
-#[logged]
+// the setup code is a secret while it is live: it and the link that carries
+// it never reach the log (#[nolog] wherever they pass)
+#[nolog]
 fn new_code() -> String {
     use rand::Rng;
     let mut rng = rand::rngs::OsRng;
@@ -435,7 +511,7 @@ fn new_code() -> String {
 
 /// The code a message carries: its last non-empty line, `Setup code: XXXX-XXXX`
 /// (any case, the dash optional), as `XXXX-XXXX` in upper case.
-#[logged]
+#[nolog]
 pub fn code_line(body: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"(?i)^\s*setup code:\s*([a-z0-9]{4})-?([a-z0-9]{4})\s*$").expect("code regex"));
@@ -463,8 +539,9 @@ fn lan_ipv4() -> Option<String> {
 }
 
 /// A QR code as an SVG (black on white, with its quiet zone), for the panel
-/// and the cards to show as an image.
-#[logged]
+/// and the cards to show as an image. Not logged: the setup QR's text is the
+/// link carrying the live code.
+#[nolog]
 pub fn qr_svg(text: &str) -> Option<String> {
     let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M).ok()?;
     Some(code.render::<qrcode::render::svg::Color>().min_dimensions(200, 200).quiet_zone(true).build())
@@ -477,7 +554,7 @@ fn enc(s: &str) -> String {
 
 /// "New code" / the setup QR's first showing: a code for `org_slug` (any
 /// earlier one stops working) and the `hubchat://setup` link it rides in.
-#[logged]
+#[nolog]
 pub async fn mint(engine: &Arc<Engine>, org_slug: &str) -> Result<Value, crate::http::error::ApiError> {
     use crate::http::error::ApiError;
     let Some(org) = engine.orgs.get(org_slug) else { return Err(ApiError::not_found("no such organization")) };
@@ -544,6 +621,7 @@ pub async fn mint(engine: &Arc<Engine>, org_slug: &str) -> Result<Value, crate::
             void: false,
             url: url.clone(),
             persons,
+            tries: 0,
         });
     }
     tracing::info!(org = %org.slug, wifi, "phone setup code minted");
@@ -553,38 +631,79 @@ pub async fn mint(engine: &Arc<Engine>, org_slug: &str) -> Result<Value, crate::
 // ------------------------------------------------------------ the trust note
 
 /// org.md with the trust note at the very top (only the first 16,000
-/// characters reach agents), replacing an earlier note.
+/// characters reach agents), replacing every earlier note.
 #[logged]
-pub fn with_block(md: &str, address: &str) -> String {
-    let rest = without_block(md);
+pub fn with_block(md: &str, address: &str) -> Result<String, String> {
+    let rest = without_block(md)?;
     let block = format!("{BLOCK_START}\n@net:{address} is the user's account and carries their authority.\n{BLOCK_END}\n");
-    if rest.is_empty() {
-        block
-    } else {
-        format!("{block}\n{rest}")
-    }
+    Ok(if rest.is_empty() { block } else { format!("{block}\n{rest}") })
 }
 
-/// org.md without the trust note: exactly what it was before the note was
-/// added, when nobody edited around it.
+/// org.md without any trust note: exactly what it was before the note was
+/// added, when nobody edited around it. A note whose end marker is gone is
+/// refused (Err) rather than guessed at: the user removes it by hand.
 #[logged]
-pub fn without_block(md: &str) -> String {
-    let Some(start) = md.find(BLOCK_START) else { return md.to_string() };
-    let Some(rel) = md[start..].find(BLOCK_END) else { return md.to_string() };
-    let mut end = start + rel + BLOCK_END.len();
-    let eol = |at: usize| if md[at..].starts_with("\r\n") { 2 } else if md[at..].starts_with('\n') { 1 } else { 0 };
-    end += eol(end);
-    // at the top it was followed by one blank line of ours
-    if start == 0 {
+pub fn without_block(md: &str) -> Result<String, String> {
+    let mut out = String::with_capacity(md.len());
+    let mut at = 0;
+    while let Some(rel) = md[at..].find(BLOCK_START) {
+        let start = at + rel;
+        let Some(rel_end) = md[start..].find(BLOCK_END) else {
+            return Err("org.md has the start of the Connect your phone note but not its end. Remove the note by hand in Org settings › Charter.".into());
+        };
+        let mut end = start + rel_end + BLOCK_END.len();
+        let eol = |i: usize| if md[i..].starts_with("\r\n") { 2 } else if md[i..].starts_with('\n') { 1 } else { 0 };
         end += eol(end);
+        // at the top it was followed by one blank line of ours
+        if start == 0 {
+            end += eol(end);
+        }
+        out.push_str(&md[at..start]);
+        at = end;
     }
-    format!("{}{}", &md[..start], &md[end..])
+    out.push_str(&md[at..]);
+    Ok(out)
 }
 
-/// Write (Some) or remove (None) the trust note in an org's org.md; its
-/// agents' CLIs restart before their next turn, as after any charter edit.
+/// org.md's revision: the charter editor sends back the one it loaded, and a
+/// save over a newer org.md (the trust note came or went) is refused.
+#[nolog]
+pub fn orgmd_rev(bytes: &[u8]) -> String {
+    // FNV-1a: a change detector, not a security boundary
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}-{}", bytes.len())
+}
+
+/// The org's org.md lock, shared by the trust note and the charter editor.
+#[logged]
+pub fn orgmd_lock(engine: &Engine, org_id: i64) -> Arc<tokio::sync::Mutex<()>> {
+    engine.phone.orgmd.lock().unwrap_or_else(|p| p.into_inner()).entry(org_id).or_default().clone()
+}
+
+/// Write `next` over org.md through a uniquely named temporary file.
+#[logged]
+pub fn replace_file(path: &std::path::Path, next: &[u8]) -> std::io::Result<()> {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = path.file_name().and_then(|f| f.to_str()).unwrap_or("file");
+    let tmp = path.with_file_name(format!("{name}.{}.{n}.tmp", std::process::id()));
+    std::fs::write(&tmp, next)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Write (Some) or remove (None) the trust note in an org's org.md, under
+/// its org.md lock; its agents' CLIs restart before their next turn, as
+/// after any charter edit.
 #[logged]
 async fn write_note(engine: &Engine, org_id: i64, slug: &str, address: Option<&str>) -> anyhow::Result<()> {
+    let lock = orgmd_lock(engine, org_id);
+    let _one = lock.lock().await;
     let dir = engine.cfg.workspace_dir(slug);
     let path = dir.join("org.md");
     let md = match std::fs::read(&path) {
@@ -595,12 +714,11 @@ async fn write_note(engine: &Engine, org_id: i64, slug: &str, address: Option<&s
     let next = match address {
         Some(a) => with_block(&md, a),
         None => without_block(&md),
-    };
+    }
+    .map_err(|e| anyhow::anyhow!("{slug}: {e}"))?;
     if next != md {
         std::fs::create_dir_all(&dir)?;
-        let tmp = path.with_extension("md.tmp");
-        std::fs::write(&tmp, &next)?;
-        std::fs::rename(&tmp, &path)?;
+        replace_file(&path, next.as_bytes())?;
         crate::http::settings::reconfigure_org(engine, org_id).await?;
     }
     Ok(())
@@ -628,6 +746,44 @@ async fn bar_orgs(engine: &Engine, org_id: Option<i64>) -> anyhow::Result<Vec<St
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
+/// The bar's orgs, at most `BAR_FRESH` old (one bounded query a minute per
+/// window, however many cards ask).
+#[logged]
+async fn bar(engine: &Engine, org_id: Option<i64>) -> Vec<String> {
+    if let Some((at, orgs)) = engine.phone.bar.lock().unwrap_or_else(|p| p.into_inner()).get(&org_id) {
+        if at.elapsed() < BAR_FRESH {
+            return orgs.clone();
+        }
+    }
+    let orgs = bar_orgs(engine, org_id).await.unwrap_or_else(|e| {
+        tracing::warn!(error = %format!("{e:#}"), "the phone card's bar could not be read");
+        Vec::new()
+    });
+    // only a bar that holds is kept: one that does not yet is asked again, so
+    // the card appears as soon as the user has written to an agent
+    if !orgs.is_empty() {
+        engine.phone.bar.lock().unwrap_or_else(|p| p.into_inner()).insert(org_id, (Instant::now(), orgs.clone()));
+    }
+    orgs
+}
+
+/// `GET /api/desktop/phone/card[?org=slug]`: only what the cards need, cheap
+/// enough to ask now and then (phone.json, the hub's state in memory and the
+/// cached bar: no Tailscale, firewall, roster or power reads).
+#[logged]
+pub async fn card_state(engine: &Engine, org: Option<&str>) -> Value {
+    let settings = settings(engine);
+    let org_id = org.and_then(|s| engine.orgs.get(s)).map(|o| o.id);
+    json!({ "card": card(engine, org_id, &settings).await, "link": settings["link"], "download_url": DOWNLOAD_URL, "download_qr": download_qr() })
+}
+
+/// The download QR (one fixed link: rendered once).
+#[logged]
+fn download_qr() -> Option<String> {
+    static QR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    QR.get_or_init(|| qr_svg(DOWNLOAD_URL)).clone()
+}
+
 /// The "Chat from your phone" card: shown while the bar holds, no phone is
 /// linked, the hub runs and the user has not dismissed it (one dismissal for
 /// the org window's card and Home's). `org`: the org it would link.
@@ -636,12 +792,10 @@ async fn card(engine: &Engine, org_id: Option<i64>, settings: &Value) -> Value {
     let dismissed = settings["card_dismissed"].as_bool().unwrap_or(false);
     let linked = settings["link"].is_object();
     let hub = engine.hub.state.load_full();
-    let orgs = bar_orgs(engine, org_id).await.unwrap_or_else(|e| {
-        tracing::warn!(error = %format!("{e:#}"), "the phone card's bar could not be read");
-        Vec::new()
-    });
+    // nothing to read once the card can never show
+    let orgs = if dismissed || linked { Vec::new() } else { bar(engine, org_id).await };
     let show = !dismissed && !linked && hub.running && hub.healthy && !orgs.is_empty();
-    json!({ "show": show, "dismissed": dismissed, "org": orgs.first() })
+    json!({ "show": show, "dismissed": dismissed, "linked": linked, "org": orgs.first() })
 }
 
 /// The card's ×: hidden from the org windows and Home alike.
@@ -744,23 +898,44 @@ async fn person_name(engine: &Engine, org_id: i64, address: &str) -> String {
         .unwrap_or_else(|| address.to_string())
 }
 
-/// Record the link and write the trust note (an earlier link's note is removed).
+/// Is `address` a Hubchat person on this machine's hub (and not one of
+/// this PC's own organizations)? Only a person can be linked.
+#[logged]
+async fn is_person(engine: &Engine, org_id: i64, address: &str) -> bool {
+    if crate::net::is_own_address(engine, address) {
+        return false;
+    }
+    let roster = crate::net::local_roster(engine, org_id).await.map(|r| r.0).unwrap_or_default();
+    roster.iter().any(|r| r["slug"].as_str() == Some(address) && r["kind"] == "person")
+}
+
+/// Record the link and write the trust note, under the phone's link lock.
+/// phone.json is written first and put back if the note cannot be; only
+/// then are other orgs' notes removed (one that cannot be is logged, and
+/// Unlink reports it).
 #[logged]
 async fn link(engine: &Arc<Engine>, org_id: i64, slug: &str, address: &str, via: &str) -> anyhow::Result<Value> {
     if !plain_address(address) {
         anyhow::bail!("not a hub address: {address:?}");
     }
+    // the roster call happens before the lock: a slow hub does not hold up
+    // another link or unlink
     let name = person_name(engine, org_id, address).await;
-    if let Some(old) = settings(engine)["link"].as_object().cloned() {
-        if let Some(o) = old.get("org").and_then(Value::as_str).and_then(|s| engine.orgs.get(s)) {
-            if o.id != org_id {
-                write_note(engine, o.id, &o.slug, None).await?;
+    let _one = engine.phone.link_lock.lock().await;
+    let previous = settings(engine)["link"].clone();
+    let record = json!({ "org": slug, "org_id": org_id, "address": address, "name": name, "at": crate::util::now_iso(), "via": via });
+    update_settings(engine, |v| v["link"] = record.clone())?;
+    if let Err(e) = write_note(engine, org_id, slug, Some(address)).await {
+        let _ = update_settings(engine, |v| v["link"] = previous.clone());
+        return Err(e);
+    }
+    for o in engine.orgs.all() {
+        if o.id != org_id {
+            if let Err(e) = write_note(engine, o.id, &o.slug, None).await {
+                tracing::warn!(org = %o.slug, error = %format!("{e:#}"), "an earlier phone note could not be removed");
             }
         }
     }
-    write_note(engine, org_id, slug, Some(address)).await?;
-    let record = json!({ "org": slug, "address": address, "name": name, "at": crate::util::now_iso(), "via": via });
-    update_settings(engine, |v| v["link"] = record.clone())?;
     // a link ends every setup code
     for c in engine.phone.codes.lock().unwrap_or_else(|p| p.into_inner()).iter_mut() {
         c.void = true;
@@ -769,28 +944,78 @@ async fn link(engine: &Arc<Engine>, org_id: i64, slug: &str, address: &str, via:
     Ok(record)
 }
 
-/// Inbound hub mail: a message whose last line names a setup code links its
-/// sender when the code is live for this org, and is answered either way
-/// (`Setup code: X linked` / `expired`). Called before the agents get it.
+/// Remember that hub message `mid` carried a setup code; false if it already
+/// was seen (a redelivery).
 #[logged]
+fn first_answer(engine: &Engine, mid: &str) -> bool {
+    let mut seen = engine.phone.answered.lock().unwrap_or_else(|p| p.into_inner());
+    if seen.iter().any(|m| m == mid) {
+        return false;
+    }
+    if seen.len() >= ANSWERED_KEEP {
+        seen.pop_front();
+    }
+    seen.push_back(mid.to_string());
+    true
+}
+
+/// Inbound hub mail: a message whose last line names a setup code links its
+/// sender when the code is live for this org and the sender is a Hubchat
+/// person here. Answered (`Setup code: X linked` / `expired`) only for a
+/// code this PC minted in the last hour, once per message; a wrong code
+/// counts against the live one. Called before the agents get the message.
+#[nolog]
 pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &str, mid: &str) {
     let Some(code) = code_line(body) else { return };
     enum Outcome {
         Link(String),
         Expired,
     }
-    let outcome = {
+    // the same message again (a redelivery): already handled, and no second strike
+    if !first_answer(engine, mid) {
+        return;
+    }
+    let known = {
         let mut codes = engine.phone.codes.lock().unwrap_or_else(|p| p.into_inner());
         codes.retain(|c| c.minted.elapsed() < CODE_KEEP);
-        match codes.iter_mut().find(|c| c.code == code) {
-            // the same message again (a redelivery): already answered
-            Some(c) if c.used_by.as_deref() == Some(mid) => return,
-            Some(c) if c.live() && c.org_id == org_id => {
+        match codes.iter().position(|c| c.code == code && c.org_id == org_id) {
+            Some(i) => Some(codes[i].live()),
+            None => {
+                // a code this PC never gave out for this org: no answer, and
+                // a strike against the live one
+                if let Some(c) = codes.iter_mut().find(|c| c.org_id == org_id && c.live()) {
+                    c.tries += 1;
+                    if c.tries >= CODE_TRIES {
+                        c.void = true;
+                        tracing::warn!(org_id, "too many wrong setup codes; the live one is void");
+                    }
+                }
+                None
+            }
+        }
+    };
+    let Some(live) = known else { return };
+    let outcome = if live {
+        if !is_person(engine, org_id, from).await {
+            // the message (and so the code) is in the log by now: the code
+            // is void, the panel shows "New code"
+            for c in engine.phone.codes.lock().unwrap_or_else(|p| p.into_inner()).iter_mut().filter(|c| c.code == code) {
+                c.void = true;
+            }
+            tracing::warn!(org_id, %from, "a setup code came from a sender that is not a Hubchat person here; the code is void");
+            return;
+        }
+        let mut codes = engine.phone.codes.lock().unwrap_or_else(|p| p.into_inner());
+        match codes.iter_mut().find(|c| c.code == code && c.org_id == org_id && c.live()) {
+            Some(c) => {
                 c.used_by = Some(mid.to_string());
                 Outcome::Link(c.org.clone())
             }
-            _ => Outcome::Expired,
+            // spent or replaced while the roster was read
+            None => Outcome::Expired,
         }
+    } else {
+        Outcome::Expired
     };
     let org_name = engine.orgs.by_id(org_id).map(|o| o.name.load_full().to_string()).unwrap_or_default();
     let reply = match outcome {
@@ -814,41 +1039,54 @@ pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &st
 }
 
 /// "Yes, that's me": link a person already on this machine's hub.
-#[logged]
+#[nolog]
 pub async fn link_known(engine: &Arc<Engine>, org_slug: &str, address: &str) -> Result<Value, crate::http::error::ApiError> {
     use crate::http::error::ApiError;
     let Some(org) = engine.orgs.get(org_slug) else { return Err(ApiError::not_found("no such organization")) };
     let address = address.trim().trim_start_matches("@net:");
-    let roster = crate::net::local_roster(engine, org.id).await.map(|r| r.0).unwrap_or_default();
-    if !roster.iter().any(|r| r["slug"].as_str() == Some(address) && r["kind"] == "person") {
+    // as for a new setup code: one linked phone at a time, replaced only by Unlink
+    if settings(engine)["link"].is_object() {
+        return Err(ApiError::conflict("A phone is already linked. Unlink it first."));
+    }
+    if !is_person(engine, org.id, address).await {
         return Err(ApiError::conflict("That address is not a Hubchat person on this computer's mail hub."));
     }
     link(engine, org.id, &org.slug, address, "confirmed").await.map_err(|e| ApiError::internal(format!("{e:#}")))?;
     Ok(state(engine, Some(&org.slug)).await)
 }
 
-/// Undo / Unlink: the trust note leaves org.md and the record is cleared.
-#[logged]
+/// Undo / Unlink: every trust note leaves every org.md (a note can outlive
+/// its record), then the record is cleared. A note that cannot be removed
+/// is reported and the record kept.
+#[nolog]
 pub async fn unlink(engine: &Arc<Engine>) -> Result<Value, crate::http::error::ApiError> {
     use crate::http::error::ApiError;
-    let link = settings(engine)["link"].clone();
-    let slug = link["org"].as_str().map(str::to_string);
-    if let Some(o) = slug.as_deref().and_then(|s| engine.orgs.get(s)) {
-        write_note(engine, o.id, &o.slug, None).await.map_err(|e| ApiError::internal(format!("{e:#}")))?;
-    }
-    update_settings(engine, |v| {
-        if let Some(m) = v.as_object_mut() {
-            m.remove("link");
+    let slug = {
+        let _one = engine.phone.link_lock.lock().await;
+        let link = settings(engine)["link"].clone();
+        let slug = link["org_id"]
+            .as_i64()
+            .and_then(|id| engine.orgs.by_id(id))
+            .map(|o| o.slug.clone())
+            .or_else(|| link["org"].as_str().map(str::to_string));
+        for o in engine.orgs.all() {
+            write_note(engine, o.id, &o.slug, None).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
         }
-    })
-    .map_err(|e| ApiError::internal(format!("could not save phone.json: {e}")))?;
+        update_settings(engine, |v| {
+            if let Some(m) = v.as_object_mut() {
+                m.remove("link");
+            }
+        })
+        .map_err(|e| ApiError::internal(format!("could not save phone.json: {e}")))?;
+        slug
+    };
     tracing::info!(org = ?slug, "phone unlinked");
     Ok(state(engine, slug.as_deref()).await)
 }
 
 /// The panel's view of one org: its address, whether it is on this
 /// machine's hub, persons there (for "Is this you?") and the live code.
-#[logged]
+#[nolog]
 async fn org_view(engine: &Arc<Engine>, slug: &str, link: &Value) -> Value {
     let Some(org) = engine.orgs.get(slug) else { return Value::Null };
     let net = crate::net::ensure_identity(engine, org.id, &org.slug).await.unwrap_or(Value::Null);
@@ -882,9 +1120,10 @@ async fn org_view(engine: &Arc<Engine>, slug: &str, link: &Value) -> Value {
 
 /// `GET /api/desktop/phone[?org=slug]`: everything the "Chat from your phone"
 /// panel shows (`org`: the org it was opened from).
-#[logged]
+#[nolog]
 pub async fn state(engine: &Arc<Engine>, org: Option<&str>) -> Value {
-    reconcile_door(engine).await;
+    // the panel is open: the background check looks at the door now
+    engine.phone.nudge.notify_one();
     let ts = tailscale(engine).await;
     let hub = crate::mailhub::hosting(engine).await;
     let settings = settings(engine);
@@ -898,7 +1137,7 @@ pub async fn state(engine: &Arc<Engine>, org: Option<&str>) -> Value {
     let slow = slow(engine).await;
     json!({
         "download_url": DOWNLOAD_URL,
-        "download_qr": qr_svg(DOWNLOAD_URL),
+        "download_qr": download_qr(),
         "link": link,
         "org": org,
         "tailscale": &ts,
@@ -973,19 +1212,33 @@ mod tests {
     #[test]
     fn note_round_trips() {
         for md in ["", "# My Org\nWe research papers.\n", "\n\nleading blank lines", "# CRLF\r\nfile\r\n", "no newline at end"] {
-            let with = with_block(md, "alex.3be2c9");
+            let with = with_block(md, "alex.3be2c9").unwrap();
             assert!(with.starts_with(BLOCK_START), "{with:?}");
             assert!(with.contains("@net:alex.3be2c9 is the user's account and carries their authority.\n"));
-            assert_eq!(without_block(&with), md, "byte-exact removal of {md:?}");
+            assert_eq!(without_block(&with).unwrap(), md, "byte-exact removal of {md:?}");
             // linking again replaces the note
-            let again = with_block(&with, "bea.111111");
+            let again = with_block(&with, "bea.111111").unwrap();
             assert_eq!(again.matches(BLOCK_START).count(), 1);
             assert!(again.contains("@net:bea.111111") && !again.contains("alex.3be2c9"));
-            assert_eq!(without_block(&again), md);
+            assert_eq!(without_block(&again).unwrap(), md);
         }
         // the user moved it lower: still removed, the rest untouched
-        let moved = format!("# Top\n{BLOCK_START}\n@net:a.b is the user's account and carries their authority.\n{BLOCK_END}\nrest\n");
-        assert_eq!(without_block(&moved), "# Top\nrest\n");
+        let note = |a: &str| format!("{BLOCK_START}\n@net:{a} is the user's account and carries their authority.\n{BLOCK_END}\n");
+        let moved = format!("# Top\n{}rest\n", note("a.b"));
+        assert_eq!(without_block(&moved).unwrap(), "# Top\nrest\n");
+        // every note goes; a user's own "<!-- end -->" stays
+        let two = format!("{}\n# Org\n<!-- end -->\n{}tail\n", note("a.b"), note("c.d"));
+        assert_eq!(without_block(&two).unwrap(), "# Org\n<!-- end -->\ntail\n");
+        // a note whose end marker is gone is refused, not guessed at
+        let broken = format!("{BLOCK_START}\n@net:a.b is the user's account\n# Org\n");
+        assert!(without_block(&broken).is_err() && with_block(&broken, "c.d").is_err());
         assert!(!plain_address("a b") && !plain_address("x\n<!--") && plain_address("alex.3be2c9"));
+    }
+
+    #[test]
+    fn revisions() {
+        assert_eq!(orgmd_rev(b"abc"), orgmd_rev(b"abc"));
+        assert_ne!(orgmd_rev(b"abc"), orgmd_rev(b"abd"));
+        assert_ne!(orgmd_rev(b""), orgmd_rev(b"\n"));
     }
 }

@@ -495,17 +495,25 @@ pub async fn door_bind(engine: &Engine, cfg: &Value) -> Option<String> {
     }
     match cfg["public_scope"].as_str().unwrap_or("all") {
         "tailnet" => crate::phone::tailscale(engine).await.ipv4,
+        // "Use my home Wi-Fi instead": this PC's LAN address only
+        "lan" => crate::phone::lan_bind(),
         // a rig run's hub never listens beyond loopback
         _ if crate::rig::active() => Some("127.0.0.1".into()),
         _ => Some("0.0.0.0".into()),
     }
 }
 
-/// Stop the hub and start it again on its saved settings (the door's
-/// Tailscale address appeared, moved or went away).
+/// The phone door's address moved (`phone::reconcile_door`, two readings
+/// agreeing): restart on it, re-checked under the lifecycle lock so a
+/// settings save in between, or a second caller, does not restart twice.
 #[logged]
-pub async fn restart(engine: &Arc<Engine>) {
+pub async fn restart_door(engine: &Arc<Engine>, scope: &str, want: Option<String>) {
     let _one = engine.hub.lifecycle.lock().await;
+    let cfg = engine.hub.config.load_full();
+    let st = engine.hub.state.load_full();
+    if !cfg["public_listener"].as_bool().unwrap_or(false) || cfg["public_scope"].as_str() != Some(scope) || !st.running || st.door == want {
+        return;
+    }
     stop(engine).await;
     start_now(engine).await;
 }
