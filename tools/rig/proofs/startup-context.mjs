@@ -42,16 +42,14 @@ export default async function (rig) {
   }
   const session = name => rig.agentRow(name)?.session_id
   const resumeArg = s => { const a = s?.args ?? []; const i = a.indexOf('--resume'); return i >= 0 ? a[i + 1] : null }
+  // the CLI's own process, by the pid its start line logged (the engine ends a
+  // replaced CLI without letting it log an exit)
+  const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
+  const cli = name => starts(name).at(-1)?.pid
+  // a live agent's forecast rides the org feed's runtime frame
   const forecast = async name => {
-    const tree = await rig.api('GET', `/api/orgs/${rig.org}`)
-    let found = null
-    const walk = v => {
-      if (found || !v || typeof v !== 'object') return
-      if (v.name === name && 'cache_forecast' in v) { found = v.cache_forecast; return }
-      for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x)
-    }
-    walk(tree)
-    return found
+    const snap = await rig.api('GET', `/api/orgs/${rig.org}/records`)
+    return snap?.runtime?.agents?.[String(rig.agentRow(name)?.id)]?.cache_forecast ?? null
   }
 
   // ---------------------------------------------------------------- sam (Claude)
@@ -62,47 +60,47 @@ export default async function (rig) {
     { claude_md: first?.claude_md, starts: starts('sam').length })
   const sid = session('sam')
 
-  const before = starts('sam').length
+  const before = starts('sam').length, pid1 = cli('sam')
   await pause(30000)   // longer than the idle re-check, with nothing edited
   await turn('sam', 'Hello again, no edit.')
-  p.check('sam: no edit, no new CLI, through an idle re-check and a turn', starts('sam').length === before,
-    { before, after: starts('sam').length })
+  p.check('sam: no edit, no new CLI and no close, through an idle re-check and a turn',
+    starts('sam').length === before && alive(pid1),
+    { starts: [before, starts('sam').length], pid: pid1, alive: alive(pid1) })
 
   write('sam', 'CLAUDE.md', '# Sam\n\nSTANDING NOTES v2\n')
+  const editedAt = Date.now()
   const fc = await rig.waitFor(async () => {
     const f = await forecast('sam')
     return (f?.changed_inputs ?? []).includes('startup') ? f : null
   }, { what: 'sam\'s forecast to list startup', timeout: 60000 }).catch(() => null)
-  p.check('sam: after an edit while idle, his forecast lists "startup" as the changed input', !!fc,
+  p.check('sam: after an edit while idle, his forecast lists "startup" as the changed input (not ready)', !!fc && fc.readiness === 'not_ready',
     { readiness: fc?.readiness, cause: fc?.readiness_cause, changed: fc?.changed_inputs })
-  const replaced = await rig.waitFor(() => starts('sam').length > before ? starts('sam').at(-1) : null,
-    { what: 'sam\'s CLI to be replaced', timeout: 60000 }).catch(() => null)
-  p.check('sam: his parked CLI is replaced before the next turn, resuming the same session with v2',
-    !!replaced && /STANDING NOTES v2/.test(replaced.claude_md ?? '') && resumeArg(replaced) === sid,
-    { claude_md: replaced?.claude_md, resume: resumeArg(replaced), session: sid })
+  // the rig runs with warming off (SAFE_START), so the stale CLI is closed
+  // and not re-warmed; an install re-warms it at once
+  const closed = await rig.waitFor(() => !alive(pid1), { what: 'sam\'s parked CLI to be closed', timeout: 60000 }).then(() => true, () => false)
+  p.check('sam: his parked CLI is closed while he is idle, without waiting for mail', closed && starts('sam').length === before,
+    { pid: pid1, closed, secondsAfterEdit: Math.round((Date.now() - editedAt) / 1000) })
   const n2 = starts('sam').length
   await turn('sam', 'Hello, after the edit.')
   const second = starts('sam').at(-1)
-  p.check('sam: his next turn runs on that CLI (v2); the session is the same, not a fresh one',
-    starts('sam').length === n2 && /STANDING NOTES v2/.test(second?.claude_md ?? '') && session('sam') === sid,
-    { starts: starts('sam').length, claude_md: second?.claude_md, session: session('sam'), was: sid })
+  p.check('sam: his next turn runs on a CLI that read v2 and resumed the SAME session (not a fresh one)',
+    starts('sam').length === n2 + 1 && /STANDING NOTES v2/.test(second?.claude_md ?? '') && resumeArg(second) === sid && session('sam') === sid,
+    { claude_md: second?.claude_md, resume: resumeArg(second), session: session('sam'), was: sid })
 
   // never mid-turn
-  const n3 = starts('sam').length
+  const n3 = starts('sam').length, pid3 = cli('sam')
   await rig.userMail('sam', 'PROOF-LONG: the long job, please.')
   await rig.waitFor(() => rig.fakeLog('sam').some(l => l.kind === 'step' && l.step?.sleep_ms), { what: 'sam to be mid-turn', timeout: 30000 })
   write('sam', 'CLAUDE.md', '# Sam\n\nSTANDING NOTES v3\n')
   await pause(25000)   // past the re-check interval, still inside the turn
-  const midTurn = starts('sam').length
-  const running = rig.turns('sam').some(t => !t.ended_at)
-  await rig.waitTurns('sam', turnsDone('sam') + (running ? 1 : 0), { timeout: 60000 })
-  const ended = Date.now()
-  const third = await rig.waitFor(() => starts('sam').length > n3 ? starts('sam').at(-1) : null,
-    { what: 'sam\'s CLI to be replaced after the long turn', timeout: 60000 }).catch(() => null)
-  p.check('sam: an edit during a turn leaves that turn alone; a CLI that read v3 comes only after it ends',
-    running && midTurn === n3 && !!third && /STANDING NOTES v3/.test(third.claude_md ?? '') && resumeArg(third) === sid
-    && Date.parse(third.at ?? third.ts ?? new Date().toISOString()) >= ended - 5000,
-    { running, midTurn, before: n3, claude_md: third?.claude_md, resume: resumeArg(third) })
+  const mid = { starts: starts('sam').length, alive: alive(pid3), running: rig.turns('sam').some(t => !t.ended_at) }
+  await rig.waitFor(() => rig.turns('sam').every(t => t.ended_at), { what: 'the long turn to end', timeout: 60000 })
+  const after = await rig.waitFor(() => !alive(pid3), { what: 'sam\'s CLI to be closed after the long turn', timeout: 60000 }).then(() => true, () => false)
+  await turn('sam', 'Hello, after the long job.')
+  const third = starts('sam').at(-1)
+  p.check('sam: an edit during a turn leaves that turn alone (its CLI runs on, no new one); after it ends, a CLI that read v3 resumes the session',
+    mid.running && mid.starts === n3 && mid.alive && after && /STANDING NOTES v3/.test(third?.claude_md ?? '') && resumeArg(third) === sid,
+    { mid, before: { starts: n3, pid: pid3 }, closedAfter: after, claude_md: third?.claude_md, resume: resumeArg(third) })
 
   // ---------------------------------------------------------------- cora (Codex)
   write('cora', 'AGENTS.md', '# Cora\n\nCODEX NOTES v1\n')
