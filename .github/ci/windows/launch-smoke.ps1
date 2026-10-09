@@ -37,9 +37,16 @@ function Save-Diagnostics {
 
 try {
 
-Write-Host "=== Silent per-user install: $Installer"
-$p = Start-Process -FilePath $Installer -ArgumentList '/S' -PassThru -Wait
+# Run a copy: Setup writes orgtree-installer.log beside itself ($EXEDIR,
+# build/installer.nsh), and the artifact folder must hold only the release assets.
+$setup = Join-Path $WorkDir (Split-Path $Installer -Leaf)
+Copy-Item $Installer $setup -Force
+Write-Host "=== Silent per-user install: $setup"
+$p = Start-Process -FilePath $setup -ArgumentList '/S' -PassThru -Wait
+$installerLog = Join-Path $WorkDir 'orgtree-installer.log'
+if (Test-Path $installerLog) { Write-Host '--- orgtree-installer.log (tail)'; Get-Content $installerLog -Tail 20 | Write-Host }
 if ($p.ExitCode -ne 0) { throw "Installer exited with $($p.ExitCode)" }
+Remove-Item $setup -Force
 $installDir = Join-Path $env:LOCALAPPDATA 'Programs\Orgtree'
 $app = Join-Path $installDir 'Orgtree.exe'
 $engine = Join-Path $installDir 'resources\engine\orgtree-engine.exe'

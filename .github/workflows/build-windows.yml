@@ -254,6 +254,21 @@ jobs:
           -Version '${{ steps.package.outputs.version }}'
           -WorkDir "$env:RUNNER_TEMP/smoke"
 
+      # The artifact contract: exactly the canonical six, by name. The channel
+      # file follows the version as in tools/release-windows.mjs channelFileName.
+      - name: Check the artifact holds exactly the canonical six
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          INSTALLER: ${{ steps.package.outputs.installer }}
+        run: |
+          $channel = if ($env:VERSION -match '-(alpha|beta)\.\d+$') { "$($Matches[1]).yml" } else { 'latest.yml' }
+          $want = @('build-info.json', 'engine-hashes.json', $channel, $env:INSTALLER, "$env:INSTALLER.blockmap", 'packaged-hashes.json') | Sort-Object
+          $have = @(Get-ChildItem "$env:RUNNER_TEMP/orgtree-windows" -Force | ForEach-Object Name) | Sort-Object
+          Write-Host "expected: $($want -join ', ')"
+          Write-Host "found:    $($have -join ', ')"
+          $diff = Compare-Object $want $have
+          if ($diff) { $diff | Format-Table | Out-String | Write-Host; throw 'orgtree-windows does not hold exactly the canonical six' }
+
       - name: Upload orgtree-windows
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
