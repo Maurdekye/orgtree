@@ -120,6 +120,10 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const selfStatus = view.family === 'status' && event.actor.kind === 'agent'
     && event.object?.kind === 'node' && event.object.id === event.actor.id
     && (!('org' in event.object) || event.object.org === org)
+  // A watchdog's own fire names the dog once, by its name: a new dog's name
+  // is its id (D67), and an older dog's random id stays out of the header.
+  const selfDog = event.actor.kind === 'watchdog' && event.object?.kind === 'watchdog'
+    && event.object.id === event.actor.id
   // Answered questions draw as a shrunken question card instead of a field dump.
   const answeredAsk = event.variant === 'answer.ask'
   const askQuestions = event.variant === 'answer.batch' ? batchAskQuestions(event) : []
@@ -143,11 +147,11 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
       <span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
       <strong>{view.title}</strong>
       <span className="event-actor" data-actor-kind={event.actor.kind}>
-        {selfStatus ? <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />
+        {selfStatus || selfDog ? <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />
           : event.actor.kind === 'agent' && actor ? actor(event.actor.id)
           : event.actor.kind === 'system' ? 'System' : event.actor.kind === 'user' ? 'User' : event.actor.id}
       </span>
-      {!selfStatus && <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />}
+      {!selfStatus && !selfDog && <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />}
       {header.map(f => <div className="event-head-field" key={f.key} data-event-field={f.key}>
         <span className="dim">{f.label}: </span><Value value={humanValue(f.value, f.type, profile)} {...content} profile={profile} org={org} actor={actor} />
       </div>)}
