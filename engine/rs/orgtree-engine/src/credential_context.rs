@@ -26,6 +26,16 @@ pub struct CredentialContext {
     probing: std::sync::atomic::AtomicBool,
 }
 
+#[cfg(test)]
+impl CredentialContext {
+    /// No probe: a test never looks at the machine's sessions or credential vault.
+    pub fn for_tests() -> Self {
+        let status = Status { process_session: None, console_session: None, process_user_signed_in: None,
+            console_user_signed_in: None, logon_type: None, vault: "not_applicable", vault_error: None, warning: None };
+        Self { state: ArcSwap::from_pointee(status), probing: std::sync::atomic::AtomicBool::new(false) }
+    }
+}
+
 #[logged]
 impl CredentialContext {
     pub fn new() -> Self {

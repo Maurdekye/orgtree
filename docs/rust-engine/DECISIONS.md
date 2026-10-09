@@ -489,3 +489,31 @@ All entries are dated 2026-10-06 unless stated otherwise.
     presets (`~/.orgtree/charters/`, made by "populate") shadows the bundled file and keeps the
     old wording, as do the charters of agents already hired from it. Proof:
     `tools/rig/proofs/team-shape.mjs`.
+
+66. **The tool bridge is a Unix socket on macOS and Linux** (user 2026-10-09 20:27Z: Mac and
+    Linux agents must have their Orgtree tools before 4.1.0 is announced). Only the
+    Antigravity lane uses the bridge (`runtime/agy.rs`): Claude Code agents get the tools as an
+    SDK MCP server over the CLI's stdio, and Codex agents as app-server `dynamicTools`, on every
+    platform. The bridge was a Windows named pipe only, so Antigravity agents on macOS and
+    Linux had none.
+    - **Where:** `orgtree-mcp-<16 hex>` (8 random bytes; the pipe keeps its 16) in the first
+      of these whose path fits a socket address (under 104 bytes on macOS, 108 on Linux):
+      `<data>/bridge`, `$XDG_RUNTIME_DIR/orgtree-<tag>`, `$TMPDIR` (else `/tmp`)
+      `/orgtree-<uid>-<tag>`. The tag is 4 bytes of the data folder's SHA-256, so engines with
+      different data folders never share a folder.
+    - **Who:** the folder is created 0700. An existing one must be a real folder this user
+      owns (a symlink or another user's folder is skipped), and it loses any group or other
+      access. The socket is 0600, and a peer whose uid isn't the engine's is dropped (beyond
+      what the folder already ensures; root aside). No TCP.
+    - **Lifetime:** the socket file goes when its agent process's token is cancelled or the
+      engine stops. At its start the engine removes the `orgtree-mcp-*` files a killed run
+      left in its folders. A failed accept (a peer gone before it was accepted, no file
+      handles to spare) waits 50 ms and keeps serving, where the Windows loop stops on a
+      failed connect.
+    - **Relay:** `mcp-bridge --pipe <path>` connects, retrying for up to 5 s while the backlog
+      is full (EAGAIN on Linux, ECONNREFUSED on macOS, as on PIPE_BUSY), and copies stdio both
+      ways. The MCP config already passes the path as one argument.
+    - **Windows** behaves as before: the pipe code is unchanged, and the relay's
+      connect-and-copy and the per-connection loop are shared. One round-trip test
+      (initialize, tools/list, a real `orgtree_list_tiers` call) runs on every platform. The
+      credential bridge stays Windows-only.

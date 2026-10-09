@@ -2,7 +2,8 @@
 //! --output-format stream-json`, kept running with its input open so one
 //! process serves many turns (`--conversation <id>` resumes after a
 //! restart). The agent's tools reach it as a workspace MCP plugin pointing
-//! at `orgtree-engine mcp-bridge` over a private named pipe; a narrowed
+//! at `orgtree-engine mcp-bridge` over a private named pipe (a Unix socket
+//! on macOS and Linux; see bridge.rs); a narrowed
 //! seat's scope is enforced by a PreToolUse hook (the CLI runs with
 //! `--dangerously-skip-permissions`, because print mode cannot prompt).
 //! Mid-turn mail reaches a running turn through the CLI's invocation hooks
@@ -90,7 +91,7 @@ impl AgyProc {
     pub async fn spawn(engine: Arc<Engine>, spec: AgySpec, caller: Caller, actor: AgentTx) -> Result<AgyProc> {
         let pipe = CancellationToken::new();
         let pipe_name = crate::bridge::serve(engine.clone(), caller.clone(), pipe.clone())?;
-        write_workspace(&spec, &pipe_name)?;
+        write_workspace(&spec, &pipe_name, &engine.cfg.data_root)?;
         let mut cmd = Command::new(&spec.exe);
         cmd.arg("-p=")
             .args(["--input-format", "stream-json", "--output-format", "stream-json"])
@@ -275,9 +276,10 @@ fn cmd_token(path: &str) -> Option<String> {
 /// The hooks.json command for the wrapper at `path`. The CLI hands it to cmd
 /// through Go's argument escaping, so it may hold no quote and no space: the
 /// path itself or its 8.3 alias, else the turn must not run unenforced.
-fn hook_command(path: &Path) -> Result<String> {
+/// Elsewhere see `sh_command`.
+fn hook_command(path: &Path, data_root: &Path) -> Result<String> {
     if !cfg!(windows) {
-        return Ok(path.to_string_lossy().to_string());
+        return sh_command(path, data_root);
     }
     let plain = path.to_string_lossy().to_string();
     if let Some(t) = cmd_token(&plain) {
@@ -293,11 +295,51 @@ fn hook_command(path: &Path) -> Result<String> {
     ))
 }
 
+/// The hooks.json command for the wrapper at `path` on macOS and Linux, where
+/// the CLI runs it through a shell as it does through cmd on Windows
+/// (inferred): the path itself when a shell takes it as one word, else a copy
+/// in a private folder of this engine's whose path it does (a wrapper names
+/// every path it uses, so it runs from anywhere), else the turn must not run
+/// unenforced. Data folders have spaces there ("Orgtree v2").
+#[cfg(unix)]
+#[logged]
+fn sh_command(path: &Path, data_root: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::PermissionsExt;
+    let plain = path.to_string_lossy().to_string();
+    if crate::bridge::shell_safe(&plain) {
+        return Ok(plain);
+    }
+    let Some(dir) = crate::bridge::shell_safe_dir(data_root) else {
+        return Err(anyhow!(
+            "cannot install the orgtree hooks for this agent: a shell would split {plain} (a space or another character it treats \
+             specially), and no private folder under $XDG_RUNTIME_DIR, $TMPDIR or /tmp is free of them. Refusing to start the turn \
+             — a narrowed seat whose hook does not run would get full tool access."
+        ));
+    };
+    let copy = dir.join(format!("orgtree-hook-{}.sh", hex::encode(&Sha256::digest(plain.as_bytes())[..8])));
+    std::fs::copy(path, &copy)?;
+    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o700))?;
+    Ok(copy.to_string_lossy().to_string())
+}
+
+#[cfg(not(unix))]
+#[logged]
+fn sh_command(path: &Path, _data_root: &Path) -> Result<String> {
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// `s` as one POSIX shell word: single-quoted, any `'` closed, escaped and reopened.
+#[logged]
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// Everything the CLI discovers in the agent's folder: the identity
 /// (AGENTS.md), the tools (a workspace plugin), and — for a narrowed seat —
 /// the rights hook; a full-rights seat gets the hook files removed.
 #[logged]
-fn write_workspace(spec: &AgySpec, pipe: &str) -> Result<()> {
+fn write_workspace(spec: &AgySpec, pipe: &str, data_root: &Path) -> Result<()> {
     let cwd = &spec.cwd;
     std::fs::create_dir_all(cwd)?;
     std::fs::write(cwd.join("AGENTS.md"), &spec.identity)?;
@@ -348,7 +390,8 @@ fn write_workspace(spec: &AgySpec, pipe: &str) -> Result<()> {
         if cfg!(windows) {
             std::fs::write(&wrapper, format!("@echo off\r\n\"{exe}\" agy-hook \"%~dp0orgtree-rights.json\"\r\n"))?;
         } else {
-            std::fs::write(&wrapper, format!("#!/bin/sh\nexec \"{exe}\" agy-hook \"$(dirname \"$0\")/orgtree-rights.json\"\n"))?;
+            // the deny file by its full path: the wrapper may run from a copy elsewhere (sh_command)
+            std::fs::write(&wrapper, format!("#!/bin/sh\nexec {} agy-hook {}\n", sh_quote(&exe), sh_quote(&deny_file.to_string_lossy())))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -356,15 +399,17 @@ fn write_workspace(spec: &AgySpec, pipe: &str) -> Result<()> {
             }
         }
         // resolved before hooks.json is written, so a refusal never leaves an unenforced seat behind
-        let command =
-            hook_command(&std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()))?;
+        let command = hook_command(
+            &std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()),
+            data_root,
+        )?;
         doc.insert(
             "orgtree-rights".into(),
             json!({ "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": command, "timeout": 20 }] }] }),
         );
     }
     // mid-turn mail: the invocation hooks hand a waiting message to the CLI
-    match steering_hooks(&agents, &exe) {
+    match steering_hooks(&agents, &exe, data_root) {
         Ok(steer) => {
             doc.insert("orgtree-steering".into(), steer);
         }
@@ -387,7 +432,7 @@ pub fn steer_dir(cwd: &Path) -> PathBuf {
 /// PreInvocation and PostInvocation hooks running `orgtree-engine agy-steer`,
 /// with the steer folder cleared of any earlier process's handoff.
 #[logged]
-fn steering_hooks(agents: &Path, exe: &str) -> Result<Value> {
+fn steering_hooks(agents: &Path, exe: &str, data_root: &Path) -> Result<Value> {
     let dir = agents.join("steer");
     std::fs::create_dir_all(&dir)?;
     for f in ["pending.json", "claimed.json", "emitted.json", "emitted.tmp", "pending.tmp"] {
@@ -399,15 +444,17 @@ fn steering_hooks(agents: &Path, exe: &str) -> Result<Value> {
         if cfg!(windows) {
             std::fs::write(&wrapper, format!("@echo off\r\n\"{exe}\" agy-steer {stage}\r\n"))?;
         } else {
-            std::fs::write(&wrapper, format!("#!/bin/sh\nexec \"{exe}\" agy-steer {stage}\n"))?;
+            std::fs::write(&wrapper, format!("#!/bin/sh\nexec {} agy-steer {stage}\n", sh_quote(exe)))?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 let _ = std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755));
             }
         }
-        let command =
-            hook_command(&std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()))?;
+        let command = hook_command(
+            &std::fs::canonicalize(&wrapper).map(|p| crate::config::strip_verbatim(&p)).unwrap_or(wrapper.clone()),
+            data_root,
+        )?;
         events.insert(event.into(), json!([{ "type": "command", "command": command, "timeout": 20 }]));
     }
     Ok(Value::Object(events))
@@ -431,4 +478,50 @@ pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
         (2.00, 0.20, 12.00)
     };
     (input as f64 * pi + cached as f64 * pc + output as f64 * po) / 1e6
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("orgtree-agy-{tag}-{}", crate::util::random_hex(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A shell runs a hook wrapper whose own path it would split (the data
+    /// folder is "Orgtree v2") through its shell-safe private copy; a path it
+    /// takes whole is used as it is.
+    #[test]
+    fn a_hook_under_a_spaced_folder_runs_through_a_shell() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tmp("hook");
+        let data = root.join("Orgtree v2").join("data");
+        let agents = data.join("scratch").join("org").join("ann").join(".agents");
+        std::fs::create_dir_all(&agents).unwrap();
+        let ran = root.join("ran.txt");
+        let wrapper = agents.join("orgtree-rights.sh");
+        std::fs::write(&wrapper, format!("#!/bin/sh\necho ran > {}\n", sh_quote(&ran.to_string_lossy()))).unwrap();
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let command = sh_command(&wrapper, &data).expect("a command");
+        assert!(crate::bridge::shell_safe(&command) && command != wrapper.to_string_lossy(), "{command}");
+        assert_eq!(std::fs::metadata(&command).unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(std::process::Command::new("sh").args(["-c", &command]).status().unwrap().success());
+        assert_eq!(std::fs::read_to_string(&ran).unwrap().trim(), "ran");
+        let plain = root.join("plain.sh");
+        std::fs::write(&plain, "#!/bin/sh\n").unwrap();
+        assert_eq!(sh_command(&plain, &data).unwrap(), plain.to_string_lossy());
+        let _ = std::fs::remove_file(&command);
+        let _ = std::fs::remove_dir(Path::new(&command).parent().unwrap());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A quoted word reaches the command whole, quotes and `$` inside it too.
+    #[test]
+    fn sh_quote_keeps_one_word() {
+        let s = "it's a folder/with $HOME and `x`";
+        let out = std::process::Command::new("sh").args(["-c", &format!("printf %s {}", sh_quote(s))]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), s);
+    }
 }

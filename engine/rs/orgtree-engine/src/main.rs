@@ -209,6 +209,9 @@ async fn run_with_cluster(
 
     progress("engine-load-orgs");
     credential_context::start(&engine);
+    // tool-bridge sockets a killed earlier run left (Windows pipes go with their process)
+    #[cfg(unix)]
+    bridge::clear_stale(&engine.cfg.data_root);
     orgs::load_all(&engine).await?;
     appfeed::start(&engine, app_inbox);
     // orgs a first-start import could not copy: one line each in the org list
