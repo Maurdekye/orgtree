@@ -218,6 +218,26 @@ test('the superior picker is the Agents List: its rows, its order, filter, arrow
   } finally { await bare.unmount(); localStorage.clear() }
 })
 
+test('the model chips close once the pointer strays ~70px away, not before it has come near', async () => {
+  localStorage.clear(); providers(['claude'])
+  const view = await mount([], [])
+  const move = (x: number, y: number) => inAct(async () => {
+    document.dispatchEvent(new window.MouseEvent('pointermove', { clientX: x, clientY: y, bubbles: true }))
+    await flush(2)
+  })
+  try {
+    await click(view.el.querySelector('.quickchat-model'))
+    // jsdom lays everything out at 0,0: the zone is -70..70 around it
+    await move(400, 400)
+    assert.ok(document.querySelector('.quickchat-pop.quickchat-pop-model'), 'not armed until the pointer has been near')
+    await move(60, 60)
+    assert.ok(document.querySelector('.quickchat-pop.quickchat-pop-model'), 'within the margin it stays')
+    await move(90, 10)
+    assert.ok(!document.querySelector('.quickchat-pop.quickchat-pop-model'), 'past the margin it closes')
+    assert.ok(document.querySelector('.quickchat-leaving'), '...with the fade-out')
+  } finally { await view.unmount(); localStorage.clear() }
+})
+
 test('the model picker is the hire chips; the effort bar sets the effort', async () => {
   localStorage.clear(); providers(['claude'])
   const view = await mount([], [])

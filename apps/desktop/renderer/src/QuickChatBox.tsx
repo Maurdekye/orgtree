@@ -46,6 +46,8 @@ export type AgentListSource = (query: string) => { map: Map<string, CanvasNode>;
 type PopKind = 'superior' | 'model' | 'files'
 /** the canvas hire strip's fade (`.hsof` opacity transition, styles.css) */
 const FADE_MS = 150
+/** how far the pointer may stray from the model chips (or their button) before they close */
+const LEAVE_PX = 70
 
 export function QuickChat({ slug, tree, op, toast, onHired, agentList }: {
   slug: string
@@ -363,6 +365,26 @@ function Pop({ anchor, onClose, kind, leaving, children }: {
       doc.removeEventListener('keydown', key, true)
     }
   }, [doc, anchor, leaving])
+  // the model chips close themselves once the pointer wanders off (user
+  // 2026-10-10), fading out like any close: farther than LEAVE_PX from both
+  // the chips and their button. Armed only once the pointer has been inside
+  // that zone, so a picker opened from the keyboard waits for the mouse.
+  useEffect(() => {
+    if (leaving || kind !== 'model') return
+    let armed = false
+    const near = (x: number, y: number, el: Element | null) => {
+      if (!el) return false
+      const b = el.getBoundingClientRect()
+      return x >= b.left - LEAVE_PX && x <= b.right + LEAVE_PX && y >= b.top - LEAVE_PX && y <= b.bottom + LEAVE_PX
+    }
+    const move = (e: PointerEvent) => {
+      const inside = near(e.clientX, e.clientY, ref.current) || near(e.clientX, e.clientY, anchor)
+      if (inside) armed = true
+      else if (armed) closeRef.current()
+    }
+    doc.addEventListener('pointermove', move, true)
+    return () => doc.removeEventListener('pointermove', move, true)
+  }, [doc, anchor, kind, leaving])
   return createPortal(
     <div ref={ref} className={(leaving ? 'quickchat-leaving' : 'quickchat-pop') + ' quickchat-pop-' + kind}
       role={leaving ? undefined : 'dialog'} aria-hidden={leaving || undefined}
