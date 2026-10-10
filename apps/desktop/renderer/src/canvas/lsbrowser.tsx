@@ -207,7 +207,7 @@ export function LangServerBrowser({ title, models, missing, picked, minContext, 
                 <b className="mono">{r.id}</b>
                 <span className="dim" title={r.m ? probeFacts(r.m) : undefined}>
                   {r.m ? probeFacts(r.m) || 'the server says nothing more about it' : 'the server no longer lists it'}</span>
-                {mismatch && <span className="ask-warn-inline ls-mismatch">{mismatch}</span>}
+                {mismatch && <span className="ask-warn ls-mismatch">{mismatch}</span>}
               </span>
               {on && w != null
                 ? <WindowInput id={r.id} value={w} min={minContext} busy={busy} onChange={(v) => onPick(r.id, v)} />

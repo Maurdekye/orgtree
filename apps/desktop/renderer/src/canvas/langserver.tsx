@@ -224,7 +224,7 @@ function MismatchLines({ items }: { items: { id: string, text: string }[] }) {
     <div className="ls-mismatches" role="status">
       {items.map((x) => (
         <div key={x.id} className="ls-mismatch-line">
-          <span className="mono">{x.id}</span>: <span className="ask-warn-inline">{x.text}</span>
+          <span className="mono">{x.id}</span>: <span className="ask-warn">{x.text}</span>
         </div>
       ))}
     </div>
