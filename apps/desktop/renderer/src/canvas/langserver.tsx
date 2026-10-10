@@ -31,7 +31,7 @@ import {
 } from '../api'
 import type { LangServerModelPick } from '../api'
 import { useAppValue } from '../appfeed'
-import { AutorenewIcon, CheckIcon, CloseIcon, DeleteIcon, EditIcon } from '../icons'
+import { AutorenewIcon, CheckIcon, DeleteIcon, EditIcon } from '../icons'
 import type {
   LangServer, LangServerDoc, LangServerModel, LangServerPreset, LangServerProbe,
   LangServerProbeModel, ProviderInfo,
@@ -322,11 +322,10 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
           })} />
       ))}
       <div className="ls-actions">
-        <button type="button" className="acct-btn acct-add" disabled={busy || !address.trim() || !harnessOk}
+        <button type="button" className="acct-secondary-btn" disabled={busy || !address.trim() || !harnessOk}
           title={harnessOk ? 'add this server' : 'no installed harness can drive this kind of server'}
-          onClick={submit}><CheckIcon fontSize="inherit" /> add</button>
-        <button type="button" className="acct-btn" disabled={busy} title="cancel" onClick={onCancel}>
-          <CloseIcon fontSize="inherit" /> cancel</button>
+          onClick={submit}>Add server</button>
+        <button type="button" className="acct-secondary-btn" disabled={busy} onClick={onCancel}>Cancel</button>
         {!models.length && <span className="dim">No model picked yet: you can find and offer models later.</span>}
       </div>
     </div>
@@ -450,11 +449,11 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
             onChange={(e) => setBasePath(e.target.value)} />
         </SetRow>}
         <div className="ls-actions">
-          <button type="button" className="acct-btn acct-add" disabled={busy || !label.trim() || !address.trim()}
-            onClick={save}><CheckIcon fontSize="inherit" /> save</button>
-          <button type="button" className="acct-btn" disabled={busy}
+          <button type="button" className="acct-secondary-btn" disabled={busy || !label.trim() || !address.trim()}
+            onClick={save}>Save</button>
+          <button type="button" className="acct-secondary-btn" disabled={busy}
             onClick={() => { setEditing(false); setLabel(s.label); setAddress(s.address); setBasePath(s.base_path) }}>
-            <CloseIcon fontSize="inherit" /> cancel</button>
+            Cancel</button>
         </div>
       </>}
       <SetToggle label="offer this server’s models to new hires" checked={s.enabled} disabled={busy}
