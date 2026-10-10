@@ -342,9 +342,14 @@ pub async fn history(engine: &Engine, range: &str) -> anyhow::Result<Value> {
     }
     let view = engine.accounts.view();
     let labels: std::collections::HashMap<String, String> = labels.iter().map(|r| (r.get(0), r.get(1))).collect();
-    let account_label = |id: &str| view.get(id).map(|a| a.display())
-        .or_else(|| labels.get(id).cloned())
-        .unwrap_or_else(|| id.to_string());
+    // the login's email where the registry knows it, else the one its readout carried
+    let account_label = |id: &str| {
+        let a = view.get(id);
+        a.filter(|a| a.email.as_deref().is_some_and(|e| !e.is_empty())).map(|a| a.display())
+            .or_else(|| labels.get(id).cloned())
+            .or_else(|| a.map(|a| a.display()))
+            .unwrap_or_else(|| id.to_string())
+    };
     let series: Vec<Value> = metas.iter().take(MAX_SERIES as usize).map(|r| {
         let account: String = r.get(0);
         let used: Option<f64> = r.get(6);
