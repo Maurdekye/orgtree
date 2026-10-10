@@ -24,7 +24,8 @@ module.exports = async (page, { args }) => {
       head: text(sec?.querySelector('.set-group-head')),
       servers: [...(sec?.querySelectorAll('.ls-server') ?? [])].map((s) => ({
         head: text(s.querySelector('.ls-server-head')),
-        models: [...s.querySelectorAll('.ls-chip .orr-sel-name')].map(text),
+        // the offered models: the card's lit chips
+        models: [...s.querySelectorAll('.ls-toggles .orr-tog.on')].map((c) => text(c.querySelector('.orr-sel-name')) || c.getAttribute('aria-label')),
       })),
       form: text(sec?.querySelector('.ls-add')),
       presets: [...(sec?.querySelectorAll('.ls-add select[aria-label="kind of server"] option') ?? [])].map(text),

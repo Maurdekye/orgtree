@@ -45,7 +45,8 @@ module.exports = async (page, { args }) => {
       head: t(c?.querySelector('.ls-server-head')),
       buttons: [...(c?.querySelectorAll('.acct-main > .acct-btn') ?? [])].map((b) => ({ title: b.getAttribute('title'), text: t(b), icon: !!b.querySelector('svg') })),
       digest: [...(c?.querySelectorAll('.acct-provenance span') ?? [])].map(t),
-      chips: [...(c?.querySelectorAll('.ls-chip') ?? [])].map((x) => ({ letter: t(x.querySelector('.orr-card')), name: t(x.querySelector('.orr-sel-name')), title: x.getAttribute('title') })),
+      // the offered models: the card's lit chips (a click switches them since 2026-10-10)
+      chips: [...(c?.querySelectorAll('.ls-toggles .orr-tog.on') ?? [])].map((x) => ({ letter: t(x.querySelector('.orr-card')), name: t(x.querySelector('.orr-sel-name')) || x.getAttribute('aria-label'), title: x.getAttribute('title') })),
       mismatches: [...(c?.querySelectorAll('.ls-mismatch-line') ?? [])].map(t),
       editable: (c?.querySelectorAll('input, select, textarea') ?? []).length,
     }
@@ -125,7 +126,7 @@ module.exports = async (page, { args }) => {
   await tap(`${card} .ls-edit button`, '^Cancel$')
   await page.waitFor(`${card} .ls-edit`, { timeout: 10000, gone: true }).catch(() => null)
   await page.sleep(600)
-  const afterCancel = await page.eval((sel) => [...document.querySelectorAll(`${sel} .ls-chip .orr-sel-name`)]
+  const afterCancel = await page.eval((sel) => [...document.querySelectorAll(`${sel} .ls-toggles .orr-tog.on .orr-sel-name`)]
     .map((x) => (x.innerText || '').trim()), card)
   // ✎ again: a new seat price, Save
   await tap(`${card} button[title="edit this server"]`)
