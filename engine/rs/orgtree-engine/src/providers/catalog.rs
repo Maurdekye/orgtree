@@ -70,6 +70,11 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "barium", provider: GOOGLE, seat: 2.0, model: "gemini-4-barium",
         versions: &[], letter: "B",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
+    // speculative Gemini 4 Carbon (user 2026-10-10): a copy of Barium, offered
+    // only while the account's `agy models` lists it
+    Tier { tier: "carbon", provider: GOOGLE, seat: 2.0, model: "gemini-4-carbon",
+        versions: &[], letter: "C",
+        context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
     Tier { tier: "agy-sonnet", provider: GOOGLE, seat: 2.0, model: "claude-sonnet-5-5-high",
         versions: &[], letter: "S",
         context: None, live_effort: false, legacy: false, conditional: false, prices: None },

@@ -390,8 +390,7 @@ pub fn payload(engine: &Engine) -> Value {
             if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
                 return false;
             }
-            let cond = catalog::tier(tier).map(|x| x.conditional).unwrap_or(false);
-            !cond || st.agy_models.iter().any(|m| m.starts_with(t["model"].as_str().unwrap_or("?")))
+            agy_offers(tier, &st.agy_models)
         });
         providers.push(entry(catalog::GOOGLE, "Antigravity", "agy", &st.agy, tiers));
     }
@@ -449,6 +448,17 @@ pub fn payload(engine: &Engine) -> Value {
     })
 }
 
+/// Whether an Antigravity tier is offered: always, unless it is CONDITIONAL
+/// (Argon, Barium, Carbon), which is offered only while the account's
+/// `agy models` lists its model (a listed variant such as `-high` counts).
+#[nolog]
+fn agy_offers(tier: &str, listed: &[String]) -> bool {
+    match catalog::tier(tier) {
+        Some(t) if t.conditional => listed.iter().any(|m| m.starts_with(t.model)),
+        _ => true,
+    }
+}
+
 #[logged]
 pub fn publish(engine: &Engine) {
     engine.app.set_value("providers", payload(engine));
@@ -466,4 +476,24 @@ pub fn start(engine: &Arc<Engine>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod conditional_tests {
+    use super::agy_offers;
+
+    #[test]
+    fn carbon_is_offered_only_while_agy_lists_it() {
+        let without: Vec<String> = ["gemini-3.8-flash", "gemini-4-argon", "gemini-4-barium-high"].map(String::from).to_vec();
+        assert!(!agy_offers("carbon", &without));
+        assert!(!agy_offers("carbon", &[]));
+        for listed in ["gemini-4-carbon", "gemini-4-carbon-high", "gemini-4-carbon-low"] {
+            assert!(agy_offers("carbon", &[listed.to_string()]), "{listed}");
+        }
+        // the three conditional tiers are judged independently; flash is never conditional
+        assert!(agy_offers("argon", &without) && agy_offers("barium", &without));
+        assert!(agy_offers("flash", &[]));
+        let row = super::catalog::tier("carbon").unwrap();
+        assert_eq!((row.provider, row.model, row.letter, row.seat, row.conditional), (super::catalog::GOOGLE, "gemini-4-carbon", "C", 2.0, true));
+    }
 }

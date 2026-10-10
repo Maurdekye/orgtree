@@ -469,7 +469,7 @@ pub fn request_cost(model: &str, input: i64, cached: i64, output: i64) -> f64 {
     if model.starts_with("claude-") {
         return 0.0;
     }
-    let pro = ["gemini-3.1-pro", "gemini-4-argon", "gemini-4-barium"].contains(&model);
+    let pro = ["gemini-3.1-pro", "gemini-4-argon", "gemini-4-barium", "gemini-4-carbon"].contains(&model);
     let (pi, pc, po) = if model.contains("flash") {
         (0.75, 0.075, 3.75)
     } else if pro && input + cached > 200_000 {
