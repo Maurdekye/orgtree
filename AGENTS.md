@@ -243,6 +243,22 @@ plan and this file. Read both before you change anything. All entries below: 202
   migrations are embedded in the binary (`engine/rs/orgtree-engine/migrations/`). At first start
   it imports the 3.2 per-org databases **read-only**; the old databases and files are never
   changed. [verified: `src/pg.rs`; PLAN §3, §8]
+- Stopping: the engine's callers kill its whole tree (PostgreSQL with it) soon after asking it to
+  stop: the desktop's Quit after 8 s for an engine it started (3 s request + 5 s, `stop()` in
+  `apps/desktop/main/engine.ts`) and after about 12 s for an attached one (`stopForQuit`, the whole
+  quit capped at 26 s); the background host after 15 s (`host.rs`: 5 s request + `SHUTDOWN_WAIT`
+  10 s); the installer upgrade waits 45 s and never kills (it offers Retry/Cancel); the rig keeper
+  after 45 s (run.json `stopKillMs`). A killed cluster's next start fsyncs its whole data folder
+  before WAL replay: 5-185 s in the rig on a busy disk. The engine reaches the database stop
+  within 0.1-0.5 s of the request (agents mid-turn included); `pg_ctl stop -m fast` then gets 120 s
+  (`STOP_WAIT` in `src/pg.rs`), and `checkpoint_timeout` is 5 min so a stop has little to flush
+  (the live cluster dirties 0.7-1 MB a minute, p99 2.4). A CHECKPOINT before the stop, early or
+  late, was measured and dropped: with nothing to overlap it only adds a second checkpoint's
+  fixed cost. On a disk saturated with fsyncs even a 4 MB stop takes 3-7 s, so the 8 s budget is
+  not guaranteed there; the live disk's shutdown checkpoints take under 0.3 s. Measure before
+  changing any of these numbers: `tools/rig/proofs/pg-stop.mjs` stops a run with fsync on under
+  each budget. [measured: rig pg-stop and a read-only summary of the live cluster's checkpoint
+  log, 2026-10-10; decided: coordinator 2026-10-10]
 - Engine log: one file per start, `<data>\diagnostics\logs\<start time>.log`, kept 30 days.
   Every line prefixes the emitting Tokio task as `T<id>`, or `T-` outside a task;
   this is read at emission, independent of inherited request/client/frame spans.
