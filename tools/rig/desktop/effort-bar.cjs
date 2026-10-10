@@ -14,16 +14,18 @@ module.exports = async (page, { args }) => {
   const eff = '.cc-eff'
   await page.waitFor(eff, { timeout: 30000 })
   await page.click(eff)
-  await page.waitFor('.effort-bar-track', { timeout: 10000 })
-  const rect = () => page.eval(() => { const r = document.querySelector('.effort-bar-track').getBoundingClientRect(); return { x: r.left, y: r.top + r.height / 2, w: r.width } })
-  const label = () => page.eval(() => document.querySelector('.effort-bar-label')?.innerText)
+  await page.waitFor('.eff-pop .effort-bar-track', { timeout: 10000 })
+  const rect = () => page.eval(() => { const r = document.querySelector('.eff-pop .effort-bar-track').getBoundingClientRect(); return { x: r.left, y: r.top + r.height / 2, w: r.width } })
+  const label = () => page.eval(() => document.querySelector('.eff-pop .effort-bar-label')?.innerText)
+  await page.sleep(600)
   const r0 = await rect()
-  await page.sleep(300)
+  page.log('track', r0)
   await page.screenshot('effort-rest')
   const rest = await label()
   // hover between two dots: the label previews the level a click would pick
   await page.hover({ x: r0.x + r0.w * 0.72, y: r0.y })
   const hovered = await label()
+  page.log('hovered', hovered, await page.eval(() => document.elementFromPoint(window.innerWidth/2, 10)?.className))
   await page.screenshot('effort-hover')
   // press near the left end and drag to the right: the pick follows live
   await page.mouse('mouseMoved', r0.x + r0.w * 0.1, r0.y)
