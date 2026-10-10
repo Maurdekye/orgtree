@@ -1401,13 +1401,9 @@ impl Actor {
         let tools = &ctx.effective["tools"];
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
         let may_write = tools.get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
-        let sandbox = if !may_write {
-            "read-only"
-        } else if pm == "bypassPermissions" {
-            "danger-full-access"
-        } else {
-            "workspace-write"
-        };
+        let sb = codexrt::sandbox(may_write, pm, lane == prompt::Lane::Codex && codexrt::session0());
+        // a read-only seat without the OS sandbox is held by the approval policy instead
+        let sandbox = if sb.approval == "untrusted" { "untrusted" } else { sb.mode };
         // granted folders' CLAUDE.md; the org workspace's is org.md, delivered on its own
         let workspace = self.engine.cfg.workspace_dir(&ctx.org_slug);
         let folder_notes: Vec<(String, String)> = ctx.effective["add_dirs"]
@@ -1994,13 +1990,7 @@ impl Actor {
         let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
         let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
         let may_write = on("edit") && pm != "plan";
-        let sandbox = if !may_write {
-            "read-only"
-        } else if pm == "bypassPermissions" {
-            "danger-full-access"
-        } else {
-            "workspace-write"
-        };
+        let sandbox = codexrt::sandbox(may_write, pm, codexrt::session0());
         let servers = plan.mcp["mcpServers"].as_object().cloned().unwrap_or_default();
         let external: serde_json::Map<String, Value> = servers.into_iter().filter(|(k, _)| k != "orgtree").collect();
         let (mut config, _attached) = codexrt::mcp_overrides(&external);
@@ -2052,7 +2042,7 @@ impl Actor {
             model: ctx.model.clone(),
             // a gateway model that takes no reasoning gets no effort
             effort: Some(codexrt::codex_effort(&ctx.effort)).filter(|_| route.map(|r| r.reasoning).unwrap_or(true)),
-            sandbox: sandbox.to_string(),
+            sandbox,
             instructions: plan.identity.clone(),
             dynamic_tools: codexrt::dynamic_tools(),
             config,

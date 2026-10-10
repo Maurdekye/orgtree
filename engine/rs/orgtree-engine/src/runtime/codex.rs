@@ -29,7 +29,7 @@ pub struct CodexSpec {
     pub api_key: Option<String>,
     pub model: String,
     pub effort: Option<String>,
-    pub sandbox: String,
+    pub sandbox: Sandbox,
     pub instructions: String,
     pub dynamic_tools: Vec<Value>,
     /// `-c` overrides (granted MCP servers)
@@ -77,6 +77,69 @@ pub struct CodexProc {
     rollout_path: Option<PathBuf>,
 }
 
+/// The OS sandbox and approval policy one Codex seat runs with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sandbox {
+    /// read-only | workspace-write | danger-full-access
+    pub mode: &'static str,
+    /// on-request, or untrusted for a read-only seat run without the sandbox
+    pub approval: &'static str,
+    /// the OS sandbox was turned off because the engine is in Session 0
+    pub session0: bool,
+}
+
+/// The sandbox for a seat. In Session 0 Codex's Windows sandbox cannot start
+/// its command runner (openai/codex#46412: 0xC0000142, "timed out connecting
+/// runner pipe-in"), so every seat runs without it: a write-enabled seat as
+/// plain danger-full-access, a read-only seat with approvalPolicy untrusted so
+/// only Codex's safe read commands run unasked and every other command or
+/// patch is an approval request, which its policy declines (ruling 2026-10-10).
+#[logged]
+pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbox {
+    let mode = if !may_write {
+        "read-only"
+    } else if permission_mode == "bypassPermissions" {
+        "danger-full-access"
+    } else {
+        "workspace-write"
+    };
+    match (session0, mode) {
+        (false, _) | (true, "danger-full-access") => Sandbox { mode, approval: "on-request", session0: false },
+        (true, "read-only") => Sandbox { mode: "danger-full-access", approval: "untrusted", session0: true },
+        (true, _) => Sandbox { mode: "danger-full-access", approval: "on-request", session0: true },
+    }
+}
+
+/// Whether the engine runs in Windows Session 0 (the boot task), where Codex's
+/// sandbox cannot start (see `sandbox`). Read once; the session never changes.
+/// A rig run may force it with `ORGTREE_RIG_SESSION0=1|0`.
+#[logged]
+pub fn session0() -> bool {
+    if crate::rig::active() {
+        match std::env::var("ORGTREE_RIG_SESSION0").as_deref() {
+            Ok("1") => return true,
+            Ok("0") => return false,
+            _ => {}
+        }
+    }
+    static SESSION0: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SESSION0.get_or_init(own_session_is_zero)
+}
+
+#[cfg(windows)]
+#[logged]
+fn own_session_is_zero() -> bool {
+    use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    let mut id = u32::MAX;
+    (unsafe { ProcessIdToSessionId(std::process::id(), &mut id) } != 0) && id == 0
+}
+
+#[cfg(not(windows))]
+#[logged]
+fn own_session_is_zero() -> bool {
+    false
+}
+
 /// Preserve the selected level, as 3.x did; staffing filters by model/list.
 #[logged]
 pub fn codex_effort(level: &str) -> String {
@@ -120,6 +183,10 @@ impl CodexProc {
         let pid = child.id().unwrap_or(0);
         let process = uuid::Uuid::new_v4();
         tracing::info!(agent = caller.agent_id, pid, %process, provider = "Codex", "CLI started");
+        if spec.sandbox.session0 {
+            tracing::info!(agent = caller.agent_id, pid, sandbox = spec.sandbox.mode, approval = spec.sandbox.approval,
+                "Codex OS sandbox disabled: the engine runs in Session 0 (openai/codex#46412)");
+        }
         let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
@@ -180,7 +247,7 @@ impl CodexProc {
             match proc
                 .request(
                     "thread/resume",
-                    json!({ "threadId": tid, "model": spec.model, "sandbox": spec.sandbox, "approvalPolicy": "on-request",
+                    json!({ "threadId": tid, "model": spec.model, "sandbox": spec.sandbox.mode, "approvalPolicy": spec.sandbox.approval,
                             "developerInstructions": spec.instructions, "dynamicTools": spec.dynamic_tools }),
                     Duration::from_secs(120),
                 )
@@ -199,7 +266,7 @@ impl CodexProc {
                 let r = proc
                     .request(
                         "thread/start",
-                        json!({ "model": spec.model, "cwd": proc.cwd, "sandbox": spec.sandbox, "approvalPolicy": "on-request",
+                        json!({ "model": spec.model, "cwd": proc.cwd, "sandbox": spec.sandbox.mode, "approvalPolicy": spec.sandbox.approval,
                                 "developerInstructions": spec.instructions, "dynamicTools": spec.dynamic_tools }),
                         Duration::from_secs(120),
                     )
@@ -672,4 +739,30 @@ pub async fn probe(exe: &std::path::Path, home: Option<&str>) -> Result<(Value, 
     let (account, limits) = got.map_err(|_| anyhow!("the Codex app-server did not answer in time"))?;
     let limits = limits.ok_or_else(|| anyhow!("the Codex app-server closed without answering"))??;
     Ok((account.unwrap_or(Value::Null), limits))
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use super::sandbox;
+
+    #[test]
+    fn interactive_session_keeps_the_sandbox() {
+        assert_eq!((sandbox(true, "acceptEdits", false).mode, sandbox(true, "acceptEdits", false).approval), ("workspace-write", "on-request"));
+        assert_eq!(sandbox(false, "acceptEdits", false).mode, "read-only");
+        assert_eq!(sandbox(true, "bypassPermissions", false).mode, "danger-full-access");
+        assert!(!sandbox(true, "acceptEdits", false).session0);
+    }
+
+    #[test]
+    fn session0_turns_the_sandbox_off() {
+        let w = sandbox(true, "acceptEdits", true);
+        assert_eq!((w.mode, w.approval, w.session0), ("danger-full-access", "on-request", true));
+        let r = sandbox(false, "acceptEdits", true);
+        assert_eq!((r.mode, r.approval, r.session0), ("danger-full-access", "untrusted", true));
+        let p = sandbox(true, "plan", true);
+        assert_eq!(p.mode, "danger-full-access");
+        // bypass already ran unsandboxed: nothing changes, nothing to log
+        let b = sandbox(true, "bypassPermissions", true);
+        assert_eq!((b.approval, b.session0), ("on-request", false));
+    }
 }

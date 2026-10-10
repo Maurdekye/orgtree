@@ -580,6 +580,8 @@ export async function startRun(opts = {}) {
       realCli: !!opts.realCli,
       // the engine believes it runs under the boot task's S4U logon (`up --boot-isolated`)
       bootIsolated: !!opts.bootIsolated,
+      // the engine's Session 0 answer, forced ('1' | '0'); null: measured
+      session0: opts.session0 ?? null,
     })
     touch(dir)
     await launchKeeper(dir, opts.timeout)

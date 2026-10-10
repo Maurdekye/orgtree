@@ -53,6 +53,7 @@ async function up(flags) {
     recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)),
     reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes),
     realCli: !!flags['real-cli'], bootIsolated: !!flags['boot-isolated'],
+    session0: flags.session0 == null ? null : String(flags.session0),
     fsync: !!flags.fsync })
   let made = null
   if (flags.fixture !== 'none') {

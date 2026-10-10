@@ -63,6 +63,9 @@ if (run.recover) env.ORGTREE_RIG_RECOVER = '1'
 // `up --boot-isolated`: the credential context reports the boot task's
 // isolation, so CLIs get the credential bridge adapters (src/rig.rs)
 if (run.bootIsolated) env.ORGTREE_RIG_BOOT_ISOLATED = '1'
+// whether the engine counts as running in Windows Session 0, where Codex's
+// sandbox cannot start (src/runtime/codex.rs `session0`): '1' or '0' forces it
+if (run.session0 != null) env.ORGTREE_RIG_SESSION0 = String(run.session0)
 // the automatic wakes (checkups, idle docket reminders), swept every `reminders` seconds (true: 5)
 if (run.reminders) {
   env.ORGTREE_RIG_REMINDERS = '1'
