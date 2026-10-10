@@ -139,6 +139,9 @@ pub async fn continue_on(engine: &Arc<Engine>, caller: &Caller, args: &Value) ->
     let tier: String = client.query_one("SELECT tier FROM ot.agents WHERE id = $1", &[&t.id]).await?.get(0);
     drop(client);
     let view = engine.accounts.view();
+    if let Some(a) = view.get(account).filter(|a| a.available_origin(&caller.org_slug) && !a.available_to(Some(&caller.org_slug))) {
+        crate::refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, &caller.org_slug, &crate::org_accounts::lane_of(a), &a.provider));
+    }
     let Some(acc) = view.get(account).filter(|a| a.available_to(Some(&caller.org_slug))).cloned() else {
         crate::refuse!(NotFound, "no account {account}");
     };

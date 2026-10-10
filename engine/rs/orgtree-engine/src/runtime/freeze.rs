@@ -321,6 +321,11 @@ pub async fn fall_back(engine: &Arc<Engine>, org_id: i64, agent_id: i64, tier: &
 pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, account: &str, why: &str) -> Result<Value> {
     let view = engine.accounts.view();
     let slug = engine.orgs.by_id(org_id).map(|o| o.slug.clone());
+    if let Some(s) = slug.as_deref() {
+        if let Some(a) = view.get(account).filter(|a| a.available_origin(s) && !a.available_to(Some(s))) {
+            crate::refuse!(Conflict, "{}", crate::org_accounts::refusal(engine, s, &crate::org_accounts::lane_of(a), &a.provider));
+        }
+    }
     let Some(acc) = view.get(account).filter(|a| a.available_to(Some(slug.as_deref().unwrap_or("")))).cloned() else {
         crate::refuse!(NotFound, "no account {account}");
     };
