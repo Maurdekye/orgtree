@@ -1714,6 +1714,9 @@ export interface CodexCliVersion {
 }
 export interface ProvidersPayload {
   providers: ProviderInfo[]
+  /** the engine's first sign-in check has not landed: a provider that is
+   *  absent or signed out has not been checked yet */
+  checking?: boolean
   /** ⚠ MACHINE-WIDE, PER PROVIDER — not per org (user decision 2026-09-12).
    *  Orgs inherit both. Keyed by provider id; only API-key-capable providers
    *  appear in `apikey_fallback`, and an older backend omits both maps

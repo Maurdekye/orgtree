@@ -90,7 +90,10 @@ function load<T>(path: string): Promise<T> {
   const next: Entry = { ...(entry ?? {}), at: Date.now() }
   requests.set(path, (requests.get(path) ?? 0) + 1)
   next.inflight = req<T>(path).then(value => {
-    next.value = value; next.error = undefined; next.at = Date.now()
+    // an answer given while the engine was still checking sign-ins is held
+    // (a surface can say so) but never reused: the next reader asks again
+    const checking = (value as { loading?: boolean } | null)?.loading === true
+    next.value = value; next.error = undefined; next.at = checking ? 0 : Date.now()
     return value
   }).catch((e: Error) => {
     // A failure does NOT erase a previous good answer — a menu with a recent

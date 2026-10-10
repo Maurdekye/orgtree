@@ -266,6 +266,8 @@ export interface TemplatePlan {
   id: string; name: string; agents: TemplatePlanRow[]; blocked: string[]
   ok: boolean; top_grant: number; org_md: boolean
   offered: { tier: string; seat: number; provider: string }[]
+  /** the engine has not finished its first sign-in check: ask again shortly */
+  loading?: boolean
 }
 export interface TemplateInclude {
   charters: boolean; credits: boolean; effort: boolean; tools: boolean

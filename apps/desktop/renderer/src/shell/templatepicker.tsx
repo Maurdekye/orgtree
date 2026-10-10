@@ -70,6 +70,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   const [folderError, setFolderError] = useState('')
   const [planError, setPlanError] = useState('')
   const [reload, setReload] = useState(0)
+  const [recheck, setRecheck] = useState(0)
   useEffect(() => {
     let live = true
     // read afresh each time the picker opens (and on Reload): the folder is the list
@@ -83,14 +84,20 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   useEffect(() => {
     if (!choice.id) { onPlan(null); setPlanError(''); return }
     let live = true
+    let again = 0
     const t = window.setTimeout(() => {
       resolveTemplate({ id: choice.id, overrides: choice.overrides, removed: choice.removed }, orgName, dirs)
-        .then((p) => { if (live) { onPlan(p); setPlanError('') } })
+        .then((p) => {
+          if (!live) return
+          onPlan(p); setPlanError('')
+          // the engine is still checking sign-ins: ask again shortly
+          if (p.loading) again = window.setTimeout(() => setRecheck((n) => n + 1), 1000)
+        })
         .catch((e: Error) => { if (live) { onPlan(null); setPlanError(e.message) } })
     }, 200)
-    return () => { live = false; window.clearTimeout(t) }
+    return () => { live = false; window.clearTimeout(t); window.clearTimeout(again) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [choice.id, JSON.stringify(choice.overrides), choice.removed.join('\n'), orgName, dirsKey])
+  }, [choice.id, JSON.stringify(choice.overrides), choice.removed.join('\n'), orgName, dirsKey, recheck])
   const offered = useMemo(() => [...(plan?.offered ?? [])].sort((a, b) =>
     PROVIDER_ORDER.indexOf(a.provider) - PROVIDER_ORDER.indexOf(b.provider) || b.seat - a.seat), [plan])
   const pick = (id: string) => onChange({ ...EMPTY_LAYOUT, id })
@@ -148,10 +155,10 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
             <td>
               <select value={a.tier ?? ''} aria-label={`tier of ${a.name}`} data-provider={a.provider ?? ''}
                 onChange={(e) => setSlot(a.slot, { tier: e.target.value })}>
-                {!a.tier && <option value="" disabled>needs a sign-in</option>}
+                {!a.tier && <option value="" disabled>{plan.loading ? 'checking…' : 'needs a sign-in'}</option>}
                 {offered.map((o) => <option key={o.tier} value={o.tier}>{o.tier}</option>)}
               </select>
-              {a.note && <div className={a.blocked ? 'tp-bad' : 'tp-note'}>{a.note}</div>}
+              {a.note && <div className={a.blocked && !plan.loading ? 'tp-bad' : 'tp-note'}>{a.note}</div>}
               {a.dirs_dropped.length > 0 && <div className="tp-note">
                 folders not in this organization: {a.dirs_dropped.join(', ')}</div>}
             </td>
@@ -177,7 +184,9 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       Send the coordinator its first message now
       <span className="dim"> · off: nobody spends anything until you write to them</span>
     </label>}
-    {choice.id && plan && !plan.ok && <div className="ask-warn" role="alert">
+    {choice.id && plan?.loading && <div className="dim tp-checking" role="status">
+      Checking the sign-ins on this computer…</div>}
+    {choice.id && plan && !plan.ok && !plan.loading && <div className="ask-warn" role="alert">
       {plan.blocked.length} agent{plan.blocked.length === 1 ? '' : 's'} cannot run on this computer now
       ({plan.blocked.join(', ')}): pick another tier or leave {plan.blocked.length === 1 ? 'it' : 'them'} out.</div>}
   </div>

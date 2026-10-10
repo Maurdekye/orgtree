@@ -4367,6 +4367,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           <HireSheet anchor={map.get(sheetId)!} seats={seats} codexHire={codexHire}
             antigravityHire={antigravityHire} claudeHire={claudeHire}
             openrouterHire={openrouterHire} langserverHire={langserverHire}
+            checking={!!providerPayload?.checking}
             defaultGrant={!map.get(sheetId)!.parent ? (tree.default_top_grant ?? 50) : 0}
             onClose={() => setHireOpen(false)}
             onSettings={onAccounts ? () => {
@@ -4486,7 +4487,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
 // capability note this sheet draws needs a control that mounts the real
 // component rather than a helper standing in for it.
 export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHire, openrouterHire, langserverHire,
-  defaultGrant,
+  checking, defaultGrant,
   onHire, onSettings,
   onClose }: {
   anchor: CanvasNode
@@ -4496,6 +4497,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   claudeHire?: HireState | null
   openrouterHire?: HireState | null
   langserverHire?: HireState | null
+  /** the engine is still checking the sign-ins: say so, never "not set up" */
+  checking?: boolean
   defaultGrant: number
   onHire: (tier: string, name: string, grant: number,
     placement: 'below' | 'left' | 'right' | 'above') => void
@@ -4603,7 +4606,9 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
             </div>
           </Fragment>
         ))}
-        {!famRows.length && (
+        {checking && <div className="field-label hs-none-row" role="status">
+          checking the sign-ins on this computer…</div>}
+        {!famRows.length && !checking && (
           providersOff && onSettings
             ? <button className="hs-none hs-none-row" onClick={onSettings}>
               providers are off · App settings → Providers
