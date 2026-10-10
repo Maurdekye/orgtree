@@ -132,7 +132,7 @@ const menuAnchors = new WeakMap<Element, { current: Element | null }>()
 /** Portals sit outside their surface's DOM. Outside-click guards must still
  * treat a press in that surface's own menu as an inside press. */
 export function contextMenuBelongsTo(target: EventTarget | null, surface: Element): boolean {
-  const menu = (target as Element | null)?.closest?.('.ctxmenu')
+  const menu = (target as Element | null)?.closest?.('.ctxmenu:not(.ctxmenu-submenu)')
   const anchor = menu && menuAnchors.get(menu)?.current
   return !!anchor && surface.contains(anchor)
 }
