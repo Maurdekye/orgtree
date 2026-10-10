@@ -250,7 +250,7 @@ test('§6 a presentation with no window of its own opens exactly as before', asy
   await clickChip(1)
 
   assert.equal(fetched.includes('d2'), true, 'the reader must open here, as it always has')
-  assert.ok(view.el.querySelector('.gallery-modal'), 'and be on screen')
+  assert.ok(document.querySelector('.gallery-modal'), 'and be on screen')
   assert.deepEqual(revealed, [], 'and no unrelated window is disturbed')
 })
 

@@ -68,7 +68,7 @@ test('inbox ordinary messages and notices keep family styling and sender links',
   view.el.querySelectorAll<HTMLButtonElement>('.mailrow button.cc-name-jump').forEach(button=>button.click())
   assert.deepEqual(jumped,[actor,actor])
   const messageRow=[...view.el.querySelectorAll<HTMLElement>('.mailrow')]
-    .find(row=>row.textContent?.includes('Message'))!
+    .find(row=>row.textContent?.includes('Inbox message C'))!
   await inAct(()=>{messageRow.click()})
   assert.match(view.el.querySelector('.mailer-read')!.textContent!,/Inbox message C/)
 })
