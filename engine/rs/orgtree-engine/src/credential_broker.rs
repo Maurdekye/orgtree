@@ -26,6 +26,10 @@ extern crate orgtree_logged;
 
 use std::process::ExitCode;
 
+#[cfg(windows)]
+#[path = "credential_broker_host.rs"]
+mod codex_host;
+
 #[cfg(not(windows))]
 #[nolog]
 fn main() -> ExitCode {
@@ -135,6 +139,7 @@ mod win {
         tokio::spawn(accept(first, pipe.clone(), secret.clone()));
         let mut engine: Option<Attached> = None;
         let mut last = "";
+        let mut hosted_before = 0usize;
         loop {
             if engine.is_none() {
                 match attach(&root).await {
@@ -143,6 +148,7 @@ mod win {
                             note(&root, &format!("attached to engine pid {}", a.engine_pid));
                             last = "attached";
                         }
+                        crate::codex_host::ENGINE_PID.store(a.engine_pid as u32, Ordering::SeqCst);
                         engine = Some(a);
                     }
                     Err(why) => {
@@ -162,11 +168,17 @@ mod win {
                 };
                 if !matches!(state, "holding the bridge" | "standing by: another broker holds the bridge") {
                     engine = None;
+                    crate::codex_host::ENGINE_PID.store(0, Ordering::SeqCst);
                 }
                 if last != state {
                     note(&root, &format!("{state}{detail}"));
                     last = state;
                 }
+            }
+            let hosted = crate::codex_host::sweep();
+            if hosted != hosted_before {
+                note(&root, &format!("hosting {hosted} Codex process(es)"));
+                hosted_before = hosted;
             }
             tokio::time::sleep(TICK).await;
         }
@@ -222,7 +234,7 @@ mod win {
 
     #[nolog]
     async fn register(a: &Attached, pipe: &str, secret: &str) -> Result<u16, ()> {
-        let body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id()}).to_string();
+        let body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"]}).to_string();
         http(a.port, "POST", "/api/desktop/credential-bridge", &a.token, Some(body)).await.map(|(s, _)| s)
     }
 
@@ -494,6 +506,12 @@ mod win {
 
     #[nolog]
     async fn lookup(value: &Value) -> Result<String, String> {
+        // phase 2: Codex app-servers started in this session for the engine
+        match value["kind"].as_str() {
+            Some("spawn") => return crate::codex_host::spawn(value),
+            Some("kill") => return crate::codex_host::kill(value),
+            _ => {}
+        }
         if value["kind"] == "ping" {
             return Ok("ready".into());
         }
