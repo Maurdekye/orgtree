@@ -1,15 +1,17 @@
-// QuickChatBox.tsx — the header's Quick chat box (docket
+// QuickChatBox.tsx — the footer's Quick chat box (docket
 // `quick-prompt-hire-kick-off-and-focus-an-agent-fr`): type a message, press
 // Enter, and a new agent is hired under the chosen superior with the chosen
 // model and effort, started on that message, and focused. The rules (what the
 // buttons default to, the name, no charter) live in quickchat.ts.
 //
 // ONE ROW, ONE BOX (docket `quick-chat-the-superior-selector-looks-and-works`,
-// user 2026-10-10): the text field and its controls sit inside one box in the
-// page header, which never grows taller — superior, model (its id icon, plus
-// the new agent's name once something is typed), effort bar, attachments
-// (a count badge; the list is a pop-over) and send. Each picker opens as an
-// overlay below the header and is the SAME component the user knows from
+// user 2026-10-10): the text field and its controls sit inside one box, one
+// row — model (its id icon, plus the new agent's name once something is
+// typed), superior, effort bar, attachments (a count badge; the list is a
+// pop-over) and send. It lives in the window's footer (user 18:48Z; the
+// header's empty stretch stays a drag region), so each picker opens as an
+// overlay ABOVE the footer — below the bar if a host ever puts the box in a
+// header — and is the SAME component the user knows from
 // elsewhere: the superior picker is the Agents List (canvas/agenttray.tsx),
 // the model picker is the hire tokens' tier chips (SpawnChips in cards.tsx).
 
@@ -341,16 +343,23 @@ function SuperiorPicker({ nodes, agentList, superior, compactAt, onPick }: {
   )
 }
 
-/** an overlay below the header, in the anchor's own window; outside press
- *  or Escape closes it */
+/** an overlay beside the bar holding the box — above a footer, below a
+ *  header — in the anchor's own window; outside press or Escape closes it */
 function Pop({ anchor, onClose, kind, leaving, children }: {
   anchor: HTMLElement; onClose: () => void; kind: PopKind; leaving?: boolean; children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
   const doc = anchor.ownerDocument
   const r = anchor.getBoundingClientRect()
-  // below the whole header, not just the box (the header is taller)
-  const top = Math.max(r.bottom, anchor.closest('header')?.getBoundingClientRect().bottom ?? 0) + 4
+  // clear of the whole bar, not just the box (the bar is taller): upward
+  // from a footer, downward from anything else
+  const bar = anchor.closest('footer, header')
+  const up = bar?.tagName === 'FOOTER'
+  const b = bar?.getBoundingClientRect()
+  const vh = doc.documentElement.clientHeight || (doc.defaultView?.innerHeight ?? 0)
+  const place = up
+    ? { bottom: vh - Math.min(r.top, b?.top ?? r.top) + 4 }
+    : { top: Math.max(r.bottom, b?.bottom ?? 0) + 4 }
   // the model chips hang centred under their button, as the hire strip hangs
   // centred under its card; the lists open from the button's left edge
   const centred = kind === 'model'
@@ -399,9 +408,10 @@ function Pop({ anchor, onClose, kind, leaving, children }: {
     return () => doc.removeEventListener('pointermove', move, true)
   }, [doc, anchor, kind, leaving])
   return createPortal(
-    <div ref={ref} className={(leaving ? 'quickchat-leaving' : 'quickchat-pop') + ' quickchat-pop-' + kind}
+    <div ref={ref} className={(leaving ? 'quickchat-leaving' : 'quickchat-pop') + ' quickchat-pop-' + kind
+      + (up ? ' up' : '')}
       role={leaving ? undefined : 'dialog'} aria-hidden={leaving || undefined}
-      style={{ top, left }}>
+      style={{ ...place, left }}>
       {children}
     </div>, doc.body)
 }

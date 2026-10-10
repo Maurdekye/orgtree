@@ -8024,7 +8024,8 @@ main:has(> .orgbar.native-header) > .error {
  * row since quick-chat-the-superior-selector-looks-and-works): ONE box in the
  * header holding the text field and its controls — superior, model id icon
  * (+ the new agent's name), effort bar, attachments, send. Never taller than
- * the header; the pickers open as overlays below it (.quickchat-pop). */
+ * its bar; the pickers open as overlays beside it (.quickchat-pop): above the
+ * footer, where it lives (user 2026-10-10 18:48Z). */
 .quickchat {
   display: flex;
   align-items: center;
@@ -8118,6 +8119,9 @@ main:has(> .orgbar.native-header) > .error {
   animation: quickchat-fade-in .15s both;
 }
 .quickchat-leaving { position: fixed; z-index: 1000; pointer-events: none; }
+/* opening upward (from the footer) the pyramid mirrors, as the canvas strip
+   does on a card's top edge: the widest family nearest the button */
+.quickchat-pop-model.up .hsof { flex-direction: column-reverse; }
 .quickchat-leaving .hsof { animation: quickchat-fade-out .15s both; pointer-events: none; }
 @keyframes quickchat-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes quickchat-fade-out { from { opacity: 1; } to { opacity: 0; } }

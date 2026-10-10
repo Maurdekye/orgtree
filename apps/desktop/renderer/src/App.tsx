@@ -1453,8 +1453,6 @@ export default function App() {
               {v3 ? (
                 <ShellHeader menu={shellMenu} title={tree.name}
                   modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
-                  quick={<QuickChat slug={slug} tree={tree} op={op} toast={toast}
-                    onHired={setQuickFocus} agentList={agentList} />}
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
@@ -1773,6 +1771,8 @@ export default function App() {
                   rule, tooltip and click-through intact (shell/statusbar.tsx) */}
               {v3 && <OrgStatusBar tree={tree} orgs={orgs} error={error}
                 appVersion={appVersion}
+                quick={<QuickChat slug={slug} tree={tree} op={op} toast={toast}
+                  onHired={setQuickFocus} agentList={agentList} />}
                 onOpenConnections={() => {
                   setSettingsInitialTab('mailserver')
                   if (!showSettings) toggleSurface('org-settings', showSettings, setShowSettings)

@@ -16,10 +16,13 @@
 // tooltip instead. All of them share one frame — border, background, size —
 // and one corner count badge, so the row reads as a set.
 //
+// QUICK CHAT IS NOT HERE EITHER (user 2026-10-10 18:48Z): it lives in the
+// footer, so the header's empty stretch stays free for dragging the window.
+//
 // THE KILLSWITCH HAS ITS OWN SLOT, `guard`, to the LEFT of that row (user
 // 2026-09-29). Arming it expands STOP ALL leftward into the empty gap, so the
 // buttons to its right never move under the pointer.
-import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { UpdateNotice } from '../update-notice'
 import { WindowControls } from '../window-controls'
 import { desktop } from '../desktop'
@@ -33,9 +36,6 @@ export interface ShellHeaderProps {
   title: string
   /** the prominent Canvas/Attention toggle. Organization windows only. */
   modes?: ReactNode
-  /** Quick chat: one text box that hires, kicks off and focuses a new agent.
-   *  Organization windows only. */
-  quick?: ReactNode
   /** the familiar direct action buttons. Organization windows only. */
   actions?: ReactNode
   /** the killswitch, placed just LEFT of `actions` so its expansion grows
@@ -47,83 +47,7 @@ export interface ShellHeaderProps {
   version?: string | null
 }
 
-/** Each side of a centred bar claims ITS OWN controls as its minimum width —
- *  published as `--shell-start-min` / `--shell-end-min`. Equal growth centres
- *  the box while both sides have room; once one side is down to its controls
- *  the other keeps the rest, so the box slides off-centre at full width and
- *  only shrinks once neither side has free space left (user 2026-10-10: "it
- *  should keep its full width until the free space on both sides is gone").
- *  Measured from the controls themselves (their widths do not depend on the
- *  side's), so the observer cannot feed back into itself. */
-function useEqualSides(on: boolean) {
-  const head = useRef<HTMLElement>(null)
-  const start = useRef<HTMLDivElement>(null)
-  const end = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const h = head.current, a = start.current, b = end.current
-    if (!on || !h || !a || !b || typeof ResizeObserver === 'undefined') return
-    const need = (el: HTMLElement) => {
-      const cs = getComputedStyle(el)
-      const kids = [...el.children] as HTMLElement[]
-      const gap = parseFloat(cs.columnGap) || 0
-      return kids.reduce((w, k) => w + k.getBoundingClientRect().width, 0)
-        + gap * Math.max(0, kids.length - 1)
-        + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-    }
-    const sync = () => {
-      h.style.setProperty('--shell-start-min', `${Math.ceil(need(a))}px`)
-      h.style.setProperty('--shell-end-min', `${Math.ceil(need(b))}px`)
-    }
-    const sizes = new ResizeObserver(sync)
-    const watch = () => {
-      sizes.disconnect()
-      for (const k of [...a.children, ...b.children]) sizes.observe(k)
-      sync()
-    }
-    // a control that appears later (an update notice, the killswitch) counts too
-    const kids = typeof MutationObserver === 'undefined' ? null : new MutationObserver(watch)
-    kids?.observe(a, { childList: true }); kids?.observe(b, { childList: true })
-    watch()
-    return () => { sizes.disconnect(); kids?.disconnect() }
-  }, [on])
-  return { head, start, end }
-}
-
-export function ShellHeader({ menu, title, modes, quick, actions, guard, version }: ShellHeaderProps) {
-  const refresh = !desktop() && (
-    <button type="button" className="iconbtn" title="refresh app view"
-      aria-label="refresh app view" onClick={() => window.location.reload()}>
-      <span aria-hidden="true">⟳</span>
-    </button>
-  )
-  const centred = useEqualSides(!!quick)
-  // QUICK CHAT IS CENTRED IN THE WHOLE BAR (user 2026-10-10): three parts —
-  // start, Quick chat, end (window controls included) — where start and end
-  // grow equally from nothing, so the box sits in the middle of the header
-  // while both sides have room; then it slides off-centre at full width, and
-  // only shrinks once no free space is left on either side — never before a
-  // side gives up its controls, so it never overlaps them (shell.css
-  // `.shell-header-centred`).
-  if (quick) return (
-    <header ref={centred.head}
-      className={'shell-header shell-header-centred' + (desktop() ? ' native-header' : '')}>
-      <div className="shell-header-start" ref={centred.start}>
-        {menu}
-        <h2 className="shell-header-title" title={title}>{title}</h2>
-        {version && <span className="shell-version dim"
-          title={`running Orgtree ${version}`}>Orgtree {version}</span>}
-        {modes && <div className="shell-header-modes">{modes}</div>}
-      </div>
-      <div className="shell-header-quick">{quick}</div>
-      <div className="shell-header-end" ref={centred.end}>
-        {guard && <div className="shell-header-guard">{guard}</div>}
-        {actions && <div className="shell-header-actions">{actions}</div>}
-        <UpdateNotice />
-        {refresh}
-        <WindowControls />
-      </div>
-    </header>
-  )
+export function ShellHeader({ menu, title, modes, actions, guard, version }: ShellHeaderProps) {
   return (
     <header className={'shell-header' + (desktop() ? ' native-header' : '')}>
       <div className="shell-header-main">
