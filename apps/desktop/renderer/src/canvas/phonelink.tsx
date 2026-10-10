@@ -345,7 +345,8 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
     else if (state.link) right = <>
       <div className="phone-linked"><b>Your phone:</b> {state.link.name} · {state.link.address} · linked {fmtDay(state.link.at)}.
         <div className="phone-acts"><button type="button" className="linkish" disabled={busy} onClick={unlink}>Unlink</button></div></div>
-      <div className="phone-step"><p><b>Add another device:</b> install Tailscale and Hubchat on it, choose <b>I already use Hubchat › Scan the QR code from your other device</b> (on a PC: <b>Link through a hub</b>), and show the code from Hubchat on your phone (<b>Settings › Devices › Link a device</b>).</p></div>
+      <div className="phone-step"><p><b>Add another device:</b> install Tailscale and Hubchat on it, choose <b>I already use Hubchat › Scan the QR code from your other device</b> (on a PC: <b>Link through a hub</b>), and show the code from Hubchat on your phone (<b>Settings › Devices › Link a device</b>).</p>
+        <p className="dim phone-small">On an Android phone, keep Tailscale on: turn on <b>Always-on VPN</b> for it in Android’s <b>Settings › VPN</b>, and set its battery use to <b>Unrestricted</b>.</p></div>
     </>
     else if (!code && persons.length && state.hubchat_pc) right = <div className="phone-step">
       <p><b>You already use Hubchat on this PC.</b> Bring that identity to your phone: on the phone choose <b>I already use Hubchat › Scan the QR code from your other device</b>. Then scan the code from the <b>QR button</b> at the bottom of Hubchat’s chat list on this PC.</p>
@@ -360,7 +361,8 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
       const back = <div className="phone-back"><button type="button" className="linkish sm" onClick={() => setPhoneStep('download')}>← Back to the download code</button></div>
       right = <div className="phone-needs"><p><b>On your phone</b> (skip what you already have):</p><ol>
         {wifi ? <li>Connect to the <b>same Wi-Fi</b> as this PC.</li>
-          : <li><b>Tailscale</b> from Google Play, signed in as <b>{ts?.account ?? 'the same account as this PC'}</b>.</li>}
+          : <li><b>Tailscale</b> from Google Play, signed in as <b>{ts?.account ?? 'the same account as this PC'}</b>.
+            <div className="dim phone-small">Keep Tailscale on: turn on <b>Always-on VPN</b> for it in Android’s <b>Settings › VPN</b>, and set its battery use to <b>Unrestricted</b>.</div></li>}
         <li>{phoneStep === 'download' ? <>
           <div className="phone-li-row"><div><b>Hubchat:</b> scan this with the camera.</div><Qr svg={state.download_qr} caption="Scan to get Hubchat" big /></div>
           <div className="phone-next"><button type="button" className="primary" onClick={() => setPhoneStep('setup')}>I have Hubchat on my phone → Next</button></div>
