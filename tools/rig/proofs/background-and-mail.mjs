@@ -3,13 +3,22 @@
 //                "stopped without finishing" message.
 //   P33 orphan:  the CLI dies holding a live background task → the agent is told
 //                the task died with the process.
-//   P36 unread:  mail waits 45 s while its recipient is in one long step → the
-//                sender gets one passive "still unread" notice.
+//   P36 unread:  mail waits past the threshold while its recipient is in one long
+//                step → the sender gets ONE passive "still unread" notice saying
+//                the recipient may be stuck. The engine's threshold is 10 min
+//                (user ruling 2026-10-10); this run shortens it to 20 s.
 //   hook:        mail sent while the recipient works is handed over at its next
-//                tool boundary (PostToolUse hook) and settles as delivered.
+//                tool boundary (PostToolUse hook) and settles as delivered; its
+//                sender gets no "still unread" notice, even past the threshold.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/background-and-mail.mjs
 
 import { Proof } from '../proof.mjs'
+
+// the "still unread" threshold, shortened from the engine's 10 min
+const LATE_S = 20
+export async function setup() {
+  return { steerLateS: LATE_S }
+}
 
 const bg = (id, tool, desc) => [
   { tool: 'Bash', id: tool, args: { command: desc, run_in_background: true }, result: `Command running in background with ID: ${id}` },
@@ -61,7 +70,7 @@ export default async function (rig) {
   p.check('P33 orphan: carol is told the background task died with its CLI', orphan.length === 1 && /long-indexer/.test(orphan[0].body) && /bgtask2/.test(orphan[0].body), orphan.map(m => m.body))
   p.note('the CLI death also starts the P34 retry (connection freeze); that path is covered by turn-recovery.mjs')
 
-  // ---------------------------------------------------------------- P36: unread 45 s
+  // ---------------------------------------------------------------- P36: unread past the threshold
   await rig.userMail('alice', 'PROOF-LONG-STEP: think hard for a minute.')
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id WHERE a.name = 'alice' AND t.ended_at IS NULL`).length === 1,
     { what: 'alice to start her long step', timeout: 30000 })
@@ -71,7 +80,9 @@ export default async function (rig) {
   const late = await rig.waitFor(() => mailTo('bob', 'Your mail to alice is still unread after%'), { what: 'the unread notice to bob', timeout: 75000, every: 1000 })
   const waited = (Date.now() - sentAt) / 1000
   p.check('P36: bob gets one passive "still unread" notice', late.length === 1 && late[0].notice === true, late)
-  p.check('P36: it came after ~45 s', waited >= 44 && waited <= 60, { waitedS: waited, body: late[0].body })
+  p.check(`P36: it came after ~${LATE_S} s (the shortened threshold)`, waited >= LATE_S - 1 && waited <= LATE_S + 15, { waitedS: waited, body: late[0].body })
+  p.check('P36: it says the recipient may be stuck and how to look', /may mean it is stuck/.test(late[0].body)
+    && /orgtree_read_transcript/.test(late[0].body) && /orgtree_interrupt/.test(late[0].body), late[0].body)
   const settled = await rig.waitFor(() => {
     const m = mailTo('alice', 'PROOF-UNREAD from bob%')[0]
     return m && ['delivered', 'read'].includes(m.state) ? m : null
@@ -85,6 +96,7 @@ export default async function (rig) {
   await rig.waitFor(() => rig.fakeLog('alice').some(l => l.kind === 'turn' && l.script === 'poll'), { what: 'alice to start polling', timeout: 30000 })
   await new Promise(r => setTimeout(r, 2000))
   const sent2 = await rig.tool('bob', 'orgtree_message', { to: 'alice', body: 'PROOF-HOOK from bob: mid-turn hello.' })
+  const hookSentAt = Date.now()
   p.check('hook: bob → alice mid-turn mail accepted', sent2.ok, sent2.text)
   const handed = await rig.waitFor(() => rig.fakeLog('alice').find(l => l.kind === 'hook_mail' && /PROOF-HOOK from bob/.test(l.text)), { what: 'the hook to hand the mail over', timeout: 30000 })
   p.check('hook: the PostToolUse hook handed bob\'s mail to the CLI mid-turn', !!handed, handed?.text?.slice(0, 300))
@@ -99,6 +111,11 @@ export default async function (rig) {
   const desk = rig.sql(`SELECT c.body->>'role' AS role, left(c.body->>'text', 120) AS text, c.body->>'note' AS note FROM ot.convo c JOIN ot.agents a ON a.id = c.agent_id
                          WHERE a.name = 'alice' AND c.body::text LIKE '%PROOF-HOOK%' ORDER BY c.seq`)
   p.check('hook: alice\'s desk shows the steered mail row', desk.length >= 1, desk)
+  // read within the threshold: past it, bob has still been told nothing more
+  const past = hookSentAt + (LATE_S + 5) * 1000 - Date.now()
+  if (past > 0) await new Promise(r => setTimeout(r, past))
+  const told = mailTo('bob', 'Your mail to alice is still unread after%')
+  p.check('hook: mail read before the threshold brings its sender no notice', told.length === 1, told.map(m => m.body.slice(0, 80)))
 
   p.keep(rig, { agents: ['carol', 'alice', 'bob'], grep: /carol|alice|bob|orphan|stopped|unread|steer|hook/i })
   return p.summary()

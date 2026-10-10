@@ -734,6 +734,8 @@ export async function startRun(opts = {}) {
       bootIsolated: !!opts.bootIsolated,
       // the engine's Session 0 answer, forced ('1' | '0'); null: measured
       session0: opts.session0 ?? null,
+      // the "still unread" notice's threshold in seconds (the engine's is 10 min)
+      steerLateS: opts.steerLateS || null,
     })
     touch(dir)
     await launchKeeper(dir, opts.timeout)
