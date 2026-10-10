@@ -42,7 +42,7 @@ import { popupBounds, trayListHtml, trayNavigationSlug } from './traylist'
 import type { VisualTheme, PresetVisualTheme } from '../../../packages/contracts/visual-theme'
 import { hasInstallerUpgradeRequest } from './installer-upgrade'
 import { readRunAsAdministrator, startBootTask, writeRunAsAdministrator } from './runasadmin'
-import { ensureBootEngine, loginShellPath } from './unixboot'
+import { ensureBootEngine, loginShellPath, privateDataFolders } from './unixboot'
 import { addPhoneFirewallRule, removePhoneFirewallRule } from './phonefirewall'
 import { attachChildProcessFailureHandler, attachRendererFailureHandlers, crashReportDialog, crashReportFolder, CRASH_REPORTER_OPTIONS, RecoveryBudget } from './process-failure'
 import { attachWindowEventLifecycle } from './window-event-lifecycle'
@@ -1849,6 +1849,9 @@ else {
       // development build never registers one, as on Windows.
       const bootAttached = async () => {
         if (!app.isPackaged || process.platform === 'win32' || identity.appId !== RELEASE_APP_ID || !engineOptions.binary) return false
+        const folders = privateDataFolders(engineOptions.dataRoot, app.getPath('userData'))
+        if (folders.tightened.length) console.warn(`data folders made private (0700): ${folders.tightened.join(', ')}`)
+        if (folders.error) console.warn(`data folders could not be made private: ${folders.error}`)
         const boot = await ensureBootEngine({ platform: process.platform, home: os.homedir(), appId: identity.appId,
           engine: engineOptions.binary, appImage: process.env.APPIMAGE || undefined, dataRoot: engineOptions.dataRoot,
           shellPath: await loginShellPath() })

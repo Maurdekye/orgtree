@@ -164,6 +164,10 @@ export function systemdUnit(o: BootInputs): string {
     '',
     '[Service]',
     'Type=simple',
+    // The engine creates its data folders and descriptor; the user manager's own
+    // umask can be 0002 (pam_umask with a private group), and the desktop
+    // refuses a descriptor in a folder others can write.
+    'UMask=0077',
     ...Object.entries(c.env).map(([k, v]) => `Environment=${systemdQuote(`${k}=${v}`)}`),
     `WorkingDirectory=${o.home.replace(/%/g, '%%')}`,
     `ExecStart=${[c.program, ...c.args].map(systemdQuote).join(' ')}`,
@@ -200,6 +204,57 @@ export function autostartEntry(o: BootInputs): string {
     'X-GNOME-Autostart-enabled=true',
     '',
   ].join('\n')
+}
+
+// ------------------------------------------------------------ private data
+
+export interface FolderIo {
+  mkdir(dir: string): void
+  stat(dir: string): { uid: number; mode: number }
+  chmod(dir: string, mode: number): void
+  uid(): number
+}
+
+const realFolderIo: FolderIo = {
+  mkdir: dir => { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }) },
+  stat: dir => fs.statSync(dir),
+  chmod: (dir, mode) => fs.chmodSync(dir, mode),
+  uid: () => process.getuid?.() ?? -1,
+}
+
+/** Make the engine's data folder private before the background engine starts.
+ *
+ *  The desktop only attaches to a descriptor in a folder nobody else can write
+ *  (policy.ts judgePosixTrust), and checks every folder above it as well. A
+ *  session umask of 0002, the default for a user-private group on Ubuntu,
+ *  creates these folders 0775, and the attach is then refused. So the data
+ *  folder is created 0700, and it and its parents up to and including
+ *  `appRoot` (Orgtree's own folder) are TIGHTENED to 0700 when they belong
+ *  to this user and others could reach them: an install made by 4.1.0 or
+ *  4.1.1 under such a umask is repaired, not refused. Folders above `appRoot`
+ *  are not Orgtree's and are never changed. Returns the folders it tightened;
+ *  never throws (the attach check still has the last word). */
+export function privateDataFolders(dataRoot: string, appRoot: string, io: FolderIo = realFolderIo): { tightened: string[]; error?: string } {
+  const tightened: string[] = []
+  try {
+    io.mkdir(dataRoot)
+    const dirs = [dataRoot]
+    const relative = path.relative(appRoot, dataRoot)
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+      for (let d = path.dirname(dataRoot); ; d = path.dirname(d)) {
+        dirs.push(d)
+        if (d === appRoot || path.dirname(d) === d) break
+      }
+    }
+    const uid = io.uid()
+    for (const dir of dirs) {
+      const s = io.stat(dir)
+      if (s.uid !== uid || (s.mode & 0o077) === 0) continue
+      io.chmod(dir, 0o700)
+      tightened.push(dir)
+    }
+    return { tightened }
+  } catch (e) { return { tightened, error: (e as Error).message } }
 }
 
 // ------------------------------------------------------------ registering

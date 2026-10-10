@@ -106,6 +106,7 @@ test('Linux: the systemd user unit, quoted, restarting on failure like the task 
   assert.match(unit, /^RestartSec=60$/m)
   assert.match(unit, /^StartLimitBurst=4$/m)
   assert.match(unit, /^KillMode=mixed$/m)
+  assert.match(unit, /^UMask=0077$/m, 'the engine creates private folders whatever the user manager umask')
   assert.match(unit, /^WantedBy=default\.target$/m)
   assert.doesNotMatch(unit, /Nice=|CPUSchedulingPriority=/, 'normal priority')
   assert.equal(boot.systemdQuote('a "b" \\ 100% $HOME'), '"a \\"b\\" \\\\ 100%% $$HOME"')
@@ -239,4 +240,43 @@ test('a login bash skips ~/.bashrc unless its profile sources it: the login and 
   const p = await boot.loginShellPath('/bin/bash', home)
   assert.match(p, /\/opt\/from-rc\/bin/)
   assert.match(p, /\/opt\/from-profile\/bin/)
+})
+
+test('the data folder is created private, and an install made group-writable is tightened up to Orgtree own folder', () => {
+  const app = '/home/alex/.config/Orgtree v2', data = app + '/data'
+  const modes = { '/home/alex/.config': 0o40775, [app]: 0o40775, [data]: 0o40775 }
+  const owners = { '/home/alex/.config': 1000, [app]: 1000, [data]: 1000 }
+  const made = [], chmods = []
+  const io = { mkdir: d => made.push(d), stat: d => ({ uid: owners[d], mode: modes[d] }), chmod: (d, m) => { chmods.push([d, m]); modes[d] = 0o40000 | m }, uid: () => 1000 }
+  assert.deepEqual(boot.privateDataFolders(data, app, io), { tightened: [data, app] })
+  assert.deepEqual(made, [data])
+  assert.deepEqual(chmods, [[data, 0o700], [app, 0o700]], '~/.config is not Orgtree own folder and is never changed')
+  // the policy now accepts a descriptor there
+  const file = { uid: 1000, mode: 0o100600, isFile: () => true, isDirectory: () => false }
+  const dir = m => ({ uid: 1000, mode: m, isFile: () => false, isDirectory: () => true })
+  assert.equal(policy.judgePosixTrust(1000, file, [[data, dir(modes[data])], [app, dir(modes[app])], ['/home/alex/.config', dir(0o40755)]]).ok, true)
+  // already private, or not this user's: untouched
+  modes[data] = 0o40700; modes[app] = 0o40700; owners[app] = 0
+  chmods.length = 0
+  assert.deepEqual(boot.privateDataFolders(data, app, io), { tightened: [] })
+  assert.deepEqual(chmods, [])
+  // a custom root outside Orgtree's folder: only the root itself
+  const custom = '/srv/orgtree-data'
+  modes[custom] = 0o40770; owners[custom] = 1000
+  assert.deepEqual(boot.privateDataFolders(custom, app, io), { tightened: [custom] })
+  // never throws
+  assert.match(boot.privateDataFolders(data, app, { ...io, mkdir: () => { throw new Error('EACCES') } }).error, /EACCES/)
+})
+
+test('real folders under a 0002 umask end up 0700', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const old = process.umask(0o002)
+  try {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-private-'))
+    fs.chmodSync(app, 0o775)
+    const data = path.join(app, 'data')
+    const r = boot.privateDataFolders(data, app)
+    assert.deepEqual(r, { tightened: [app] }, 'the new data folder is created 0700; only the existing 0775 parent needs tightening')
+    assert.equal(fs.statSync(data).mode & 0o777, 0o700)
+    assert.equal(fs.statSync(app).mode & 0o777, 0o700)
+  } finally { process.umask(old) }
 })
