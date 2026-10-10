@@ -2209,7 +2209,10 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
   const cards: { provider: string; lane: string; node: ReactElement }[] = []
   if (shown.claude && (claude.value || claude.failure || claude.pending)) {
     cards.push({ provider: 'claude', lane: 'claude/primary', node: <div className="usage-acct" key="host:claude">
-      <UsageAcctHead label="Claude Code" parts={[usageIdentity('default',
+      {/* every account of a provider is named the same way, from
+          registrylabels.ts, whatever id the readout carries (the engine
+          sends "openai"/"google" for the default sign-ins, 2026-10-10) */}
+      <UsageAcctHead label={registryProviderName('claude')} parts={[usageIdentity('default',
         claude.value?.email || primaryEmail(registry ?? [], 'claude', hostIdentity),
         multipleAccounts('claude'))]}
         provider="Claude" state={claude} />
@@ -2220,25 +2223,25 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
       {claude.value?.reauth_required && <ProviderSignIn provider="claude"
         connected toast={toast} onRefresh={() => { void claude.refresh(true) }} />}
       {claude.value
-        ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code' }} />
+        ? <UsageBars u={{ ...claude.value, account: 'claude', label: 'Claude Code', provider: registryPlanName('claude') }} />
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
   if (shown.openai && (codex.value || codex.failure || codex.pending)) {
     cards.push({ provider: 'openai', lane: 'openai/primary', node: <div className="usage-acct" key={'host:openai:' + (codex.value?.account ?? 'codex')}>
-      <UsageAcctHead label={codex.value?.provider ?? 'Codex'}
+      <UsageAcctHead label={registryProviderName('openai')}
         parts={[usageIdentity('default', hostEmail('openai', codex.value), multipleAccounts('openai'))]}
         provider="Codex" state={codex} />
       {codex.value?.reauth_required && <ProviderSignIn provider="codex"
         connected toast={toast} onRefresh={() => { void codex.refresh(true) }} />}
       {codex.value
-        ? <UsageBars u={codex.value} />
+        ? <UsageBars u={{ ...codex.value, provider: registryPlanName('openai') }} />
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
   if (shown.google && (agy.value || agy.failure || agy.pending)) {
     cards.push({ provider: 'google', lane: 'google/primary', node: <div className="usage-acct" key={'host:google:' + (agy.value?.account ?? 'antigravity')}>
-      <UsageAcctHead label={agy.value?.provider ?? 'Antigravity'}
+      <UsageAcctHead label={registryProviderName('google')}
         parts={[usageIdentity('default', hostEmail('google', agy.value), multipleAccounts('google'))]}
         provider="Antigravity" state={agy} />
       {/* user-approved UX (2026-09-09): Antigravity's sign-in opens a
@@ -2249,7 +2252,7 @@ export function UsageModal({ close, toast, org }: { close: () => void; toast: To
       {agy.value?.reauth_required && <ProviderSignIn provider="antigravity"
         connected toast={toast} onRefresh={() => { void agy.refresh(true) }} />}
       {agy.value
-        ? <UsageBars u={agy.value} />
+        ? <UsageBars u={{ ...agy.value, provider: registryPlanName('google') }} />
         : <div className="dim">usage unavailable until refresh succeeds</div>}
     </div> })
   }
