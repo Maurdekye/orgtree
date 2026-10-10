@@ -1,7 +1,8 @@
-// Proof: Quick chat as one composer row in the v3 header (docket
+// Proof: Quick chat as one composer row in the v3 footer (docket
 // quick-chat-the-superior-selector-looks-and-works, user 2026-10-10).
-//   - one row: every control inside the one box, the box no taller than the
-//     header, the pickers overlaid below the header;
+//   - one row: every control inside the one box, in the footer (user
+//     18:48Z), the pickers overlaid above it; the header has no Quick chat and
+//     its empty stretch stays a drag region; the Attention view keeps it;
 //   - the model control is the model's id icon alone, then the icon plus the
 //     name the agent will get, and that is the name it gets;
 //   - the superior picker is the Agents List: the same rows in the same order
@@ -35,7 +36,7 @@ export default async function (rig) {
   p.check('the desktop script ran', r.ok, r.ok ? undefined : r)
   const v = r.value ?? {}
   for (const [when, l] of [['empty', v.empty?.layout], ['typed', v.typed?.layout], ['two files', v.withFiles]]) {
-    p.check(`${when}: one row inside one box, no taller than the header`,
+    p.check(`${when}: one row inside one box, inside the footer`,
       l && l.insideBox && l.boxH <= l.headerH && new Set(l.parts.map(x => Math.round((x.top + x.bottom) / 2))).size <= 2, l)
   }
   p.check('empty prompt: the model control is the id icon alone', v.empty?.model?.icon && v.empty.model.name === null, v.empty?.model)
@@ -43,12 +44,12 @@ export default async function (rig) {
   const same = JSON.stringify(v.lists?.picker) === JSON.stringify(v.lists?.list)
   p.check('the superior picker lists the Agents List rows in its order', same && (v.lists?.picker?.length ?? 0) >= 3, v.lists)
   p.check('"top level" heads the picker; rows carry id icons', v.lists?.top?.startsWith('top level') && v.lists.icons === v.lists.picker.length, v.lists)
-  p.check('the picker opens below the header', v.lists && v.lists.popTop >= v.lists.headerBottom, v.lists)
+  p.check('the superior picker opens upward, above the footer and on screen', v.lists && v.lists.popBottom <= v.lists.footerTop && v.lists.popTop >= 0, v.lists)
   p.check('filter + ArrowDown + Enter picked carol', v.picked === 'carol', v.picked)
   p.check('the model picker is the hire chips, the chosen tier marked',
     (v.chips?.length ?? 0) >= 3 && v.chips.filter(c => c.sel).length === 1, v.chips)
   const L = v.look ?? {}
-  p.check('50% wider than alpha.3: the header slot is 960px (was 640px) and the box fills it in a 1600px window', L.slotBasis === '960px' && L.boxW === 960, L)
+  p.check('50% wider than alpha.3: the footer slot is 960px and the box fills it in a 1600px window', L.slotBasis === '960px' && L.boxW === 960, L)
   p.check('the model (with the new name) comes before the superior', JSON.stringify(L.order?.slice(0, 2)) === '["model","superior"]', L.order)
   p.check('the id icon is the cards’ rounded-square tier badge, not a circle', L.radius === '4px', L.radius)
   p.check('its letter is centred both ways (within 1px)', Math.abs(L.dx) <= 1 && Math.abs(L.dy) <= 1, { dx: L.dx, dy: L.dy })
@@ -57,11 +58,13 @@ export default async function (rig) {
   p.check('it hangs centred under the model button (within 1px)', Math.abs(S.popMid - S.btnMid) <= 1, S)
   p.check('a symmetric pyramid: every family row shares one centre, widest first',
     (S.rows?.length ?? 0) >= 1 && S.rows.every(r => Math.abs(r.mid - S.rows[0].mid) <= 1) && S.rows.every((r, i) => i === 0 || r.n <= S.rows[i - 1].n), S.rows)
+  p.check('the model chips open upward, above their button and on screen, widest row nearest it',
+    S.popBottom <= S.btnTop && S.popTop >= 0 && S.rows.every((r, i) => i === 0 || r.top < S.rows[i - 1].top), S)
   p.check('the chips are the canvas hire tokens (same round chip)', S.chipRadius === '50%', S.chipRadius)
   p.check('it fades in (opacity below 1 on its first frames, 1 once open)', v.fadeIn !== null && v.fadeIn < 1 && S.opacity === 1, { first: v.fadeIn, open: S.opacity })
   p.check('it fades out after a pick: a leaving copy below opacity 1, then gone', v.fadeOut?.leaving && v.fadeOut.opacity < 1 && !v.fadeOut.picker && v.gone, { ...v.fadeOut, gone: v.gone })
   const W = v.wander ?? {}
-  p.check('the chips stay open with the pointer 60px below them and 60px to their side', W.at60 === true && W.at60side === true, W)
+  p.check('the chips stay open with the pointer 60px above them and 60px to their side', W.at60 === true && W.at60side === true, W)
   p.check('100px away they close, fading out (a leaving copy below opacity 1, then gone)',
     W.left100 && !W.left100.picker && W.left100.leaving && W.left100.opacity < 1 && W.goneAfter, W)
   const T = v.topLevel ?? {}
@@ -74,6 +77,13 @@ export default async function (rig) {
     p.check(`at ${s.win}px: full width (960) unless neither side has free space left; never overlapping`,
       !s.overlap && (s.quick === 960 || (s.startFree <= 1 && s.endFree <= 1)), s)
   }
+  for (const s of v.sweep ?? []) {
+    p.check(`at ${s.win}px: the header has no Quick chat; its empty stretch (${s.header?.emptyW}px) is a drag region`,
+      s.header && !s.header.quick && s.header.drag === 'drag' && s.header.emptyW > 0, s.header)
+    p.check(`at ${s.win}px: the footer holds the box on one row, only as tall as the row needs (${s.footerH}px for a ${s.boxH}px box)`,
+      s.boxInFooter && s.footerH <= s.boxH + 8, { footerH: s.footerH, boxH: s.boxH })
+  }
+  p.check('the Attention view keeps Quick chat in the footer (none in the header)', v.attention?.on === 'true' && v.attention.quick && !v.attention.headerQuick, v.attention)
   const slide = (v.sweep ?? []).find(s => s.quick === 960 && Math.min(s.startFree, s.endFree) <= 1 && Math.max(s.startFree, s.endFree) > 1)
   p.check('between: one side out of free space, the other not — the box keeps 960 and slides off-centre', !!slide && Math.abs(slide.offCentre) >= 1, v.sweep)
   p.check('a chip pick becomes the model (haiku)', v.afterModel?.icon === 't-haiku', v.afterModel)
