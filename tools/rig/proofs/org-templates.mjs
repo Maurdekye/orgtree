@@ -31,6 +31,14 @@ export default async function (rig) {
   const orgRow = (slug) => rig.one(`SELECT id, state FROM ot.orgs WHERE slug = '${slug}' AND state = 'active'`)
   const attempt = (f) => f.then((r) => ({ ok: true, r }), (e) => ({ ok: false, status: e.status, detail: e.body?.detail ?? e.message }))
 
+  // the engine checks the Claude/Codex sign-ins in the background after it starts, and until
+  // that check lands every staffing surface reads them as signed out: wait for it
+  for (let i = 0; i < 120; i++) {
+    const tiers = (await rig.api('GET', `/api/orgs/${rig.org}/staffing-options`)).tiers.map((t) => t.tier)
+    if (tiers.includes('opus') && tiers.includes('sol')) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
+
   // 1. the list
   const list = await rig.api('GET', '/api/templates')
   const ids = list.templates.map((t) => t.id)
@@ -42,7 +50,7 @@ export default async function (rig) {
   p.check('devteam (claude) previews as coordinator opus + implementer opus, redteam opus, curator sonnet; top grant 20',
     pc.ok && JSON.stringify(pc.agents.map((a) => [a.name, a.tier, a.parent])) === JSON.stringify([
       ['coordinator', 'opus', null], ['implementer', 'opus', 'coordinator'], ['redteam', 'opus', 'coordinator'], ['curator', 'sonnet', 'coordinator']])
-      && pc.top_grant === 20, pc.agents.map((a) => `${a.name}:${a.tier}:${a.account}:${a.seat}+${a.grant}`))
+      && pc.top_grant === 20, { agents: pc.agents.map((a) => `${a.name}:${a.tier}:${a.account}:${a.seat}+${a.grant}:${a.blocked}:${a.note}`), top: pc.top_grant, blocked: pc.blocked, offered: pc.offered?.map((o) => o.tier) })
   const expect = (plan) => Object.fromEntries(plan.agents.map((a) => [a.slot, a.tier]))
   const cc = await attempt(rig.api('POST', '/api/orgs', { name: 'Claude Team', dirs: [], template: { id: 'devteam-claude', expect: expect(pc) } }))
   const ct = tree('claude-team')
