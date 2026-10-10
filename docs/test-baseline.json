@@ -1,18 +1,18 @@
 {
   "schema": "orgtree.test-baseline/v1",
-  "recorded_at": "2026-10-10T22:07:17.438Z",
+  "recorded_at": "2026-10-10T22:11:10.970Z",
   "recorded_by": "readme-sonnet",
   "max_age_days": 7,
-  "commit": "9ba00785ab2419376151f6c29d99175d9fd0fdb3",
-  "commit_subject": "Renderer tests: convo epoch case follows the automatic history retry",
-  "commit_at": "2026-10-11T01:04:39+03:00",
-  "branch": "suite-fix",
+  "commit": "b326e7253411bb24cda42abe5ee1eb7ecca31fdd",
+  "commit_subject": "Renderer tests: the Accounts lane lists the native sign-in row too (decision 41); there was no double read",
+  "commit_at": "2026-10-11T01:08:48+03:00",
+  "branch": "docket-search-keep",
   "tree_clean": true,
   "measured_tree_clean": true,
   "trees": {
     "tests": "4536fc00b21657176487dfcae3d31231278f3407",
     "engine": "ac19262d3f49ed6bfc210cf429c7eefb9d127189",
-    "apps": "10b9fbdedbc5fd2b7eebeb5eec268e48879a2aad",
+    "apps": "1b33739f8621889d13246800aad13a5975c1b9a8",
     "packages": "1de6e629713488a211a1eed297cff6a92d0a357e",
     "tools": "819cece3093bf2ed48db02035a701d1fcd1a87eb",
     "package.json": "637041814326adc36ef4c42af29ec1d7552076cf"
@@ -31,12 +31,12 @@
       "description": "apps/desktop/renderer/tests/run.mjs — esbuild-bundled jsdom suites over the real renderer",
       "runner": "node apps/desktop/renderer/tests/run.mjs",
       "granularity": "test",
-      "recorded_at": "2026-10-10T22:07:17.437Z",
-      "commit": "9ba00785ab2419376151f6c29d99175d9fd0fdb3",
+      "recorded_at": "2026-10-10T22:11:10.970Z",
+      "commit": "b326e7253411bb24cda42abe5ee1eb7ecca31fdd",
       "trees": {
         "tests": "4536fc00b21657176487dfcae3d31231278f3407",
         "engine": "ac19262d3f49ed6bfc210cf429c7eefb9d127189",
-        "apps": "10b9fbdedbc5fd2b7eebeb5eec268e48879a2aad",
+        "apps": "1b33739f8621889d13246800aad13a5975c1b9a8",
         "packages": "1de6e629713488a211a1eed297cff6a92d0a357e",
         "tools": "819cece3093bf2ed48db02035a701d1fcd1a87eb",
         "package.json": "637041814326adc36ef4c42af29ec1d7552076cf"
@@ -48,15 +48,13 @@
           "why": "driven by hand or by a native probe runner, not by run.mjs"
         }
       ],
-      "duration_ms": 147886,
+      "duration_ms": 140187,
       "confirmation_pass": {
         "files": [
-          "apps/desktop/renderer/tests/accountsregistry-create.test.tsx",
           "apps/desktop/renderer/tests/circularlayout.test.tsx",
-          "apps/desktop/renderer/tests/convoretention.test.tsx",
-          "apps/desktop/renderer/tests/docketsearch.test.tsx"
+          "apps/desktop/renderer/tests/convoretention.test.tsx"
         ],
-        "duration_ms": 3095
+        "duration_ms": 1474
       },
       "truncated": null,
       "truncation_note": null,
@@ -68,41 +66,15 @@
       "counts": {
         "files": 383,
         "tests": 3228,
-        "passed": 3219,
-        "failed": 5,
+        "passed": 3222,
+        "failed": 2,
         "skipped": 4
       },
       "failing_files": [
-        "apps/desktop/renderer/tests/accountsregistry-create.test.tsx",
         "apps/desktop/renderer/tests/circularlayout.test.tsx",
-        "apps/desktop/renderer/tests/convoretention.test.tsx",
-        "apps/desktop/renderer/tests/docketsearch.test.tsx"
+        "apps/desktop/renderer/tests/convoretention.test.tsx"
       ],
       "failures": [
-        {
-          "id": "renderer::apps/desktop/renderer/tests/accountsregistry-create.test.tsx::an unreadable account registry stays visible as an error and retry restores the provider rows",
-          "file": "apps/desktop/renderer/tests/accountsregistry-create.test.tsx",
-          "test": "an unreadable account registry stays visible as an error and retry restores the provider rows",
-          "kind": "leaf",
-          "failure_type": "testCodeFailure",
-          "stability": "stable",
-          "error": "Expected values to be strictly equal:",
-          "error_digest": "64714361d7a9",
-          "failing_since": "2026-10-07T21:11:26.398Z",
-          "failing_since_is_lower_bound": false
-        },
-        {
-          "id": "renderer::apps/desktop/renderer/tests/accountsregistry-create.test.tsx::three provider headers own add controls and account rows, with one registry read and no usage",
-          "file": "apps/desktop/renderer/tests/accountsregistry-create.test.tsx",
-          "test": "three provider headers own add controls and account rows, with one registry read and no usage",
-          "kind": "leaf",
-          "failure_type": "testCodeFailure",
-          "stability": "stable",
-          "error": "Expected values to be strictly equal:",
-          "error_digest": "64714361d7a9",
-          "failing_since": "2026-10-07T21:11:26.398Z",
-          "failing_since_is_lower_bound": false
-        },
         {
           "id": "renderer::apps/desktop/renderer/tests/circularlayout.test.tsx::colliding neighbouring teams move equally in opposite directions only as far as needed",
           "file": "apps/desktop/renderer/tests/circularlayout.test.tsx",
@@ -124,18 +96,6 @@
           "stability": "stable",
           "error": "Expected values to be strictly equal:",
           "error_digest": "64714361d7a9",
-          "failing_since": "2026-10-07T21:11:26.398Z",
-          "failing_since_is_lower_bound": false
-        },
-        {
-          "id": "renderer::apps/desktop/renderer/tests/docketsearch.test.tsx::§15 clearing restores the EXACT prior list, selection and filters",
-          "file": "apps/desktop/renderer/tests/docketsearch.test.tsx",
-          "test": "§15 clearing restores the EXACT prior list, selection and filters",
-          "kind": "leaf",
-          "failure_type": "testCodeFailure",
-          "stability": "stable",
-          "error": "The expression evaluated to a falsy value:",
-          "error_digest": "a12f41a7234c",
           "failing_since": "2026-10-07T21:11:26.398Z",
           "failing_since_is_lower_bound": false
         }
