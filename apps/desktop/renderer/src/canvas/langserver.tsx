@@ -112,6 +112,9 @@ export const langServerDoc = (d: unknown): LangServerDoc | null => {
   }
 }
 
+/** a probe's answer as the card reads it: an older engine or a stub may leave out the list */
+const probeOf = (p: LangServerProbe): LangServerProbe => ({ ...p, models: Array.isArray(p?.models) ? p.models : [] })
+
 /** a seat price as the input may hold it: 0 to the engine's maximum, two decimals */
 const clampSeat = (n: number, doc: LangServerDoc): number =>
   Number.isFinite(n) ? Math.round(Math.min(doc.max_seat, Math.max(0, n)) * 100) / 100 : doc.default_seat
@@ -494,11 +497,11 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   const checkNow = () => {
     setChecking(true)
     const only = recordedIds.length ? recordedIds : undefined
-    probeLangServer({ server: s.id, only })
+    probeLangServer({ server: s.id, only }).then(probeOf)
       .then((p) => {
         const listed = p.listed ?? p.models.length
         if (only && p.reachable && listed <= ROW_MAX && listed > p.models.length) {
-          return probeLangServer({ server: s.id }).then((all) => { setCheck(all); setWhole(all.reachable) })
+          return probeLangServer({ server: s.id }).then(probeOf).then((all) => { setCheck(all); setWhole(all.reachable) })
         }
         setCheck(p); setWhole(p.reachable && (!only || listed <= p.models.length))
       })
@@ -525,7 +528,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   const cancel = () => { setDraft(null); setBrowsing(false) }
   const find = () => {
     setFinding(true)
-    probeLangServer({ server: s.id })
+    probeLangServer({ server: s.id }).then(probeOf)
       .then(setFound)
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setFinding(false))

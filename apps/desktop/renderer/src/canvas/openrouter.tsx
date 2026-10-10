@@ -215,7 +215,7 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   // the picker keeps its place, dimmed, and a new favorite joins at the end.
   // Merged while rendering too, so the first paint already has every chip.
   const [seen, setSeen] = useState<ProviderTier[]>([])
-  useEffect(() => { if (doc) setSeen((prev) => keepPlaces(prev, doc.tiers)) }, [doc])
+  useEffect(() => { if (doc) setSeen((prev) => keepPlaces(prev, doc.tiers ?? [])) }, [doc])
   const shown = keepPlaces(seen, favorites)
   const standing = doc ? standingOf(doc) : []
   // line 1's verdict word, and the tone it reads in
