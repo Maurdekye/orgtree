@@ -58,7 +58,14 @@ module.exports = async (page, { args }) => {
   await page.screenshot('4-seed-org-last-pick')
   await open(args.a, 'coordinator')
   out.aAgain = await shown()
-  await page.click('button[title="Settings"]')
+  // the organization window's gear (its label differs from the canvas shell's)
+  out.gear = await page.eval(() => {
+    const bs = [...document.querySelectorAll('button')]
+    const gear = bs.find(b => /settings/i.test(`${b.title} ${b.getAttribute('aria-label') ?? ''}`)
+      && !/app settings/i.test(`${b.title} ${b.getAttribute('aria-label') ?? ''}`))
+    gear?.click()
+    return gear ? (gear.title || gear.getAttribute('aria-label')) : bs.map(b => b.title || b.getAttribute('aria-label')).filter(Boolean)
+  })
   await page.waitFor({ selector: 'button', text: '^save as template…$', regex: true, scroll: true }, { timeout: 20000 })
   await page.sleep(600)
   await page.click({ selector: 'button', text: '^save as template…$', regex: true, scroll: true })
