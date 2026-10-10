@@ -230,6 +230,10 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
             tokio::time::sleep(Duration::from_millis(ms)).await;
         }
         engine.usage.put(&claude_key(config_dir), &v);
+        // a canned reading is still history, so a rig proof sees it recorded
+        if crate::rig::canned_reading(&v) {
+            crate::account_marks::profile_history(engine, "claude", config_dir, Utc::now(), &v).await;
+        }
         return v;
     }
     let key = claude_key(config_dir);
@@ -248,7 +252,9 @@ pub async fn claude(engine: &Engine, config_dir: Option<&str>, force: bool) -> V
         }
         None => {
             let observed = Utc::now();
-            let value = fetch_claude(engine, &key, &dir).await;
+            let mut value = fetch_claude(engine, &key, &dir).await;
+            // the history labels the login by it (set on `out` below anyway)
+            value["email"] = json!(email);
             crate::account_marks::profile_usage(engine, "claude", config_dir, observed, &value).await;
             value
         },
@@ -376,6 +382,9 @@ pub async fn codex(engine: &Engine, account: &str, home: Option<&str>, force: bo
             tokio::time::sleep(Duration::from_millis(ms)).await;
         }
         engine.usage.put(&codex_key(home), &v);
+        if crate::rig::canned_reading(&v) {
+            crate::account_marks::profile_history(engine, "openai", home, Utc::now(), &v).await;
+        }
         return v;
     }
     let key = codex_key(home);
@@ -498,6 +507,9 @@ fn codex_limits(raw: &Value) -> Value {
 pub async fn antigravity(engine: &Engine, force: bool) -> Value {
     if let Some(v) = crate::rig::usage("google", None) {
         engine.usage.put("agy", &v);
+        if crate::rig::canned_reading(&v) {
+            crate::account_marks::profile_history(engine, "google", None, Utc::now(), &v).await;
+        }
         return v;
     }
     if !force {

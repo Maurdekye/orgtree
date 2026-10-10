@@ -200,7 +200,16 @@ pub fn usage(lane: &str, profile: Option<&str>) -> Option<serde_json::Value> {
         .into_iter()
         .chain(std::iter::once(dir.join(format!("{lane}.json"))))
         .find_map(|p| std::fs::read(p).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()));
-    Some(canned.unwrap_or_else(|| serde_json::json!({ "available": false, "error": "rig mode: no usage probe" })))
+    Some(canned.unwrap_or_else(|| serde_json::json!({ "available": false, "error": NO_PROBE })))
+}
+
+const NO_PROBE: &str = "rig mode: no usage probe";
+
+/// Whether a rig reading is a canned one (usage history records it) rather
+/// than the stand-in for a lane the rig run gave no reading.
+#[logged]
+pub fn canned_reading(v: &serde_json::Value) -> bool {
+    v["error"] != NO_PROBE
 }
 
 /// The OpenRouter key check in rig mode: what

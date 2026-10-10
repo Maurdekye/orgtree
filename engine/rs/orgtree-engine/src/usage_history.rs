@@ -126,7 +126,8 @@ fn readings(value: &Value) -> Vec<Reading> {
     };
     let mut out = vec![Reading {
         win: String::new(), grp: String::new(), model: String::new(), state, pct: None, amount: None, unit: None,
-        resets: None, label: value["label"].as_str().map(str::to_string),
+        resets: None,
+        label: value["label"].as_str().or_else(|| value["email"].as_str()).filter(|s| !s.trim().is_empty()).map(str::to_string),
         detail: Some(gist(&why, 300)).filter(|d| !d.is_empty() && !available),
     }];
     if !available {
@@ -320,6 +321,13 @@ pub async fn history(engine: &Engine, range: &str) -> anyhow::Result<Value> {
           WHERE prev IS DISTINCT FROM state ORDER BY observed_at, id LIMIT $3",
         &[&since, &until, &(MAX_STATES + 1)],
     ).await?;
+    // the label each account last carried (a provider's own login has no registry row to name it)
+    let labels = client.query(
+        "SELECT DISTINCT ON (account) account, label FROM ot.usage_history
+          WHERE observed_at >= $1 AND observed_at <= $2 AND event = 'reading' AND win = '' AND label IS NOT NULL
+          ORDER BY account, observed_at DESC, id DESC LIMIT $3",
+        &[&since, &until, &MAX_SERIES],
+    ).await?;
     let oldest: Option<DateTime<Utc>> = client.query_one("SELECT min(observed_at) FROM ot.usage_history", &[]).await?.get(0);
     drop(client);
 
@@ -333,7 +341,10 @@ pub async fn history(engine: &Engine, range: &str) -> anyhow::Result<Value> {
         }));
     }
     let view = engine.accounts.view();
-    let account_label = |id: &str| view.get(id).map(|a| a.display()).unwrap_or_else(|| id.to_string());
+    let labels: std::collections::HashMap<String, String> = labels.iter().map(|r| (r.get(0), r.get(1))).collect();
+    let account_label = |id: &str| view.get(id).map(|a| a.display())
+        .or_else(|| labels.get(id).cloned())
+        .unwrap_or_else(|| id.to_string());
     let series: Vec<Value> = metas.iter().take(MAX_SERIES as usize).map(|r| {
         let account: String = r.get(0);
         let used: Option<f64> = r.get(6);

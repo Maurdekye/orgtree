@@ -79,7 +79,37 @@ pub async fn profile_usage(
     observed: DateTime<Utc>,
     value: &Value,
 ) {
-    let accounts: Vec<String> = engine
+    for account in logins(engine, provider, profile) {
+        usage(engine, &account, provider, observed, value).await;
+    }
+    profile_history(engine, provider, profile, observed, value).await;
+}
+
+/// Record a probe's readout in the usage history: under each registry row of
+/// that login, and the provider's own login (no registry row of its own, or an
+/// ambient one) once, under the name the usage board gives it (`claude/primary`).
+#[logged]
+pub async fn profile_history(
+    engine: &Engine,
+    provider: &str,
+    profile: Option<&str>,
+    observed: DateTime<Utc>,
+    value: &Value,
+) {
+    let ambient: std::collections::HashSet<String> = engine.accounts.view().all().into_iter()
+        .filter(|a| a.ambient).map(|a| a.id.clone()).collect();
+    for account in logins(engine, provider, profile).into_iter().filter(|a| !ambient.contains(a)) {
+        crate::usage_history::record(engine, &account, provider, observed, value).await;
+    }
+    if profile.is_none() {
+        crate::usage_history::record(engine, &format!("{provider}/primary"), provider, observed, value).await;
+    }
+}
+
+/// The registry rows signed in with `profile` (None: the machine's own login).
+#[logged]
+fn logins(engine: &Engine, provider: &str, profile: Option<&str>) -> Vec<String> {
+    engine
         .accounts
         .view()
         .all()
@@ -90,11 +120,7 @@ pub async fn profile_usage(
                 && (a.config_dir.as_deref() == profile || (profile.is_none() && a.ambient))
         })
         .map(|a| a.id.clone())
-        .collect();
-    for account in accounts {
-        usage(engine, &account, provider, observed, value).await;
-        crate::usage_history::record(engine, &account, provider, observed, value).await;
-    }
+        .collect()
 }
 
 /// Called only after a provider request, never on cache hits or stale fallback.
