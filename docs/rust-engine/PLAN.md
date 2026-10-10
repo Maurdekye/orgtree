@@ -381,6 +381,7 @@ toast saying this engine does not support it.
 | H5 | Usage window: Claude bars per account, Codex rate limits, Antigravity usage, OpenRouter credits, usage glow | Kept |
 | H6 | OpenRouter key, catalog search, favorites as tiers, harness choice | Kept |
 
+| H7 | Every org could use every signed-in account | New (user 2026-10-10, 4.2.0): Org settings › Accounts ticks the accounts an org may use (default sign-ins, registered logins, OpenRouter, language servers; all ticked by default, a new sign-in starts ticked). The engine enforces it on every account choice (hire, rehire, switch, retool, staff, fallback, continue-on, balancing, the turn gate, the usage board, `orgtree_account_mark`); an agent on an unticked account moves at its next turn or stops saying none is left. Usage and Usage history opened from an org window show its accounts, the rest behind "Show all accounts"; recording is unchanged |
 ### I. Settings
 
 | # | Today | After the rewrite |
