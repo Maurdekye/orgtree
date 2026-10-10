@@ -10,7 +10,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_message",
         "orgtree_send_notice",
         "orgtree_status",
-        "orgtree_inbox",
+        "orgtree_transfers", "orgtree_inbox",
         "orgtree_chart",
         "orgtree_state_inspect",
         "orgtree_list_tiers",
@@ -170,6 +170,12 @@ fn all() -> Vec<Value> {
                 "summary": { "type": "string", "description": "one or two sentences" },
             }),
             &["status", "summary"],
+        ),
+        tool(
+            "orgtree_transfers",
+            "Inspect attachment transfers for mail you sent, and incoming mail if you hold the org inbox audience. list returns the newest 100; get takes id. Byte counts distinguish processed from confirmed bytes. retry resumes a failed or cancelled transfer; cancel stops its network request and holds the message. Messages wait until every file is ready. Success sends no notification.",
+            json!({"action":{"type":"string","enum":["list","get","retry","cancel"]},"id":{"type":"string"}}),
+            &["action"],
         ),
         tool(
             "orgtree_inbox",

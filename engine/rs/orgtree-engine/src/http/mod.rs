@@ -77,6 +77,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/batch", post(asks::batch))
         .route("/api/orgs/{slug}/watchdogs", post(dogs::watchdog))
         .route("/api/orgs/{slug}/org_inbox", get(orginbox::list))
+        .route("/api/orgs/{slug}/transfers", get(orginbox::transfers))
+        .route("/api/orgs/{slug}/transfers/{id}", post(orginbox::transfer_change))
         .route("/api/orgs/{slug}/net", get(orginbox::net))
         .route("/api/orgs/{slug}/org_inbox/read", post(orginbox::read))
         .route("/api/orgs/{slug}/org_inbox/send", post(orginbox::send))

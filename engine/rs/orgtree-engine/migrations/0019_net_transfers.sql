@@ -35,7 +35,7 @@ CREATE TABLE ot.net_incoming (
     address text NOT NULL,
     net_id text NOT NULL,
     envelope jsonb NOT NULL,
-    state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','downloading','retry_wait','failed','cancelled','complete')),
+    state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','downloading','delivering','retry_wait','failed','cancelled','complete')),
     attempt integer NOT NULL DEFAULT 0,
     error text,
     next_at timestamptz NOT NULL DEFAULT now(),

@@ -70,7 +70,7 @@ pub(super) async fn claim(e: &Engine, active: &HashSet<String>) -> Result<Option
     let mut c = e.db.get().await?;
     let tx = c.transaction().await?;
     tx.execute(
-        "UPDATE ot.net_incoming SET state='retry_wait',next_at=now() WHERE state='downloading' AND NOT(address=ANY($1)) AND org_id=ANY($2)",
+        "UPDATE ot.net_incoming SET state='retry_wait',next_at=now() WHERE state IN ('downloading','delivering') AND NOT(address=ANY($1)) AND org_id=ANY($2)",
         &[&addresses, &orgs],
     )
     .await?;
@@ -241,6 +241,10 @@ pub(super) async fn run(e: &Arc<Engine>, p: &Part, job: &Job) -> Result<String> 
             attachments.push(json!({"name":f.name,"path":f.path.to_string_lossy(),"bytes":bytes}));
         }
     }
+    // A short atomic boundary decides whether cancel or delivery wins.
+    // Once delivering, controls cannot cancel or retry this envelope.
+    let n = e.db.get().await?.execute("UPDATE ot.net_incoming SET state='delivering' WHERE id=$1 AND state='downloading'", &[&job.id]).await?;
+    if n == 0 { return Err(anyhow::anyhow!("transfer was stopped before delivery")); }
     publish_inbound(e, p, &job.hub, &job.address, &job.envelope, body, attachments).await?;
     Ok(job.envelope["id"].as_str().unwrap_or("").to_owned())
 }
@@ -258,7 +262,7 @@ pub(super) async fn settle(e: &Engine, job: &Job, outcome: Result<String>) -> Re
     e.db.get()
         .await?
         .execute(
-            "UPDATE ot.net_incoming SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1",
+            "UPDATE ot.net_incoming SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1 AND state IN ('downloading','delivering')",
             &[&job.id, &state, &error, &delay],
         )
         .await?;

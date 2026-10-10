@@ -514,3 +514,22 @@ mod tests {
         assert!(relative_images("no images [link](rel.md)").is_empty());
     }
 }
+
+/// Transfer tools use the caller's identity, never a requested agent or org.
+#[logged]
+pub async fn transfers(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    if args.as_object().map(|a| a.keys().any(|k| !["action","id"].contains(&k.as_str()))).unwrap_or(true) {
+        crate::refuse!(BadRequest,"transfers takes action and id only");
+    }
+    let c = engine.db.get().await?;
+    let actor = me(&c,caller).await?;
+    drop(c);
+    let action = need_str(args,"action")?;
+    let value = match action {
+        "list" => crate::net::control::inspect(engine,actor.org_id,Some(actor.id),None).await?,
+        "get" => crate::net::control::inspect(engine,actor.org_id,Some(actor.id),Some(need_str(args,"id")?)).await?,
+        "retry" | "cancel" => crate::net::control::change(engine,actor.org_id,Some(actor.id),need_str(args,"id")?,action).await?,
+        _ => crate::refuse!(BadRequest,"action must be list, get, retry or cancel"),
+    };
+    Done::json(&value)
+}

@@ -193,3 +193,16 @@ pub async fn net(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiR
     let o = org(&e, &slug)?;
     Ok(Json(crate::net::reveal(&e, o.id, &o.slug).await?))
 }
+
+#[logged]
+pub async fn transfers(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
+    let o = org(&e,&slug)?;
+    Ok(Json(crate::net::control::inspect(&e,o.id,None,None).await?))
+}
+
+#[logged]
+pub async fn transfer_change(State(e): State<Arc<Engine>>, Path((slug,id)): Path<(String,String)>, Json(args): Json<Value>) -> ApiResult<Json<Value>> {
+    let o = org(&e,&slug)?;
+    let action = args["action"].as_str().unwrap_or("");
+    Ok(Json(crate::net::control::change(&e,o.id,None,&id,action).await?))
+}

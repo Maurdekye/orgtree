@@ -150,6 +150,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_message" => mailtools::message(engine, caller, args, false).await,
         "orgtree_send_notice" => mailtools::message(engine, caller, args, true).await,
         "orgtree_status" => mailtools::status(engine, caller, args).await,
+        "orgtree_transfers" => mailtools::transfers(engine, caller, args).await,
         "orgtree_inbox" => mailtools::inbox(engine, caller, args).await,
         "orgtree_chart" => orgview::chart(engine, caller, args).await,
         "orgtree_state_inspect" => orgview::state_inspect(engine, caller, args).await,

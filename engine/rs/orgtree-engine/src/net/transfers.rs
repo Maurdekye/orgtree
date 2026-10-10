@@ -93,6 +93,10 @@ enum Work {
 
 impl Work {
     #[nolog]
+    fn id(&self) -> &str {
+        match self { Self::Upload(j, _) => &j.id, Self::Download(j, _) => &j.id }
+    }
+    #[nolog]
     fn address(&self) -> &str {
         match self {
             Self::Upload(j, _) => &j.address,
@@ -140,7 +144,7 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
         .await?
         .execute("UPDATE ot.net_transfers SET state='queued',next_at=now() WHERE state IN ('preparing','uploading','confirming')", &[])
         .await?;
-    e.db.get().await?.execute("UPDATE ot.net_incoming SET state='queued',next_at=now() WHERE state='downloading'", &[]).await?;
+    e.db.get().await?.execute("UPDATE ot.net_incoming SET state='queued',next_at=now() WHERE state IN ('downloading','delivering')", &[]).await?;
     let mut tasks = JoinSet::new();
     let mut incoming_first = false;
     let mut active = HashSet::<String>::new();
@@ -153,8 +157,18 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
                     let e = e.clone();
                     tasks.spawn(async move {
                         let address = work.address().to_owned();
+                        let id = work.id().to_owned();
+                        let stop = CancellationToken::new();
+                        e.net.transfer_stops.pin().insert(id.clone(), stop.clone());
                         let future = async {
-                            let outcome = run_work(&work, &e).await;
+                            // Register before checking intent: a racing cancel either
+                            // sees this token or the worker sees the persisted cancel.
+                            if !control::running(&e, &id).await? { return Ok(()); }
+                            let outcome = tokio::select! {
+                                biased;
+                                _ = stop.cancelled() => return Ok(()),
+                                result = run_work(&work, &e) => result,
+                            };
                             settle_work(&work, &e, outcome).await
                         };
                         let result = tokio::select! {
@@ -162,6 +176,7 @@ async fn scheduler(e: &Arc<Engine>) -> Result<()> {
                             result=std::panic::AssertUnwindSafe(future).catch_unwind()=>
                                 result.unwrap_or_else(|_|Err(anyhow::anyhow!("transfer worker failed unexpectedly"))),
                         };
+                        e.net.transfer_stops.pin().remove(&id);
                         if let Err(err) = result {
                             tracing::warn!(error=%format!("{err:#}"),"transfer worker or result write failed");
                         }
@@ -399,7 +414,7 @@ async fn settle(e: &Engine, job: &Job, outcome: Result<String>) -> Result<()> {
     match outcome {
         Ok(id) => {
             c.execute(
-                "UPDATE ot.net_transfers SET state='complete',processed=total,confirmed=total,result_id=$2,error=NULL,updated_at=now() WHERE id=$1",
+                "UPDATE ot.net_transfers SET state='complete',processed=total,confirmed=total,result_id=$2,error=NULL,updated_at=now() WHERE id=$1 AND state IN ('preparing','uploading','confirming')",
                 &[&job.id, &id],
             )
             .await?;
@@ -409,7 +424,7 @@ async fn settle(e: &Engine, job: &Job, outcome: Result<String>) -> Result<()> {
             let error = err.downcast_ref::<reqwest::Error>().map(short_error).unwrap_or_else(|| crate::util::gist(&err.to_string(), 300));
             let delay = (2i32.pow((job.attempt as u32).min(8))).min(300);
             c.execute(
-                "UPDATE ot.net_transfers SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1",
+                "UPDATE ot.net_transfers SET state=$2,error=$3,next_at=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1 AND state IN ('preparing','uploading','confirming')",
                 &[&job.id, &state, &error, &(delay as f64)],
             )
             .await?;

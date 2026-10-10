@@ -33,6 +33,7 @@ use crate::engine::Engine;
 
 mod transfers;
 mod incoming;
+pub mod control;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";
@@ -183,6 +184,8 @@ pub struct Net {
     pollers: papaya::HashMap<String, (String, CancellationToken)>,
     /// the participants of the last pass
     parts: ArcSwap<Vec<Part>>,
+    /// Live requests only; durable intent remains in PostgreSQL.
+    transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
     rig_workers: std::sync::atomic::AtomicBool,
     kick: tokio::sync::Notify,
