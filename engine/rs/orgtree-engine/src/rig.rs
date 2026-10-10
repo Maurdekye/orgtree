@@ -244,6 +244,21 @@ pub fn openrouter_key() -> Option<std::result::Result<serde_json::Map<String, se
     })
 }
 
+/// The OpenRouter catalog in rig mode: what
+/// `<root>\rig-home\rig-usage\openrouter-models.json` holds, the body of
+/// `GET /api/v1/models` (`{"data": [...]}`), and no network when there is no
+/// such file. None outside rig mode (the real catalog).
+#[logged]
+pub fn openrouter_models() -> Option<std::result::Result<serde_json::Value, String>> {
+    let home = RIG.get().cloned().flatten()?;
+    Some(
+        std::fs::read(home.join("rig-usage").join("openrouter-models.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .ok_or_else(|| "rig mode: no network".to_string()),
+    )
+}
+
 #[cfg(debug_assertions)]
 pub use routes::tool;
 

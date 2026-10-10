@@ -105,7 +105,9 @@ the run.
   `ORGTREE_CLAUDE_BIN`/`ORGTREE_CODEX_BIN`/`ORGTREE_AGY_BIN`, no usage probe or OpenRouter call
   is made (canned readings may be dropped into `rig-home\rig-usage\<lane>.json`, or
   `<lane>@<folder>.json` for the one login whose Claude config folder or Codex home is named
-  `<folder>`; they are cached like a probe's reading), and one test-only route exists:
+  `<folder>`; they are cached like a probe's reading; the OpenRouter key check reads
+  `rig-home\rig-usage\openrouter-key.json` and the OpenRouter catalog
+  `rig-home\rig-usage\openrouter-models.json`, the body of `GET /api/v1/models`), and one test-only route exists:
   `POST /api/rig/tool {org, agent, tool, args}`.
 - **Without rig mode a SAFE_START engine is not isolated**: it reads the real user's sign-ins and,
   every few minutes, runs the real usage probes (HTTPS with the real Claude token,
