@@ -12,6 +12,9 @@
 //   4. what reached the server: the hired model id, the lane's placeholder
 //      key (never a login), the orgtree tools, the window the CLI was told;
 //   5. the turn costs nothing and says so (cost_source "local");
+//   5b. the agents-at-once cap: with the server answering slowly, two agents
+//      on a server that takes one agent at a time take turns, while agents
+//      on two different servers run at the same time (the control);
 //   6. with a renderer bundle (`--ui <dir>`, tools/rig/build-ui.mjs): App
 //      settings › Providers › Language Server shows both servers, and Add
 //      server opens the preset form (screenshots in the evidence folder).
@@ -38,6 +41,8 @@ export default async function (rig) {
     rules: [
       { match: ['PROOF-LS-CLAUDE'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-CLAUDE-DONE' } },
       { match: ['PROOF-LS-CODEX'], tool: 'orgtree_status', input: { status: 'done', summary: 'PROOF-LS-CODEX-DONE' } },
+      // a slow server: every answer to these waits 4 s
+      { match: ['PROOF-LS-SLOW'], text: 'slow answer', delay_ms: 4000 },
     ],
   })
   try {
@@ -105,6 +110,28 @@ export default async function (rig) {
     const turns = rig.sql(`SELECT a.name, t.cost_usd::float8 AS cost, t.cost_source FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
                            WHERE a.name IN ('lsclaude', 'lscodex') AND t.ended_at IS NOT NULL`)
     p.check('every finished turn costs 0 and says local', turns.length >= 2 && turns.every(t => t.cost === 0 && t.cost_source === 'local'), turns)
+    // ------------------------------------------------------------ 5b. the agents-at-once cap
+    await rig.op({ op: 'hire', name: 'lsclaude2', tier: tierA, grant: 1, title: 'second agent on the one-at-a-time server' })
+    const open = () => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0
+    await rig.waitFor(open, { what: 'turns to settle before the cap check', timeout: 120000 })
+    const window = async (names, token) => {
+      // (not `AS t`: the rig wraps every query as a subquery named t)
+      const t0 = rig.one(`SELECT now()::text AS at`).at
+      await Promise.all(names.map(n => rig.userMail(n, `${token}: answer in one word.`)))
+      const done = () => {
+        const rows = rig.sql(`SELECT a.name, extract(epoch FROM t.started_at)::float8 AS s, extract(epoch FROM t.ended_at)::float8 AS e FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
+                              WHERE a.name IN (${names.map(n => `'${n}'`).join(',')}) AND t.started_at >= '${t0}' ORDER BY t.started_at`)
+        return names.every(n => rows.some(r => r.name === n && r.e)) ? rows : null
+      }
+      return rig.waitFor(done, { what: `${names.join(' and ')} to finish a slow turn each`, timeout: 240000 }).catch(() => null)
+    }
+    const overlap = rows => !!rows && rows.length >= 2 && rows[1].s < rows[0].e
+    const capped = await window(['lsclaude', 'lsclaude2'], 'PROOF-LS-SLOW one')
+    p.check('two agents on a server that takes one agent at a time take turns (no overlap)', !!capped && !overlap(capped), capped)
+    await rig.waitFor(open, { what: 'turns to settle before the control', timeout: 120000 })
+    const apart = await window(['lsclaude', 'lscodex'], 'PROOF-LS-SLOW two')
+    p.check('control: agents on two different servers run at the same time', overlap(apart), apart)
+
     const c1 = claudeReq[0], x1 = codexReq[0]
     p.note(`prompt sizes: Claude Code ${c1?.body_chars ?? '?'} chars (system ${c1?.system_chars ?? '?'}, ${c1?.tools ?? '?'} tools), `
       + `Codex ${x1?.body_chars ?? '?'} chars (instructions ${x1?.instructions_chars ?? '?'}, ${x1?.tools ?? '?'} tools)`)

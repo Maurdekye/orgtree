@@ -20,6 +20,7 @@
 // No rule matches: the text "OK.".
 //   { match: ['TOKEN'], tool: 'orgtree_status', input: { status: 'done', summary: '…' } }
 //   { match: ['TOKEN'], text: 'Hello' }
+//   { match: ['TOKEN'], text: 'Slow', delay_ms: 3000 }   (a slow server: waits before answering)
 // `tool` names the orgtree tool; the fake calls it by whatever name the
 // harness offered it under (Claude Code: `mcp__orgtree__orgtree_status`).
 
@@ -104,7 +105,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
   const toolName = (names, want) => names.find((n) => n === want || n.endsWith(`__${want}`)) ?? want
 
   // ── Anthropic Messages (Claude Code)
-  function messages(req, res, b) {
+  function messages(req, res, b, waited = false) {
     const msgs = b?.messages ?? []
     const last = [...msgs].reverse().find((m) => m.role === 'user')
     const parts = Array.isArray(last?.content) ? last.content : [{ type: 'text', text: String(last?.content ?? '') }]
@@ -113,6 +114,8 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const names = (b?.tools ?? []).map((t) => t.name).filter(Boolean)
     const system = typeof b?.system === 'string' ? b.system : (b?.system ?? []).map((s) => s.text ?? '').join('\n')
     const reply = pick(lastText, toolResult)
+    // a slow server: the rule's delay before anything is sent
+    if (reply.delay_ms && !waited) { setTimeout(() => messages(req, res, b, true), reply.delay_ms); return }
     note({ path: '/v1/messages', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
       body_chars: JSON.stringify(b ?? {}).length,
       max_tokens: b?.max_tokens ?? null, thinking: b?.thinking ?? null, tools: names.length,
@@ -146,7 +149,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
   }
 
   // ── OpenAI Responses (Codex)
-  function responses(req, res, b) {
+  function responses(req, res, b, waited = false) {
     const input = Array.isArray(b?.input) ? b.input : [{ type: 'message', role: 'user', content: String(b?.input ?? '') }]
     const lastUserIdx = input.map((x) => x.role === 'user' || x.type === 'function_call_output').lastIndexOf(true)
     const lastItem = input[lastUserIdx]
@@ -155,6 +158,7 @@ export async function startFakeLlm({ port = 0, log = null, rules = [], afterTool
     const lastText = toolResult ? '' : text(lastItem?.content)
     const names = (b?.tools ?? []).map((t) => t.name ?? t.function?.name).filter(Boolean)
     const reply = pick(lastText, toolResult)
+    if (reply.delay_ms && !waited) { setTimeout(() => responses(req, res, b, true), reply.delay_ms); return }
     note({ path: '/v1/responses', method: 'POST', ...auth(req), model: b?.model ?? null, stream: !!b?.stream,
       body_chars: JSON.stringify(b ?? {}).length,
       store: b?.store ?? null, reasoning: b?.reasoning ?? null, tools: names.length,
