@@ -187,7 +187,7 @@ pub fn spawn(engine: Arc<Engine>, org_id: i64, org_uuid: String) -> OrgFeed {
         shared: BTreeMap::new(),
         ring: VecDeque::new(),
         runtime: HashMap::new(),
-        rt_seq: 0,
+        rt_seq: 1,
         rt_dirty: HashSet::new(),
         rt_flush_scheduled: false,
         sockets: HashMap::new(),
@@ -217,6 +217,11 @@ struct Actor {
     shared: BTreeMap<(String, String), Arc<Value>>,
     ring: VecDeque<Batch>,
     runtime: HashMap<i64, Value>,
+    /// the seq of the last runtime change sent; a FULL copy carries it too.
+    /// Starts at 1, not 0: a full copy sent before any change says 1 and the
+    /// first change 2. The renderer drops a value whose seq is not above the
+    /// full copy's, so a first change sharing the full copy's 1 was lost
+    /// (after every engine start, an org's first runtime change never showed).
     rt_seq: u64,
     rt_dirty: HashSet<i64>,
     rt_flush_scheduled: bool,
@@ -741,7 +746,7 @@ impl Actor {
     #[nolog]
     fn runtime_frame(&self, full: bool, only: Option<&HashSet<i64>>) -> Value {
         let mut agents = Map::new();
-        let seq = self.rt_seq.max(1);
+        let seq = self.rt_seq;
         for (id, v) in &self.runtime {
             if let Some(o) = only {
                 if !o.contains(id) {
