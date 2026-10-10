@@ -3,6 +3,11 @@
 Set-StrictMode -Version Latest
 $script:BootTaskName = 'Orgtree Background Engine'
 $script:BootRecordKey = 'SOFTWARE\Orgtree\BootEngine'
+# The sign-in credential broker (engine/rs/orgtree-engine/src/credential_broker.rs):
+# a logon task for the operator only, interactive token, no window. It serves
+# git/gh credentials to the boot engine while the desktop app is not running.
+$script:HelperTaskName = 'Orgtree Credential Helper'
+$script:HelperExe = 'orgtree-credential-broker.exe'
 
 function Assert-BootProtectedAcl([string]$Sddl, [long]$WriteMask) {
     $sd = [Security.AccessControl.CommonSecurityDescriptor]::new($false,$false,$Sddl)
@@ -74,7 +79,7 @@ function Assert-BootProcessPaths($Processes, [string]$InstallDir) {
         # Bound ambiguity to possible installed host/desktop images or a command
         # naming this installation. Unreadable unrelated Windows images are not
         # ours. Known descendants remain tracked by PID/creation date separately.
-        $candidate=($null -eq $name -or -not $name.Value -or $name.Value -in @('python.exe','pythonw.exe','Orgtree.exe','orgtree-engine.exe'))
+        $candidate=($null -eq $name -or -not $name.Value -or $name.Value -in @('python.exe','pythonw.exe','Orgtree.exe','orgtree-engine.exe',$script:HelperExe))
         if ($null -ne $command -and $command.Value -and
             $command.Value.IndexOf($InstallDir+'\',[StringComparison]::OrdinalIgnoreCase) -ge 0) { $candidate=$true }
         if ($candidate) {
@@ -158,6 +163,73 @@ function New-BootTaskXml($Record) {
     $doc.Task.Actions.Exec.Arguments = '"'+$paths.Host+'"'
     $doc.Task.Actions.Exec.WorkingDirectory = [string]$paths.Engine
     return $doc.OuterXml
+}
+# ---- the credential helper task (I/O boundaries first, for the tests)
+function Find-HelperTask($Folder) {
+    try { return $Folder.GetTask($script:HelperTaskName) }
+    catch {
+        if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return $null } # file not found only
+        throw
+    }
+}
+function Register-HelperTask($Folder, [string]$Xml, [int]$Flags, [string]$Sid, [string]$Sddl) {
+    # 3 = TASK_LOGON_INTERACTIVE_TOKEN: runs only in the operator's signed-in session.
+    return $Folder.RegisterTask($script:HelperTaskName, $Xml, $Flags, $Sid, $null, 3, $Sddl)
+}
+function Remove-HelperTask($Folder) { $Folder.DeleteTask($script:HelperTaskName, 0) }
+function Stop-HelperProcess($Process) { Stop-Process -Id ([int]$Process.ProcessId) -Force -ErrorAction SilentlyContinue }
+function Get-HelperPath([string]$InstallDir) { return (Join-Path (Join-Path $InstallDir 'resources\engine') $script:HelperExe) }
+function Get-HelperMarker($Record) { return "com.maurdekye.orgtree.credential-helper.v1:$($Record.Id)" }
+function New-HelperTaskXml($Record) {
+    $doc = Read-BootXml @'
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description /></RegistrationInfo><Triggers><LogonTrigger><Enabled>true</Enabled><UserId /></LogonTrigger></Triggers><Principals><Principal id="Operator"><UserId /><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable><Enabled>true</Enabled><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>5</Priority><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings><Actions Context="Operator"><Exec><Command /><WorkingDirectory /></Exec></Actions></Task>
+'@
+    $doc.Task.RegistrationInfo.Description = Get-HelperMarker $Record
+    $doc.Task.Triggers.LogonTrigger.UserId = $Record.OperatorSid
+    $doc.Task.Principals.Principal.UserId = $Record.OperatorSid
+    $doc.Task.Actions.Exec.Command = [string](Get-HelperPath $Record.InstallDir)
+    $doc.Task.Actions.Exec.WorkingDirectory = [string](Join-Path $Record.InstallDir 'resources\engine')
+    return $doc.OuterXml
+}
+function Assert-OwnedHelperTask($Task, $Record, [string]$InstallDir) {
+    Assert-BootRecord $Record $InstallDir
+    Assert-BootProtectedAcl ($Task.GetSecurityDescriptor(7)) 0x500D0116
+    $xml = Read-BootXml $Task.Xml
+    $ns = [Xml.XmlNamespaceManager]::new($xml.NameTable)
+    $ns.AddNamespace('t','http://schemas.microsoft.com/windows/2004/02/mit/task')
+    $expected = @{
+        '/t:Task/t:RegistrationInfo/t:Description'=(Get-HelperMarker $Record)
+        '/t:Task/t:Principals/t:Principal/t:UserId'=$Record.OperatorSid
+        '/t:Task/t:Principals/t:Principal/t:LogonType'='InteractiveToken'
+        '/t:Task/t:Actions/t:Exec/t:Command'=(Get-HelperPath $InstallDir)
+    }
+    foreach ($pair in $expected.GetEnumerator()) {
+        $nodes = $xml.SelectNodes($pair.Key, $ns)
+        if ($nodes.Count -ne 1 -or $nodes[0].InnerText -cne $pair.Value) { throw "Refusing foreign or changed credential helper task ($($pair.Key))." }
+    }
+    if ($xml.SelectNodes('/t:Task/t:Actions/*', $ns).Count -ne 1 -or $xml.SelectNodes('/t:Task/t:Principals/*', $ns).Count -ne 1) { throw 'Unexpected credential helper actions or principals.' }
+}
+# Before the boot tree is stopped: the broker runs from the engine folder, so
+# a running one would hold the installation open. Disable its task (no
+# restart while files are replaced), end it, and end any broker from this
+# installation that the task did not start.
+function Stop-OwnedHelperTask($Folder, $Record, [string]$InstallDir, [int]$TimeoutSeconds=10) {
+    $task = Find-HelperTask $Folder
+    if ($null -ne $task) {
+        if ($null -eq $Record) { throw 'Credential helper task exists without installer ownership. It will not be changed.' }
+        Assert-OwnedHelperTask $task $Record $InstallDir
+        $task.Enabled = $false
+        $task.Stop(0)
+    }
+    $exe = Get-HelperPath $InstallDir
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $mine = @(Get-BootProcesses | Where-Object { $null -ne $_ -and $_.ExecutablePath -and $_.ExecutablePath -ieq $exe })
+        if ($mine.Count -eq 0) { return }
+        foreach ($p in $mine) { Stop-HelperProcess $p }
+        if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw 'The credential helper did not stop. Installation files must not be replaced.' }
+        Start-Sleep -Milliseconds 200
+    } while ($true)
 }
 function Get-BootTree($Processes, [string]$InstallDir, $Known) {
     $Processes = @($Processes | Where-Object { $null -ne $_ })
@@ -253,8 +325,10 @@ function Invoke-BootLifecycle {
     $task = Find-BootTask $folder
     if ($null -eq $record) {
         if ($null -ne $task) { throw 'Task name exists without installer ownership. It will not be changed.' }
+        if ($null -ne (Find-HelperTask $folder)) { throw 'Credential helper task exists without installer ownership. It will not be changed.' }
         if ($Action -in @('Remove','Stop')) {
             Assert-BootDesktopClosed $InstallDir
+            Stop-OwnedHelperTask $folder $null $InstallDir
             Stop-OwnedBootTask $folder $null $InstallDir
             return
         }
@@ -263,9 +337,12 @@ function Invoke-BootLifecycle {
     } else {
         Assert-BootRecord $record $InstallDir
         if ($null -ne $task) { Assert-OwnedBootTask $task $record $InstallDir }
+        $helper = Find-HelperTask $folder
+        if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir }
         # Existing operator remains authoritative during alternate-admin updates.
     }
     Assert-BootDesktopClosed $InstallDir
+    Stop-OwnedHelperTask $folder $record $InstallDir
     switch ($Action) {
         'Prepare' { Stop-OwnedBootTask $folder $record $InstallDir; Save-BootRecord $record }
         'Stop' { Stop-OwnedBootTask $folder $record $InstallDir }
@@ -274,6 +351,8 @@ function Invoke-BootLifecycle {
             $task = Find-BootTask $folder
             if ($null -ne $task) { Assert-OwnedBootTask $task $record $InstallDir; $folder.DeleteTask($script:BootTaskName,0) }
             if ($null -ne (Find-BootTask $folder)) { throw 'Boot task removal not confirmed.' }
+            if ($null -ne (Find-HelperTask $folder)) { Remove-HelperTask $folder }
+            if ($null -ne (Find-HelperTask $folder)) { throw 'Credential helper task removal not confirmed.' }
             Remove-BootRecord
         }
         'Register' {
@@ -294,6 +373,17 @@ function Invoke-BootLifecycle {
             # Fresh install and update both start the host; do not ship without
             # Fable's startup/attach race handling and its packaged acceptance.
             $null = $registered.Run($null)
+            # The sign-in credential broker ships with the native engine only.
+            # Started now as well when the operator is signed in; otherwise at
+            # their next sign-in. Its Run failing never fails the install.
+            if ([IO.File]::Exists((Get-HelperPath $InstallDir))) {
+                $helperFlags = 18
+                $helper = Find-HelperTask $folder
+                if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir; $helperFlags = 20 }
+                $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record) $helperFlags $record.OperatorSid $sddl
+                Assert-OwnedHelperTask $helperTask $record $InstallDir
+                try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" }
+            }
         }
     }
 }

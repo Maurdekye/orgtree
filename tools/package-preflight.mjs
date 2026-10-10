@@ -15,6 +15,13 @@ assertPackageInputsPresent()
   if (version.includes('(dev)')) throw new Error(`The Rust engine is a development build (${version}); rebuild it with ORGTREE_RELEASE_BUILD=1`)
   console.log('Rust engine present:', version)
 }
+// The sign-in credential broker (src/credential_broker.rs) ships beside it; the
+// installer's boot lifecycle registers its logon task (tools/boot-engine-task.ps1).
+{
+  const broker = 'engine/rs/target/release/orgtree-credential-broker.exe'
+  if (!fs.existsSync(broker)) throw new Error('Package is incomplete: ' + broker + '. cargo build --release builds it with the engine.')
+  console.log('Credential broker present:', broker)
+}
 // Mail hub v2 ships as resources/engine/orgtree-mailhub.exe beside the
 // engine (src/mailhub.rs `hub_binary`): the pinned submodule's release build.
 {

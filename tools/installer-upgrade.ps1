@@ -526,7 +526,11 @@ try {
       $isOurs = $false
       $why = 'image'
       if ($reading.Readable) {
-        if (Test-PathUnderRoot $reading.Path) { $isOurs = $true }
+        # The sign-in credential broker is not the app: it runs for the whole
+        # Windows session, outside any desktop shutdown. The boot lifecycle's
+        # Prepare (boot-engine-task.ps1 Stop-OwnedHelperTask) disables its task
+        # and ends it before a single file is copied.
+        if ((Test-PathUnderRoot $reading.Path) -and -not ([string]$reading.Path).ToUpperInvariant().EndsWith('\RESOURCES\ENGINE\ORGTREE-CREDENTIAL-BROKER.EXE')) { $isOurs = $true }
       } elseif (Test-TreeAmbiguous $reading.Name $reading.Command $reading.CommandReadable) {
         # Could be an installation process and cannot be ruled out. The only
         # safe unanswered answer is that it is still there.

@@ -40,6 +40,19 @@ $script:folder | Add-Member ScriptMethod RegisterTask {
     return $script:task
 }
 function Get-BootFolder { $script:events.Add('folder'); return $script:folder }
+# The credential helper task has its own boundaries; absent unless a test adds it.
+$script:helper=$null
+function Find-HelperTask($Folder) { return $script:helper }
+function Register-HelperTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[string]$Sddl) {
+    $script:events.Add("helper-register:$Flags")
+    Assert ($Sid -eq $script:record.OperatorSid -and $Sddl -match '^O:BAG:BAD:P') 'Wrong helper principal or ACL'
+    $script:helper=New-FakeTask $Xml
+    $script:helper | Add-Member -Force ScriptMethod Stop { param($flags) $script:events.Add('helper-stop') }
+    $script:helper | Add-Member -Force ScriptMethod Run { param($args) $script:events.Add('helper-run') }
+    return $script:helper
+}
+function Remove-HelperTask($Folder) { $script:events.Add('helper-delete'); $script:helper=$null }
+function Stop-HelperProcess($Process) { $script:events.Add('helper-kill'); $script:processes=@($script:processes | Where-Object { $_.ProcessId -ne $Process.ProcessId }) }
 
 # Per-user positive path: no machine lookup at all, even with a foreign task.
 Invoke-BootLifecycle Prepare -InstallMode CurrentUser
@@ -54,7 +67,7 @@ Assert ($doc.Task.Actions.Exec.Arguments -ceq ('"'+$paths.Host+'"')) 'Argument e
 Assert ($xml.Contains('&amp;') -and $xml.Contains([string][char]0x05d0)) 'Unicode/XML serialization control missing'
 Assert ($doc.Task.Settings.ExecutionTimeLimit -eq 'PT0S') 'Runtime limit'
 $priorityNode=$doc.SelectSingleNode('//*[local-name()="Settings"]/*[local-name()="Priority"]')
-Assert ($null -ne $priorityNode -and $priorityNode.InnerText -eq '1') 'Boot engine task must explicitly request High priority'
+Assert ($null -ne $priorityNode -and $priorityNode.InnerText -eq '5') 'Boot engine task must explicitly request Normal priority (d38a3bd)'
 Assert ($doc.Task.Settings.RestartOnFailure.Count -eq '3') 'Restart policy'
 Assert ($doc.Task.Settings.DisallowStartIfOnBatteries -eq 'false' -and $doc.Task.Settings.StopIfGoingOnBatteries -eq 'false') 'Battery policy'
 Assert ($doc.Task.Settings.MultipleInstancesPolicy -eq 'IgnoreNew') 'Multiple instances'
@@ -188,17 +201,47 @@ Assert ($script:events -contains 'register:20') 'Owned update must preserve the 
 # recovery script is needed or should be reused.
 Assert ($script:task.Enabled) 'Completing Register must restore boot-start after an earlier disabled state'
 Assert ($script:events -contains 'run') 'Registered task not started'
-foreach ($legacyXml in @($xml.Replace('<Priority>1</Priority>',''),$xml.Replace('<Priority>1</Priority>','<Priority>7</Priority>'))) {
+
+# The credential helper: registered only beside the native engine binary.
+Assert ($null -eq $script:helper -and -not ($script:events -match 'helper-register')) 'Helper registered without its binary'
+$brokerPath=Get-HelperPath $dir
+[IO.File]::WriteAllText($brokerPath,'fixture')
+$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($script:events -contains 'helper-register:18' -and $script:events -contains 'helper-run') "Helper task not created and started: $($script:events -join ',')"
+$helperXml=Read-BootXml $script:helper.Xml
+Assert ($helperXml.Task.Principals.Principal.LogonType -eq 'InteractiveToken' -and $helperXml.Task.Principals.Principal.UserId -eq $sid) 'Helper must run as the operator with an interactive token'
+Assert ($helperXml.Task.Triggers.LogonTrigger.UserId -eq $sid -and $null -eq $helperXml.Task.Triggers.SelectSingleNode('*[local-name()="BootTrigger"]')) 'Helper must start at the operator logon only'
+Assert ($helperXml.Task.Actions.Exec.Command -eq $brokerPath) 'Helper runs the installed broker'
+# An update stops the helper (task disabled, its process ended) before the boot tree.
+$script:processes=@([pscustomobject]@{ProcessId=4242; ParentProcessId=1; CreationDate='20261010'; ExecutablePath=$brokerPath; Name='orgtree-credential-broker.exe'})
+$script:events.Clear()
+Invoke-BootLifecycle Stop $dir
+Assert (-not $script:helper.Enabled -and $script:events -contains 'helper-stop' -and $script:events -contains 'helper-kill') 'Update did not stop the helper'
+Assert ($script:events.IndexOf('helper-kill') -lt $script:events.IndexOf('stop')) 'Helper must stop before the boot tree'
+Assert ($script:processes.Count -eq 0) 'Helper process survived the stop'
+$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($script:events -contains 'helper-register:20' -and $script:helper.Enabled) 'Helper update must re-enable the verified task'
+# A changed helper task is refused before anything stops.
+$script:helper.Xml=$script:helper.Xml.Replace('InteractiveToken','S4U')
+$script:events.Clear()
+Refuses { Invoke-BootLifecycle Stop $dir } 'credential helper'
+Assert (-not ($script:events -contains 'stop')) 'A foreign helper task must refuse before any stop'
+$script:helper.Xml=$script:helper.Xml.Replace('S4U','InteractiveToken')
+foreach ($legacyXml in @($xml.Replace('<Priority>5</Priority>',''),$xml.Replace('<Priority>5</Priority>','<Priority>1</Priority>'))) {
     $script:task=New-FakeTask $legacyXml
     $script:events.Clear()
     Invoke-BootLifecycle Register $dir
     $updatedXml=Read-BootXml $script:task.Xml
-    Assert ($updatedXml.Task.Settings.Priority -eq '1') 'Upgrade retained the legacy task priority'
+    Assert ($updatedXml.Task.Settings.Priority -eq '5') 'Upgrade retained the legacy task priority'
     Assert ($script:events -contains 'register:20' -and $script:events -contains 'run') 'Legacy task was not updated and launched'
 }
 $script:events.Clear()
 Invoke-BootLifecycle Remove $dir
 Assert ($null -eq $script:record -and $null -eq $script:task) 'Uninstall did not remove own task/record'
+Assert ($null -eq $script:helper -and $script:events -contains 'helper-delete') 'Uninstall did not remove the helper task'
+[IO.File]::Delete($brokerPath)
 Assert ($script:events.IndexOf('stop') -lt $script:events.IndexOf('delete')) 'Deleted before confirmed stop'
 $script:events.Clear()
 Invoke-BootLifecycle Prepare $dir $sid
