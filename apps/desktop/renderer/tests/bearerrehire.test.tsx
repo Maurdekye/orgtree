@@ -147,7 +147,7 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     // default row and its retire button both read "undefined" today
     const { el } = await mount(withBearer('sol', { state: 'archived' }))
     const dflt = options(el).find((o) => o.value === '')!
-    assert.equal(dflt.textContent?.trim(), 'as sol · seat 2')
+    assert.equal(dflt.textContent?.trim(), 'sol · seat 2')
     assert.doesNotMatch(el.textContent ?? '', /undefined/,
       'no seat in the panel may render as undefined')
     // Reserve stays 0.2; Luna is 0.1 after the September 22 repricing:
@@ -156,7 +156,7 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['flash', 1],
                              ['fable', 10]] as const) {
       assert.match(option(el, t).textContent ?? '',
-        new RegExp(`as ${t} · seat ${seat}\\b`))
+        new RegExp(`^${t} · seat ${seat}\\b`))
     }
   })
 
