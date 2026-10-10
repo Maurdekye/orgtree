@@ -42,10 +42,15 @@ if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
 // `up --real-cli`: the installed Claude Code and Codex are the agents' CLIs,
 // so every child's home is the run's fake one. A CLI the engine launches
 // without its own config folder then finds the fake profile (an empty
-// login), never the user's real ~/.claude.
+// login), never the user's real ~/.claude. Their temp folders are the run's
+// too: Claude Code keeps a folder per working folder under %TEMP%\claude,
+// which would otherwise outlive the run on C:.
 if (run.realCli) {
   env.USERPROFILE = path.join(data, 'rig-home')
   env.HOME = env.USERPROFILE
+  env.TEMP = path.join(dir, 'tmp')
+  env.TMP = env.TEMP
+  fs.mkdirSync(env.TEMP, { recursive: true })
 }
 // `up --hub`: the engine hosts the run's own mail hub, and network mail
 // reaches that loopback hub and no other (src/rig.rs `hub`)

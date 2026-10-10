@@ -261,7 +261,7 @@ status and wake stamps with `rig.exec` rather than waiting (see `reminders.mjs`)
 `up --real-cli` (or `{ 'real-cli': true }` from a script's `setup()`) runs the INSTALLED Claude Code and
 Codex as the agents' CLIs instead of the fake (copies of `claude.exe` from its npm package and of Codex's
 bin folder; `ORGTREE_RIG_REAL_CLAUDE` / `ORGTREE_RIG_REAL_CODEX` name others). Every child's `USERPROFILE`
-and `HOME` is the run's fake home, and a fixture may hire only language-server tiers (`ls-…`): any other
+and `HOME` is the run's fake home (its `TEMP` and `TMP` the run's `tmp` folder), and a fixture may hire only language-server tiers (`ls-…`): any other
 tier would run the installed CLI on whatever login it finds. Point such agents at `tools/rig/fakellm.mjs`
 (`startFakeLlm({ rules })`), a scripted server that answers like Ollama and streams Anthropic Messages
 and OpenAI Responses, so no model, GPU or account is involved (see `langserver-lane.mjs`). Its `models`
