@@ -77,6 +77,8 @@ pub struct ClaudeProc {
     pub pid: u32,
     pub process: uuid::Uuid,
     stdin: mpsc::UnboundedSender<String>,
+    /// fired (or dropped) to close the process's stdin: its signal to exit
+    stdin_close: Option<oneshot::Sender<()>>,
     waiters: mpsc::UnboundedSender<(String, oneshot::Sender<Value>)>,
     child: Option<Child>,
     job: Option<winproc::ChildJob>,
@@ -169,8 +171,16 @@ impl ClaudeProc {
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        // the stdout reader keeps a sender too, so the channel never closes
+        // while the process lives: closing stdin needs its own signal
+        let (stdin_close, mut close_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
-            while let Some(line) = rx.recv().await {
+            loop {
+                let line = tokio::select! {
+                    biased;
+                    _ = &mut close_rx => break,
+                    line = rx.recv() => match line { Some(l) => l, None => break },
+                };
                 if stdin.write_all(line.as_bytes()).await.is_err() {
                     break;
                 }
@@ -181,6 +191,7 @@ impl ClaudeProc {
                     break;
                 }
             }
+            drop(stdin);
         });
         let client = crate::trace::agent_client(caller.agent_id, &caller.name);
         let proc_span = crate::trace::request(&client);
@@ -199,7 +210,7 @@ impl ClaudeProc {
         let writer = tx.clone();
         let keepalive = spec.keepalive;
         tokio::spawn(tracing::Instrument::instrument(read_stdout(engine, stdout, caller, actor, process, writer, wrx, keepalive), proc_span));
-        let proc = ClaudeProc { pid, process, stdin: tx, waiters: wtx, child: Some(child), job, session_id };
+        let proc = ClaudeProc { pid, process, stdin: tx, stdin_close: Some(stdin_close), waiters: wtx, child: Some(child), job, session_id };
         // Register the in-process MCP server and the mail hook before any turn
         // (a keepalive: the same server, so the request lists the same tools,
         // and a hook that denies every tool instead of the mail hook).
@@ -287,6 +298,9 @@ impl ClaudeProc {
     pub async fn close(&mut self) {
         let (tx, _) = mpsc::unbounded_channel();
         self.stdin = tx;
+        if let Some(close) = self.stdin_close.take() {
+            let _ = close.send(());
+        }
         if let Some(mut c) = self.child.take() {
             let status = super::wait_exit(&mut c, self.pid, self.process, "close requested", Duration::from_secs(5)).await;
             if status.starts_with("exit status unavailable") {
