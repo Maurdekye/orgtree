@@ -50,7 +50,7 @@ export default async function (rig) {
     fs.mkdirSync(evidence, { recursive: true })
     for (const name of ['sky', 'kim', 'tia']) {
       const r = await runDesktop(rig, path.join(here, '../desktop/resolution-cards.cjs'), { args: { agent: name }, out: path.join(evidence, name), timeout: 90000 })
-      p.check(`${name}: the desk shows the resolved card (screenshot in ${evidence})`, r.ok !== false && JSON.stringify(r).includes('resolved'), JSON.stringify(r).slice(0, 600))
+      p.check(`${name}: the desk shows the resolved card (screenshot in ${evidence})`, r.ok !== false && JSON.stringify(r).includes('"rows"') && !JSON.stringify(r).includes('"raw":true'), JSON.stringify(r).slice(0, 600))
     }
   }
   p.keep(rig, { agents: ['sky', 'kim', 'tia'], grep: /scope|credit|request/i })
