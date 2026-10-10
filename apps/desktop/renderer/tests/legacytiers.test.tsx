@@ -145,8 +145,9 @@ test('§2/§3 hire sheet: no Terra row button, then one labelled legacy',
     assert.equal(Boolean(btn('terra')), false, 'the sheet offered Terra with the toggle off')
     await flip(true)
     assert.ok(btn('terra'), 'the sheet did not offer Terra with the toggle on')
-    assert.match(btn('terra')!.textContent ?? '', /terra · seat 2 · legacy/)
-    assert.doesNotMatch(btn('luna')!.textContent ?? '', /legacy/)
+    // 4.2: the legacy mark rides in the tooltip, the label stays "name · seat N"
+    assert.match(btn('terra')!.title, /legacy/)
+    assert.doesNotMatch(btn('luna')!.title, /legacy/)
   })
 
 function config(node: CanvasNode) {
@@ -177,7 +178,8 @@ test('§2/§3 agent settings model switch: no Terra option, then one labelled le
     const o = switchOption(v.el, 'terra')
     assert.ok(o, 'the model switch did not list Terra with the toggle on')
     assert.equal(o!.disabled, false)
-    assert.equal(o!.textContent?.trim(), 'terra · seat 2 · legacy')
+    assert.equal(o!.textContent?.trim(), 'terra · seat 2')
+    assert.match(o!.title, /legacy/, 'the legacy mark rides in the option tooltip')
   })
 
 test('§4 an agent already on Terra keeps its own tier in the switch, toggle off',

@@ -135,8 +135,9 @@ test('§2 hire sheet: no Gemini Pro button, then one labelled legacy',
     assert.equal(Boolean(btn('pro')), false, 'the sheet offered Gemini Pro with the toggle off')
     await flip(true)
     assert.ok(btn('pro'), 'the sheet did not offer Gemini Pro with the toggle on')
-    assert.match(btn('pro')!.textContent ?? '', /· legacy/)
-    assert.doesNotMatch(btn('flash')!.textContent ?? '', /legacy/)
+    // 4.2: the legacy mark rides in the tooltip, the label stays "name · seat N"
+    assert.match(btn('pro')!.title, /legacy/)
+    assert.doesNotMatch(btn('flash')!.title, /legacy/)
   })
 
 function config(node: CanvasNode) {
@@ -167,7 +168,7 @@ test('§2 agent settings model switch: no Gemini Pro option, then one labelled l
     const o = switchOption(v.el, 'pro')
     assert.ok(o, 'the model switch did not list Gemini Pro with the toggle on')
     assert.equal(o!.disabled, false)
-    assert.match(o!.textContent ?? '', /· legacy$/)
+    assert.match(o!.title, /legacy/, 'the legacy mark rides in the option tooltip')
   })
 
 test('§3 an agent already on Gemini Pro keeps its own tier in the switch, toggle off',
