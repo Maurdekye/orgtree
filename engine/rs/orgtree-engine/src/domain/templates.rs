@@ -257,7 +257,7 @@ pub fn validate(t: &Template) -> Vec<String> {
             Err(e) => p.push(format!("{}: {e}", s.name)),
         }
         for tier in std::iter::once(&s.tier).chain(&s.fallback) {
-            if catalog::tier(tier).is_none() && !catalog::is_openrouter(tier) {
+            if catalog::tier(tier).is_none() && !catalog::is_openrouter(tier) && !catalog::is_langserver(tier) {
                 p.push(format!("{}: unknown tier '{tier}'", s.name));
             }
         }
@@ -316,7 +316,8 @@ pub struct Planned {
     pub depth: usize,
     pub tier: Option<String>,
     pub note: Option<String>,
-    /// `primary`, an account id, or None (OpenRouter bills its key)
+    /// `primary`, an account id, or None (OpenRouter bills its key; a
+    /// language server bills nobody)
     pub account: Option<String>,
     pub seat: f64,
     pub grant: f64,
@@ -356,6 +357,8 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
                 None => match std::iter::once(&s.tier).chain(&s.fallback).find(|x| av.tiers.contains_key(*x)) {
                     Some(x) if *x == s.tier => (Some(x.clone()), None),
                     Some(x) => (Some(x.clone()), Some(format!("{} → {x}: {} is not available", s.tier, s.tier))),
+                    None if catalog::is_langserver(&s.tier) => (None, Some(format!(
+                        "{} cannot run on this computer now (no language server here offers it, or its server is turned off)", s.tier))),
                     None => (None, Some(format!("{} cannot run on this computer now ({} is not signed in or turned off)",
                         s.tier, catalog::provider_label(catalog::provider_of(&s.tier))))),
                 },
@@ -367,7 +370,8 @@ pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> 
             let mut note = note;
             let account = offer.and_then(|o| {
                 let fits = |a: &str| (a == "primary" && o.default_ok) || o.accounts.iter().any(|x| x == a);
-                if o.provider == catalog::OPENROUTER {
+                // OpenRouter bills its key; a language server bills nobody
+                if o.provider == catalog::OPENROUTER || o.provider == catalog::LANGSERVER {
                     None
                 } else if let Some(a) = s.account.as_ref().filter(|a| fits(a)) {
                     Some(a.clone())
@@ -708,6 +712,24 @@ mod tests {
         assert_eq!(p[0].grant, 10.0 + 4.0 + 4.0 + 2.0);
         assert_eq!(p[0].account.as_deref(), Some("primary"));
         assert!(p[1..].iter().all(|x| x.grant == 0.0 && x.parent.as_deref() == Some("coordinator")));
+    }
+
+    #[test]
+    fn a_language_server_slot_is_valid_and_bills_no_account() {
+        let rows = vec![row(1, None, "lead", "opus", 4.0, 1.0), row(2, Some(1), "local", "ls-ollama-qwen3-8-27b", 0.1, 0.0)];
+        let inc = Include { accounts: true, ..Include::default() };
+        let t: Template = serde_json::from_value(from_rows("t", "T", &rows, None, &inc)).unwrap();
+        assert!(validate(&t).is_empty(), "{:?}", validate(&t));
+        let mut av = claude_only();
+        av.tiers.insert("ls-ollama-qwen3-8-27b".into(), offer(0.1, "langserver"));
+        let (p, blocked) = plan(&t, &Choices::default(), &av, &[]).unwrap();
+        assert!(blocked.is_empty());
+        assert_eq!(p[1].tier.as_deref(), Some("ls-ollama-qwen3-8-27b"));
+        assert_eq!(p[1].account, None);
+        // a server that is gone: blocked, and the note says why in its words
+        let (p, blocked) = plan(&t, &Choices::default(), &claude_only(), &[]).unwrap();
+        assert_eq!(blocked, vec!["local".to_string()]);
+        assert!(p[1].note.as_deref().unwrap().contains("no language server here offers it"));
     }
 
     #[test]
