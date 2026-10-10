@@ -4,8 +4,8 @@
 
 A fresh installation opens a one-card setup on the welcome screen: pick the
 visual theme (live preview, saved through the desktop preferences), set the
-startup behavior (start at login, exit when the last window closes — the same
-defaults as before: login on, exit-on-close off), and create the first
+startup behavior (run on startup, exit when the last window closes — the same
+defaults as before: run on startup on, exit-on-close off), and create the first
 organization with the ordinary organization form. Everything on the card can
 be changed later in Settings.
 

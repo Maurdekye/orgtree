@@ -298,6 +298,7 @@ toast saying this engine does not support it.
 | A6 | Engine diagnostics files (slow-requests, slow-transactions, stall stacks, liveness log) | One `diagnostics\engine.log`; slow operations are logged there |
 | A7 | Developer › Engine debug view shows Python engine counters | Shows the new engine's counters (sockets, queues, memory); some old fields absent |
 | A8 | Windows load over HTTP and receive pushed updates over the org and app sockets | Unchanged |
+| A9 | "Start at login" only adds or removes the window's own sign-in entry; the boot engine task and (4.x) the credential helper task always start, whatever it says | New (user 2026-10-10 17:45Z and 17:46Z, decision 70): renamed "Run on startup", and it governs everything of Orgtree that starts by itself. Off: nothing starts at boot or sign-in (both tasks disabled; on macOS/Linux no login registration) until the user opens Orgtree, which then runs its own engine; a running engine is left running. On an all-users Windows installation changing it asks for Windows permission; declining leaves it as it was. The switch shows the real task state, and an update keeps the choice |
 
 ### B. Organizations and canvas
 

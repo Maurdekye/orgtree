@@ -608,3 +608,43 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Unchanged:** the desktop's scope panel and the approval of a scope request set the
       whole list through their own route.
     Proof: `tools/rig/proofs/retool-dirs.mjs`.
+
+70. **"Run on startup" governs everything of Orgtree that starts by itself** (user 2026-10-10
+    17:45Z: "if i have start on boot disabled, then nothing should run at all on boot ever
+    until i manually start orgtree"; 17:46Z: rename "Start at login" to "Run on startup"
+    everywhere the user sees it; 17:58Z: a Windows permission prompt each time it changes on
+    an all-users installation, declining leaves it as it was). Supersedes decision 68's ruling
+    A (the credential helper ran independently of "Start at login"). 3.x and 4.x before this:
+    the setting only added or removed the window's own sign-in entry, and the boot engine task
+    started at every boot whatever it said, which also blocked the installer
+    (installer-can-t-replace-a-running-orgtree-an-ins).
+    - **On:** as before: the window's sign-in entry (`--background`, to the tray), the "Orgtree
+      Background Engine" task at boot, the "Orgtree Credential Helper" task at sign-in; on
+      macOS/Linux the engine host's LaunchAgent / systemd user unit / autostart entry.
+    - **Off:** nothing of Orgtree starts at boot or sign-in: the window's entry is removed and
+      both tasks are DISABLED (not deleted: the installer's ownership stays intact and on
+      re-enables them); on macOS/Linux the login registration goes (`disableBootEngine`).
+      Opening Orgtree then runs its own engine, as on a per-user installation (a disabled task
+      cannot be run); closing the window keeps it in the tray, Quit stops it.
+    - **A running engine is left running.** The change applies from the next boot or login;
+      turning it on mid-session registers for the next login and starts nothing now (the
+      session already has an engine).
+    - **Who may change it:** the tasks are the installer's, writable by administrators only
+      (the operator may read and run them), so that no agent running as the user can rewrite
+      what starts at boot. On an all-users Windows installation the desktop switches both tasks
+      through an elevated PowerShell behind a Windows permission prompt, like "Run Orgtree as
+      administrator" (`apps/desktop/main/runonstartup.ts`), changing only tasks whose
+      description carries the installer record's id (all are verified before any is changed),
+      and records the choice as `RunOnStartup` (DWORD) in the installer's protected record
+      `HKLM\SOFTWARE\Orgtree\BootEngine`. The switch flips only after the change reads back;
+      a declined prompt leaves it as it was and says so.
+    - **The switch shows the real state:** at start the desktop reads both tasks (no elevation
+      needed); when the boot task disagrees with the stored value, the task wins.
+    - **Updates keep the choice:** Prepare (`tools/boot-engine-task.ps1`) takes the recorded
+      `RunOnStartup`, else the operator's own `startAtLogin` from
+      `%APPDATA%\Orgtree v2\desktop-settings.json` (an installation from before this decision),
+      else on. Never the task's own state: an update disables the task while it replaces files.
+      Register then writes both tasks enabled or disabled accordingly and starts them only when
+      on. A fresh installation defaults to on, as before.
+    Proof: `tests/run-on-startup.test.mjs` (the scripts against throwaway tasks and an HKCU key),
+    `tests/boot-installer.test.ps1`, `tests/unix-boot-engine.test.mjs`.

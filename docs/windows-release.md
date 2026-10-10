@@ -384,6 +384,12 @@ same 150 s, before a single file is copied. When the engine truly cannot be
 stopped, the message names it and says what to do: open Orgtree, choose
 `Quit Orgtree` from its tray menu, then `Retry`.
 
+An update keeps the user's "Run on startup" (decision 70). Prepare records it
+as `RunOnStartup` in `HKLM\SOFTWARE\Orgtree\BootEngine` when the desktop's
+switch has not already done so, taking it from the user's own
+`desktop-settings.json`, else on. Register then writes both tasks enabled or
+disabled to match, and starts them only when it is on.
+
 The installer still does not force-kill a process. A timeout, a
 path-verification failure, a tree that cannot be enumerated, or a tree that does
 not go quiet leaves the installation untouched and offers `Retry` or `Cancel`.
