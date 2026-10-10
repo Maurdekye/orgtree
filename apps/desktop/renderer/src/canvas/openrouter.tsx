@@ -13,6 +13,14 @@ import { useAppValue } from '../appfeed'
 //     and out; selecting/deselecting adds/removes the model from the row;
 //   · the favorites are the models whose TOKENS (chips) can be hired.
 //
+// THE ROW'S CHIPS SWITCH (user 2026-10-10, "i should be able to click to
+// change the models available without editing the entry", for OpenRouter and
+// the language servers alike): the row is no longer one button. Each
+// favorite is a chip (card and name) that a click deselects at once; it stays
+// in its place, dimmed, until the section closes, so a second click selects
+// it again. The last chip, "+", opens the picker. With more than eight
+// favorites the chips are their cards alone (modelbrowser.tsx ToggleChips).
+//
 // Cards are MONOGRAMS (user choice): the model's canonical letter on its
 // canonical colour, both derived by the backend from the model id, the same
 // visual language as the tier chips on the canvas. There is no cap on
@@ -46,7 +54,7 @@ import type {
   OpenRouterSort, ProviderInfo, ProviderTier,
 } from '../types'
 import { capabilityNote, capabilityNotes, fmtCredits, modelLabel, setOpenRouterTiers } from './shared'
-import { BrowserPager, BrowserSelected, ModelCard } from './modelbrowser'
+import { BrowserPager, BrowserSelected, ModelCard, ToggleChips } from './modelbrowser'
 import { SetRow, SetToggle } from './settingskit'
 import { fmtHm, fmtMonth } from '../timefmt'
 
@@ -141,6 +149,17 @@ const tierTitle = (t: ProviderTier): string =>
   + ` · seat ${fmtCredits(t.seat)}`
   + ` · ${capabilityNotes(t)}`
 
+/** what a click on a favorite's chip does */
+const CHIP_DESELECT = 'click to deselect: it can no longer be hired; agents already on it keep running'
+const CHIP_RESELECT = 'click to select it again'
+
+/** the chips already shown keep their places (the current record of each
+ *  favorite, or the last one seen of a deselected model); new favorites follow */
+const keepPlaces = (prev: ProviderTier[], tiers: ProviderTier[]): ProviderTier[] => {
+  const now = new Map(tiers.map((t) => [t.model, t]))
+  return [...prev.map((t) => now.get(t.model) ?? t), ...tiers.filter((t) => !prev.some((p) => p.model === t.model))]
+}
+
 /** the whole section: head (label, switch), key row, favorites row, picker */
 export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   setPickerOpen, onChanged }: {
@@ -192,6 +211,12 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
   // (OpenRouterHarnessSetting); the head only reports it.
   const harness = doc?.harness
   const favorites = doc?.tiers ?? []
+  // the chips as shown since the section opened: a model deselected here or in
+  // the picker keeps its place, dimmed, and a new favorite joins at the end.
+  // Merged while rendering too, so the first paint already has every chip.
+  const [seen, setSeen] = useState<ProviderTier[]>([])
+  useEffect(() => { if (doc) setSeen((prev) => keepPlaces(prev, doc.tiers ?? [])) }, [doc])
+  const shown = keepPlaces(seen, favorites)
   const standing = doc ? standingOf(doc) : []
   // line 1's verdict word, and the tone it reads in
   const verdict = doc?.connected ? 'connected'
@@ -292,24 +317,25 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
         </div>
       )}
 
-      {/* the favorites ROW — one control (user spec): highlight on hover /
-          focus, click opens the picker. Rendered only once a key exists. */}
+      {/* the favorites ROW: a chip per favorite that a click deselects (or,
+          dimmed, selects again), then "+" for the picker. Rendered only once
+          a key exists. */}
       {doc && keySet && (
-        <button type="button"
-          className={'orr-favs' + (pickerOpen ? ' on' : '')}
-          aria-haspopup="dialog" aria-expanded={pickerOpen}
-          title="choose which OpenRouter models can be hired"
-          onClick={() => setPickerOpen(true)}>
-          {favorites.map((t) => (
-            <ModelCard key={t.tier} letter={t.letter} color={t.color ?? '#9aa0a6'}
-              accent={t.accent} title={tierTitle(t)} />
-          ))}
-          <span className="orr-hint">
-            {favorites.length
-              ? `${favorites.length} model${favorites.length === 1 ? '' : 's'} hireable · click to change`
-              : '+ pick the models that can be hired'}
-          </span>
-        </button>
+        <ToggleChips busy={busy} label="OpenRouter models that can be hired"
+          chips={shown.map((t) => {
+            const on = favorites.some((f) => f.model === t.model)
+            const label = t.label ?? modelLabel(t.model)
+            return {
+              key: t.tier, letter: t.letter, color: t.color ?? '#9aa0a6', accent: t.accent, label, on,
+              title: `${tierTitle(t)}\n${on ? CHIP_DESELECT : CHIP_RESELECT}`,
+              onToggle: () => run(setOpenRouterFavorite(t.model, !on), `${on ? 'removed' : 'added'} ${t.name ?? label}`),
+            }
+          })}
+          more={{
+            text: favorites.length ? undefined : 'pick the models that can be hired',
+            title: 'search the OpenRouter catalog for more models that can be hired',
+            open: pickerOpen, onClick: () => setPickerOpen(true),
+          }} />
       )}
       {doc && keySet && !off && provider?.reason && provider.hire_enabled === false
         && favorites.length > 0

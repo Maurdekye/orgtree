@@ -191,8 +191,10 @@ test('§5 the add-account dialog swallows the first Escape; the second closes se
 test('§6 the OpenRouter model picker swallows the first Escape; the second closes settings',
   async (t) => {
   const { view, state } = await setup(t)
-  const favs = view.el.querySelector<HTMLButtonElement>('.orr-favs')
-  assert.ok(favs, 'the favorites row renders once a key is set')
+  assert.ok(view.el.querySelector('.orr-favs'), 'the favorites row renders once a key is set')
+  // the row's "+" opens the picker (its chips switch favorites: 2026-10-10)
+  const favs = view.el.querySelector<HTMLButtonElement>('.orr-favs .orr-more')
+  assert.ok(favs, 'the row ends in "+"')
   await inAct(async () => { favs!.click(); await flush(10) })
   assert.equal(favs!.getAttribute('aria-expanded'), 'true', 'the picker is open')
   await esc()

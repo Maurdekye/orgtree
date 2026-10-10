@@ -6597,6 +6597,30 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   border-color: var(--prov-openrouter);
   background: color-mix(in srgb, var(--prov-openrouter) 18%, transparent); }
 .orr-sel-x:disabled { opacity: .5; cursor: default; }
+/* a provider card's chips that a click switches (user 2026-10-10: "i should
+   be able to click to change the models available without editing the
+   entry"): the row is no longer one control, each chip is. A chosen model is
+   lit; the others keep their places, dimmed and dashed. More than eight chosen
+   and the chips are their cards alone (`.icons`). "+" opens the browser.
+   `--chip-lane` is the lane's colour: OpenRouter's, the gold on a server. */
+.orr-toggles { --chip-lane: var(--prov-openrouter); cursor: default; }
+.orr-toggles:hover, .orr-toggles:focus-visible { border-color: var(--line); background: transparent; }
+/* the row's class in front of every chip rule: App settings' `.settings button`
+   (14px text, 7px 15px padding) outranks a single class, and blew the chips up
+   to 40px (rig screenshot 2026-10-10) */
+.orr-toggles .orr-tog, .orr-toggles .orr-more { min-height: 32px; padding: 2px 8px 2px 3px; border-radius: 8px;
+  color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.orr-toggles .orr-tog:not(.on) { opacity: .55; border-style: dashed; background: transparent; }
+.orr-toggles .orr-tog:hover, .orr-toggles .orr-tog:focus-visible, .orr-toggles .orr-more:hover,
+.orr-toggles .orr-more:focus-visible, .orr-toggles .orr-more.on {
+  opacity: 1; outline: none; border-color: var(--chip-lane);
+  background: color-mix(in srgb, var(--chip-lane) 12%, var(--panel)); }
+.orr-toggles .orr-tog:not(.on):hover, .orr-toggles .orr-tog:not(.on):focus-visible { opacity: .85; }
+.orr-toggles .orr-tog:disabled { cursor: progress; }
+.orr-toggles.icons .orr-tog { padding: 2px; }
+.orr-toggles .orr-more { justify-content: center; min-width: 32px; padding: 2px 9px; border-style: dashed;
+  color: var(--dim); font-weight: 600; }
+.orr-more-text { font-weight: 400; }
 .orr-search { width: 100%; box-sizing: border-box; }
 /* the ordering controls: sort dropdown + direction + group-by-provider.
    One row under the search box, wrapping on a narrow modal. */
@@ -8240,9 +8264,10 @@ main:has(> .orgbar.native-header) > .error {
 .ls-add .ls-favs { margin-left: 0; }
 .ls-favs:hover, .ls-favs:focus-visible, .ls-favs.on { border-color: var(--prov-langserver);
   background: color-mix(in srgb, var(--prov-langserver) 10%, transparent); }
-.ls-favs.static { cursor: default; }
-.ls-favs.static:hover { border-color: var(--line); background: transparent; }
+.ls-favs.icons .orr-sel { padding: 2px; }
 .ls-chip { font-size: 12px; }
+/* a server's chips on its card: a click offers or withdraws the model */
+.ls-toggles { --chip-lane: var(--prov-langserver); margin-top: 4px; }
 .ls-edit-models { padding: 4px 0; }
 /* where the server runs another window than agents are told */
 .ls-mismatches { margin: 4px 0 0 var(--acct-rail); font-size: 11.5px; }

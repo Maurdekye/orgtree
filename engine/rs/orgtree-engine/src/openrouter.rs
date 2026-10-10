@@ -279,11 +279,13 @@ pub async fn catalog(force: bool) -> Result<Arc<Vec<Value>>> {
         }
     }
     let fetched: Result<Vec<Value>> = async {
-        if crate::rig::active() {
-            anyhow::bail!("rig mode: no network");
-        }
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).user_agent(USER_AGENT).build()?;
-        let body: Value = client.get(format!("{API_BASE}/models")).send().await?.error_for_status()?.json().await?;
+        // rig mode: the canned catalog, else no network
+        let body: Value = if let Some(canned) = crate::rig::openrouter_models() {
+            canned.map_err(|e| anyhow!(e))?
+        } else {
+            let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).user_agent(USER_AGENT).build()?;
+            client.get(format!("{API_BASE}/models")).send().await?.error_for_status()?.json().await?
+        };
         Ok(body["data"].as_array().map(|a| a.iter().filter(|m| runnable(m)).cloned().collect()).unwrap_or_default())
     }
     .await;
