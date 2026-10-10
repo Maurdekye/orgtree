@@ -1,3 +1,4 @@
+import type { AskInfo } from '../types'
 import type { AnsweredQ, AnswerAsk, AnswerBatch, AskOption, BatchQ, Section, SectionCredit, SectionScope } from '../generated/events'
 
 /** One question as the mini card draws it: every option the card offered with
@@ -84,7 +85,7 @@ const CREDIT: Record<string, { word: string; tone: 'ok' | 'no' | 'part' | 'skip'
   skipped: { word: 'Undecided', tone: 'skip' },
 }
 
-function ScopeCard({ section }: { section: SectionScope }) {
+export function ScopeCard({ section }: { section: SectionScope }) {
   const n = section.decisions.length
   return <details className="answered-card resolved-card" open data-kind="scope">
     <summary>Scope request · {n} item{n === 1 ? '' : 's'}</summary>
@@ -101,7 +102,7 @@ function ScopeCard({ section }: { section: SectionScope }) {
   </details>
 }
 
-function CreditCard({ section }: { section: SectionCredit }) {
+export function CreditCard({ section }: { section: SectionCredit }) {
   const v = CREDIT[section.outcome] ?? { word: section.outcome, tone: 'skip' as const }
   return <details className="answered-card resolved-card" open data-kind="credit">
     <summary>Credit request</summary>
@@ -132,3 +133,33 @@ export function ResolvedSections({ event }: { event: AnswerBatch }) {
 
 /** every section kind the mini cards draw, so the generic field is empty */
 export const resolvedSectionKinds = ['ask', 'scope', 'credit', 'skipped']
+
+/** The inbox's nulled question card (an AskInfo) as mini questions, so the
+ *  inbox draws the same card as the transcript. The answer can sit in three
+ *  places depending on how it was submitted: the card's own `answer`
+ *  ({selected, text}, the question route), or each tab's `answer` (the batch
+ *  route, which leaves the card's own `answer` empty). */
+const flat = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(flat) : v == null || v === '' ? [] : [String(v)]
+export function miniFromAskInfo(ask: AskInfo): { questions: MiniQuestion[]; note: string | null } {
+  const tabs = ask.questions?.length ? ask.questions
+    : [{ question: ask.question ?? '', header: ask.header, options: ask.options, multi: ask.multi,
+         answer: undefined as string | string[] | undefined }]
+  const own = ask.answer
+  const ownSel = flat(own?.selected)
+  const ownText = own?.text?.trim() || null
+  let used = false
+  const questions = tabs.map((t) => {
+    const options = (t.options ?? []).map(o => typeof o === 'string' ? { label: o } : o)
+    let selected = flat(t.answer)
+    if (selected.length === 0 && tabs.length === 1) selected = ownSel
+    // a "typed" reply: the pick is not among the offered options, or none were offered
+    let typed: string | null = null
+    if (options.length === 0) typed = selected.join(' · ') || (tabs.length === 1 ? ownText : null)
+    else if (selected.length === 0 && tabs.length === 1 && ownText) typed = ownText
+    if (options.length === 0) selected = []
+    used = used || !!typed
+    return { label: t.header ?? null, question: t.question, options, multi: t.multi ?? false, selected, typed }
+  })
+  const note = tabs.length === 1 && ownText && !used && questions[0].selected.length > 0 ? ownText : null
+  return { questions, note }
+}

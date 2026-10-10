@@ -25,6 +25,7 @@ import type { Section } from '../generated/events'
 import { answerAsk, creditDecide, fileBase, resolveBatch } from '../api'
 import { askFailure, askHidden, submitAsk, useSubmittedAsks } from '../asksubmitted'
 import { CreditBar } from './cards'
+import { AnsweredCard, CreditCard, ScopeCard, miniFromAskInfo } from '../events/answered'
 import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { useComposerEnter } from '../enterkey'
@@ -852,44 +853,28 @@ function NulledAsk({ ask, credit }: { ask: AskInfo; credit: boolean }) {
           : scope ? <>requested scope</> : <>asked</>}
         <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}</span>
       </div>
-      {/* FR-13: a resolved scope request lists its items with the per-item
-          verdicts stamped at the batch submit */}
-      {scope && (ask.items ?? []).map((it, i) => (
-        <div key={i} className="ask-q">
-          {it.kind === 'dir' ? `folder ${it.path} (${it.mode})`
+      {/* the same cards the transcript draws (events/answered.tsx): a resolved
+          scope request lists its items with the per-item verdicts stamped at
+          the batch submit, a credit request its outcome, a question every
+          option with the pick(s) marked */}
+      {scope && (ask.items ?? []).length > 0 && <ScopeCard section={{ kind: 'scope', lines: [],
+        decisions: (ask.items ?? []).map((it) => ({
+          label: it.kind === 'dir' ? `folder ${it.path} (${it.mode})`
             : it.kind === 'tool' ? `tool: ${it.tool}`
             : it.kind === 'mcp' ? `MCP server: ${it.server}`
-            : `permission mode → ${it.mode}`}
-          {it.decision && <span className="dim"> → {it.decision}</span>}
-        </div>
-      ))}
-      {!credit && (ask.questions?.length ?? 0) > 1 ? (
-        // FR-04: a nulled batch lists every tab with its answer (if any)
-        (ask.questions ?? []).map((q, i) => (
-          <div key={i} className="ask-q">
-            {q.header ? <b>{q.header} · </b> : null}{q.question}
-            {q.answer != null && (
-              <span className="dim">
-                {' → '}{Array.isArray(q.answer)
-                  ? q.answer.join(' · ') : q.answer}
-              </span>
-            )}
-          </div>
-        ))
-      ) : (
-        <>
-          {!credit && <div className="ask-q">{ask.question}</div>}
-          {ask.answer && (
-            <div className="ask-q dim">
-              → {[...(ask.answer.selected ?? []),
-                  ...(ask.answer.text ? [ask.answer.text] : [])].join(' · ')}
-            </div>
-          )}
-        </>
-      )}
-      {credit && ask.granted != null && ask.status !== 'denied' && (
-        <div className="ask-q dim">→ granted {ask.granted}</div>
-      )}
+            : `permission mode → ${it.mode}`,
+          decision: (it.decision ?? 'skip') as 'approve' | 'deny' | 'skip' })) }} />}
+      {credit && ask.granted != null && <CreditCard section={{ kind: 'credit',
+        outcome: ask.status === 'denied' ? 'denied'
+          : ask.granted === (ask.new ?? 0) ? 'approved'
+          : ask.granted === (ask.old ?? 0) ? 'declined'
+          : ask.granted < (ask.old ?? 0) ? 'reduced' : 'counter',
+        old: ask.old ?? 0, asked: ask.new ?? 0, granted: ask.status === 'denied' ? null : ask.granted,
+        now: ask.status === 'denied' ? (ask.old ?? 0) : ask.granted }} />}
+      {!credit && !scope && (() => {
+        const m = miniFromAskInfo(ask)
+        return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note} />
+      })()}
       {interrupted && (
         <div className="ask-null-why">
           {ask.reason || 'the agent was woken by other input before an answer arrived'}
