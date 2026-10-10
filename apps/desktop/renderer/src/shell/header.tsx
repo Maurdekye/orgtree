@@ -77,10 +77,10 @@ function useEqualSides(on: boolean) {
       sync()
     }
     // a control that appears later (an update notice, the killswitch) counts too
-    const kids = new MutationObserver(watch)
-    kids.observe(a, { childList: true }); kids.observe(b, { childList: true })
+    const kids = typeof MutationObserver === 'undefined' ? null : new MutationObserver(watch)
+    kids?.observe(a, { childList: true }); kids?.observe(b, { childList: true })
     watch()
-    return () => { sizes.disconnect(); kids.disconnect() }
+    return () => { sizes.disconnect(); kids?.disconnect() }
   }, [on])
   return { head, start, end }
 }
