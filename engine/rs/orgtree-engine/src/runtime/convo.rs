@@ -521,7 +521,11 @@ pub fn tool_arg(_name: &str, input: &Value) -> String {
 /// "watchdog","id":..}]`, in call order, no duplicates. Names come from the
 /// call's own arguments (the new agent of a hire too); a watchdog's id from the
 /// `id` argument, else from the result a `create` returns. `user`, `@org:` and
-/// `@net:` addresses are not agents and are left out. Empty for any other tool.
+/// `@net:` addresses are not agents and are left out. Docket tickets come as
+/// `{"kind":"ticket","id":slug}`: the `slug` argument of orgtree_work and
+/// orgtree_staff (not a list call), else the slug a create returned; the
+/// `work_item` of orgtree_ask (also per question tab), orgtree_hire, orgtree_rehire.
+/// Empty for any other tool.
 #[logged]
 pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
     let base = name.rsplit("__").next().unwrap_or(name);
@@ -571,6 +575,34 @@ pub fn tool_refs(name: &str, input: &Value, result: Option<&str>) -> Value {
             });
             if let Some(id) = id.filter(|i| !i.trim().is_empty()) {
                 refs.push(json!({ "kind": "watchdog", "id": id.trim() }));
+            }
+        }
+        _ => {}
+    }
+    // the docket tickets the call names: `slug` (orgtree_work, orgtree_staff), `work_item` (orgtree_ask, also per
+    // question tab; orgtree_hire), else the slug a create returned. A list call names none.
+    let mut ticket = |v: &Value| {
+        if let Some(t) = v.as_str().map(str::trim) {
+            if !t.is_empty() && !refs.iter().any(|r| r["kind"] == "ticket" && r["id"] == t) {
+                refs.push(json!({ "kind": "ticket", "id": t }));
+            }
+        }
+    };
+    match base {
+        "orgtree_work" | "orgtree_staff" if input["action"] != "list" => {
+            ticket(&input["slug"]);
+            if input["slug"].as_str().map_or(true, |s| s.trim().is_empty()) && input["action"] != "get" {
+                if let Some(v) = result.and_then(|r| serde_json::from_str::<Value>(r.trim()).ok()) {
+                    for k in ["slug", "created", "work_item"] {
+                        if v[k].is_string() { ticket(&v[k]); break; }
+                    }
+                }
+            }
+        }
+        "orgtree_ask" | "orgtree_hire" | "orgtree_rehire" => {
+            ticket(&input["work_item"]);
+            for q in input["questions"].as_array().into_iter().flatten() {
+                ticket(&q["work_item"]);
             }
         }
         _ => {}
@@ -773,8 +805,21 @@ mod tool_refs_tests {
     }
 
     #[test]
+    fn tickets_from_the_slug_the_work_item_or_the_create_result() {
+        let r = tool_refs("mcp__orgtree__orgtree_work", &json!({ "action": "update", "slug": "fix-x", "owner": "bob" }), None);
+        assert_eq!(r, json!([{ "kind": "agent", "id": "bob" }, { "kind": "ticket", "id": "fix-x" }]));
+        let c = tool_refs("orgtree_work", &json!({ "action": "create", "title": "T" }), Some(r#"{"created":"t-1","slug":"t-1","rev":1}"#));
+        assert_eq!(c, json!([{ "kind": "ticket", "id": "t-1" }]));
+        assert_eq!(tool_refs("orgtree_work", &json!({ "action": "list" }), Some(r#"{"slug":"zz"}"#)), json!([]));
+        assert_eq!(tool_refs("orgtree_staff", &json!({ "action": "update", "slug": "s-1", "name": "n" }), None),
+            json!([{ "kind": "agent", "id": "n" }, { "kind": "ticket", "id": "s-1" }]));
+        assert_eq!(tool_refs("orgtree_ask", &json!({ "work_item": "a", "questions": [{ "work_item": "b" }, { "work_item": "a" }] }), None),
+            json!([{ "kind": "ticket", "id": "a" }, { "kind": "ticket", "id": "b" }]));
+    }
+
+    #[test]
     fn other_tools_have_no_refs() {
         assert_eq!(tool_refs("Bash", &json!({ "command": "ls" }), None), json!([]));
-        assert_eq!(tool_refs("orgtree_work", &json!({ "action": "update", "owner": "bob" }), None), json!([]));
+        assert_eq!(tool_refs("orgtree_work", &json!({ "action": "update" }), None), json!([]));
     }
 }
