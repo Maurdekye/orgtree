@@ -7,6 +7,22 @@ export function compatibilityWorkFixture(fetcher: typeof fetch): typeof fetch {
       return Promise.resolve({ status: 409, ok: false, headers: new Headers(),
         json: async () => ({ kind: 'compatibility' }) } as Response)
     }
+    // the docket reads through the paged route (2ac256a); a legacy full-list mock answers it as ONE complete page
+    const text = String(url)
+    if (/\/work-items-page\?/.test(text)) {
+      const u = new URL(text, 'http://localhost')
+      const group = (u.searchParams.get('group') ?? 'items') as 'items' | 'archived' | 'backlogged'
+      const legacy = text.replace('/work-items-page?', '/work-items?archived=1&backlogged=1&_page=')
+      return Promise.resolve(fetcher(legacy, init)).then(async (r) => {
+        const body = await r.json() as { items?: unknown[]; archived?: unknown[]; backlogged?: unknown[]; counts?: Record<string, number>; now?: string }
+        const rows = (body[group] ?? []) as unknown[]
+        const size = (g: 'items' | 'archived' | 'backlogged') => (body[g] ?? []).length
+        const totals = { items: size('items'), archived: size('archived'), backlogged: size('backlogged') }
+        const page = { format: 'orgtree.work-page/v1', group, rows, total: rows.length, totals, matched: totals,
+          counts: body.counts, next_offset: null, revision: 'compat', at: body.now ?? '2026-09-05T10:00:00.000Z' }
+        return { ok: true, status: 200, headers: r.headers, json: async () => page } as unknown as Response
+      })
+    }
     return fetcher(url, init)
   }) as typeof fetch
 }
